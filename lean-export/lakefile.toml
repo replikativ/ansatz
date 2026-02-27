@@ -1,0 +1,5 @@
+name = "cic_export"
+defaultTargets = ["CicExport"]
+
+[[lean_lib]]
+name = "CicExport"

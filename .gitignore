@@ -1,0 +1,20 @@
+# Build artifacts
+classes/
+target/
+
+# Clojure classpath cache
+.cpcache/
+
+# nREPL
+.nrepl-port
+
+# Test data (large ndjson files)
+test-data/
+
+# Lean export build artifacts
+lean-export/.lake/
+
+# IDE / editor
+.lsp/
+.clj-kondo/
+.calva/
