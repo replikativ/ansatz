@@ -11,7 +11,8 @@
                               :exclusions [org.clojure/clojurescript
                                            com.cognitect/transit-cljs]}
         org.clojure/core.cache {:mvn/version "1.1.234"}
-        io.replikativ/konserve-lmdb {:local/root "../konserve-lmdb"}}
+        io.replikativ/konserve-lmdb {:local/root "../konserve-lmdb"}
+        io.replikativ/zustand {:local/root "../sat-clj"}}
  :aliases
  {:build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.6"}}
           :ns-default build}

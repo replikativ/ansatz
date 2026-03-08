@@ -4,7 +4,8 @@
             [cic.kernel.expr :as e]
             [cic.kernel.level :as lvl]
             [cic.kernel.env :as env]
-            [cic.kernel.name :as name])
+            [cic.kernel.name :as name]
+            [cic.kernel.reduce :as red])
   (:import [cic.kernel Reducer Expr Env ConstantInfo Name Level TypeChecker]))
 
 ;; ============================================================
@@ -293,14 +294,15 @@
 
 (deftest whnf-nat-test
   (testing "Nat.zero const reduces to lit(0)"
-    (let [r (mk-reducer)
-          zero-const (e/const' Name/NAT_ZERO [])]
-      (is (= (e/lit-nat 0) (.whnfCore r zero-const)))))
+    (let [zero-const (e/const' Name/NAT_ZERO [])]
+      ;; Nat.zero → lit(0) is handled in the Clojure whnf-core (not the Java Reducer,
+      ;; which leaves constructor folding to whnfToNat called during nat binary ops)
+      (is (= (e/lit-nat 0) (red/whnf (Env.) zero-const)))))
 
   (testing "Nat.succ(lit 3) = lit 4"
     (let [r (mk-reducer)
           succ-const (e/const' Name/NAT_SUCC [])
-          result (.whnfCore r (e/app succ-const (e/lit-nat 3)))]
+          result (.whnf r (e/app succ-const (e/lit-nat 3)))]
       (is (= (e/lit-nat 4) result)))))
 
 ;; ============================================================

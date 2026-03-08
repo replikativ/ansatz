@@ -112,4 +112,13 @@ public final class Env {
         }
         return constants.size();
     }
+
+    /**
+     * Return all constants currently in the local cache.
+     * For non-PSS envs, this is all declarations.
+     * For PSS-backed envs, only cached entries are returned.
+     */
+    public java.util.Collection<ConstantInfo> allConstants() {
+        return constants.values();
+    }
 }

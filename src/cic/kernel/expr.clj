@@ -205,6 +205,11 @@
   [name binder-type body]
   (lam name binder-type body :default))
 
+(def forall
+  "Alias for forall' — dependent function type / Pi type.
+   Usage: (forall name binder-type body binder-info)"
+  forall')
+
 (defn forall-default
   "Forall with default binder info."
   [name binder-type body]
@@ -258,6 +263,29 @@
                 :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) c))
                 :fvar e)))]
     (go e c)))
+
+(defn mk-arrows
+  "Build a chain of non-dependent arrows (implications) with a conclusion.
+   Automatically lifts bvars so that indices in all hyp-types and conclusion
+   refer to the same outer forall binder context.
+
+   Usage: (mk-arrows [A B C] D) builds A → B → C → D
+   where bvars in A, B, C, D all refer to the outer forall context.
+
+   Without mk-arrows, you'd need to manually shift bvars for each nested arrow:
+     (arrow A (arrow (lift B 1 0) (lift C 2 0)))
+   mk-arrows handles this automatically."
+  [hyp-types conclusion]
+  (let [n (count hyp-types)
+        ;; Each hyp at position i needs bvars lifted by i (arrows before it).
+        ;; The conclusion needs bvars lifted by n.
+        lifted-concl (if (zero? n) conclusion (lift conclusion n 0))]
+    (loop [i (dec n) result lifted-concl]
+      (if (neg? i)
+        result
+        (let [hyp (nth hyp-types i)
+              lifted-hyp (if (zero? i) hyp (lift hyp i 0))]
+          (recur (dec i) (arrow lifted-hyp result)))))))
 
 (defn instantiate1
   "Replace (bvar 0) with val in e, shifting remaining bvars down.
@@ -438,3 +466,15 @@
          :mdata (->string (mdata-expr e) d)
          :proj (str (name/->string (proj-type-name e)) "." (proj-idx e) "(" (->string (proj-struct e) d) ")")
          :fvar (str "?fv" (fvar-id e)))))))
+
+(defn size
+  "Count the number of nodes in an expression tree."
+  ^long [^Expr e]
+  (case (tag e)
+    (:bvar :sort :const :lit-nat :lit-str :fvar) 1
+    :app (+ 1 (size (app-fn e)) (size (app-arg e)))
+    :lam (+ 1 (size (lam-type e)) (size (lam-body e)))
+    :forall (+ 1 (size (forall-type e)) (size (forall-body e)))
+    :let (+ 1 (size (let-type e)) (size (let-value e)) (size (let-body e)))
+    :mdata (+ 1 (size (mdata-expr e)))
+    :proj (+ 1 (size (proj-struct e)))))

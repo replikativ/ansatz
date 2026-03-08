@@ -102,6 +102,12 @@
   [^Env env name]
   (.lookupOrThrow env name))
 
+(defn all-constants
+  "Return all constants in the environment as a seq of ConstantInfo.
+   For PSS-backed envs, only cached entries are returned."
+  [^Env env]
+  (seq (.allConstants env)))
+
 ;; --- ConstantInfo accessors ---
 
 (defn ci-name ^Name [^ConstantInfo ci] (.name ci))
