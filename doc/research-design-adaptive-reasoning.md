@@ -23,7 +23,7 @@ search strategies, not just search outcomes.
 
 ### 2.1 The Hash-Consing Lesson
 
-We implemented a complete CIC (Calculus of Inductive Constructions) type checker
+We implemented a complete Ansatz (Calculus of Inductive Constructions) type checker
 in Java, verified against Lean 4's kernel on all 648,612 Mathlib declarations
 (91M expressions). The key finding:
 
@@ -79,7 +79,7 @@ each providing a different precision/cost/expressiveness tradeoff:
 
 ```
 Level 6: Agent/LLM      (linguistic, heuristic, highest flexibility)
-Level 5: Lean/CIC       (dependent types, full formal precision)
+Level 5: Lean/Ansatz       (dependent types, full formal precision)
 Level 4: SMT/Datalog    (decidable fragments, automated)
 Level 3: CAS/Symbolic   (algebraic manipulation, rewriting)
 Level 2: Romeo/IR       (typed numerical computation, nanopass)
@@ -101,7 +101,7 @@ Each level has:
 - A **metaprogramming interface** for reflection and code generation
 
 The DAG structure means any level can delegate to any other — Lean can call SMT
-(skipping CAS), the LLM can emit CIC terms directly (skipping SMT), the CAS can
+(skipping CAS), the LLM can emit Ansatz terms directly (skipping SMT), the CAS can
 invoke numerical computation (skipping Romeo IR). The connections are not
 restricted to adjacent levels.
 
@@ -112,7 +112,7 @@ strengths:
 
 | Level | System | Types | Effects | Metaprogramming | Strengths |
 |-------|--------|-------|---------|-----------------|-----------|
-| 5 | **Lean 4/CIC** | Dependent, inductive | Pure only | `MetaM` monad: type-aware elaboration | Mathlib (1M lines formalized math), industrial tooling |
+| 5 | **Lean 4/Ansatz** | Dependent, inductive | Pure only | `MetaM` monad: type-aware elaboration | Mathlib (1M lines formalized math), industrial tooling |
 | 5 | **Agda/Cubical** | Dependent, HoTT | Pure only | `TC` monad: cubical path construction | Univalence, quotients, higher inductive types |
 | 4 | **F*/Z3** | Refinement + effects | Tracked (ST, IO, Div) | `Meta` effect: SMT-aware tactics | Verified stateful programs (TLS, crypto, consensus) |
 | 4 | **Datalog/datahike** | Relational | Bottom-up saturation | Rule synthesis | Fixed-point computation, reachability |
@@ -141,7 +141,7 @@ Example workflow:
 Goal: prove convergence of a PDE discretization scheme
   → Perspective change to Romeo/numerical: run coarse simulation, observe convergence
   → Perspective change to CAS/symbolic: find closed-form error bound
-  → Back to Lean/CIC: formalize the bound using mathlib's analysis library
+  → Back to Lean/Ansatz: formalize the bound using mathlib's analysis library
   → Delegate to SMT: discharge arithmetic side conditions
 ```
 
@@ -226,7 +226,7 @@ numerical method:
 1. Run a coarse numerical simulation to estimate the convergence rate (Level 0-1)
 2. Use a CAS to derive a closed-form error bound from the estimate (Level 2)
 3. Discharge the bound's arithmetic constraints via SMT (Level 3)
-4. Construct the formal proof in CIC using the bound (Level 4)
+4. Construct the formal proof in Ansatz using the bound (Level 4)
 
 This cannot be a pipeline — step 4 may generate new subgoals that require
 returning to steps 1-3. The computation must **suspend** at one level, **drop
@@ -320,14 +320,14 @@ Each level in the DAG has its own notion of metaprogramming:
 | **Racket** | Phase-separated macros | Syntax only (per phase) | Hygienic |
 | **Clojure** | `defmacro` + runtime `eval` | None (syntax only) | Manual |
 
-**cic-clj makes Clojure's metaprogramming type-aware**: the CIC kernel is a
+**ansatz makes Clojure's metaprogramming type-aware**: the Ansatz kernel is a
 Clojure library, so macros and runtime functions can call `infer-type`,
 `is-def-eq`, and `whnf` during expansion. This gives Clojure macros capabilities
 closer to Lean's `MetaM` than to traditional Lisp macros.
 
 ### 5.5 First-Class Elaboration (Operational)
 
-The `elaborate` function (`cic.surface.elaborate`) is a **runtime function**
+The `elaborate` function (`ansatz.surface.elaborate`) is a **runtime function**
 (not a macro) that performs:
 
 1. **Name resolution**: look up identifiers in the environment
@@ -349,10 +349,10 @@ When staging results between levels, three regimes apply:
 
 **Regime 1: Sound lowering (proof-preserving Galois connection)**
 
-The translation itself preserves proofs. Example: lowering a CIC proposition to
+The translation itself preserves proofs. Example: lowering a Ansatz proposition to
 SMT. If Z3 returns `UNSAT` for the negation, that's a valid proof witness.
 F* does this — the `smt()` tactic translates a VC to SMT-LIB, Z3 returns
-`UNSAT`, F* trusts this as a proof. We can reconstruct CIC proof terms from
+`UNSAT`, F* trusts this as a proof. We can reconstruct Ansatz proof terms from
 Z3's proof certificates, or trust the oracle axiomatically.
 
 **Regime 2: Proposals from lower levels (weaken then re-verify)**
@@ -361,13 +361,13 @@ Lower levels provide *witnesses* or *hints*, not proofs. The higher level must
 verify. This is the most common and most useful pattern:
 
 ```
-CIC: prove ∃ n, error(f, n) < ε
+Ansatz: prove ∃ n, error(f, n) < ε
   ↓ stage to numerical: run simulation → n=100 works
   ↑ return proposal: try n=100
-CIC: now prove error(f, 100) < ε    (concrete, easier)
+Ansatz: now prove error(f, 100) < ε    (concrete, easier)
   ↓ stage to CAS: simplify → 0.00297
   ↑ return bound
-CIC: prove 0.00297 < ε via norm_num or smt
+Ansatz: prove 0.00297 < ε via norm_num or smt
 ```
 
 The lower level turns an existential *search* problem into a *verification*
@@ -379,12 +379,12 @@ is fully verified.
 **Regime 3: Proof transport (cubical path types, future)**
 
 When composing results across levels that use structurally different encodings,
-we need to prove the translation preserves meaning. In CIC this requires
+we need to prove the translation preserves meaning. In Ansatz this requires
 explicit equivalence proofs. In cubical Agda, transport along paths is
 computational — not a proof obligation. This matters for:
 - Composing staging pipelines without re-checking at each step
 - Transferring proofs between different inductive encodings
-- Quotient types (where CIC requires setoid reasoning but cubical Agda
+- Quotient types (where Ansatz requires setoid reasoning but cubical Agda
   has proper quotients via higher inductive types)
 
 Near-term, Regime 2 (propose/verify) handles most cases. Path types become
@@ -396,7 +396,7 @@ A critical architectural decision: reasoning engines at every level must have
 **persistent, forkable state**, not just stateless query interfaces. This
 applies to:
 
-- **CIC proof states**: already forkable (immutable Clojure maps)
+- **Ansatz proof states**: already forkable (immutable Clojure maps)
 - **Z3/SAT state**: being ported with persistent push/pop/fork semantics, so
   constraint sets can branch and merge like git branches
 - **CAS state**: rewrite rule sets and assumption contexts, forkable
@@ -404,7 +404,7 @@ applies to:
 
 Standard Z3 has a linear `push`/`pop` stack. Forkable Z3 means you can:
 - Branch a constraint set, try two assertions, backtrack to the fork point
-- Pause Z3 after asserting some constraints, stage up to CIC for guidance,
+- Pause Z3 after asserting some constraints, stage up to Ansatz for guidance,
   then resume with additional constraints
 - Run parallel Z3 branches with different heuristic configurations
 
@@ -416,11 +416,11 @@ The partial-CPS story applies: a solver state is a continuation.
 
 Three concrete tools implement the surface layer (all operational):
 
-- **`cic/term`** (`cic.surface.term`): Named term builder that eliminates de
-  Bruijn index pain. `(term env (forall [a Nat] (Eq.{1} Nat a a)))` → CIC Expr.
-- **`cic/pp`** (`cic.surface.pp`): Pretty-printer producing readable Lean-like
-  syntax from CIC exprs.
-- **`cic/emit-lean`** (`cic.surface.lean`): Lean 4 syntax emitter for
+- **`ansatz/term`** (`ansatz.surface.term`): Named term builder that eliminates de
+  Bruijn index pain. `(term env (forall [a Nat] (Eq.{1} Nat a a)))` → Ansatz Expr.
+- **`ansatz/pp`** (`ansatz.surface.pp`): Pretty-printer producing readable Lean-like
+  syntax from Ansatz exprs.
+- **`ansatz/emit-lean`** (`ansatz.surface.lean`): Lean 4 syntax emitter for
   round-tripping terms back to Lean for cross-validation.
 
 ### 5.9 REPL-Driven Proof Interaction (Operational)
@@ -428,7 +428,7 @@ Three concrete tools implement the surface layer (all operational):
 The tactic layer is implemented and working:
 
 ```clojure
-(require '[cic.tactic.repl :as r])
+(require '[ansatz.tactic.repl :as r])
 
 ;; Start a proof
 (def ps (r/prove env goal-type))
@@ -454,8 +454,8 @@ kernel TypeChecker end-to-end.
 
 ### 5.10 Match Expression Compilation (Operational)
 
-The `cic.surface.match` module compiles surface pattern-matching expressions into
-CIC recursor applications — the only elimination form the kernel understands.
+The `ansatz.surface.match` module compiles surface pattern-matching expressions into
+Ansatz recursor applications — the only elimination form the kernel understands.
 
 **Surface syntax**:
 ```clojure
@@ -490,7 +490,7 @@ splits) without requiring exhaustiveness or redundancy checking.
 
 ### 5.11 `theorem` and `define` Macros (Operational)
 
-The `cic.tactic.repl` module provides `theorem` and `define` — convenience
+The `ansatz.tactic.repl` module provides `theorem` and `define` — convenience
 functions that orchestrate the full definition pipeline:
 
 ```clojure
@@ -523,11 +523,11 @@ on the kernel's `add-constant` + type checking.
 
 The DAG architecture (§3.1) implies that compilation between levels should not
 be a single fixed pipeline but a **dynamic choice of translation paths**. A
-proof obligation at Level 5 (CIC) might be discharged by:
+proof obligation at Level 5 (Ansatz) might be discharged by:
 
 - Lowering to SMT (Level 4) if it falls in a decidable fragment
 - Staging to numerical simulation (Level 1) for a witness, then verifying
-- Staying within CIC and applying tactic automation
+- Staying within Ansatz and applying tactic automation
 - Asking an LLM (Level 6) for a proof sketch, then elaborating and checking
 
 Each path is a **functor** between the reasoning categories at two levels,
@@ -542,7 +542,7 @@ orchestrator's job is to select the functor at runtime based on:
 This is not yet implemented as a general framework, but the pieces exist: the
 `stage` form (§5.2) provides the suspension/resumption mechanism, the `elaborate`
 function provides type-directed dispatch, and the tactic layer provides the
-within-CIC automation. The missing piece is a **routing policy** that examines a
+within-Ansatz automation. The missing piece is a **routing policy** that examines a
 goal and selects a translation path — initially rule-based, eventually learned
 from accumulated traces (§4.3).
 
@@ -562,18 +562,18 @@ planned for later phases:
   form via reflection. The standard approach: quote the goal into an abstract
   polynomial AST, normalize via verified Horner form, compare. This is a natural
   candidate for the CAS level (Level 3) — the normalization is symbolic algebra,
-  and the correctness proof can be either carried out in CIC or trusted as an
+  and the correctness proof can be either carried out in Ansatz or trusted as an
   oracle with a verified reflection lemma.
 
 - **`omega`** (linear arithmetic over Nat/Int): a decision procedure for
-  quantifier-free linear arithmetic. Can be implemented as a CIC tactic
+  quantifier-free linear arithmetic. Can be implemented as a Ansatz tactic
   (reflection-based, like Lean's `omega`) or delegated to SMT (Level 4) via
-  the planned CIC→SMT-LIB translation. The SMT path is simpler to implement;
+  the planned Ansatz→SMT-LIB translation. The SMT path is simpler to implement;
   the reflection path produces smaller, self-contained proof terms.
 
 These three tactics cover the majority of "boring" proof obligations in
 formalized mathematics. Their implementation will follow the same pattern as
-existing tactics: produce a CIC proof term, verify through the kernel, never
+existing tactics: produce a Ansatz proof term, verify through the kernel, never
 trust the tactic itself.
 
 ## 6. Formalization in Lean
@@ -607,8 +607,8 @@ The formalization of Galois connections *in Lean* is verified *by Lean's kernel*
 which is itself an instance of the pattern being formalized. This reflexivity
 is a feature: it means the system can reason about its own reasoning process.
 
-The cic-clj kernel checker makes this concrete — we have an independent
-implementation of CIC that can verify Lean's own proofs about CIC. The tower
+The ansatz kernel checker makes this concrete — we have an independent
+implementation of Ansatz that can verify Lean's own proofs about Ansatz. The tower
 of interpreters is not just a metaphor; it is literally implemented as
 interoperating verification engines.
 
@@ -631,35 +631,35 @@ delegate accordingly.
 
 ## 7. Implementation Plan
 
-### Phase 1: Interactive CIC from Clojure REPL ✓
+### Phase 1: Interactive Ansatz from Clojure REPL ✓
 
-**Status**: Complete. cic-clj kernel checker at 99.993% Mathlib pass rate.
+**Status**: Complete. ansatz kernel checker at 99.993% Mathlib pass rate.
 
 - [x] Proof state data structure: goals, metavar context, partial term extraction
 - [x] Basic tactics: intro, intros, exact, assumption, apply, rfl, constructor, rewrite, cases
 - [x] Proof term extraction with end-to-end Java TypeChecker verification
-- [x] Surface syntax: `cic/term` (named term builder), `cic/pp` (pretty-printer), `cic/emit-lean` (Lean 4 emitter)
-- [x] REPL integration (`cic.tactic.repl`)
-- [x] Beam search over tactic space (`cic.tactic.search`)
+- [x] Surface syntax: `ansatz/term` (named term builder), `ansatz/pp` (pretty-printer), `ansatz/emit-lean` (Lean 4 emitter)
+- [x] REPL integration (`ansatz.tactic.repl`)
+- [x] Beam search over tactic space (`ansatz.tactic.search`)
 - [ ] Remove fuel limit, rely on per-declaration timeout (matching Lean behavior)
 
 ### Phase 2: LLM-Guided Proof Search (In Progress)
 
-- [x] NDJSON trace export format for proof search (`cic.tactic.trace`)
-- [x] LLM client for Fireworks/OpenAI-compatible APIs (`cic.tactic.llm`)
-- [x] LLM tactic suggestion with response parsing (`cic.tactic.suggest`)
+- [x] NDJSON trace export format for proof search (`ansatz.tactic.trace`)
+- [x] LLM client for Fireworks/OpenAI-compatible APIs (`ansatz.tactic.llm`)
+- [x] LLM tactic suggestion with response parsing (`ansatz.tactic.suggest`)
 - [x] LLM-guided beam search with fallback to enumerate-tactics
-- [x] **`elaborate` function**: runtime elaboration with name resolution, implicit argument insertion, universe level inference, `@`-explicit mode, zonking, and kernel verification (`cic.surface.elaborate`)
+- [x] **`elaborate` function**: runtime elaboration with name resolution, implicit argument insertion, universe level inference, `@`-explicit mode, zonking, and kernel verification (`ansatz.surface.elaborate`)
 - [x] **Instance resolution for `Decidable`**: search env for typeclass instances, assemble fully-applied instance terms via recursive unification
 - [x] **`decide` tactic**: build `@of_decide_eq_true P inst rfl`, kernel evaluates decision procedure
-- [x] **CIC→SMT-LIB translation**: lower decidable Nat/Int arithmetic fragment to SMT-LIB
+- [x] **Ansatz→SMT-LIB translation**: lower decidable Nat/Int arithmetic fragment to SMT-LIB
 - [x] **Mock Z3 + `smt` tactic**: mock solver for prototyping, trust axiom fallback
-- [x] **`theorem`/`define` macros**: REPL convenience for defining theorems and definitions (`cic.tactic.repl`)
+- [x] **`theorem`/`define` macros**: REPL convenience for defining theorems and definitions (`ansatz.tactic.repl`)
 - [x] **`simp` tactic**: bottom-up rewriting with lemma index, traversal under binders, `dsimp`, `simp only [...]`
 - [x] **`ring` tactic**: sparse polynomial normalization with grevlex ordering, certifies via `decide`/`rfl`
 - [x] **`omega` tactic**: ground Fourier-Motzkin linear arithmetic, certifies via `decide`
 - [x] **`omega-proof` tactic**: full non-ground omega with proof term construction — auto forall intro, by_contra, implication/Iff decomposition, div bounds, mod decomposition, Neg.neg handling, Nat.sub dichotomy, hard equalities via bmod, divisibility
-- [x] **Match expression compilation**: surface patterns → CIC recursor applications, nested patterns, Nat literal desugaring
+- [x] **Match expression compilation**: surface patterns → Ansatz recursor applications, nested patterns, Nat literal desugaring
 - [ ] Integrate partial-cps breakpoints into proof search
 - [ ] Connect proof state branching to yggdrasil for persistence
 - [ ] Implement SMC resampling over proof branches
@@ -673,8 +673,8 @@ delegate accordingly.
 - [x] MaxSMT (core-guided Fu-Malik) for optimization
 - [x] MILP support with pseudocost branching, Gomory cuts, MIR cuts
 - [x] Intercept callbacks at RESTART/BUDGET_EXHAUSTED/FINAL_CHECK with persistent snapshots
-- [x] Replace mock Z3 with real forkable zustand SMT solver in cic-clj `smt` tactic
-- [ ] Proof reconstruction: SMT conflict explanations → CIC proof terms
+- [x] Replace mock Z3 with real forkable zustand SMT solver in ansatz `smt` tactic
+- [ ] Proof reconstruction: SMT conflict explanations → Ansatz proof terms
 - [ ] Simplex state exposure via Clojure API (dual values, tableau, reduced costs)
 - [ ] F*-style refinement types for program verification (Paxos/konserve)
 
@@ -710,7 +710,7 @@ delegate accordingly.
 | **AlphaProof / HTPS** | MCTS over proof search; we generalize to SMC over heterogeneous reasoning |
 | **egg / Metatheory.jl** | E-graph equality saturation; a specific search strategy we can deploy |
 | **Anglican / Gen.jl** | Probabilistic programming; provides the theoretical framework for our search |
-| **Coq / MetaCoq** | Self-verified kernel; our cic-clj serves a similar role for Lean |
+| **Coq / MetaCoq** | Self-verified kernel; our ansatz serves a similar role for Lean |
 | **Isabelle / Sledgehammer** | Multi-prover integration; closest to our multi-engine orchestration |
 | **Turnstile+** | Typed macros in Racket; shows how to make macro expansion type-aware |
 | **Idris 2 / Elaborator Reflection** | Exposes elaboration as a first-class effect; closest to our `elaborate` |
@@ -742,7 +742,7 @@ morphisms in a category of reasoning strategies.
    sidesteps this by not requiring the connection to be proof-preserving.
 
 3. **When to weaken vs. when to transport?** Given a proof obligation at Level
-   5 (CIC), when should we weaken to a proposal from Level 1 (numerical) and
+   5 (Ansatz), when should we weaken to a proposal from Level 1 (numerical) and
    re-verify, vs. transport via a sound Galois connection to Level 4 (SMT)?
    The answer depends on the cost of re-verification vs. the fidelity of the
    lower level. This should itself be learned.
@@ -754,8 +754,8 @@ morphisms in a category of reasoning strategies.
    (bidirectional information flow)? Option (c) is most powerful but hardest to
    implement soundly.
 
-5. **Can we lower CIC to refinement types systematically?** If so, we get F*'s
-   SMT automation for free on a decidable fragment of CIC. The translation
+5. **Can we lower Ansatz to refinement types systematically?** If so, we get F*'s
+   SMT automation for free on a decidable fragment of Ansatz. The translation
    `∀ (x : T), P x` → `x:T{P(x)}` works for first-order predicates with
    decidable equality. Where exactly is the boundary, and can we detect it
    automatically?
@@ -767,7 +767,7 @@ morphisms in a category of reasoning strategies.
    types and quotients are candidates.
 
 7. **SAT/Boolean as the universal bottom.** Every decidable problem reduces to
-   SAT. Can we systematically compile decidable CIC fragments to SAT (via
+   SAT. Can we systematically compile decidable Ansatz fragments to SAT (via
    bit-blasting or bounded model checking) as a fallback when SMT theories
    don't apply? This would make the bottom level truly universal.
 
@@ -816,7 +816,7 @@ constraint systems:
 | LP/MILP | a·x ≤ b | Indicator on half-space (feasible region) |
 | SAT | clause (x₁ ∨ ¬x₂ ∨ x₃) | Indicator on satisfying assignments |
 | Probabilistic programming | `observe(data \| model)` | Likelihood weighting |
-| CIC typing | Γ ⊢ t : T | Support on well-typed terms |
+| Ansatz typing | Γ ⊢ t : T | Support on well-typed terms |
 | Numerical simulation | convergence criterion | Approximate indicator (softened) |
 
 All of these constrain a space of possible states. The product of indicators is
@@ -838,16 +838,16 @@ The fibration picture (§3.3) gains concrete force when projections carry execut
 state, not just problem statements:
 
 ```
-CIC proof state                    SMT solver state
+Ansatz proof state                    SMT solver state
   goals: [a ≤ b + c]               tableau: {x₁ = 3x₂ + x₃ - 7}
   lctx: {a : Nat, h : a > 5}       bounds: {x₁ ≥ 0, x₂ ≤ 10}
   mctx: {?m : proof-of-goal}       assignment: {x₁ = 4.2, x₂ = 3.1}
         ↓ project (prop→smt)              ↑ lift (model→witness)
 ```
 
-The projection CIC→SMT translates the goal and hypotheses into SMT constraints,
-but also carries the **variable correspondence** (which CIC fvar maps to which SMT
-variable). The lift SMT→CIC carries back not just the SAT/UNSAT answer but the
+The projection Ansatz→SMT translates the goal and hypotheses into SMT constraints,
+but also carries the **variable correspondence** (which Ansatz fvar maps to which SMT
+variable). The lift SMT→Ansatz carries back not just the SAT/UNSAT answer but the
 **model** (for witness construction) or **unsat core** (for proof term reconstruction).
 
 In the MILP setting, the projection additionally carries:
@@ -856,16 +856,16 @@ In the MILP setting, the projection additionally carries:
 - **Branching tree**: the tree of variable splits, with LP bounds at each node
 
 This is the "dragging along execution state" that makes cross-language reasoning
-powerful: the SMT solver's search history informs the CIC-level proof strategy,
-and the CIC-level type information constrains the SMT solver's search space.
+powerful: the SMT solver's search history informs the Ansatz-level proof strategy,
+and the Ansatz-level type information constrains the SMT solver's search space.
 
 ### 10.4 Interactive REPL-Driven Constraint Exploration
 
-The concrete interaction pattern combines CIC proof states with SMT solver states
+The concrete interaction pattern combines Ansatz proof states with SMT solver states
 in a single REPL session:
 
 ```clojure
-;; Start with a CIC proof goal
+;; Start with a Ansatz proof goal
 (def ps (r/prove env '(forall [a Nat] [b Nat]
                          (=> (> a 5) (<= b 3) (< b a)))))
 
@@ -883,7 +883,7 @@ in a single REPL session:
               #(-> % (smt/assert-expr [:>= :b 2]) smt/solve)))
 ;; => {:result :sat, :model {:a 6, :b 2}}
 
-;; Use model as witness, lift back to CIC
+;; Use model as witness, lift back to Ansatz
 (def ps' (stage/from-smt-model ps branch var-map))
 ;; => proof state with concrete witness instantiated
 
@@ -892,9 +892,9 @@ in a single REPL session:
 ```
 
 This is not speculative — all the pieces exist:
-- `prop->smt` in `cic.tactic.decide` translates CIC→SMT
+- `prop->smt` in `ansatz.tactic.decide` translates Ansatz→SMT
 - `zustand.smt` provides the fork/solve/model API
-- `cic.tactic.proof` provides the forkable proof state
+- `ansatz.tactic.proof` provides the forkable proof state
 - The `stage` functions are the new connective tissue
 
 ### 10.5 MILP as Extended Omega
@@ -951,9 +951,9 @@ formal verification ensuring that the navigation stays within sound bounds.
 ### A.1 Interactive Proof: Prop Identity
 
 ```clojure
-(require '[cic.tactic.repl :as r])
-(require '[cic.kernel.expr :as e])
-(require '[cic.kernel.level :as lvl])
+(require '[ansatz.tactic.repl :as r])
+(require '[ansatz.kernel.expr :as e])
+(require '[ansatz.kernel.level :as lvl])
 
 (def prop (e/sort' lvl/zero))
 (def goal (e/forall' "a" prop (e/forall' "h" (e/bvar 0) (e/bvar 1) :default) :default))
@@ -1005,7 +1005,7 @@ formal verification ensuring that the navigation stays within sound bounds.
 ### A.5 Elaboration with Implicit Insertion
 
 ```clojure
-(require '[cic.surface.elaborate :as elab])
+(require '[ansatz.surface.elaborate :as elab])
 
 ;; Without elaborate (manual de Bruijn + explicit everything):
 (e/forall' "a" nat (e/app* (e/const' eq-name [u1]) nat (e/bvar 0) (e/bvar 0)) :default)
@@ -1041,6 +1041,6 @@ formal verification ensuring that the navigation stays within sound bounds.
 - `pp_test.clj`: pretty-printer, Lean-like output
 - `lean_test.clj`: Lean 4 syntax emitter
 - `elaborate_test.clj`: implicit insertion, universe inference, @-explicit mode, kernel verification
-- `decide_test.clj`: Decidable instance resolution, decide tactic, CIC→SMT-LIB translation
+- `decide_test.clj`: Decidable instance resolution, decide tactic, Ansatz→SMT-LIB translation
 - `advanced_test.clj`: omega-proof non-ground tests (implication, Iff, div bounds, mod, Int negation), ring, simp, omega ground
 - `match_test.clj`: pattern compilation, nested patterns, Nat literal desugaring

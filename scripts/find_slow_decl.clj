@@ -1,18 +1,18 @@
 ;; Find slow declarations by skipping to near the problem area
 ;; and verifying one at a time with a timeout
 
-(ns cic.export.find-slow
-  (:require [cic.export.storage :as storage])
-  (:import [cic.kernel TypeChecker Env ConstantInfo]))
+(ns ansatz.export.find-slow
+  (:require [ansatz.export.storage :as storage])
+  (:import [ansatz.kernel TypeChecker Env ConstantInfo]))
 
 (defn -main [& _args]
-  (let [store-path "/var/tmp/cic-lmdb-mathlib"
+  (let [store-path "/var/tmp/ansatz-lmdb-mathlib"
         branch "mathlib"
         skip-to 220200]
     (println "Opening LMDB store at" store-path)
     (let [store-map (storage/open-lmdb-store store-path)]
       (try
-        (let [ctx (storage/prepare-verify store-map branch :log-file "/tmp/cic-find-slow.log")
+        (let [ctx (storage/prepare-verify store-map branch :log-file "/tmp/ansatz-find-slow.log")
               total (count (:decl-order ctx))]
           (println "Total:" total ". Skipping to" skip-to "...")
           (storage/skip! ctx skip-to)

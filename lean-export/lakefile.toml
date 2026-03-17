@@ -1,4 +1,4 @@
-name = "cic_export"
+name = "ansatz_export"
 defaultTargets = ["CicExport"]
 
 [[lean_lib]]

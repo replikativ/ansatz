@@ -1,17 +1,17 @@
 ;; Trace slow declaration around 220k in mathlib verification
-;; Run with: PATH=/usr/lib/jvm/java-25-openjdk-amd64/bin:$PATH clj -J--enable-native-access=ALL-UNNAMED -J-Xmx8g -J-Xss64m -M -i scripts/trace_slow_decl.clj -e '(cic.export.trace-slow/-main)'
+;; Run with: PATH=/usr/lib/jvm/java-25-openjdk-amd64/bin:$PATH clj -J--enable-native-access=ALL-UNNAMED -J-Xmx8g -J-Xss64m -M -i scripts/trace_slow_decl.clj -e '(ansatz.export.trace-slow/-main)'
 
-(ns cic.export.trace-slow
-  (:require [cic.export.storage :as storage]))
+(ns ansatz.export.trace-slow
+  (:require [ansatz.export.storage :as storage]))
 
 (defn -main [& _args]
-  (let [store-path "/var/tmp/cic-lmdb-mathlib"
+  (let [store-path "/var/tmp/ansatz-lmdb-mathlib"
         branch "mathlib"]
     (println "Opening LMDB store at" store-path)
     (let [store-map (storage/open-lmdb-store store-path)]
       (try
         (println "Preparing verification context...")
-        (let [ctx (storage/prepare-verify store-map branch :log-file "/tmp/cic-trace.log")
+        (let [ctx (storage/prepare-verify store-map branch :log-file "/tmp/ansatz-trace.log")
               total (count (:decl-order ctx))
               skip-to 219000]
           (println "Total declarations:" total)

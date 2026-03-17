@@ -1,6 +1,6 @@
 # Refinement Types for Clojure/JVM
 
-## Building on CIC Kernel + SMT Verification
+## Building on Ansatz Kernel + SMT Verification
 
 *Christian Weilbach, March 2026*
 
@@ -16,20 +16,20 @@ v : Vec a n{n <= 1024}       -- bounded-length vector
 f : x:Int -> y:Int{y > x}   -- output strictly greater than input
 ```
 
-The predicate `p` in `x:t{p}` is a CIC proposition, but verification is
+The predicate `p` in `x:t{p}` is a Ansatz proposition, but verification is
 delegated to decision procedures (omega, ring, SAT/SMT) rather than requiring
 explicit proof terms. This gives us the expressiveness of dependent types with
 the automation of SMT-backed refinement checking.
 
-The key insight: cic-clj already has both sides of this equation. The CIC kernel
+The key insight: ansatz already has both sides of this equation. The Ansatz kernel
 provides the logical foundation and proof language. The omega/ring/decide tactics
 and zustand SMT solver provide the automation. Refinement types are the interface
 that connects these to everyday Clojure programming.
 
-**Design principle**: Refinement predicates are always CIC propositions. The SMT
+**Design principle**: Refinement predicates are always Ansatz propositions. The SMT
 solver produces witnesses that the kernel can check. If the solver fails, the
 programmer can fall back to manual proof or weaken the refinement. There is no
-separate "refinement logic" -- it is CIC all the way down.
+separate "refinement logic" -- it is Ansatz all the way down.
 
 
 ## 2. Architecture
@@ -51,9 +51,9 @@ Clojure source + refinement annotations
         |            ring   : polynomial equalities
         |            decide : propositional / finite domain
         |            SMT    : zustand for combined theories
-        |            kernel : full CIC proof search (fallback)
+        |            kernel : full Ansatz proof search (fallback)
         v
-  [Kernel Check] -- all generated proof terms verified by CIC kernel
+  [Kernel Check] -- all generated proof terms verified by Ansatz kernel
 ```
 
 The critical property: the kernel is the final arbiter. Decision procedures
@@ -74,7 +74,7 @@ In Clojure surface syntax, refinements attach to existing types:
   (List.head xs))
 ```
 
-In CIC terms, `^{:ref p}` desugars to a sigma type `{x : T // p x}`, but the
+In Ansatz terms, `^{:ref p}` desugars to a sigma type `{x : T // p x}`, but the
 elaborator manages projections and injections automatically. The programmer
 sees refinement-annotated ordinary types, not dependent pairs.
 
@@ -128,7 +128,7 @@ non-empty containers, array bounds.
 
 ### 3.3 Proof Term Management
 
-omega-proof already generates full CIC proof terms for arithmetic goals. The
+omega-proof already generates full Ansatz proof terms for arithmetic goals. The
 refinement checker extracts the proof term and attaches it to the sigma-type
 witness. This means every refinement-typed value carries a proof that the kernel
 can independently verify.
@@ -167,7 +167,7 @@ wp(if c then e1 else e2, Q) = (c => wp(e1, Q)) /\ (not c => wp(e2, Q))
 wp(f(args), Q) = f.pre(args) /\ (forall r. f.post(args, r) => Q(r))
 ```
 
-The generated VCs are CIC propositions. They go through the same dispatch:
+The generated VCs are Ansatz propositions. They go through the same dispatch:
 omega for arithmetic, ring for polynomial, zustand for combined theories.
 
 ### 4.3 Loop Invariants
@@ -198,7 +198,7 @@ max : forall p q. x:Int{p} -> y:Int{q} -> Int{p \/ q}
 compose : forall p q r. (y:b{q} -> c{r}) -> (x:a{p} -> b{q}) -> a{p} -> c{r}
 ```
 
-In CIC, abstract refinements are simply universally quantified propositions.
+In Ansatz, abstract refinements are simply universally quantified propositions.
 The expressiveness comes for free from dependent types. The challenge is
 *inference*: determining which abstract refinements to instantiate at call sites.
 
@@ -213,10 +213,10 @@ The predicate domain (called "qualifiers") is drawn from the program text:
 function preconditions, branch conditions, and user-provided hints. This keeps
 inference decidable while being expressive enough for most practical cases.
 
-### 5.3 Connection to CIC Proof Search
+### 5.3 Connection to Ansatz Proof Search
 
 When Liquid inference fails (the predicate domain is too coarse), the system
-can escalate to CIC proof search. The tactics (omega, ring, simp) serve as
+can escalate to Ansatz proof search. The tactics (omega, ring, simp) serve as
 specialized solvers. The grind tactic in Lean, which combines congruence
 closure with case splitting, is a model for the kind of general-purpose
 automation that fills gaps between specialized solvers.
@@ -300,7 +300,7 @@ Liquid Types inference is complete for a fixed qualifier domain. But choosing
 the right qualifiers is an art. Possible approaches:
 
 - Mine qualifiers from spec assertions and test predicates
-- Use LLM suggestion (cic-clj already has llm.clj/suggest.clj) to propose
+- Use LLM suggestion (ansatz already has llm.clj/suggest.clj) to propose
   candidate refinements
 - Abductive inference: given a failing VC, find the weakest missing hypothesis
 
@@ -354,7 +354,7 @@ implementation roadmap and directly block refinement type features.
 
 ### 8.2 SAT/DRAT for Combinatorial Properties
 
-sat-clj provides SAT solving with DRAT proof certificates. The DRAT-to-CIC
+sat-clj provides SAT solving with DRAT proof certificates. The DRAT-to-Ansatz
 proof reconstruction path means SAT-backed refinements also produce kernel-
 checkable evidence. Use cases:
 
@@ -385,7 +385,7 @@ with uninterpreted functions (user-defined predicates) and data structure
 operations. The SMT solver is the catch-all when specialized tactics don't
 apply.
 
-The proof reconstruction path (SMT proof -> CIC proof term) is the main
+The proof reconstruction path (SMT proof -> Ansatz proof term) is the main
 engineering challenge. F* sidesteps this by trusting Z3. We don't -- the kernel
 checks everything. This is more work but gives a stronger guarantee.
 
@@ -424,6 +424,6 @@ Ordered by dependency and payoff:
 
 *This plan builds on the adaptive reasoning architecture (see
 `research-design-adaptive-reasoning.md`) where refinement types are the
-interface between the CIC verification kernel and everyday programming. The
-decision procedure hierarchy (omega < ring < SAT < SMT < CIC proof search)
+interface between the Ansatz verification kernel and everyday programming. The
+decision procedure hierarchy (omega < ring < SAT < SMT < Ansatz proof search)
 provides the automation backbone. The kernel provides the trust anchor.*

@@ -1,4 +1,4 @@
-# CIC-CLJ — CIC Type Checker for Lean 4 Exports
+# Ansatz — Verified Clojure via Lean 4 Mathlib
 
 ## Build
 
@@ -7,37 +7,53 @@ Java kernel (required after changing `.java` files):
 clj -T:build javac
 ```
 
-Use system OpenJDK:
-```bash
-PATH=/usr/lib/jvm/java-25-openjdk-amd64/bin:$PATH
-```
-
 ## Quick Tests
 
 - `init-medium.ndjson` — 2997 declarations, ~1.5s. Fast smoke test.
 - `init.ndjson` — 54335 declarations, ~50s. Full Init library.
 
-Run from REPL:
-```clojure
-(require '[cic.export.storage :as s] :reload)
-(def sm (s/import-ndjson-to-store "/var/tmp/cic-lmdb-test" "path/to/init-medium.ndjson" "test"))
-(def ctx (s/prepare-verify sm "test"))
-(s/verify-batch! ctx 3000 :verbose? true)
-;; => should show 2997/2997, 0 errors
+Run tests:
+```bash
+clj -M:test
+```
+
+## Setup Mathlib Store
+
+Run the setup script (clones lean4export + mathlib4, exports, imports):
+```bash
+./scripts/setup-mathlib.sh
+```
+
+Or manually:
+```bash
+./scripts/setup-mathlib.sh /var/tmp/ansatz-mathlib
 ```
 
 ## REPL Workflow (Mathlib)
 
-The full Mathlib store lives in `/var/tmp/cic-lmdb-mathlib` (648,612 declarations).
+The full Mathlib store lives in `/var/tmp/ansatz-mathlib` (648,612 declarations).
 
 ### Setup
 ```clojure
-(require '[cic.export.storage :as s] :reload)
-(def sm (s/open-store "/var/tmp/cic-lmdb-mathlib"))
-(def ctx (s/prepare-verify sm "mathlib"))
+(require '[ansatz.core :as a] :reload)
+(a/init! "/var/tmp/ansatz-mathlib" "mathlib")
 ```
 
-### Navigation — skip is instant
+### Proving theorems
+```clojure
+;; Define a verified function
+(a/defn gd-step [x :- Real, grad :- Real, eta :- Real] Real
+  (sub Real x (mul Real eta grad)))
+
+;; Prove convergence
+(a/theorem gd-rate [κ :- Real, ε₀ :- Real, n :- Nat,
+                     hκ₀ :- (<= Real 0 κ), hκ₁ :- (<= Real κ 1), hε₀ :- (<= Real 0 ε₀)]
+  (<= Real (mul Real (pow Real κ n) ε₀) ε₀)
+  (apply mul_le_of_le_one_left) (assumption)
+  (apply pow_le_one₀) (all_goals (assumption)))
+```
+
+### Navigation — skip is instant (for verification debugging)
 PSS external lookup loads declarations on demand, so skipping doesn't reprocess anything:
 ```clojure
 (s/skip! ctx 300000)        ;; advance by 300k
@@ -60,7 +76,7 @@ PSS external lookup loads declarations on demand, so skipping doesn't reprocess 
 ### Tracing (for debugging isDefEq / whnf)
 ```clojure
 ;; Enable tracing on the TypeChecker before verify-one!
-(let [tc (cic.kernel.TypeChecker. (:env ctx))]
+(let [tc (ansatz.kernel.TypeChecker. (:env ctx))]
   (set! (.tracing tc) true)
   (set! (.traceLimit tc) 500))
 ```
@@ -76,11 +92,62 @@ This outputs NDJSON lines with `{s, d, l, r, res, by}` (sequence, depth, lhs fin
 To trace a specific declaration in our checker:
 ```clojure
 ;; Use checkConstantTraced directly with a FileWriter
-(import '[cic.kernel TypeChecker])
-(let [w (java.io.FileWriter. "/tmp/cic-trace.ndjson")]
+(import '[ansatz.kernel TypeChecker])
+(let [w (java.io.FileWriter. "/tmp/ansatz-trace.ndjson")]
   (TypeChecker/checkConstantTraced (:env ctx) ci fuel w)
   (.close w))
 ```
+
+## Lean 4 Reference
+
+The Lean 4 source at `../lean4` is our reference implementation. When porting infrastructure (simp, tactics, type checking), always study the Lean 4 source first and implement faithfully. Key files:
+
+- `src/Lean/Meta/Tactic/Simp/Main.lean` — simp core (simpLoop, simpStep)
+- `src/Lean/Meta/Tactic/Simp/Rewrite.lean` — rewrite, discharge, dischargeDefault?
+- `src/Lean/Meta/Tactic/Simp/SimpAll.lean` — simp_all loop
+- `src/Lean/Meta/Tactic/Simp/Types.lean` — CongrArgKind, tryAutoCongrTheorem?
+- `src/Lean/Meta/CongrTheorems.lean` — getCongrSimpKinds, fixKindsForDependencies
+- `src/Lean/Meta/Tactic/Apply.lean` — apply tactic with isDefEq matching
+- `src/Lean/Meta/FunInfo.lean` — FunInfo, hasFwdDeps, backDeps
+
+### Ported infrastructure (validated)
+- CongrArgKind system (get-fun-info, get-congr-simp-kinds)
+- dsimp-expr (separate traversal, structural reductions only)
+- Bool.rec simpMatch with constant-motive override
+- Rewrite candidate priority sort (rewriteUsingIndex?)
+- Disc tree star-skip for nested arity (consume/getStarResult)
+- Bool.rec→Bool.and context-sensitive fold
+- Prop guards (extract-from-conclusion, try-simp-using-decide)
+- simp_all Phase 1+2 with Eq.mp transport
+- Discharger with rfl case, omega fallback, fresh cache
+- Comprehensive hypothesis preprocessing (And-split, implications)
+
+### WIP: apply tactic def-eq matching
+The apply tactic needs to match IH conclusions against unfolded goals
+via isDefEq (not structural matching). Lean 4's apply uses full
+isDefEq from MetaM. Our apply has Strategy B (deep extraction + TC
+isDefEq) but the extraction walk fails when heads differ
+(ex-sorted vs List.rec). Fix: skip extraction and call isDefEq
+directly when the result type has no unresolved metavariables.
+
+### WIP: Env as persistent value
+Env is a mutable Java object (LinkedHashMap). We have Env.fork() for
+test isolation but full persistent semantics (ProofContext threading)
+requires either making Env immutable or using fork() at all boundaries.
+
+## Development Guidelines
+
+- **Take time to get things right.** Carefully validate each change against
+  the Lean 4 source and the full test suite. Don't rush fixes that might
+  introduce regressions.
+- **Study `../lean4` before implementing.** The Lean 4 source is the
+  authoritative reference. When unsure about behavior, read the actual code.
+- **Run full test suite** (`clj -M:test -e :wip`) after every change.
+  All non-WIP tests must pass. Currently 361 tests, 0 errors.
+- **Use `*simp-trace*`** for debugging simp rewrite issues. Bind to an atom
+  to collect trace entries showing where corruption or unexpected rewrites occur.
+- **Env.fork()** for test isolation. Tests that run prove-theorem should fork
+  the env to prevent cross-test pollution from in-place mutation.
 
 ## Key Design Decisions
 

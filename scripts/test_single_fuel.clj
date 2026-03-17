@@ -1,16 +1,16 @@
 ;; Test a single declaration with specific fuel level
-(ns cic.export.test-single-fuel
-  (:require [cic.export.storage :as storage])
-  (:import [cic.kernel TypeChecker Env ConstantInfo]))
+(ns ansatz.export.test-single-fuel
+  (:require [ansatz.export.storage :as storage])
+  (:import [ansatz.kernel TypeChecker Env ConstantInfo]))
 
 (defn -main [idx-str fuel-str & _args]
   (let [target-idx (Long/parseLong idx-str)
         fuel (Long/parseLong fuel-str)
-        store-path "/var/tmp/cic-lmdb-mathlib"]
+        store-path "/var/tmp/ansatz-lmdb-mathlib"]
     (println "Opening LMDB store...")
     (let [store-map (storage/open-lmdb-store store-path)]
       (try
-        (let [ctx (storage/prepare-verify store-map "mathlib" :log-file "/tmp/cic-test-fuel.log")
+        (let [ctx (storage/prepare-verify store-map "mathlib" :log-file "/tmp/ansatz-test-fuel.log")
               decl-name (nth (:decl-order ctx) target-idx)]
           (println "Target:" target-idx decl-name "fuel:" fuel)
           (storage/skip! ctx target-idx)

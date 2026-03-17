@@ -1,0 +1,176 @@
+// Copyright (c) 2026 Christian Weilbach. All rights reserved.
+// Ansatz kernel — Persistent (immutable) environment.
+
+package ansatz.kernel;
+
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Persistent kernel environment storing declarations.
+ *
+ * Design (following Lean 4's persistent data structures with shared cache):
+ * - locals: Clojure PersistentHashMap — immutable, per-context additions
+ * - sharedCache: ConcurrentHashMap — shared read-only cache for external lookups
+ * - externalLookup: pure function to konserve/flatstore (read-only)
+ *
+ * addConstant() returns a NEW Env (structural sharing via PersistentHashMap).
+ * No mutation, no LRU eviction, no ConstantInfo.value nulling.
+ * Fork is free — persistent map is already shared.
+ */
+public final class Env {
+
+    // Locally added constants (immutable persistent map: Name → ConstantInfo)
+    private final clojure.lang.IPersistentMap locals;
+
+    // Shared cache for external lookups (thread-safe, grows monotonically)
+    // Safe to share across forks: same Name → same ConstantInfo from external store
+    private final ConcurrentHashMap<Name, ConstantInfo> sharedCache;
+
+    private final boolean quotEnabled;
+
+    /**
+     * Optional external lookup function for PSS-backed environments.
+     * Pure: takes a Name, returns a ConstantInfo or null.
+     */
+    private final clojure.lang.IFn externalLookup;
+    private final int externalSize;
+
+    // Private constructor — use factory methods
+    private Env(clojure.lang.IPersistentMap locals,
+                ConcurrentHashMap<Name, ConstantInfo> sharedCache,
+                boolean quotEnabled,
+                clojure.lang.IFn externalLookup,
+                int externalSize) {
+        this.locals = locals;
+        this.sharedCache = sharedCache;
+        this.quotEnabled = quotEnabled;
+        this.externalLookup = externalLookup;
+        this.externalSize = externalSize;
+    }
+
+    /** Create an empty environment (no external lookup). */
+    public Env() {
+        this(clojure.lang.PersistentHashMap.EMPTY,
+             new ConcurrentHashMap<>(),
+             false, null, 0);
+    }
+
+    /**
+     * Set external lookup. Returns a NEW Env (immutable).
+     */
+    public Env withExternalLookup(clojure.lang.IFn lookupFn, int size) {
+        return new Env(locals, sharedCache, quotEnabled, lookupFn, size);
+    }
+
+    /**
+     * For backward compatibility during migration.
+     * @deprecated Use withExternalLookup instead.
+     */
+    public void setExternalLookup(clojure.lang.IFn lookupFn, int size) {
+        // Bridge: create new env-like state. Since callers still expect mutation,
+        // we store in a way that lookup() can find it.
+        // This is temporary — will be removed when all callers are updated.
+        throw new UnsupportedOperationException(
+            "Env is now immutable. Use withExternalLookup() instead.");
+    }
+
+    public ConstantInfo lookup(Name name) {
+        // 1. Check locals (immutable, per-context)
+        Object local = locals.valAt(name);
+        if (local != null) return (ConstantInfo) local;
+        // 2. Check shared cache (external lookup results)
+        if (sharedCache != null) {
+            ConstantInfo cached = sharedCache.get(name);
+            if (cached != null) return cached;
+        }
+        // 3. External lookup + cache
+        if (externalLookup != null) {
+            Object result = externalLookup.invoke(name);
+            if (result instanceof ConstantInfo) {
+                ConstantInfo ext = (ConstantInfo) result;
+                sharedCache.put(ext.name, ext);
+                return ext;
+            }
+        }
+        return null;
+    }
+
+    public ConstantInfo lookupOrThrow(Name name) {
+        ConstantInfo ci = lookup(name);
+        if (ci == null) {
+            throw new RuntimeException("Unknown constant: " + name);
+        }
+        return ci;
+    }
+
+    /**
+     * Add a constant. Returns a NEW Env with the constant added.
+     * The original Env is unchanged (persistent/immutable).
+     */
+    public Env addConstant(ConstantInfo ci) {
+        if (externalLookup != null) {
+            // PSS-backed: add to locals overlay
+            return new Env(locals.assoc(ci.name, ci), sharedCache,
+                          quotEnabled, externalLookup, externalSize);
+        }
+        // Non-PSS: check for duplicates
+        if (locals.valAt(ci.name) != null) {
+            throw new RuntimeException("Constant already declared: " + ci.name);
+        }
+        return new Env(locals.assoc(ci.name, ci), sharedCache,
+                      quotEnabled, externalLookup, externalSize);
+    }
+
+    /**
+     * Add constant, ignoring duplicates (for replay error recovery).
+     * Returns a NEW Env.
+     */
+    public Env addConstantIfAbsent(ConstantInfo ci) {
+        if (locals.valAt(ci.name) != null) return this;
+        if (sharedCache != null && sharedCache.containsKey(ci.name)) return this;
+        return new Env(locals.assoc(ci.name, ci), sharedCache,
+                      quotEnabled, externalLookup, externalSize);
+    }
+
+    /** Returns a NEW Env with quot enabled. */
+    public Env enableQuot() {
+        if (quotEnabled) return this;
+        return new Env(locals, sharedCache, true, externalLookup, externalSize);
+    }
+
+    public boolean isQuotEnabled() {
+        return quotEnabled;
+    }
+
+    public int size() {
+        if (externalLookup != null) {
+            return Math.max(locals.count(), externalSize);
+        }
+        return locals.count();
+    }
+
+    /**
+     * Return all constants currently in locals + shared cache.
+     * For non-PSS envs, this is all declarations.
+     */
+    public java.util.Collection<ConstantInfo> allConstants() {
+        java.util.ArrayList<ConstantInfo> result = new java.util.ArrayList<>();
+        // Add all locals
+        for (Object entry : locals) {
+            clojure.lang.MapEntry me = (clojure.lang.MapEntry) entry;
+            result.add((ConstantInfo) me.val());
+        }
+        return result;
+    }
+
+    /**
+     * Fork is a no-op for immutable Env — the persistent map is already shared.
+     * Returns a new Env with the same locals (via structural sharing) and
+     * the same shared cache. Additions to the fork don't affect the original.
+     */
+    public Env fork() {
+        // Already immutable — just return this.
+        // The caller can addConstant() which returns a new Env.
+        return this;
+    }
+}

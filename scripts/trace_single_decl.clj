@@ -1,14 +1,14 @@
 ;; Trace a single declaration by index in the mathlib verification order
-;; Run with: clj -J--enable-native-access=ALL-UNNAMED -J-Xmx8g -J-Xss64m -M -i scripts/trace_single_decl.clj -e '(cic.export.trace-single/-main "220201")'
+;; Run with: clj -J--enable-native-access=ALL-UNNAMED -J-Xmx8g -J-Xss64m -M -i scripts/trace_single_decl.clj -e '(ansatz.export.trace-single/-main "220201")'
 
-(ns cic.export.trace-single
-  (:require [cic.export.storage :as storage])
-  (:import [cic.kernel TypeChecker Env ConstantInfo]))
+(ns ansatz.export.trace-single
+  (:require [ansatz.export.storage :as storage])
+  (:import [ansatz.kernel TypeChecker Env ConstantInfo]))
 
-(defn count-nodes [^cic.kernel.Expr e]
+(defn count-nodes [^ansatz.kernel.Expr e]
   "Count unique Expr objects (DAG nodes) in the expression."
   (let [visited (java.util.IdentityHashMap.)]
-    (letfn [(go [^cic.kernel.Expr e]
+    (letfn [(go [^ansatz.kernel.Expr e]
               (when (and e (not (.containsKey visited e)))
                 (.put visited e true)
                 (case (.tag e)
@@ -23,13 +23,13 @@
 
 (defn -main [idx-str & _args]
   (let [target-idx (Long/parseLong idx-str)
-        store-path "/var/tmp/cic-lmdb-mathlib"
+        store-path "/var/tmp/ansatz-lmdb-mathlib"
         branch "mathlib"]
     (println "Opening LMDB store at" store-path)
     (let [store-map (storage/open-lmdb-store store-path)]
       (try
         (println "Preparing verification context...")
-        (let [ctx (storage/prepare-verify store-map branch :log-file "/tmp/cic-trace-single.log")
+        (let [ctx (storage/prepare-verify store-map branch :log-file "/tmp/ansatz-trace-single.log")
               total (count (:decl-order ctx))
               decl-name (nth (:decl-order ctx) target-idx)]
           (println "Total declarations:" total)

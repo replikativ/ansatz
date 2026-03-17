@@ -1,15 +1,15 @@
-;; Verify mathlib from LMDB store at /var/tmp/cic-lmdb-mathlib
-;; Saves progress to /tmp/cic-verify-checkpoint.edn so verification can be resumed.
-;; Run with: clj -J--enable-native-access=ALL-UNNAMED -J-Xmx16g -J-Xss64m -M -i scripts/verify_mathlib.clj -e '(cic.export.verify-mathlib/-main)'
+;; Verify mathlib from LMDB store at /var/tmp/ansatz-lmdb-mathlib
+;; Saves progress to /tmp/ansatz-verify-checkpoint.edn so verification can be resumed.
+;; Run with: clj -J--enable-native-access=ALL-UNNAMED -J-Xmx16g -J-Xss64m -M -i scripts/verify_mathlib.clj -e '(ansatz.export.verify-mathlib/-main)'
 
-(ns cic.export.verify-mathlib
-  (:require [cic.export.storage :as storage]))
+(ns ansatz.export.verify-mathlib
+  (:require [ansatz.export.storage :as storage]))
 
 (defn -main [& _args]
-  (let [store-path "/var/tmp/cic-lmdb-mathlib"
+  (let [store-path "/var/tmp/ansatz-lmdb-mathlib"
         branch "mathlib"
-        log-file "/tmp/cic-verify.log"
-        checkpoint-file "/tmp/cic-verify-checkpoint.edn"]
+        log-file "/tmp/ansatz-verify.log"
+        checkpoint-file "/tmp/ansatz-verify-checkpoint.edn"]
     (println "Opening LMDB store at" store-path)
     (let [store-map (storage/open-lmdb-store store-path)]
       (try
@@ -34,7 +34,7 @@
                        :error-names @(:error-names ctx)}]
             (println "Verification complete:" final)
             (spit checkpoint-file (pr-str final))
-            (spit "/tmp/cic-verify-errors.edn"
+            (spit "/tmp/ansatz-verify-errors.edn"
                   (pr-str @(:error-names ctx)))))
         (finally
           (storage/close-store store-map)

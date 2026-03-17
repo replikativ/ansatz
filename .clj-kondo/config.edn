@@ -1,0 +1,17 @@
+{:hooks
+ {:analyze-call
+  {ansatz.core/defn       hooks.ansatz-core/ansatz-defn
+   ansatz.core/theorem    hooks.ansatz-core/ansatz-theorem
+   ansatz.core/inductive  hooks.ansatz-core/ansatz-inductive}}
+
+ :linters
+ {;; Our a/defn intentionally shadows clojure.core/defn
+  :redefined-var {:level :off}
+  ;; Java interop field access (.field obj) flagged incorrectly
+  :unresolved-symbol {:exclude [(ansatz.kernel.tc)
+                                (ansatz.kernel.reduce)
+                                (ansatz.tactic.omega-proof)]}}
+
+ :config-in-ns
+ {;; omega-proof has WIP code with unresolved symbols
+  ansatz.tactic.omega-proof {:linters {:unresolved-symbol {:level :off}}}}}

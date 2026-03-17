@@ -16,5 +16,7 @@ lean-export/.lake/
 
 # IDE / editor
 .lsp/
-.clj-kondo/
+.clj-kondo/.cache/
+.clj-kondo/imports/
 .calva/
+.bundle/
