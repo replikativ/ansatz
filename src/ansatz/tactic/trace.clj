@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — NDJSON trace export for proof search.
 
 (ns ansatz.tactic.trace

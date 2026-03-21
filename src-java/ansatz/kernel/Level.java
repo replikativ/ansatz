@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — Universe levels with algebra and comparison.
 
 package ansatz.kernel;

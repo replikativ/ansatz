@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Environment replay — verify imported declarations.
 
 (ns ansatz.export.replay

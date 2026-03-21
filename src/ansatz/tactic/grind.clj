@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — grind: general-purpose automation via E-matching,
 ;; congruence closure, linear arithmetic, and case splitting.
 ;;

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Surface syntax — runtime elaboration with implicit argument insertion.
 
 (ns ansatz.surface.elaborate

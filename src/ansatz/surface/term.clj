@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Surface syntax — macro-based named term builder for Ansatz expressions.
 
 (ns ansatz.surface.term

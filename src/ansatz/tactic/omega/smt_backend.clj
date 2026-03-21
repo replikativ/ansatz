@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; SMT solver backend for omega — uses zustand with Farkas certificates.
 ;;
 ;; Takes a prepared omega problem, translates constraints to SMT,

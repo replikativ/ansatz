@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Fourier-Motzkin elimination solver backend for omega.
 ;;
 ;; Takes a prepared omega problem and returns a solved problem

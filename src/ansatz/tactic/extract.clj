@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — proof term extraction and verification.
 
 (ns ansatz.tactic.extract
@@ -8,6 +7,26 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.tactic.proof :as proof])
   (:import [ansatz.kernel TypeChecker]))
+
+(defn replace-mvar
+  "Replace all occurrences of (mvar mvar-id) with replacement in expr.
+   Unlike abstract1+instantiate1, this works correctly even when the mvar
+   is inside lambda bodies (no bvar shifting needed since mvars are opaque)."
+  [expr mvar-id replacement]
+  (letfn [(go [e]
+              (cond
+                (and (e/mvar? e) (= (e/mvar-id e) mvar-id)) replacement
+                (e/app? e) (let [f (go (e/app-fn e)) a (go (e/app-arg e))]
+                             (if (and (identical? f (e/app-fn e)) (identical? a (e/app-arg e))) e
+                                 (e/app f a)))
+                (e/lam? e) (let [t (go (e/lam-type e)) b (go (e/lam-body e))]
+                             (if (and (identical? t (e/lam-type e)) (identical? b (e/lam-body e))) e
+                                 (e/lam (e/lam-name e) t b (e/lam-info e))))
+                (e/forall? e) (let [t (go (e/forall-type e)) b (go (e/forall-body e))]
+                                (if (and (identical? t (e/forall-type e)) (identical? b (e/forall-body e))) e
+                                    (e/forall' (e/forall-name e) t b (e/forall-info e))))
+                :else e))]
+    (go expr)))
 
 (defn extract-term
   "Recursively extract a proof term from a metavariable assignment."
@@ -60,14 +79,11 @@
                      (e/app* (e/const' eq-ndrec-name [v-level u-level])
                              eq-type rhs motive child-term lhs symm-eq))))
 
-      :cases (let [{:keys [rec-name motive params indices levels ctor-goals]} assignment]
-               ;; Build: @Ind.casesOn params motive major minor1 ... minorN
-               ;; For now, this is complex — create a simple version
-               ;; The recursor takes: params, motive, minors, indices, major
-               ;; But casesOn reorders to: params, motive, indices, major, minors
-               ;; We extract each constructor branch
+      :cases (let [{:keys [rec-name motive params indices levels ctor-goals dep-fids]} assignment]
+               ;; Build: rec params motive minors indices major [dep-fvars...]
+               ;; When dep-fids is non-empty, the motive includes dependent foralls
+               ;; and the rec result needs to be applied to the dep fvars.
                (let [minor-terms (mapv (fn [{:keys [field-fvars goal-id]}]
-                                         ;; Abstract field fvars to create a lambda
                                          (let [branch-term (extract-term ps goal-id)]
                                            (reduce (fn [body fid]
                                                      (let [decl (get-in ps [:mctx goal-id :lctx fid])
@@ -77,12 +93,13 @@
                                                    branch-term
                                                    (reverse field-fvars))))
                                        ctor-goals)
-                     hyp-fvar (e/fvar (:hyp-fvar-id assignment))]
-                 ;; Bool.rec order: motive, minors..., major
-                ;; General rec order: params, motive, minors..., indices, major
-                 (reduce e/app
-                         (e/const' rec-name levels)
-                         (concat params [motive] minor-terms indices [hyp-fvar]))))
+                     hyp-fvar (e/fvar (:hyp-fvar-id assignment))
+                     rec-term (reduce e/app
+                                      (e/const' rec-name levels)
+                                      (concat params [motive] minor-terms indices [hyp-fvar]))]
+                 ;; Apply dep-fvars to rec result (Lean 4 revert pattern)
+                 (reduce (fn [t fid] (e/app t (e/fvar fid)))
+                         rec-term (or dep-fids []))))
 
       ;; have h : T := proof; body  →  (λ h : T => body) proof
       :have (let [{:keys [fvar-id name type proof-goal body-goal]} assignment
@@ -121,13 +138,20 @@
                  (e/app* (e/const' false-elim-name [u])
                          goal-type child-term))
 
-      ;; subst h  →  Eq.mpr/ndrec based rewrite
-      ;; For now, the child proves the substituted goal; we need to
-      ;; transport back via the equality
-      :subst (let [{:keys [child]} assignment]
-               ;; The child proves the goal with substitution applied
-               ;; For simple cases, def-eq handles this
-               (extract-term ps child))
+      ;; subst h  →  Eq.ndrec (head child tail) when motive is non-trivial,
+      ;; or pass-through when the eliminated variable doesn't appear in the goal.
+      ;; Lean 4 substCore always generates Eq.ndrec, but constant motives
+      ;; subst h  →  Eq.ndrec term built at tactic time (Lean 4 substCore).
+      ;; The full-term has (mvar child-mvar-id) as placeholder for the child proof.
+      ;; Since mvar is NOT affected by abstract1, it survives all lambda abstractions.
+      ;; We replace it with the extracted child term via dedicated substitution.
+      :subst (let [{:keys [full-term child-mvar-id child]} assignment
+                   child-term (extract-term ps (or child-mvar-id child))]
+               (if full-term
+                 ;; Replace (mvar child-mvar-id) with child-term in full-term
+                 (replace-mvar full-term child-mvar-id child-term)
+                 ;; Legacy fallback: pass-through
+                 child-term))
 
       ;; by-cases cond → Bool.rec motive false-branch true-branch cond rfl
       :by-cases (let [{:keys [cond motive motive-level rfl-proof
@@ -159,24 +183,38 @@
       :simp-all-hyps
       (let [{:keys [replacements child]} assignment
             child-term (extract-term ps child)
-            eq-mp-nm (name/from-string "Eq.mp")]
-        (reduce (fn [body {:keys [old-fvar-id new-fvar-id old-type new-type eq-proof]}]
-                  (let [transport-proof
+            eq-mp-nm (name/from-string "Eq.mp")
+            eq-name (name/from-string "Eq")]
+        (reduce (fn [body {:keys [old-fvar-id new-fvar-id old-type new-type
+                                  proof-old-type proof-new-type eq-proof]}]
+                  (let [;; Use proof-consistent types if available (from simp's TC context)
+                        actual-old (or proof-old-type old-type)
+                        actual-new (or proof-new-type new-type)
+                        transport-proof
                         (if eq-proof
-                          ;; eq-proof : old-type = new-type
-                          ;; Eq.mp.{0} old-type new-type eq-proof (fvar h) : new-type
                           (e/app* (e/const' eq-mp-nm [lvl/zero])
-                                  old-type new-type eq-proof (e/fvar old-fvar-id))
+                                  actual-old actual-new eq-proof (e/fvar old-fvar-id))
                           ;; No proof — def-eq, old fvar works directly
                           (e/fvar old-fvar-id))]
-                    (e/app (e/lam "h" new-type (e/abstract1 body new-fvar-id) :default)
+                    (e/app (e/lam "h" actual-new (e/abstract1 body new-fvar-id) :default)
                            transport-proof)))
                 child-term
                 (reverse replacements)))
 
       ;; clear h  →  just extract child (same goal, fewer hyps)
       :clear (let [{:keys [child]} assignment]
-               (extract-term ps child)))))
+               (extract-term ps child))
+
+      ;; generalize-indices  →  child applied to original indices, hyp, and rfl proofs
+      ;; child : ∀ j1'..jk' h'. eq1 → ... → eqk → Goal
+      ;; result: child j1..jk h rfl..rfl
+      :generalize-indices
+      (let [{:keys [child orig-indices orig-hyp-fvar-id rfl-proofs]} assignment
+            child-term (extract-term ps child)]
+        (reduce e/app child-term
+                (concat orig-indices
+                        [(e/fvar orig-hyp-fvar-id)]
+                        rfl-proofs))))))
 
 (defn extract
   "Extract the complete proof term from the root metavariable.

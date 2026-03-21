@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Lean-compatible hierarchical names.
 ;; Thin wrapper over Java Name class for interned identity comparison.
 

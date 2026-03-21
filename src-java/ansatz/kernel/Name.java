@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — Interned hierarchical names for fast identity comparison.
 
 package ansatz.kernel;

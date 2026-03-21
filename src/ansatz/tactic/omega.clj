@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — omega: linear arithmetic decision procedure.
 ;;
 ;; Implements Pugh's Omega Test (simplified) for Nat and Int:
@@ -826,7 +825,10 @@
                  (try
                    (let [omega-full (requiring-resolve 'ansatz.tactic.omega-proof/omega)]
                      (omega-full ps))
-                   (catch Exception _ nil))
+                   (catch Exception e
+                     (when (System/getProperty "omega.trace")
+                       (println "[omega] Strategy 0 failed:" (.getMessage e)))
+                     nil))
                  ;; Strategy A: try simp with omega-relevant lemmas
                  (try
                    (require 'ansatz.tactic.simp)
@@ -920,8 +922,77 @@
                                             h2 (e/app* (e/const' le-add-right-n []) inner k)
                                             proof (e/app* (e/const' le-trans-n [])
                                                           lhs inner rhs h1 h2)]
-                                        (try-proof proof)))))]
-                         (or p1 p2 p3 p4 p5))))
+                                        (try-proof proof)))))
+                             ;; Pattern 6: a + c ≤ a + d (when c ≤ d)
+                             ;; Uses Nat.add_le_add_left : ∀ (n m : Nat), n ≤ m → ∀ k, k + n ≤ k + m
+                             succ-le-succ-n (name/from-string "Nat.succ_le_succ")
+                             p6 (when-not (or p1 p2 p3 p4 p5)
+                                  ;; Check: are both lhs and rhs of the form (a + c) and (a + d)?
+                                  (when-let [[la lb] (hadd? lhs)]
+                                    (when-let [[ra rb] (hadd? rhs)]
+                                      ;; Check if la == ra (common left addend)
+                                      (when (.isDefEq jtc la ra)
+                                        ;; Need to prove: lb ≤ rb → la + lb ≤ ra + rb
+                                        ;; Use Nat.add_le_add_left: m ≤ n → k + m ≤ k + n
+                                        (let [add-le-add-left-n (name/from-string "Nat.add_le_add_left")
+                                              ;; First try: is lb ≤ rb trivially true? (e.g., lb = k, rb = k + 1)
+                                              ;; Build sub-proof of lb ≤ rb by trying patterns recursively
+                                              sub-proof (or
+                                                          ;; lb ≤ lb (refl)
+                                                          (when (.isDefEq jtc lb rb)
+                                                            (e/app (e/const' le-refl-n []) lb))
+                                                          ;; lb ≤ lb + x
+                                                          (when-let [[_ x] (hadd? rb)]
+                                                            (when (.isDefEq jtc lb (first (hadd? rb)))
+                                                              (e/app* (e/const' le-add-right-n []) lb (second (hadd? rb)))))
+                                                          ;; lb ≤ x + lb
+                                                          (when-let [[x _] (hadd? rb)]
+                                                            (when (.isDefEq jtc lb (second (hadd? rb)))
+                                                              (e/app* (e/const' le-add-left-n []) lb (first (hadd? rb)))))
+                                                          ;; Ground case: both lb and rb are literals → decide
+                                                          (when (and (or (e/lit-nat? lb) (zero? (e/bvar-range lb)))
+                                                                     (or (e/lit-nat? rb) (zero? (e/bvar-range rb))))
+                                                            ;; Build: Nat.le lb rb, prove by decide (kernel eval)
+                                                            (let [sub-goal (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                                                                   (e/const' (name/from-string "Nat") [])
+                                                                                   (e/const' (name/from-string "instLENat") [])
+                                                                                   lb rb)
+                                                                  ;; of_decide_eq_true : decide p = true → p
+                                                                  dec-inst (e/app* (e/const' (name/from-string "Nat.decLe") []) lb rb)
+                                                                  decide-expr (e/app* (e/const' (name/from-string "Decidable.decide") []) sub-goal dec-inst)
+                                                                  rfl-true (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                                                                   (e/const' (name/from-string "Bool") [])
+                                                                                   (e/const' (name/from-string "Bool.true") []))
+                                                                  proof (e/app* (e/const' (name/from-string "of_decide_eq_true") [])
+                                                                                sub-goal dec-inst rfl-true)]
+                                                              ;; Verify with TC before using
+                                                              (try
+                                                                (let [ptype (.inferType jtc proof)]
+                                                                  (when (.isDefEq jtc ptype sub-goal) proof))
+                                                                (catch Exception _ nil)))))]
+                                          (when sub-proof
+                                            ;; Nat.add_le_add_left : ∀ (n m : Nat) {implicit}, n ≤ m → ∀ k, k + n ≤ k + m
+                                            ;; n,m are implicit but kernel requires all args explicit
+                                            (try-proof (e/app* (e/const' add-le-add-left-n [])
+                                                               lb rb sub-proof la))))))))
+                             ;; Pattern 7: succ a ≤ succ b (when a ≤ b)
+                             ;; Uses Nat.succ_le_succ : n ≤ m → succ n ≤ succ m
+                             p7 (when-not (or p1 p2 p3 p4 p5 p6)
+                                  (let [lhs-whnf2 (#'tc/cached-whnf st lhs)
+                                        rhs-whnf2 (#'tc/cached-whnf st rhs)
+                                        [lh la] (e/get-app-fn-args lhs-whnf2)
+                                        [rh ra] (e/get-app-fn-args rhs-whnf2)]
+                                    (when (and (e/const? lh) (e/const? rh)
+                                               (= (name/->string (e/const-name lh)) "Nat.succ")
+                                               (= (name/->string (e/const-name rh)) "Nat.succ"))
+                                      ;; succ(la) ≤ succ(ra), need la ≤ ra
+                                      (let [la (first la) ra (first ra)
+                                            sub (or (when (.isDefEq jtc la ra) (e/app (e/const' le-refl-n []) la))
+                                                    (e/app* (e/const' le-add-right-n []) la
+                                                            (#'tc/cached-whnf st ra)))]
+                                        (when sub
+                                          (try-proof (e/app* (e/const' succ-le-succ-n []) la ra sub)))))))]
+                         (or p1 p2 p3 p4 p5 p6 p7))))
                    (catch Exception _ nil))
                  ;; Strategy D: Lean 4-style byContradiction for LE goals.
                  ;; For goal `a ≤ b` with context `Nat.ble b a = false`:
@@ -1085,6 +1156,105 @@
                                    (-> (proof/assign-mvar ps (:id goal)
                                                           {:kind :exact :term proof})
                                        (proof/record-tactic :omega [:le-total] (:id goal)))))))))))
+                   (catch Exception _ nil))
+                 ;; Strategy E: LE transitivity from hypotheses.
+                 ;; For goal `a ≤ c`, search lctx for `a ≤ b` and `b ≤ c`
+                 ;; then build proof: Nat.le_trans a b c h1 h2
+                 (try
+                   (let [goal-type (:type goal)
+                         [ghead gargs] (e/get-app-fn-args goal-type)]
+                     (when (and (e/const? ghead)
+                                (= (name/->string (e/const-name ghead)) "LE.le")
+                                (= 4 (count gargs)))
+                       (let [a (nth gargs 2)
+                             c (nth gargs 3)
+                             le-trans-n (name/from-string "Nat.le_trans")
+                             jtc (ansatz.kernel.TypeChecker. (:env ps))
+                             _ (.setFuel jtc config/*default-fuel*)
+                             _ (doseq [[id decl] (:lctx goal)]
+                                 (when (= :local (:tag decl))
+                                   (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
+                             ;; Collect all LE hypotheses: {id [lhs rhs]}
+                             le-hyps (into []
+                                       (keep (fn [[id decl]]
+                                               (when (= :local (:tag decl))
+                                                 (let [[hh ha] (e/get-app-fn-args (:type decl))]
+                                                   (when (and (e/const? hh)
+                                                              (= (name/->string (e/const-name hh)) "LE.le")
+                                                              (= 4 (count ha)))
+                                                     {:id id :lhs (nth ha 2) :rhs (nth ha 3)})))))
+                                       (:lctx goal))
+                             ;; Find pair h1: a ≤ b, h2: b ≤ c
+                             result (some (fn [h1]
+                                           (when (.isDefEq jtc (:lhs h1) a)
+                                             (some (fn [h2]
+                                                     (when (and (not= (:id h1) (:id h2))
+                                                                (.isDefEq jtc (:lhs h2) (:rhs h1))
+                                                                (.isDefEq jtc (:rhs h2) c))
+                                                       (let [b (:rhs h1)
+                                                             proof (e/app* (e/const' le-trans-n [])
+                                                                           a b c
+                                                                           (e/fvar (:id h1))
+                                                                           (e/fvar (:id h2)))]
+                                                         (-> (proof/assign-mvar ps (:id goal)
+                                                                                {:kind :exact :term proof})
+                                                             (proof/record-tactic :omega [:le-trans] (:id goal))))))
+                                                   le-hyps)))
+                                         le-hyps)]
+                         result)))
+                   (catch Exception _ nil))
+                 ;; Strategy for LT goals: a < b
+                 ;; Convert to succ(a) ≤ b, build LE proof with TC verification,
+                 ;; then wrap with Nat.lt_of_succ_le.
+                 (try
+                   (let [goal-type (:type goal)
+                         [head args] (e/get-app-fn-args goal-type)]
+                     (when (and (e/const? head)
+                                (= (name/->string (e/const-name head)) "LT.lt")
+                                (>= (count args) 4))
+                       (let [lhs (nth args 2) ;; a in a < b
+                             rhs (nth args 3) ;; b
+                             nat (e/const' (name/from-string "Nat") [])
+                             jtc (ansatz.kernel.TypeChecker. (:env ps))
+                             _ (.setFuel jtc config/*default-fuel*)
+                             _ (doseq [[id decl] (:lctx goal)]
+                                 (when (= :local (:tag decl))
+                                   (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
+                             ;; succ(a)
+                             succ-lhs (e/app (e/const' (name/from-string "Nat.succ") []) lhs)
+                             ;; LE goal type: succ(a) ≤ b
+                             le-goal (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                             nat (e/const' (name/from-string "instLENat") [])
+                                             succ-lhs rhs)
+                             ;; Try to build LE proof with patterns:
+                             le-refl-n (name/from-string "Nat.le.refl")
+                             le-add-right-n (name/from-string "Nat.le_add_right")
+                             le-add-left-n (name/from-string "Nat.le_add_left")
+                             try-le-proof
+                             (fn [proof]
+                               (try
+                                 (let [pt (.inferType jtc proof)]
+                                   (when (.isDefEq jtc pt le-goal) proof))
+                                 (catch Exception _ nil)))
+                             ;; Pattern: succ(a) ≤ succ(a) → le.refl (when a < succ a)
+                             le-proof (or (try-le-proof (e/app (e/const' le-refl-n []) succ-lhs))
+                                         ;; succ(a) ≤ succ(a) + k
+                                         (try-le-proof (e/app* (e/const' le-add-right-n []) succ-lhs rhs))
+                                         ;; succ(a) ≤ k + succ(a)
+                                         (try-le-proof (e/app* (e/const' le-add-left-n []) succ-lhs rhs))
+                                         ;; Ground: both sides reduce to literals
+                                         (let [slhs-w (.whnfCore jtc succ-lhs)
+                                               rhs-w (.whnfCore jtc rhs)]
+                                           (when (and (or (e/lit-nat? slhs-w) (zero? (e/bvar-range slhs-w)))
+                                                      (or (e/lit-nat? rhs-w) (zero? (e/bvar-range rhs-w))))
+                                             ;; Try le.refl after WHNF
+                                             (try-le-proof (e/app (e/const' le-refl-n []) succ-lhs)))))]
+                         (when le-proof
+                           ;; Nat.lt_of_succ_le : {n m} → succ n ≤ m → n < m
+                           (let [lt-proof (e/app* (e/const' (name/from-string "Nat.lt_of_succ_le") [])
+                                                  lhs rhs le-proof)]
+                             (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term lt-proof})
+                                 (proof/record-tactic :omega [:lt-via-succ-le] (:id goal))))))))
                    (catch Exception _ nil))
                  ;; All fallbacks failed
                  (tactic-error!

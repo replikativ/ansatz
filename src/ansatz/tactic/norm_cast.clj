@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — norm_cast: cast normalization.
 ;;
 ;; Implements the norm_cast family of tactics following Lean 4's algorithm

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — discrimination tree for simp lemma indexing.
 ;;
 ;; Implements Lean 4's DiscrTree data structure for efficient matching

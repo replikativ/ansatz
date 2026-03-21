@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — decide tactic, Ansatz→SMT-LIB translation, and smt tactic.
 
 (ns ansatz.tactic.decide

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — proof state and metavariable infrastructure.
 
 (ns ansatz.tactic.proof
@@ -25,6 +24,24 @@
     [(-> ps'
          (assoc-in [:mctx id] {:type type :lctx lctx :assignment nil})
          (update :goals conj id))
+     id]))
+
+(defn fresh-mvar-replacing
+  "Create a fresh mvar that replaces an existing goal in the goals list.
+   The new mvar takes the position of replaced-id (after assign-mvar removes it).
+   Returns [ps' mvar-id]."
+  [ps type lctx replaced-id]
+  (let [[ps' id] (alloc-id ps)
+        ;; Find position of replaced-id before it gets removed
+        pos (.indexOf ^java.util.List (vec (:goals ps')) replaced-id)
+        pos (if (neg? pos) -1 pos)]
+    [(-> ps'
+         (assoc-in [:mctx id] {:type type :lctx lctx :assignment nil})
+         (update :goals (fn [gs]
+                          (if (neg? pos)
+                            (conj gs id)  ;; fallback: append
+                            (into (conj (subvec (vec gs) 0 pos) id)
+                                  (subvec (vec gs) pos))))))
      id]))
 
 (defn- assignment-concrete-value

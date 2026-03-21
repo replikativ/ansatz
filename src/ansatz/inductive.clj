@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Inductive type definitions compatible with Lean 4's kernel.
 ;;
 ;; Generates: inductive type, constructors, recursor, casesOn, recOn,
@@ -43,7 +42,9 @@
    Handles self-references to the inductive being defined."
   [env scope depth form self-name self-const]
   (cond
-    (nil? form) (throw (ex-info "nil type" {}))
+    ;; nil in Clojure quoted data represents List.nil Nat
+    (nil? form) (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
+                       (e/const' (name/from-string "Nat") []))
     (integer? form) (e/lit-nat form)
 
     (symbol? form)
@@ -70,7 +71,7 @@
           (throw (ex-info (str "Cannot compile type: " s) {:form s})))))
 
     (and (sequential? form) (seq form))
-    (let [h (str (first form))]
+    (let [h (if (nil? (first form)) "nil" (str (first form)))]
       (case h
         ;; Arrow
         ("->" "arrow")
@@ -98,6 +99,25 @@
                               (compile-type env scope depth (nth args 0) self-name self-const)
                               (compile-type env scope depth (nth args 1) self-name self-const)])]
           (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) ty lhs rhs))
+        ;; Prop-valued ≤ for Nat: (le a b) → @LE.le Nat instLENat a b
+        "le"
+        (let [nat (e/const' (name/from-string "Nat") [])
+              inst (e/const' (name/from-string "instLENat") [])
+              a (compile-type env scope depth (nth form 1) self-name self-const)
+              b (compile-type env scope depth (nth form 2) self-name self-const)]
+          (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                  nat inst a b))
+        ;; List.nil Nat: (nil) → @List.nil Nat
+        "nil"
+        (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
+               (e/const' (name/from-string "Nat") []))
+        ;; List.cons Nat: (cons a b) → @List.cons Nat a b
+        "cons"
+        (let [nat (e/const' (name/from-string "Nat") [])
+              a (compile-type env scope depth (nth form 1) self-name self-const)
+              b (compile-type env scope depth (nth form 2) self-name self-const)]
+          (e/app* (e/const' (name/from-string "List.cons") [lvl/zero])
+                  nat a b))
         ;; Default: application
         (reduce e/app (mapv #(compile-type env scope depth % self-name self-const) form))))
 
@@ -284,10 +304,13 @@
                          ;; Extract indices from the recursive field's type
                            rec-field-type (:type (nth fields field-idx))
                            rec-field-idx-exprs (when (pos? n-indices)
-                                                 (let [[_ rargs] (e/get-app-fn-args rec-field-type)]
-                                                 ;; Skip params, take indices from I params idx1...idxk
+                                                 (let [[_ rargs] (e/get-app-fn-args rec-field-type)
+                                                       ;; Indices were compiled at field depth
+                                                       ;; (base-depth + field-idx). Lift to ih-depth.
+                                                       lift-amount (- ih-depth (+ base-depth field-idx))]
                                                    (when (>= (count rargs) (+ n-params n-indices))
-                                                     (subvec (vec rargs) n-params (+ n-params n-indices)))))
+                                                     (mapv (fn [idx] (e/lift idx lift-amount 0))
+                                                           (subvec (vec rargs) n-params (+ n-params n-indices))))))
                            ih-type (reduce (fn [acc idx] (e/app acc idx))
                                            motive-ref-ih (or rec-field-idx-exprs []))
                            ih-type (e/app ih-type field-ref-ih)]
@@ -846,6 +869,489 @@
                 :hints :abbrev :all [rec-on-name])))
 
 ;; ============================================================
+;; Phase 4: noConfusion (for non-indexed, non-Prop types)
+;; ============================================================
+;; Following Lean 4: MetaM-generated noConfusionType + noConfusion.
+;; Uses double rec to compare constructor pairs (quadratic approach).
+;; noConfusionType P a b:
+;;   diagonal (same ctor): (f1=g1 → ... → fn=gn → P) → P
+;;   off-diagonal (diff ctor): P
+;; noConfusion h : a = b → noConfusionType P a b:
+;;   Eq.ndrec transport from diagonal (noConfusionType P a a)
+
+(defn- nc-bvar-at
+  "Compute bvar index for a variable bound at `binding-depth` when at `current-depth`."
+  ^long [^long binding-depth ^long current-depth]
+  (- current-depth binding-depth 1))
+
+(defn- nc-ind-app
+  "Build `Ind p1...pn` at given depth, where params were bound at depths 0..n-1."
+  [ind-name ind-lvl-levels n-params d]
+  (reduce (fn [acc i] (e/app acc (e/bvar (nc-bvar-at i d))))
+          (e/const' ind-name ind-lvl-levels) (range n-params)))
+
+(defn- nc-field-eq-chain
+  "Build the diagonal type: (f1=g1 → ... → fn=gn → P) → P
+   at current depth `d`. For 0 fields: P → P.
+   outer-start/inner-start: binding depths of first outer/inner field.
+   field-types: vec of compiled field types, each at depth (n-params + field-index).
+   n-params: number of params (for lifting).
+   P-bd: binding depth of P.
+   eq-level: universe level for all Eq's (= result-level for non-indexed types)."
+  [n-fields P-bd outer-start inner-start
+   field-types n-params eq-level d]
+  (let [;; Build inner chain: f1=g1 → ... → fn=gn → P
+        ;; from inside out (rightmost first)
+        eq-name (name/from-string "Eq")
+        chain
+        (loop [i (dec n-fields)
+               body (e/bvar (nc-bvar-at P-bd (+ d n-fields)))]
+          (if (< i 0) body
+              (let [eq-d (long (+ d i))
+                    ;; Lift field type to eq-d
+                    ft-orig (nth field-types i)
+                    lift-amt (- eq-d (+ n-params i))
+                    ft (if (pos? lift-amt) (e/lift ft-orig lift-amt 0) ft-orig)
+                    ;; Outer field i: bound at outer-start + i
+                    outer-bv (e/bvar (nc-bvar-at (+ outer-start i) eq-d))
+                    ;; Inner field i: bound at inner-start + i
+                    inner-bv (e/bvar (nc-bvar-at (+ inner-start i) eq-d))
+                    eq-t (e/app* (e/const' eq-name [eq-level]) ft outer-bv inner-bv)]
+                (recur (dec i) (e/forall' "_" eq-t body :default)))))]
+    ;; Wrap: ∀ (_ : chain), P
+    (e/forall' "_" chain (e/bvar (nc-bvar-at P-bd (inc d))) :default)))
+
+(defn- build-no-confusion-type
+  "Build T.noConfusionType for non-indexed, non-Prop types.
+   Type: ∀ {params} (P : Sort v) (a b : T params) → Sort v
+   Value: double rec to compare all constructor pairs."
+  [env params ctors ind-name ind-lvl-levels ind-level-names
+   rec-name rec-level-params result-level is-rec self-name]
+  (let [n-params (count params)
+        n-ctors (count ctors)
+        nct-name (name/from-string (str self-name ".noConfusionType"))
+        ;; Fresh universe level 'v'
+        v-nm (name/from-string "v")
+        v-lvl (lvl/param v-nm)
+        nct-level-names (into [v-nm] ind-level-names)
+        ind-lvls-from-names (mapv lvl/param ind-level-names)
+        ;; Rec levels for outer/inner: u_1 = succ(v), plus ind levels
+        rec-elim-level (lvl/succ v-lvl)
+        nct-rec-levels (into [rec-elim-level] ind-lvls-from-names)
+
+        ;; Binding depth layout:
+        ;; 0..n-1: params (implicit)
+        ;; n: P : Sort v
+        ;; n+1: a : T params
+        ;; n+2: b : T params
+        ;; body at depth n+3
+        P-bd (long n-params)
+        a-bd (long (+ n-params 1))
+        b-bd (long (+ n-params 2))
+        body-d (long (+ n-params 3))
+
+        ;; Build TYPE
+        ;; ∀ {p1:T1} ... {pn:Tn} (P : Sort v) (a : I p1..pn) (b : I p1..pn) → Sort v
+        nct-type
+        (let [ind-at-a (nc-ind-app ind-name ind-lvl-levels n-params a-bd)
+              ind-at-b (nc-ind-app ind-name ind-lvl-levels n-params b-bd)
+              body (e/sort' v-lvl)
+              body (e/forall' "b" ind-at-b body :default)
+              body (e/forall' "a" ind-at-a body :default)
+              body (e/forall' "P" (e/sort' v-lvl) body :default)]
+          (loop [i (dec n-params) body body]
+            (if (< i 0) body
+                (recur (dec i) (e/forall' (:name (nth params i))
+                                          (:compiled-type (nth params i))
+                                          body :implicit)))))
+
+        ;; Compute number of IH per constructor (needed for rec binder count)
+        ctor-info
+        (mapv (fn [ctor]
+                (let [n-fields (count (:fields ctor))
+                      n-ih (if is-rec
+                             (count (filter #(is-recursive-field? % ind-name) (:fields ctor)))
+                             0)]
+                  {:ctor ctor :n-fields n-fields :n-ih n-ih
+                   :n-binders (+ n-fields n-ih)
+                   :field-types (mapv :type (:fields ctor))}))
+              ctors)
+
+        ;; Eq level: for non-indexed types, use result-level (the sort level of Ind)
+        eq-level result-level
+
+        ;; Build inner rec body for a given (outer-ctor-idx i, at depth d)
+        ;; Returns the inner rec application on b at depth d.
+        build-inner-rec
+        (fn [outer-idx outer-field-start d]
+          (let [outer-info (nth ctor-info outer-idx)
+                outer-n-fields (:n-fields outer-info)
+                ;; Inner rec: rec params (λ _ => Sort v) inner-minors b
+                inner-motive (e/lam "_" (nc-ind-app ind-name ind-lvl-levels n-params d)
+                                    (e/sort' v-lvl) :default)
+                ;; Build inner minors
+                inner-minors
+                (mapv
+                 (fn [j]
+                   (let [inner-info (nth ctor-info j)
+                         inner-n-binders (:n-binders inner-info)
+                         inner-n-fields (:n-fields inner-info)
+                         ;; Inner minor: λ fields ih... => body
+                         ;; Body depth inside inner minor: d + inner-n-binders
+                         inner-body-d (+ d inner-n-binders)
+                         inner-field-start d  ;; inner fields start at current depth
+                         ;; Build field lambda types at progressive depths
+                         inner-lam-types
+                         (into (mapv (fn [fi]
+                                       (let [ft (nth (:field-types inner-info) fi)
+                                             lift-amt (- (long (+ d fi)) (+ n-params fi))]
+                                         (if (pos? lift-amt) (e/lift ft lift-amt 0) ft)))
+                                     (range inner-n-fields))
+                               ;; IH types: Sort v (since motive = λ _ => Sort v)
+                               (repeat (:n-ih inner-info) (e/sort' v-lvl)))
+                         body
+                         (if (= outer-idx j)
+                           ;; Diagonal: (f1=g1 → ... → P) → P
+                           (nc-field-eq-chain
+                            outer-n-fields P-bd
+                            outer-field-start inner-field-start
+                            (:field-types outer-info) n-params eq-level
+                            inner-body-d)
+                           ;; Off-diagonal: P
+                           (e/bvar (nc-bvar-at P-bd inner-body-d)))]
+                     ;; Wrap body in lambdas for fields + IH
+                     (loop [k (dec inner-n-binders) body body]
+                       (if (< k 0) body
+                           (let [lam-type (nth inner-lam-types k)]
+                             (recur (dec k)
+                                    (e/lam "_" lam-type body :default)))))))
+                 (range n-ctors))
+                ;; Build inner rec call
+                b-ref (e/bvar (nc-bvar-at b-bd d))]
+            (reduce e/app
+                    (e/const' rec-name nct-rec-levels)
+                    (concat
+                     ;; params
+                     (mapv (fn [i] (e/bvar (nc-bvar-at i d))) (range n-params))
+                     ;; motive
+                     [inner-motive]
+                     ;; minors
+                     inner-minors
+                     ;; major: b
+                     [b-ref]))))
+
+        ;; Build outer minors
+        outer-motive (e/lam "_" (nc-ind-app ind-name ind-lvl-levels n-params body-d)
+                            (e/sort' v-lvl) :default)
+        outer-minors
+        (mapv
+         (fn [i]
+           (let [info (nth ctor-info i)
+                 n-binders (:n-binders info)
+                 n-fields (:n-fields info)
+                 outer-field-start body-d  ;; fields start binding at body-d
+                 ;; Depth after outer minor fields + IH
+                 after-outer-d (+ body-d n-binders)
+                 ;; Build field lambda types
+                 outer-lam-types
+                 (into (mapv (fn [fi]
+                               (let [ft (nth (:field-types info) fi)
+                                     lift-amt (- (long (+ body-d fi)) (+ n-params fi))]
+                                 (if (pos? lift-amt) (e/lift ft lift-amt 0) ft)))
+                             (range n-fields))
+                       (repeat (:n-ih info) (e/sort' v-lvl)))
+                 ;; Inner rec body at depth after-outer-d
+                 inner-body (build-inner-rec i outer-field-start after-outer-d)]
+             ;; Wrap in lambdas for fields + IH
+             (loop [k (dec n-binders) body inner-body]
+               (if (< k 0) body
+                   (let [lam-type (nth outer-lam-types k)]
+                     (recur (dec k) (e/lam "_" lam-type body :default)))))))
+         (range n-ctors))
+
+        ;; Build outer rec call: rec params motive minors a
+        nct-val-body
+        (reduce e/app
+                (e/const' rec-name nct-rec-levels)
+                (concat
+                 (mapv (fn [i] (e/bvar (nc-bvar-at i body-d))) (range n-params))
+                 [outer-motive]
+                 outer-minors
+                 [(e/bvar (nc-bvar-at a-bd body-d))]))
+
+        ;; Wrap in lambdas: params P a b
+        nct-val
+        (let [ind-at-a (nc-ind-app ind-name ind-lvl-levels n-params a-bd)
+              ind-at-b (nc-ind-app ind-name ind-lvl-levels n-params b-bd)
+              body nct-val-body
+              body (e/lam "b" ind-at-b body :default)
+              body (e/lam "a" ind-at-a body :default)
+              body (e/lam "P" (e/sort' v-lvl) body :default)]
+          (loop [i (dec n-params) body body]
+            (if (< i 0) body
+                (recur (dec i) (e/lam (:name (nth params i))
+                                      (:compiled-type (nth params i))
+                                      body :implicit)))))]
+
+    (env/mk-def nct-name (vec nct-level-names) nct-type nct-val
+                :hints :abbrev :all [nct-name])))
+
+(defn- build-no-confusion
+  "Build T.noConfusion for non-indexed, non-Prop types.
+   Type: ∀ {params} {P : Sort v} {a b : T params} → a = b → noConfusionType P a b
+   Value: Eq.ndrec from diagonal (noConfusionType P a a) using a = b."
+  [env params ctors ind-name ind-lvl-levels ind-level-names
+   rec-name rec-level-params result-level is-rec self-name]
+  (let [n-params (count params)
+        n-ctors (count ctors)
+        nc-name (name/from-string (str self-name ".noConfusion"))
+        nct-name (name/from-string (str self-name ".noConfusionType"))
+        v-nm (name/from-string "v")
+        v-lvl (lvl/param v-nm)
+        nc-level-names (into [v-nm] ind-level-names)
+        ind-lvls-from-names (mapv lvl/param ind-level-names)
+        ;; Rec levels for diagonal: u_1 = v (not succ v!), plus ind levels
+        ;; motive(a') = noConfusionType P a' a' : Sort v, so u_1 = v
+        diag-rec-levels (into [v-lvl] ind-lvls-from-names)
+
+        ;; Binding depth layout:
+        ;; 0..n-1: params (implicit)
+        ;; n: P : Sort v (implicit)
+        ;; n+1: a : T params (implicit)
+        ;; n+2: b : T params (implicit)
+        ;; n+3: h : Eq (T params) a b
+        ;; body at depth n+4
+        P-bd (long n-params)
+        a-bd (long (+ n-params 1))
+        b-bd (long (+ n-params 2))
+        h-bd (long (+ n-params 3))
+        body-d (long (+ n-params 4))
+
+        ;; Compute IH info per ctor
+        ctor-info
+        (mapv (fn [ctor]
+                (let [n-fields (count (:fields ctor))
+                      n-ih (if is-rec
+                             (count (filter #(is-recursive-field? % ind-name) (:fields ctor)))
+                             0)]
+                  {:ctor ctor :n-fields n-fields :n-ih n-ih
+                   :n-binders (+ n-fields n-ih)
+                   :field-types (mapv :type (:fields ctor))}))
+              ctors)
+
+        eq-level result-level
+        eq-name-nm (name/from-string "Eq")
+        eq-refl-name (name/from-string "Eq.refl")
+        eq-ndrec-name (name/from-string "Eq.ndrec")
+
+        ;; Build TYPE
+        ;; ∀ {params} {P : Sort v} {a b : T params} (h : Eq T a b) → noConfusionType P a b
+        ;; Forall bodies are at depth+1 from the binder position.
+        ;; Domain types are at the binder position depth.
+        nc-type
+        (let [;; Innermost body: nct-result at depth h-bd+1 (inside the h forall)
+              result-d (long (inc h-bd))
+              nct-result (reduce e/app
+                                 (e/const' nct-name (into [v-lvl] ind-lvls-from-names))
+                                 (concat
+                                  (mapv (fn [i] (e/bvar (nc-bvar-at i result-d))) (range n-params))
+                                  [(e/bvar (nc-bvar-at P-bd result-d))
+                                   (e/bvar (nc-bvar-at a-bd result-d))
+                                   (e/bvar (nc-bvar-at b-bd result-d))]))
+              ;; h forall domain: Eq (I params) a b at depth h-bd
+              ind-at-h (nc-ind-app ind-name ind-lvl-levels n-params h-bd)
+              eq-type-h (e/app* (e/const' eq-name-nm [eq-level])
+                                ind-at-h
+                                (e/bvar (nc-bvar-at a-bd h-bd))
+                                (e/bvar (nc-bvar-at b-bd h-bd)))
+              ;; b forall domain: I params at depth b-bd
+              ind-at-b (nc-ind-app ind-name ind-lvl-levels n-params b-bd)
+              ;; a forall domain: I params at depth a-bd
+              ind-at-a (nc-ind-app ind-name ind-lvl-levels n-params a-bd)
+              ;; Build from inside out
+              body nct-result
+              body (e/forall' "h" eq-type-h body :default)
+              body (e/forall' "b" ind-at-b body :implicit)
+              body (e/forall' "a" ind-at-a body :implicit)
+              body (e/forall' "P" (e/sort' v-lvl) body :implicit)]
+          (loop [i (dec n-params) body body]
+            (if (< i 0) body
+                (recur (dec i) (e/forall' (:name (nth params i))
+                                          (:compiled-type (nth params i))
+                                          body :implicit)))))
+
+        ;; Build VALUE
+        ;; λ {params} {P} {a} {b} (h : Eq T a b) =>
+        ;;   Eq.ndrec (λ b' => noConfusionType P a b') diag-proof b h
+        ;;
+        ;; diag-proof : noConfusionType P a a
+        ;; = rec params (λ a' => noConfusionType P a' a') diag-minors a
+        ;;
+        ;; Each diag minor for ctor c_i with fields f1..fm:
+        ;; λ f1..fm ih1..ihp => λ k => k (Eq.refl f1) ... (Eq.refl fm)
+        ;; k : (f1=f1 → ... → fm=fm → P), applying rfls gives P
+
+        ;; Build diagonal proof at body-d
+        ;; First: diagonal rec motive = λ a' => noConfusionType P a' a'
+        diag-motive
+        (let [;; Inside motive lambda: depth = body-d + 1, a' = bvar(0)
+              dm-d (inc body-d)
+              a-prime (e/bvar 0)]
+          (e/lam "a" (nc-ind-app ind-name ind-lvl-levels n-params body-d)
+                 (reduce e/app
+                         (e/const' nct-name (into [v-lvl] ind-lvls-from-names))
+                         (concat
+                          (mapv (fn [i] (e/bvar (nc-bvar-at i dm-d))) (range n-params))
+                          [(e/bvar (nc-bvar-at P-bd dm-d))
+                           a-prime a-prime]))
+                 :default))
+
+        ;; Build diagonal minors
+        diag-minors
+        (mapv
+         (fn [ci]
+           (let [info (nth ctor-info ci)
+                 n-fields (:n-fields info)
+                 n-binders (:n-binders info)
+                 ;; Inside the minor lambda: depth = body-d + n-binders
+                 minor-d (+ body-d n-binders)
+                 ;; Build lambda types for fields + IH
+                 lam-types
+                 (into (mapv (fn [fi]
+                               (let [ft (nth (:field-types info) fi)
+                                     lift-amt (- (long (+ body-d fi)) (+ n-params fi))]
+                                 (if (pos? lift-amt) (e/lift ft lift-amt 0) ft)))
+                             (range n-fields))
+                       ;; IH types for diagonal motive:
+                       ;; motive(field) = noConfusionType P field field
+                       ;; This is complex but we just use Sort v as placeholder since IH is unused
+                       ;; Actually for motive = λ a' => nctP a' a', the IH type is motive(field)
+                       ;; = noConfusionType P field field. But we won't use IH, so Sort v works
+                       ;; as a placeholder (kernel checks lambda types match rec expectations).
+                       ;; Actually we need the REAL type for kernel verification.
+                       ;; For now, compute it properly.
+                       (let [rec-fields (filterv #(is-recursive-field? (nth (:fields (:ctor info)) %) ind-name)
+                                                 (range n-fields))]
+                         (mapv (fn [ri]
+                                 (let [rf-idx (nth rec-fields ri)
+                                       ;; IH is at depth body-d + n-fields + ri
+                                       ih-d (+ body-d n-fields ri)
+                                       rf-bvar (e/bvar (nc-bvar-at (+ body-d rf-idx) ih-d))]
+                                   ;; noConfusionType P rf rf (at ih-d)
+                                   (reduce e/app
+                                           (e/const' nct-name (into [v-lvl] ind-lvls-from-names))
+                                           (concat
+                                            (mapv (fn [i] (e/bvar (nc-bvar-at i ih-d))) (range n-params))
+                                            [(e/bvar (nc-bvar-at P-bd ih-d))
+                                             rf-bvar rf-bvar]))))
+                               (range (:n-ih info)))))
+                 ;; Body: for 0 fields, λ k => k (identity on P)
+                 ;; For n fields, λ k => k (Eq.refl f1) ... (Eq.refl fn)
+                 ;; k has type: (f1=f1 → ... → fn=fn → P) → P ... wait, no
+                 ;; The diagonal type is (f1=f1 → ... → fn=fn → P) → P
+                 ;; So the proof IS: λ k => k rfl ... rfl
+                 ;; k is an extra binder at depth minor-d
+                 ;; After adding k binder: depth = minor-d + 1
+                 body
+                 (if (zero? n-fields)
+                   ;; 0 fields: diagonal type = P → P, proof = λ k => k
+                   (e/lam "k" (e/bvar (nc-bvar-at P-bd (long minor-d)))
+                          (e/bvar 0) :default)
+                   ;; n fields: diagonal type = (eq-chain → P) → P
+                   ;; proof = λ k => k rfl_1 ... rfl_n
+                   ;; First build the continuation type (domain of k)
+                   (let [;; Build the eq chain type at minor-d (for the λ k domain)
+                         chain-type
+                         (loop [fi (dec n-fields)
+                                body (e/bvar (nc-bvar-at P-bd (+ minor-d n-fields)))]
+                           (if (< fi 0) body
+                               (let [eq-d (long (+ minor-d fi))
+                                     ft-orig (nth (:field-types info) fi)
+                                     lift-amt (- eq-d (+ n-params fi))
+                                     ft (if (pos? lift-amt) (e/lift ft-orig lift-amt 0) ft-orig)
+                                     ;; Both sides are the same field: outer-field-i
+                                     fv (e/bvar (nc-bvar-at (+ body-d fi) eq-d))
+                                     eq-t (e/app* (e/const' eq-name-nm [eq-level]) ft fv fv)]
+                                 (recur (dec fi) (e/forall' "_" eq-t body :default)))))
+                         ;; k depth = minor-d, body depth = minor-d + 1
+                         k-d (inc minor-d)
+                         ;; Apply k to rfl for each field
+                         k-ref (e/bvar (nc-bvar-at minor-d k-d))
+                         k-applied
+                         (reduce (fn [acc fi]
+                                   (let [;; Eq.refl.{level} field-type field-val
+                                         ft-orig (nth (:field-types info) fi)
+                                         lift-amt (- (long k-d) (+ n-params fi))
+                                         ft (if (pos? lift-amt) (e/lift ft-orig lift-amt 0) ft-orig)
+                                         fv (e/bvar (nc-bvar-at (+ body-d fi) k-d))]
+                                     (e/app acc (e/app* (e/const' eq-refl-name [eq-level]) ft fv))))
+                                 k-ref (range n-fields))]
+                     (e/lam "k" chain-type k-applied :default)))]
+             ;; Wrap in lambdas for fields + IH
+             (loop [k (dec n-binders) body body]
+               (if (< k 0) body
+                   (recur (dec k) (e/lam "_" (nth lam-types k) body :default))))))
+         (range n-ctors))
+
+        ;; Diagonal proof: rec params diag-motive diag-minors a
+        diag-proof
+        (reduce e/app
+                (e/const' rec-name diag-rec-levels)
+                (concat
+                 (mapv (fn [i] (e/bvar (nc-bvar-at i body-d))) (range n-params))
+                 [diag-motive]
+                 diag-minors
+                 [(e/bvar (nc-bvar-at a-bd body-d))]))
+
+        ;; Eq.ndrec motive for transporting from noConfusionType P a a to noConfusionType P a b
+        ;; motive = λ b' => noConfusionType P a b'
+        ndrec-motive
+        (let [;; Inside lambda: depth = body-d + 1, b' = bvar(0)
+              nm-d (inc body-d)]
+          (e/lam "b" (nc-ind-app ind-name ind-lvl-levels n-params body-d)
+                 (reduce e/app
+                         (e/const' nct-name (into [v-lvl] ind-lvls-from-names))
+                         (concat
+                          (mapv (fn [i] (e/bvar (nc-bvar-at i nm-d))) (range n-params))
+                          [(e/bvar (nc-bvar-at P-bd nm-d))
+                           (e/bvar (nc-bvar-at a-bd nm-d))
+                           (e/bvar 0)]))  ;; b'
+                 :default))
+
+        ;; Full body: Eq.ndrec.{v, eq-level} (T params) a ndrec-motive diag-proof b h
+        nc-val-body
+        (e/app* (e/const' eq-ndrec-name [v-lvl eq-level])
+                (nc-ind-app ind-name ind-lvl-levels n-params body-d)
+                (e/bvar (nc-bvar-at a-bd body-d))
+                ndrec-motive
+                diag-proof
+                (e/bvar (nc-bvar-at b-bd body-d))
+                (e/bvar (nc-bvar-at h-bd body-d)))
+
+        ;; Wrap in lambdas
+        nc-val
+        (let [ind-at-a (nc-ind-app ind-name ind-lvl-levels n-params a-bd)
+              ind-at-b (nc-ind-app ind-name ind-lvl-levels n-params b-bd)
+              ind-at-h (nc-ind-app ind-name ind-lvl-levels n-params h-bd)
+              eq-type-h (e/app* (e/const' eq-name-nm [eq-level])
+                                ind-at-h
+                                (e/bvar (nc-bvar-at a-bd h-bd))
+                                (e/bvar (nc-bvar-at b-bd h-bd)))
+              body nc-val-body
+              body (e/lam "h" eq-type-h body :default)
+              body (e/lam "b" ind-at-b body :implicit)
+              body (e/lam "a" ind-at-a body :implicit)
+              body (e/lam "P" (e/sort' v-lvl) body :implicit)]
+          (loop [i (dec n-params) body body]
+            (if (< i 0) body
+                (recur (dec i) (e/lam (:name (nth params i))
+                                      (:compiled-type (nth params i))
+                                      body :implicit)))))]
+
+    (env/mk-def nc-name (vec nc-level-names) nc-type nc-val
+                :hints :abbrev :all [nc-name])))
+
+;; ============================================================
 ;; Public API
 ;; ============================================================
 
@@ -1067,12 +1573,21 @@
                       env (env/add-constant env cases-on-ci)
                       env (env/add-constant env rec-on-ci)]
                   env)
+                env)
+          ;; Build noConfusion for non-indexed, non-Prop types
+          env (if (and (zero? n-indices) (not is-prop))
+                (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
+                                                       level-param-names rec-name rec-level-params
+                                                       result-level is-rec ind-name-str)
+                      nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
+                                                 level-param-names rec-name rec-level-params
+                                                 result-level is-rec ind-name-str)
+                      env (env/add-constant env nct-ci)
+                      env (env/add-constant env nc-ci)]
+                  env)
                 env)]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env))
-
-    ;; noConfusion (skip for now — complex, not required for basic use)
-    ;; Future: build-no-confusion for non-Prop types
 
     (println "✓ inductive" ind-name-str "defined:"
              (count ctors) "constructors, recursor, casesOn, recOn")

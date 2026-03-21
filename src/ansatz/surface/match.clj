@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Surface syntax — match expression compilation.
 ;;
 ;; Compiles pattern-matching expressions to recursor (Ind.rec) applications,
@@ -34,6 +33,17 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc])
   (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule]))
+
+;; ============================================================
+;; Recursion context — Lean 4 separation of match vs recursion
+;; ============================================================
+
+;; When true, matches use casesOn (no IH) instead of rec (with IH).
+;; Set to true after the outermost match in a defn body fires.
+;; This prevents inner matches from generating IH bindings that
+;; shadow the outer recursion's IH — matching Lean 4's design where
+;; only the top-level structural recursion provides IHs.
+(def ^:dynamic *use-cases-on?* false)
 
 ;; ============================================================
 ;; Pattern representation
@@ -184,7 +194,7 @@
    constructor with different sub-patterns, we build nested matches from
    all of them."
   [env est elab-fn ind-name ind-levels params ctor-name nfields
-   num-ih-args matching-alts ret-type]
+   num-ih-args matching-alts ret-type & [discr-fvar-id]]
   (when (empty? matching-alts)
     (throw (ex-info (str "Match: non-exhaustive patterns, missing case for "
                          (name/->string ctor-name))
@@ -264,7 +274,9 @@
                                     (when (and (e/const? fh) (= (e/const-name fh) ind-name))
                                       i)))
                                 field-info))
-        ;; Add IH fvars to both lctx AND scope with ih_fieldname
+        ;; Add IH fvars to lctx (always needed for recursor lambda) and
+        ;; to scope ONLY when not suppressed. Lean 4: only the outermost
+        ;; structural recursion binds IH names; inner matches don't.
         est' (reduce
               (fn [est i]
                 (let [fid (nth ih-fvar-ids i)
@@ -274,9 +286,13 @@
                       field-name (when rec-field-idx (:name (nth field-info rec-field-idx)))
                       ih-name (if field-name (str "ih_" field-name) (str "ih" i))
                       ih-sym (symbol ih-name)]
-                  (-> est
-                      (update :tc update :lctx red/lctx-add-local fid ih-name iht)
-                      (assoc-in [:scope ih-sym] {:fvar-id fid :type iht}))))
+                  (cond-> est
+                    ;; Always add to lctx (recursor lambda needs the binding)
+                    true
+                    (update :tc update :lctx red/lctx-add-local fid ih-name iht)
+                    ;; Only add to scope when NOT suppressed (top-level recursion)
+                    (not *use-cases-on?*)
+                    (assoc-in [:scope ih-sym] {:fvar-id fid :type iht}))))
               est'
               (range num-ih-args))
         ;; Check if we have nested ctor sub-patterns from ANY matching alt
@@ -294,6 +310,17 @@
                                matching-alts nfields)
           ;; Simple case: just elaborate the first alt's RHS
           (elab-fn est' (:rhs-sexpr first-alt)))
+        ;; Replace discriminant variable with constructor application.
+        ;; When the match body references the original parameter (e.g., `l` in
+        ;; `(cons x l)`), the elaborated RHS has fvar_l. But the recursor's iota
+        ;; reduction decomposes `l` into `(cons hd tl)`. We must substitute so
+        ;; the recursor body and equation theorems agree on the structure.
+        rhs-body (if discr-fvar-id
+                   (let [ctor-app (reduce e/app
+                                          (e/const' ctor-name ind-levels)
+                                          (concat params field-fvars))]
+                     (e/instantiate1 (e/abstract1 rhs-body discr-fvar-id) ctor-app))
+                   rhs-body)
         ;; Build lambda: abstract IH fvars, then field fvars (inside out)
         body-with-ih
         (reduce (fn [body i]
@@ -391,7 +418,11 @@
         num-params (.numParams ind-ci)
         params (subvec (vec type-args) 0 (min num-params (count type-args)))
         indices (subvec (vec type-args) (min num-params (count type-args)))
-        ;; Look up Ind.rec
+        ;; Suppress IH for inner matches: still use rec (same arg order),
+        ;; but don't bind IH params to scope. Lean 4: only the top-level
+        ;; structural recursion generates IHs. Inner matches are pure
+        ;; destructuring — IH lambdas exist but are unnamed/unused.
+        suppress-ih *use-cases-on?*
         rec-name (name/mk-str ind-name "rec")
         ^ConstantInfo rec-ci (env/lookup! env rec-name)
         _ (when-not (.isRecursor rec-ci)
@@ -455,7 +486,17 @@
         ;; Build the motive: λ (x : IndType params) => ret-type
         ind-applied (reduce e/app (e/const' ind-name ind-levels) params)
         motive (e/lam "x" ind-applied ret-type :default)
-        ;; Build minor premises for each constructor
+        ;; Build minor premises for each constructor.
+        ;; When suppress-ih: still create IH lambda params (rec requires them),
+        ;; but don't bind them to scope — preventing name shadowing.
+        ;; When NOT suppress-ih (top-level): wrap elab-fn so nested matches
+        ;; suppress IH (Lean 4: only outermost recursion provides IHs).
+        elab-fn-for-rhs (if suppress-ih
+                           elab-fn  ;; already suppressing
+                           ;; Top-level rec: set *use-cases-on?* for RHS elaboration
+                           (fn [est sexpr]
+                             (binding [*use-cases-on?* true]
+                               (elab-fn est sexpr))))
         minor-terms
         (mapv
          (fn [i]
@@ -464,9 +505,11 @@
                  nfields (.nfields rule)
                  num-ih (count-ih-args env ctor-name ind-name ind-levels params)
                  matching-alts (find-matching-alts ctor-name alts)]
-             (build-minor-premise env est elab-fn ind-name ind-levels params
+             (build-minor-premise env est elab-fn-for-rhs ind-name ind-levels params
                                   ctor-name nfields num-ih
-                                  matching-alts ret-type)))
+                                  matching-alts ret-type
+                                  ;; Pass discriminant fvar-id for substitution
+                                  (when (e/fvar? discr-expr) (e/fvar-id discr-expr)))))
          (range num-minors))]
     ;; Build recursor application: params, motive, minors, indices, major
     (reduce e/app

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Generic SMT solver service for tactic use.
 ;;
 ;; Wraps zustand (data-oriented SMT solver) with a clean protocol interface.

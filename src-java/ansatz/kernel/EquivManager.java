@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — Union-find for proven expression equalities.
 
 package ansatz.kernel;

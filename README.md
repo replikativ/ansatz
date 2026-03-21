@@ -2,27 +2,34 @@
 
 **Write Clojure. Prove it correct. Run at native speed.**
 
-Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations), and compiles verified functions to native Clojure.
+Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to native Clojure.
 
 **Same kernel, different surface.** Ansatz shares Lean 4's CIC kernel — a proof verified in Ansatz is valid in Lean 4 and vice versa. Proofs can be [exported to Lean 4](doc/lean4-for-clojurians.md) syntax. The difference is the surface language: Lean 4 uses its own syntax; Ansatz uses Clojure s-expressions and runs on the JVM. See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the full comparison, translation guide, and learning path.
 
 ```clojure
 (require '[ansatz.core :as a])
+(a/init! "/var/tmp/ansatz-cslib" "cslib")
 
-;; Define a verified function (compiles to Clojure)
-(a/defn gd-step [x :- Real, grad :- Real, eta :- Real] Real
-  (sub Real x (mul Real eta grad)))
+;; Verified merge sort — kernel-checked, compiles to Clojure
+(a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
+  :termination-by (+ (List.length xs) (List.length ys))
+  (match xs (List Nat) (List Nat)
+    (nil ys)
+    (cons [x xs']
+      (match ys (List Nat) (List Nat)
+        (nil (List.cons x xs'))
+        (cons [y ys']
+          (if (<= x y)
+            (List.cons x (merge xs' (List.cons y ys')))
+            (List.cons y (merge (List.cons x xs') ys'))))))))
 
-;; Prove convergence rate (checked by Ansatz kernel)
-(a/theorem gd-convergence
-  [κ :- Real, ε₀ :- Real, n :- Nat,
-   hκ₀ :- (<= Real 0 κ), hκ₁ :- (<= Real κ 1), hε₀ :- (<= Real 0 ε₀)]
-  (<= Real (mul Real (pow Real κ n) ε₀) ε₀)
-  (apply mul_le_of_le_one_left) (assumption)
-  (apply pow_le_one₀) (all_goals (assumption)))
+;; Run it — it's a normal Clojure function
+(merge '(1 3 5) '(2 4 6)) ;; => (1 2 3 4 5 6)
 
-;; Run as normal Clojure code
-(((gd-step 10.0) 6.0) 0.3) ;; => 8.2
+;; Structures compile to Clojure defrecord
+(a/structure Point [] (x Nat) (y Nat))
+(->Point 3 4)  ;; => #user.Point{:x 3, :y 4}
+(:x (->Point 3 4))  ;; => 3
 ```
 
 **Verified data structures** — define types, implement with pattern matching, prove properties:
@@ -54,8 +61,8 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 
 ;; All verified functions compile to native Clojure and run at full speed
 (rb-size tree)           ;; => 10
-((rb-member tree) 4)     ;; => true
-((rb-member tree) 42)    ;; => false
+(rb-member tree 4)       ;; => true
+(rb-member tree 42)      ;; => false
 ```
 
 **Prove properties** — the kernel checks your proofs against Lean 4's type theory:
@@ -93,33 +100,39 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 ```
 
 See [examples/](examples/) for complete working examples:
-- **[gradient_descent.clj](examples/gradient_descent.clj)** — verified GD convergence rate proofs
+- **[sorting.clj](examples/sorting.clj)** — verified merge sort, structures, factorial (CSLib-inspired)
 - **[rbtree.clj](examples/rbtree.clj)** — verified red-black tree with balance proofs
+- **[gradient_descent.clj](examples/gradient_descent.clj)** — verified GD convergence rate proofs
 - **[metaprogramming.clj](examples/metaprogramming.clj)** — custom tactics, elaborators, simprocs
 
 New to theorem proving? Start with **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** — a translation guide with a curated learning path from the [Natural Number Game](https://adam.math.hhu.de/#/g/hhu-adam/NNG4) to Mathlib.
 
 ### How it works (for Clojure developers)
 
-Ansatz adds three things to Clojure:
+Ansatz adds these primitives to Clojure:
 
-1. **`a/defn`** — like `defn`, but type-checked. The kernel verifies that your function matches its type signature. The compiled output is a normal Clojure `fn`.
+1. **`a/defn`** — like `defn`, but type-checked. The kernel verifies that your function matches its type signature. Supports well-founded recursion via `:termination-by` for non-structural patterns (merge sort, factorial). The compiled output is a normal Clojure `fn`.
 
 2. **`a/theorem`** — states a property and proves it using *tactics*. Tactics are commands that build a proof step by step. For example, `(apply lemma)` applies a known lemma, and `(assumption)` closes a goal from the local context. The kernel verifies the final proof term.
 
-3. **`a/inductive`** — defines algebraic data types (like Clojure records but with exhaustive pattern matching). The kernel generates a recursor that ensures termination.
+3. **`a/inductive`** — defines algebraic data types with exhaustive pattern matching. The kernel generates a recursor that ensures termination.
+
+4. **`a/structure`** — defines record types that compile to Clojure `defrecord`. Fields are accessible via keywords: `(:x point)`. Kernel-verified projections are auto-generated.
 
 The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (algebra, analysis, topology). Ansatz lets you USE those theorems in your Clojure proofs. When you write `(apply mul_le_of_le_one_left)`, you're applying a theorem that was proved in Mathlib and verified by the kernel. Proofs are portable — Ansatz can [export to Lean 4 syntax](doc/lean4-for-clojurians.md) and Lean 4 proofs can be imported into Ansatz.
 
 ## Features
 
 - **Verified functions** — define functions with CIC types, prove properties, run at JVM speed
-- **Lean 4 Mathlib integration** — 648k declarations available for proofs (Real, algebra, analysis, topology)
+- **Well-founded recursion** — `:termination-by` for non-structural patterns (merge sort, factorial)
+- **Structures** — `a/structure` compiles to `defrecord` with keyword access and pretty-printing
+- **Lean 4 Mathlib + CSLib** — 648k Mathlib declarations + CSLib verified algorithms
 - **Tactic proofs** — `apply`, `simp`, `omega`, `ring`, `assumption`, `induction`, `cases`, and more
-- **Instance synthesis** — automatic typeclass resolution with tabled backtracking (Lean 4 SynthInstance algorithm)
-- **Compiled output** — verified `defn` compiles to native Clojure `fn` with zero overhead
+- **Instance synthesis** — automatic typeclass resolution with tabled backtracking
+- **Typeclass polymorphism** — `:inst` params for generic algorithms
+- **Compiled output** — verified `defn` compiles to native Clojure `fn` with arity-aware flat calls
 - **Extensible** — register custom tactics, elaborators, and simprocs with full kernel access
-- **Configurable** — all fuel limits, depth bounds, and synthesis parameters are dynamic vars
+- **Immutable proof state** — free backtracking via Clojure persistent data structures
 
 ## Quick Start
 
@@ -176,6 +189,16 @@ clj -M -e '
 (s/import-ndjson-streaming! store "test-data/mathlib.ndjson" "mathlib" :verbose? true)
 '
 ```
+
+### Setup CSLib Store (Verified Algorithms)
+
+[CSLib](https://github.com/leanprover/cslib) is the official Computer Science library for Lean 4 — verified sorting, automata, lambda calculus, and more.
+
+```bash
+./scripts/setup-cslib.sh
+```
+
+This imports CSLib (including its Mathlib dependency) into a store at `/var/tmp/ansatz-cslib`.
 
 **Using init-medium for quick testing (no Lean needed)**
 
@@ -239,8 +262,16 @@ Type                         ;; types
 ### Definitions
 
 ```clojure
-;; Verified function
+;; Verified function (structural recursion)
 (a/defn name [param :- Type, ...] ReturnType body)
+
+;; Well-founded recursion (non-structural, e.g. merge sort)
+(a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
+  :termination-by (+ (List.length xs) (List.length ys))
+  body)
+
+;; Typeclass params
+(a/defn sort [α :- Type, inst :- (Ord α) :inst, xs :- (List α)] (List α) ...)
 
 ;; Theorem
 (a/theorem name [param :- Type, hyp :- (le Real 0 x), ...]
@@ -248,6 +279,11 @@ Type                         ;; types
   (tactic1 arg1 arg2)
   (tactic2)
   ...)
+
+;; Structure (compiles to defrecord)
+(a/structure Point [] (x Nat) (y Nat))
+;; Creates: (->Point 3 4) => #user.Point{:x 3, :y 4}
+;; Access: (:x p), (:y p)
 
 ;; Inductive type
 (a/inductive Color [] (red) (green) (blue))
@@ -405,18 +441,18 @@ See [CLAUDE.md](CLAUDE.md) for detailed developer workflow, REPL navigation, tra
 ## Architecture
 
 ```
-Lean 4 Mathlib  →  NDJSON export  →  Ansatz store (filestore/flatstore)
-                                            ↓
-                                    ansatz.core/init!
-                                            ↓
-                                    Env (648k declarations)
-                                            ↓
-                              ┌─────────────┴─────────────┐
-                              ↓                           ↓
-                    ansatz/defn                   ansatz/theorem
-                    (compile to Clojure)         (prove with tactics)
-                              ↓                           ↓
-                    Native JVM fn              Java TypeChecker verifies
+Lean 4 Mathlib + CSLib  →  lean4export  →  Ansatz PSS store
+                                                  ↓
+                                          ansatz.core/init!
+                                                  ↓
+                                          Env (immutable, on-demand loading)
+                                                  ↓
+                    ┌────────────┬────────────────┴────────────────┐
+                    ↓            ↓                                 ↓
+             a/defn        a/structure                      a/theorem
+             (+ :termination-by)  (→ defrecord)            (prove with tactics)
+                    ↓            ↓                                 ↓
+             Native JVM fn  Clojure record             Java TypeChecker verifies
 ```
 
 ### Kernel (Java)
@@ -429,9 +465,11 @@ The CIC kernel is implemented in Java for performance:
 
 ### Tactic Layer (Clojure)
 
-Tactics are pure functions `(proof-state → proof-state)`:
+Tactics are pure functions `(proof-state → proof-state)` on immutable Clojure maps. Backtracking is free via persistent data structures (no save/restore needed).
+
 - `basic.clj` — apply, intro, assumption, cases, induction, rewrite
 - `simp.clj` — simplification by rewriting (Lean 4's simp architecture)
+- `omega.clj` — linear arithmetic for Nat/Int (ground + non-ground goals)
 - `instance.clj` — typeclass synthesis with tabled resolution
 - `extract.clj` — proof term extraction and verification
 
@@ -459,7 +497,7 @@ clj -M:repl
 
 ## Lean 4 Attribution
 
-Ansatz implements the Calculus of Inductive Constructions following [Lean 4](https://github.com/leanprover/lean4) (Apache 2.0). The kernel type checker and reducer are independent implementations verified against Lean 4's export format. Mathlib declarations are imported via [lean4export](https://github.com/leanprover/lean4export).
+Ansatz implements the Calculus of Inductive Constructions following [Lean 4](https://github.com/leanprover/lean4) (Apache 2.0). The kernel type checker, reducer, and tactic infrastructure are independent implementations in Java/Clojure, informed by Lean 4's algorithms but without copying source code. Mathlib and CSLib declarations are imported via [lean4export](https://github.com/leanprover/lean4export). [CSLib](https://github.com/leanprover/cslib) (Apache 2.0) provides the verified algorithms library.
 
 ## License
 

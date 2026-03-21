@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — ring: polynomial identity decision procedure.
 ;;
 ;; Implements polynomial normalization for CommRing/CommSemiring:

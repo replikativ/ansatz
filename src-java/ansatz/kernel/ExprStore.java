@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — File-backed expression store for large imports.
 
 package ansatz.kernel;

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Type checker: infer, check, is-def-eq.
 
 (ns ansatz.kernel.tc

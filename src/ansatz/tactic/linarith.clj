@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — linarith: linear arithmetic over ordered fields.
 ;;
 ;; Closes goals that follow from linear arithmetic over hypotheses.

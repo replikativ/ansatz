@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Inductive type processing.
 
 (ns ansatz.kernel.inductive

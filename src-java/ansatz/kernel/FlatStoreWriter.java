@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — Writer for FlatStore mmap'd format.
 
 package ansatz.kernel;

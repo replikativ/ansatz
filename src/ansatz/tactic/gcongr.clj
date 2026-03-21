@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — gcongr: generalized congruence (monotonicity reasoning).
 ;;
 ;; Proves inequality goals by decomposing them into sub-inequalities
@@ -59,7 +58,9 @@
           env (:env ps)
           ci (env/lookup env lname)]
       (when ci
-        (let [term (e/const' lname [lvl/zero])
+        (let [lps (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+              levels (mapv (fn [_] lvl/zero) lps)
+              term (e/const' lname levels)
               ps' (basic/apply-tac ps term)]
           ;; Try to close all remaining goals with assumption or positivity
           (basic/all-goals ps'
@@ -93,7 +94,11 @@
         _ (when-not goal (tactic-error! "No goals" {}))]
     ;; Strategy 1: try assumption
     (or (try (basic/assumption ps) (catch Exception _ nil))
-        ;; Strategy 2: try each gcongr lemma
+        ;; Strategy 2: try omega (handles many Nat inequality goals directly)
+        (try (let [omega-fn (requiring-resolve 'ansatz.tactic.omega/omega)]
+               (omega-fn ps))
+             (catch Exception _ nil))
+        ;; Strategy 3: try each gcongr lemma
         (some (fn [[lname _desc]]
                 (try-gcongr-lemma ps lname))
               gcongr-lemmas)

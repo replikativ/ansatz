@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; PSS-backed persistent store for Ansatz kernel.
 
 (ns ansatz.export.storage

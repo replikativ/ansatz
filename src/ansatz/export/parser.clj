@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; lean4export NDJSON parser.
 
 (ns ansatz.export.parser

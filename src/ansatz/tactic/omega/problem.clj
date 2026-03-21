@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Omega problem: constraint algebra, justification tree, and problem data structures.
 ;;
 ;; This module defines the solver-independent representation of an omega problem.

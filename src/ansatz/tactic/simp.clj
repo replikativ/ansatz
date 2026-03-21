@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — simp: simplification by term rewriting.
 ;;
 ;; Implements a simplification tactic following Lean 4's simp architecture:
@@ -1300,7 +1299,8 @@
 (defn- find-eqn-theorems
   "Find equation theorems for a declaration: declName.eq_1, eq_1t, eq_1f, eq_2, ...
    Lean 4: getEqnsFor? discovers these lazily.
-   Also finds conditional variants (eq_Nt, eq_Nf) for Bool-split branches."
+   Also finds conditional variants (eq_Nt, eq_Nf) and inner-split variants
+   (eq_N_M from nested match splitting) for Bool-split branches."
   [env decl-name]
   (loop [i 1 result []]
     (let [base-name (name/mk-str decl-name (str "eq_" i))
@@ -1310,13 +1310,30 @@
           true-ci (env/lookup env true-name)
           false-name (name/mk-str decl-name (str "eq_" i "f"))
           false-ci (env/lookup env false-name)
-          found (cond-> []
+          ;; Check leaf-level split variants (Lean 4 style: flat sequential).
+          ;; Names: eq_Ns1, eq_Ns2, ... (one per leaf of match tree).
+          split-names (loop [j 1 splits []]
+                        (let [sn (name/mk-str decl-name (str "eq_" i "s" j))]
+                          (if (env/lookup env sn)
+                            (recur (inc j) (conj splits sn))
+                            splits)))
+          found (cond-> (vec split-names)
                   base-ci (conj base-name)
                   true-ci (conj true-name)
                   false-ci (conj false-name))]
       (if (seq found)
         (recur (inc i) (into result found))
-        (when (seq result) result)))))
+        ;; No more direct equations — also search for auxiliary matcher equations.
+        ;; Lean 4: each nested match becomes a named matcher with its own equations.
+        ;; We generate these as fn._match_N with their own eq_1, eq_2, etc.
+        (let [aux-results (loop [m 1 aux-acc []]
+                            (let [aux-name (name/mk-str decl-name (str "_match_" m))]
+                              (if-let [aux-eqns (when (env/lookup env aux-name)
+                                                  (find-eqn-theorems env aux-name))]
+                                (recur (inc m) (into aux-acc aux-eqns))
+                                aux-acc)))]
+          (when (seq (into result aux-results))
+            (into result aux-results)))))))
 
 (defn- try-ground-eval
   "Try to evaluate a ground term using equation theorems.
@@ -2317,7 +2334,26 @@
   [ps goal st result lemma-names]
   (let [simplified (:expr result)
         simplified-whnf (#'tc/cached-whnf st simplified)
-        goal-type (:type goal)]
+        ;; For Eq.mpr, goal-type must match the eq-proof's LHS exactly.
+        ;; simp-expr* may start from a WHNF'd or rewritten form, so the eq-proof's
+        ;; LHS might differ from (:type goal). Extract the actual LHS from the proof.
+        raw-goal-type (:type goal)
+        ;; Extract actual LHS/RHS from eq-proof for Eq.mpr consistency.
+        ;; simp-expr* may WHNF before rewriting, so the proof's type endpoints
+        ;; might differ from the raw input/output expressions.
+        [goal-type simplified-from-proof]
+        (if-let [proof (:proof? result)]
+          (let [proof-type (try (tc/infer-type st proof) (catch Exception _ nil))
+                proof-whnf (when proof-type (#'tc/cached-whnf st proof-type))
+                [head args] (when proof-whnf (e/get-app-fn-args proof-whnf))]
+            (if (and head (e/const? head)
+                     (= (e/const-name head) (name/from-string "Eq"))
+                     (= 3 (count args)))
+              [(nth args 1) (nth args 2)]
+              [raw-goal-type nil]))
+          [raw-goal-type nil])
+        ;; Use proof-extracted simplified if available, otherwise the raw simp result
+        simplified (or simplified-from-proof simplified)]
     (cond
       ;; Simplified to True
       ;; Lean 4: if r.expr.isTrue → close with of_eq_true
@@ -2367,7 +2403,7 @@
                    (let [mpr-level (let [gs (safe-infer st goal-type)
                                          gsw (when gs (safe-whnf st gs))]
                                      (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
-                         [ps' new-id] (proof/fresh-mvar ps simplified (:lctx goal))]
+                         [ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
                      (-> (proof/assign-mvar ps' (:id goal)
                                             {:kind :simp-reduce
                                              :eq-proof (:proof? result)
@@ -2377,13 +2413,10 @@
                                              :simplified simplified})
                          (proof/record-tactic :simp lemma-names (:id goal))))
                    ;; Proof chain is nil (all rfl steps) but simp simplified.
-                   ;; The simplified type is def-eq to the original goal type.
-                   ;; Create a sub-goal with the simplified type — the child's proof
-                   ;; directly proves the original goal (kernel verifies def-eq).
-                   (let [[ps' new-id] (proof/fresh-mvar ps simplified (:lctx goal))]
+                   (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
                      (-> (proof/assign-mvar ps' (:id goal)
                                             {:kind :simp-reduce
-                                             :eq-proof nil  ;; def-eq, no explicit proof
+                                             :eq-proof nil
                                              :child new-id
                                              :mpr-level lvl/zero
                                              :goal-type goal-type
@@ -2535,8 +2568,11 @@
 
 (defn simp-all
   "Simplify goal + all hypotheses (Lean 4's SimpAll).
-   Phase 1: simp the goal with contextual hypotheses.
-   Phase 2: simplify Prop hypothesis types and add alongside originals."
+   Following Lean 4's SimpAll.lean:
+   Phase 1: simplify hypothesis entries (in-memory, no lctx modification).
+   Phase 2: build simp-all-hyps wrapper with expanded lctx.
+   Phase 3: simp the goal in the updated lctx (eq-proof consistent).
+   This order ensures the goal's Eq.mpr is built in the correct lctx."
   ([ps] (simp-all ps []))
   ([ps lemma-names]
    (let [goal (proof/current-goal ps)
@@ -2545,22 +2581,13 @@
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          all-names (if (seq lemma-names)
                      (distinct (concat default-simp-lemmas lemma-names))
-                     default-simp-lemmas)
-         ;; Phase 1: simp the goal with contextual
-         ;; Catch "no progress" — Phase 2 can still be useful even if
-         ;; Phase 1 doesn't simplify the goal (it decomposes hypotheses
-         ;; for the NEXT simp_all call). Lean 4: SimpAll.loop continues
-         ;; even when simpTarget makes no progress.
-         ps' (try (simp ps lemma-names {:contextual? true})
-                  (catch Exception _ ps))
-         goal' (proof/current-goal ps')]
-     (if (nil? goal')
-       ps'  ;; Goal closed — done
-       ;; Phase 2: hypothesis simplification
+                     default-simp-lemmas)]
+     ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
        ;; corruption from full simp on hypothesis types. Non-def-eq changes
        ;; need transitive CongrArgKind propagation through lambda bodies.
-       (let [lctx (:lctx goal')
+       (let [goal' goal
+             lctx (:lctx goal')
              st (assoc (tc/mk-tc-state env) :lctx lctx)
              base-lemmas (make-simp-lemmas env all-names)
              eqn-lemmas (vec (mapcat (fn [n]
@@ -2614,21 +2641,56 @@
                       ;; try-simp-using-decide). Lean 4 doesn't TC-verify
                       ;; intermediate proofs during simp_all — final extract/verify
                       ;; catches any remaining issues.
-                      (conj acc {:old-fvar-id id :name (:name decl)
-                                 :old-type (:type decl) :new-type (:expr result)
-                                 :eq-proof (:proof? result)})))
+                      ;; Extract actual proof types for Eq.mp consistency at extraction time.
+                      ;; simp-expr* may WHNF before rewriting, so eq-proof endpoints
+                      ;; might differ from the raw hypothesis type / simp result.
+                      (let [[proof-old proof-new]
+                            (if-let [proof (:proof? result)]
+                              (let [pt (try (tc/infer-type st proof) (catch Exception _ nil))
+                                    pw (when pt (#'tc/cached-whnf st pt))
+                                    [h a] (when pw (e/get-app-fn-args pw))]
+                                (if (and h (e/const? h)
+                                         (= (e/const-name h) (name/from-string "Eq"))
+                                         (= 3 (count a)))
+                                  [(nth a 1) (nth a 2)]
+                                  [nil nil]))
+                              [nil nil])]
+                        (conj acc {:old-fvar-id id :name (:name decl)
+                                   :old-type (:type decl) :new-type (:expr result)
+                                   ;; proof-consistent types for extraction
+                                   :proof-old-type (or proof-old (:type decl))
+                                   :proof-new-type (or proof-new (:expr result))
+                                   :eq-proof (:proof? result)}))))
                   (catch Exception _ acc)))
               []
               hyps)]
          (if (empty? replacements)
-           ps'  ;; No hypothesis changes — return simp result as-is
+           ;; No hypothesis changes — just simp the goal directly
+           (try (simp ps lemma-names {:contextual? true})
+                (catch Exception _ ps))
            ;; Add simplified hypotheses alongside originals
-           (let [;; Allocate new fvar ids
-                 [ps'' replacements']
+           (let [;; Allocate new fvar ids, decomposing And types recursively.
+                 ;; Lean 4: SimpTheorems.preprocess splits And into left/right
+                 ;; via mkProj. We do the same here so each conjunct becomes
+                 ;; a separate hypothesis visible to omega and other tactics.
+                 [ps' replacements']
                  (reduce (fn [[ps reps] rep]
-                           (let [[ps' new-id] (proof/alloc-id ps)]
-                             [ps' (conj reps (assoc rep :new-fvar-id new-id))]))
-                         [ps' []]
+                           (letfn [(expand [ps ty name-base]
+                                     (let [[head args] (e/get-app-fn-args ty)]
+                                       (if (and (e/const? head)
+                                                (= (e/const-name head) and-name)
+                                                (= 2 (count args)))
+                                         ;; And P Q → expand left and right
+                                         (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081"))
+                                               [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082"))]
+                                           [ps' (into left-reps right-reps)])
+                                         ;; Leaf — allocate one fvar
+                                         (let [[ps' new-id] (proof/alloc-id ps)]
+                                           [ps' [(assoc rep :new-fvar-id new-id
+                                                        :new-type ty :name name-base)]]))))]
+                             (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep))]
+                               [ps' (into reps new-entries)])))
+                         [ps []]
                          replacements)
                  ;; Build new lctx: keep originals, add simplified versions
                  ;; Use distinct names (append ') to avoid name collision with
@@ -2641,7 +2703,7 @@
                                   replacements')
                  ;; Create body sub-goal (insert at front for priority)
                  [ps'' body-goal-id]
-                 (let [[ps''' id] (proof/alloc-id ps'')]
+                 (let [[ps''' id] (proof/alloc-id ps')]
                    [(-> ps'''
                         (assoc-in [:mctx id] {:type (:type goal') :lctx new-lctx :assignment nil})
                         (update :goals #(into [id] %)))
@@ -2652,7 +2714,11 @@
                                                :replacements replacements'
                                                :child body-goal-id})
                           (proof/record-tactic :simp-all (vec lemma-names) (:id goal')))]
-             ps'')))))))
+             ;; Phase 2 (Lean 4 order): simp the goal AFTER hypothesis expansion.
+             ;; The goal's eq-proof is now built in the expanded lctx — consistent!
+             (try (simp ps'' lemma-names {:contextual? true})
+                  (catch Exception _ ps''))))))))
+
 
 
 ;; ============================================================

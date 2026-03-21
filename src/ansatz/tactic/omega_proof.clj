@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — omega proof term construction.
 ;;
 ;; Mirrors Lean 4's omega tactic proof architecture:

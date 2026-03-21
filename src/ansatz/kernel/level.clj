@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Universe levels.
 ;; Thin wrapper over Java Level class.
 

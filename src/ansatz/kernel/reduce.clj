@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Reduction machinery (WHNF).
 
 (ns ansatz.kernel.reduce

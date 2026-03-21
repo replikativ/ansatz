@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Environment and Declaration types.
 ;; Thin wrapper over Java ConstantInfo and Env classes.
 

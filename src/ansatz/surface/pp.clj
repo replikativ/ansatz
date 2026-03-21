@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Pretty-printer for Ansatz expressions — renders human-readable Lean-like text.
 
 (ns ansatz.surface.pp

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — search infrastructure for proof exploration.
 
 (ns ansatz.tactic.search

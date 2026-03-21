@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Lean 4 syntax emitter — produces valid, fully explicit Lean 4 code from Ansatz expressions.
 
 (ns ansatz.surface.lean

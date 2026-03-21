@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Centralized configuration defaults for Ansatz.
 ;;
 ;; All values are dynamic vars and can be rebound per-thread with `binding`.

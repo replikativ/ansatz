@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Ansatz kernel for Clojure — Expression (term) representation.
 ;; Thin adapter over Java Expr class for ~64% memory reduction.
 
@@ -27,7 +26,7 @@
 ;; ============================================================
 
 (def ^:private tag-kws
-  [:bvar :sort :const :app :lam :forall :let :lit-nat :lit-str :mdata :proj :fvar])
+  [:bvar :sort :const :app :lam :forall :let :lit-nat :lit-str :mdata :proj :fvar :mvar])
 
 (defn tag [^Expr e] (nth tag-kws (.tag e)))
 
@@ -95,6 +94,13 @@
   [id]
   (Expr/fvar (long id)))
 
+(defn mvar
+  "Metavariable with unique id. Used as placeholder in proof terms.
+   NOT affected by abstract1 (no HAS_FVAR_BIT), so it survives
+   lambda abstractions from cases/intro extraction."
+  [id]
+  (Expr/mvar (long id)))
+
 ;; ============================================================
 ;; Metadata — inline bit extraction from packed data long
 ;; ============================================================
@@ -131,6 +137,8 @@
 (defn mdata? [^Expr e] (= Expr/MDATA (.tag e)))
 (defn proj? [^Expr e] (= Expr/PROJ (.tag e)))
 (defn fvar? [^Expr e] (= Expr/FVAR (.tag e)))
+(defn mvar? [^Expr e] (= Expr/MVAR (.tag e)))
+(defn mvar-id ^long [^Expr e] (.longVal e))
 
 ;; ============================================================
 ;; Field accessors — direct field access via type hints
@@ -256,7 +264,8 @@
                   :lit-str e
                   :mdata (mdata (mdata-data e) (go (mdata-expr e) c))
                   :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) c))
-                  :fvar e)))]
+                  :fvar e
+                  :mvar e)))]
     (go e c)))
 
 (defn mk-arrows
@@ -316,7 +325,8 @@
                   :lit-str e
                   :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
                   :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
-                  :fvar e)))]
+                  :fvar e
+                  :mvar e)))]
     (go e 0)))
 
 (defn instantiate
@@ -356,7 +366,9 @@
                     :lit-str e
                     :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
                     :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
-                    :fvar (if (= (fvar-id e) fv) (bvar depth) e))))]
+                    :fvar (if (= (fvar-id e) fv) (bvar depth) e)
+                    :mvar e  ;; mvars are NOT affected by abstract1
+                    )))]
       (go e 0))))
 
 (defn abstract-many
@@ -494,13 +506,14 @@
          :lit-str (pr-str (lit-str-val e))
          :mdata (->string (mdata-expr e) d)
          :proj (str (name/->string (proj-type-name e)) "." (proj-idx e) "(" (->string (proj-struct e) d) ")")
-         :fvar (str "?fv" (fvar-id e)))))))
+         :fvar (str "?fv" (fvar-id e))
+         :mvar (str "?mv" (mvar-id e)))))))
 
 (defn size
   "Count the number of nodes in an expression tree."
   ^long [^Expr e]
   (case (tag e)
-    (:bvar :sort :const :lit-nat :lit-str :fvar) 1
+    (:bvar :sort :const :lit-nat :lit-str :fvar :mvar) 1
     :app (+ 1 (size (app-fn e)) (size (app-arg e)))
     :lam (+ 1 (size (lam-type e)) (size (lam-body e)))
     :forall (+ 1 (size (forall-type e)) (size (forall-body e)))

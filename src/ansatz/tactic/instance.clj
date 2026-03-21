@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — general typeclass instance resolution.
 
 (ns ansatz.tactic.instance

@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — norm_num: ground numeric normalization.
 ;;
 ;; Evaluates ground arithmetic expressions and proves the results.

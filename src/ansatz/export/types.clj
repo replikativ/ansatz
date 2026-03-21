@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Shared types for Ansatz export storage.
 
 (ns ansatz.export.types

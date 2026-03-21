@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — compact Java expression type.
 // Replaces PersistentVector-based expressions for ~64% memory reduction.
 
@@ -40,6 +39,7 @@ public final class Expr {
     public static final byte MDATA = 9;
     public static final byte PROJ = 10;
     public static final byte FVAR = 11;
+    public static final byte MVAR = 12;
 
     // Bit masks for packed data
     private static final long BVAR_RANGE_MASK = 0xFFFFF; // 20 bits
@@ -181,6 +181,7 @@ public final class Expr {
             case MDATA:   return Objects.equals(o0, o.o0) && Objects.equals(o1, o.o1);
             case PROJ:    return Objects.equals(o0, o.o0) && Objects.equals(o1, o.o1) && longVal == o.longVal;
             case FVAR:    return longVal == o.longVal;
+            case MVAR:    return longVal == o.longVal;
             default:      return false;
         }
     }
@@ -200,6 +201,7 @@ public final class Expr {
             case MDATA:   return "(mdata " + o0 + " " + o1 + ")";
             case PROJ:    return "(proj " + o0 + " " + longVal + " " + o1 + ")";
             case FVAR:    return "(fvar " + longVal + ")";
+            case MVAR:    return "(mvar " + longVal + ")";
             default:      return "(unknown-expr)";
         }
     }
@@ -320,6 +322,15 @@ public final class Expr {
         return new Expr(FVAR, d, null, null, null, null, id);
     }
 
+    /** Metavariable with unique numeric id. Not interned, NOT affected by abstract1.
+     *  Used as placeholders in proof terms that get resolved during extraction. */
+    public static Expr mvar(long id) {
+        int h = Long.hashCode(id) * 31 + MVAR;
+        // MVAR does NOT set HAS_FVAR_BIT — this ensures abstract1 skips it
+        long d = packData(0, h, false, false);
+        return new Expr(MVAR, d, null, null, null, null, id);
+    }
+
     /**
      * Share common sub-expressions (hash consing).
      * Walks the expression tree bottom-up, deduplicating structurally equal sub-expressions
@@ -351,7 +362,7 @@ public final class Expr {
 
         Expr result;
         switch (e.tag) {
-            case BVAR: case SORT: case CONST: case LIT_NAT: case LIT_STR: case FVAR:
+            case BVAR: case SORT: case CONST: case LIT_NAT: case LIT_STR: case FVAR: case MVAR:
                 result = e;
                 break;
             case APP: {

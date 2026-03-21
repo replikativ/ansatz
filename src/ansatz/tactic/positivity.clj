@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — positivity: prove non-negativity goals.
 ;;
 ;; Recursively proves goals of the form `0 ≤ expr` by decomposing
@@ -118,14 +117,19 @@
   [ps lemma-name]
   (try
     (let [env (:env ps)
-          ci (env/lookup env lemma-name)]
+          ^ansatz.kernel.ConstantInfo ci (env/lookup env lemma-name)]
       (when ci
-        (let [term (e/const' lemma-name [lvl/zero])]
+        (let [lps (vec (.levelParams ci))
+              levels (mapv (fn [_] lvl/zero) lps)
+              term (e/const' lemma-name levels)]
           (-> ps
               (basic/apply-tac term)
-              ;; Try to close all remaining goals with assumption
+              ;; Try to close all remaining goals with assumption/decide/positivity
               (basic/all-goals (fn [ps']
                                  (or (try (basic/assumption ps')
+                                          (catch Exception _ nil))
+                                     (try (let [decide-fn (requiring-resolve 'ansatz.tactic.decide/decide)]
+                                            (decide-fn ps'))
                                           (catch Exception _ nil))
                                      ps')))))))
     (catch Exception _ nil)))
@@ -153,7 +157,11 @@
         st (assoc st :lctx (:lctx goal))]
     ;; Strategy 1: try assumption directly
     (or (try (basic/assumption ps) (catch Exception _ nil))
-        ;; Strategy 2: try decide (for ground cases like 0 ≤ 3)
+        ;; Strategy 2: try omega (handles 0 ≤ n for Nat via Nat.zero_le)
+        (try (let [omega-fn (requiring-resolve 'ansatz.tactic.omega/omega)]
+               (omega-fn ps))
+             (catch Exception _ nil))
+        ;; Strategy 3: try decide (for ground cases like 0 ≤ 3)
         (try (let [decide-fn (requiring-resolve 'ansatz.tactic.decide/decide)]
                (decide-fn ps))
              (catch Exception _ nil))

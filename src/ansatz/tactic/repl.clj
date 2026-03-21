@@ -1,4 +1,3 @@
-;; Copyright (c) 2026 Christian Weilbach. All rights reserved.
 ;; Tactic layer — REPL convenience functions.
 
 (ns ansatz.tactic.repl
@@ -13,11 +12,7 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.search :as search]
             [ansatz.tactic.trace :as trace]
-            [ansatz.tactic.llm :as llm]
-            [ansatz.tactic.suggest :as suggest]
             [ansatz.tactic.decide :as decide-tac]
-            ;; ansatz.tactic.sat-decide requires zustand (optional dep)
-            ;; [ansatz.tactic.sat-decide :as sat-decide-tac]
             [ansatz.tactic.instance :as instance]
             [ansatz.tactic.omega :as omega-tac]
             [ansatz.tactic.omega-proof :as omega-proof-tac]
@@ -259,32 +254,6 @@
                   " | Weight: " (format "%.4f" (:weight s))))
     (doseq [t (:tactics s)]
       (println (str "  " t)))))
-
-;; ============================================================
-;; LLM-assisted tactics
-;; ============================================================
-
-(defn llm-config
-  "Create an LLM config for tactic suggestion.
-   Reads FIREWORKS_API_KEY from env."
-  ([] (llm/make-config {}))
-  ([overrides] (llm/make-config overrides)))
-
-(defn llm-suggest
-  "Query the LLM for tactic suggestions on the current proof state."
-  [config ps]
-  (let [suggestions (suggest/suggest-tactics config ps)]
-    (doseq [{:keys [name args weight]} suggestions]
-      (println (str "  " (clojure.core/name name)
-                    (when (seq args) (str " " (pr-str args)))
-                    " (confidence: " (format "%.2f" (double weight)) ")")))
-    suggestions))
-
-(defn llm-auto
-  "LLM-guided beam search. Returns solved ps or nil."
-  ([config ps] (llm-auto config ps 3 20))
-  ([config ps beam-width max-steps]
-   (suggest/llm-beam-search config ps beam-width max-steps :verbose true)))
 
 (defn export-trace
   "Export the proof trace to an NDJSON file."

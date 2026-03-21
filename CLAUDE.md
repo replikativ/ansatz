@@ -130,10 +130,16 @@ isDefEq) but the extraction walk fails when heads differ
 (ex-sorted vs List.rec). Fix: skip extraction and call isDefEq
 directly when the result type has no unresolved metavariables.
 
-### WIP: Env as persistent value
-Env is a mutable Java object (LinkedHashMap). We have Env.fork() for
-test isolation but full persistent semantics (ProofContext threading)
-requires either making Env immutable or using fork() at all boundaries.
+### RESOLVED: Env is now immutable
+Env uses Clojure's IPersistentMap for locals (structural sharing).
+addConstant() returns a NEW Env. fork() is a no-op. Thread-safe
+for concurrent reads via ConcurrentHashMap sharedCache.
+
+**Known issue:** The global `ansatz-env` atom uses `reset!` in
+`defn`/`theorem`, which captures env early in a `let` and resets
+later. Concurrent `defn` calls can lose additions (stale env race).
+Single-threaded REPL use is safe. Fix: use `swap!` with
+`env/add-constant` or add a mutex around definition boundaries.
 
 ## Development Guidelines
 
@@ -143,11 +149,12 @@ requires either making Env immutable or using fork() at all boundaries.
 - **Study `../lean4` before implementing.** The Lean 4 source is the
   authoritative reference. When unsure about behavior, read the actual code.
 - **Run full test suite** (`clj -M:test -e :wip`) after every change.
-  All non-WIP tests must pass. Currently 361 tests, 0 errors.
+  All non-WIP tests must pass. Currently 372 tests, 0 errors.
 - **Use `*simp-trace*`** for debugging simp rewrite issues. Bind to an atom
   to collect trace entries showing where corruption or unexpected rewrites occur.
-- **Env.fork()** for test isolation. Tests that run prove-theorem should fork
-  the env to prevent cross-test pollution from in-place mutation.
+- **Test isolation**: Tests use `:once` fixture with shared env. Definitions
+  accumulate across tests. Use `env/fork` + try/finally for tests that need
+  clean state (see `test-isort-preservation` as the model).
 
 ## Key Design Decisions
 

@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Christian Weilbach. All rights reserved.
 // Ansatz kernel — WHNF reduction engine.
 
 package ansatz.kernel;
