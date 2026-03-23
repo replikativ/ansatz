@@ -231,8 +231,24 @@
                      (inc i)
                      (conj types ft)))
             types))
-        ;; Compute IH types
-        ih-types (mapv (fn [_] ret-type) (range num-ih-args))
+        ;; Compute IH types: motive applied to the recursive field.
+        ;; Lean 4: IH has type `motive(recursive-field)`, not just `ret-type`.
+        ;; ret-type has bvar 0 referencing the motive's variable — instantiate
+        ;; with the actual recursive field fvar.
+        early-rec-indices (vec (keep-indexed
+                                 (fn [i fi]
+                                   (let [ft (:type fi)
+                                         [fh _] (e/get-app-fn-args ft)]
+                                     (when (and (e/const? fh) (= (e/const-name fh) ind-name))
+                                       i)))
+                                 field-info))
+        ih-types (mapv (fn [i]
+                         (let [field-idx (get early-rec-indices i)
+                               rec-fvar (when field-idx (nth field-fvars field-idx))]
+                           (if rec-fvar
+                             (e/instantiate1 ret-type rec-fvar)
+                             ret-type)))
+                       (range num-ih-args))
         ;; Determine which alt to use for variable bindings in scope:
         ;; Use the first ctor alt (for var bindings from sub-patterns),
         ;; falling back to wildcard/var alt

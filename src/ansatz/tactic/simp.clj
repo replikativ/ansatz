@@ -1940,21 +1940,37 @@
                        ;; Bool.rec (fun _ => Bool) ...), the result type is non-dependent,
                        ;; so congrArg works and full simp on the discriminant is safe.
                        ;; Lean 4 handles this via auto-generated congr theorems.
-                       arg-kind (if (and (= raw-kind :fixed)
-                                         (e/const? app-fn)
-                                         (let [n (name/->string (e/const-name app-fn))]
-                                           (or (= n "Bool.rec") (= n "List.rec")
-                                               (.endsWith ^String n ".rec")
-                                               (.endsWith ^String n ".casesOn")))
-                                         ;; Last arg = discriminant
-                                         (= arg-idx (dec (count app-args)))
-                                         ;; Check motive (first arg) is constant (non-dependent)
-                                         (let [motive (first app-args)]
-                                           (and (e/lam? motive)
-                                                (not (e/has-loose-bvars?
-                                                       (e/lam-body motive) 0)))))
-                                  :eq  ;; safe: motive is constant, congrArg works
-                                  raw-kind)
+                       arg-kind (cond
+                                  ;; Override 1: recursor discriminant with constant motive → :eq
+                                  (and (= raw-kind :fixed)
+                                       (e/const? app-fn)
+                                       (let [n (name/->string (e/const-name app-fn))]
+                                         (or (= n "Bool.rec") (= n "List.rec")
+                                             (.endsWith ^String n ".rec")
+                                             (.endsWith ^String n ".casesOn")))
+                                       (= arg-idx (dec (count app-args)))
+                                       (let [motive (first app-args)]
+                                         (and (e/lam? motive)
+                                              (not (e/has-loose-bvars? (e/lam-body motive) 0)))))
+                                  :eq
+                                  ;; Override 2: indexed family arg containing stuck Bool.rec → :eq
+                                  ;; Without this, hypothesis lemmas can't reduce Bool.rec inside indices.
+                                  ;; Lean 4 grind handles this via E-graph, not simp CongrArgKind.
+                                  (and (= raw-kind :fixed)
+                                       (let [found (atom false)]
+                                         (letfn [(scan [e]
+                                                   (when-not @found
+                                                     (let [[h a] (e/get-app-fn-args e)]
+                                                       (when (and (e/const? h)
+                                                                  (= "Bool.rec" (name/->string (e/const-name h))))
+                                                         (reset! found true)))
+                                                     (when (e/app? e)
+                                                       (scan (e/app-fn e))
+                                                       (scan (e/app-arg e)))))]
+                                           (scan orig-a))
+                                         @found))
+                                  :eq
+                                  :else raw-kind)
                        a-result (if (= arg-kind :eq)
                                   ;; :eq — full simp (with rewrite lemmas + simprocs)
                                   (simp-expr* st env lemma-index orig-a (update config :max-depth dec))

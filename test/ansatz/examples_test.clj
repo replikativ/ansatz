@@ -369,6 +369,46 @@
 
 
 ;; ============================================================
+;; Grind: insertion sort preservation (Phase 1)
+;; After induction, grind handles all 3 cases automatically:
+;; nil (constructors), single (by_cases+simp+constructors),
+;; cons_cons (nested by_cases+constructors+assumption+omega)
+;; ============================================================
+
+(deftest test-isort-preservation-grind
+  (testing "Sorted(insertSorted x l) via induction + grind"
+    (binding [a/*verbose* false]
+      (let [saved-env @a/ansatz-env
+            fresh-env (env/fork @init-env)
+            saved-idx @a/ansatz-instance-index]
+        (try
+          (reset! a/ansatz-env fresh-env)
+          (reset! a/ansatz-instance-index saved-idx)
+          (reset! @(resolve 'ansatz.tactic.simp/fun-info-cache) {})
+          (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
+                   (match l (List Nat) (List Nat)
+                     (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
+                       (true (cons x l)) (false (cons hd ih_tail)))))))
+          (eval '(ansatz.core/inductive Sorted [] :in Prop :indices [l (List Nat)]
+                   (nil :where [(nil)])
+                   (single [a Nat] :where [(cons a nil)])
+                   (cons_cons [a Nat] [b Nat] [tl (List Nat)]
+                              [hab (le a b)]
+                              [hsorted (Sorted (cons b tl))]
+                     :where [(cons a (cons b tl))])))
+          (let [ctx (a/make-context @a/ansatz-env @a/ansatz-instance-index)]
+            (a/prove-theorem 'ex-insert-preserves-grind
+                             '[x :- Nat, l :- (List Nat), h :- (Sorted l)]
+                             '(Sorted ((ex-insertSorted x) l))
+                             '[(induction h)
+                               (grind "ex-insertSorted")]
+                             ctx)
+            (is true "preservation proved by induction + grind"))
+          (finally
+            (reset! a/ansatz-env saved-env)
+            (reset! a/ansatz-instance-index saved-idx)))))))
+
+;; ============================================================
 ;; Indexed family infrastructure tests
 ;; Regression tests for: indexed motive construction, IH ordering,
 ;; equation theorem discriminant position, match l leak

@@ -226,14 +226,14 @@
 
 ;; Universally quantified: balance1 on leaf = black(leaf, v, r)
 (a/theorem balance1-leaf [v :- Nat, r :- (RBTree Nat)]
-  (= (RBTree Nat) (((balance1 (RBTree.leaf Nat)) v) r)
+  (= (RBTree Nat) (balance1 (RBTree.leaf Nat) v r)
                    (RBTree.node Nat (RBColor.black) (RBTree.leaf Nat) v r))
   (rfl))
 
 ;; Universally quantified: balance1 on black subtree = identity wrap
 (a/theorem balance1-black [l :- (RBTree Nat), k :- Nat, r2 :- (RBTree Nat), v :- Nat, r :- (RBTree Nat)]
   (= (RBTree Nat)
-     (((balance1 (RBTree.node Nat (RBColor.black) l k r2)) v) r)
+     (balance1 (RBTree.node Nat (RBColor.black) l k r2) v r)
      (RBTree.node Nat (RBColor.black) (RBTree.node Nat (RBColor.black) l k r2) v r))
   (rfl))
 
@@ -243,9 +243,8 @@
   [a :- (RBTree Nat), x :- Nat, b :- (RBTree Nat),
    y :- Nat, c :- (RBTree Nat), v :- Nat, r :- (RBTree Nat)]
   (= (RBTree Nat)
-     (((balance1
-         (RBTree.node Nat (RBColor.red)
-           (RBTree.node Nat (RBColor.red) a x b) y c)) v) r)
+     (balance1 (RBTree.node Nat (RBColor.red)
+                 (RBTree.node Nat (RBColor.red) a x b) y c) v r)
      (RBTree.node Nat (RBColor.red)
        (RBTree.node Nat (RBColor.black) a x b) y
        (RBTree.node Nat (RBColor.black) c v r)))
@@ -257,10 +256,9 @@
   [a :- (RBTree Nat), x :- Nat, b :- (RBTree Nat), y :- Nat,
    c :- (RBTree Nat), z :- Nat, d :- (RBTree Nat), v :- Nat, r :- (RBTree Nat)]
   (= (RBTree Nat)
-     (((balance1
-         (RBTree.node Nat (RBColor.red)
-           (RBTree.node Nat (RBColor.black) a x b) y
-           (RBTree.node Nat (RBColor.red) c z d))) v) r)
+     (balance1 (RBTree.node Nat (RBColor.red)
+                 (RBTree.node Nat (RBColor.black) a x b) y
+                 (RBTree.node Nat (RBColor.red) c z d)) v r)
      (RBTree.node Nat (RBColor.red)
        (RBTree.node Nat (RBColor.black) (RBTree.node Nat (RBColor.black) a x b) y c) z
        (RBTree.node Nat (RBColor.black) d v r)))
@@ -271,7 +269,7 @@
   [a :- (RBTree Nat), v :- Nat, b :- (RBTree Nat), y :- Nat,
    c :- (RBTree Nat), z :- Nat, d :- (RBTree Nat)]
   (= (RBTree Nat)
-     (((balance2 a) v) (RBTree.node Nat (RBColor.red) b y (RBTree.node Nat (RBColor.red) c z d)))
+     (balance2 a v (RBTree.node Nat (RBColor.red) b y (RBTree.node Nat (RBColor.red) c z d)))
      (RBTree.node Nat (RBColor.red)
        (RBTree.node Nat (RBColor.black) a v b) y
        (RBTree.node Nat (RBColor.black) c z d)))
@@ -295,11 +293,11 @@
       (match (< x key) Bool (RBTree Nat)
         (true (match color RBColor (RBTree Nat)
           (red (RBTree.node Nat (RBColor.red) ih_left key right))
-          (black (((balance1 ih_left) key) right))))
+          (black (balance1 ih_left key right))))
         (false (match (< key x) Bool (RBTree Nat)
           (true (match color RBColor (RBTree Nat)
             (red (RBTree.node Nat (RBColor.red) left key ih_right))
-            (black (((balance2 left) key) ih_right))))
+            (black (balance2 left key ih_right))))
           (false (RBTree.node Nat color left x right))))))))
 
 ;; rb-insert: ins + blacken root
@@ -435,45 +433,52 @@
 ;; Every step is kernel-checked: the extracted proof term is verified by an
 ;; independent type checker. If the proof is wrong, the checker rejects it.
 
+;; With grind, the same proof is much shorter.
+;; Grind handles constructor application + assumption matching automatically.
+;; We just need case-splits to expose the 7 branches of balance1s.
 (a/theorem balance1s-preserves-valid
   [l :- (RBTree Nat), v :- Nat, r :- (RBTree Nat),
    hl :- (ValidRB l), hr :- (ValidRB r)]
-  (ValidRB (((balance1s l) v) r))
+  (ValidRB (balance1s l v r))
+  (cases hl)                           ;; split ValidRB into leaf/node
+  (all_goals (try (simp "balance1s"))) ;; unfold balance1s in each case
+  (all_goals (try (grind)))            ;; grind closes leaf + simple cases
+  (all_goals (try (cases c)))          ;; split on color (red/black)
+  (all_goals (try (cases l)))          ;; split on left subtree shape
+  (all_goals (try (cases color)))      ;; split on inner node color
+  (all_goals (try (cases hl)))         ;; decompose inner ValidRB proof
+  (all_goals (try (simp "balance1s"))) ;; unfold for LL rotation case
+  (all_goals (try (grind))))           ;; grind closes all remaining goals
 
-  ;; Decompose hl: ValidRB(l) into leaf/node cases
+
+;; For comparison, the same proof with manual tactics (before grind):
+(a/theorem balance1s-preserves-valid-manual
+  [l :- (RBTree Nat), v :- Nat, r :- (RBTree Nat),
+   hl :- (ValidRB l), hr :- (ValidRB r)]
+  (ValidRB (balance1s l v r))
   (cases hl)
-  ;; LEAF: balance1(leaf, v, r) = node(black, leaf, v, r) — trivially valid
   (simp "balance1s")
   (apply ValidRB.vnode) (apply ValidRB.vleaf) (assumption)
-
-  ;; NODE: cases on color (red/black)
   (cases c)
-  ;; Red → cases on left subtree
   (cases l)
-  ;; Red-Leaf: no rotation needed, wrap in black
   (simp "balance1s")
   (apply ValidRB.vnode) (apply ValidRB.vnode) (apply ValidRB.vleaf)
   (assumption) (assumption)
-  ;; Red-Node → check inner color
   (cases color)
-  ;; Red-Red (LL ROTATION!): decompose inner ValidRB for sub-tree proofs
   (cases hl)
   (simp "balance1s")
   (apply ValidRB.vnode)
-  ;; Left child of rotation: ValidRB(node black lll llk llr)
   (apply ValidRB.vnode) (assumption) (assumption)
-  ;; Right child of rotation: ValidRB(node black lr v r)
   (apply ValidRB.vnode) (assumption) (assumption)
-  ;; Red-Black: no rotation, reconstruct directly
   (simp "balance1s")
   (apply ValidRB.vnode)
   (apply ValidRB.vnode) (assumption) (assumption) (assumption)
-  ;; Black: no rotation, reconstruct directly
   (simp "balance1s")
   (apply ValidRB.vnode)
   (apply ValidRB.vnode) (assumption) (assumption) (assumption))
 
 (println "  balance1-preserves-valid: kernel verified ✓")
+(println "  (grind version: 9 lines, manual version: 14 lines)")
 
 (println "\n━━━ Summary ━━━")
 (println "  Types:      RBColor, RBTree (verified inductive types)")

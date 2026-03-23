@@ -252,6 +252,14 @@ public final class TypeChecker {
     /** Get the reducer for REPL debugging. */
     public Reducer getReducer() { return reducer; }
 
+    /** Set transparency mode on the reducer.
+     *  0 = reducible (most restrictive), 1 = default, 2 = all. */
+    public void setTransparency(int mode) { reducer.setTransparency(mode); }
+
+    /** Set the delta-reduction allow list for reducible mode (transparency=0).
+     *  Only names in this set will be unfolded. */
+    public void setDeltaAllowSet(java.util.HashSet<Name> names) { reducer.setDeltaAllowSet(names); }
+
     /** Get isDefEq depth for debugging. */
     public int getIsDefEqDepth() { return isDefEqDepth; }
 

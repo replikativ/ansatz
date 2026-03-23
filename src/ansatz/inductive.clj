@@ -180,11 +180,11 @@
                    (recur (dec i) (e/forall' (:name (nth indices i))
                                              (:compiled-type (nth indices i))
                                              body :default))))]
-    ;; Wrap param foralls
+    ;; Wrap param foralls — implicit like Lean 4 (enables auto-elaborate inference)
     (loop [i (dec (count params)) body body]
       (if (< i 0) body
           (recur (dec i) (e/forall' (:name (nth params i)) (:compiled-type (nth params i))
-                                    body :default))))))
+                                    body :implicit))))))
 
 (defn- build-constructor-type
   "Build: ∀ (p1:T1) ... (pn:Tn) (f1:F1) ... (fm:Fm) → I p1...pn idx1...idxk
@@ -206,12 +206,12 @@
     ;; Wrap fields (inner binders), right-to-left
     (loop [i (dec n-fields) body return-type]
       (if (< i 0)
-        ;; Wrap params (outer binders)
+        ;; Wrap params (outer binders) — implicit like Lean 4
         (loop [i (dec n-params) body body]
           (if (< i 0) body
               (recur (dec i) (e/forall' (:name (nth params i))
                                         (:compiled-type (nth params i))
-                                        body :default))))
+                                        body :implicit))))
         (recur (dec i) (e/forall' (:name (nth fields i))
                                   (:type (nth fields i))
                                   body :default))))))

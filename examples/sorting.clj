@@ -21,11 +21,11 @@
     (nil ys)
     (cons [x xs']
       (match ys (List Nat) (List Nat)
-        (nil (List.cons x xs'))
+        (nil (cons x xs'))
         (cons [y ys']
           (if (<= x y)
-            (List.cons x (merge xs' (List.cons y ys')))
-            (List.cons y (merge (List.cons x xs') ys'))))))))
+            (cons x (merge xs' (cons y ys')))
+            (cons y (merge (cons x xs') ys'))))))))
 
 (println "(merge '(1 3 5) '(2 4 6)) =>" (merge '(1 3 5) '(2 4 6)))
 (println "(merge '() '(1 2))         =>" (merge '() '(1 2)))
@@ -40,11 +40,11 @@
 (a/defn take [n :- Nat, xs :- (List Nat)] (List Nat)
   :termination-by n
   (match n Nat (List Nat)
-    (zero (List.nil Nat))
+    (zero nil)
     (succ [k]
       (match xs (List Nat) (List Nat)
-        (nil (List.nil Nat))
-        (cons [hd tl] (List.cons hd (take k tl)))))))
+        (nil nil)
+        (cons [hd tl] (cons hd (take k tl)))))))
 
 (a/defn drop [n :- Nat, xs :- (List Nat)] (List Nat)
   :termination-by n
@@ -52,7 +52,7 @@
     (zero xs)
     (succ [k]
       (match xs (List Nat) (List Nat)
-        (nil (List.nil Nat))
+        (nil nil)
         (cons [hd tl] (drop k tl))))))
 
 (println "(take 2 '(1 2 3 4)) =>" (take 2 '(1 2 3 4)))
@@ -69,18 +69,18 @@
 (a/defn sort [xs :- (List Nat)] (List Nat)
   :termination-by (List.length xs)
   (match xs (List Nat) (List Nat)
-    (nil (List.nil Nat))
+    (nil nil)
     (cons [hd tl]
       (match tl (List Nat) (List Nat)
         ;; Single element — already sorted
-        (nil (List.cons hd (List.nil Nat)))
+        (nil (cons hd nil))
         ;; Two or more — split, sort recursively, merge
         (cons [hd2 tl2]
           (merge
             (sort (take (/ (+ 2 (List.length tl2)) 2)
-                        (List.cons hd (List.cons hd2 tl2))))
+                        (cons hd (cons hd2 tl2))))
             (sort (drop (/ (+ 2 (List.length tl2)) 2)
-                        (List.cons hd (List.cons hd2 tl2))))))))))
+                        (cons hd (cons hd2 tl2))))))))))
 
 (println "(sort '(5 3 1 4 2))     =>" (sort '(5 3 1 4 2)))
 (println "(sort '(9 1 8 2 7 3))   =>" (sort '(9 1 8 2 7 3)))
@@ -146,17 +146,43 @@
 
 ;; THE CORRECTNESS THEOREM:
 ;; "Inserting into a sorted list preserves sortedness"
-;; Proof by induction on the Sorted predicate (3 cases: nil, single, cons_cons)
+;;
+;; grind handles all 3 induction cases automatically:
+;;   nil       → constructor (Sorted.single)
+;;   single    → case-split on x<=a, simp, constructor + omega
+;;   cons_cons → nested case-splits on x<=a and x<=b, constructors + IH + omega
 (a/theorem insert-preserves
   [x :- Nat, l :- (List Nat), h :- (Sorted l)]
   (Sorted (insertSorted x l))
   (induction h)
+  (grind "insertSorted"))
+
+(println "✓ Proved: Sorted l → Sorted(insertSorted x l)")
+(println "  (kernel-verified by CIC type checker)")
+
+;; ============================================================
+;; 7. Manual Proof (for comparison)
+;; ============================================================
+;; The same theorem proved step-by-step without grind.
+;; Each tactic line corresponds to a specific proof obligation.
+
+(println "\n━━━ 7. Same Proof — Manual Tactics (for comparison) ━━━\n")
+
+(a/theorem insert-preserves-manual
+  [x :- Nat, l :- (List Nat), h :- (Sorted l)]
+  (Sorted (insertSorted x l))
+  ;; Induction on h : Sorted l (3 cases: nil, single, cons_cons)
+  (induction h)
+  ;; Nil case: insertSorted x [] = [x], need Sorted.single
   (apply (Sorted.single x))
+  ;; Case-split on x <= a, unfold insertSorted in each branch
   (all_goals (try (by_cases (<= x a))))
   (all_goals (try (simp_all "insertSorted")))
+  ;; Sub-split cons_cons case on x <= b
   (all_goals (try (by_cases (<= x b))))
   (all_goals (try (simp_all "insertSorted")))
   (all_goals (try (simp_all "insertSorted")))
+  ;; Close remaining: constructors + arithmetic + assumptions
   (all_goals (try (apply Sorted.cons_cons)))
   (all_goals (try (omega)))
   (all_goals (try (apply Sorted.single)))
@@ -165,8 +191,8 @@
   (all_goals (try (omega)))
   (all_goals (try (assumption))))
 
-(println "✓ Proved: Sorted l → Sorted(insertSorted x l)")
-(println "  (kernel-verified by CIC type checker)")
+(println "✓ Same theorem proved with 14 manual tactic lines")
+(println "  (grind automates all of this from the induction hypothesis)")
 
 (println "\n━━━ Summary ━━━\n")
 (println "All functions and theorems above are:")

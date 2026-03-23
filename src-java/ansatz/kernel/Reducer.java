@@ -58,6 +58,37 @@ public final class Reducer {
     private int traceRingPos = 0;
     private long traceSeq = 0; // monotonic sequence number
 
+    // Transparency mode (Lean 4: reducible < instances < default < all)
+    // 0 = reducible only (most restrictive — for equation theorem generation)
+    // 1 = default (normal — unfolds non-opaque definitions)
+    // 2 = all (least restrictive — unfolds everything including opaque)
+    // Default: 1 (same as current behavior)
+    private int transparencyMode = 1;
+
+    /** Set the transparency mode for WHNF delta reduction.
+     *  0 = reducible (never unfold user definitions — for equation theorem gen)
+     *  1 = default (normal behavior — unfold definitions)
+     *  2 = all (unfold everything)
+     *  Names in deltaAllowSet are always unfolded regardless of mode. */
+    public void setTransparency(int mode) {
+        this.transparencyMode = mode;
+        // Clear caches since reduction behavior changes
+        this.whnfCoreCache.clear();
+        this.whnfCache.clear();
+        this.unfoldCache.clear();
+    }
+
+    public int getTransparency() { return transparencyMode; }
+
+    // When transparencyMode=0 (reducible), ONLY unfold names in this set
+    private java.util.HashSet<Name> deltaAllowSet = null;
+
+    /** Set the allow-list for reducible mode. Only these names will be delta-reduced
+     *  when transparency=0. Pass null to clear. */
+    public void setDeltaAllowSet(java.util.HashSet<Name> names) {
+        this.deltaAllowSet = names;
+    }
+
     // Callbacks for K-recursor support
     private InferFn inferFn;
     private IsDefEqFn isDefEqFn;
@@ -1250,10 +1281,18 @@ public final class Reducer {
 
     Expr tryUnfoldDef(Expr head) {
         if (head.tag != Expr.CONST) return null;
-        ConstantInfo ci = env.lookup((Name) head.o0);
+        Name name = (Name) head.o0;
+        ConstantInfo ci = env.lookup(name);
         if (ci == null) return null;
         Expr value = ci.getValue();
         if (value == null) return null;
+
+        // Transparency check: in reducible mode (0), only unfold allowed names
+        if (transparencyMode == 0) {
+            if (deltaAllowSet == null || !deltaAllowSet.contains(name)) {
+                return null;  // Not allowed to unfold this definition
+            }
+        }
 
         // Check unfold cache
         Expr cached = unfoldCache.get(head);

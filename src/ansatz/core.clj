@@ -493,9 +493,20 @@
                           ([env scope depth form lctx'] (sexp->ansatz env scope depth form lctx')))
                         sexp->ansatz)]
      (cond
-    ;; Handle Clojure nil → Ansatz empty list (most common use)
-       (nil? form) (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                          (e/const' (name/from-string "Nat") []))
+    ;; Handle Clojure nil → Ansatz empty list
+       ;; Try to infer element type from return type context, default to Nat
+       (nil? form) (let [list-elem-type
+                         (or (when *scope-types*
+                               (some (fn [[_ ty]]
+                                       (let [[h a] (e/get-app-fn-args ty)]
+                                         (when (and (e/const? h)
+                                                    (= "List" (name/->string (e/const-name h)))
+                                                    (seq a))
+                                           (first a))))
+                                     *scope-types*))
+                             (e/const' (name/from-string "Nat") []))]
+                     (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
+                            list-elem-type))
        (integer? form) (e/lit-nat form)
        (string? form) (e/lit-str form)
        (true? form) (e/const' (name/from-string "Bool.true") [])
@@ -522,7 +533,15 @@
            (= s "List")  (e/const' (name/from-string "List") [lvl/zero])
         ;; Constructors with Clojure-safe names
            (= s "nil")   (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                                (e/const' (name/from-string "Nat") []))
+                                (or (when *scope-types*
+                                      (some (fn [[_ ty]]
+                                              (let [[h a] (e/get-app-fn-args ty)]
+                                                (when (and (e/const? h)
+                                                           (= "List" (name/->string (e/const-name h)))
+                                                           (seq a))
+                                                  (first a))))
+                                            *scope-types*))
+                                    (e/const' (name/from-string "Nat") [])))
            (= s "cons")  (e/const' (name/from-string "List.cons") [lvl/zero])
            :else
            (if-let [ci (env/lookup env (name/from-string s))]
@@ -826,11 +845,36 @@
                               (sexp->ansatz env scope depth (nth form 1))
                               (sexp->ansatz env scope depth (nth form 2)))
 
-        ;; cons/nil for lists (Clojure-safe names for List.cons/List.nil)
-             "cons" (let [nat (e/const' (name/from-string "Nat") [])
-                          x (sexp->ansatz env scope depth (nth form 1))
-                          s (sexp->ansatz env scope depth (nth form 2))]
-                      (e/app* (e/const' (name/from-string "List.cons") [lvl/zero]) nat x s))
+        ;; cons/nil for lists — infer element type via auto-elaborate
+        ;; (Lean 4: List.cons.{u} : {α : Type u} → α → List α → List α)
+             "cons" (let [x (sexp->ansatz env scope depth (nth form 1))
+                          s-raw (sexp->ansatz env scope depth (nth form 2))
+                          head-fn (e/const' (name/from-string "List.cons") [lvl/zero])
+                          ci (env/lookup env (name/from-string "List.cons"))
+                          bvar-tys (when (and (seq scope) *scope-types*)
+                                     (into {} (keep (fn [[sym d]]
+                                                      (when-let [ty (get *scope-types* sym)]
+                                                        [(- depth 1 d) ty]))
+                                                    scope)))
+                          ;; Infer element type from x
+                          elem-type (get-arg-type env bvar-tys x)
+                          ;; Fix nil: if s-raw is List.nil with wrong type, re-create with inferred type
+                          s (if (and elem-type (e/app? s-raw))
+                              (let [[sh sa] (e/get-app-fn-args s-raw)]
+                                (if (and (e/const? sh)
+                                         (= "List.nil" (name/->string (e/const-name sh)))
+                                         (= 1 (count sa))
+                                         (not (.equals (first sa) elem-type)))
+                                  (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) elem-type)
+                                  s-raw))
+                              s-raw)]
+                      (if (and ci elem-type)
+                        ;; Use inferred type directly (more reliable than auto-elaborate for this case)
+                        (e/app* head-fn elem-type x s)
+                        (if ci
+                          (auto-elaborate env head-fn (.type ^ansatz.kernel.ConstantInfo ci) [x s]
+                                          :bvar-types bvar-tys)
+                          (e/app* head-fn (e/const' (name/from-string "Nat") []) x s))))
              "length" (let [nat (e/const' (name/from-string "Nat") [])]
                         (e/app* (e/const' (name/from-string "List.length") [lvl/zero]) nat
                                 (sexp->ansatz env scope depth (nth form 1))))
@@ -1531,6 +1575,9 @@
                  (let [f (requiring-resolve 'ansatz.tactic.positivity/positivity)] (f ps)))
    'gcongr    (fn [ps _args]
                 (let [f (requiring-resolve 'ansatz.tactic.gcongr/gcongr)] (f ps)))
+   'grind     (fn [ps args]
+                (let [f (requiring-resolve 'ansatz.tactic.grind/grind)]
+                  (f ps (vec (map str args)))))
    'solve_by_elim (fn [ps _args] (basic/solve-by-elim ps))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
    'revert    (fn [ps args]
@@ -2014,8 +2061,34 @@
                                                 (map vector field-fvids
                                                      (map #(str "f" %) (range nf))
                                                      field-types)))
-                            ;; WHNF-reduce LHS → RHS (with fvars)
-                            rhs-raw (#'tc/cached-whnf st' lhs)
+                            ;; Build RHS using RESTRICTED WHNF (Lean 4: withReducible).
+                            ;; Use transparency mode 0 (reducible) with only the function
+                            ;; being defined + its recursor in the allow set.
+                            ;; This reduces the match/recursor (iota) but NOT + or other fns.
+                            rhs-raw
+                            (let [tc-eq (ansatz.kernel.TypeChecker. env')
+                                  allow-set (java.util.HashSet.)
+                                  rec-name-obj (e/const-name rec-head)]
+                              ;; Allow ONLY the function being defined to be delta-unfolded.
+                              ;; Iota reduction (recursor matching) is always allowed — it's
+                              ;; not delta. This means: llen unfolds → List.rec exposed →
+                              ;; iota selects cons branch → result has 1 + llen tail.
+                              ;; The + is NOT unfolded because it's not in the allow set.
+                              (.add allow-set cname)
+                              (.setFuel tc-eq 5000000)
+                              (.setTransparency tc-eq 0)
+                              (.setDeltaAllowSet tc-eq allow-set)
+                              ;; Add fvars to lctx
+                              (doseq [[fid nm tp] (concat
+                                                    (map vector param-fvids
+                                                         (map #(str (first (nth (vec pairs) (nth non-discr-indices %)))) (range n-non-discr))
+                                                         param-types)
+                                                    (map vector field-fvids
+                                                         (map #(str "f" %) (range nf))
+                                                         field-types))]
+                                (.addLocal tc-eq (long fid) (str nm) tp))
+                              ;; WHNF with restricted transparency
+                              (.whnf (.getReducer tc-eq) lhs))
                             ;; Replace recursive recursor patterns with function calls.
                             ;; Lean 4: equation theorems show f(args) not raw recursors.
                             ;; The rec parameter in the cons-case gets substituted during
@@ -2414,7 +2487,15 @@
          pairs (parse-params params)
          n (count pairs)
          scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-         prop-ansatz (sexp->ansatz env scope-full n prop-form)
+         ;; Bind *scope-types* so that auto-elaborate can infer implicit args
+         ;; from parameter types (Lean 4: elaborator has full context)
+         scope-types-map (into {} (map-indexed
+                                    (fn [i [pn pt-form]]
+                                      (let [s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))]
+                                        [pn (sexp->ansatz env s i pt-form)]))
+                                    pairs))
+         prop-ansatz (binding [*scope-types* scope-types-map]
+                       (sexp->ansatz env scope-full n prop-form))
          goal-type (loop [i (dec n) body prop-ansatz]
                      (if (< i 0) body
                          (let [[pn pt binfo] (nth pairs i)

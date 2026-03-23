@@ -924,9 +924,14 @@
                             (recur (e/instantiate1 (e/forall-body t) (first ps-args))
                                    (dec n) (rest ps-args))
                             t))
+              ;; Lean 4: remove major premise (and index fvars) from branch lctx
+              base-lctx (let [remove-ids (into #{hyp-fvar-id}
+                                               (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))))
+                                               indices)]
+                          (reduce dissoc (:lctx goal) remove-ids))
               ;; Peel fields, creating fvars for each
               [ps' field-fvars new-lctx ctor-type]
-              (loop [ps ps field-fvars [] lctx (:lctx goal) t ctor-type]
+              (loop [ps ps field-fvars [] lctx base-lctx t ctor-type]
                 (if (e/forall? t)
                   (let [[ps' fid] (proof/alloc-id ps)
                         fv (e/fvar fid)
@@ -1165,8 +1170,14 @@
               ;; Peel fields AND add IH for recursive fields.
               ;; Recursor expects: all fields first, then all IHs.
               ;; Track ctor-fvars (for constructor term) separately.
+              ;; Lean 4: remove major premise (and index fvars for indexed families)
+              ;; from each branch's lctx — they're consumed by the recursor
+              base-lctx (let [remove-ids (into #{hyp-fvar-id}
+                                               (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))))
+                                               indices)]
+                          (reduce dissoc (:lctx goal) remove-ids))
               [ps' ctor-fvars ih-fvar-ids new-lctx ctor-ret-type]
-              (loop [ps ps ctor-fvars [] ih-fvars [] lctx (:lctx goal) t ctor-type]
+              (loop [ps ps ctor-fvars [] ih-fvars [] lctx base-lctx t ctor-type]
                 (if (e/forall? t)
                   (let [[ps' fid] (proof/alloc-id ps)
                         fv (e/fvar fid)
@@ -1393,11 +1404,9 @@
                                     (= :local (:tag d))
                                     (e/has-fvar-flag (:type d))
                                     (not= (e/abstract1 (:type d) var-id) (:type d))
-                                    ;; Filter: only include simple inductive hypotheses
-                                    ;; (head is a constant that's NOT Eq — exclude equality leftovers)
-                                    (let [[h _] (e/get-app-fn-args (:type d))]
-                                      (and (e/const? h)
-                                           (not= (e/const-name h) (name/from-string "Eq")))))]
+                                    ;; Include hypotheses that depend on the variable
+                                    ;; (Lean 4 substCore reverts ALL dependents)
+                                    true)]
                      fid)))
         ;; Build enlarged goal type that includes dependent hypotheses
         enlarged-type
@@ -2039,10 +2048,10 @@
         ;; Create goals with hypothesis
         [ps' h-false-id] (proof/alloc-id ps)
         lctx-false (red/lctx-add-local (:lctx goal) h-false-id "hc" (eq-type bool-false))
-        [ps' false-goal-id] (proof/fresh-mvar ps' (:type goal) lctx-false)
+        [ps' false-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-false (:id goal))
         [ps' h-true-id] (proof/alloc-id ps')
         lctx-true (red/lctx-add-local (:lctx goal) h-true-id "hc" (eq-type bool-true))
-        [ps' true-goal-id] (proof/fresh-mvar ps' (:type goal) lctx-true)
+        [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))
         ;; Build the proof term directly:
         ;; @Bool.rec (λ b, Eq Bool cond b → Goal) (λ h, false_proof) (λ h, true_proof) cond (Eq.refl Bool cond)
         goal-sort (tc/infer-type st (:type goal))

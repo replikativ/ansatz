@@ -17,11 +17,11 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
     (nil ys)
     (cons [x xs']
       (match ys (List Nat) (List Nat)
-        (nil (List.cons x xs'))
+        (nil (cons x xs'))
         (cons [y ys']
           (if (<= x y)
-            (List.cons x (merge xs' (List.cons y ys')))
-            (List.cons y (merge (List.cons x xs') ys'))))))))
+            (cons x (merge xs' (cons y ys')))
+            (cons y (merge (cons x xs') ys'))))))))
 
 ;; Run it — it's a normal Clojure function
 (merge '(1 3 5) '(2 4 6)) ;; => (1 2 3 4 5 6)
@@ -65,47 +65,76 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 (rb-member tree 42)      ;; => false
 ```
 
-**Prove properties** — the kernel checks your proofs against Lean 4's type theory:
+**Prove properties** — from simple definitional equality to automated reasoning:
 
 ```clojure
-;; "An empty tree has size 0" — proved by definitional reduction (rfl)
+;; Simplest proof: rb-size(leaf) computes to 0 by definition.
+;; (rfl) = "reflexivity" — both sides reduce to the same thing.
 (a/theorem leaf-size-zero []
   (= Nat (rb-size (RBTree.leaf Nat)) 0)
   (rfl))
 
-;; "An empty tree has no members" — also definitional
-(a/theorem leaf-no-member [k :- Nat]
-  (= Bool ((rb-member (RBTree.leaf Nat)) k) false)
-  (rfl))
-
-;; "Size of a node = 1 + left size + right size" — follows from the definition
-(a/theorem node-size [c :- RBColor, l :- (RBTree Nat), k :- Nat, r :- (RBTree Nat)]
-  (= Nat (rb-size (RBTree.node Nat c l k r)) (+ 1 (+ (rb-size l) (rb-size r))))
-  (rfl))
-
-;; "Size is always non-negative" — by Nat.zero_le from Mathlib
-(a/theorem size-nonneg [t :- (RBTree Nat)]
-  (<= Nat 0 (rb-size t))
-  (apply Nat.zero_le))
-
-;; "A single-node tree has size 1" — specific instance
-(a/theorem single-node-size [c :- RBColor, k :- Nat]
-  (= Nat (rb-size (RBTree.node Nat c (RBTree.leaf Nat) k (RBTree.leaf Nat))) 1)
-  (rfl))
-
-;; "Left subtree is bounded by full node size" — by omega (linear arithmetic)
+;; (omega) solves linear arithmetic over natural numbers automatically.
+;; It sees: goal is (rb-size l) ≤ 1 + (rb-size l) + (rb-size r)
+;; and closes it because x ≤ 1 + x + y for all naturals.
 (a/theorem left-le-size [c :- RBColor, l :- (RBTree Nat), k :- Nat, r :- (RBTree Nat)]
   (<= Nat (rb-size l) (+ 1 (+ (rb-size l) (rb-size r))))
   (omega))
+
+;; Induction + grind: the standard pattern for list properties.
+;; (induction l) splits into two goals:
+;;   1. Base case:  llen (lmap f []) = llen []        — both sides are 0
+;;   2. Inductive:  llen (lmap f (x::xs)) = llen (x::xs)
+;;      with IH:    llen (lmap f xs) = llen xs
+;; (grind "lmap" "llen") tells grind to use the equation theorems
+;; for lmap and llen (e.g. llen.eq_2: llen(x::xs) = 1 + llen xs).
+;; It unfolds one step, sees 1 + llen(lmap f xs) = 1 + llen xs,
+;; and closes via congruence from the IH.
+(a/theorem map-preserves-len [f :- (arrow Nat Nat), l :- (List Nat)]
+  (= Nat (llen (lmap f l)) (llen l))
+  (induction l) (all_goals (grind "lmap" "llen")))
+
+;; Sorted is an indexed inductive: Sorted [] | Sorted [a] | Sorted (a::b::tl) when a≤b.
+;; (induction h) on h : Sorted l gives 3 goals (one per constructor).
+;; (grind "insertSorted") uses insertSorted's equation theorems to unfold it,
+;; case-splits on ≤ comparisons, applies constructors, uses omega
+;; for arithmetic, and the IH for the recursive case.
+(a/theorem insert-preserves
+  [x :- Nat, l :- (List Nat), h :- (Sorted l)]
+  (Sorted (insertSorted x l))
+  (induction h) (grind "insertSorted"))
+
+;; balance1 has 7 branches (from nested pattern matching on color + subtree shape).
+;; (cases hl) splits ValidRB(l) into leaf/node.
+;; (simp "balance1") uses balance1's equation theorems to unfold it for each branch.
+;; (grind) then applies ValidRB constructors and matches sub-proofs from context.
+;; The middle lines split further on color, subtree shape, and inner color
+;; to expose the left-left rotation case (the only one that restructures the tree).
+(a/theorem balance1-preserves-valid
+  [l :- (RBTree Nat), v :- Nat, r :- (RBTree Nat),
+   hl :- (ValidRB l), hr :- (ValidRB r)]
+  (ValidRB (balance1 l v r))
+  (cases hl)                           ;; leaf or node?
+  (all_goals (try (simp "balance1")))  ;; unfold via equation theorems
+  (all_goals (try (grind)))            ;; close the easy cases
+  (all_goals (try (cases c)))          ;; red or black?
+  (all_goals (try (cases l)))          ;; left subtree shape
+  (all_goals (try (cases color)))      ;; inner node color (detects LL rotation)
+  (all_goals (try (cases hl)))         ;; decompose inner ValidRB proof
+  (all_goals (try (simp "balance1")))  ;; unfold the rotation case
+  (all_goals (try (grind))))           ;; close all remaining goals
 ```
 
 See [examples/](examples/) for complete working examples:
+- **[verified_list.clj](examples/verified_list.clj)** — verified list library (map, filter, append, length) with 10+ proved properties + insertion sort correctness
 - **[sorting.clj](examples/sorting.clj)** — verified merge sort, structures, factorial (CSLib-inspired)
-- **[rbtree.clj](examples/rbtree.clj)** — verified red-black tree with balance proofs
+- **[rbtree.clj](examples/rbtree.clj)** — verified red-black tree with balance invariant proof (grind + manual versions)
 - **[gradient_descent.clj](examples/gradient_descent.clj)** — verified GD convergence rate proofs
 - **[metaprogramming.clj](examples/metaprogramming.clj)** — custom tactics, elaborators, simprocs
 
-New to theorem proving? Start with **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** — a translation guide with a curated learning path from the [Natural Number Game](https://adam.math.hhu.de/#/g/hhu-adam/NNG4) to Mathlib.
+**New to verified programming?** Start with the **[Tutorial](doc/tutorial.md)** — a hands-on guide that teaches you to define functions, write proofs, and use `grind`, with no prior theorem proving experience needed.
+
+Already know Lean 4? See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the syntax translation guide.
 
 ### How it works (for Clojure developers)
 
@@ -113,7 +142,7 @@ Ansatz adds these primitives to Clojure:
 
 1. **`a/defn`** — like `defn`, but type-checked. The kernel verifies that your function matches its type signature. Supports well-founded recursion via `:termination-by` for non-structural patterns (merge sort, factorial). The compiled output is a normal Clojure `fn`.
 
-2. **`a/theorem`** — states a property and proves it using *tactics*. Tactics are commands that build a proof step by step. For example, `(apply lemma)` applies a known lemma, and `(assumption)` closes a goal from the local context. The kernel verifies the final proof term.
+2. **`a/theorem`** — states a property and proves it using *tactics*. Tactics are commands that build a proof step by step. The `(grind "defn-name")` tactic automates most proofs via E-graph congruence closure and case splitting. For manual control: `(apply lemma)`, `(induction x)`, `(cases h)`, `(omega)`, `(simp "lemma")`. The kernel verifies the final proof term.
 
 3. **`a/inductive`** — defines algebraic data types with exhaustive pattern matching. The kernel generates a recursor that ensures termination.
 
@@ -124,12 +153,13 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 ## Features
 
 - **Verified functions** — define functions with CIC types, prove properties, run at JVM speed
+- **Grind tactic** — automated reasoning via persistent E-graph with congruence closure, propositional propagators (And/Or/Not/Eq/ite), E-matching for lemma instantiation, constructor injection/discrimination, and theory solver integration
 - **Well-founded recursion** — `:termination-by` for non-structural patterns (merge sort, factorial)
 - **Structures** — `a/structure` compiles to `defrecord` with keyword access and pretty-printing
+- **Generic types** — implicit type parameter inference via auto-elaborate (polymorphic constructors work without explicit type annotations)
 - **Lean 4 Mathlib + CSLib** — 648k Mathlib declarations + CSLib verified algorithms
-- **Tactic proofs** — `apply`, `simp`, `omega`, `ring`, `assumption`, `induction`, `cases`, and more
+- **Tactic proofs** — `apply`, `simp`, `omega`, `ring`, `grind`, `assumption`, `induction`, `cases`, and more
 - **Instance synthesis** — automatic typeclass resolution with tabled backtracking
-- **Typeclass polymorphism** — `:inst` params for generic algorithms
 - **Compiled output** — verified `defn` compiles to native Clojure `fn` with arity-aware flat calls
 - **Extensible** — register custom tactics, elaborators, and simprocs with full kernel access
 - **Immutable proof state** — free backtracking via Clojure persistent data structures

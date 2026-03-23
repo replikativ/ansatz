@@ -122,13 +122,9 @@ The Lean 4 source at `../lean4` is our reference implementation. When porting in
 - Discharger with rfl case, omega fallback, fresh cache
 - Comprehensive hypothesis preprocessing (And-split, implications)
 
-### WIP: apply tactic def-eq matching
-The apply tactic needs to match IH conclusions against unfolded goals
-via isDefEq (not structural matching). Lean 4's apply uses full
-isDefEq from MetaM. Our apply has Strategy B (deep extraction + TC
-isDefEq) but the extraction walk fails when heads differ
-(ex-sorted vs List.rec). Fix: skip extraction and call isDefEq
-directly when the result type has no unresolved metavariables.
+### RESOLVED: apply tactic def-eq matching
+Fixed via WHNF extraction + isDefEq for indexed family constructors.
+The grind tactic's IH application strategy also handles this case.
 
 ### RESOLVED: Env is now immutable
 Env uses Clojure's IPersistentMap for locals (structural sharing).
@@ -149,7 +145,7 @@ Single-threaded REPL use is safe. Fix: use `swap!` with
 - **Study `../lean4` before implementing.** The Lean 4 source is the
   authoritative reference. When unsure about behavior, read the actual code.
 - **Run full test suite** (`clj -M:test -e :wip`) after every change.
-  All non-WIP tests must pass. Currently 372 tests, 0 errors.
+  All non-WIP tests must pass. Currently 391 tests, 0 errors.
 - **Use `*simp-trace*`** for debugging simp rewrite issues. Bind to an atom
   to collect trace entries showing where corruption or unexpected rewrites occur.
 - **Test isolation**: Tests use `:once` fixture with shared env. Definitions
