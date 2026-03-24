@@ -203,15 +203,70 @@ public final class Level {
                 return succ(inner);
             }
             case MAX: {
-                Level a = simplify(l.maxLhs());
-                Level b = simplify(l.maxRhs());
-                long na = toNat(a);
-                long nb = toNat(b);
-                if (na >= 0 && nb >= 0) return fromNat(Math.max(na, nb));
-                if (a.equals(b)) return a;
-                if (na == 0) return b;
-                if (nb == 0) return a;
-                return max(a, b);
+                // Full normalization following Lean 4's normalize (level.cpp:453-498).
+                // Flatten max tree, sort components, remove duplicates, and subsume
+                // explicit constants when a parametric component has higher offset.
+                java.util.ArrayList<Level> components = new java.util.ArrayList<>();
+                collectMaxComponents(l, components);
+                // Simplify each component
+                for (int i = 0; i < components.size(); i++)
+                    components.set(i, simplify(components.get(i)));
+                // Re-flatten after simplification (simplify may produce new max nodes)
+                java.util.ArrayList<Level> flat = new java.util.ArrayList<>();
+                for (Level c : components) {
+                    if (c.tag == MAX) { collectMaxComponents(c, flat); }
+                    else flat.add(c);
+                }
+                components = flat;
+                // Sort by (kind, name, offset) for canonical form
+                components.sort((x, y) -> levelNormCompare(x, y));
+                // Subsume explicit constants and remove duplicates
+                java.util.ArrayList<Level> result = new java.util.ArrayList<>();
+                int idx = 0;
+                // Handle leading explicit (concrete) levels
+                if (idx < components.size() && isExplicit(components.get(idx))) {
+                    // Find the largest explicit
+                    while (idx + 1 < components.size() && isExplicit(components.get(idx + 1)))
+                        idx++;
+                    long explicitK = getOffsetVal(components.get(idx));
+                    // Check if any non-explicit component has offset ≥ explicitK
+                    boolean subsumed = false;
+                    for (int j = idx + 1; j < components.size(); j++) {
+                        if (getOffsetVal(components.get(j)) >= explicitK) {
+                            subsumed = true;
+                            break;
+                        }
+                    }
+                    if (!subsumed) {
+                        result.add(components.get(idx));
+                    }
+                    idx++;
+                }
+                // Add remaining, removing duplicates (keep highest offset for same base)
+                long[] prevOff = new long[1];
+                Level prevBase = idx < components.size() ? getOffset(components.get(idx), prevOff) : null;
+                if (idx < components.size()) result.add(components.get(idx));
+                for (int i = idx + 1; i < components.size(); i++) {
+                    long[] currOff = new long[1];
+                    Level currBase = getOffset(components.get(i), currOff);
+                    if (prevBase != null && prevBase.equals(currBase)) {
+                        if (currOff[0] > prevOff[0]) {
+                            result.set(result.size() - 1, components.get(i));
+                            prevOff[0] = currOff[0];
+                        }
+                        // else skip (duplicate with lower offset)
+                    } else {
+                        result.add(components.get(i));
+                        prevBase = currBase;
+                        prevOff[0] = currOff[0];
+                    }
+                }
+                // Build result
+                if (result.isEmpty()) return ZERO_LEVEL;
+                Level r = result.get(result.size() - 1);
+                for (int i = result.size() - 2; i >= 0; i--)
+                    r = max(result.get(i), r);
+                return r;
             }
             case IMAX: {
                 Level a = simplify(l.imaxLhs());
@@ -226,6 +281,48 @@ public final class Level {
             case PARAM: return l;
             default: return l;
         }
+    }
+
+    // --- Normalization helpers ---
+
+    /** Flatten a max tree into a list of non-max components. */
+    private static void collectMaxComponents(Level l, java.util.ArrayList<Level> out) {
+        if (l.tag == MAX) {
+            collectMaxComponents((Level) l.o0, out);
+            collectMaxComponents((Level) l.o1, out);
+        } else {
+            out.add(l);
+        }
+    }
+
+    /** Check if a level is a concrete number (zero or succ^k(zero)). */
+    private static boolean isExplicit(Level l) {
+        return toNat(l) >= 0;
+    }
+
+    /** Get the succ offset of a level. */
+    private static long getOffsetVal(Level l) {
+        long k = 0;
+        while (l.tag == SUCC) { l = l.succPred(); k++; }
+        return k;
+    }
+
+    /** Compare levels for normalization sort order.
+     *  Follows Lean 4's is_norm_lt: sort by (kind of base, name, offset). */
+    private static int levelNormCompare(Level a, Level b) {
+        long[] oa = new long[1], ob = new long[1];
+        Level ba = getOffset(a, oa);
+        Level bb = getOffset(b, ob);
+        if (!ba.equals(bb)) {
+            // Sort by kind first (Zero < Succ < Max < IMax < Param)
+            if (ba.tag != bb.tag) return Integer.compare(ba.tag, bb.tag);
+            // Same kind: compare by structure
+            if (ba.tag == PARAM) {
+                return ba.o0.toString().compareTo(bb.o0.toString());
+            }
+            return Integer.compare(ba.hashCode(), bb.hashCode());
+        }
+        return Long.compare(oa[0], ob[0]);
     }
 
     // --- Level comparison (Lean 4 algorithm) ---
@@ -288,41 +385,95 @@ public final class Level {
     /**
      * Check if l1 <= l2 for all possible assignments of level parameters.
      */
+    /**
+     * Level inequality: l1 ≤ l2.
+     * Following Lean 4's is_geq (level.cpp:508-526) with swapped args:
+     * leq(l1, l2) = is_geq(l2, l1).
+     *
+     * Key imax semantics: imax(a,b) = 0 when b=0, max(a,b) when b>0.
+     * For imax on right of ≤: l1 ≤ imax(a,b) requires l1 ≤ a AND l1 ≤ b
+     *   (because imax(a,b) ≥ max(a,b) ≥ a and ≥ b when b>0, and = 0 when b=0)
+     *   Wait — actually Lean says: is_geq(imax(a,b), l2) = is_geq(b, l2)
+     *   i.e. for imax on left of ≥: only rhs matters.
+     *   For imax on right of ≥: is_geq(l1, imax(a,b)) = is_geq(l1,a) && is_geq(l1,b)
+     *
+     * In our leq(l1, l2) = is_geq(l2, l1):
+     *   imax on l1 (left of ≤ = right of ≥): leq(imax(a,b), l2) = is_geq(l2, imax(a,b))
+     *     = is_geq(l2, a) && is_geq(l2, b) = leq(a, l2) && leq(b, l2)
+     *   imax on l2 (right of ≤ = left of ≥): leq(l1, imax(a,b)) = is_geq(imax(a,b), l1)
+     *     = is_geq(b, l1) = leq(l1, b)
+     */
+    /**
+     * Level inequality: l1 ≤ l2.
+     * Following Lean 4's Lean-native Level.geq (src/Lean/Level.lean:608-625).
+     * Converted from is_geq(l2, l1) with the Lean-native fallback that handles
+     * the case where max on left and imax on right need combined decomposition.
+     */
     public static boolean leq(Level l1, Level l2) {
-        Level s1 = simplify(l1);
-        Level s2 = simplify(l2);
+        return geqGo(simplify(l2), simplify(l1));
+    }
 
-        if (s1.equals(s2)) return true;
-        if (s1.tag == ZERO) return true;
-        if (s2.tag == ZERO && isNeverZero(s1)) return false;
+    /**
+     * Core of Level.geq following the Lean-native implementation.
+     * go(u, v) checks u ≥ v (i.e., v ≤ u).
+     */
+    private static boolean geqGo(Level u, Level v) {
+        if (u.equals(v)) return true;
 
-        // imax on the left
-        if (s1.tag == IMAX) {
-            Level a = s1.imaxLhs(), b = s1.imaxRhs();
-            if (b.tag == ZERO) return true;
-            if (isNeverZero(b)) return leq(simplify(max(a, b)), s2);
-            return leq(simplify(max(a, b)), s2);
+        // Fallback: decompose v (the "smaller" side)
+        // This is the key difference from the C++ is_geq_core: the fallback
+        // handles imax on v even when u is max (combined decomposition).
+        // k() in the Lean source.
+        // We inline it as a lambda-like check at the end.
+
+        // Match on (u, v) with priority order from the Lean source:
+        if (v.tag == ZERO) return true;
+
+        if (v.tag == MAX) {
+            // max on right: u ≥ max(v1, v2) iff u ≥ v1 AND u ≥ v2
+            return geqGo(u, v.maxLhs()) && geqGo(u, v.maxRhs());
         }
 
-        // imax on the right
-        if (s2.tag == IMAX) {
-            Level a = s2.imaxLhs(), b = s2.imaxRhs();
-            if (b.tag == ZERO) return leq(s1, ZERO_LEVEL);
-            if (isNeverZero(b)) return leq(s1, simplify(max(a, b)));
-            return leq(s1, simplify(max(a, b))) || s1.equals(s2);
+        if (u.tag == MAX) {
+            // max on left: max(u1, u2) ≥ v if u1 ≥ v OR u2 ≥ v
+            if (geqGo(u.maxLhs(), v) || geqGo(u.maxRhs(), v)) return true;
+            // FALLBACK: try decomposing v (handles imax on v)
+            return geqFallback(u, v);
         }
 
-        // max on the left
-        if (s1.tag == MAX) {
-            return leq(s1.maxLhs(), s2) && leq(s1.maxRhs(), s2);
+        if (u.tag == IMAX) {
+            // imax on left: imax(u1, u2) ≥ v iff u2 ≥ v
+            return geqGo(u.imaxRhs(), v);
         }
 
-        // max on the right
-        if (s2.tag == MAX) {
-            return leq(s1, s2.maxLhs()) || leq(s1, s2.maxRhs()) || leqCore(s1, s2);
+        if (u.tag == SUCC && v.tag == SUCC) {
+            return geqGo(u.succPred(), v.succPred());
         }
 
-        return leqCore(s1, s2);
+        // Default fallback
+        return geqFallback(u, v);
+    }
+
+    /**
+     * Fallback for geqGo: decompose v (the right/smaller side).
+     * Corresponds to `k()` in the Lean-native Level.geq.
+     */
+    private static boolean geqFallback(Level u, Level v) {
+        if (v.tag == IMAX) {
+            // imax on right: u ≥ imax(v1, v2) iff u ≥ v1 AND u ≥ v2
+            return geqGo(u, v.imaxLhs()) && geqGo(u, v.imaxRhs());
+        }
+        // Structural comparison via offset
+        long[] ou = new long[1], ov = new long[1];
+        Level bu = getOffset(u, ou);
+        Level bv = getOffset(v, ov);
+        if (bu.equals(bv) || bv.tag == ZERO) {
+            return ou[0] >= ov[0];
+        }
+        if (ou[0] == ov[0] && ou[0] > 0) {
+            return geqGo(bu, bv);
+        }
+        return false;
     }
 
     /**
@@ -335,6 +486,44 @@ public final class Level {
         Level s2 = simplify(l2);
         if (s1.equals(s2)) return true;
         return leq(s1, s2) && leq(s2, s1);
+    }
+
+    // --- Semantic predicates (following Lean 4 level.cpp:160-172) ---
+
+    /**
+     * Returns true if level is provably zero for ALL universe parameter assignments.
+     * Zero → true, Succ → false, Param → false,
+     * Max(a,b) → isZero(a) && isZero(b),
+     * IMax(a,b) → isZero(b) (imax(a,0) = 0 regardless of a).
+     */
+    public static boolean isZero(Level l) {
+        l = simplify(l);
+        switch (l.tag) {
+            case ZERO: return true;
+            case SUCC: return false;
+            case PARAM: return false;
+            case MAX: return isZero((Level) l.o0) && isZero((Level) l.o1);
+            case IMAX: return isZero((Level) l.o1);
+            default: return false;
+        }
+    }
+
+    /**
+     * Returns true if level is provably non-zero for ALL universe parameter assignments.
+     * Zero → false, Succ → true, Param → false,
+     * Max(a,b) → isNotZero(a) || isNotZero(b),
+     * IMax(a,b) → isNotZero(b) (only b matters: imax(a,b)=b when b>0).
+     */
+    public static boolean isNotZero(Level l) {
+        l = simplify(l);
+        switch (l.tag) {
+            case ZERO: return false;
+            case SUCC: return true;
+            case PARAM: return false;
+            case MAX: return isNotZero((Level) l.o0) || isNotZero((Level) l.o1);
+            case IMAX: return isNotZero((Level) l.o1);
+            default: return false;
+        }
     }
 
     // --- Equality and hashing ---

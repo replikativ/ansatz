@@ -49,11 +49,11 @@
               env (.enableQuot env)]
           [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
 
-        ;; Inductives, constructors, recursors: check type only
+        ;; Inductives, constructors, recursors: full validation
+        ;; (Lean 4 regenerates recursors; we validate imported rules)
         (5 6 7) ;; INDUCT, CTOR, RECURSOR
-        (do (TypeChecker/checkType env ci default-fuel)
-            (let [env (.addConstant env ci)]
-              [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))
+        (let [env (TypeChecker/checkConstant env ci default-fuel)]
+          [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
 
         ;; Everything else: full type check via Java TypeChecker
         ;; checkConstant returns new env with ci added

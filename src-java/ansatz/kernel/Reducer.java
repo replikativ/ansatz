@@ -1294,11 +1294,17 @@ public final class Reducer {
             }
         }
 
+        // Validate level param count (Lean Kernel Arena: constlevels.ndjson)
+        Object[] headLevels = constLevels(head);
+        if (ci.levelParams.length != headLevels.length) {
+            return null;  // Wrong number of level params — refuse to unfold
+        }
+
         // Check unfold cache
         Expr cached = unfoldCache.get(head);
         if (cached != null) return cached;
 
-        HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, constLevels(head));
+        HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, headLevels);
         Expr result = internResult(instantiateLevelParams(value, subst));
         unfoldCache.put(head, result);
         return result;
@@ -1559,6 +1565,8 @@ public final class Reducer {
     }
 
     private static HashMap<Object, Level> makeLevelSubst(Object[] paramNames, Object[] levels) {
+        // Callers should validate counts match before calling.
+        // Use min as safety net but this shouldn't happen with validated input.
         HashMap<Object, Level> subst = new HashMap<>(paramNames.length * 2);
         int n = Math.min(paramNames.length, levels.length);
         for (int i = 0; i < n; i++) {

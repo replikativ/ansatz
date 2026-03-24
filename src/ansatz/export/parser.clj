@@ -297,21 +297,29 @@
               (get c "numParams")
               (get c "numFields")
               :unsafe? (get c "isUnsafe" false))))
-    ;; Parse recursors
-    (doseq [r recs-raw]
-      (swap! decls conj
-             (env/mk-recursor
-              (resolve-name st (get r "name"))
-              (parse-level-params st (get r "levelParams"))
-              (resolve-expr st (get r "type"))
-              :all (mapv #(resolve-name st %) (get r "all"))
-              :num-params (get r "numParams")
-              :num-indices (get r "numIndices")
-              :num-motives (get r "numMotives")
-              :num-minors (get r "numMinors")
-              :rules (mapv #(parse-recursor-rule st %) (get r "rules"))
-              :k? (get r "k" false)
-              :unsafe? (get r "isUnsafe" false))))
+    ;; Parse recursors — sort by name suffix so rec comes before rec_1, rec_2, etc.
+    ;; This ensures nested recursors are added to env in order during replay,
+    ;; which is required for rule validation (computing minor index offsets).
+    (let [sorted-recs (sort-by (fn [r]
+                                 (let [n (str (resolve-name st (get r "name")))]
+                                   (if-let [m (re-find #"rec_(\d+)$" n)]
+                                     (Long/parseLong (second m))
+                                     0)))
+                               recs-raw)]
+      (doseq [r sorted-recs]
+        (swap! decls conj
+               (env/mk-recursor
+                (resolve-name st (get r "name"))
+                (parse-level-params st (get r "levelParams"))
+                (resolve-expr st (get r "type"))
+                :all (mapv #(resolve-name st %) (get r "all"))
+                :num-params (get r "numParams")
+                :num-indices (get r "numIndices")
+                :num-motives (get r "numMotives")
+                :num-minors (get r "numMinors")
+                :rules (mapv #(parse-recursor-rule st %) (get r "rules"))
+                :k? (get r "k" false)
+                :unsafe? (get r "isUnsafe" false)))))
     @decls))
 
 (defn- parse-decl-line [st obj]
@@ -438,21 +446,27 @@
               :num-params (get c "numParams")
               :num-fields (get c "numFields")
               :is-unsafe (get c "isUnsafe" false)}))
-    ;; Parse recursors
-    (doseq [r recs-raw]
-      (swap! decls conj
-             {:tag 7
-              :name (resolve-name st (get r "name"))
-              :lps (parse-level-params st (get r "levelParams"))
-              :type-id (get r "type")
-              :all (mapv #(resolve-name st %) (get r "all"))
-              :num-params (get r "numParams")
-              :num-indices (get r "numIndices")
-              :num-motives (get r "numMotives")
-              :num-minors (get r "numMinors")
-              :rules (mapv #(parse-recursor-rule-raw st %) (get r "rules"))
-              :is-k (get r "k" false)
-              :is-unsafe (get r "isUnsafe" false)}))
+    ;; Parse recursors — sorted by suffix (rec before rec_1 before rec_2)
+    (let [sorted-recs (sort-by (fn [r]
+                                 (let [n (str (resolve-name st (get r "name")))]
+                                   (if-let [m (re-find #"rec_(\d+)$" n)]
+                                     (Long/parseLong (second m))
+                                     0)))
+                               recs-raw)]
+      (doseq [r sorted-recs]
+        (swap! decls conj
+               {:tag 7
+                :name (resolve-name st (get r "name"))
+                :lps (parse-level-params st (get r "levelParams"))
+                :type-id (get r "type")
+                :all (mapv #(resolve-name st %) (get r "all"))
+                :num-params (get r "numParams")
+                :num-indices (get r "numIndices")
+                :num-motives (get r "numMotives")
+                :num-minors (get r "numMinors")
+                :rules (mapv #(parse-recursor-rule-raw st %) (get r "rules"))
+                :is-k (get r "k" false)
+                :is-unsafe (get r "isUnsafe" false)})))
     @decls))
 
 (defn- parse-decl-line-raw [st obj]

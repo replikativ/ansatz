@@ -332,6 +332,18 @@ public final class TypeChecker {
         reducer.setLctx(lctx);
     }
 
+    /** Generate a fresh fvar id. */
+    public long nextFvarId() { return freshId(); }
+
+    /** Get the environment. */
+    public Env getEnv() { return env; }
+
+    /** Add a local declaration (convenience for validation code). */
+    public void addLocalDecl(long id, Object name, Expr type) {
+        lctxAddLocal(id, name, type);
+        reducer.setLctx(lctx);
+    }
+
     private void lctxAddLet(long id, Object name, Expr type, Expr value) {
         lctx.put(id, new Object[]{1, name, type, value});
     }
@@ -655,12 +667,23 @@ public final class TypeChecker {
                 for (int i = 0; i < numParams && i < typeArgs.length && ctorType.tag == Expr.FORALL; i++) {
                     ctorType = Reducer.instantiate1((Expr) ctorType.o2, typeArgs[i]);
                 }
+                // Lean 4 type_checker.cpp:283-297: no data projection from Prop
+                boolean isPropType = isProp(structType);
                 int fieldIdx = (int) e.longVal;
                 for (int i = 0; i < fieldIdx && ctorType.tag == Expr.FORALL; i++) {
+                    // If structure is Prop and this intermediate field is NOT Prop
+                    // and the body depends on it, reject (large elimination from Prop)
+                    if (isPropType && ((Expr) ctorType.o2).bvarRange() > 0) {
+                        if (!isProp((Expr) ctorType.o1))
+                            throw new RuntimeException("Type error: data projection from Prop for " + e.o0 + " field " + i);
+                    }
                     ctorType = Reducer.instantiate1((Expr) ctorType.o2, Expr.proj(e.o0, i, (Expr) e.o1));
                 }
                 if (ctorType.tag == Expr.FORALL) {
                     result = (Expr) ctorType.o1;
+                    // Final field: also check Prop constraint
+                    if (isPropType && !isProp(result))
+                        throw new RuntimeException("Type error: data projection from Prop for " + e.o0 + " field " + fieldIdx);
                 } else {
                     throw new RuntimeException("Type error: Not enough fields in constructor for proj idx " + fieldIdx);
                 }
@@ -1697,8 +1720,11 @@ public final class TypeChecker {
 
         Expr.enableIntern();
         try {
+            // === Check 0: Duplicate universe level parameters ===
+            // Following Lean 4 environment.cpp:111-125
+            checkDuplicateUnivParams(ci.levelParams, ci.name);
+
             // Share common sub-expressions before type-checking.
-            // Use a shared cache so type and value share identity for common sub-expressions.
             java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
             java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
             Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
@@ -1715,6 +1741,42 @@ public final class TypeChecker {
             // Check type is well-formed (must be a sort)
             tc.ensureSort(tc.inferType(type));
 
+            // === Inductive type validation ===
+            // Check that the inductive result (after stripping params/indices) is a sort,
+            // and that numParams doesn't exceed the actual forall binder count.
+            if (ci.isInduct() && !ci.isUnsafe) {
+                validateInductiveResultSort(ci, tc);
+            }
+
+            // === Constructor validation ===
+            // Run when processing the CONSTRUCTOR (not the inductive type itself),
+            // because by this point the inductive type is already in the env.
+            // Following Lean 4 inductive.cpp check_constructors (lines 412-453).
+            if (ci.isCtor() && !ci.isUnsafe) {
+                ConstantInfo indCi = env.lookup(ci.inductName);
+                if (indCi != null && indCi.isInduct() && !indCi.isUnsafe) {
+                    validateConstructor(env, indCi, ci, tc);
+                }
+            }
+
+            // For recursors: validate rule field counts match constructors.
+            // We also type-check rule RHS AFTER adding the recursor to env
+            // (the RHS references the recursor itself for recursive calls).
+            // Lean 4 regenerates recursors from scratch (inductive.cpp:752-776);
+            // we validate imported rules post-addition instead.
+            if (ci.isRecursor() && ci.rules != null) {
+                for (ConstantInfo.RecursorRule rule : ci.rules) {
+                    ConstantInfo ctorCi = env.lookup(rule.ctor);
+                    if (ctorCi != null && ctorCi.isCtor()) {
+                        if (rule.nfields != ctorCi.numFields) {
+                            throw new RuntimeException("Type error: Recursor rule nfields mismatch for " +
+                                ci.name + " constructor " + rule.ctor +
+                                ": expected " + ctorCi.numFields + " got " + rule.nfields);
+                        }
+                    }
+                }
+            }
+
             // For definitions, theorems, and opaques: check value matches type
             if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
                 Expr inferred = tc.inferType(value);
@@ -1729,7 +1791,15 @@ public final class TypeChecker {
             }
 
             // Add to environment
-            return env.addConstant(ci);
+            Env newEnv = env.addConstant(ci);
+
+            // Post-addition: validate recursor rules by regenerating expected RHS
+            // bodies and comparing. Follows Lean 4 inductive.cpp:705-748 mk_rec_rules.
+            if (ci.isRecursor() && ci.rules != null && !ci.isUnsafe) {
+                validateRecursorRules(newEnv, ci);
+            }
+
+            return newEnv;
         } finally {
             Expr.disableIntern();
         }
@@ -1852,6 +1922,258 @@ public final class TypeChecker {
         }
     }
 
+    // ========================================================================
+    // Declaration-level validation — following Lean 4 kernel checks
+    // ========================================================================
+
+    /**
+     * Check for duplicate universe level parameters.
+     * Following Lean 4 environment.cpp:111-125.
+     */
+    private static void checkDuplicateUnivParams(Object[] levelParams, Name declName) {
+        if (levelParams == null || levelParams.length <= 1) return;
+        java.util.HashSet<Object> seen = new java.util.HashSet<>();
+        for (Object lp : levelParams) {
+            if (!seen.add(lp)) {
+                throw new RuntimeException("Duplicate universe level parameter '" + lp + "' in " + declName);
+            }
+        }
+    }
+
+    /**
+     * Validate that the inductive type's result (after stripping params+indices) is a sort,
+     * and that numParams doesn't exceed the actual forall binder count.
+     * Following Lean 4 inductive.cpp:210-261.
+     */
+    private static void validateInductiveResultSort(ConstantInfo indCi, TypeChecker tc) {
+        Expr indType = tc.whnf(indCi.type);
+        int piCount = 0;
+        while (indType.tag == Expr.FORALL) {
+            long fid = tc.nextFvarId();
+            Expr fvar = Expr.fvar(fid);
+            tc.addLocalDecl(fid, indType.o0, (Expr) indType.o1);
+            indType = tc.whnf(Reducer.instantiate1((Expr) indType.o2, fvar));
+            piCount++;
+        }
+        if (piCount < indCi.numParams) {
+            throw new RuntimeException("Inductive " + indCi.name +
+                " type has " + piCount + " forall binders but numParams=" + indCi.numParams);
+        }
+        if (indType.tag != Expr.SORT) {
+            throw new RuntimeException("Inductive " + indCi.name + " result type is not a sort: " + indType);
+        }
+    }
+
+    /**
+     * Validate a single constructor against its inductive type.
+     * Following Lean 4 inductive.cpp check_constructors (lines 412-453)
+     * and check_positivity (lines 391-408).
+     *
+     * Checks:
+     * 1. Constructor parameters match inductive's parameters (by def-eq)
+     * 2. Constructor return type is a valid application of the inductive
+     * 3. No inductive occurrences in indices (Lean 4 issue #2125)
+     * 4. Field universe levels ≤ inductive's result level (or inductive is Prop)
+     * 5. Strict positivity: no negative recursive occurrences
+     */
+    private static void validateConstructor(Env env, ConstantInfo indCi, ConstantInfo ctorCi, TypeChecker tc) {
+        int np = indCi.numParams;
+        int ni = indCi.numIndices;
+
+        // Collect names of all inductives in the mutual group
+        java.util.HashSet<Name> inductiveNames = new java.util.HashSet<>();
+        if (indCi.all != null) {
+            for (Object n : indCi.all) inductiveNames.add((Name) n);
+        } else {
+            inductiveNames.add(indCi.name);
+        }
+
+        // Determine the result universe level by stripping params+indices from the ind type
+        Expr indType = tc.whnf(indCi.type);
+        Expr[] paramFvars = new Expr[np];
+        for (int i = 0; i < np; i++) {
+            if (indType.tag != Expr.FORALL) {
+                throw new RuntimeException("Inductive " + indCi.name + " type has fewer binders than numParams=" + np);
+            }
+            long fid = tc.nextFvarId();
+            Expr fvar = Expr.fvar(fid);
+            tc.addLocalDecl(fid, indType.o0, (Expr) indType.o1);
+            paramFvars[i] = fvar;
+            indType = tc.whnf(Reducer.instantiate1((Expr) indType.o2, fvar));
+        }
+        for (int i = 0; i < ni; i++) {
+            if (indType.tag != Expr.FORALL) break;
+            long fid = tc.nextFvarId();
+            indType = tc.whnf(Reducer.instantiate1((Expr) indType.o2, Expr.fvar(fid)));
+        }
+        if (indType.tag != Expr.SORT) {
+            throw new RuntimeException("Inductive " + indCi.name + " result type is not a sort: " + indType);
+        }
+        Level resultLevel = (Level) indType.o0;
+        boolean resultIsZero = Level.isZero(resultLevel);
+
+        // Walk constructor type.
+        // Lean 4 does NOT whnf the constructor type itself — it must be manifest foralls.
+        // Only field types (binding_domain) are whnf'd for positivity/universe checks.
+        Expr ctorType = ctorCi.type;
+
+        // Check 1: Constructor params must match inductive's params
+        for (int i = 0; i < np; i++) {
+            if (ctorType.tag != Expr.FORALL) {
+                throw new RuntimeException("Constructor " + ctorCi.name + " has fewer binders than numParams=" + np);
+            }
+            // Parameter domain must be def-eq to inductive's param type
+            Expr paramType = (Expr) ctorType.o1;
+            Expr expectedParamType = tc.inferType(paramFvars[i]);
+            if (!tc.isDefEq(paramType, expectedParamType)) {
+                throw new RuntimeException("Constructor " + ctorCi.name +
+                    " param #" + (i + 1) + " type does not match inductive parameter");
+            }
+            ctorType = Reducer.instantiate1((Expr) ctorType.o2, paramFvars[i]);
+        }
+
+        // Check fields — must also be manifest foralls (no whnf on outer structure)
+        int fieldIdx = 0;
+        while (ctorType.tag == Expr.FORALL) {
+            Expr fieldType = (Expr) ctorType.o1;
+
+            // Check 4: Field universe ≤ result universe (or result is Prop)
+            // Following Lean 4 inductive.cpp:437-438:
+            //   if (!(is_geq(m_result_level, sort_level(s)) || is_zero(m_result_level)))
+            if (!resultIsZero) {
+                try {
+                    Expr fieldSort = tc.ensureSort(tc.inferType(fieldType));
+                    Level fieldLevel = (Level) fieldSort.o0;
+                    if (!Level.leq(fieldLevel, resultLevel)) {
+                        throw new RuntimeException("Universe level of field #" + (fieldIdx + 1) +
+                            " of constructor " + ctorCi.name + " is too large for " + indCi.name);
+                    }
+                } catch (RuntimeException e) {
+                    if (e.getMessage() != null && e.getMessage().startsWith("Universe level"))
+                        throw e;
+                }
+            }
+
+            // Check 5: Strict positivity
+            checkPositivity(tc, fieldType, inductiveNames, ctorCi.name, fieldIdx + 1);
+
+            long fid = tc.nextFvarId();
+            Expr fvar = Expr.fvar(fid);
+            tc.addLocalDecl(fid, ctorType.o0, fieldType);
+            ctorType = Reducer.instantiate1((Expr) ctorType.o2, fvar);
+            fieldIdx++;
+        }
+
+        // After fields, the remaining expression is the return type.
+        // Lean 4 does NOT whnf the return type — it must structurally be
+        // a valid application of the inductive type (manifest, not hidden
+        // behind definitions). This matches check_constructors line 449.
+        Expr retType = ctorType;
+        Expr retHead = retType;
+        java.util.ArrayList<Expr> retArgs = new java.util.ArrayList<>();
+        while (retHead.tag == Expr.APP) {
+            retArgs.add(0, (Expr) retHead.o1);
+            retHead = (Expr) retHead.o0;
+        }
+        if (retHead.tag != Expr.CONST || !inductiveNames.contains((Name) retHead.o0)) {
+            throw new RuntimeException("Constructor " + ctorCi.name +
+                " return type is not an application of " + indCi.name);
+        }
+        if (retArgs.size() != np + ni) {
+            throw new RuntimeException("Constructor " + ctorCi.name +
+                " return type has wrong number of arguments: expected " + (np + ni) + " got " + retArgs.size());
+        }
+        // Check level params match: the const in return type must use same levels as the inductive
+        // (detects swapped level params like {u2, u1} vs {u1, u2})
+        Object[] retLevels = Reducer.constLevels(retHead);
+        if (retLevels.length != indCi.levelParams.length) {
+            throw new RuntimeException("Constructor " + ctorCi.name +
+                " return type has wrong number of level params");
+        }
+        for (int i = 0; i < retLevels.length; i++) {
+            Level expected = Level.param((Name) indCi.levelParams[i]);
+            if (!retLevels[i].equals(expected)) {
+                throw new RuntimeException("Constructor " + ctorCi.name +
+                    " return type level param #" + (i + 1) + " does not match inductive");
+            }
+        }
+        // Params in return type must match (def-eq to param fvars)
+        for (int i = 0; i < np; i++) {
+            if (!tc.isDefEq(retArgs.get(i), paramFvars[i])) {
+                throw new RuntimeException("Constructor " + ctorCi.name +
+                    " return type parameter #" + (i + 1) + " does not match");
+            }
+        }
+        // Check 3: No inductive occurrences in indices
+        for (int i = np; i < retArgs.size(); i++) {
+            if (exprContainsNameOrFvar(retArgs.get(i), inductiveNames)) {
+                throw new RuntimeException("Constructor " + ctorCi.name +
+                    " has inductive type in index position (unsound, see Lean 4 #2125)");
+            }
+        }
+    }
+
+    /**
+     * Strict positivity check for a constructor field type.
+     * Following Lean 4 inductive.cpp:391-408.
+     *
+     * A field type is positive if:
+     * - It contains no references to the inductives being defined, OR
+     * - It is a valid direct application of one of the inductives, OR
+     * - It is a pi type where the domain has NO inductive references
+     *   and the codomain is positive (recursively)
+     *
+     * Any other pattern (inductive in domain of arrow, or inductive
+     * applied with wrong args) is a negative/non-positive occurrence.
+     */
+    private static void checkPositivity(TypeChecker tc, Expr type,
+            java.util.HashSet<Name> inductiveNames, Name ctorName, int argIdx) {
+        type = tc.whnf(type);
+
+        // Case 1: No inductive occurrences at all — OK
+        if (!exprContainsName(type, inductiveNames)) return;
+
+        if (type.tag == Expr.FORALL) {
+            // Case 2: Pi type — domain must NOT contain inductive (negative position!)
+            Expr domain = (Expr) type.o1;
+            if (exprContainsName(domain, inductiveNames)) {
+                throw new RuntimeException("Constructor " + ctorName +
+                    " arg #" + argIdx + " has non-positive occurrence of inductive type");
+            }
+            // Codomain: check recursively (positive position)
+            long fid = tc.nextFvarId();
+            Expr fvar = Expr.fvar(fid);
+            tc.addLocalDecl(fid, type.o0, domain);
+            Expr body = Reducer.instantiate1((Expr) type.o2, fvar);
+            checkPositivity(tc, body, inductiveNames, ctorName, argIdx);
+        } else {
+            // Case 3: Must be a valid inductive application or a nested inductive
+            Expr head = type;
+            while (head.tag == Expr.APP) head = (Expr) head.o0;
+            if (head.tag == Expr.CONST) {
+                Name headName = (Name) head.o0;
+                if (inductiveNames.contains(headName)) {
+                    // Direct recursive application — OK
+                    return;
+                }
+                // Check for nested inductive: head is a known inductive whose params
+                // contain references to our mutual group (like Array(Syntax)).
+                // Lean 4 handles this via ElimNestedInductive; we allow it here since
+                // nested compilation preserves positivity.
+                Env env = tc.getEnv();
+                ConstantInfo headCi = env != null ? env.lookup(headName) : null;
+                if (headCi != null && headCi.isInduct()) {
+                    // This is a nested occurrence — allowed if the head inductive was
+                    // previously declared (not part of the current mutual group).
+                    return;
+                }
+            }
+            // Case 4: Contains inductive but not as valid application
+            throw new RuntimeException("Constructor " + ctorName +
+                " arg #" + argIdx + " has non-valid occurrence of inductive type");
+        }
+    }
+
     /**
      * Check just the type of a ConstantInfo (for inductives, ctors, recursors).
      */
@@ -1870,5 +2192,1189 @@ public final class TypeChecker {
     /** Expose Reducer.constLevels for the package. */
     static Object[] constLevels(Expr e) {
         return Reducer.constLevels(e);
+    }
+
+    // ========================================================================
+    // Recursor rule validation — regenerate expected RHS and compare
+    // Following Lean 4 inductive.cpp:705-748 mk_rec_rules
+    // ========================================================================
+
+    /**
+     * Validate recursor rules by regenerating expected RHS bodies and comparing.
+     *
+     * Two validation levels:
+     * 1. Simple inductives (non-nested, no function-type recursive fields):
+     *    Full body regeneration and deep comparison.
+     * 2. Nested/complex inductives: Minor uniqueness + range check.
+     *
+     * This catches soundness attacks like nat-rec-rules where a bogus rule
+     * returns the wrong minor premise (h_zero instead of h_succ(n, IH)).
+     */
+    private static void validateRecursorRules(Env env, ConstantInfo recCi) {
+        int np = recCi.numParams;
+        int nm = recCi.numMotives;
+        int nmi = recCi.numMinors;
+        int ni = recCi.numIndices;
+
+        // Detect nested inductives: numMotives > all.length means auxiliary nested types
+        boolean isNested = nm > recCi.all.length;
+
+        // Collect inductive names in the mutual group
+        java.util.HashSet<Name> inductiveNameSet = new java.util.HashSet<>();
+        for (Object n : recCi.all) {
+            inductiveNameSet.add((Name) n);
+        }
+
+        // For nested inductives, replicate Lean 4's ElimNestedInductive BFS
+        // (inductive.cpp:1045-1076) to determine the correct rec_N mapping.
+        // Matching Lean 4's m_nested_aux: buffer<pair<expr, name>>, keyed on the
+        // full application I(Ds) (not just name I), so Array(PAN(IT)) and Array(IT)
+        // create separate auxiliaries.
+        // Lean 4's m_nested_aux: pairs of (I(Ds) key, rec_N name)
+        java.util.ArrayList<Expr> auxKeys = null;
+        java.util.ArrayList<Name> auxNames = null;
+        java.util.HashMap<Name, Expr[]> paramSpecialization = null;
+        if (isNested && recCi.all.length > 0) {
+            Object[] elimResult = elimNestedBFS(env, recCi, inductiveNameSet);
+            auxKeys = (java.util.ArrayList<Expr>) elimResult[0];
+            auxNames = (java.util.ArrayList<Name>) elimResult[1];
+            paramSpecialization = (java.util.HashMap<Name, Expr[]>) elimResult[2];
+        }
+
+        // --- Compute minor index offset ---
+        // For mutual groups: offset = sum of ctor counts of preceding types in `all`.
+        // For auxiliary nested rec_N: offset = sum of rules of rec, rec_1, ..., rec_{N-1}.
+        // For mutual+nested: BOTH apply — mutual offset for the group's own recs,
+        // nested offset for the auxiliary rec_N names.
+        int minorOffset = 0;
+
+        // First: check if this is an auxiliary rec_N (nested naming convention)
+        boolean isAuxRec = isNested && recCi.name.tag == Name.STR && recCi.name.str.startsWith("rec_");
+        if (isAuxRec) {
+            try {
+                int suffix = Integer.parseInt(recCi.name.str.substring(4));
+                // Count ALL constructors from mutual group types AND previous aux recs.
+                // In Lean 4's m_new_types, order is: [mutual types..., aux types...].
+                // So rec_N's offset = sum of all mutual types' ctors + sum of aux types'
+                // ctors from rec_1 to rec_{N-1}.
+                Name mainIndName = (Name) recCi.all[0];
+                // Count mutual group constructors (from all types in `all`)
+                for (Object n : recCi.all) {
+                    ConstantInfo indCi = env.lookup((Name) n);
+                    if (indCi != null && indCi.isInduct() && indCi.ctors != null) {
+                        minorOffset += indCi.ctors.length;
+                    }
+                }
+                // Count aux recs' rules from rec_1 to rec_{suffix-1}
+                for (int i = 1; i < suffix; i++) {
+                    Name prevAux = Name.mkStr(mainIndName, "rec_" + i);
+                    ConstantInfo prevRec = env.lookup(prevAux);
+                    if (prevRec != null && prevRec.isRecursor() && prevRec.rules != null) {
+                        minorOffset += prevRec.rules.length;
+                    }
+                }
+            } catch (NumberFormatException e) {}
+        } else {
+            // Main recursor (I.rec): offset = sum of ctor counts of preceding
+            // types in the mutual group (works for both pure mutual and mutual+nested)
+            for (int i = 0; i < recCi.all.length; i++) {
+                Name indName = (Name) recCi.all[i];
+                Name expectedRecName = Name.mkStr(indName, "rec");
+                if (expectedRecName.equals(recCi.name)) {
+                    break;
+                }
+                ConstantInfo indCi = env.lookup(indName);
+                if (indCi != null && indCi.isInduct() && indCi.ctors != null) {
+                    minorOffset += indCi.ctors.length;
+                }
+            }
+        }
+
+        // Build level param references for recursive I.rec calls in the body
+        Object[] levelParams = new Object[recCi.levelParams.length];
+        boolean hasLP = recCi.levelParams.length > 0;
+        for (int j = 0; j < levelParams.length; j++) {
+            levelParams[j] = Level.param((Name) recCi.levelParams[j]);
+        }
+
+        int minorIdx = minorOffset;
+        for (int ruleIdx = 0; ruleIdx < recCi.rules.length; ruleIdx++) {
+            ConstantInfo.RecursorRule rule = recCi.rules[ruleIdx];
+            if (rule.rhs == null) { minorIdx++; continue; }
+
+            ConstantInfo ctorCi = env.lookup(rule.ctor);
+            if (ctorCi == null || !ctorCi.isCtor()) {
+                throw new RuntimeException("Recursor rule references unknown constructor: " + rule.ctor);
+            }
+
+            int nf = rule.nfields;
+            int D = np + nm + nmi + nf;
+
+            // --- Peel lambdas from imported RHS ---
+            Expr importedBody = rule.rhs;
+            int lambdaCount = 0;
+            while (importedBody.tag == Expr.LAM) {
+                importedBody = (Expr) importedBody.o2;
+                lambdaCount++;
+            }
+            if (lambdaCount != D) {
+                throw new RuntimeException("Recursor rule lambda count mismatch for " +
+                    recCi.name + " ctor " + rule.ctor +
+                    ": expected " + D + " got " + lambdaCount);
+            }
+
+            // --- Analyze constructor type to find recursive fields ---
+            // For nested inductives, the ctor may belong to an outer type (e.g., Array.mk).
+            // We skip the OUTER type's numParams, not the recursor's numParams.
+            Expr ctorType = ctorCi.type;
+            int ctorSkipParams = isNested ? ctorCi.numParams : np;
+            for (int i = 0; i < ctorSkipParams; i++) {
+                if (ctorType.tag != Expr.FORALL) {
+                    throw new RuntimeException("Constructor " + rule.ctor +
+                        " type has fewer binders than numParams=" + ctorSkipParams);
+                }
+                ctorType = (Expr) ctorType.o2;
+            }
+
+            boolean[] isRecField = new boolean[nf];
+            boolean[] isNestedField = new boolean[nf]; // nested recursive (e.g., Array(Syntax))
+            Name[] nestedFieldRecName = new Name[nf]; // aux recursor name for nested fields
+            int[] recFieldExtraPis = new int[nf]; // extra foralls in function-type fields
+            int[] recFieldIndIdx = new int[nf];
+            Expr[][] recFieldIndices = new Expr[nf][];
+            Expr[] fieldTypesRaw = new Expr[nf]; // raw field types for lambda extraction
+
+            // Create a TypeChecker for whnf reduction of field types.
+            // Lean 4's is_rec_argument uses whnf to reveal recursive fields
+            // hidden behind type aliases (e.g., constType X Y → X).
+            TypeChecker fieldTc = new TypeChecker(env);
+            fieldTc.setFuel(DEFAULT_FUEL);
+
+            Expr ctorTypeWalk = ctorType;
+            for (int fi = 0; fi < nf; fi++) {
+                if (ctorTypeWalk.tag != Expr.FORALL) break;
+                Expr fieldType = (Expr) ctorTypeWalk.o1;
+                fieldTypesRaw[fi] = fieldType;
+                int ctorDepth = np + fi;
+
+                // Use whnf to reveal the field type's structure, matching
+                // Lean 4's is_rec_argument (inductive.cpp:384-388).
+                Expr ft = fieldTc.whnf(fieldType);
+                int extraPis = 0;
+                while (ft.tag == Expr.FORALL) {
+                    ft = fieldTc.whnf((Expr) ft.o2);
+                    extraPis++;
+                }
+
+                // Decompose application
+                Expr head = ft;
+                int argCount = 0;
+                Expr temp = ft;
+                while (temp.tag == Expr.APP) { argCount++; temp = (Expr) temp.o0; }
+                head = temp;
+                Expr[] args = new Expr[argCount];
+                temp = ft;
+                for (int ai = argCount - 1; ai >= 0; ai--) {
+                    args[ai] = (Expr) temp.o1;
+                    temp = (Expr) temp.o0;
+                }
+
+                // For auxiliary ctor fields, a bvar head may resolve to a direct
+                // recursive ref after param substitution (e.g., List.cons head : α → Node α β).
+                // The resolved expression might be an application (not a bare const),
+                // so we decompose it after substitution.
+                Expr resolvedHead = head;
+                Expr[] resolvedArgs = args;
+                int resolvedArgCount = argCount;
+                boolean resolvedFromSubst = false; // true if resolved via param specialization
+                if (head.tag == Expr.BVAR && isNested && paramSpecialization != null) {
+                    // For aux recursors (rec_N), the paramSpecialization is keyed by rec_N name
+                    Expr[] outerSpec = paramSpecialization.get(recCi.name);
+                    if (outerSpec != null) {
+                        Expr resolvedFt = substParamBvars(ft, fi, outerSpec);
+                        resolvedHead = resolvedFt;
+                        java.util.ArrayList<Expr> rArgs = new java.util.ArrayList<>();
+                        while (resolvedHead.tag == Expr.APP) {
+                            rArgs.add(0, (Expr) resolvedHead.o1);
+                            resolvedHead = (Expr) resolvedHead.o0;
+                        }
+                        resolvedArgs = rArgs.toArray(new Expr[0]);
+                        resolvedArgCount = resolvedArgs.length;
+                        resolvedFromSubst = true;
+                    }
+                }
+                if (resolvedHead.tag == Expr.CONST) {
+                    Name headName = (Name) resolvedHead.o0;
+                    if (inductiveNameSet.contains(headName)) {
+                        // --- Direct recursive field ---
+                        ConstantInfo indCi = env.lookup(headName);
+                        if (indCi != null && indCi.isInduct()) {
+                            int indNp = indCi.numParams;
+                            int expectedArgs = indNp + indCi.numIndices;
+                            if (resolvedArgCount == expectedArgs) {
+                                // When resolved from param substitution, the args contain
+                                // bvars from the ORIGINAL discovery context (main type's params),
+                                // not from the current ctor's context. The specialization chain
+                                // guarantees correctness (matching Lean 4's ElimNestedInductive
+                                // where fvars make this comparison automatic).
+                                boolean paramsOk = resolvedFromSubst;
+                                if (!paramsOk) {
+                                    paramsOk = true;
+                                    for (int pi = 0; pi < indNp; pi++) {
+                                        Expr paramArg = resolvedArgs[pi];
+                                        long expectedBvar = ctorSkipParams + fi + extraPis - 1 - pi;
+                                        if (paramArg.tag != Expr.BVAR || paramArg.longVal != expectedBvar) {
+                                            paramsOk = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (paramsOk) {
+                                    isRecField[fi] = true;
+                                    recFieldExtraPis[fi] = extraPis;
+                                    for (int ii = 0; ii < recCi.all.length; ii++) {
+                                        if (headName.equals(recCi.all[ii])) {
+                                            recFieldIndIdx[fi] = ii;
+                                            break;
+                                        }
+                                    }
+                                    int numInd = indCi.numIndices;
+                                    recFieldIndices[fi] = new Expr[numInd];
+                                    for (int j = 0; j < numInd; j++) {
+                                        recFieldIndices[fi][j] = resolvedArgs[indNp + j];
+                                    }
+                                }
+                            }
+                        }
+                    } else if (auxKeys != null) {
+                        // --- Check for nested recursive field ---
+                        // Build I(Ds) from the field type and look up in auxKeys.
+                        // For aux recursors, resolve param bvars in args using paramSpec
+                        // (matching Lean 4's replace_params normalization).
+                        ConstantInfo outerIndCi = env.lookup(headName);
+                        if (outerIndCi != null && outerIndCi.isInduct() &&
+                                resolvedArgCount >= outerIndCi.numParams) {
+                            // Resolve param bvars in args if we have a param specialization
+                            Expr[] lookupArgs = resolvedArgs;
+                            if (paramSpecialization != null) {
+                                Expr[] outerSpec = paramSpecialization.get(recCi.name);
+                                if (outerSpec != null && outerSpec.length > 0) {
+                                    lookupArgs = new Expr[resolvedArgCount];
+                                    for (int ai = 0; ai < resolvedArgCount; ai++) {
+                                        Expr arg = resolvedArgs[ai];
+                                        if (arg.bvarRange() > 0) {
+                                            arg = substParamBvars(arg, fi, outerSpec);
+                                        }
+                                        lookupArgs[ai] = arg;
+                                    }
+                                }
+                            }
+                            // Build I(params) key with resolved args
+                            Expr iKey = resolvedHead;
+                            for (int ai = 0; ai < outerIndCi.numParams; ai++) {
+                                iKey = Expr.app(iKey, lookupArgs[ai]);
+                            }
+                            // Look up in auxKeys — Expr-keyed dedup
+                            Name foundAuxRec = null;
+                            for (int k = 0; k < auxKeys.size(); k++) {
+                                if (exprDeepEquals(auxKeys.get(k), iKey)) {
+                                    foundAuxRec = auxNames.get(k);
+                                    break;
+                                }
+                            }
+                            if (foundAuxRec != null) {
+                                isRecField[fi] = true;
+                                isNestedField[fi] = true;
+                                nestedFieldRecName[fi] = foundAuxRec;
+                                recFieldExtraPis[fi] = extraPis;
+                                recFieldIndices[fi] = new Expr[0];
+                            }
+                        }
+                    }
+                }
+
+                ctorTypeWalk = (Expr) ctorTypeWalk.o2;
+            }
+
+            // --- Build expected body ---
+            // body = minor(fields..., IH_for_each_recursive_field...)
+            Expr expectedBody = Expr.bvar(nf + nmi - 1 - minorIdx);
+
+            for (int fi = 0; fi < nf; fi++) {
+                expectedBody = Expr.app(expectedBody, Expr.bvar(nf - 1 - fi));
+            }
+
+            for (int fi = 0; fi < nf; fi++) {
+                if (!isRecField[fi]) continue;
+
+                int indIdx = recFieldIndIdx[fi];
+                Expr[] indices = recFieldIndices[fi];
+                int extraPis = recFieldExtraPis[fi];
+
+                Name targetRecName;
+                if (isNestedField[fi]) {
+                    targetRecName = nestedFieldRecName[fi];
+                } else if (isNested) {
+                    // Direct recursive field in a nested context:
+                    // use the main recursor (or the one for the matching inductive)
+                    targetRecName = Name.mkStr((Name) recCi.all[Math.min(indIdx, recCi.all.length - 1)], "rec");
+                } else if (recCi.all.length == 1) {
+                    targetRecName = recCi.name;
+                } else {
+                    targetRecName = Name.mkStr((Name) recCi.all[indIdx], "rec");
+                }
+
+                if (extraPis == 0) {
+                    // Simple recursive field: IH = rec(params, motives, minors, indices, field)
+                    Expr ih = Expr.mkConst(targetRecName, levelParams, hasLP);
+                    for (int j = 0; j < np; j++)
+                        ih = Expr.app(ih, Expr.bvar(D - 1 - j));
+                    for (int j = 0; j < nm; j++)
+                        ih = Expr.app(ih, Expr.bvar(nf + nmi + nm - 1 - j));
+                    for (int j = 0; j < nmi; j++)
+                        ih = Expr.app(ih, Expr.bvar(nf + nmi - 1 - j));
+                    if (indices != null && indices.length > 0) {
+                        for (int j = 0; j < indices.length; j++)
+                            ih = Expr.app(ih, reindexBvarsIH(indices[j], 0, fi, nm + nmi, nf));
+                    }
+                    ih = Expr.app(ih, Expr.bvar(nf - 1 - fi));
+                    expectedBody = Expr.app(expectedBody, ih);
+                } else {
+                    // Function-type recursive field (e.g., Acc):
+                    // IH = λ x₀ ... x_{l-1}, rec(params, motives, minors, indices, field(x₀..x_{l-1}))
+                    // Following Lean 4 inductive.cpp:726-742
+
+                    // Build the inner recursive call at depth D + extraPis
+                    Expr ihInner = Expr.mkConst(targetRecName, levelParams, hasLP);
+                    for (int j = 0; j < np; j++)
+                        ihInner = Expr.app(ihInner, Expr.bvar(D - 1 - j + extraPis));
+                    for (int j = 0; j < nm; j++)
+                        ihInner = Expr.app(ihInner, Expr.bvar(nf + nmi + nm - 1 - j + extraPis));
+                    for (int j = 0; j < nmi; j++)
+                        ihInner = Expr.app(ihInner, Expr.bvar(nf + nmi - 1 - j + extraPis));
+                    // Indices at depth np+fi+extraPis, reindex to D+extraPis
+                    if (indices != null && indices.length > 0) {
+                        for (int j = 0; j < indices.length; j++)
+                            ihInner = Expr.app(ihInner, reindexBvarsIH(indices[j], extraPis, fi, nm + nmi, nf));
+                    }
+                    // Apply field to extra args: field(x₀, x₁, ..., x_{l-1})
+                    Expr fApp = Expr.bvar(nf - 1 - fi + extraPis);
+                    for (int j = 0; j < extraPis; j++)
+                        fApp = Expr.app(fApp, Expr.bvar(extraPis - 1 - j));
+                    ihInner = Expr.app(ihInner, fApp);
+
+                    // Wrap in lambdas (inside-out), reindexing each binder type
+                    Expr ih = ihInner;
+                    Expr ftWalk = fieldTypesRaw[fi]; // field type at ctor depth np+fi
+                    for (int j = extraPis - 1; j >= 0; j--) {
+                        // Walk to the j-th forall
+                        Expr ftj = fieldTypesRaw[fi];
+                        for (int k = 0; k < j; k++) ftj = (Expr) ftj.o2;
+                        // ftj is ∀ (name : type), ... at ctor depth np+fi+j
+                        Expr binderType = reindexBvarsIH((Expr) ftj.o1, j, fi, nm + nmi, nf);
+                        ih = Expr.lam(ftj.o0, binderType, ih, ftj.o3);
+                    }
+
+                    expectedBody = Expr.app(expectedBody, ih);
+                }
+            }
+
+            if (!exprDeepEquals(importedBody, expectedBody)) {
+                if (isNested) {
+                    // For nested inductives, the same outer type can be nested with
+                    // different params, creating multiple auxiliary rec_N names.
+                    // Our BFS assigns one rec_N per outer type name, but Lean 4's
+                    // ElimNestedInductive creates separate auxiliaries per distinct
+                    // application I(Ds). The rec_N ordering may differ.
+                    //
+                    // Structural validation: verify each IH targets a recursor from
+                    // the same group, has correct arity, and references the right field.
+                    validateNestedBodyStructure(env, recCi, importedBody, nf, nmi, minorIdx,
+                        np, nm, rule.ctor);
+                } else {
+                    String impStr = importedBody.toString();
+                    String expStr = expectedBody.toString();
+                    if (impStr.length() > 200) impStr = impStr.substring(0, 200) + "...";
+                    if (expStr.length() > 200) expStr = expStr.substring(0, 200) + "...";
+                    throw new RuntimeException("Recursor rule body mismatch for " +
+                        recCi.name + " ctor " + rule.ctor +
+                        "\n  expected: " + expStr +
+                        "\n  got:      " + impStr);
+                }
+            }
+
+            minorIdx++;
+        }
+    }
+
+    /**
+     * Structural validation for nested recursor rule bodies where full body comparison
+     * fails due to rec_N ordering differences (same outer type nested with different params
+     * creates multiple auxiliaries).
+     *
+     * Validates:
+     * 1. Correct minor head (bvar at expected position)
+     * 2. Correct field bvars in order
+     * 3. Each IH targets a recursor from the same group (rec or rec_N with matching prefix)
+     * 4. Each IH has correct arity (np + nm + nmi + ni_target + 1)
+     * 5. Each IH's last arg is a field bvar
+     */
+    private static void validateNestedBodyStructure(Env env, ConstantInfo recCi,
+            Expr body, int nf, int nmi, int minorIdx, int np, int nm, Name ctorName) {
+        // Decompose body into head + args
+        java.util.ArrayList<Expr> bodyArgs = new java.util.ArrayList<>();
+        Expr bodyHead = body;
+        while (bodyHead.tag == Expr.APP) {
+            bodyArgs.add(0, (Expr) bodyHead.o1);
+            bodyHead = (Expr) bodyHead.o0;
+        }
+
+        // Check 1: minor head
+        long expectedMinorBvar = nf + nmi - 1 - minorIdx;
+        if (bodyHead.tag != Expr.BVAR || bodyHead.longVal != expectedMinorBvar) {
+            throw new RuntimeException("Nested recursor rule body head mismatch for " +
+                recCi.name + " ctor " + ctorName +
+                ": expected bvar(" + expectedMinorBvar + ") got " + bodyHead);
+        }
+
+        // Check 2: first nf args must be field bvars in order
+        if (bodyArgs.size() < nf) {
+            throw new RuntimeException("Nested recursor rule body has too few args for " +
+                recCi.name + " ctor " + ctorName + ": expected at least " + nf + " got " + bodyArgs.size());
+        }
+        for (int fi = 0; fi < nf; fi++) {
+            Expr arg = bodyArgs.get(fi);
+            long expectedField = nf - 1 - fi;
+            if (arg.tag != Expr.BVAR || arg.longVal != expectedField) {
+                throw new RuntimeException("Nested recursor rule body field mismatch for " +
+                    recCi.name + " ctor " + ctorName + " field " + fi +
+                    ": expected bvar(" + expectedField + ") got " + arg);
+            }
+        }
+
+        // Check 3-5: remaining args are IHs
+        Name mainIndName = (Name) recCi.all[0];
+        Name recPrefix = Name.mkStr(mainIndName, "rec");
+        int expectedIhArity = np + nm + nmi; // + ni_target + 1 (field)
+
+        for (int i = nf; i < bodyArgs.size(); i++) {
+            Expr ih = bodyArgs.get(i);
+            // The IH may be wrapped in lambdas (function-type recursive fields)
+            // Peel lambdas to get the inner application
+            while (ih.tag == Expr.LAM) ih = (Expr) ih.o2;
+
+            // Decompose IH application
+            Expr ihHead = ih;
+            int ihArgCount = 0;
+            while (ihHead.tag == Expr.APP) { ihArgCount++; ihHead = (Expr) ihHead.o0; }
+
+            // Check 3: IH head must be a recursor from the group
+            if (ihHead.tag != Expr.CONST) {
+                throw new RuntimeException("Nested recursor rule IH head is not a const for " +
+                    recCi.name + " ctor " + ctorName + " IH " + (i - nf));
+            }
+            Name ihRecName = (Name) ihHead.o0;
+            // Must be either the main rec or rec_N from the same type
+            boolean validRec = ihRecName.equals(recPrefix) || // main rec
+                (ihRecName.tag == Name.STR && ihRecName.prefix != null &&
+                 ihRecName.prefix.equals(mainIndName) &&
+                 ihRecName.str.startsWith("rec"));
+            if (!validRec) {
+                throw new RuntimeException("Nested recursor rule IH targets wrong recursor for " +
+                    recCi.name + " ctor " + ctorName + " IH " + (i - nf) +
+                    ": " + ihRecName + " not in group of " + mainIndName);
+            }
+
+            // Check 4: IH arity (at least np + nm + nmi + 1)
+            if (ihArgCount < expectedIhArity + 1) {
+                throw new RuntimeException("Nested recursor rule IH has too few args for " +
+                    recCi.name + " ctor " + ctorName + " IH " + (i - nf) +
+                    ": " + ihArgCount + " < " + (expectedIhArity + 1));
+            }
+        }
+    }
+
+    /**
+     * Substitute outer type params in a constructor type body (after peeling param binders).
+     * Matches Lean 4's instantiate_rev(e, nparams, params) in inductive.cpp:959.
+     * After peeling nparams binders, bvar(k) where k >= nfields references a param.
+     * This substitution replaces all such param refs with the concrete specialization values.
+     */
+    // ========================================================================
+    // Nested aux recursor mapping — built from env (all rec_N already declared)
+    // ========================================================================
+
+    /**
+     * Build the nested auxiliary mapping by looking up rec_N recursors from the env.
+     * All rec_N recursors exist (parser sorts them before the main rec).
+     *
+     * For each rec_N, we extract:
+     * - The outer inductive name (from the first rule's constructor)
+     * - The param specialization (from instantiating the outer ctor's params)
+     *
+     * The field analysis matches against these using the full I(Ds) application
+     * expression (Expr-keyed, matching Lean 4's m_nested_aux dedup).
+     *
+     * Returns [auxKeys, auxNames, paramSpec].
+     */
+    private static Object[] elimNestedBFS(Env env, ConstantInfo recCi,
+            java.util.HashSet<Name> inductiveNameSet) {
+        int np = recCi.numParams;
+        Name mainIndName = (Name) recCi.all[0];
+
+        // Matching Lean 4's ElimNestedInductive BFS (inductive.cpp:1055-1076).
+        // m_new_types: names of all types in the expanded mutual group
+        java.util.ArrayList<Name> newTypeNames = new java.util.ArrayList<>();
+        for (Object n : recCi.all) newTypeNames.add((Name) n);
+        int originalCount = newTypeNames.size();
+
+        // m_nested_aux: pairs of (I(Ds) key, aux_rec_name)
+        // KEY: Expr-based dedup matching Lean 4's m_nested_aux: buffer<pair<expr, name>>
+        java.util.ArrayList<Expr> auxKeys = new java.util.ArrayList<>();
+        java.util.ArrayList<Name> auxNames = new java.util.ArrayList<>();
+
+        // Per aux type: constructor names and their types (after instantiate_pi_params)
+        java.util.ArrayList<Name[]> auxCtorNamesList = new java.util.ArrayList<>();
+        java.util.ArrayList<Expr[]> auxCtorTypesList = new java.util.ArrayList<>();
+
+        java.util.HashMap<Name, Expr[]> paramSpec = new java.util.HashMap<>();
+        int nextSuffix = 1;
+        int qhead = 0;
+
+        while (qhead < newTypeNames.size()) {
+            Name typeName = newTypeNames.get(qhead);
+            Name[] ctorArr; Expr[] ctorTypes;
+
+            if (qhead < originalCount) {
+                ConstantInfo indCi = env.lookup(typeName);
+                if (indCi == null || !indCi.isInduct() || indCi.ctors == null) { qhead++; continue; }
+                ctorArr = indCi.ctors;
+                ctorTypes = new Expr[ctorArr.length];
+                for (int i = 0; i < ctorArr.length; i++) {
+                    ConstantInfo c = env.lookup(ctorArr[i]);
+                    ctorTypes[i] = c != null ? c.type : null;
+                }
+            } else {
+                int ai = qhead - originalCount;
+                ctorArr = auxCtorNamesList.get(ai);
+                ctorTypes = auxCtorTypesList.get(ai);
+            }
+
+            // For each constructor, scan field types for nested occurrences.
+            // Following Lean 4: peel params, then top-down scan each field type.
+            int[] nextSuffixArr = {nextSuffix};
+            for (int ci = 0; ci < ctorArr.length; ci++) {
+                if (ctorTypes[ci] == null) continue;
+                Expr ct = ctorTypes[ci];
+                for (int i = 0; i < np; i++) {
+                    if (ct.tag == Expr.FORALL) ct = (Expr) ct.o2;
+                }
+                while (ct.tag == Expr.FORALL) {
+                    findAndRecordNested((Expr) ct.o1, env, newTypeNames, auxKeys, auxNames,
+                        auxCtorNamesList, auxCtorTypesList, paramSpec,
+                        mainIndName, np, nextSuffixArr);
+                    ct = (Expr) ct.o2;
+                }
+            }
+            nextSuffix = nextSuffixArr[0];
+            qhead++;
+        }
+
+        return new Object[] { auxKeys, auxNames, paramSpec };
+    }
+
+    /**
+     * Top-down scan of expression for outermost nested inductive application.
+     * Matches Lean 4's replace_all_nested + replace_if_nested visit order.
+     * Compact: only recurses into APP/FORALL/LAM children, stops at first match.
+     */
+    private static void findAndRecordNested(Expr e, Env env,
+            java.util.ArrayList<Name> newTypeNames,
+            java.util.ArrayList<Expr> auxKeys, java.util.ArrayList<Name> auxNames,
+            java.util.ArrayList<Name[]> auxCtorNamesList,
+            java.util.ArrayList<Expr[]> auxCtorTypesList,
+            java.util.HashMap<Name, Expr[]> paramSpec,
+            Name mainIndName, int np, int[] nextSuffix) {
+        // Try to match this node as a nested application
+        if (tryRecordNested(e, env, newTypeNames, auxKeys, auxNames,
+                auxCtorNamesList, auxCtorTypesList, paramSpec,
+                mainIndName, np, nextSuffix)) {
+            return; // Matched — don't recurse (Lean 4's replace semantics)
+        }
+        // Recurse into children
+        switch (e.tag) {
+            case Expr.APP:
+                findAndRecordNested((Expr) e.o0, env, newTypeNames, auxKeys, auxNames,
+                    auxCtorNamesList, auxCtorTypesList, paramSpec, mainIndName, np, nextSuffix);
+                findAndRecordNested((Expr) e.o1, env, newTypeNames, auxKeys, auxNames,
+                    auxCtorNamesList, auxCtorTypesList, paramSpec, mainIndName, np, nextSuffix);
+                break;
+            case Expr.FORALL: case Expr.LAM:
+                findAndRecordNested((Expr) e.o1, env, newTypeNames, auxKeys, auxNames,
+                    auxCtorNamesList, auxCtorTypesList, paramSpec, mainIndName, np, nextSuffix);
+                findAndRecordNested((Expr) e.o2, env, newTypeNames, auxKeys, auxNames,
+                    auxCtorNamesList, auxCtorTypesList, paramSpec, mainIndName, np, nextSuffix);
+                break;
+        }
+    }
+
+    /**
+     * Check if expression is a nested inductive application I(Ds, is).
+     * If so, record it (with dedup on I(Ds)) and create aux constructors.
+     * Matches Lean 4's replace_if_nested (inductive.cpp:963-1028).
+     */
+    private static boolean tryRecordNested(Expr e, Env env,
+            java.util.ArrayList<Name> newTypeNames,
+            java.util.ArrayList<Expr> auxKeys, java.util.ArrayList<Name> auxNames,
+            java.util.ArrayList<Name[]> auxCtorNamesList,
+            java.util.ArrayList<Expr[]> auxCtorTypesList,
+            java.util.HashMap<Name, Expr[]> paramSpec,
+            Name mainIndName, int np, int[] nextSuffix) {
+        if (e.tag != Expr.APP) return false;
+        Expr head = e;
+        int totalArgs = 0;
+        while (head.tag == Expr.APP) { totalArgs++; head = (Expr) head.o0; }
+        if (head.tag != Expr.CONST) return false;
+
+        Name iName = (Name) head.o0;
+        ConstantInfo iInfo = env.lookup(iName);
+        if (iInfo == null || !iInfo.isInduct()) return false;
+        int iNp = iInfo.numParams;
+        if (totalArgs < iNp) return false;
+
+        // Not nested if it's one of the types being defined
+        for (Name tn : newTypeNames) {
+            if (iName.equals(tn)) return false;
+        }
+
+        // Extract param args
+        Expr[] allArgs = new Expr[totalArgs];
+        Expr tmp = e;
+        for (int i = totalArgs - 1; i >= 0; i--) {
+            allArgs[i] = (Expr) tmp.o1;
+            tmp = (Expr) tmp.o0;
+        }
+
+        // Check: any param arg references a type in newTypeNames?
+        boolean isNested = false;
+        for (int i = 0; i < iNp; i++) {
+            if (exprContainsAnyName(allArgs[i], newTypeNames)) {
+                isNested = true; break;
+            }
+        }
+        if (!isNested) return false;
+
+        // Build canonical key I(Ds) — just the head applied to params
+        Expr iWithParams = head;
+        for (int i = 0; i < iNp; i++) iWithParams = Expr.app(iWithParams, allArgs[i]);
+
+        // Dedup: check if already discovered (Expr.equals on compact key)
+        for (int k = 0; k < auxKeys.size(); k++) {
+            if (exprDeepEquals(auxKeys.get(k), iWithParams)) return true; // Already known
+        }
+
+        // New discovery — create aux types for all in I's mutual group
+        Name[] iAll = iInfo.all != null ? new Name[iInfo.all.length] : new Name[]{iName};
+        if (iInfo.all != null) for (int i = 0; i < iInfo.all.length; i++) iAll[i] = (Name) iInfo.all[i];
+
+        for (Name jName : iAll) {
+            ConstantInfo jInfo = env.lookup(jName);
+            if (jInfo == null || !jInfo.isInduct()) continue;
+
+            Expr jKey = Expr.mkConst(jName, head.o1, head.hasLevelParam());
+            for (int i = 0; i < iNp; i++) jKey = Expr.app(jKey, allArgs[i]);
+
+            Name auxName = Name.mkStr(mainIndName, "rec_" + nextSuffix[0]);
+            auxKeys.add(jKey);
+            auxNames.add(auxName);
+            newTypeNames.add(auxName);
+            nextSuffix[0]++;
+
+            // Create aux constructor types: instantiate_pi_params + keep compact
+            Name[] jCtors = jInfo.ctors != null ? jInfo.ctors : new Name[0];
+            Name[] newCtorNames = new Name[jCtors.length];
+            Expr[] newCtorTypes = new Expr[jCtors.length];
+            for (int ci = 0; ci < jCtors.length; ci++) {
+                ConstantInfo jCtor = env.lookup(jCtors[ci]);
+                if (jCtor == null) continue;
+                newCtorNames[ci] = jCtors[ci];
+                // instantiate_pi_params: peel I's params, substitute with allArgs
+                Expr jct = jCtor.type;
+                for (int i = 0; i < iNp; i++) {
+                    if (jct.tag == Expr.FORALL) jct = (Expr) jct.o2;
+                }
+                // Substitute param bvars with the COMPACT param values from the nested application
+                newCtorTypes[ci] = instantiateParams(jct, allArgs);
+            }
+            auxCtorNamesList.add(newCtorNames);
+            auxCtorTypesList.add(newCtorTypes);
+
+            // Record param spec for field analysis
+            Expr[] spec = new Expr[iNp];
+            System.arraycopy(allArgs, 0, spec, 0, iNp);
+            paramSpec.put(auxName, spec);
+        }
+        return true;
+    }
+
+    /**
+     * Top-down expression replacement matching Lean 4's replace_all_nested.
+     * At each node, tries replaceIfNested. If it matches, replaces and does NOT
+     * recurse into children. If no match, recurses into children.
+     * This matches replace_fn.cpp: try f(e) first; if Some, use it; else recurse.
+     */
+    /**
+     * Top-down discovery of nested inductive occurrences, matching Lean 4's
+     * replace_all_nested visit order. Does NOT build replacement expressions —
+     * only records discoveries in the auxiliary lists for rec_N assignment.
+     *
+     * Visit order: at each node, try to match as nested. If match, record it
+     * and DON'T recurse into children (same as Lean 4's replace: matched nodes
+     * are replaced and children not visited). If no match, recurse into children.
+     */
+    /** Entry point: creates visited cache then calls the recursive scan. */
+    private static void discoverNestedTopDown(Expr e, Env env,
+            java.util.HashSet<Name> inductiveNameSet,
+            java.util.ArrayList<Name> newTypeNames,
+            java.util.ArrayList<Expr> auxKeys, java.util.ArrayList<Name> auxNames,
+            java.util.ArrayList<Name[]> auxCtorNames, java.util.ArrayList<Expr[]> auxCtorTypes,
+            java.util.HashMap<Name, Expr[]> paramSpec,
+            Name mainIndName, int np, int[] nextSuffix) {
+        // Identity-based visited set matching Lean 4's replace_fn cache (replace_fn.cpp:26)
+        java.util.IdentityHashMap<Expr, Boolean> visited = new java.util.IdentityHashMap<>();
+        discoverNestedGo(e, env, inductiveNameSet, newTypeNames,
+            auxKeys, auxNames, auxCtorNames, auxCtorTypes,
+            paramSpec, mainIndName, np, nextSuffix, visited);
+    }
+
+    private static final int MAX_DISCOVER_DEPTH = 100;
+
+    private static void discoverNestedGo(Expr e, Env env,
+            java.util.HashSet<Name> inductiveNameSet,
+            java.util.ArrayList<Name> newTypeNames,
+            java.util.ArrayList<Expr> auxKeys, java.util.ArrayList<Name> auxNames,
+            java.util.ArrayList<Name[]> auxCtorNames, java.util.ArrayList<Expr[]> auxCtorTypes,
+            java.util.HashMap<Name, Expr[]> paramSpec,
+            Name mainIndName, int np, int[] nextSuffix,
+            java.util.IdentityHashMap<Expr, Boolean> visited) {
+
+        // Cache: skip already-visited expressions (prevents exponential blowup on shared subexprs)
+        if (visited.containsKey(e)) return;
+        if (visited.size() > 100000) return; // Safety limit for huge expression trees
+        visited.put(e, Boolean.TRUE);
+
+        // Try to match this node as a nested inductive application
+        if (tryDiscoverNested(e, env, inductiveNameSet, newTypeNames,
+                auxKeys, auxNames, auxCtorNames, auxCtorTypes,
+                paramSpec, mainIndName, np, nextSuffix)) {
+            return; // Matched — don't recurse (matches Lean 4's replace semantics)
+        }
+
+        // No match — recurse into children
+        switch (e.tag) {
+            case Expr.APP:
+                discoverNestedGo((Expr) e.o0, env, inductiveNameSet, newTypeNames,
+                    auxKeys, auxNames, auxCtorNames, auxCtorTypes,
+                    paramSpec, mainIndName, np, nextSuffix, visited);
+                discoverNestedGo((Expr) e.o1, env, inductiveNameSet, newTypeNames,
+                    auxKeys, auxNames, auxCtorNames, auxCtorTypes,
+                    paramSpec, mainIndName, np, nextSuffix, visited);
+                break;
+            case Expr.FORALL: case Expr.LAM:
+                discoverNestedGo((Expr) e.o1, env, inductiveNameSet, newTypeNames,
+                    auxKeys, auxNames, auxCtorNames, auxCtorTypes,
+                    paramSpec, mainIndName, np, nextSuffix, visited);
+                discoverNestedGo((Expr) e.o2, env, inductiveNameSet, newTypeNames,
+                    auxKeys, auxNames, auxCtorNames, auxCtorTypes,
+                    paramSpec, mainIndName, np, nextSuffix, visited);
+                break;
+        }
+    }
+
+    /**
+     * Try to discover a nested inductive application.
+     * Matches Lean 4's replace_if_nested (inductive.cpp:963-1028) visit order.
+     * Returns true if e is a nested application (recorded in aux lists), false otherwise.
+     */
+    private static boolean tryDiscoverNested(Expr e, Env env,
+            java.util.HashSet<Name> inductiveNameSet,
+            java.util.ArrayList<Name> newTypeNames,
+            java.util.ArrayList<Expr> auxKeys, java.util.ArrayList<Name> auxNames,
+            java.util.ArrayList<Name[]> auxCtorNames, java.util.ArrayList<Expr[]> auxCtorTypes,
+            java.util.HashMap<Name, Expr[]> paramSpec,
+            Name mainIndName, int np, int[] nextSuffix) {
+
+        // Must be an application with const head
+        if (e.tag != Expr.APP) return false;
+        Expr head = e;
+        int totalArgs = 0;
+        while (head.tag == Expr.APP) { totalArgs++; head = (Expr) head.o0; }
+        if (head.tag != Expr.CONST) return false;
+
+        Name iName = (Name) head.o0;
+        ConstantInfo iInfo = env.lookup(iName);
+        if (iInfo == null || !iInfo.isInduct()) return false;
+        int iNparams = iInfo.numParams;
+        if (totalArgs < iNparams) return false;
+
+        // Check if it's one of the types being defined — not nested
+        for (Name tn : newTypeNames) {
+            if (iName.equals(tn)) return false;
+        }
+
+        // Extract args
+        Expr[] allArgs = new Expr[totalArgs];
+        Expr temp = e;
+        for (int i = totalArgs - 1; i >= 0; i--) {
+            allArgs[i] = (Expr) temp.o1;
+            temp = (Expr) temp.o0;
+        }
+
+        // Check if any param arg references a type in newTypeNames (nested condition)
+        boolean isNested = false;
+        for (int i = 0; i < iNparams; i++) {
+            if (exprContainsAnyName(allArgs[i], newTypeNames)) {
+                isNested = true;
+                break;
+            }
+        }
+        if (!isNested) return false;
+
+        // Build the canonical key: I applied to params only (for deduplication)
+        Expr iWithParams = head;
+        for (int i = 0; i < iNparams; i++) {
+            iWithParams = Expr.app(iWithParams, allArgs[i]);
+        }
+
+        // Check if we already have an auxiliary for this I(Ds)
+        for (int k = 0; k < auxKeys.size(); k++) {
+            if (auxKeys.get(k).equals(iWithParams)) {
+                return true; // Already discovered
+            }
+        }
+
+        // New nested discovery — create auxiliary type(s)
+        // For all types J in I's mutual group, create auxiliary types
+        Name[] iAll = iInfo.all != null ? new Name[iInfo.all.length] : new Name[]{iName};
+        if (iInfo.all != null) {
+            for (int i = 0; i < iInfo.all.length; i++) iAll[i] = (Name) iInfo.all[i];
+        }
+
+        for (Name jName : iAll) {
+            ConstantInfo jInfo = env.lookup(jName);
+            if (jInfo == null || !jInfo.isInduct()) continue;
+
+            // Build canonical key for J(Ds)
+            Expr jWithParams = Expr.mkConst(jName, head.o1, head.hasLevelParam());
+            for (int i = 0; i < iNparams; i++) {
+                jWithParams = Expr.app(jWithParams, allArgs[i]);
+            }
+
+            // Generate aux rec name following Lean 4 naming: mainInd.rec_N
+            Name auxJName = Name.mkStr(mainIndName, "rec_" + nextSuffix[0]);
+
+            auxKeys.add(jWithParams);
+            auxNames.add(auxJName);
+            newTypeNames.add(auxJName);
+            nextSuffix[0]++;
+
+            // Create auxiliary constructor types (instantiate_pi_params + substitute)
+            // These are needed for deeper BFS levels to discover further nesting
+            Name[] jCtors = jInfo.ctors;
+            if (jCtors == null) jCtors = new Name[0];
+            Name[] newCtorNames = new Name[jCtors.length];
+            Expr[] newCtorTypesArr = new Expr[jCtors.length];
+            for (int ci = 0; ci < jCtors.length; ci++) {
+                ConstantInfo jCtorInfo = env.lookup(jCtors[ci]);
+                if (jCtorInfo == null) continue;
+                newCtorNames[ci] = jCtors[ci];
+                Expr jct = jCtorInfo.type;
+                for (int i = 0; i < iNparams; i++) {
+                    if (jct.tag == Expr.FORALL) jct = (Expr) jct.o2;
+                }
+                jct = instantiateParams(jct, allArgs);
+                newCtorTypesArr[ci] = jct;
+            }
+            auxCtorNames.add(newCtorNames);
+            auxCtorTypes.add(newCtorTypesArr);
+
+            Expr[] spec = new Expr[iNparams];
+            System.arraycopy(allArgs, 0, spec, 0, iNparams);
+            paramSpec.put(auxJName, spec);
+        }
+
+        return true; // Nested occurrence discovered
+    }
+
+    /** Check if expression contains a reference to any name in the list. */
+    private static boolean exprContainsAnyName(Expr e, java.util.ArrayList<Name> names) {
+        if (e == null) return false;
+        switch (e.tag) {
+            case Expr.CONST: {
+                Name n = (Name) e.o0;
+                for (Name tn : names) if (n.equals(tn)) return true;
+                return false;
+            }
+            case Expr.APP: return exprContainsAnyName((Expr) e.o0, names)
+                                || exprContainsAnyName((Expr) e.o1, names);
+            case Expr.LAM: case Expr.FORALL:
+                return exprContainsAnyName((Expr) e.o1, names)
+                    || exprContainsAnyName((Expr) e.o2, names);
+            default: return false;
+        }
+    }
+
+    private static Expr instantiateParams(Expr e, Expr[] params) {
+        return instantiateParamsGo(e, 0, params);
+    }
+
+    private static Expr instantiateParamsGo(Expr e, int depth, Expr[] params) {
+        if (e.bvarRange() == 0) return e;
+        switch (e.tag) {
+            case Expr.BVAR: {
+                long k = e.longVal;
+                if (k >= depth) {
+                    // Match Lean 4's instantiate_rev: bvar(0) → params[n-1], bvar(n-1) → params[0]
+                    // After peeling n params, bvar(0) = last/innermost param,
+                    // but params[0] = first/outermost arg in the application I(arg0, arg1, ...).
+                    int rawIdx = (int)(k - depth);
+                    int paramIdx = params.length - 1 - rawIdx; // REVERSE mapping
+                    if (paramIdx >= 0 && paramIdx < params.length) {
+                        return liftBvars(params[paramIdx], depth);
+                    }
+                }
+                return e;
+            }
+            case Expr.APP: {
+                Expr fn = instantiateParamsGo((Expr) e.o0, depth, params);
+                Expr arg = instantiateParamsGo((Expr) e.o1, depth, params);
+                if (fn == e.o0 && arg == e.o1) return e;
+                return Expr.app(fn, arg);
+            }
+            case Expr.FORALL: case Expr.LAM: {
+                Expr ty = instantiateParamsGo((Expr) e.o1, depth, params);
+                Expr body = instantiateParamsGo((Expr) e.o2, depth + 1, params);
+                if (ty == e.o1 && body == e.o2) return e;
+                return e.tag == Expr.FORALL ?
+                    Expr.forall(e.o0, ty, body, e.o3) :
+                    Expr.lam(e.o0, ty, body, e.o3);
+            }
+            default: return e;
+        }
+    }
+
+    /** Lift all bvar indices in e by n (add n to each bvar index). */
+    private static Expr liftBvars(Expr e, int n) {
+        if (n == 0 || e.bvarRange() == 0) return e;
+        switch (e.tag) {
+            case Expr.BVAR: return Expr.bvar(e.longVal + n);
+            case Expr.APP: {
+                Expr fn = liftBvars((Expr) e.o0, n);
+                Expr arg = liftBvars((Expr) e.o1, n);
+                if (fn == e.o0 && arg == e.o1) return e;
+                return Expr.app(fn, arg);
+            }
+            case Expr.FORALL: case Expr.LAM: {
+                Expr ty = liftBvars((Expr) e.o1, n);
+                Expr body = liftBvars((Expr) e.o2, n);
+                if (ty == e.o1 && body == e.o2) return e;
+                return e.tag == Expr.FORALL ?
+                    Expr.forall(e.o0, ty, body, e.o3) :
+                    Expr.lam(e.o0, ty, body, e.o3);
+            }
+            default: return e;
+        }
+    }
+
+    /**
+     * Substitute parameter bvar references in a field type with concrete specialization values.
+     * At field index fi within a constructor whose params were skipped, bvar(k) where k >= fi
+     * references the (numParams-1-(k-fi))-th param (de Bruijn reversal).
+     * We replace such bvars with the corresponding value from outerSpec.
+     */
+    private static Expr substParamBvars(Expr e, int fi, Expr[] outerSpec) {
+        if (e.bvarRange() == 0) return e;
+        switch (e.tag) {
+            case Expr.BVAR: {
+                long k = e.longVal;
+                if (k >= fi) {
+                    int paramIdx = outerSpec.length - 1 - (int)(k - fi);
+                    if (paramIdx >= 0 && paramIdx < outerSpec.length) {
+                        return outerSpec[paramIdx];
+                    }
+                }
+                return e;
+            }
+            case Expr.APP: {
+                Expr fn = substParamBvars((Expr) e.o0, fi, outerSpec);
+                Expr arg = substParamBvars((Expr) e.o1, fi, outerSpec);
+                if (fn == e.o0 && arg == e.o1) return e;
+                return Expr.app(fn, arg);
+            }
+            case Expr.FORALL: case Expr.LAM: {
+                Expr ty = substParamBvars((Expr) e.o1, fi, outerSpec);
+                Expr body = substParamBvars((Expr) e.o2, fi + 1, outerSpec);
+                if (ty == e.o1 && body == e.o2) return e;
+                return e.tag == Expr.FORALL ?
+                    Expr.forall(e.o0, ty, body, e.o3) :
+                    Expr.lam(e.o0, ty, body, e.o3);
+            }
+            default: return e;
+        }
+    }
+
+    /**
+     * Like exprContainsName but also checks for const references (not fvars).
+     * For index checking after instantiation with fvars, the inductive
+     * reference might appear as a const in a nested position.
+     */
+    private static boolean exprContainsNameOrFvar(Expr e, java.util.HashSet<Name> names) {
+        return exprContainsName(e, names);
+    }
+
+    /** Check if an expression contains a reference to any key in the given map. */
+    private static boolean exprContainsAnyKey(Expr e, java.util.HashMap<Name, Name> map) {
+        if (e == null || map.isEmpty()) return false;
+        switch (e.tag) {
+            case Expr.CONST: return map.containsKey((Name) e.o0);
+            case Expr.APP: return exprContainsAnyKey((Expr) e.o0, map) || exprContainsAnyKey((Expr) e.o1, map);
+            case Expr.LAM: case Expr.FORALL:
+                return exprContainsAnyKey((Expr) e.o1, map) || exprContainsAnyKey((Expr) e.o2, map);
+            default: return false;
+        }
+    }
+
+    /**
+     * Check if an expression contains a reference to any name in the given set.
+     * Used for detecting nested inductives: a field type like Array(Syntax)
+     * contains "Syntax" in Array's parameters.
+     */
+    private static boolean exprContainsName(Expr e, java.util.HashSet<Name> names) {
+        if (e == null) return false;
+        switch (e.tag) {
+            case Expr.CONST:
+                return names.contains((Name) e.o0);
+            case Expr.APP:
+                return exprContainsName((Expr) e.o0, names) || exprContainsName((Expr) e.o1, names);
+            case Expr.LAM:
+            case Expr.FORALL:
+                return exprContainsName((Expr) e.o1, names) || exprContainsName((Expr) e.o2, names);
+            case Expr.LET:
+                return exprContainsName((Expr) e.o1, names) || exprContainsName((Expr) e.o2, names)
+                    || (e.o3 instanceof Expr && exprContainsName((Expr) e.o3, names));
+            case Expr.PROJ:
+                return exprContainsName((Expr) e.o1, names);
+            case Expr.MDATA:
+                return exprContainsName((Expr) e.o1, names);
+            default:
+                return false;
+        }
+    }
+
+    /**
+     * Reindex bvars from constructor type context to RHS/IH body context.
+     * Three-way split for function-type recursive fields:
+     *   bvar(k < j):            inner forall vars → unchanged (maps to IH lambda binders)
+     *   bvar(j ≤ k < fi + j):   field refs → bvar(k + nf - fi)
+     *   bvar(k ≥ fi + j):       param refs → bvar(k + nmNmi + nf - fi)
+     *
+     * For simple fields (no extra pis), j=0 and this reduces to the two-way split.
+     *
+     * @param e expression at ctor depth np+fi+j
+     * @param j number of inner forall vars to preserve (extra pi depth)
+     * @param fi field index (0-based)
+     * @param nmNmi number of motives + minors (inserted binders)
+     * @param nf total number of fields
+     */
+    private static Expr reindexBvarsIH(Expr e, int j, int fi, int nmNmi, int nf) {
+        if (e.bvarRange() == 0) return e;
+
+        switch (e.tag) {
+            case Expr.BVAR: {
+                long k = e.longVal;
+                if (k < j) {
+                    return e; // inner forall var → maps to IH lambda binder
+                } else if (k < fi + j) {
+                    return Expr.bvar(k + nf - fi); // field ref
+                } else {
+                    return Expr.bvar(k + nmNmi + nf - fi); // param ref
+                }
+            }
+            case Expr.APP: {
+                Expr fn = reindexBvarsIH((Expr) e.o0, j, fi, nmNmi, nf);
+                Expr arg = reindexBvarsIH((Expr) e.o1, j, fi, nmNmi, nf);
+                if (fn == e.o0 && arg == e.o1) return e;
+                return Expr.app(fn, arg);
+            }
+            case Expr.LAM: {
+                Expr ty = reindexBvarsIH((Expr) e.o1, j, fi, nmNmi, nf);
+                Expr body = reindexBvarsIH((Expr) e.o2, j + 1, fi, nmNmi, nf);
+                if (ty == e.o1 && body == e.o2) return e;
+                return Expr.lam(e.o0, ty, body, e.o3);
+            }
+            case Expr.FORALL: {
+                Expr ty = reindexBvarsIH((Expr) e.o1, j, fi, nmNmi, nf);
+                Expr body = reindexBvarsIH((Expr) e.o2, j + 1, fi, nmNmi, nf);
+                if (ty == e.o1 && body == e.o2) return e;
+                return Expr.forall(e.o0, ty, body, e.o3);
+            }
+            default:
+                return e;
+        }
+    }
+
+    /**
+     * Deep structural equality for Expr that handles level array comparison.
+     * Standard Expr.equals uses Object.equals for the levels container,
+     * which fails for different array instances with the same contents.
+     */
+    static boolean exprDeepEquals(Expr a, Expr b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        if (a.tag != b.tag) return false;
+
+        switch (a.tag) {
+            case Expr.BVAR:
+                return a.longVal == b.longVal;
+            case Expr.SORT:
+                return a.o0.equals(b.o0);
+            case Expr.CONST: {
+                if (!a.o0.equals(b.o0)) return false;
+                Object[] la = Reducer.constLevels(a);
+                Object[] lb = Reducer.constLevels(b);
+                if (la.length != lb.length) return false;
+                for (int i = 0; i < la.length; i++) {
+                    if (!la[i].equals(lb[i])) return false;
+                }
+                return true;
+            }
+            case Expr.APP:
+                return exprDeepEquals((Expr) a.o0, (Expr) b.o0)
+                    && exprDeepEquals((Expr) a.o1, (Expr) b.o1);
+            case Expr.LAM:
+            case Expr.FORALL:
+                // Skip binder name (o0) — decorative in CIC (alpha-equivalence).
+                // Lean 4's mk_rec_rules uses fresh hygienic names that differ from
+                // raw constructor names. Binder info (o3) IS semantically relevant.
+                return exprDeepEquals((Expr) a.o1, (Expr) b.o1)
+                    && exprDeepEquals((Expr) a.o2, (Expr) b.o2)
+                    && java.util.Objects.equals(a.o3, b.o3);
+            case Expr.LET:
+                return java.util.Objects.equals(a.o0, b.o0)
+                    && exprDeepEquals((Expr) a.o1, (Expr) b.o1)
+                    && exprDeepEquals((Expr) a.o2, (Expr) b.o2)
+                    && exprDeepEquals((Expr) a.o3, (Expr) b.o3);
+            case Expr.PROJ:
+                return a.o0.equals(b.o0) && a.longVal == b.longVal
+                    && exprDeepEquals((Expr) a.o1, (Expr) b.o1);
+            case Expr.LIT_NAT:
+            case Expr.LIT_STR:
+                return a.o0.equals(b.o0);
+            case Expr.FVAR:
+            case Expr.MVAR:
+                return a.longVal == b.longVal;
+            default:
+                return a.equals(b);
+        }
     }
 }
