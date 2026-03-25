@@ -5,6 +5,7 @@ package ansatz.kernel;
 
 import java.math.BigInteger;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 
 /**
@@ -89,25 +90,111 @@ public final class Expr {
     // structurally-equal expressions, making pointer equality (isEqp / ==) succeed
     // for identical intermediate results. This matches Lean 4's C++ allocator behavior.
     private static final ThreadLocal<HashMap<Expr, Expr>> internTable = new ThreadLocal<>();
-    private static final int INTERN_TABLE_MAX = 500_000;
-
     /** Enable hash-consing for the current thread. Call disableIntern() when done. */
     public static void enableIntern() {
         internTable.set(new HashMap<>(16384));
     }
 
-    /** Disable hash-consing and free the intern table. */
+    /** Disable hash-consing and free the intern table.
+     *  The table is per-declaration (created in checkConstant, freed after).
+     *  No size limit — grows as needed, then GC'd on disableIntern(). */
     public static void disableIntern() {
         internTable.remove();
+    }
+
+    /** Seed the intern table with entries from shareCommon's cache.
+     *  Ensures proof sub-expressions are pointer-identical to reduction-created ones. */
+    public static void seedIntern(java.util.HashMap<Expr, Expr> scCache) {
+        HashMap<Expr, Expr> table = internTable.get();
+        if (table != null) table.putAll(scCache);
+    }
+
+    /** Re-intern an expression from outside the intern table (e.g., ENV values).
+     *  If already in the table, returns the canonical pointer. If not, adds it.
+     *  Just the top node — for deep re-interning use deepReIntern. */
+    public static Expr reIntern(Expr e) {
+        HashMap<Expr, Expr> table = internTable.get();
+        if (table == null) return e;
+        Expr existing = table.putIfAbsent(e, e);
+        return existing != null ? existing : e;
+    }
+
+    /** Deeply re-intern an expression tree. Rebuilds the tree bottom-up using
+     *  the interned factory methods, ensuring ALL sub-expressions are in the
+     *  intern table. Used for ENV definition values entering the kernel.
+     *  Results are cached per identity to avoid redundant work on DAG-shared sub-trees. */
+    public static Expr deepReIntern(Expr e) {
+        HashMap<Expr, Expr> table = internTable.get();
+        if (table == null) return e;
+        // Quick check: if already in the table, return canonical form immediately.
+        // After the CONST fix, structural-hash + structural-equals means this lookup
+        // correctly finds the canonical pointer even for fresh Object[] level arrays.
+        Expr existing = table.get(e);
+        if (existing != null) return existing;
+        return deepReInternGo(e, new IdentityHashMap<>(256));
+    }
+
+    private static Expr deepReInternGo(Expr e, IdentityHashMap<Expr, Expr> visited) {
+        Expr cached = visited.get(e);
+        if (cached != null) return cached;
+        // If already in intern table, use canonical version
+        HashMap<Expr, Expr> table = internTable.get();
+        if (table != null) {
+            Expr existing = table.get(e);
+            if (existing != null) { visited.put(e, existing); return existing; }
+        }
+        Expr result;
+        switch (e.tag) {
+            case BVAR: result = bvar(e.longVal); break;
+            case SORT: result = sort(e.o0, e.hasLevelParam()); break;
+            case CONST: result = mkConst(e.o0, e.o1, e.hasLevelParam()); break;
+            case FVAR: result = fvar(e.longVal); break;
+            case MVAR: result = mvar(e.longVal); break;
+            case LIT_NAT: result = litNat(e.o0); break;
+            case LIT_STR: result = litStr((String) e.o0); break;
+            case APP: {
+                Expr fn = deepReInternGo((Expr) e.o0, visited);
+                Expr arg = deepReInternGo((Expr) e.o1, visited);
+                result = app(fn, arg);
+                break;
+            }
+            case LAM: {
+                Expr type = deepReInternGo((Expr) e.o1, visited);
+                Expr body = deepReInternGo((Expr) e.o2, visited);
+                result = lam(e.o0, type, body, e.o3);
+                break;
+            }
+            case FORALL: {
+                Expr type = deepReInternGo((Expr) e.o1, visited);
+                Expr body = deepReInternGo((Expr) e.o2, visited);
+                result = forall(e.o0, type, body, e.o3);
+                break;
+            }
+            case LET: {
+                // LET is rare in kernel expressions; re-intern top node only
+                result = reIntern(e);
+                break;
+            }
+            case PROJ: {
+                Expr struct = deepReInternGo((Expr) e.o1, visited);
+                result = proj(e.o0, e.longVal, struct);
+                break;
+            }
+            case MDATA: {
+                Expr inner = deepReInternGo((Expr) e.o1, visited);
+                result = mdata(e.o0, inner);
+                break;
+            }
+            default: result = e;
+        }
+        visited.put(e, result);
+        return result;
     }
 
     /** Intern an expression: return canonical instance if one exists. */
     private static Expr intern(Expr e) {
         HashMap<Expr, Expr> table = internTable.get();
         if (table == null) return e;
-        if (table.size() >= INTERN_TABLE_MAX) {
-            table.clear();
-        }
         Expr existing = table.putIfAbsent(e, e);
         return existing != null ? existing : e;
     }
@@ -157,6 +244,58 @@ public final class Expr {
         return hashCode();
     }
 
+    /**
+     * Structural hash for a CONST's level list, consistent across Object[], List, and
+     * IPersistentVector representations.  After level normalization, levels may be stored
+     * as a fresh Object[] whose identity hash differs from a structurally-equal List —
+     * causing the intern table to miss.  This helper ensures consistent hashing.
+     */
+    static int levelsHashCode(Object levels) {
+        if (levels == null) return 0;
+        if (levels instanceof Object[]) {
+            Object[] arr = (Object[]) levels;
+            int h = 1;
+            for (Object e : arr) h = 31 * h + (e == null ? 0 : e.hashCode());
+            return h;
+        }
+        // java.util.List (Arrays.asList, etc.) and IPersistentVector both have
+        // structural hashCode matching the formula above.
+        return levels.hashCode();
+    }
+
+    /**
+     * Structural equality for CONST level lists, consistent across representation types.
+     */
+    static boolean levelsEquals(Object a, Object b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        if (a instanceof Object[] && b instanceof Object[]) {
+            Object[] aa = (Object[]) a, ab = (Object[]) b;
+            if (aa.length != ab.length) return false;
+            for (int i = 0; i < aa.length; i++) if (!aa[i].equals(ab[i])) return false;
+            return true;
+        }
+        if (a instanceof Object[]) return mixedLevelsEquals((Object[]) a, b);
+        if (b instanceof Object[]) return mixedLevelsEquals((Object[]) b, a);
+        return Objects.equals(a, b); // List / IPersistentVector structural equals
+    }
+
+    private static boolean mixedLevelsEquals(Object[] arr, Object other) {
+        if (other instanceof java.util.List) {
+            java.util.List<?> lst = (java.util.List<?>) other;
+            if (lst.size() != arr.length) return false;
+            for (int i = 0; i < arr.length; i++) if (!arr[i].equals(lst.get(i))) return false;
+            return true;
+        }
+        if (other instanceof clojure.lang.IPersistentVector) {
+            clojure.lang.IPersistentVector v = (clojure.lang.IPersistentVector) other;
+            if (v.count() != arr.length) return false;
+            for (int i = 0; i < arr.length; i++) if (!arr[i].equals(v.nth(i))) return false;
+            return true;
+        }
+        return false;
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
@@ -168,7 +307,7 @@ public final class Expr {
         switch (tag) {
             case BVAR:    return longVal == o.longVal;
             case SORT:    return Objects.equals(o0, o.o0);
-            case CONST:   return Objects.equals(o0, o.o0) && Objects.equals(o1, o.o1);
+            case CONST:   return Objects.equals(o0, o.o0) && levelsEquals(o1, o.o1);
             case APP:     return Objects.equals(o0, o.o0) && Objects.equals(o1, o.o1);
             case LAM:     return Objects.equals(o0, o.o0) && Objects.equals(o1, o.o1)
                               && Objects.equals(o2, o.o2) && Objects.equals(o3, o.o3);
@@ -217,6 +356,88 @@ public final class Expr {
         return intern(new Expr(BVAR, d, null, null, null, null, idx));
     }
 
+    /** Normalize all universe levels in an expression tree.
+     *  Ensures equivalent levels produce structurally identical Level objects,
+     *  so that Expr pointer equality (via intern table) works for expressions
+     *  with equivalent-but-differently-structured levels. */
+    public static Expr normalizeExprLevels(Expr e) {
+        return normalizeExprLevelsGo(e, new IdentityHashMap<>(256));
+    }
+
+    private static Expr normalizeExprLevelsGo(Expr e, IdentityHashMap<Expr, Expr> visited) {
+        Expr cached = visited.get(e);
+        if (cached != null) return cached;
+        Expr result;
+        switch (e.tag) {
+            case SORT: {
+                Level l = (Level) e.o0;
+                Level norm = Level.simplify(l);
+                result = (norm == l) ? e : sort(norm, e.hasLevelParam());
+                break;
+            }
+            case CONST: {
+                Object levels = e.o1;
+                boolean changed = false;
+                if (levels instanceof Object[]) {
+                    Object[] arr = (Object[]) levels;
+                    Object[] norm = null;
+                    for (int i = 0; i < arr.length; i++) {
+                        Level simplified = Level.simplify((Level) arr[i]);
+                        if (simplified != arr[i]) {
+                            if (norm == null) norm = arr.clone();
+                            norm[i] = simplified;
+                            changed = true;
+                        }
+                    }
+                    if (changed) {
+                        result = mkConst(e.o0, norm, e.hasLevelParam());
+                    } else {
+                        result = e;
+                    }
+                } else if (levels instanceof clojure.lang.IPersistentVector) {
+                    clojure.lang.IPersistentVector v = (clojure.lang.IPersistentVector) levels;
+                    Object[] norm = new Object[v.count()];
+                    for (int i = 0; i < v.count(); i++) {
+                        Level simplified = Level.simplify((Level) v.nth(i));
+                        norm[i] = simplified;
+                        if (simplified != v.nth(i)) changed = true;
+                    }
+                    result = changed ? mkConst(e.o0, norm, e.hasLevelParam()) : e;
+                } else {
+                    result = e;
+                }
+                break;
+            }
+            case APP: {
+                Expr fn = normalizeExprLevelsGo((Expr) e.o0, visited);
+                Expr arg = normalizeExprLevelsGo((Expr) e.o1, visited);
+                result = (fn == e.o0 && arg == e.o1) ? e : app(fn, arg);
+                break;
+            }
+            case LAM: {
+                Expr type = normalizeExprLevelsGo((Expr) e.o1, visited);
+                Expr body = normalizeExprLevelsGo((Expr) e.o2, visited);
+                result = (type == e.o1 && body == e.o2) ? e : lam(e.o0, type, body, e.o3);
+                break;
+            }
+            case FORALL: {
+                Expr type = normalizeExprLevelsGo((Expr) e.o1, visited);
+                Expr body = normalizeExprLevelsGo((Expr) e.o2, visited);
+                result = (type == e.o1 && body == e.o2) ? e : forall(e.o0, type, body, e.o3);
+                break;
+            }
+            case PROJ: {
+                Expr struct = normalizeExprLevelsGo((Expr) e.o1, visited);
+                result = (struct == e.o1) ? e : proj(e.o0, e.longVal, struct);
+                break;
+            }
+            default:
+                result = e;
+        }
+        visited.put(e, result);
+        return result;
+    }
+
     /** Sort (universe). Prop = sort(zero), Type u = sort(succ u). */
     public static Expr sort(Object level, boolean levelHasParam) {
         int h = Objects.hashCode(level) * 31 + SORT;
@@ -226,7 +447,10 @@ public final class Expr {
 
     /** Reference to a global constant with universe level arguments. */
     public static Expr mkConst(Object name, Object levels, boolean levelsHaveParam) {
-        int h = (Objects.hashCode(name) * 31 + Objects.hashCode(levels)) * 31 + CONST;
+        // Use structural hash for levels so CONSTs with equal level contents (but
+        // different Object[] instances — common after normalization) hash to the same
+        // bucket and are recognized as equal by the intern table.
+        int h = (Objects.hashCode(name) * 31 + levelsHashCode(levels)) * 31 + CONST;
         long d = packData(0, h, false, levelsHaveParam);
         return intern(new Expr(CONST, d, name, levels, null, null, 0));
     }
@@ -315,20 +539,20 @@ public final class Expr {
         return intern(new Expr(PROJ, d, typeName, struct, null, null, idx));
     }
 
-    /** Free variable with unique numeric id. Not interned (unique per declaration). */
+    /** Free variable with unique numeric id. Interned for pointer sharing. */
     public static Expr fvar(long id) {
         int h = Long.hashCode(id) * 31 + FVAR;
         long d = packData(0, h, true, false);
-        return new Expr(FVAR, d, null, null, null, null, id);
+        return intern(new Expr(FVAR, d, null, null, null, null, id));
     }
 
-    /** Metavariable with unique numeric id. Not interned, NOT affected by abstract1.
-     *  Used as placeholders in proof terms that get resolved during extraction. */
+    /** Metavariable with unique numeric id. Interned for pointer sharing.
+     *  NOT affected by abstract1 (HAS_FVAR_BIT is false). */
     public static Expr mvar(long id) {
         int h = Long.hashCode(id) * 31 + MVAR;
         // MVAR does NOT set HAS_FVAR_BIT — this ensures abstract1 skips it
         long d = packData(0, h, false, false);
-        return new Expr(MVAR, d, null, null, null, null, id);
+        return intern(new Expr(MVAR, d, null, null, null, null, id));
     }
 
     /**

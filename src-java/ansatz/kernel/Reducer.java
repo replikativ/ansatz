@@ -36,8 +36,15 @@ public final class Reducer {
     private static final long DEFAULT_FUEL = 5_000_000L;
 
     // Depth tracking
-    private int whnfDepth;
-    private static final int MAX_WHNF_DEPTH = 8192;
+    // whnfDepth removed — Lean 4 has no depth tracking
+    // Lean 4 has no WHNF depth limit. We use a high limit to catch infinite loops
+    // while allowing deep reductions like Rat arithmetic proofs.
+    // Lean 4 has no WHNF depth limit (iterative C++ whnf). Our whnf is recursive
+    // so we need a limit to prevent StackOverflow. 32768 handles most Mathlib proofs;
+    // very deep Rat/Int arithmetic (e.g., Std.Time.Week 604800000ms conversion) may
+    // exceed this and needs iterative whnf or native Int reduction to fix properly.
+    // Lean 4 has no WHNF depth limit — relies on C++ stack. We match this,
+    // relying on Java stack (-Xss). Depth tracking removed to reduce overhead.
 
     // ---- Instrumentation counters ----
     long betaCount;      // beta reductions (lambda application)
@@ -51,6 +58,11 @@ public final class Reducer {
     long whnfCoreCacheHits;  // whnfCore cache hits
     long whnfCacheHits;      // whnf cache hits
     long internHits;         // result intern hits (pointer sharing)
+    int whnfDepth;           // current recursion depth
+    int whnfMaxDepth;        // max recursion depth seen
+    Expr whnfMaxDepthExpr;   // expression at max depth
+    Expr whnfFirstDeepExpr;  // first expression at depth 100
+    StackTraceElement[] whnfFirstDeepStack;  // stack trace at depth 100
 
     // Ring buffer trace: last N operations
     private static final int TRACE_RING_SIZE = 1024;
@@ -112,7 +124,6 @@ public final class Reducer {
         this.lctx = null;
         this.fuel = DEFAULT_FUEL;
         this.initialFuel = DEFAULT_FUEL;
-        this.whnfDepth = 0;
     }
 
     /** Set fuel limit. 0 means unlimited (no fuel checking). */
@@ -131,12 +142,9 @@ public final class Reducer {
      * This enables reference equality (==) short-circuits in isDefEq, mirroring Lean 4's
      * pointer sharing from hash-consing.
      */
-    private static final int INTERN_MAX = 100000;
-
-    private Expr internResult(Expr r) {
-        if (resultIntern.size() >= INTERN_MAX) {
-            resultIntern.clear();
-        }
+    public Expr internResult(Expr r) {
+        // No size limit — grows per declaration, freed on clearCaches().
+        // Clearing destroys pointer sharing needed by IdentityHashMap caches.
         Expr existing = resultIntern.putIfAbsent(r, r);
         if (existing != null) { internHits++; return existing; }
         return r;
@@ -737,34 +745,56 @@ public final class Reducer {
                 break;
             }
             case Expr.APP: {
-                ArrayList<Expr> args = new ArrayList<>();
+                // Iterative APP traversal — avoids stack overflow on deep expression trees.
+                // Collect the APP spine, instantiate head, then process args iteratively.
+                int n = 0;
                 Expr cur = e;
-                while (cur.tag == Expr.APP && cur.hasLevelParam() && cache.get(cur) == null) {
-                    args.add((Expr) cur.o1);
-                    cur = (Expr) cur.o0;
+                while (cur.tag == Expr.APP) { n++; cur = (Expr) cur.o0; }
+                // cur is now the head (non-APP)
+                Expr newHead = cur.hasLevelParam() ? instantiateLPGo(cur, subst, cache) : cur;
+                // Process args iteratively (no recursive instantiateLPGo for args)
+                Expr[] origArgs = new Expr[n];
+                Expr tmpCur = e;
+                for (int i = n - 1; i >= 0; i--) {
+                    origArgs[i] = (Expr) tmpCur.o1;
+                    tmpCur = (Expr) tmpCur.o0;
                 }
-                Expr newHead = instantiateLPGo(cur, subst, cache);
                 result = newHead;
                 boolean changed = (newHead != cur);
-                for (int i = args.size() - 1; i >= 0; i--) {
-                    Expr origArg = args.get(i);
-                    Expr newArg = instantiateLPGo(origArg, subst, cache);
+                for (int i = 0; i < n; i++) {
+                    Expr origArg = origArgs[i];
+                    Expr newArg = origArg.hasLevelParam() ? instantiateLPGo(origArg, subst, cache) : origArg;
                     changed = changed || (newArg != origArg);
                     result = Expr.app(result, newArg);
                 }
                 if (!changed) result = e;
                 break;
             }
-            case Expr.LAM: {
-                Expr newType = instantiateLPGo((Expr) e.o1, subst, cache);
-                Expr newBody = instantiateLPGo((Expr) e.o2, subst, cache);
-                result = (newType == e.o1 && newBody == e.o2) ? e : Expr.lam(e.o0, newType, newBody, e.o3);
-                break;
-            }
+            case Expr.LAM:
             case Expr.FORALL: {
-                Expr newType = instantiateLPGo((Expr) e.o1, subst, cache);
-                Expr newBody = instantiateLPGo((Expr) e.o2, subst, cache);
-                result = (newType == e.o1 && newBody == e.o2) ? e : Expr.forall(e.o0, newType, newBody, e.o3);
+                // Iterative traversal of nested LAM/FORALL chains to avoid stack overflow.
+                // Collect the chain, process types, then rebuild from inside out.
+                java.util.ArrayList<Expr> chain = new java.util.ArrayList<>();
+                Expr cur2 = e;
+                while ((cur2.tag == Expr.LAM || cur2.tag == Expr.FORALL) && cur2.hasLevelParam()) {
+                    chain.add(cur2);
+                    cur2 = (Expr) cur2.o2; // body
+                }
+                // Process the innermost body
+                Expr newInner = cur2.hasLevelParam() ? instantiateLPGo(cur2, subst, cache) : cur2;
+                boolean changed = (newInner != cur2);
+                // Rebuild from inside out
+                Expr rebuilt = newInner;
+                for (int i = chain.size() - 1; i >= 0; i--) {
+                    Expr node = chain.get(i);
+                    Expr newType = ((Expr) node.o1).hasLevelParam() ?
+                        instantiateLPGo((Expr) node.o1, subst, cache) : (Expr) node.o1;
+                    changed = changed || (newType != node.o1) || (rebuilt != node.o2);
+                    rebuilt = node.tag == Expr.LAM ?
+                        Expr.lam(node.o0, newType, rebuilt, node.o3) :
+                        Expr.forall(node.o0, newType, rebuilt, node.o3);
+                }
+                result = changed ? rebuilt : e;
                 break;
             }
             case Expr.LET: {
@@ -802,19 +832,24 @@ public final class Reducer {
     }
 
     /** Get [head, args] from nested applications. */
+    private static final Expr[] EMPTY_EXPR_ARRAY = new Expr[0];
+
+    /** Decompose application into head + args. No ArrayList — direct array allocation.
+     *  Matching Lean 4's get_app_args which uses a stack-allocated buffer. */
     public static Object[] getAppFnArgs(Expr e) {
-        if (e.tag != Expr.APP) return new Object[]{e, new Expr[0]};
-        ArrayList<Expr> args = new ArrayList<>();
-        while (e.tag == Expr.APP) {
-            args.add((Expr) e.o1);
-            e = (Expr) e.o0;
+        if (e.tag != Expr.APP) return new Object[]{e, EMPTY_EXPR_ARRAY};
+        // Count args first (avoids ArrayList)
+        int n = 0;
+        Expr fn = e;
+        while (fn.tag == Expr.APP) { n++; fn = (Expr) fn.o0; }
+        // Fill array directly (reverse order)
+        Expr[] argsArr = new Expr[n];
+        Expr cur = e;
+        for (int i = n - 1; i >= 0; i--) {
+            argsArr[i] = (Expr) cur.o1;
+            cur = (Expr) cur.o0;
         }
-        // Reverse args
-        Expr[] argsArr = new Expr[args.size()];
-        for (int i = 0; i < argsArr.length; i++) {
-            argsArr[i] = args.get(argsArr.length - 1 - i);
-        }
-        return new Object[]{e, argsArr};
+        return new Object[]{fn, argsArr};
     }
 
     /** Build app from head and args array. */
@@ -873,8 +908,16 @@ public final class Reducer {
         m.put("whnf-cache-hits", whnfCacheHits);
         m.put("intern-hits", internHits);
         m.put("fuel-used", initialFuel - fuel);
+        m.put("whnf-max-depth", (long) whnfMaxDepth);
         return m;
     }
+
+    /** Get the expression that triggered the maximum whnf depth. */
+    public Expr getMaxDepthExpr() { return whnfMaxDepthExpr; }
+    /** Get the first expression at depth 100. */
+    public Expr getFirstDeepExpr() { return whnfFirstDeepExpr; }
+    /** Get the stack trace at depth 100. */
+    public StackTraceElement[] getFirstDeepStack() { return whnfFirstDeepStack; }
 
     /**
      * Get the last N trace entries (most recent last).
@@ -905,27 +948,255 @@ public final class Reducer {
             Expr.litNat(n.subtract(BigInteger.ONE)));
     }
 
+    /**
+     * Reduce expression to a Nat literal, iteratively peeling Nat.succ layers.
+     * Matches Lean 4's is_nat_lit_ext + get_nat_val pattern.
+     *
+     * Uses a two-level loop: the outer loop calls whnf once to get the initial
+     * form, then an inner loop handles the common case where whnf produces
+     * Nat.succ(Nat.rec...) chains by using whnfCore (iterative, no recursive whnf)
+     * plus inline delta/nat reduction. This prevents deep recursive whnf chains
+     * for expressions like Nat.add(604800, fvar) which would otherwise create
+     * 604800 nested whnf calls.
+     */
     private Expr whnfToNat(Expr e) {
-        Expr w = whnf(e);
-        if (w.tag == Expr.LIT_NAT) return w;
-        if (w.tag == Expr.APP) {
-            Expr fn = (Expr) w.o0;
-            if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
-                Expr inner = whnfToNat((Expr) w.o1);
-                if (inner != null) {
-                    return Expr.litNat(((BigInteger) inner.o0).add(BigInteger.ONE));
+        BigInteger acc = BIG_ZERO;
+        Expr cur = e;
+        while (true) {
+            Expr w = whnf(cur);
+            if (w.tag == Expr.LIT_NAT) {
+                return Expr.litNat(((BigInteger) w.o0).add(acc));
+            }
+            if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
+                return Expr.litNat(acc);
+            }
+            if (w.tag == Expr.APP) {
+                Expr fn = (Expr) w.o0;
+                if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
+                    acc = acc.add(BigInteger.ONE);
+                    // Instead of calling whnf(arg) recursively, try iterative reduction
+                    Expr inner = (Expr) w.o1;
+                    // Fast path: try iterative Nat reduction without recursive whnf
+                    Expr iterResult = iterativeWhnfToNat(inner);
+                    if (iterResult != null) {
+                        return Expr.litNat(((BigInteger) iterResult.o0).add(acc));
+                    }
+                    // Slow path: fall back to recursive whnf
+                    cur = inner;
+                    continue;
                 }
             }
+            return null; // not reducible to Nat literal
         }
-        if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
-            return Expr.litNat(BIG_ZERO);
+    }
+
+    /**
+     * Try to reduce a Nat expression to a literal using only iterative operations:
+     * whnfCore (iterative) + cheap native Nat/Int reduction + delta unfolding.
+     * No recursive whnf calls. Returns a LIT_NAT or null.
+     *
+     * This handles the common case of Nat.rec-based functions (like Nat.add,
+     * Nat.gcd implemented via brecOn) applied to large concrete values.
+     */
+    private Expr iterativeWhnfToNat(Expr e) {
+        BigInteger innerAcc = BIG_ZERO;
+        Expr cur = e;
+        for (int i = 0; i < 100_000_000; i++) { // safety limit
+            checkFuel();
+            // Step 1: whnfCore (iterative — handles beta, iota, proj)
+            Expr w = whnfCore(cur);
+
+            // Check result
+            if (w.tag == Expr.LIT_NAT) {
+                return Expr.litNat(((BigInteger) w.o0).add(innerAcc));
+            }
+            if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
+                return Expr.litNat(innerAcc);
+            }
+
+            // Peel Nat.succ layers
+            if (w.tag == Expr.APP) {
+                Expr fn = (Expr) w.o0;
+                if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
+                    innerAcc = innerAcc.add(BigInteger.ONE);
+                    cur = (Expr) w.o1;
+                    continue;
+                }
+            }
+
+            // Step 2: Try cheap native Nat/Int reduction
+            Object[] fnArgs = getAppFnArgs(w);
+            Expr head = (Expr) fnArgs[0];
+            Expr[] args = (Expr[]) fnArgs[1];
+
+            Expr natR = tryCheapReduceNat(head, args);
+            if (natR != null) { cur = natR; continue; }
+            Expr intR = tryCheapReduceInt(head, args);
+            if (intR != null) { cur = intR; continue; }
+
+            // Step 3: Try delta unfolding
+            if (head.tag == Expr.CONST) {
+                Expr unfolded = tryUnfoldDef(head);
+                if (unfolded != null) {
+                    deltaCount++;
+                    cur = whnfCore(mkApps(unfolded, args));
+                    continue;
+                }
+            }
+
+            // Can't reduce further iteratively — return null to trigger slow path
+            return null;
+        }
+        return null; // safety limit reached
+    }
+
+    /**
+     * Construct Decidable.isTrue(@Eq.refl Nat n) for native Nat.decEq when n == m.
+     * Sound by proof irrelevance: any proof of (n = n) is valid, and Eq.refl is canonical.
+     */
+    private static Expr mkNatDecEqTrue(Expr litN) {
+        // @Eq.{1} Nat n n
+        Expr eqType = Expr.app(Expr.app(
+            Expr.app(Expr.mkConst(Name.EQ, new Object[]{Level.succ(Level.ZERO_LEVEL)}, false),
+                     Expr.mkConst(Name.NAT, clojure.lang.PersistentVector.EMPTY, false)),
+            litN), litN);
+        // @Eq.refl.{1} Nat n
+        Expr proof = Expr.app(
+            Expr.app(Expr.mkConst(Name.EQ_REFL, new Object[]{Level.succ(Level.ZERO_LEVEL)}, false),
+                     Expr.mkConst(Name.NAT, clojure.lang.PersistentVector.EMPTY, false)),
+            litN);
+        // @Decidable.isTrue (n = n) proof
+        return Expr.app(
+            Expr.app(Expr.mkConst(Name.DECIDABLE_IS_TRUE, clojure.lang.PersistentVector.EMPTY, false),
+                     eqType),
+            proof);
+    }
+
+    /**
+     * Try native reduction of Nat.decEq / instDecidableEqNat.
+     * When both args are equal Nat literals, returns Decidable.isTrue(Eq.refl n).
+     * When unequal, returns null (falls through to normal evaluation).
+     * Sound: proof irrelevance makes any proof of (n = n) equivalent.
+     */
+    private Expr tryReduceNatDecEq(Expr[] args) {
+        if (args.length != 2) return null;
+        Expr a = whnfToNat(args[0]);
+        if (a == null) return null;
+        Expr b = whnfToNat(args[1]);
+        if (b == null) return null;
+        if (((BigInteger) a.o0).equals((BigInteger) b.o0)) {
+            return mkNatDecEqTrue(a);
+        }
+        return null; // unequal — let normal processing handle isFalse case
+    }
+
+    /** Cheap version: only when args are already Nat literals. */
+    private static Expr tryCheapReduceNatDecEq(Expr[] args) {
+        if (args.length != 2) return null;
+        if (args[0].tag != Expr.LIT_NAT || args[1].tag != Expr.LIT_NAT) return null;
+        if (((BigInteger) args[0].o0).equals((BigInteger) args[1].o0)) {
+            return mkNatDecEqTrue(args[0]);
         }
         return null;
     }
 
-    private Expr tryReduceNat(Expr head, Expr[] args) {
-        if (head.tag != Expr.CONST || args.length != 2) return null;
+    /**
+     * Cheap version of tryReduceNat: only fires when args are ALREADY Nat literals.
+     * No whnf/whnfToNat calls — avoids deep recursive chains in whnfCoreImpl.
+     * Used inside whnfCoreImpl to catch operations before they unfold to Nat.rec.
+     */
+    private Expr tryCheapReduceNat(Expr head, Expr[] args) {
+        if (head.tag != Expr.CONST) return null;
         Name opName = (Name) head.o0;
+        // Nat.decEq / instDecidableEqNat — cheap version
+        if (opName == Name.NAT_DEC_EQ || opName == Name.INST_DECIDABLE_EQ_NAT) {
+            return tryCheapReduceNatDecEq(args);
+        }
+        if (args.length == 1 && opName == Name.NAT_SUCC) {
+            if (args[0].tag == Expr.LIT_NAT)
+                return Expr.litNat(((BigInteger) args[0].o0).add(BigInteger.ONE));
+            return null;
+        }
+        if (args.length != 2) return null;
+        if (opName != Name.NAT_ADD && opName != Name.NAT_SUB && opName != Name.NAT_MUL &&
+            opName != Name.NAT_DIV && opName != Name.NAT_MOD && opName != Name.NAT_POW &&
+            opName != Name.NAT_GCD && opName != Name.NAT_BEQ && opName != Name.NAT_BLE &&
+            opName != Name.NAT_LAND && opName != Name.NAT_LOR && opName != Name.NAT_XOR &&
+            opName != Name.NAT_SHIFT_LEFT && opName != Name.NAT_SHIFT_RIGHT)
+            return null;
+        if (args[0].tag != Expr.LIT_NAT || args[1].tag != Expr.LIT_NAT) return null;
+        return reduceNatBinop(opName, (BigInteger) args[0].o0, (BigInteger) args[1].o0);
+    }
+
+    /**
+     * Cheap version of tryReduceInt: only fires when args are ALREADY Int literals
+     * (Int.ofNat LIT_NAT or Int.negSucc LIT_NAT). No whnf calls.
+     */
+    private Expr tryCheapReduceInt(Expr head, Expr[] args) {
+        if (head.tag != Expr.CONST) return null;
+        Name opName = (Name) head.o0;
+        if (args.length == 1) {
+            BigInteger a = cheapGetInt(args[0]);
+            if (a == null) return null;
+            if (opName == Name.INT_NEG) return mkIntLit(a.negate());
+            if (opName == Name.INT_NAT_ABS) return Expr.litNat(a.abs());
+            return null;
+        }
+        if (args.length != 2) return null;
+        if (opName != Name.INT_ADD && opName != Name.INT_SUB && opName != Name.INT_MUL &&
+            opName != Name.INT_EDIV && opName != Name.INT_EMOD) return null;
+        BigInteger a = cheapGetInt(args[0]);
+        if (a == null) return null;
+        BigInteger b = cheapGetInt(args[1]);
+        if (b == null) return null;
+        if (opName == Name.INT_ADD) return mkIntLit(a.add(b));
+        if (opName == Name.INT_SUB) return mkIntLit(a.subtract(b));
+        if (opName == Name.INT_MUL) return mkIntLit(a.multiply(b));
+        if (opName == Name.INT_EDIV) {
+            if (b.signum() == 0) return mkIntLit(BIG_ZERO);
+            BigInteger[] qr = a.divideAndRemainder(b);
+            BigInteger q = qr[0], r = qr[1];
+            if (r.signum() < 0) q = b.signum() > 0 ? q.subtract(BigInteger.ONE) : q.add(BigInteger.ONE);
+            return mkIntLit(q);
+        }
+        if (opName == Name.INT_EMOD) {
+            if (b.signum() == 0) return mkIntLit(a);
+            return mkIntLit(a.mod(b.abs()));
+        }
+        return null;
+    }
+
+    /** Extract Int value from expression WITHOUT whnf — only handles direct literals. */
+    private static BigInteger cheapGetInt(Expr e) {
+        if (e.tag == Expr.LIT_NAT) return (BigInteger) e.o0;
+        if (e.tag != Expr.APP) return null;
+        Expr fn = (Expr) e.o0;
+        if (fn.tag != Expr.CONST) return null;
+        Expr arg = (Expr) e.o1;
+        if (arg.tag != Expr.LIT_NAT) return null;
+        Name name = (Name) fn.o0;
+        if (name == Name.INT_OF_NAT) return (BigInteger) arg.o0;
+        if (name == Name.INT_NEG_SUCC) return ((BigInteger) arg.o0).add(BigInteger.ONE).negate();
+        return null;
+    }
+
+    private Expr tryReduceNat(Expr head, Expr[] args) {
+        if (head.tag != Expr.CONST) return null;
+        Name opName = (Name) head.o0;
+
+        // Nat.decEq / instDecidableEqNat — native to avoid O(n) proof recursion
+        if (opName == Name.NAT_DEC_EQ || opName == Name.INST_DECIDABLE_EQ_NAT) {
+            return tryReduceNatDecEq(args);
+        }
+
+        // 1-arg: Nat.succ (matching Lean 4's reduce_nat lines 647-654)
+        if (args.length == 1 && opName == Name.NAT_SUCC) {
+            Expr a = whnfToNat(args[0]);
+            if (a == null) return null;
+            return Expr.litNat(((BigInteger) a.o0).add(BigInteger.ONE));
+        }
+
+        if (args.length != 2) return null;
         // Quick identity check against interned names
         if (opName != Name.NAT_ADD && opName != Name.NAT_SUB && opName != Name.NAT_MUL &&
             opName != Name.NAT_DIV && opName != Name.NAT_MOD && opName != Name.NAT_POW &&
@@ -968,6 +1239,101 @@ public final class Reducer {
         return Expr.mkConst(Name.BOOL_FALSE, clojure.lang.PersistentVector.EMPTY, false);
     }
 
+    // ============================================================
+    // Native Int reduction (optimization — Lean 4 reduces through defs)
+    // ============================================================
+
+    /** Try to whnf an expression to an Int constructor (ofNat or negSucc) with a Nat literal.
+     *  Returns [sign, value] where sign=1 for ofNat, sign=-1 for negSucc, or null. */
+    private BigInteger whnfToInt(Expr e) {
+        Expr w = whnf(e);
+        // Check: is it Int.ofNat(LIT_NAT) or Int.negSucc(LIT_NAT)?
+        if (w.tag == Expr.APP) {
+            Expr fn = (Expr) w.o0;
+            if (fn.tag == Expr.CONST) {
+                Name name = (Name) fn.o0;
+                Expr arg = (Expr) w.o1;
+                if (name == Name.INT_OF_NAT) {
+                    Expr nat = whnfToNat(arg);
+                    if (nat != null) return (BigInteger) nat.o0;
+                } else if (name == Name.INT_NEG_SUCC) {
+                    Expr nat = whnfToNat(arg);
+                    if (nat != null) return ((BigInteger) nat.o0).add(BigInteger.ONE).negate();
+                }
+            }
+        }
+        // Also check: bare LIT_NAT (sometimes Int.ofNat is reduced away)
+        if (w.tag == Expr.LIT_NAT) return (BigInteger) w.o0;
+        return null;
+    }
+
+    /** Construct Int.ofNat(n) or Int.negSucc(n) from a BigInteger. */
+    private static Expr mkIntLit(BigInteger v) {
+        if (v.signum() >= 0) {
+            return Expr.app(Expr.mkConst(Name.INT_OF_NAT, clojure.lang.PersistentVector.EMPTY, false),
+                           Expr.litNat(v));
+        } else {
+            // negSucc(n) represents -(n+1), so for value v < 0: n = |v| - 1
+            return Expr.app(Expr.mkConst(Name.INT_NEG_SUCC, clojure.lang.PersistentVector.EMPTY, false),
+                           Expr.litNat(v.negate().subtract(BigInteger.ONE)));
+        }
+    }
+
+    /**
+     * Try to reduce an Int operation natively.
+     * This is an optimization: Lean 4 reduces Int ops through definition unfolding to Nat,
+     * but that's 1000x faster in C++. We short-circuit the chain for common operations.
+     */
+    Expr tryReduceInt(Expr head, Expr[] args) {
+        if (head.tag != Expr.CONST) return null;
+        Name opName = (Name) head.o0;
+
+        // Unary operations (1 arg)
+        if (args.length == 1) {
+            if (opName == Name.INT_NEG) {
+                BigInteger a = whnfToInt(args[0]);
+                if (a == null) return null;
+                return mkIntLit(a.negate());
+            }
+            if (opName == Name.INT_NAT_ABS) {
+                BigInteger a = whnfToInt(args[0]);
+                if (a == null) return null;
+                return Expr.litNat(a.abs());
+            }
+            return null;
+        }
+
+        // Binary operations (2 args)
+        if (args.length != 2) return null;
+        if (opName != Name.INT_ADD && opName != Name.INT_SUB && opName != Name.INT_MUL &&
+            opName != Name.INT_EDIV && opName != Name.INT_EMOD) {
+            return null;
+        }
+
+        BigInteger a = whnfToInt(args[0]);
+        if (a == null) return null;
+        BigInteger b = whnfToInt(args[1]);
+        if (b == null) return null;
+
+        if (opName == Name.INT_ADD) return mkIntLit(a.add(b));
+        if (opName == Name.INT_SUB) return mkIntLit(a.subtract(b));
+        if (opName == Name.INT_MUL) return mkIntLit(a.multiply(b));
+        if (opName == Name.INT_EDIV) {
+            if (b.signum() == 0) return mkIntLit(BIG_ZERO);
+            // Euclidean division: result has sign of divisor, remainder non-negative
+            BigInteger[] qr = a.divideAndRemainder(b);
+            BigInteger q = qr[0], r = qr[1];
+            if (r.signum() < 0) q = b.signum() > 0 ? q.subtract(BigInteger.ONE) : q.add(BigInteger.ONE);
+            return mkIntLit(q);
+        }
+        if (opName == Name.INT_EMOD) {
+            if (b.signum() == 0) return mkIntLit(a);
+            BigInteger r = a.mod(b.abs());
+            return mkIntLit(r);
+        }
+        return null;
+    }
+
     /**
      * Try to reduce a nat operation expression to a literal.
      * Used by TypeChecker in the lazy delta loop (matching Lean 4's reduce_nat in lazy_delta_reduction).
@@ -995,7 +1361,21 @@ public final class Reducer {
         if (args.length < expectedArgs) return null;
 
         int majorIdx = numParams + numMotives + numMinors + numIndices;
-        Expr major = useWhnf ? whnf(args[majorIdx]) : args[majorIdx];
+        Expr rawMajor = args[majorIdx];
+
+        // Short-circuit: if major is already a constructor (Nat.succ(LIT_NAT),
+        // Nat.zero, other constructor apps) skip the whnf call.
+        // Also: for Nat literals, try natLitToConstructor without whnf.
+        // This avoids deep whnf recursion for Nat.brecOn chains where each step
+        // produces Nat.succ(LIT_NAT) as the major premise.
+        Expr major;
+        if (rawMajor.tag == Expr.LIT_NAT || rawMajor.tag == Expr.LIT_STR) {
+            major = rawMajor;
+        } else if (isConstructorApp(rawMajor)) {
+            major = rawMajor;
+        } else {
+            major = useWhnf ? whnf(rawMajor) : rawMajor;
+        }
 
         // Get constructor head
         Object[] fnArgs = getAppFnArgs(major);
@@ -1305,7 +1685,10 @@ public final class Reducer {
         if (cached != null) return cached;
 
         HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, headLevels);
-        Expr result = internResult(instantiateLevelParams(value, subst));
+        // Deep re-intern: definition values from ENV were created before enableIntern().
+        // Without this, their non-interned sub-expressions pollute all expression trees,
+        // breaking IdentityHashMap-based caches (inferCache, eqvManager, whnfCache).
+        Expr result = Expr.deepReIntern(internResult(instantiateLevelParams(value, subst)));
         unfoldCache.put(head, result);
         return result;
     }
@@ -1325,6 +1708,11 @@ public final class Reducer {
      * makes isDefEq's pointer-equality "quick" path work across whnf_core calls).
      */
     public Expr whnfCore(Expr e) {
+        // Canonicalize input via intern table so IdentityHashMap cache hits
+        // for structurally-equal but pointer-different expressions.
+        // Matches Lean 4's hash-consing invariant: same structure → same pointer.
+        // O(1) for already-canonical expressions (intern table fast-path).
+        e = Expr.deepReIntern(e);
         Expr cached = whnfCoreCache.get(e);
         if (cached != null) { whnfCoreCacheHits++; return cached; }
         Expr raw = whnfCoreImpl(e, false, false);
@@ -1392,7 +1780,8 @@ public final class Reducer {
                     checkFuel();
                     zetaCount++;
                     traceOp("zeta", "let");
-                    e = instantiate1((Expr) e.o3, (Expr) e.o2);
+                    e = Expr.deepReIntern(instantiate1((Expr) e.o3, (Expr) e.o2));
+                    { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
                     continue;
 
                 case Expr.PROJ: {
@@ -1432,24 +1821,36 @@ public final class Reducer {
                             m++;
                         }
                         Expr body = instantiateRev((Expr) f.o2, m, args, 0);
-                        e = mkApps(body, args, m);
+                        e = Expr.deepReIntern(mkApps(body, args, m));
+                        { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
                         continue;
                     } else if (head2 == f0) {
-                        // Head unchanged — try iota/quot reduction
+                        // Head unchanged — try cheap native reduction BEFORE recursor.
+                        // Unlike whnfLoop's tryReduceNat/tryReduceInt (which call whnfToNat/
+                        // whnfToInt → whnf recursively), this only fires when args are
+                        // ALREADY literals. This prevents deep recursive chains for
+                        // expressions like Nat.add(UInt64.size, fvar) while still catching
+                        // operations like Nat.gcd(lit, lit) before they unfold to Nat.rec.
+                        Expr cheapNat = tryCheapReduceNat(f0, args);
+                        if (cheapNat != null) { checkFuel(); e = cheapNat; continue; }
+                        Expr cheapInt = tryCheapReduceInt(f0, args);
+                        if (cheapInt != null) { checkFuel(); e = cheapInt; continue; }
                         Expr reduced = tryReduceRecursor(f0, args, !cheapRec);
                         if (reduced == null) reduced = tryReduceQuot(f0, args);
                         if (reduced != null) {
                             checkFuel();
                             iotaCount++;
                             traceOp("iota", f0.o0);
-                            e = reduced;
+                            e = Expr.deepReIntern(reduced);
+                            { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
                             continue;
                         }
                         return e;
                     } else {
                         // Head changed but not lambda — rebuild app and continue
                         checkFuel();
-                        e = mkApps(head2, args);
+                        e = Expr.deepReIntern(mkApps(head2, args));
+                        { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
                         continue;
                     }
                 }
@@ -1475,20 +1876,33 @@ public final class Reducer {
                 return e;
         }
 
+        // Canonicalize input so IdentityHashMap cache hits for structurally-equal inputs.
+        // Matches Lean 4's global hash-consing. O(1) for already-canonical expressions.
+        e = Expr.deepReIntern(e);
+
         // Check cache — unconditionally, matching Lean 4 (no hasFVar guard).
         // Within a single declaration check, lctx only grows monotonically,
         // so cached results for fvar-containing expressions remain valid.
         Expr cached = whnfCache.get(e);
         if (cached != null) { whnfCacheHits++; return cached; }
 
-        if (whnfDepth >= MAX_WHNF_DEPTH) {
-            throw new RuntimeException("WHNF depth limit exceeded");
-        }
         whnfDepth++;
+        if (whnfDepth > whnfMaxDepth) {
+            whnfMaxDepth = whnfDepth;
+            whnfMaxDepthExpr = e;
+        }
+        // Capture the expression and stack that first enters deep recursion
+        if (whnfDepth == 100 && whnfFirstDeepExpr == null) {
+            whnfFirstDeepExpr = e;
+            whnfFirstDeepStack = Thread.currentThread().getStackTrace();
+        }
+        // Depth tracking is for diagnostics only — no limit enforced.
         try {
             Expr raw = whnfLoop(e);
-            // Preserve pointer identity when nothing changed (Lean's is_eqp guarantee)
-            Expr result = raw.isEqp(e) ? e : internResult(raw);
+            // Deep re-intern: ensures sub-expressions from ENV (created before
+            // enableIntern) are canonicalized. Fast for already-interned expressions
+            // (table.get() hit returns immediately).
+            Expr result = raw.isEqp(e) ? e : Expr.deepReIntern(raw);
             whnfCache.put(e, result);
             return result;
         } finally {
@@ -1515,7 +1929,14 @@ public final class Reducer {
                 continue;
             }
 
-            // Try delta (matching Lean 4's unfold_definition in whnf)
+            // Try Int reduction (native optimization — bypasses def unfolding chain)
+            Expr intResult = tryReduceInt(head, args);
+            if (intResult != null) {
+                checkFuel();
+                e = whnfCore(intResult);
+                continue;
+            }
+
             Expr unfolded = tryUnfoldDef(head);
             if (unfolded != null) {
                 checkFuel();
@@ -1525,14 +1946,7 @@ public final class Reducer {
                 continue;
             }
 
-            // Nat.succ folding (Lean 4 handles this in reduce_nat)
-            if (head.tag == Expr.CONST && head.o0 == Name.NAT_SUCC && args.length == 1) {
-                Expr argWhnf = whnf(args[0]);
-                if (argWhnf.tag == Expr.LIT_NAT) {
-                    return Expr.litNat(((BigInteger) argWhnf.o0).add(BigInteger.ONE));
-                }
-            }
-
+            // Nat.succ is now handled by tryReduceNat (1-arg case above)
             return e;
         }
     }

@@ -2,6 +2,7 @@
 
 package ansatz.kernel;
 
+import java.lang.ref.SoftReference;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -9,11 +10,12 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * Design (following Lean 4's persistent data structures with shared cache):
  * - locals: Clojure PersistentHashMap — immutable, per-context additions
- * - sharedCache: ConcurrentHashMap — shared read-only cache for external lookups
+ * - sharedCache: ConcurrentHashMap<Name, SoftReference<ConstantInfo>> — GC-managed cache
  * - externalLookup: pure function to konserve/flatstore (read-only)
  *
  * addConstant() returns a NEW Env (structural sharing via PersistentHashMap).
- * No mutation, no LRU eviction, no ConstantInfo.value nulling.
+ * sharedCache uses SoftReferences so the JVM can reclaim cold declarations under
+ * memory pressure. Re-fetching from the PSS/filestore is cheap (B-tree + LRU disk cache).
  * Fork is free — persistent map is already shared.
  */
 public final class Env {
@@ -21,9 +23,9 @@ public final class Env {
     // Locally added constants (immutable persistent map: Name → ConstantInfo)
     private final clojure.lang.IPersistentMap locals;
 
-    // Shared cache for external lookups (thread-safe, grows monotonically)
+    // Shared cache for external lookups (SoftReference allows GC to reclaim under pressure)
     // Safe to share across forks: same Name → same ConstantInfo from external store
-    private final ConcurrentHashMap<Name, ConstantInfo> sharedCache;
+    private final ConcurrentHashMap<Name, SoftReference<ConstantInfo>> sharedCache;
 
     private final boolean quotEnabled;
 
@@ -36,7 +38,7 @@ public final class Env {
 
     // Private constructor — use factory methods
     private Env(clojure.lang.IPersistentMap locals,
-                ConcurrentHashMap<Name, ConstantInfo> sharedCache,
+                ConcurrentHashMap<Name, SoftReference<ConstantInfo>> sharedCache,
                 boolean quotEnabled,
                 clojure.lang.IFn externalLookup,
                 int externalSize) {
@@ -77,17 +79,21 @@ public final class Env {
         // 1. Check locals (immutable, per-context)
         Object local = locals.valAt(name);
         if (local != null) return (ConstantInfo) local;
-        // 2. Check shared cache (external lookup results)
+        // 2. Check shared cache — SoftReference may have been cleared under GC pressure
         if (sharedCache != null) {
-            ConstantInfo cached = sharedCache.get(name);
-            if (cached != null) return cached;
+            SoftReference<ConstantInfo> ref = sharedCache.get(name);
+            if (ref != null) {
+                ConstantInfo cached = ref.get();
+                if (cached != null) return cached;
+                // Ref was cleared — fall through to re-fetch
+            }
         }
         // 3. External lookup + cache
         if (externalLookup != null) {
             Object result = externalLookup.invoke(name);
             if (result instanceof ConstantInfo) {
                 ConstantInfo ext = (ConstantInfo) result;
-                sharedCache.put(ext.name, ext);
+                sharedCache.put(ext.name, new SoftReference<>(ext));
                 return ext;
             }
         }
@@ -126,7 +132,10 @@ public final class Env {
      */
     public Env addConstantIfAbsent(ConstantInfo ci) {
         if (locals.valAt(ci.name) != null) return this;
-        if (sharedCache != null && sharedCache.containsKey(ci.name)) return this;
+        if (sharedCache != null) {
+            SoftReference<ConstantInfo> ref = sharedCache.get(ci.name);
+            if (ref != null && ref.get() != null) return this;
+        }
         return new Env(locals.assoc(ci.name, ci), sharedCache,
                       quotEnabled, externalLookup, externalSize);
     }

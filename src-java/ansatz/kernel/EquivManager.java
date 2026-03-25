@@ -81,12 +81,12 @@ public final class EquivManager {
 
     private boolean isEquivCore(Expr a, Expr b, boolean useHash) {
         if (a.isEqp(b)) return true;
-        // NOTE: Java's Expr.hashCode includes binding names/info, unlike Lean's which
-        // only hashes domain+body for Pi/Lambda. So we skip the hash fast-reject for
-        // binding expressions, as it would incorrectly reject alpha-equivalent terms.
+        // Hash fast-reject: skip for LAM/FORALL (alpha-equiv ignores binder names).
+        // Use Level-normalized hash for expressions to handle equivalent-but-
+        // differently-structured levels correctly.
         if (useHash && a.tag != Expr.LAM && a.tag != Expr.FORALL
                     && b.tag != Expr.LAM && b.tag != Expr.FORALL
-                    && a.structuralHash() != b.structuralHash()) return false;
+                    && equivHash(a) != equivHash(b)) return false;
         if (a.tag == Expr.BVAR && b.tag == Expr.BVAR) return a.longVal == b.longVal;
 
         int r1 = find(getOrCreateNode(a));
@@ -163,6 +163,53 @@ public final class EquivManager {
         return true;
     }
 
+    // Cache for equivHash — avoids recomputing for DAG-shared sub-expressions
+    private final IdentityHashMap<Expr, Integer> equivHashCache = new IdentityHashMap<>(256);
+
+    /**
+     * Hash that normalizes levels, matching Level.eq semantics.
+     * Recursive: compound expressions combine children's equivHashes.
+     * Cached per expression identity for DAG sharing.
+     */
+    private int equivHash(Expr e) {
+        // Fast path: if no level params, structural hash is correct
+        if (!e.hasLevelParam()) return e.structuralHash();
+        Integer cached = equivHashCache.get(e);
+        if (cached != null) return cached;
+        int h = equivHashGo(e);
+        equivHashCache.put(e, h);
+        return h;
+    }
+
+    private int equivHashGo(Expr e) {
+        switch (e.tag) {
+            case Expr.SORT:
+                return Level.simplify((Level) e.o0).hashCode() * 31 + Expr.SORT;
+            case Expr.CONST: {
+                int h = e.o0.hashCode(); // name
+                Object levels = e.o1;
+                if (levels instanceof Object[]) {
+                    for (Object l : (Object[]) levels)
+                        h = h * 31 + Level.simplify((Level) l).hashCode();
+                } else if (levels instanceof clojure.lang.IPersistentVector) {
+                    clojure.lang.IPersistentVector v = (clojure.lang.IPersistentVector) levels;
+                    for (int i = 0; i < v.count(); i++)
+                        h = h * 31 + Level.simplify((Level) v.nth(i)).hashCode();
+                }
+                return h * 31 + Expr.CONST;
+            }
+            case Expr.APP:
+                return (equivHash((Expr) e.o0) * 31 + equivHash((Expr) e.o1)) * 31 + Expr.APP;
+            case Expr.LAM: case Expr.FORALL:
+                // Ignore binder name/info (alpha-equiv)
+                return (equivHash((Expr) e.o1) * 31 + equivHash((Expr) e.o2)) * 31 + e.tag;
+            case Expr.PROJ:
+                return (e.o0.hashCode() * 31 + equivHash((Expr) e.o1)) * 31 + Expr.PROJ + (int) e.longVal;
+            default:
+                return e.structuralHash();
+        }
+    }
+
     /**
      * Record that two expressions are definitionally equal.
      */
@@ -175,5 +222,6 @@ public final class EquivManager {
     public void clear() {
         nodes.clear();
         toNode.clear();
+        equivHashCache.clear();
     }
 }

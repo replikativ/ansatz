@@ -77,7 +77,7 @@ public final class Name {
      */
     public static Name fromString(String s) {
         Name result = ANONYMOUS_NAME;
-        for (String part : s.split("\\.")) {
+        for (String part : s.split("\\.", -1)) {
             if (!part.isEmpty() && isNumeric(part)) {
                 result = mkNum(result, Long.parseLong(part));
             } else {
@@ -115,6 +115,26 @@ public final class Name {
     public static final Name NAT_SHIFT_LEFT = fromString("Nat.shiftLeft");
     public static final Name NAT_SHIFT_RIGHT = fromString("Nat.shiftRight");
     public static final Name NAT_REC = fromString("Nat.rec");
+    public static final Name NAT_DEC_EQ = fromString("Nat.decEq");
+    public static final Name INST_DECIDABLE_EQ_NAT = fromString("instDecidableEqNat");
+
+    // Decidable constructors and Eq
+    public static final Name DECIDABLE_IS_TRUE = fromString("Decidable.isTrue");
+    public static final Name DECIDABLE_IS_FALSE = fromString("Decidable.isFalse");
+    public static final Name EQ_REFL = fromString("Eq.refl");
+    public static final Name EQ = fromString("Eq");
+
+    // Int operations (native reduction for performance)
+    public static final Name INT_OF_NAT = fromString("Int.ofNat");
+    public static final Name INT_NEG_SUCC = fromString("Int.negSucc");
+    public static final Name INT_ADD = fromString("Int.add");
+    public static final Name INT_SUB = fromString("Int.sub");
+    public static final Name INT_MUL = fromString("Int.mul");
+    public static final Name INT_NEG = fromString("Int.neg");
+    public static final Name INT_NAT_ABS = fromString("Int.natAbs");
+    public static final Name INT_EDIV = fromString("Int.ediv");
+    public static final Name INT_EMOD = fromString("Int.emod");
+    public static final Name INT_DEC_EQ = fromString("Int.decEq");
 
     public static final Name BOOL_TRUE = fromString("Bool.true");
     public static final Name BOOL_FALSE = fromString("Bool.false");

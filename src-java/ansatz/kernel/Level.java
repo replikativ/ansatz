@@ -39,6 +39,14 @@ public final class Level {
     // --- Factories ---
 
     public static Level succ(Level l) {
+        // Distribute succ into max: succ(max(a,b)) = max(succ(a), succ(b))
+        // This matches Lean 4's Level.normalize which strips all succs,
+        // normalizes the inner max, then re-adds the offset uniformly.
+        // Without this, succ(max(u,v)) and max(succ(u),succ(v)) produce
+        // different Level objects despite being semantically equal.
+        if (l.tag == MAX) {
+            return max(succ(l.maxLhs()), succ(l.maxRhs()));
+        }
         int h = l.hash * 31 + SUCC;
         return new Level(SUCC, h, l, null);
     }
@@ -67,16 +75,12 @@ public final class Level {
         // max(0, l) = l, max(l, 0) = l
         if (l1.tag == ZERO) return l2;
         if (l2.tag == ZERO) return l1;
-        // max(l1, max(l1, l')) = max(l1, l')
-        if (l2.tag == MAX && (l2.maxLhs().equals(l1) || l2.maxRhs().equals(l1))) return l2;
-        if (l1.tag == MAX && (l1.maxLhs().equals(l2) || l1.maxRhs().equals(l2))) return l1;
-        // Same base with different offsets: max(succ^a b, succ^b b) = larger
-        long[] off1 = new long[1], off2 = new long[1];
-        Level base1 = getOffset(l1, off1), base2 = getOffset(l2, off2);
-        if (base1.equals(base2) && off1[0] != off2[0]) {
-            return off1[0] > off2[0] ? l1 : l2;
-        }
-        return maxRaw(l1, l2);
+        // Normalize the result: sort components, subsume explicit constants.
+        // This matches Lean 4's behavior where hash-consed Level objects
+        // always have a canonical form. Without normalization, equivalent
+        // levels like max(max(u+1,v+1),v'+1) and max(u+1,max(v+1,v'+1))
+        // produce different objects, breaking pointer-equality caches.
+        return simplify(maxRaw(l1, l2));
     }
 
     /** Matching Lean 4's mk_imax (level.cpp:112-123). Normalizes at construction time. */
@@ -198,7 +202,7 @@ public final class Level {
             case SUCC: {
                 Level inner = simplify(l.succPred());
                 if (inner.tag == MAX) {
-                    return simplify(max(succ(inner.maxLhs()), succ(inner.maxRhs())));
+                    return simplify(maxRaw(succ(inner.maxLhs()), succ(inner.maxRhs())));
                 }
                 return succ(inner);
             }
@@ -265,7 +269,7 @@ public final class Level {
                 if (result.isEmpty()) return ZERO_LEVEL;
                 Level r = result.get(result.size() - 1);
                 for (int i = result.size() - 2; i >= 0; i--)
-                    r = max(result.get(i), r);
+                    r = maxRaw(result.get(i), r);
                 return r;
             }
             case IMAX: {
@@ -273,7 +277,7 @@ public final class Level {
                 Level b = simplify(l.imaxRhs());
                 long na = toNat(a);
                 if (b.tag == ZERO) return ZERO_LEVEL;
-                if (isNeverZero(b)) return simplify(max(a, b));
+                if (isNeverZero(b)) return simplify(maxRaw(a, b));
                 if (a.equals(b)) return a;
                 if (na == 1) return b;
                 return imax(a, b);

@@ -22,8 +22,8 @@ public final class TypeChecker {
     private final Env env;
     private final Reducer reducer;
     private final EquivManager eqvManager;
-    private final IdentityHashMap<Expr, Expr> inferCache;      // for check mode (infer_only=false)
-    private final IdentityHashMap<Expr, Expr> inferOnlyCache;  // for infer_only mode (infer_only=true)
+    private final IdentityHashMap<Expr, Expr> inferCache;      // for check mode
+    private final IdentityHashMap<Expr, Expr> inferOnlyCache;  // for infer_only mode
     private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureCache;
     // Identity-based cache for isDefEqCore results.
     // Prevents exponential re-comparison of DAG-shared expression pairs.
@@ -32,6 +32,30 @@ public final class TypeChecker {
     private long nextId;
     private int isDefEqDepth;
     public boolean tracing;
+
+    // isDefEq diagnostic counters
+    long isDefEqCalls;
+    long isDefEqQuickHits;    // pointer equality or hash mismatch
+    long isDefEqEquivHits;    // EquivManager hits
+    long isDefEqProofIrrelHits;
+    long isDefEqCacheFull;    // calls that happened after cache was full (couldn't store result)
+    long[] isDefEqDepthHist = new long[500]; // histogram: calls at each depth
+    // Per-step resolution counters for depth >= STEP_DIAG_DEPTH
+    static final int STEP_DIAG_DEPTH = 45;
+    long stepDiagTotal;      // total calls at depth >= STEP_DIAG_DEPTH
+    long stepDiagQuick;      // resolved by quick (pointer eq or equiv manager)
+    long stepDiagProofIrrel; // resolved by proof irrelevance
+    long stepDiagLazyDelta;  // resolved by lazy delta
+    long stepDiagWhnfCore2;  // resolved by second whnfCore pass
+    long stepDiagApp;        // resolved by app congruence
+    long stepDiagBinding;    // resolved by binding
+    long stepDiagEta;        // resolved by eta
+    long stepDiagUnit;       // resolved by unit-like
+    long stepDiagFail;       // returned false
+    // Diagnostic: capture expression shape at depth DIAG_CAPTURE_MIN_DEPTH
+    public java.util.ArrayList<String[]> diagCaptures = new java.util.ArrayList<>();
+    private static final int DIAG_CAPTURE_LIMIT = 30;
+    private static final int DIAG_CAPTURE_MIN_DEPTH = 50;
     private int traceCount;
     public int traceLimit = 200;
     public int traceMinDepth = 0;  // only trace at this depth or higher
@@ -287,12 +311,44 @@ public final class TypeChecker {
 
     /** Get instrumentation counters from the Reducer. */
     public HashMap<String, Long> getReducerStats() {
-        return this.reducer.getStats();
+        HashMap<String, Long> stats = this.reducer.getStats();
+        stats.put("isDefEq-calls", isDefEqCalls);
+        stats.put("isDefEq-quick-hits", isDefEqQuickHits);
+        stats.put("isDefEq-cache-full", isDefEqCacheFull);
+        // Per-step resolution counters at depth >= STEP_DIAG_DEPTH
+        if (stepDiagTotal > 0) {
+            stats.put("step-diag-total", stepDiagTotal);
+            stats.put("step-diag-quick", stepDiagQuick);
+            stats.put("step-diag-proof-irrel", stepDiagProofIrrel);
+            stats.put("step-diag-lazy-delta", stepDiagLazyDelta);
+            stats.put("step-diag-whnfcore2", stepDiagWhnfCore2);
+            stats.put("step-diag-app", stepDiagApp);
+            stats.put("step-diag-binding", stepDiagBinding);
+            stats.put("step-diag-eta", stepDiagEta);
+            stats.put("step-diag-unit", stepDiagUnit);
+            stats.put("step-diag-fail", stepDiagFail);
+        }
+        // Depth histogram: emit depth buckets with non-zero counts
+        for (int d = 0; d < isDefEqDepthHist.length; d++) {
+            if (isDefEqDepthHist[d] > 0)
+                stats.put("depth-" + d, isDefEqDepthHist[d]);
+        }
+        return stats;
     }
 
     /** Get the ring buffer trace from the Reducer. */
     public String[] getReducerTrace() {
         return this.reducer.getTraceRing();
+    }
+
+    /** Get the max whnf recursion depth. */
+    public int getReducerMaxDepth() {
+        return this.reducer.whnfMaxDepth;
+    }
+
+    /** Get the expression that triggered the maximum whnf depth. */
+    public Expr getReducerMaxDepthExpr() {
+        return this.reducer.getMaxDepthExpr();
     }
 
     private long freshId() { return nextId++; }
@@ -405,11 +461,14 @@ public final class TypeChecker {
     // ============================================================
 
     /**
-     * Full type check — used by checkConstant/checkType (Lean's check()).
-     * Matches Lean's infer_type_core(e, false).
+     * Infer type in infer-only mode (Lean's infer_type → infer_type_core(e, true)).
+     * Skips isDefEq checks on application arguments. The final type match
+     * is checked separately via isDefEq(val_type, declared_type).
+     * Using full check mode (false) causes 198,000x more isDefEq calls than Lean 4
+     * for heavy proofs — every argument in every application gets checked.
      */
     public Expr inferType(Expr e) {
-        return inferTypeCore(e, false);
+        return inferTypeCore(e, true);
     }
 
     /**
@@ -443,13 +502,13 @@ public final class TypeChecker {
                         " expected=" + ci.levelParams.length + " actual=" + levels.length);
                 }
                 if (ci.levelParams.length == 0) {
-                    result = ci.type;
+                    result = Expr.deepReIntern(ci.type);
                 } else {
                     HashMap<Object, Level> subst = new HashMap<>(ci.levelParams.length * 2);
                     for (int i = 0; i < ci.levelParams.length; i++) {
                         subst.put(ci.levelParams[i], (Level) levels[i]);
                     }
-                    result = Reducer.instantiateLevelParams(ci.type, subst);
+                    result = Expr.deepReIntern(Reducer.instantiateLevelParams(ci.type, subst));
                 }
                 break;
             }
@@ -749,24 +808,37 @@ public final class TypeChecker {
     public boolean isDefEq(Expr t, Expr s) {
         // Match Lean 4: all checks happen inside is_def_eq_core,
         // including pointer/structural equality via quick_is_def_eq.
-        boolean result = isDefEqCore(t, s);
-        if (result) {
-            eqvManager.addEquiv(t, s);
-        }
-        return result;
+        // addEquiv is now called inside isDefEqCore with canonical (deepReIntern'd)
+        // expressions, so quickIsDefEq's EquivManager check finds them by pointer.
+        return isDefEqCore(t, s);
     }
 
-    private static final int ISDEFEQ_CACHE_MAX = 65536;
+    private static final int ISDEFEQ_CACHE_MAX = 10_000_000;
 
     private boolean isDefEqCore(Expr t, Expr s) {
-        if (t.isEqp(s)) return true;
+        // Canonicalize inputs via the intern table. Matches Lean 4's global hash-consing:
+        // after construction, structurally-equal expressions are pointer-equal.
+        // For already-canonical expressions (the common case), deepReIntern is O(1).
+        // For fresh non-canonical expressions (e.g. from instantiateRev), this pays
+        // O(|expr|) once and subsequent structurally-equal expressions are O(1).
+        t = Expr.deepReIntern(t);
+        s = Expr.deepReIntern(s);
+        isDefEqCalls++;
+        if (isDefEqDepth < isDefEqDepthHist.length) isDefEqDepthHist[isDefEqDepth]++;
+        // Capture a sample of expression shapes for diagnostics (only non-pointer-equal pairs)
+        if (diagCaptures.size() < DIAG_CAPTURE_LIMIT && isDefEqDepth >= DIAG_CAPTURE_MIN_DEPTH && !t.isEqp(s)) {
+            String ts = exprFingerprint(t, 6);
+            String ss = exprFingerprint(s, 6);
+            diagCaptures.add(new String[]{ts, ss, "d=" + isDefEqDepth});
+        }
+        if (t.isEqp(s)) { isDefEqQuickHits++; return true; }
         reducer.checkFuelPublic();
         // Identity-based cache: avoid re-comparing the same (identity) pair
         // of expressions that arises from DAG sharing.
         IdentityHashMap<Expr, Boolean> innerMap = isDefEqIdentityCache.get(t);
         if (innerMap != null) {
             Boolean cached = innerMap.get(s);
-            if (cached != null) return cached;
+            if (cached != null) { isDefEqQuickHits++; return cached; }
         }
         isDefEqDepth++;
         try {
@@ -778,7 +850,13 @@ public final class TypeChecker {
                     isDefEqIdentityCache.put(t, innerMap);
                 }
                 innerMap.put(s, result);
+            } else {
+                isDefEqCacheFull++;
             }
+            // Store canonical (deepReIntern'd) expressions in EquivManager so that
+            // quickIsDefEq's pointer-based EquivManager check finds them. Without this,
+            // the caller's non-canonical t/s would be stored, missing all canonical lookups.
+            if (result) eqvManager.addEquiv(t, s);
             return result;
         } finally {
             isDefEqDepth--;
@@ -879,6 +957,7 @@ public final class TypeChecker {
     private boolean isDefEqCoreImpl(Expr t, Expr s) {
         boolean doTrace = tracing && isDefEqDepth >= traceMinDepth;
         boolean doEmit = traceWriter != null;
+        boolean doStepDiag = isDefEqDepth >= STEP_DIAG_DEPTH;
         String lFp = null, rFp = null;
         if (doEmit) {
             lFp = exprFingerprint(t);
@@ -890,6 +969,7 @@ public final class TypeChecker {
         if (doTrace) {
             trace("isDefEq d=" + isDefEqDepth + " " + exprSummary(t, 3) + " =?= " + exprSummary(s, 3));
         }
+        if (doStepDiag) stepDiagTotal++;
 
         // Step 1: Quick check (Lean 4 line 1061)
         {
@@ -897,6 +977,7 @@ public final class TypeChecker {
             if (q != 0) {
                 boolean r = q == 1;
                 if (doEmit) emitTrace(lFp, rFp, r, "quick");
+                if (doStepDiag) stepDiagQuick++;
                 return r;
             }
         }
@@ -910,9 +991,12 @@ public final class TypeChecker {
             }
         }
 
-        // Step 2: whnf_core with Lean 4 flags (cheapRec=false, cheapProj=true)
-        Expr tn = reducer.whnfCore(t, false, true);
-        Expr sn = reducer.whnfCore(s, false, true);
+        // Step 2: whnf_core with Lean 4 flags (cheapRec=false, cheapProj=true).
+        // deepReIntern canonicalizes the result bottom-up through the intern table,
+        // matching Lean 4's global hash-consing: structurally equal trees from
+        // different reduction paths become pointer-equal → quick identity check fires.
+        Expr tn = Expr.deepReIntern(reducer.whnfCore(t, false, true));
+        Expr sn = Expr.deepReIntern(reducer.whnfCore(s, false, true));
 
         // Quick check after whnf_core (Lean 4 lines 1116-1124)
         // Note: Lean uses use_hash=false (default) for the second quick check
@@ -937,11 +1021,13 @@ public final class TypeChecker {
             if (piResult == 1) {
                 if (doTrace) trace("=> proofIrrel");
                 if (doEmit) emitTrace(lFp, rFp, true, "proof_irrel");
+                if (doStepDiag) stepDiagProofIrrel++;
                 return true;
             }
             if (piResult == -1) {
                 if (doTrace) trace("=> proofIrrel FAIL");
                 if (doEmit) emitTrace(lFp, rFp, false, "proof_irrel");
+                if (doStepDiag) stepDiagProofIrrel++;
                 return false;
             }
         }
@@ -951,11 +1037,13 @@ public final class TypeChecker {
         if (deltaResult == 1) {
             if (doTrace) trace("=> lazyDelta EQ");
             if (doEmit) emitTrace(lFp, rFp, true, "lazy_delta");
+            if (doStepDiag) stepDiagLazyDelta++;
             return true;
         }
         if (deltaResult == -1) {
             if (doTrace) trace("=> lazyDelta NEQ");
             if (doEmit) emitTrace(lFp, rFp, false, "lazy_delta");
+            if (doStepDiag) stepDiagLazyDelta++;
             return false;
         }
 
@@ -1002,11 +1090,12 @@ public final class TypeChecker {
 
         // Step 6: Second whnf_core pass with full flags
         {
-            Expr tn2 = reducer.whnfCore(tn, false, false);
-            Expr sn2 = reducer.whnfCore(sn, false, false);
+            Expr tn2 = Expr.deepReIntern(reducer.whnfCore(tn, false, false));
+            Expr sn2 = Expr.deepReIntern(reducer.whnfCore(sn, false, false));
             if (!tn2.isEqp(tn) || !sn2.isEqp(sn)) {
                 boolean r = isDefEqCore(tn2, sn2);
                 if (doEmit) emitTrace(lFp, rFp, r, "whnfcore2");
+                if (doStepDiag) stepDiagWhnfCore2++;
                 return r;
             }
         }
@@ -1015,6 +1104,7 @@ public final class TypeChecker {
         if (tn.tag == Expr.SORT && sn.tag == Expr.SORT) {
             boolean r = Level.eq((Level) tn.o0, (Level) sn.o0);
             if (doEmit) emitTrace(lFp, rFp, r, "sort_eq");
+            if (doStepDiag) stepDiagApp++;  // count in "app" bucket for sorts
             return r;
         }
 
@@ -1022,6 +1112,7 @@ public final class TypeChecker {
         if (tn.tag == Expr.APP && sn.tag == Expr.APP) {
             if (isDefEqApp(tn, sn)) {
                 if (doEmit) emitTrace(lFp, rFp, true, "app");
+                if (doStepDiag) stepDiagApp++;
                 return true;
             }
         }
@@ -1031,25 +1122,26 @@ public final class TypeChecker {
             (tn.tag == Expr.FORALL && sn.tag == Expr.FORALL)) {
             boolean r = isDefEqBinding(tn, sn);
             if (doEmit) emitTrace(lFp, rFp, r, "binding");
+            if (doStepDiag) stepDiagBinding++;
             return r;
         }
 
         // Step 10: Eta expansion
-        if (tryEta(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta"); return true; }
-        if (tryEta(sn, tn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta"); return true; }
+        if (tryEta(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta"); if (doStepDiag) stepDiagEta++; return true; }
+        if (tryEta(sn, tn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta"); if (doStepDiag) stepDiagEta++; return true; }
 
         // Step 11: Eta struct expansion
-        if (tryEtaStruct(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta_struct"); return true; }
+        if (tryEtaStruct(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "eta_struct"); if (doStepDiag) stepDiagEta++; return true; }
 
         // Step 11b: String literal expansion
         {
             int r = tryStringLitExpansion(tn, sn);
-            if (r == 1) { if (doEmit) emitTrace(lFp, rFp, true, "string_lit"); return true; }
-            if (r == -1) { if (doEmit) emitTrace(lFp, rFp, false, "string_lit"); return false; }
+            if (r == 1) { if (doEmit) emitTrace(lFp, rFp, true, "string_lit"); if (doStepDiag) stepDiagApp++; return true; }
+            if (r == -1) { if (doEmit) emitTrace(lFp, rFp, false, "string_lit"); if (doStepDiag) stepDiagFail++; return false; }
         }
 
         // Step 12: Unit-like types
-        if (isDefEqUnitLike(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "unit_like"); return true; }
+        if (isDefEqUnitLike(tn, sn)) { if (doEmit) emitTrace(lFp, rFp, true, "unit_like"); if (doStepDiag) stepDiagUnit++; return true; }
 
         // Step 13: Proof irrelevance (after full reduction — extra, not in Lean)
         {
@@ -1057,11 +1149,13 @@ public final class TypeChecker {
             if (piResult2 == 1) {
                 if (doTrace) trace("=> proofIrrel(late)");
                 if (doEmit) emitTrace(lFp, rFp, true, "proof_irrel2");
+                if (doStepDiag) stepDiagProofIrrel++;
                 return true;
             }
             if (piResult2 == -1) {
                 if (doTrace) trace("=> proofIrrel(late) FAIL");
                 if (doEmit) emitTrace(lFp, rFp, false, "proof_irrel2");
+                if (doStepDiag) stepDiagProofIrrel++;
                 return false;
             }
         }
@@ -1070,6 +1164,7 @@ public final class TypeChecker {
             trace("=> FAIL d=" + isDefEqDepth + " " + exprSummary(tn, 4) + " =?= " + exprSummary(sn, 4));
         }
         if (doEmit) emitTrace(lFp, rFp, false, "fail");
+        if (doStepDiag) stepDiagFail++;
         return false;
     }
 
@@ -1104,6 +1199,17 @@ public final class TypeChecker {
                 if (natSn != null) {
                     return isDefEqCore(tn, natSn) ? 1 : -1;
                 }
+                // Try Int reduction (native optimization)
+                Object[] tnFA0 = Reducer.getAppFnArgs(tn);
+                Expr intTn = reducer.tryReduceInt((Expr) tnFA0[0], (Expr[]) tnFA0[1]);
+                if (intTn != null) {
+                    return isDefEqCore(intTn, sn) ? 1 : -1;
+                }
+                Object[] snFA0 = Reducer.getAppFnArgs(sn);
+                Expr intSn = reducer.tryReduceInt((Expr) snFA0[0], (Expr[]) snFA0[1]);
+                if (intSn != null) {
+                    return isDefEqCore(tn, intSn) ? 1 : -1;
+                }
             }
 
             Object[] tnFA = Reducer.getAppFnArgs(tn);
@@ -1128,7 +1234,7 @@ public final class TypeChecker {
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
-                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
+                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
                 }
             } else if (!dtHasDelta && dsHasDelta) {
                 // Only right side is a definition — but first try to unfold projection app on left
@@ -1139,7 +1245,7 @@ public final class TypeChecker {
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
-                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
+                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                 }
             } else {
                 // Both sides are definitions — use hints to decide
@@ -1151,12 +1257,12 @@ public final class TypeChecker {
                     // Unfold left (higher height / more complex)
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
-                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
+                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
                 } else if (cmp > 0) {
                     // Unfold right
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
-                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
+                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                 } else {
                     // Same hint level — try argument comparison first if same definition
                     if (tn.tag == Expr.APP && sn.tag == Expr.APP &&
@@ -1184,19 +1290,19 @@ public final class TypeChecker {
                     Expr unfoldedS = reducer.tryUnfoldDef(snHead);
                     if (unfoldedT == null && unfoldedS == null) return 0;
                     if (unfoldedT != null) {
-                        tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
+                        tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true));
                     }
                     if (unfoldedS != null) {
-                        sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
+                        sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
                     }
                 }
             }
 
-            // Quick check after update (Lean 4 line 937: quick_is_def_eq)
+            // Quick check after update (Lean 4 line 996: quick_is_def_eq, use_hash=false default)
             deltaHolder[0] = tn;
             deltaHolder[1] = sn;
             {
-                int q = quickIsDefEq(tn, sn);
+                int q = quickIsDefEq(tn, sn, false);
                 if (q == 1) return 1;   // DefEqual
                 if (q == -1) return -1; // DefDiff
             }
@@ -1447,7 +1553,7 @@ public final class TypeChecker {
             } else {
                 Expr unfolded = reducer.tryUnfoldDef(tnHead);
                 if (unfolded == null) return 0;
-                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
+                tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
                 holder[0] = tn;
             }
         } else if (!dtHasDelta && dsHasDelta) {
@@ -1459,7 +1565,7 @@ public final class TypeChecker {
             } else {
                 Expr unfolded = reducer.tryUnfoldDef(snHead);
                 if (unfolded == null) return 0;
-                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
+                sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                 holder[1] = sn;
             }
         } else {
@@ -1471,12 +1577,12 @@ public final class TypeChecker {
             if (cmp < 0) {
                 Expr unfolded = reducer.tryUnfoldDef(tnHead);
                 if (unfolded == null) return 0;
-                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
+                tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
                 holder[0] = tn;
             } else if (cmp > 0) {
                 Expr unfolded = reducer.tryUnfoldDef(snHead);
                 if (unfolded == null) return 0;
-                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
+                sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                 holder[1] = sn;
             } else {
                 // Same hint level — try argument comparison first if same definition
@@ -1507,18 +1613,18 @@ public final class TypeChecker {
                 Expr unfoldedS = reducer.tryUnfoldDef(snHead);
                 if (unfoldedT == null && unfoldedS == null) return 0;
                 if (unfoldedT != null) {
-                    tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
+                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true));
                     holder[0] = tn;
                 }
                 if (unfoldedS != null) {
-                    sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
+                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
                     holder[1] = sn;
                 }
             }
         }
-        // Quick check after reduction (matching Lean's quick_is_def_eq after step)
+        // Quick check after reduction (matching Lean's quick_is_def_eq, use_hash=false default)
         {
-            int q = quickIsDefEq(tn, sn);
+            int q = quickIsDefEq(tn, sn, false);
             if (q == 1) return 1;
             if (q == -1) return -1;
         }
@@ -1552,6 +1658,12 @@ public final class TypeChecker {
      * Application equality check (Lean 4's is_def_eq_app).
      * Compares function and arguments of two applications.
      */
+    // Diagnostic: track per-argument isDefEq call costs for heavy comparisons
+    private static final boolean DIAG_ARGS = Boolean.getBoolean("ansatz.diagArgs");
+    // Track unique vs repeated expensive pairs (pointer-pair key = canonical L+R)
+    private final java.util.HashMap<String, Integer> diagArgRepeatTracker =
+        DIAG_ARGS ? new java.util.HashMap<>() : null;
+
     private boolean isDefEqApp(Expr t, Expr s) {
         Object[] tfa = Reducer.getAppFnArgs(t);
         Object[] sfa = Reducer.getAppFnArgs(s);
@@ -1562,7 +1674,24 @@ public final class TypeChecker {
         if (tArgs.length != sArgs.length) return false;
         if (!isDefEq(tFn, sFn)) return false;
         for (int i = 0; i < tArgs.length; i++) {
-            if (!isDefEq(tArgs[i], sArgs[i])) return false;
+            if (DIAG_ARGS && !tArgs[i].isEqp(sArgs[i])) {
+                long before = isDefEqCalls;
+                boolean eq = isDefEq(tArgs[i], sArgs[i]);
+                long cost = isDefEqCalls - before;
+                if (cost > 1000) {
+                    // Use pointer identity of canonical args as key — same pointer = same canonical form
+                    String ptrKey = System.identityHashCode(tArgs[i]) + ":" + System.identityHashCode(sArgs[i]);
+                    int count = diagArgRepeatTracker.merge(ptrKey, 1, Integer::sum);
+                    String repeatTag = count > 1 ? " [REPEAT#" + count + "]" : "";
+                    System.err.println("[DIAG-ARG@d" + isDefEqDepth + "] fn=" + exprFingerprint(tFn, 2)
+                        + " arg[" + i + "] cost=" + cost + " eq=" + eq + repeatTag
+                        + "\n  L=" + exprFingerprint(tArgs[i], 6)
+                        + "\n  R=" + exprFingerprint(sArgs[i], 6));
+                }
+                if (!eq) return false;
+            } else {
+                if (!isDefEq(tArgs[i], sArgs[i])) return false;
+            }
         }
         return true;
     }
@@ -1729,6 +1858,9 @@ public final class TypeChecker {
             java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
             Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
             Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
+            // Seed intern table with shareCommon results so reduction-created
+            // expressions are pointer-identical to proof sub-expressions.
+            Expr.seedIntern(scCache);
 
             TypeChecker tc = new TypeChecker(env);
             tc.setFuel(fuel);
@@ -1816,6 +1948,9 @@ public final class TypeChecker {
             java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
             Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
             Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
+            // Seed intern table with shareCommon results so reduction-created
+            // expressions are pointer-identical to proof sub-expressions.
+            Expr.seedIntern(scCache);
             TypeChecker tc = new TypeChecker(env);
             tc.setFuel(fuel);
             tc.setTraceWriter(traceWriter);
@@ -1852,6 +1987,9 @@ public final class TypeChecker {
             java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
             Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
             Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
+            // Seed intern table with shareCommon results so reduction-created
+            // expressions are pointer-identical to proof sub-expressions.
+            Expr.seedIntern(scCache);
             TypeChecker tc = new TypeChecker(env);
             tc.setFuel(fuel);
             if (ci.isThm()) {
@@ -1892,6 +2030,9 @@ public final class TypeChecker {
             java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
             Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
             Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
+            // Seed intern table with shareCommon results so reduction-created
+            // expressions are pointer-identical to proof sub-expressions.
+            Expr.seedIntern(scCache);
             TypeChecker tc = new TypeChecker(env);
             tc.setFuel(fuel);
             try {
@@ -1916,6 +2057,9 @@ public final class TypeChecker {
                 return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), tc.getReducerTrace(), null};
             } catch (RuntimeException ex) {
                 return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), tc.getReducerTrace(), ex.getMessage()};
+            } catch (StackOverflowError ex) {
+                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), tc.getReducerTrace(),
+                    "StackOverflowError (whnf max depth: " + tc.getReducerMaxDepth() + ")"};
             }
         } finally {
             Expr.disableIntern();
