@@ -35,17 +35,6 @@ public final class Reducer {
     private long initialFuel;
     private static final long DEFAULT_FUEL = 5_000_000L;
 
-    // Depth tracking
-    // whnfDepth removed — Lean 4 has no depth tracking
-    // Lean 4 has no WHNF depth limit. We use a high limit to catch infinite loops
-    // while allowing deep reductions like Rat arithmetic proofs.
-    // Lean 4 has no WHNF depth limit (iterative C++ whnf). Our whnf is recursive
-    // so we need a limit to prevent StackOverflow. 32768 handles most Mathlib proofs;
-    // very deep Rat/Int arithmetic (e.g., Std.Time.Week 604800000ms conversion) may
-    // exceed this and needs iterative whnf or native Int reduction to fix properly.
-    // Lean 4 has no WHNF depth limit — relies on C++ stack. We match this,
-    // relying on Java stack (-Xss). Depth tracking removed to reduce overhead.
-
     // ---- Instrumentation counters ----
     long betaCount;      // beta reductions (lambda application)
     long deltaCount;     // delta unfoldings (definition unfolding)

@@ -1,0 +1,24 @@
+Ansatz
+Copyright 2026 Christian Weilbach
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+---
+
+The kernel type-checker (src-java/ansatz/kernel/TypeChecker.java and
+related files under src-java/ansatz/kernel/) is a reimplementation of
+the Lean 4 kernel type-checker algorithm:
+
+  Lean 4 (https://github.com/leanprover/lean4)
+  Copyright (c) 2013-2014 Microsoft Corporation
+  Licensed under the Apache License, Version 2.0
+
+The original Lean 4 kernel was authored by Leonardo de Moura.
+The reimplementation is in Java and follows the same type-theoretic
+algorithm (definitional equality, lazy delta reduction, universe
+polymorphism) as described in the Lean 4 source and the underlying
+dependent type theory literature.
