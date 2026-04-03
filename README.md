@@ -2,6 +2,10 @@
 
 **Write Clojure. Prove it correct. Run as ordinary JVM code.**
 
+[![Clojars Project](https://img.shields.io/clojars/v/org.replikativ/ansatz.svg)](https://clojars.org/org.replikativ/ansatz)
+[![CircleCI](https://circleci.com/gh/replikativ/ansatz.svg?style=shield)](https://circleci.com/gh/replikativ/ansatz)
+[![Last Commit](https://img.shields.io/github/last-commit/replikativ/ansatz/main.svg)](https://github.com/replikativ/ansatz/commits/main)
+
 Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to ordinary Clojure/JVM code.
 
 **Same kernel, different surface.** Ansatz shares Lean 4's CIC kernel — a proof verified in Ansatz is valid in Lean 4 and vice versa. Proofs can be [exported to Lean 4](doc/lean4-for-clojurians.md) syntax. The difference is the surface language: Lean 4 uses its own syntax; Ansatz uses Clojure s-expressions and runs on the JVM. See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the full comparison, translation guide, and learning path.
