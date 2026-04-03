@@ -29,3 +29,7 @@ clojure -M:ci \
   -n ansatz.tactic.smoke-test \
   -n ansatz.tactic.tactic-test \
   -n ansatz.core-test
+
+clojure -M:ci \
+  -i integration \
+  -n ansatz.kernel.reducer-test

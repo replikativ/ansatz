@@ -1,12 +1,12 @@
 (ns ansatz.kernel.reducer-test
   "Unit tests for Reducer: de Bruijn operations, instantiation, WHNF reduction."
-  (:require [clojure.test :refer [deftest testing is are]]
+  (:require [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel Reducer Expr Env ConstantInfo Name Level TypeChecker]))
+  (:import [ansatz.kernel Reducer Expr Env Name]))
 
 ;; ============================================================
 ;; Helpers
@@ -395,9 +395,7 @@
           fv (e/fvar 1)
           id-fn (mk-id prop)
           expr (e/app id-fn fv)
-          result1 (.whnf r expr)
-          ;; Get stats to check cache
-          stats (.getStats r)]
+          result1 (.whnf r expr)]
       (is (= fv result1))
       ;; Second call should hit cache
       (let [result2 (.whnf r expr)]
@@ -426,7 +424,7 @@
 ;; Replay: init-small.ndjson (broader kernel coverage)
 ;; ============================================================
 
-(deftest replay-init-small-test
+(deftest ^:integration replay-init-small-test
   (testing "Replay init-small declarations (broader kernel coverage)"
     (let [f (java.io.File. "test-data/init-small.ndjson")]
       (is (.exists f) "test-data/init-small.ndjson must exist")

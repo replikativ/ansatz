@@ -5,6 +5,7 @@ set -eo pipefail
 echo "Running fixture-free JVM unit tests"
 
 clojure -M:ci \
+	-e integration \
 	-n ansatz.export.parser-test \
 	-n ansatz.export.replay-test \
 	-n ansatz.export.storage-test \
