@@ -2,6 +2,17 @@
 
 set -eo pipefail
 
-echo "Running JVM tests"
+echo "Running fixture-free JVM unit tests"
 
-clojure -M:ci
+clojure -M:ci \
+	-n ansatz.export.parser-test \
+	-n ansatz.export.replay-test \
+	-n ansatz.export.storage-test \
+	-n ansatz.kernel.reducer-test \
+	-n ansatz.kernel.typechecker-test \
+	-n ansatz.surface.lean-test \
+	-n ansatz.surface.pp-test \
+	-n ansatz.theory.convergence-test
+
+echo
+echo "Integration tests requiring test-data/init-medium.ndjson are not part of the default CI unit suite."

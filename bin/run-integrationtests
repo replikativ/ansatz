@@ -1,0 +1,31 @@
+#!/bin/bash
+
+set -eo pipefail
+
+if [[ ! -f test-data/init-medium.ndjson ]]; then
+  echo "Skipping init-medium integration tests: test-data/init-medium.ndjson is not available."
+  exit 0
+fi
+
+echo "Running init-medium integration tests"
+
+clojure -M:ci \
+  -n ansatz.examples-test \
+  -n ansatz.indexed-inductive-test \
+  -n ansatz.kernel.edge-cases-test \
+  -n ansatz.surface.elaborate-test \
+  -n ansatz.surface.match-test \
+  -n ansatz.surface.term-test \
+  -n ansatz.tactic.advanced-test \
+  -n ansatz.tactic.basic-tactics-test \
+  -n ansatz.tactic.decide-test \
+  -n ansatz.tactic.discr-tree-test \
+  -n ansatz.tactic.error-test \
+  -n ansatz.tactic.grind-test \
+  -n ansatz.tactic.instance-test \
+  -n ansatz.tactic.level1-test \
+  -n ansatz.tactic.simp-edge-test \
+  -n ansatz.tactic.simp-test \
+  -n ansatz.tactic.smoke-test \
+  -n ansatz.tactic.tactic-test \
+  -n ansatz.core-test
