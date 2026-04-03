@@ -1577,11 +1577,11 @@
           ;; Build noConfusion for non-indexed, non-Prop types
           env (if (and (zero? n-indices) (not is-prop))
                 (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
-                                                       level-param-names rec-name rec-level-params
-                                                       result-level is-rec ind-name-str)
+                                                      level-param-names rec-name rec-level-params
+                                                      result-level is-rec ind-name-str)
                       nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
-                                                 level-param-names rec-name rec-level-params
-                                                 result-level is-rec ind-name-str)
+                                                level-param-names rec-name rec-level-params
+                                                result-level is-rec ind-name-str)
                       env (env/add-constant env nct-ci)
                       env (env/add-constant env nc-ci)]
                   env)

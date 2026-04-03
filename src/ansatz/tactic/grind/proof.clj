@@ -174,7 +174,7 @@
                   (throw (ex-info "E-graph proof: broken chain, no target"
                                   {:curr curr :common common})))
               step-proof (realize-proof-step gs st curr target
-                                            (:proof node) (:flipped node))]
+                                             (:proof node) (:flipped node))]
           ;; step-proof : curr = target
           ;; acc : start = curr (or nil if first step)
           (let [new-acc (if acc

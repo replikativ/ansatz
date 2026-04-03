@@ -72,40 +72,40 @@
       (a/defn cslib-merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
         :termination-by (+ (List.length xs) (List.length ys))
         (match xs (List Nat) (List Nat)
-          (nil ys)
-          (cons [x xs']
-            (match ys (List Nat) (List Nat)
-              (nil (List.cons x xs'))
-              (cons [y ys']
-                (if (<= x y)
-                  (List.cons x (cslib-merge xs' (List.cons y ys')))
-                  (List.cons y (cslib-merge (List.cons x xs') ys'))))))))
+               (nil ys)
+               (cons [x xs']
+                     (match ys (List Nat) (List Nat)
+                            (nil (List.cons x xs'))
+                            (cons [y ys']
+                                  (if (<= x y)
+                                    (List.cons x (cslib-merge xs' (List.cons y ys')))
+                                    (List.cons y (cslib-merge (List.cons x xs') ys'))))))))
       (a/defn cslib-take [n :- Nat, xs :- (List Nat)] (List Nat)
         :termination-by n
         (match n Nat (List Nat)
-          (zero (List.nil Nat))
-          (succ [k] (match xs (List Nat) (List Nat)
-            (nil (List.nil Nat))
-            (cons [hd tl] (List.cons hd (cslib-take k tl)))))))
+               (zero (List.nil Nat))
+               (succ [k] (match xs (List Nat) (List Nat)
+                                (nil (List.nil Nat))
+                                (cons [hd tl] (List.cons hd (cslib-take k tl)))))))
       (a/defn cslib-drop [n :- Nat, xs :- (List Nat)] (List Nat)
         :termination-by n
         (match n Nat (List Nat)
-          (zero xs)
-          (succ [k] (match xs (List Nat) (List Nat)
-            (nil (List.nil Nat))
-            (cons [hd tl] (cslib-drop k tl))))))
+               (zero xs)
+               (succ [k] (match xs (List Nat) (List Nat)
+                                (nil (List.nil Nat))
+                                (cons [hd tl] (cslib-drop k tl))))))
       (a/defn cslib-sort [xs :- (List Nat)] (List Nat)
         :termination-by (List.length xs)
         (match xs (List Nat) (List Nat)
-          (nil (List.nil Nat))
-          (cons [hd tl] (match tl (List Nat) (List Nat)
-            (nil (List.cons hd (List.nil Nat)))
-            (cons [hd2 tl2]
-              (cslib-merge
-                (cslib-sort (cslib-take (/ (+ 2 (List.length tl2)) 2)
-                                        (List.cons hd (List.cons hd2 tl2))))
-                (cslib-sort (cslib-drop (/ (+ 2 (List.length tl2)) 2)
-                                        (List.cons hd (List.cons hd2 tl2))))))))))
+               (nil (List.nil Nat))
+               (cons [hd tl] (match tl (List Nat) (List Nat)
+                                    (nil (List.cons hd (List.nil Nat)))
+                                    (cons [hd2 tl2]
+                                          (cslib-merge
+                                           (cslib-sort (cslib-take (/ (+ 2 (List.length tl2)) 2)
+                                                                   (List.cons hd (List.cons hd2 tl2))))
+                                           (cslib-sort (cslib-drop (/ (+ 2 (List.length tl2)) 2)
+                                                                   (List.cons hd (List.cons hd2 tl2))))))))))
       (swap! verified-fns assoc
              :merge cslib-merge :take cslib-take
              :drop cslib-drop :sort cslib-sort))))

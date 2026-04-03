@@ -39,18 +39,18 @@
           (when-not (env/lookup (a/env) (name/from-string "ex-sorted"))
             (eval '(ansatz.core/defn ex-sorted [l (List Nat)] Bool
                      (match l (List Nat) Bool
-                       (nil true) (cons [hd tl] (match tl (List Nat) Bool
-                         (nil true) (cons [hd2 tl2] (match (<= hd hd2) Bool Bool
-                           (true ih_tail) (false false))))))))
+                            (nil true) (cons [hd tl] (match tl (List Nat) Bool
+                                                            (nil true) (cons [hd2 tl2] (match (<= hd hd2) Bool Bool
+                                                                                              (true ih_tail) (false false))))))))
             (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
                      (match l (List Nat) (List Nat)
-                       (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
-                         (true (cons x l)) (false (cons hd ih_tail)))))))
+                            (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
+                                                                    (true (cons x l)) (false (cons hd ih_tail)))))))
             (eval '(ansatz.core/defn ex-isort [l (List Nat)] (List Nat)
                      (match l (List Nat) (List Nat)
-                       (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail)))))))
-          {:env @a/ansatz-env
-           :idx @a/ansatz-instance-index}))))
+                            (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail)))))))
+        {:env @a/ansatz-env
+         :idx @a/ansatz-instance-index}))))
 
 (defn- with-baseline-env [f]
   (when-let [{:keys [env idx]} @baseline-state]
@@ -321,20 +321,20 @@
           ;; Define insertSorted in the fresh env
           (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
                    (match l (List Nat) (List Nat)
-                     (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
-                       (true (cons x l)) (false (cons hd ih_tail)))))))
+                          (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
+                                                                  (true (cons x l)) (false (cons hd ih_tail)))))))
           ;; Define Prop-valued Sorted indexed inductive:
           ;;   Sorted : List Nat → Prop
           ;;   nil    : Sorted []
           ;;   single : ∀ a, Sorted [a]
           ;;   cons_cons : ∀ a b tl, a ≤ b → Sorted (b::tl) → Sorted (a::b::tl)
           (eval '(ansatz.core/inductive Sorted [] :in Prop :indices [l (List Nat)]
-                   (nil :where [(nil)])
-                   (single [a Nat] :where [(cons a nil)])
-                   (cons_cons [a Nat] [b Nat] [tl (List Nat)]
-                              [hab (le a b)]
-                              [hsorted (Sorted (cons b tl))]
-                     :where [(cons a (cons b tl))])))
+                                        (nil :where [(nil)])
+                                        (single [a Nat] :where [(cons a nil)])
+                                        (cons_cons [a Nat] [b Nat] [tl (List Nat)]
+                                                   [hab (le a b)]
+                                                   [hsorted (Sorted (cons b tl))]
+                                                   :where [(cons a (cons b tl))])))
           (is (some? (env/lookup (a/env) (name/from-string "Sorted")))
               "Sorted inductive defined")
           (is (some? (env/lookup (a/env) (name/from-string "Sorted.rec")))
@@ -373,7 +373,6 @@
             (reset! a/ansatz-env saved-env)
             (reset! a/ansatz-instance-index saved-idx)))))))
 
-
 ;; ============================================================
 ;; Grind: insertion sort preservation (Phase 1)
 ;; After induction, grind handles all 3 cases automatically:
@@ -393,15 +392,15 @@
           (reset! @(resolve 'ansatz.tactic.simp/fun-info-cache) {})
           (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
                    (match l (List Nat) (List Nat)
-                     (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
-                       (true (cons x l)) (false (cons hd ih_tail)))))))
+                          (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
+                                                                  (true (cons x l)) (false (cons hd ih_tail)))))))
           (eval '(ansatz.core/inductive Sorted [] :in Prop :indices [l (List Nat)]
-                   (nil :where [(nil)])
-                   (single [a Nat] :where [(cons a nil)])
-                   (cons_cons [a Nat] [b Nat] [tl (List Nat)]
-                              [hab (le a b)]
-                              [hsorted (Sorted (cons b tl))]
-                     :where [(cons a (cons b tl))])))
+                                        (nil :where [(nil)])
+                                        (single [a Nat] :where [(cons a nil)])
+                                        (cons_cons [a Nat] [b Nat] [tl (List Nat)]
+                                                   [hab (le a b)]
+                                                   [hsorted (Sorted (cons b tl))]
+                                                   :where [(cons a (cons b tl))])))
           (let [ctx (a/make-context @a/ansatz-env @a/ansatz-instance-index)]
             (a/prove-theorem 'ex-insert-preserves-grind
                              '[x :- Nat, l :- (List Nat), h :- (Sorted l)]
@@ -425,10 +424,10 @@
     (binding [a/*verbose* false]
       ;; Define ValidRB : TRBTree Nat → Prop (indexed by user-defined type)
       (eval '(ansatz.core/inductive ValidRB [] :in Prop :indices [t (TRBTree Nat)]
-               (vleaf :where [(TRBTree.leaf Nat)])
-               (vnode [c TRBColor] [l (TRBTree Nat)] [k Nat] [r (TRBTree Nat)]
-                      [hl (ValidRB l)] [hr (ValidRB r)]
-                 :where [(TRBTree.node Nat c l k r)])))
+                                    (vleaf :where [(TRBTree.leaf Nat)])
+                                    (vnode [c TRBColor] [l (TRBTree Nat)] [k Nat] [r (TRBTree Nat)]
+                                           [hl (ValidRB l)] [hr (ValidRB r)]
+                                           :where [(TRBTree.node Nat c l k r)])))
       (is (some? (env/lookup (a/env) (name/from-string "ValidRB"))))
       (is (some? (env/lookup (a/env) (name/from-string "ValidRB.rec"))))
       ;; Verify Sorted.rec IH bvar lifting (Bug 3 fix)
@@ -500,8 +499,8 @@
       ;; The equation theorem eq_2 must be kernel-verifiable.
       (eval '(ansatz.core/defn ex-ins2 [x Nat l (List Nat)] (List Nat)
                (match l (List Nat) (List Nat)
-                 (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
-                   (true (cons x l)) (false (cons hd ih_tail)))))))
+                      (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
+                                                              (true (cons x l)) (false (cons hd ih_tail)))))))
       (let [^ansatz.kernel.TypeChecker tc (ansatz.kernel.TypeChecker. (a/env))]
         (.setFuel tc (int 50000000))
         (doseq [suffix ["1" "2"]]
@@ -550,7 +549,7 @@
                              hc :- (ValidRB c), hr :- (ValidRB r)]
                            '(ValidRB (((ex-bal1c
                                         (TRBTree.node Nat (TRBColor.red)
-                                          (TRBTree.node Nat (TRBColor.red) a x b) y c)) v) r))
+                                                      (TRBTree.node Nat (TRBColor.red) a x b) y c)) v) r))
                            '[(simp "ex-bal1c")
                              (apply ValidRB.vnode)
                              (apply ValidRB.vnode) (assumption) (assumption)
@@ -587,10 +586,10 @@
       ;; Define ValidRB if needed
       (when-not (env/lookup (a/env) (name/from-string "ValidRB"))
         (eval '(ansatz.core/inductive ValidRB [] :in Prop :indices [t (TRBTree Nat)]
-                 (vleaf :where [(TRBTree.leaf Nat)])
-                 (vnode [c TRBColor] [l (TRBTree Nat)] [k Nat] [r (TRBTree Nat)]
-                        [hl (ValidRB l)] [hr (ValidRB r)]
-                   :where [(TRBTree.node Nat c l k r)]))))
+                                      (vleaf :where [(TRBTree.leaf Nat)])
+                                      (vnode [c TRBColor] [l (TRBTree Nat)] [k Nat] [r (TRBTree Nat)]
+                                             [hl (ValidRB l)] [hr (ValidRB r)]
+                                             :where [(TRBTree.node Nat c l k r)]))))
       (when (env/lookup (a/env) (name/from-string "ValidRB"))
         ;; Define balance1 if needed
         (when-not (env/lookup (a/env) (name/from-string "ex-bal1full"))

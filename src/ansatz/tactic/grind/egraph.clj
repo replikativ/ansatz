@@ -197,7 +197,7 @@
     ;; Forall: hash roots of domain and body
     (e/forall? expr)
     [:forall (System/identityHashCode (get-root gs (e/forall-type expr)))
-             (System/identityHashCode (get-root gs (e/forall-body expr)))]
+     (System/identityHashCode (get-root gs (e/forall-body expr)))]
 
     ;; Everything else: unique key (no congruence)
     :else [:other (System/identityHashCode expr)]))
@@ -361,9 +361,9 @@
                (:proof node))
         ;; End of chain (was the root) — set final node
         (set-enode gs e (assoc node
-                                :target target-new
-                                :proof proof-new
-                                :flipped flipped-new))))))
+                               :target target-new
+                               :proof proof-new
+                               :flipped flipped-new))))))
 
 ;; ============================================================
 ;; Update roots — set all nodes in a class to point to new root
@@ -374,13 +374,13 @@
   [gs expr new-root]
   (loop [gs gs curr expr fuel 10000]
     (if (<= fuel 0) gs
-      (let [node (get-enode gs curr)]
-        (if (nil? node) gs
-          (let [gs (set-enode gs curr (assoc node :root new-root))
-                next (:next node)]
-            (if (or (identical? next expr) (nil? next))
-              gs
-              (recur gs next (dec fuel)))))))))
+        (let [node (get-enode gs curr)]
+          (if (nil? node) gs
+              (let [gs (set-enode gs curr (assoc node :root new-root))
+                    next (:next node)]
+                (if (or (identical? next expr) (nil? next))
+                  gs
+                  (recur gs next (dec fuel)))))))))
 
 ;; ============================================================
 ;; Remove and reinsert parents for congruence closure
@@ -473,7 +473,7 @@
             gs))
         ;; DIFFERENT constructors: contradiction!
         (assoc gs :inconsistent true
-                  :ctor-conflict [ctor-a-expr ctor-b-expr]))
+               :ctor-conflict [ctor-a-expr ctor-b-expr]))
       gs)))
 
 ;; ============================================================
@@ -501,10 +501,10 @@
             rhs-root-node (get-enode gs rhs-root)
             ;; Step 2: Check True=False inconsistency
             gs (if (and (:interp lhs-root-node) (:interp rhs-root-node)
-                       (or (identical? lhs-root (:true-expr gs))
-                           (identical? rhs-root (:true-expr gs)))
-                       (or (identical? lhs-root (:false-expr gs))
-                           (identical? rhs-root (:false-expr gs))))
+                        (or (identical? lhs-root (:true-expr gs))
+                            (identical? rhs-root (:true-expr gs)))
+                        (or (identical? lhs-root (:false-expr gs))
+                            (identical? rhs-root (:false-expr gs))))
                  (assoc gs :inconsistent true)
                  gs)]
         (if (:inconsistent gs)
@@ -542,11 +542,11 @@
                   ;; Step 10: Update root metadata
                   parent-root-node (get-enode gs parent-root)
                   gs (set-enode gs parent-root
-                               (assoc parent-root-node
-                                      :size (+ (:size parent-root-node)
-                                               (:size (get-enode gs child-root)))
-                                      :heq (or heq (:heq parent-root-node)
-                                               (:heq (get-enode gs child-root)))))
+                                (assoc parent-root-node
+                                       :size (+ (:size parent-root-node)
+                                                (:size (get-enode gs child-root)))
+                                       :heq (or heq (:heq parent-root-node)
+                                                (:heq (get-enode gs child-root)))))
                   ;; Step 11: Copy parents from child-root to parent-root
                   child-parents (get-parents gs child-root)
                   gs (reduce (fn [gs p]

@@ -74,40 +74,40 @@
 
 (deftest test-grind-congruence
   (testing "grind solves f(a) = f(b) from h : a = b via congruence closure"
-      (let [env (require-env)
-            nat-to-nat (e/arrow nat nat)
+    (let [env (require-env)
+          nat-to-nat (e/arrow nat nat)
           ;; forall a b : Nat, forall f : Nat -> Nat, h : a = b |- f a = f b
-            h-type (mk-eq (e/bvar 2) (e/bvar 1))
-            concl (mk-eq (e/app (e/bvar 1) (e/bvar 3))
-                         (e/app (e/bvar 1) (e/bvar 2)))
-            goal (e/forall' "a" nat
-                            (e/forall' "b" nat
-                                       (e/forall' "f" nat-to-nat
-                                                  (e/forall' "h" h-type concl :default) :default) :default) :default)
-            [ps _] (proof/start-proof env goal)
-            ps (basic/intros ps ["a" "b" "f" "h"])
-            ps (grind/grind ps)]
-        (is (proof/solved? ps)))))
+          h-type (mk-eq (e/bvar 2) (e/bvar 1))
+          concl (mk-eq (e/app (e/bvar 1) (e/bvar 3))
+                       (e/app (e/bvar 1) (e/bvar 2)))
+          goal (e/forall' "a" nat
+                          (e/forall' "b" nat
+                                     (e/forall' "f" nat-to-nat
+                                                (e/forall' "h" h-type concl :default) :default) :default) :default)
+          [ps _] (proof/start-proof env goal)
+          ps (basic/intros ps ["a" "b" "f" "h"])
+          ps (grind/grind ps)]
+      (is (proof/solved? ps)))))
 
 (deftest test-grind-transitivity
   (testing "grind solves a = c from h1 : a = b, h2 : b = c via CC"
-      (let [env (require-env)
+    (let [env (require-env)
           ;; forall a b c : Nat, h1 : a = b, h2 : b = c |- a = c
-            h1-type (mk-eq (e/bvar 2) (e/bvar 1))
-            h2-type (mk-eq (e/bvar 2) (e/bvar 1))
-            concl (mk-eq (e/bvar 4) (e/bvar 2))
-            goal (e/forall' "a" nat
-                            (e/forall' "b" nat
-                                       (e/forall' "c" nat
-                                                  (e/forall' "h1" h1-type
-                                                             (e/forall' "h2" h2-type concl :default) :default) :default) :default) :default)
-            [ps _] (proof/start-proof env goal)
-            ps (basic/intros ps ["a" "b" "c" "h1" "h2"])
-            ps (grind/grind ps)]
-        (is (proof/solved? ps))))
+          h1-type (mk-eq (e/bvar 2) (e/bvar 1))
+          h2-type (mk-eq (e/bvar 2) (e/bvar 1))
+          concl (mk-eq (e/bvar 4) (e/bvar 2))
+          goal (e/forall' "a" nat
+                          (e/forall' "b" nat
+                                     (e/forall' "c" nat
+                                                (e/forall' "h1" h1-type
+                                                           (e/forall' "h2" h2-type concl :default) :default) :default) :default) :default)
+          [ps _] (proof/start-proof env goal)
+          ps (basic/intros ps ["a" "b" "c" "h1" "h2"])
+          ps (grind/grind ps)]
+      (is (proof/solved? ps))))
 
-(deftest test-grind-deep-congruence
-  (testing "grind solves g(f(a)) = g(f(b)) from h : a = b via deep CC"
+  (deftest test-grind-deep-congruence
+    (testing "grind solves g(f(a)) = g(f(b)) from h : a = b via deep CC"
       (let [env (require-env)
             nat-to-nat (e/arrow nat nat)
           ;; forall a b : Nat, f g : Nat -> Nat, h : a = b |- g(f(a)) = g(f(b))
@@ -346,9 +346,9 @@
           ;; forall a b : Nat, h : a = b |- a = b
           ;; Build proof via E-graph path
           goal (e/forall' "a" nat
-                 (e/forall' "b" nat
-                   (e/forall' "h" (mk-eq (e/bvar 1) (e/bvar 0))
-                     (mk-eq (e/bvar 2) (e/bvar 1)) :default) :default) :default)
+                          (e/forall' "b" nat
+                                     (e/forall' "h" (mk-eq (e/bvar 1) (e/bvar 0))
+                                                (mk-eq (e/bvar 2) (e/bvar 1)) :default) :default) :default)
           [ps _] (proof/start-proof env goal)
           ps (basic/intros ps ["a" "b" "h"])
           g (proof/current-goal ps)
@@ -368,10 +368,10 @@
       (is (some? proof-term) "proof term built")
       ;; Verify with kernel TypeChecker
       (is (try (verify-with-lctx env (:lctx g) proof-term) true
-                 (catch Exception e
-                   (println "Kernel error:" (.getMessage e))
-                   false))
-            "proof term passes kernel type check"))))
+               (catch Exception e
+                 (println "Kernel error:" (.getMessage e))
+                 false))
+          "proof term passes kernel type check"))))
 
 (deftest test-egraph-proof-transitivity
   (testing "E-graph proof: a=c from a=b, b=c, kernel-verified"
@@ -381,10 +381,10 @@
           h2-type (mk-eq (e/bvar 2) (e/bvar 1))
           concl (mk-eq (e/bvar 4) (e/bvar 2))
           goal (e/forall' "a" nat
-                 (e/forall' "b" nat
-                   (e/forall' "c" nat
-                     (e/forall' "h1" h1-type
-                       (e/forall' "h2" h2-type concl :default) :default) :default) :default) :default)
+                          (e/forall' "b" nat
+                                     (e/forall' "c" nat
+                                                (e/forall' "h1" h1-type
+                                                           (e/forall' "h2" h2-type concl :default) :default) :default) :default) :default)
           [ps _] (proof/start-proof env goal)
           ps (basic/intros ps ["a" "b" "c" "h1" "h2"])
           g (proof/current-goal ps)
@@ -423,9 +423,9 @@
           concl (mk-eq (e/app (e/bvar 1) (e/bvar 3))
                        (e/app (e/bvar 1) (e/bvar 2)))
           goal (e/forall' "a" nat
-                 (e/forall' "b" nat
-                   (e/forall' "f" nat-to-nat
-                     (e/forall' "h" h-type concl :default) :default) :default) :default)
+                          (e/forall' "b" nat
+                                     (e/forall' "f" nat-to-nat
+                                                (e/forall' "h" h-type concl :default) :default) :default) :default)
           [ps _] (proof/start-proof env goal)
           ps (basic/intros ps ["a" "b" "f" "h"])
           g (proof/current-goal ps)
@@ -451,7 +451,7 @@
                (catch Exception e
                  (println "Kernel error:" (.getMessage e))
                  false))
-            "congruence proof passes kernel"))))
+          "congruence proof passes kernel"))))
 
 ;; ============================================================
 ;; E-matching tests (Phase 3)

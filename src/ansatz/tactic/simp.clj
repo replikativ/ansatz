@@ -1515,12 +1515,12 @@
                      ;; The motive for the proof:
                      ;; fun b => Eq Bool (Bool.rec (fun _ => Bool) false true b) b
                      eq-motive (e/lam "b" bool-type
-                                 (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                         bool-type
-                                         (e/app* (e/const' (name/from-string "Bool.rec") [rec-level])
-                                                 motive fc tc (e/bvar 0))
-                                         (e/bvar 0))
-                                 :default)
+                                      (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                              bool-type
+                                              (e/app* (e/const' (name/from-string "Bool.rec") [rec-level])
+                                                      motive fc tc (e/bvar 0))
+                                              (e/bvar 0))
+                                      :default)
                      ;; rfl : false = false and rfl : true = true
                      rfl-false (e/app* (e/const' eq-refl-name [(lvl/succ lvl/zero)])
                                        bool-type bool-false)
@@ -1645,46 +1645,46 @@
   (if (or (<= max-depth 0) (nil? expr) (not (instance? ansatz.kernel.Expr expr)))
     expr
     (try
-    (let [;; First try structural reduction on the whole expression
-          reduced (red/whnf-no-delta env expr lctx)
-          expr (if (= reduced expr) expr reduced)
+      (let [;; First try structural reduction on the whole expression
+            reduced (red/whnf-no-delta env expr lctx)
+            expr (if (= reduced expr) expr reduced)
           ;; Then recurse into sub-expressions
-          dec-depth (dec max-depth)]
-      (case (e/tag expr)
-        :app (let [f (dsimp-expr env lctx (e/app-fn expr) dec-depth)
-                   a (dsimp-expr env lctx (e/app-arg expr) dec-depth)]
-               (if (and (identical? f (e/app-fn expr))
-                        (identical? a (e/app-arg expr)))
+            dec-depth (dec max-depth)]
+        (case (e/tag expr)
+          :app (let [f (dsimp-expr env lctx (e/app-fn expr) dec-depth)
+                     a (dsimp-expr env lctx (e/app-arg expr) dec-depth)]
+                 (if (and (identical? f (e/app-fn expr))
+                          (identical? a (e/app-arg expr)))
                  ;; Try reduction again after sub-expression changes
-                 (let [r2 (red/whnf-no-delta env expr lctx)]
-                   (if (= r2 expr) expr r2))
-                 (let [rebuilt (e/app f a)
-                       r2 (red/whnf-no-delta env rebuilt lctx)]
-                   (if (= r2 rebuilt) rebuilt r2))))
-        :lam (let [t (dsimp-expr env lctx (e/lam-type expr) dec-depth)
-                   b (dsimp-expr env lctx (e/lam-body expr) dec-depth)]
-               (if (and (identical? t (e/lam-type expr))
-                        (identical? b (e/lam-body expr)))
-                 expr
-                 (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-        :forall (let [t (dsimp-expr env lctx (e/forall-type expr) dec-depth)
-                      b (dsimp-expr env lctx (e/forall-body expr) dec-depth)]
-                  (if (and (identical? t (e/forall-type expr))
-                           (identical? b (e/forall-body expr)))
+                   (let [r2 (red/whnf-no-delta env expr lctx)]
+                     (if (= r2 expr) expr r2))
+                   (let [rebuilt (e/app f a)
+                         r2 (red/whnf-no-delta env rebuilt lctx)]
+                     (if (= r2 rebuilt) rebuilt r2))))
+          :lam (let [t (dsimp-expr env lctx (e/lam-type expr) dec-depth)
+                     b (dsimp-expr env lctx (e/lam-body expr) dec-depth)]
+                 (if (and (identical? t (e/lam-type expr))
+                          (identical? b (e/lam-body expr)))
+                   expr
+                   (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+          :forall (let [t (dsimp-expr env lctx (e/forall-type expr) dec-depth)
+                        b (dsimp-expr env lctx (e/forall-body expr) dec-depth)]
+                    (if (and (identical? t (e/forall-type expr))
+                             (identical? b (e/forall-body expr)))
+                      expr
+                      (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+          :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
+                 (dsimp-expr env lctx expanded dec-depth))
+          :proj (let [s (dsimp-expr env lctx (e/proj-struct expr) dec-depth)]
+                  (if (identical? s (e/proj-struct expr))
                     expr
-                    (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-        :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
-               (dsimp-expr env lctx expanded dec-depth))
-        :proj (let [s (dsimp-expr env lctx (e/proj-struct expr) dec-depth)]
-                (if (identical? s (e/proj-struct expr))
-                  expr
-                  (let [rebuilt (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)
-                        r2 (red/whnf-no-delta env rebuilt lctx)]
-                    (if (= r2 rebuilt) rebuilt r2))))
-        :mdata (dsimp-expr env lctx (e/mdata-expr expr) dec-depth)
+                    (let [rebuilt (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)
+                          r2 (red/whnf-no-delta env rebuilt lctx)]
+                      (if (= r2 rebuilt) rebuilt r2))))
+          :mdata (dsimp-expr env lctx (e/mdata-expr expr) dec-depth)
         ;; Atoms (const, fvar, bvar, sort, lit) — no descent
-        expr))
-    (catch Exception _ expr))))
+          expr))
+      (catch Exception _ expr))))
 
 ;; ============================================================
 ;; Simplification engine — Lean 4's simpLoop
@@ -1836,12 +1836,12 @@
                             ;; In the telescope at depth i, bvar k (k < i) refers to param (i-1-k)
                             raw-deps (collect-bvar-deps param-type 0)
                             back-deps (into #{} (keep (fn [bv] (let [p (- i 1 bv)]
-                                                                  (when (>= p 0) p))))
+                                                                 (when (>= p 0) p))))
                                             raw-deps)
                             is-prop (try (let [s (tc/infer-type st param-type)
-                                              sw (#'tc/cached-whnf st s)]
-                                          (and (e/sort? sw) (= (e/sort-level sw) lvl/zero)))
-                                        (catch Exception _ false))
+                                               sw (#'tc/cached-whnf st s)]
+                                           (and (e/sort? sw) (= (e/sort-level sw) lvl/zero)))
+                                         (catch Exception _ false))
                             is-inst (= binfo :inst-implicit)]
                         (recur (e/forall-body ty) (inc i)
                                (conj params {:binder-info binfo
@@ -1910,83 +1910,83 @@
                      ;; discriminant, so congrArg works and full simp is safe.
                      ;; Lean 4 handles this via auto-generated congr theorems; we
                      ;; detect the non-dependent case at runtime.
-                     nil  ;; fall through to generic descent with override below
+                    nil  ;; fall through to generic descent with override below
 
                  ;; Default: simplify fn and arg separately, build congruence proof.
                  ;; Lean 4: simpAppUsingCongr — use CongrArgKind to determine
                  ;; which args get full simp (:eq) vs dsimp-only (:fixed/:cast).
-                 (let [orig-f (e/app-fn expr) orig-a (e/app-arg expr)
-                       f-result (simp-expr* st env lemma-index orig-f (update config :max-depth dec))
+                    (let [orig-f (e/app-fn expr) orig-a (e/app-arg expr)
+                          f-result (simp-expr* st env lemma-index orig-f (update config :max-depth dec))
                        ;; Determine if this arg position should be :fixed (dsimp only)
                        ;; Compute from the full application's head function + arg count
-                       app-fn (e/get-app-fn expr)
-                       app-args (e/get-app-args expr)
-                       arg-idx (dec (count app-args))
-                       fun-info (when (and (e/const? app-fn) (pos? (count app-args)))
-                                  (try (get-fun-info st env app-fn (count app-args))
-                                       (catch Exception _ nil)))
-                       kinds (when fun-info (get-congr-simp-kinds fun-info))
-                       raw-kind (if (and kinds (< arg-idx (count kinds)))
-                                  (nth kinds arg-idx)
+                          app-fn (e/get-app-fn expr)
+                          app-args (e/get-app-args expr)
+                          arg-idx (dec (count app-args))
+                          fun-info (when (and (e/const? app-fn) (pos? (count app-args)))
+                                     (try (get-fun-info st env app-fn (count app-args))
+                                          (catch Exception _ nil)))
+                          kinds (when fun-info (get-congr-simp-kinds fun-info))
+                          raw-kind (if (and kinds (< arg-idx (count kinds)))
+                                     (nth kinds arg-idx)
                                   ;; No info available — use safe heuristic:
                                   ;; if arg's type is Sort u (u > 0), it's a type → :fixed
-                                  (let [at (safe-infer st orig-a)
-                                        atw (when at (safe-whnf st at))]
-                                    (if (and atw (e/sort? atw)
-                                             (not= (e/sort-level atw) lvl/zero))
-                                      :fixed :eq)))
+                                     (let [at (safe-infer st orig-a)
+                                           atw (when at (safe-whnf st at))]
+                                       (if (and atw (e/sort? atw)
+                                                (not= (e/sort-level atw) lvl/zero))
+                                         :fixed :eq)))
                        ;; Override :fixed → :eq for recursor discriminants with constant motive.
                        ;; When the motive doesn't depend on its bound variable (e.g.,
                        ;; Bool.rec (fun _ => Bool) ...), the result type is non-dependent,
                        ;; so congrArg works and full simp on the discriminant is safe.
                        ;; Lean 4 handles this via auto-generated congr theorems.
-                       arg-kind (cond
+                          arg-kind (cond
                                   ;; Override 1: recursor discriminant with constant motive → :eq
-                                  (and (= raw-kind :fixed)
-                                       (e/const? app-fn)
-                                       (let [n (name/->string (e/const-name app-fn))]
-                                         (or (= n "Bool.rec") (= n "List.rec")
-                                             (.endsWith ^String n ".rec")
-                                             (.endsWith ^String n ".casesOn")))
-                                       (= arg-idx (dec (count app-args)))
-                                       (let [motive (first app-args)]
-                                         (and (e/lam? motive)
-                                              (not (e/has-loose-bvars? (e/lam-body motive) 0)))))
-                                  :eq
+                                     (and (= raw-kind :fixed)
+                                          (e/const? app-fn)
+                                          (let [n (name/->string (e/const-name app-fn))]
+                                            (or (= n "Bool.rec") (= n "List.rec")
+                                                (.endsWith ^String n ".rec")
+                                                (.endsWith ^String n ".casesOn")))
+                                          (= arg-idx (dec (count app-args)))
+                                          (let [motive (first app-args)]
+                                            (and (e/lam? motive)
+                                                 (not (e/has-loose-bvars? (e/lam-body motive) 0)))))
+                                     :eq
                                   ;; Override 2: indexed family arg containing stuck Bool.rec → :eq
                                   ;; Without this, hypothesis lemmas can't reduce Bool.rec inside indices.
                                   ;; Lean 4 grind handles this via E-graph, not simp CongrArgKind.
-                                  (and (= raw-kind :fixed)
-                                       (let [found (atom false)]
-                                         (letfn [(scan [e]
-                                                   (when-not @found
-                                                     (let [[h a] (e/get-app-fn-args e)]
-                                                       (when (and (e/const? h)
-                                                                  (= "Bool.rec" (name/->string (e/const-name h))))
-                                                         (reset! found true)))
-                                                     (when (e/app? e)
-                                                       (scan (e/app-fn e))
-                                                       (scan (e/app-arg e)))))]
-                                           (scan orig-a))
-                                         @found))
-                                  :eq
-                                  :else raw-kind)
-                       a-result (if (= arg-kind :eq)
+                                     (and (= raw-kind :fixed)
+                                          (let [found (atom false)]
+                                            (letfn [(scan [e]
+                                                      (when-not @found
+                                                        (let [[h a] (e/get-app-fn-args e)]
+                                                          (when (and (e/const? h)
+                                                                     (= "Bool.rec" (name/->string (e/const-name h))))
+                                                            (reset! found true)))
+                                                        (when (e/app? e)
+                                                          (scan (e/app-fn e))
+                                                          (scan (e/app-arg e)))))]
+                                              (scan orig-a))
+                                            @found))
+                                     :eq
+                                     :else raw-kind)
+                          a-result (if (= arg-kind :eq)
                                   ;; :eq — full simp (with rewrite lemmas + simprocs)
-                                  (simp-expr* st env lemma-index orig-a (update config :max-depth dec))
+                                     (simp-expr* st env lemma-index orig-a (update config :max-depth dec))
                                   ;; :fixed/:cast — dsimp only (Lean 4's dsimpImpl).
                                   ;; Separate traversal: structural reductions only,
                                   ;; propagates transitively through all sub-expressions
                                   ;; including lambda bodies. No rewrite lemmas.
-                                  (let [reduced (dsimp-expr env (:lctx st) orig-a
-                                                            (:max-depth config))]
-                                    (if (= reduced orig-a)
-                                      (mk-result orig-a)
-                                      (mk-result reduced))))]
-                   (if (and (identical? (:expr f-result) orig-f)
-                            (identical? (:expr a-result) orig-a))
-                     (mk-result expr)
-                     (mk-congr st f-result a-result orig-f orig-a)))))))
+                                     (let [reduced (dsimp-expr env (:lctx st) orig-a
+                                                               (:max-depth config))]
+                                       (if (= reduced orig-a)
+                                         (mk-result orig-a)
+                                         (mk-result reduced))))]
+                      (if (and (identical? (:expr f-result) orig-f)
+                               (identical? (:expr a-result) orig-a))
+                        (mk-result expr)
+                        (mk-congr st f-result a-result orig-f orig-a)))))))
 
         ;; Lambda — Lean 4: simpLambda with funext proof
         ;; funext : {α} {β : α → Sort v} {f g : ∀ a, β a} →
@@ -2000,7 +2000,7 @@
                    ;; Uses dsimp-expr: structural reductions only, no rewrite lemmas.
                    ;; This prevents type annotation corruption (Bool → True).
                    t-r (let [reduced (dsimp-expr env (:lctx st) lam-type
-                                                  (:max-depth config))]
+                                                 (:max-depth config))]
                          (if (= reduced lam-type)
                            (mk-result lam-type)
                            (mk-result reduced)))
@@ -2288,7 +2288,7 @@
                 inst-le-nat (e/const' (name/from-string "instLENat") [])
                 ;; LE.le Nat instLENat x y = x ≤ y
                 mk-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lz])
-                                         nat inst-le-nat a b))
+                                        nat inst-le-nat a b))
                 ;; Type: ∀ (x y : Nat), (Nat.ble x y = true) = (x ≤ y)
                 ble-xy (e/app* (e/const' (name/from-string "Nat.ble") [])
                                (e/bvar 1) (e/bvar 0))
@@ -2298,7 +2298,7 @@
                 eq-body (e/app* (e/const' (name/from-string "Eq") [l1])
                                 (e/sort' lz) ble-eq-true le-xy)
                 full-type (e/forall' "y" nat
-                            (e/forall' "x" nat eq-body :default) :default)
+                                     (e/forall' "x" nat eq-body :default) :default)
                 ;; Proof with fvars then abstract
                 fv-x (e/fvar 9900000) fv-y (e/fvar 9900001)
                 ble-fv (e/app* (e/const' (name/from-string "Nat.ble") []) fv-x fv-y)
@@ -2317,7 +2317,7 @@
                 ;; Abstract fvars and wrap in lambdas
                 proof-abs (e/abstract-many proof-body [9900000 9900001])
                 full-proof (e/lam "y" nat
-                             (e/lam "x" nat proof-abs :default) :default)]
+                                  (e/lam "x" nat proof-abs :default) :default)]
             ;; Verify and register
             (let [tc (ansatz.kernel.TypeChecker. env)]
               (.setFuel tc 20000000)
@@ -2438,7 +2438,6 @@
                                              :goal-type goal-type
                                              :simplified simplified})
                          (proof/record-tactic :simp lemma-names (:id goal))))))))))))
-
 
 (defn simp
   "Simplify the current goal using rewrite lemmas.
@@ -2602,33 +2601,33 @@
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
        ;; corruption from full simp on hypothesis types. Non-def-eq changes
        ;; need transitive CongrArgKind propagation through lambda bodies.
-       (let [goal' goal
-             lctx (:lctx goal')
-             st (assoc (tc/mk-tc-state env) :lctx lctx)
-             base-lemmas (make-simp-lemmas env all-names)
-             eqn-lemmas (vec (mapcat (fn [n]
-                                       (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
-                                         (when-let [eqns (find-eqn-theorems env cn)]
-                                           (mapcat (fn [eqn-name]
-                                                     (when-let [ci (env/lookup env eqn-name)]
-                                                       (extract-simp-lemma env ci 50)))
-                                                   eqns))))
-                                     all-names))
-             to-unfold (into #{} (keep (fn [n]
-                                         (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
-                                               ci (env/lookup env cn)]
-                                           (when (and ci
-                                                      (not (seq (extract-simp-lemma env ci 0)))
-                                                      (not (find-eqn-theorems env cn)))
-                                             (str n)))))
-                             all-names)
-             inst-index (delay (inst/build-instance-index env))
-             hyps (vec (filter (fn [[_ d]] (= :local (:tag d))) lctx))
+     (let [goal' goal
+           lctx (:lctx goal')
+           st (assoc (tc/mk-tc-state env) :lctx lctx)
+           base-lemmas (make-simp-lemmas env all-names)
+           eqn-lemmas (vec (mapcat (fn [n]
+                                     (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
+                                       (when-let [eqns (find-eqn-theorems env cn)]
+                                         (mapcat (fn [eqn-name]
+                                                   (when-let [ci (env/lookup env eqn-name)]
+                                                     (extract-simp-lemma env ci 50)))
+                                                 eqns))))
+                                   all-names))
+           to-unfold (into #{} (keep (fn [n]
+                                       (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
+                                             ci (env/lookup env cn)]
+                                         (when (and ci
+                                                    (not (seq (extract-simp-lemma env ci 0)))
+                                                    (not (find-eqn-theorems env cn)))
+                                           (str n)))))
+                           all-names)
+           inst-index (delay (inst/build-instance-index env))
+           hyps (vec (filter (fn [[_ d]] (= :local (:tag d))) lctx))
              ;; Compute simplified hypothesis types
-             replacements
-             (reduce
-              (fn [acc [id decl]]
-                (try
+           replacements
+           (reduce
+            (fn [acc [id decl]]
+              (try
                   ;; Only simplify non-implication Prop hypotheses.
                   ;; Skip: Type-valued declarations (x : Nat, l : List Nat)
                   ;; Skip: Implications/foralls (IH: P → Q) — these must be
@@ -2636,22 +2635,22 @@
                   ;; Lean 4: simp_all processes implications via simpArrow,
                   ;; but for Bool-valued functions the equation theorem
                   ;; unfolding makes the IH unusable after simplification.
-                  (let [ty (:type decl)]
-                    (when (or (not (is-prop-type? st ty))
-                              (and (e/forall? ty)
-                                   (not (e/has-loose-bvars? (e/forall-type ty)))))
-                      (throw (ex-info "skip" {}))))
-                  (let [hyp-lemmas (make-hyp-lemmas st lctx :exclude-id id)
-                        all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
-                        lemma-index (build-lemma-index st env all-lemmas)
-                        config {:max-depth 20 :single-pass? false :decide? true
-                                :max-steps (atom 0) :cache (atom {})
-                                :to-unfold to-unfold :discharge-depth 0
-                                :inst-index inst-index}
-                        result (simp-expr* st env lemma-index (:type decl) config)]
-                    (if (or (identical? (:expr result) (:type decl))
-                            (= (:expr result) (:type decl)))
-                      acc
+                (let [ty (:type decl)]
+                  (when (or (not (is-prop-type? st ty))
+                            (and (e/forall? ty)
+                                 (not (e/has-loose-bvars? (e/forall-type ty)))))
+                    (throw (ex-info "skip" {}))))
+                (let [hyp-lemmas (make-hyp-lemmas st lctx :exclude-id id)
+                      all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
+                      lemma-index (build-lemma-index st env all-lemmas)
+                      config {:max-depth 20 :single-pass? false :decide? true
+                              :max-steps (atom 0) :cache (atom {})
+                              :to-unfold to-unfold :discharge-depth 0
+                              :inst-index inst-index}
+                      result (simp-expr* st env lemma-index (:type decl) config)]
+                  (if (or (identical? (:expr result) (:type decl))
+                          (= (:expr result) (:type decl)))
+                    acc
                       ;; Accept the simplification. Root cause of Bool→True corruption
                       ;; is fixed (Prop guards in extract-from-conclusion +
                       ;; try-simp-using-decide). Lean 4 doesn't TC-verify
@@ -2660,82 +2659,80 @@
                       ;; Extract actual proof types for Eq.mp consistency at extraction time.
                       ;; simp-expr* may WHNF before rewriting, so eq-proof endpoints
                       ;; might differ from the raw hypothesis type / simp result.
-                      (let [[proof-old proof-new]
-                            (if-let [proof (:proof? result)]
-                              (let [pt (try (tc/infer-type st proof) (catch Exception _ nil))
-                                    pw (when pt (#'tc/cached-whnf st pt))
-                                    [h a] (when pw (e/get-app-fn-args pw))]
-                                (if (and h (e/const? h)
-                                         (= (e/const-name h) (name/from-string "Eq"))
-                                         (= 3 (count a)))
-                                  [(nth a 1) (nth a 2)]
-                                  [nil nil]))
-                              [nil nil])]
-                        (conj acc {:old-fvar-id id :name (:name decl)
-                                   :old-type (:type decl) :new-type (:expr result)
+                    (let [[proof-old proof-new]
+                          (if-let [proof (:proof? result)]
+                            (let [pt (try (tc/infer-type st proof) (catch Exception _ nil))
+                                  pw (when pt (#'tc/cached-whnf st pt))
+                                  [h a] (when pw (e/get-app-fn-args pw))]
+                              (if (and h (e/const? h)
+                                       (= (e/const-name h) (name/from-string "Eq"))
+                                       (= 3 (count a)))
+                                [(nth a 1) (nth a 2)]
+                                [nil nil]))
+                            [nil nil])]
+                      (conj acc {:old-fvar-id id :name (:name decl)
+                                 :old-type (:type decl) :new-type (:expr result)
                                    ;; proof-consistent types for extraction
-                                   :proof-old-type (or proof-old (:type decl))
-                                   :proof-new-type (or proof-new (:expr result))
-                                   :eq-proof (:proof? result)}))))
-                  (catch Exception _ acc)))
-              []
-              hyps)]
-         (if (empty? replacements)
+                                 :proof-old-type (or proof-old (:type decl))
+                                 :proof-new-type (or proof-new (:expr result))
+                                 :eq-proof (:proof? result)}))))
+                (catch Exception _ acc)))
+            []
+            hyps)]
+       (if (empty? replacements)
            ;; No hypothesis changes — just simp the goal directly
-           (try (simp ps lemma-names {:contextual? true})
-                (catch Exception _ ps))
+         (try (simp ps lemma-names {:contextual? true})
+              (catch Exception _ ps))
            ;; Add simplified hypotheses alongside originals
-           (let [;; Allocate new fvar ids, decomposing And types recursively.
+         (let [;; Allocate new fvar ids, decomposing And types recursively.
                  ;; Lean 4: SimpTheorems.preprocess splits And into left/right
                  ;; via mkProj. We do the same here so each conjunct becomes
                  ;; a separate hypothesis visible to omega and other tactics.
-                 [ps' replacements']
-                 (reduce (fn [[ps reps] rep]
-                           (letfn [(expand [ps ty name-base]
-                                     (let [[head args] (e/get-app-fn-args ty)]
-                                       (if (and (e/const? head)
-                                                (= (e/const-name head) and-name)
-                                                (= 2 (count args)))
+               [ps' replacements']
+               (reduce (fn [[ps reps] rep]
+                         (letfn [(expand [ps ty name-base]
+                                   (let [[head args] (e/get-app-fn-args ty)]
+                                     (if (and (e/const? head)
+                                              (= (e/const-name head) and-name)
+                                              (= 2 (count args)))
                                          ;; And P Q → expand left and right
-                                         (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081"))
-                                               [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082"))]
-                                           [ps' (into left-reps right-reps)])
+                                       (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081"))
+                                             [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082"))]
+                                         [ps' (into left-reps right-reps)])
                                          ;; Leaf — allocate one fvar
-                                         (let [[ps' new-id] (proof/alloc-id ps)]
-                                           [ps' [(assoc rep :new-fvar-id new-id
-                                                        :new-type ty :name name-base)]]))))]
-                             (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep))]
-                               [ps' (into reps new-entries)])))
-                         [ps []]
-                         replacements)
+                                       (let [[ps' new-id] (proof/alloc-id ps)]
+                                         [ps' [(assoc rep :new-fvar-id new-id
+                                                      :new-type ty :name name-base)]]))))]
+                           (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep))]
+                             [ps' (into reps new-entries)])))
+                       [ps []]
+                       replacements)
                  ;; Build new lctx: keep originals, add simplified versions
                  ;; Use distinct names (append ') to avoid name collision with
                  ;; originals — otherwise sexp->ansatz name lookup picks the wrong one
-                 new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type]}]
-                                    (assoc lctx new-fvar-id
-                                           {:tag :local :id new-fvar-id
-                                            :name (str name "'") :type new-type}))
-                                  lctx
-                                  replacements')
+               new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type]}]
+                                  (assoc lctx new-fvar-id
+                                         {:tag :local :id new-fvar-id
+                                          :name (str name "'") :type new-type}))
+                                lctx
+                                replacements')
                  ;; Create body sub-goal (insert at front for priority)
-                 [ps'' body-goal-id]
-                 (let [[ps''' id] (proof/alloc-id ps')]
-                   [(-> ps'''
-                        (assoc-in [:mctx id] {:type (:type goal') :lctx new-lctx :assignment nil})
-                        (update :goals #(into [id] %)))
-                    id])
+               [ps'' body-goal-id]
+               (let [[ps''' id] (proof/alloc-id ps')]
+                 [(-> ps'''
+                      (assoc-in [:mctx id] {:type (:type goal') :lctx new-lctx :assignment nil})
+                      (update :goals #(into [id] %)))
+                  id])
                  ;; Assign current goal with simp-all-hyps wrapper
-                 ps'' (-> (proof/assign-mvar ps'' (:id goal')
-                                              {:kind :simp-all-hyps
-                                               :replacements replacements'
-                                               :child body-goal-id})
-                          (proof/record-tactic :simp-all (vec lemma-names) (:id goal')))]
+               ps'' (-> (proof/assign-mvar ps'' (:id goal')
+                                           {:kind :simp-all-hyps
+                                            :replacements replacements'
+                                            :child body-goal-id})
+                        (proof/record-tactic :simp-all (vec lemma-names) (:id goal')))]
              ;; Phase 2 (Lean 4 order): simp the goal AFTER hypothesis expansion.
              ;; The goal's eq-proof is now built in the expanded lctx — consistent!
-             (try (simp ps'' lemma-names {:contextual? true})
-                  (catch Exception _ ps''))))))))
-
-
+           (try (simp ps'' lemma-names {:contextual? true})
+                (catch Exception _ ps''))))))))
 
 ;; ============================================================
 ;; Nat offset decomposition — Lean 4's NatOffset (Simprocs/Nat.lean)

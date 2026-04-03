@@ -250,7 +250,7 @@
                       ;; Instantiate
                       (when-let [proof (instantiate-theorem thm assignment)]
                         (when-let [eq-info (instantiate-eq-fact
-                                             (:env gs) thm assignment)]
+                                            (:env gs) thm assignment)]
                           (swap! new-facts conj
                                  {:lhs (:lhs eq-info)
                                   :rhs (:rhs eq-info)

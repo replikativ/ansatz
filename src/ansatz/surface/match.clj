@@ -236,12 +236,12 @@
         ;; ret-type has bvar 0 referencing the motive's variable — instantiate
         ;; with the actual recursive field fvar.
         early-rec-indices (vec (keep-indexed
-                                 (fn [i fi]
-                                   (let [ft (:type fi)
-                                         [fh _] (e/get-app-fn-args ft)]
-                                     (when (and (e/const? fh) (= (e/const-name fh) ind-name))
-                                       i)))
-                                 field-info))
+                                (fn [i fi]
+                                  (let [ft (:type fi)
+                                        [fh _] (e/get-app-fn-args ft)]
+                                    (when (and (e/const? fh) (= (e/const-name fh) ind-name))
+                                      i)))
+                                field-info))
         ih-types (mapv (fn [i]
                          (let [field-idx (get early-rec-indices i)
                                rec-fvar (when field-idx (nth field-fvars field-idx))]
@@ -508,11 +508,11 @@
         ;; When NOT suppress-ih (top-level): wrap elab-fn so nested matches
         ;; suppress IH (Lean 4: only outermost recursion provides IHs).
         elab-fn-for-rhs (if suppress-ih
-                           elab-fn  ;; already suppressing
+                          elab-fn  ;; already suppressing
                            ;; Top-level rec: set *use-cases-on?* for RHS elaboration
-                           (fn [est sexpr]
-                             (binding [*use-cases-on?* true]
-                               (elab-fn est sexpr))))
+                          (fn [est sexpr]
+                            (binding [*use-cases-on?* true]
+                              (elab-fn est sexpr))))
         minor-terms
         (mapv
          (fn [i]

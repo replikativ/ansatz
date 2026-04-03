@@ -319,9 +319,9 @@
   "Build HSub.hSub Int Int Int instHSubInt."
   []
   (e/app* (e/const' (:hsub omega-names) [lvl/zero lvl/zero lvl/zero])
-    int-type int-type int-type
-    (e/app* (e/const' (name/from-string "instHSub") [lvl/zero])
-      int-type (e/const' (name/from-string "Int.instSub") []))))
+          int-type int-type int-type
+          (e/app* (e/const' (name/from-string "instHSub") [lvl/zero])
+                  int-type (e/const' (name/from-string "Int.instSub") []))))
 
 (defn- mk-int-hmul
   "Build HMul.hMul Int Int Int instHMulInt."

@@ -670,7 +670,6 @@
             env (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0)))]
         env))))
 
-
 (defn resolve-expr
   "Look up a single expression by ID from the exprs PSS.
    Returns the raw byte[] (ExprStore binary format)."

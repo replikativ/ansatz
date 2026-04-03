@@ -257,27 +257,27 @@
   ([env goal-type] (try-synthesize-instance env goal-type nil nil))
   ([env goal-type instance-idx] (try-synthesize-instance env goal-type instance-idx nil))
   ([env goal-type instance-idx cache-atom]
-  (let [cache (or cache-atom synth-cache)]
-    (if-let [cached (find @cache goal-type)]
-      (let [v (val cached)] (when-not (= v ::miss) v))
-      (let [result (or
+   (let [cache (or cache-atom synth-cache)]
+     (if-let [cached (find @cache goal-type)]
+       (let [v (val cached)] (when-not (= v ::miss) v))
+       (let [result (or
       ;; Try full synthesis engine with cached index
-                    (try
-                      (let [synth-fn (requiring-resolve 'ansatz.tactic.instance/synthesize*)
-                            st (tc/mk-tc-state env)]
-                        (synth-fn st env (or instance-idx (instance-index)) goal-type 0))
-                      (catch Exception _ nil))
+                     (try
+                       (let [synth-fn (requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                             st (tc/mk-tc-state env)]
+                         (synth-fn st env (or instance-idx (instance-index)) goal-type 0))
+                       (catch Exception _ nil))
       ;; Fallback: name-based resolution with derivation chains
-                    (let [[head args] (e/get-app-fn-args goal-type)]
-                      (when (and (e/const? head) (seq args))
-                        (let [class-name (name/->string (e/const-name head))
-                              type-arg (first args)
-                              [th _] (when type-arg (e/get-app-fn-args type-arg))
-                              type-name (when (e/const? th) (name/->string (e/const-name th)))]
-                          (when type-name
-                            (resolve-basic-instance env class-name type-name type-arg))))))]
-        (swap! cache assoc goal-type (or result ::miss))
-        result)))))
+                     (let [[head args] (e/get-app-fn-args goal-type)]
+                       (when (and (e/const? head) (seq args))
+                         (let [class-name (name/->string (e/const-name head))
+                               type-arg (first args)
+                               [th _] (when type-arg (e/get-app-fn-args type-arg))
+                               type-name (when (e/const? th) (name/->string (e/const-name th)))]
+                           (when type-name
+                             (resolve-basic-instance env class-name type-name type-arg))))))]
+         (swap! cache assoc goal-type (or result ::miss))
+         result)))))
 
 (clojure.core/defn- get-arg-type
   "Get the type of a user argument. Handles bvars (via bvar-types),
@@ -567,12 +567,12 @@
            (let [field-name (name (first form))
                  struct-expr (sexp->ansatz env scope depth (second form) lctx)
                  struct-type (get-arg-type env
-                               (when (seq scope)
-                                 (into {} (keep (fn [[sym d]]
-                                                 (when-let [ty (get *scope-types* sym)]
-                                                   [(- depth 1 d) ty]))
-                                               scope)))
-                               struct-expr)
+                                           (when (seq scope)
+                                             (into {} (keep (fn [[sym d]]
+                                                              (when-let [ty (get *scope-types* sym)]
+                                                                [(- depth 1 d) ty]))
+                                                            scope)))
+                                           struct-expr)
                  [th _] (when struct-type (e/get-app-fn-args struct-type))
                  type-name-str (when (and th (e/const? th)) (name/->string (e/const-name th)))
                  struct-info (when type-name-str (get @structure-registry type-name-str))
@@ -583,468 +583,468 @@
                (e/proj (name/from-string type-name-str) field-idx struct-expr)
                (throw (ex-info (str "Unknown structure field: :" field-name)
                                {:field field-name :type type-name-str}))))
-         (let [h (str (first form))]
-           (case h
+           (let [h (str (first form))]
+             (case h
         ;; Comparison operators — Prop-valued (LE.le / LT.lt) when 3 args,
         ;; Bool-valued (Nat.ble / Nat.blt) when 2 args.
         ;; (≤ Real a b) or (<= Real a b) → LE.le Real inst a b  (Prop)
         ;; (<= a b) → Nat.ble a b  (Bool, Nat default)
         ;; (≥ Real a b) or (>= Real a b) → LE.le Real inst b a  (Prop)
-             ("<" "==" "<=" ">" ">=" "≤" "≥" "≤ᵣ" "≥ᵣ")
-             (if (= 4 (count form))
+               ("<" "==" "<=" ">" ">=" "≤" "≥" "≤ᵣ" "≥ᵣ")
+               (if (= 4 (count form))
           ;; 3-arg form: (op Type a b) → Prop-valued LE.le / LT.lt
-               (let [type-form (nth form 1)
-                     [a-form b-form] (case h
-                                       (">" ">=" "≥" "≥ᵣ") [(nth form 3) (nth form 2)]
-                                       [(nth form 2) (nth form 3)])
-                     rel (case h
-                           ("<" ">") "lt"
-                           "le")]
-                 (sexp->ansatz env scope depth (list (symbol rel) type-form a-form b-form)))
+                 (let [type-form (nth form 1)
+                       [a-form b-form] (case h
+                                         (">" ">=" "≥" "≥ᵣ") [(nth form 3) (nth form 2)]
+                                         [(nth form 2) (nth form 3)])
+                       rel (case h
+                             ("<" ">") "lt"
+                             "le")]
+                   (sexp->ansatz env scope depth (list (symbol rel) type-form a-form b-form)))
           ;; 2-arg form: (op a b) → Bool-valued Nat comparison
-               (let [[op a-form b-form]
-                     (case h
-                       ("<"  "≤ᵣ") ["Nat.blt" (nth form 1) (nth form 2)]
-                       "==" ["Nat.beq" (nth form 1) (nth form 2)]
-                       ("<=" "≤") ["Nat.ble" (nth form 1) (nth form 2)]
-                       (">"  "≥ᵣ") ["Nat.blt" (nth form 2) (nth form 1)]
-                       (">=" "≥") ["Nat.ble" (nth form 2) (nth form 1)])
-                     a (sexp->ansatz env scope depth a-form)
-                     b (sexp->ansatz env scope depth b-form)]
-                 (e/app* (e/const' (name/from-string op) []) a b)))
+                 (let [[op a-form b-form]
+                       (case h
+                         ("<"  "≤ᵣ") ["Nat.blt" (nth form 1) (nth form 2)]
+                         "==" ["Nat.beq" (nth form 1) (nth form 2)]
+                         ("<=" "≤") ["Nat.ble" (nth form 1) (nth form 2)]
+                         (">"  "≥ᵣ") ["Nat.blt" (nth form 2) (nth form 1)]
+                         (">=" "≥") ["Nat.ble" (nth form 2) (nth form 1)])
+                       a (sexp->ansatz env scope depth a-form)
+                       b (sexp->ansatz env scope depth b-form)]
+                   (e/app* (e/const' (name/from-string op) []) a b)))
 
         ;; Arithmetic — auto-resolves instances for any type
         ;; (+ a b)        → Nat (default)
         ;; (add Real a b)  → explicit type for Real/Int/etc.
-             ("+" "-" "*" "/" "pow" "add" "sub" "mul" "div")
-             (let [;; Check if type-annotated: (add Real a b) / (pow Real a b) vs (+ a b)
-                   explicit-type? (#{"add" "sub" "mul" "div" "pow"} h)
-                   base-op (if explicit-type?
-                             (case h "add" "+" "sub" "-" "mul" "*" "div" "/" "pow" "pow")
-                             h)
-                   [type-name-str type-expr a-form b-form]
-                   (if explicit-type?
-                     (let [tname (str (nth form 1))]
-                       [tname (sexp->ansatz env scope depth (nth form 1))
-                        (nth form 2) (nth form 3)])
-                     ["Nat" (e/const' (name/from-string "Nat") [])
-                      (nth form 1) (nth form 2)])
+               ("+" "-" "*" "/" "pow" "add" "sub" "mul" "div")
+               (let [;; Check if type-annotated: (add Real a b) / (pow Real a b) vs (+ a b)
+                     explicit-type? (#{"add" "sub" "mul" "div" "pow"} h)
+                     base-op (if explicit-type?
+                               (case h "add" "+" "sub" "-" "mul" "*" "div" "/" "pow" "pow")
+                               h)
+                     [type-name-str type-expr a-form b-form]
+                     (if explicit-type?
+                       (let [tname (str (nth form 1))]
+                         [tname (sexp->ansatz env scope depth (nth form 1))
+                          (nth form 2) (nth form 3)])
+                       ["Nat" (e/const' (name/from-string "Nat") [])
+                        (nth form 1) (nth form 2)])
               ;; Compile operands — coerce Nat literals to target type if needed
-                   coerce-lit (fn [e]
-                                (if (and (not= type-name-str "Nat") (e/lit-nat? e))
+                     coerce-lit (fn [e]
+                                  (if (and (not= type-name-str "Nat") (e/lit-nat? e))
                              ;; OfNat.ofNat type n inst — for non-Nat types
-                                  (let [n (e/lit-nat-val e)
+                                    (let [n (e/lit-nat-val e)
                                    ;; Build OfNat instance: Zero.toOfNat0/One.toOfNat1/natCast
-                                        ofnat-inst
-                                        (cond
-                                          (= n 0) ;; Zero.toOfNat0 type (Zero-inst)
-                                          (when-let [zero-inst (resolve-basic-instance env "Zero" type-name-str type-expr)]
-                                            (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero])
-                                                    type-expr zero-inst))
-                                          (= n 1) ;; One.toOfNat1 type (One-inst)
-                                          (when-let [one-inst (resolve-basic-instance env "One" type-name-str type-expr)]
-                                            (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero])
-                                                    type-expr one-inst))
-                                          :else nil)]
-                                    (if ofnat-inst
-                                      (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])
-                                              type-expr (e/lit-nat n) ofnat-inst)
-                                      e))
-                                  e))
-                   a (coerce-lit (sexp->ansatz env scope depth a-form))
-                   b (if (= base-op "pow")
+                                          ofnat-inst
+                                          (cond
+                                            (= n 0) ;; Zero.toOfNat0 type (Zero-inst)
+                                            (when-let [zero-inst (resolve-basic-instance env "Zero" type-name-str type-expr)]
+                                              (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero])
+                                                      type-expr zero-inst))
+                                            (= n 1) ;; One.toOfNat1 type (One-inst)
+                                            (when-let [one-inst (resolve-basic-instance env "One" type-name-str type-expr)]
+                                              (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero])
+                                                      type-expr one-inst))
+                                            :else nil)]
+                                      (if ofnat-inst
+                                        (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])
+                                                type-expr (e/lit-nat n) ofnat-inst)
+                                        e))
+                                    e))
+                     a (coerce-lit (sexp->ansatz env scope depth a-form))
+                     b (if (= base-op "pow")
                   ;; pow exponent is always Nat, don't coerce
-                       (sexp->ansatz env scope depth b-form)
-                       (coerce-lit (sexp->ansatz env scope depth b-form)))
-                   [hop-name basic-class]
-                   (case base-op
-                     "+"   ["HAdd" "Add"]
-                     "-"   ["HSub" "Sub"]
-                     "*"   ["HMul" "Mul"]
-                     "/"   ["HDiv" "Div"]
-                     "pow" ["HPow" "Pow"])]
-               (if (= base-op "pow")
+                         (sexp->ansatz env scope depth b-form)
+                         (coerce-lit (sexp->ansatz env scope depth b-form)))
+                     [hop-name basic-class]
+                     (case base-op
+                       "+"   ["HAdd" "Add"]
+                       "-"   ["HSub" "Sub"]
+                       "*"   ["HMul" "Mul"]
+                       "/"   ["HDiv" "Div"]
+                       "pow" ["HPow" "Pow"])]
+                 (if (= base-op "pow")
             ;; HPow.hPow α Nat α (instHPow α Nat (Pow-inst)) base exp
             ;; Pow instance chain:
             ;;   Nat: instPowNat Nat instNatPowNat
             ;;   Other (Real, etc.): Monoid.toNatPow α monoid-inst
-                 (let [nat (e/const' (name/from-string "Nat") [])
-                       pow-inst
-                       (if (= type-name-str "Nat")
-                         (e/app* (e/const' (name/from-string "instPowNat") [lvl/zero])
-                                 nat (e/const' (name/from-string "instNatPowNat") []))
+                   (let [nat (e/const' (name/from-string "Nat") [])
+                         pow-inst
+                         (if (= type-name-str "Nat")
+                           (e/app* (e/const' (name/from-string "instPowNat") [lvl/zero])
+                                   nat (e/const' (name/from-string "instNatPowNat") []))
                     ;; General: Monoid.toNatPow α monoid-inst
-                         (when-let [monoid-inst (resolve-basic-instance env "Monoid" type-name-str type-expr)]
-                           (e/app* (e/const' (name/from-string "Monoid.toNatPow") [lvl/zero])
-                                   type-expr monoid-inst)))]
-                   (if pow-inst
-                     (e/app* (e/const' (name/from-string "HPow.hPow") [lvl/zero lvl/zero lvl/zero])
-                             type-expr nat type-expr
-                             (e/app* (e/const' (name/from-string "instHPow") [lvl/zero lvl/zero])
-                                     type-expr nat pow-inst)
-                             a b)
-                     (throw (ex-info (str "No Monoid instance for " type-name-str " (needed for pow)") {}))))
+                           (when-let [monoid-inst (resolve-basic-instance env "Monoid" type-name-str type-expr)]
+                             (e/app* (e/const' (name/from-string "Monoid.toNatPow") [lvl/zero])
+                                     type-expr monoid-inst)))]
+                     (if pow-inst
+                       (e/app* (e/const' (name/from-string "HPow.hPow") [lvl/zero lvl/zero lvl/zero])
+                               type-expr nat type-expr
+                               (e/app* (e/const' (name/from-string "instHPow") [lvl/zero lvl/zero])
+                                       type-expr nat pow-inst)
+                               a b)
+                       (throw (ex-info (str "No Monoid instance for " type-name-str " (needed for pow)") {}))))
             ;; General binary op with instance resolution
-                 (let [op-name (case base-op "+" "HAdd.hAdd" "-" "HSub.hSub"
-                                     "*" "HMul.hMul" "/" "HDiv.hDiv")]
-                   (build-binop env op-name hop-name basic-class
-                                type-name-str type-expr a b))))
+                   (let [op-name (case base-op "+" "HAdd.hAdd" "-" "HSub.hSub"
+                                       "*" "HMul.hMul" "/" "HDiv.hDiv")]
+                     (build-binop env op-name hop-name basic-class
+                                  type-name-str type-expr a b))))
 
         ;; Equality
-             ("=" "Eq")
-             (let [args (vec (rest form))
-                   [ty lhs rhs] (if (= 3 (count args))
-                                  (mapv #(sexp->ansatz env scope depth %) args)
-                                  [(e/const' (name/from-string "Nat") [])
-                                   (sexp->ansatz env scope depth (nth args 0))
-                                   (sexp->ansatz env scope depth (nth args 1))])
+               ("=" "Eq")
+               (let [args (vec (rest form))
+                     [ty lhs rhs] (if (= 3 (count args))
+                                    (mapv #(sexp->ansatz env scope depth %) args)
+                                    [(e/const' (name/from-string "Nat") [])
+                                     (sexp->ansatz env scope depth (nth args 0))
+                                     (sexp->ansatz env scope depth (nth args 1))])
               ;; Coerce Nat literals to target type if needed
-                   ty-name (when (e/const? ty) (name/->string (e/const-name ty)))
-                   coerce (fn [e]
-                            (if (and ty-name (not= ty-name "Nat") (e/lit-nat? e))
-                              (let [n (e/lit-nat-val e)
-                                    inst (cond
-                                           (= n 0) (when-let [zi (resolve-basic-instance env "Zero" ty-name ty)]
-                                                     (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero]) ty zi))
-                                           (= n 1) (when-let [oi (resolve-basic-instance env "One" ty-name ty)]
-                                                     (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero]) ty oi))
-                                           :else nil)]
-                                (if inst
-                                  (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) ty (e/lit-nat n) inst)
-                                  e))
-                              e))
-                   lhs (coerce lhs)
-                   rhs (coerce rhs)]
-               (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) ty lhs rhs))
+                     ty-name (when (e/const? ty) (name/->string (e/const-name ty)))
+                     coerce (fn [e]
+                              (if (and ty-name (not= ty-name "Nat") (e/lit-nat? e))
+                                (let [n (e/lit-nat-val e)
+                                      inst (cond
+                                             (= n 0) (when-let [zi (resolve-basic-instance env "Zero" ty-name ty)]
+                                                       (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero]) ty zi))
+                                             (= n 1) (when-let [oi (resolve-basic-instance env "One" ty-name ty)]
+                                                       (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero]) ty oi))
+                                             :else nil)]
+                                  (if inst
+                                    (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) ty (e/lit-nat n) inst)
+                                    e))
+                                e))
+                     lhs (coerce lhs)
+                     rhs (coerce rhs)]
+                 (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) ty lhs rhs))
 
         ;; Propositions: (le Type a b) → LE.le a b, (lt Type a b) → LT.lt a b
-             ("le" "lt")
-             (let [type-form (nth form 1)
-                   type-expr (sexp->ansatz env scope depth type-form)
-                   type-name (when (symbol? (nth form 1)) (str (nth form 1)))
-                   a (sexp->ansatz env scope depth (nth form 2))
-                   b (sexp->ansatz env scope depth (nth form 3))
+               ("le" "lt")
+               (let [type-form (nth form 1)
+                     type-expr (sexp->ansatz env scope depth type-form)
+                     type-name (when (symbol? (nth form 1)) (str (nth form 1)))
+                     a (sexp->ansatz env scope depth (nth form 2))
+                     b (sexp->ansatz env scope depth (nth form 3))
               ;; Coerce literals to target type
-                   coerce (fn [e]
-                            (if (and type-name (not= type-name "Nat") (e/lit-nat? e))
-                              (let [n (e/lit-nat-val e)
-                                    inst (cond
-                                           (= n 0) (when-let [zi (resolve-basic-instance env "Zero" type-name type-expr)]
-                                                     (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero]) type-expr zi))
-                                           (= n 1) (when-let [oi (resolve-basic-instance env "One" type-name type-expr)]
-                                                     (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero]) type-expr oi))
-                                           :else nil)]
-                                (if inst
-                                  (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) type-expr (e/lit-nat n) inst)
-                                  e))
-                              e))
-                   a (coerce a) b (coerce b)
+                     coerce (fn [e]
+                              (if (and type-name (not= type-name "Nat") (e/lit-nat? e))
+                                (let [n (e/lit-nat-val e)
+                                      inst (cond
+                                             (= n 0) (when-let [zi (resolve-basic-instance env "Zero" type-name type-expr)]
+                                                       (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero]) type-expr zi))
+                                             (= n 1) (when-let [oi (resolve-basic-instance env "One" type-name type-expr)]
+                                                       (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero]) type-expr oi))
+                                             :else nil)]
+                                  (if inst
+                                    (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) type-expr (e/lit-nat n) inst)
+                                    e))
+                                e))
+                     a (coerce a) b (coerce b)
               ;; Resolve LE/LT instance
               ;; For Nat: use instLENat/instLTNat directly (Prop-valued, matching Lean 4)
               ;; For other types: use instance synthesis
-                   class-name (if (= h "le") "LE" "LT")
-                   direct-inst-name (when (= type-name "Nat")
-                                      (name/from-string (str "inst" class-name "Nat")))
-                   inst (or (when direct-inst-name
-                              (when-let [ci (env/lookup env direct-inst-name)]
-                                (e/const' direct-inst-name [])))
-                            (try-synthesize-instance env
-                                                     (e/app (e/const' (name/from-string class-name) [lvl/zero]) type-expr)))]
-               (if inst
-                 (e/app* (e/const' (name/from-string (str class-name "." h)) [lvl/zero])
-                         type-expr inst a b)
-                 (throw (ex-info (str "No " class-name " instance for " type-name) {}))))
+                     class-name (if (= h "le") "LE" "LT")
+                     direct-inst-name (when (= type-name "Nat")
+                                        (name/from-string (str "inst" class-name "Nat")))
+                     inst (or (when direct-inst-name
+                                (when-let [ci (env/lookup env direct-inst-name)]
+                                  (e/const' direct-inst-name [])))
+                              (try-synthesize-instance env
+                                                       (e/app (e/const' (name/from-string class-name) [lvl/zero]) type-expr)))]
+                 (if inst
+                   (e/app* (e/const' (name/from-string (str class-name "." h)) [lvl/zero])
+                           type-expr inst a b)
+                   (throw (ex-info (str "No " class-name " instance for " type-name) {}))))
 
         ;; If-then-else (Bool condition → Bool.rec)
         ;; (if cond then-val else-val)
-             "if" (let [cond-expr (sexp->ansatz env scope depth (nth form 1))
-                        then-expr (sexp->ansatz env scope depth (nth form 2))
-                        else-expr (sexp->ansatz env scope depth (nth form 3))
+               "if" (let [cond-expr (sexp->ansatz env scope depth (nth form 1))
+                          then-expr (sexp->ansatz env scope depth (nth form 2))
+                          else-expr (sexp->ansatz env scope depth (nth form 3))
                         ;; Infer return type from then-branch
-                        tc-if (ansatz.kernel.TypeChecker. env)
-                        _ (.setFuel tc-if (long config/*default-fuel*))
+                          tc-if (ansatz.kernel.TypeChecker. env)
+                          _ (.setFuel tc-if (long config/*default-fuel*))
                         ;; Register fvars from current lctx so TC can infer types
-                        _ (when *current-lctx*
-                            (doseq [[id {:keys [type] :as decl}] *current-lctx*]
-                              (when (and type (= :local (:tag decl)))
-                                (.addLocal tc-if (long id) (str (:name decl)) type))))
-                        ret-type (try (.inferType tc-if then-expr)
-                                      (catch Exception _
+                          _ (when *current-lctx*
+                              (doseq [[id {:keys [type] :as decl}] *current-lctx*]
+                                (when (and type (= :local (:tag decl)))
+                                  (.addLocal tc-if (long id) (str (:name decl)) type))))
+                          ret-type (try (.inferType tc-if then-expr)
+                                        (catch Exception _
                                         ;; Fallback: use Nat
-                                        (e/const' (name/from-string "Nat") [])))]
+                                          (e/const' (name/from-string "Nat") [])))]
                     ;; Bool.rec.{u} (motive : Bool → Sort u) (false-case) (true-case) (b : Bool)
                     ;; Note: false case comes FIRST (Bool.false is ctor 0)
-                    (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                            (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
-                            else-expr then-expr cond-expr))
+                      (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                              (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
+                              else-expr then-expr cond-expr))
 
         ;; Dependent if-then-else (Prop condition → dite)
         ;; (dif (= Nat n 0) [h] then-val [h] else-val)
         ;; Compiles to: dite (n = 0) (Nat.decEq n 0) (fun h => then-val) (fun h => else-val)
         ;; The h binders give access to the condition/negation in each branch.
-             "dif" (let [cond-form (nth form 1)
-                         then-var (first (nth form 2))
-                         then-body-form (second (nth form 2))
-                         else-var (first (nth form 3))
-                         else-body-form (second (nth form 3))
+               "dif" (let [cond-form (nth form 1)
+                           then-var (first (nth form 2))
+                           then-body-form (second (nth form 2))
+                           else-var (first (nth form 3))
+                           else-body-form (second (nth form 3))
                          ;; Compile the Prop condition
-                         cond-expr (sexp->ansatz env scope depth cond-form)
+                           cond-expr (sexp->ansatz env scope depth cond-form)
                          ;; Infer return type from then-branch (compile with h in scope)
-                         then-scope (assoc scope then-var depth)
-                         then-expr (sexp->ansatz env then-scope (inc depth) then-body-form)
-                         else-scope (assoc scope else-var depth)
-                         else-expr (sexp->ansatz env else-scope (inc depth) else-body-form)
+                           then-scope (assoc scope then-var depth)
+                           then-expr (sexp->ansatz env then-scope (inc depth) then-body-form)
+                           else-scope (assoc scope else-var depth)
+                           else-expr (sexp->ansatz env else-scope (inc depth) else-body-form)
                          ;; Build return type
-                         tc-dif (ansatz.kernel.TypeChecker. env)
-                         _ (.setFuel tc-dif (long config/*default-fuel*))
-                         ret-type (try (.inferType tc-dif then-expr)
-                                       (catch Exception _ (e/const' (name/from-string "Nat") [])))
+                           tc-dif (ansatz.kernel.TypeChecker. env)
+                           _ (.setFuel tc-dif (long config/*default-fuel*))
+                           ret-type (try (.inferType tc-dif then-expr)
+                                         (catch Exception _ (e/const' (name/from-string "Nat") [])))
                          ;; Build Decidable instance — try synthesizing
-                         dec-type (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
-                         dec-inst (or (try-synthesize-instance env dec-type)
+                           dec-type (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
+                           dec-inst (or (try-synthesize-instance env dec-type)
                                       ;; Fallback: try common patterns
                                       ;; For (= Nat a b): use Nat.decEq a b
-                                      (let [[eq-h eq-args] (e/get-app-fn-args cond-expr)]
-                                        (when (and (e/const? eq-h)
-                                                   (= "Eq" (name/->string (e/const-name eq-h)))
-                                                   (= 3 (count eq-args)))
-                                          (let [eq-type (nth eq-args 0)
-                                                eq-lhs (nth eq-args 1)
-                                                eq-rhs (nth eq-args 2)]
-                                            (when (and (e/const? eq-type)
-                                                       (= "Nat" (name/->string (e/const-name eq-type))))
-                                              (e/app* (e/const' (name/from-string "Nat.decEq") [])
-                                                      eq-lhs eq-rhs))))))
-                         _ (when-not dec-inst
-                             (throw (ex-info (str "No Decidable instance for condition") {:cond cond-form})))
+                                        (let [[eq-h eq-args] (e/get-app-fn-args cond-expr)]
+                                          (when (and (e/const? eq-h)
+                                                     (= "Eq" (name/->string (e/const-name eq-h)))
+                                                     (= 3 (count eq-args)))
+                                            (let [eq-type (nth eq-args 0)
+                                                  eq-lhs (nth eq-args 1)
+                                                  eq-rhs (nth eq-args 2)]
+                                              (when (and (e/const? eq-type)
+                                                         (= "Nat" (name/->string (e/const-name eq-type))))
+                                                (e/app* (e/const' (name/from-string "Nat.decEq") [])
+                                                        eq-lhs eq-rhs))))))
+                           _ (when-not dec-inst
+                               (throw (ex-info (str "No Decidable instance for condition") {:cond cond-form})))
                          ;; Not type: ¬ cond = cond → False
-                         not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
+                           not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
                          ;; Build: dite cond dec-inst (λ h : cond => then) (λ h : ¬cond => else)
-                         l1 (lvl/succ lvl/zero)]
-                     (e/app* (e/const' (name/from-string "dite") [l1])
-                             ret-type cond-expr dec-inst
-                             (e/lam (str then-var) cond-expr then-expr :default)
-                             (e/lam (str else-var) not-cond else-expr :default)))
+                           l1 (lvl/succ lvl/zero)]
+                       (e/app* (e/const' (name/from-string "dite") [l1])
+                               ret-type cond-expr dec-inst
+                               (e/lam (str then-var) cond-expr then-expr :default)
+                               (e/lam (str else-var) not-cond else-expr :default)))
 
         ;; Binders
-             "forall" (build-telescope env scope depth
-                                       (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/forall')
-             ("fn" "lam") (build-telescope env scope depth
-                                           (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/lam)
-             ("->" "arrow") (e/arrow (sexp->ansatz env scope depth (nth form 1))
-                                     (sexp->ansatz env scope (inc depth) (nth form 2)))
+               "forall" (build-telescope env scope depth
+                                         (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/forall')
+               ("fn" "lam") (build-telescope env scope depth
+                                             (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/lam)
+               ("->" "arrow") (e/arrow (sexp->ansatz env scope depth (nth form 1))
+                                       (sexp->ansatz env scope (inc depth) (nth form 2)))
 
         ;; Logic
-             "And" (e/app* (e/const' (name/from-string "And") [])
-                           (sexp->ansatz env scope depth (nth form 1))
-                           (sexp->ansatz env scope depth (nth form 2)))
-             "Or"  (e/app* (e/const' (name/from-string "Or") [])
-                           (sexp->ansatz env scope depth (nth form 1))
-                           (sexp->ansatz env scope depth (nth form 2)))
-             "Exists" (e/app* (e/const' (name/from-string "Exists") [(lvl/succ lvl/zero)])
-                              (sexp->ansatz env scope depth (nth form 1))
-                              (sexp->ansatz env scope depth (nth form 2)))
+               "And" (e/app* (e/const' (name/from-string "And") [])
+                             (sexp->ansatz env scope depth (nth form 1))
+                             (sexp->ansatz env scope depth (nth form 2)))
+               "Or"  (e/app* (e/const' (name/from-string "Or") [])
+                             (sexp->ansatz env scope depth (nth form 1))
+                             (sexp->ansatz env scope depth (nth form 2)))
+               "Exists" (e/app* (e/const' (name/from-string "Exists") [(lvl/succ lvl/zero)])
+                                (sexp->ansatz env scope depth (nth form 1))
+                                (sexp->ansatz env scope depth (nth form 2)))
 
         ;; cons/nil for lists — infer element type via auto-elaborate
         ;; (Lean 4: List.cons.{u} : {α : Type u} → α → List α → List α)
-             "cons" (let [x (sexp->ansatz env scope depth (nth form 1))
-                          s-raw (sexp->ansatz env scope depth (nth form 2))
-                          head-fn (e/const' (name/from-string "List.cons") [lvl/zero])
-                          ci (env/lookup env (name/from-string "List.cons"))
-                          bvar-tys (when (and (seq scope) *scope-types*)
-                                     (into {} (keep (fn [[sym d]]
-                                                      (when-let [ty (get *scope-types* sym)]
-                                                        [(- depth 1 d) ty]))
-                                                    scope)))
+               "cons" (let [x (sexp->ansatz env scope depth (nth form 1))
+                            s-raw (sexp->ansatz env scope depth (nth form 2))
+                            head-fn (e/const' (name/from-string "List.cons") [lvl/zero])
+                            ci (env/lookup env (name/from-string "List.cons"))
+                            bvar-tys (when (and (seq scope) *scope-types*)
+                                       (into {} (keep (fn [[sym d]]
+                                                        (when-let [ty (get *scope-types* sym)]
+                                                          [(- depth 1 d) ty]))
+                                                      scope)))
                           ;; Infer element type from x
-                          elem-type (get-arg-type env bvar-tys x)
+                            elem-type (get-arg-type env bvar-tys x)
                           ;; Fix nil: if s-raw is List.nil with wrong type, re-create with inferred type
-                          s (if (and elem-type (e/app? s-raw))
-                              (let [[sh sa] (e/get-app-fn-args s-raw)]
-                                (if (and (e/const? sh)
-                                         (= "List.nil" (name/->string (e/const-name sh)))
-                                         (= 1 (count sa))
-                                         (not (.equals (first sa) elem-type)))
-                                  (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) elem-type)
-                                  s-raw))
-                              s-raw)]
-                      (if (and ci elem-type)
+                            s (if (and elem-type (e/app? s-raw))
+                                (let [[sh sa] (e/get-app-fn-args s-raw)]
+                                  (if (and (e/const? sh)
+                                           (= "List.nil" (name/->string (e/const-name sh)))
+                                           (= 1 (count sa))
+                                           (not (.equals (first sa) elem-type)))
+                                    (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) elem-type)
+                                    s-raw))
+                                s-raw)]
+                        (if (and ci elem-type)
                         ;; Use inferred type directly (more reliable than auto-elaborate for this case)
-                        (e/app* head-fn elem-type x s)
-                        (if ci
-                          (auto-elaborate env head-fn (.type ^ansatz.kernel.ConstantInfo ci) [x s]
-                                          :bvar-types bvar-tys)
-                          (e/app* head-fn (e/const' (name/from-string "Nat") []) x s))))
-             "length" (let [nat (e/const' (name/from-string "Nat") [])]
-                        (e/app* (e/const' (name/from-string "List.length") [lvl/zero]) nat
-                                (sexp->ansatz env scope depth (nth form 1))))
+                          (e/app* head-fn elem-type x s)
+                          (if ci
+                            (auto-elaborate env head-fn (.type ^ansatz.kernel.ConstantInfo ci) [x s]
+                                            :bvar-types bvar-tys)
+                            (e/app* head-fn (e/const' (name/from-string "Nat") []) x s))))
+               "length" (let [nat (e/const' (name/from-string "Nat") [])]
+                          (e/app* (e/const' (name/from-string "List.length") [lvl/zero]) nat
+                                  (sexp->ansatz env scope depth (nth form 1))))
 
         ;; Pattern matching on inductives → delegates to surface/match.clj
         ;; Uses Lean 4's open/close pattern: convert outer bvars to fvars,
         ;; run fvar-based match compiler, abstract fvars back to bvars.
-             "match"
-             (let [scrutinee-form (nth form 1)
-                   type-form (nth form 2)
-                   ret-type-form (nth form 3)
-                   cases (drop 4 form)
+               "match"
+               (let [scrutinee-form (nth form 1)
+                     type-form (nth form 2)
+                     ret-type-form (nth form 3)
+                     cases (drop 4 form)
               ;; Step 1: OPEN — create fvars for all outer-scope bvars,
               ;; AND include any fvars from an enclosing match (via lctx).
               ;; This mirrors Lean 4's forallTelescope.
               ;; Base fvar ID: must not collide with any existing fvars from
               ;; enclosing matches (via lctx). Derive from max existing ID.
-                   outer-fvar-base (if (and lctx (seq lctx))
-                                     (+ 1000 (reduce max 3000000 (keys lctx)))
-                                     3000000)
+                     outer-fvar-base (if (and lctx (seq lctx))
+                                       (+ 1000 (reduce max 3000000 (keys lctx)))
+                                       3000000)
               ;; Fvars from bvar scope (function parameters)
-                   bvar-fvars (into {} (map (fn [[sym bvar-depth]]
-                                              (let [fid (+ outer-fvar-base bvar-depth)]
-                                                [sym {:fvar-id fid
-                                                      :bvar-depth bvar-depth
-                                                      :fvar (e/fvar fid)}]))
-                                            scope))
+                     bvar-fvars (into {} (map (fn [[sym bvar-depth]]
+                                                (let [fid (+ outer-fvar-base bvar-depth)]
+                                                  [sym {:fvar-id fid
+                                                        :bvar-depth bvar-depth
+                                                        :fvar (e/fvar fid)}]))
+                                              scope))
               ;; Fvars from lctx (enclosing match fields, hypothesis context)
-                   lctx-fvars (when lctx
-                                (into {} (map (fn [[fid {:keys [name type]}]]
-                                                [(symbol name) {:fvar-id fid
-                                                                :bvar-depth nil  ;; no bvar to abstract
-                                                                :fvar (e/fvar fid)
-                                                                :type type}])
-                                              lctx)))
-                   outer-fvars (merge lctx-fvars bvar-fvars)
+                     lctx-fvars (when lctx
+                                  (into {} (map (fn [[fid {:keys [name type]}]]
+                                                  [(symbol name) {:fvar-id fid
+                                                                  :bvar-depth nil  ;; no bvar to abstract
+                                                                  :fvar (e/fvar fid)
+                                                                  :type type}])
+                                                lctx)))
+                     outer-fvars (merge lctx-fvars bvar-fvars)
               ;; Build substitution: replace each bvar with its fvar
               ;; We need to instantiate from innermost (highest depth) outward
-                   open-expr (fn [expr]
-                               (reduce (fn [e [sym {:keys [bvar-depth fvar]}]]
+                     open-expr (fn [expr]
+                                 (reduce (fn [e [sym {:keys [bvar-depth fvar]}]]
                                     ;; Replace bvar at this depth with the fvar
                                     ;; We process from innermost to outermost
-                                         e)
-                                       expr
+                                           e)
+                                         expr
                                   ;; Actually, a simpler approach: walk the expr once
                                   ;; and replace any bvar whose index maps to an outer scope entry
-                                       (sort-by (fn [[_ v]] (- (:bvar-depth v))) outer-fvars)))
+                                         (sort-by (fn [[_ v]] (- (:bvar-depth v))) outer-fvars)))
               ;; Simpler: compile with an lctx that maps outer names to fvars,
               ;; then the match compiler's elab-fn produces fvars for all variables.
               ;; Build outer-lctx with TYPES for every fvar.
               ;; Types come from: *scope-types* (function params), incoming lctx
               ;; (enclosing match fields/IHs), or nil (if truly unknown).
               ;; Lean 4 invariant: every fvar MUST have a type in LocalContext.
-                   outer-lctx (into {} (map (fn [[sym {:keys [fvar-id bvar-depth]}]]
-                                              (let [;; Try *scope-types* first (function params)
-                                                    ftype (or (get *scope-types* sym)
+                     outer-lctx (into {} (map (fn [[sym {:keys [fvar-id bvar-depth]}]]
+                                                (let [;; Try *scope-types* first (function params)
+                                                      ftype (or (get *scope-types* sym)
                                                          ;; Then incoming lctx (enclosing match)
-                                                              (when lctx
-                                                                (:type (get lctx fvar-id))))]
-                                                [fvar-id {:name (str sym) :type ftype :tag :local}]))
-                                            outer-fvars))
+                                                                (when lctx
+                                                                  (:type (get lctx fvar-id))))]
+                                                  [fvar-id {:name (str sym) :type ftype :tag :local}]))
+                                              outer-fvars))
               ;; Compile scrutinee and type with outer fvars visible
-                   scrutinee (sexp->ansatz env {} 0 scrutinee-form outer-lctx)
-                   type-expr (sexp->ansatz env {} 0 type-form outer-lctx)
-                   type-whnf (try (red/whnf-no-delta env type-expr) (catch Exception _ type-expr))
+                     scrutinee (sexp->ansatz env {} 0 scrutinee-form outer-lctx)
+                     type-expr (sexp->ansatz env {} 0 type-form outer-lctx)
+                     type-whnf (try (red/whnf-no-delta env type-expr) (catch Exception _ type-expr))
               ;; Build elaboration state — all scope entries are fvar-based.
               ;; Register outer fvars in the tc's local context with their types.
               ;; This is critical: the match compiler may call tc/infer-type on
               ;; expressions containing these fvars.
-                   base-tc (tc/mk-tc-state env)
-                   tc-with-outer (reduce
-                                  (fn [tc-st [sym {:keys [fvar-id type]}]]
-                                    (let [;; Type from: entry itself, *scope-types*, or incoming lctx
-                                          ftype (or type
-                                                    (get *scope-types* sym)
-                                                    (when lctx (:type (get lctx fvar-id))))]
-                                      (if ftype
-                                        (update tc-st :lctx
-                                                red/lctx-add-local fvar-id (str sym) ftype)
-                                        tc-st)))
-                                  base-tc outer-fvars)
-                   est {:env env
-                        :tc tc-with-outer
-                        :next-id (atom (+ outer-fvar-base (count scope) 1000))
-                        :mctx (atom {})
-                        :level-mctx (atom {})
-                        :scope (into {} (map (fn [[sym {:keys [fvar-id type]}]]
-                                               (let [ftype (or type (get *scope-types* sym))]
-                                                 [sym {:fvar-id fvar-id :type ftype}]))
-                                             outer-fvars))
-                        :depth 0}
+                     base-tc (tc/mk-tc-state env)
+                     tc-with-outer (reduce
+                                    (fn [tc-st [sym {:keys [fvar-id type]}]]
+                                      (let [;; Type from: entry itself, *scope-types*, or incoming lctx
+                                            ftype (or type
+                                                      (get *scope-types* sym)
+                                                      (when lctx (:type (get lctx fvar-id))))]
+                                        (if ftype
+                                          (update tc-st :lctx
+                                                  red/lctx-add-local fvar-id (str sym) ftype)
+                                          tc-st)))
+                                    base-tc outer-fvars)
+                     est {:env env
+                          :tc tc-with-outer
+                          :next-id (atom (+ outer-fvar-base (count scope) 1000))
+                          :mctx (atom {})
+                          :level-mctx (atom {})
+                          :scope (into {} (map (fn [[sym {:keys [fvar-id type]}]]
+                                                 (let [ftype (or type (get *scope-types* sym))]
+                                                   [sym {:fvar-id fvar-id :type ftype}]))
+                                               outer-fvars))
+                          :depth 0}
               ;; Adapter: compile RHS expressions.
               ;; Match-field fvars are in est's :scope — produce fvars for those.
               ;; Outer-scope bvar entries use the original scope+depth (shifted
               ;; by the number of field+IH lambdas the match compiler creates).
               ;; We pass the match fields as lctx so sexp->ansatz produces fvars.
-                   elab-fn (fn elab-adapter [est sexpr]
-                             (let [;; Build lctx from ALL fvar entries (outer + match fields)
-                                   all-lctx (into outer-lctx
-                                                  (map (fn [[sym {:keys [fvar-id type]}]]
-                                                         [fvar-id {:name (str sym) :type type
-                                                                   :tag :local}])
-                                                       (:scope est)))]
-                               (binding [*current-lctx* all-lctx]
-                                 (sexp->ansatz env {} 0 sexpr all-lctx))))
+                     elab-fn (fn elab-adapter [est sexpr]
+                               (let [;; Build lctx from ALL fvar entries (outer + match fields)
+                                     all-lctx (into outer-lctx
+                                                    (map (fn [[sym {:keys [fvar-id type]}]]
+                                                           [fvar-id {:name (str sym) :type type
+                                                                     :tag :local}])
+                                                         (:scope est)))]
+                                 (binding [*current-lctx* all-lctx]
+                                   (sexp->ansatz env {} 0 sexpr all-lctx))))
               ;; Resolve the inductive type name for constructor qualification
-                   type-expr-for-name (sexp->ansatz env {} 0 type-form outer-lctx)
-                   [type-head-for-name _] (e/get-app-fn-args type-expr-for-name)
-                   ind-name-str (when (e/const? type-head-for-name)
-                                  (name/->string (e/const-name type-head-for-name)))
+                     type-expr-for-name (sexp->ansatz env {} 0 type-form outer-lctx)
+                     [type-head-for-name _] (e/get-app-fn-args type-expr-for-name)
+                     ind-name-str (when (e/const? type-head-for-name)
+                                    (name/->string (e/const-name type-head-for-name)))
               ;; Convert case forms — qualify constructor names with inductive type
-                   alt-sexprs (mapv (fn [case-form]
-                                      (let [ctor-raw (first case-form)
+                     alt-sexprs (mapv (fn [case-form]
+                                        (let [ctor-raw (first case-form)
                                        ;; Qualify: leaf → IndType.leaf, true → Bool.true
-                                            ctor-sym (cond
-                                                       (true? ctor-raw) 'Bool.true
-                                                       (false? ctor-raw) 'Bool.false
-                                                       (nil? ctor-raw) (symbol (str ind-name-str ".nil"))
+                                              ctor-sym (cond
+                                                         (true? ctor-raw) 'Bool.true
+                                                         (false? ctor-raw) 'Bool.false
+                                                         (nil? ctor-raw) (symbol (str ind-name-str ".nil"))
                                                   ;; If already qualified (has dot), keep as-is
-                                                       (and (symbol? ctor-raw)
-                                                            (.contains (str ctor-raw) "."))
-                                                       ctor-raw
+                                                         (and (symbol? ctor-raw)
+                                                              (.contains (str ctor-raw) "."))
+                                                         ctor-raw
                                                   ;; Otherwise qualify with inductive name
-                                                       :else (symbol (str ind-name-str "." ctor-raw)))
-                                            has-fields (and (> (count case-form) 2)
-                                                            (vector? (second case-form)))
-                                            field-names (if has-fields (second case-form) [])
-                                            body-form (if has-fields (nth case-form 2)
-                                                          (second case-form))
-                                            pat (if (seq field-names)
-                                                  (cons ctor-sym field-names)
-                                                  ctor-sym)]
-                                        [pat body-form]))
-                                    cases)
-                   alts (mapv (fn [[pat-sexpr rhs-sexpr]]
-                                {:pattern (surface-match/parse-pattern env pat-sexpr)
-                                 :rhs-sexpr rhs-sexpr})
-                              alt-sexprs)
+                                                         :else (symbol (str ind-name-str "." ctor-raw)))
+                                              has-fields (and (> (count case-form) 2)
+                                                              (vector? (second case-form)))
+                                              field-names (if has-fields (second case-form) [])
+                                              body-form (if has-fields (nth case-form 2)
+                                                            (second case-form))
+                                              pat (if (seq field-names)
+                                                    (cons ctor-sym field-names)
+                                                    ctor-sym)]
+                                          [pat body-form]))
+                                      cases)
+                     alts (mapv (fn [[pat-sexpr rhs-sexpr]]
+                                  {:pattern (surface-match/parse-pattern env pat-sexpr)
+                                   :rhs-sexpr rhs-sexpr})
+                                alt-sexprs)
               ;; Step 2: RUN — compile match with fvar-based expressions
-                   result (#'surface-match/compile-match-term est env elab-fn scrutinee type-whnf alts)
+                     result (#'surface-match/compile-match-term est env elab-fn scrutinee type-whnf alts)
               ;; Step 3: CLOSE — abstract bvar-based outer fvars back to bvars.
               ;; Uses abstract-many for correct multi-fvar abstraction
               ;; (sequential abstract1 doesn't shift existing bvars).
               ;; Order: outermost to innermost (matching build-telescope).
               ;; fv-ids[0] = outermost → highest bvar index.
               ;; Lctx fvars (from enclosing match) stay as fvars.
-                   bvar-entries (sort-by (fn [[_ v]] (or (:bvar-depth v) -1))
-                                         (filter (fn [[_ v]] (:bvar-depth v)) outer-fvars))
-                   fv-ids (mapv (fn [[_ {:keys [fvar-id]}]] fvar-id) bvar-entries)
-                   result (e/abstract-many result fv-ids)]
-               result)
+                     bvar-entries (sort-by (fn [[_ v]] (or (:bvar-depth v) -1))
+                                           (filter (fn [[_ v]] (:bvar-depth v)) outer-fvars))
+                     fv-ids (mapv (fn [[_ {:keys [fvar-id]}]] fvar-id) bvar-entries)
+                     result (e/abstract-many result fv-ids)]
+                 result)
 
         ;; Default: auto-elaborating application
         ;; Walk the function's forall telescope, inserting implicit and
         ;; instance-implicit arguments automatically.
-             (let [compiled (mapv #(sexp->ansatz env scope depth %) form)
-                   head-fn (first compiled)
-                   user-args (rest compiled)]
-               (if-let [^ConstantInfo ci (when (e/const? head-fn)
-                                           (env/lookup env (e/const-name head-fn)))]
+               (let [compiled (mapv #(sexp->ansatz env scope depth %) form)
+                     head-fn (first compiled)
+                     user-args (rest compiled)]
+                 (if-let [^ConstantInfo ci (when (e/const? head-fn)
+                                             (env/lookup env (e/const-name head-fn)))]
                  ;; Build bvar-types map so auto-elaborate can infer types of bound vars
-                 (let [bvar-tys (when (and (seq scope) (seq *scope-types*))
-                                  (into {} (keep (fn [[sym d]]
-                                                   (when-let [ty (get *scope-types* sym)]
-                                                     [(- depth 1 d) ty]))
-                                                 scope)))]
-                   (auto-elaborate env head-fn (.type ci) (vec user-args)
-                                   :bvar-types bvar-tys))
+                   (let [bvar-tys (when (and (seq scope) (seq *scope-types*))
+                                    (into {} (keep (fn [[sym d]]
+                                                     (when-let [ty (get *scope-types* sym)]
+                                                       [(- depth 1 d) ty]))
+                                                   scope)))]
+                     (auto-elaborate env head-fn (.type ci) (vec user-args)
+                                     :bvar-types bvar-tys))
             ;; Not a known constant — just apply directly
-                 (reduce e/app compiled)))))))
+                   (reduce e/app compiled)))))))
 
        :else (throw (ex-info (str "Cannot compile: " form) {:form form}))))))
 
@@ -1165,7 +1165,7 @@
                     fields (subvec ca np (+ np nf))
                     ;; Check if this is a structure with a defrecord
                     ind-name (subs h 0 (max 0 (- (count h) (count (name/->string (.name ctor-ci)))
-                                                  -1 (count h))))
+                                                 -1 (count h))))
                     ;; Get the inductive name from the ctor name: T.mk → T
                     ctor-str (name/->string (.name ctor-ci))
                     dot-idx (.lastIndexOf ^String ctor-str ".")
@@ -1683,10 +1683,10 @@
   [env alpha-level alpha measure-lam y x]
   (let [nat (e/const' (name/from-string "Nat") [])
         lt-rel (e/lam "x1" nat
-                 (e/lam "x2" nat
-                   (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
-                           nat (e/const' (name/from-string "instLTNat") [])
-                           (e/bvar 1) (e/bvar 0)) :default) :default)]
+                      (e/lam "x2" nat
+                             (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
+                                     nat (e/const' (name/from-string "instLTNat") [])
+                                     (e/bvar 1) (e/bvar 0)) :default) :default)]
     (e/app* (e/const' (name/from-string "InvImage") [alpha-level (lvl/succ lvl/zero)])
             alpha nat lt-rel measure-lam y x)))
 
@@ -1809,8 +1809,8 @@
                         ;; Fallback: try Inhabited.default
                         :else
                         (let [inh-inst (try-synthesize-instance
-                                         env (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)])
-                                                    ret-ansatz))]
+                                        env (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)])
+                                                   ret-ansatz))]
                           (if inh-inst
                             (e/app* (e/const' (name/from-string "Inhabited.default") [(lvl/succ lvl/zero)])
                                     ret-ansatz inh-inst)
@@ -1823,13 +1823,13 @@
                                     (nth param-types i) body :default))))
         ;; step: λ fuel ih p1 p2 ... pn => replaced-body
         step-nr (e/lam "fuel" nat
-                  (e/lam "ih" arrow-type
-                    (loop [i (dec n) body replaced-body]
-                      (if (< i 0) body
-                          (recur (dec i)
-                                 (e/lam (str (first (nth pairs i)))
-                                        (nth param-types i) body :default))))
-                    :default) :default)
+                       (e/lam "ih" arrow-type
+                              (loop [i (dec n) body replaced-body]
+                                (if (< i 0) body
+                                    (recur (dec i)
+                                           (e/lam (str (first (nth pairs i)))
+                                                  (nth param-types i) body :default))))
+                              :default) :default)
         ;; fuel = Nat.succ (measure(params)) where params are bvar 0..n-1 in the outer lambda
         fuel-expr (e/app (e/const' (name/from-string "Nat.succ") []) measure-ansatz)
         ;; Full: λ p1 ... pn => (Nat.rec motive base step fuel) p1 ... pn
@@ -1926,16 +1926,16 @@
                                             (rest param-syms))]
                    (eval
                      ;; Multi-arity: 1-arg returns curried, n-arg calls directly
-                     `(fn
-                        (~[(first param-syms)]
+                    `(fn
+                       (~[(first param-syms)]
                          ;; Curried: return a fn that takes the remaining args
-                         ~(if (= n 2)
-                            `(fn [~(second param-syms)] ~curried-call)
+                        ~(if (= n 2)
+                           `(fn [~(second param-syms)] ~curried-call)
                             ;; 3+ args: nested currying
-                            (reduce (fn [body s] `(fn [~s] ~body))
-                                    curried-call
-                                    (reverse (rest param-syms)))))
-                        (~param-syms ~curried-call)))))]
+                           (reduce (fn [body s] `(fn [~s] ~body))
+                                   curried-call
+                                   (reverse (rest param-syms)))))
+                       (~param-syms ~curried-call)))))]
     clj-fn))
 
 ;; ============================================================
@@ -2080,12 +2080,12 @@
                               (.setDeltaAllowSet tc-eq allow-set)
                               ;; Add fvars to lctx
                               (doseq [[fid nm tp] (concat
-                                                    (map vector param-fvids
-                                                         (map #(str (first (nth (vec pairs) (nth non-discr-indices %)))) (range n-non-discr))
-                                                         param-types)
-                                                    (map vector field-fvids
-                                                         (map #(str "f" %) (range nf))
-                                                         field-types))]
+                                                   (map vector param-fvids
+                                                        (map #(str (first (nth (vec pairs) (nth non-discr-indices %)))) (range n-non-discr))
+                                                        param-types)
+                                                   (map vector field-fvids
+                                                        (map #(str "f" %) (range nf))
+                                                        field-types))]
                                 (.addLocal tc-eq (long fid) (str nm) tp))
                               ;; WHNF with restricted transparency
                               (.whnf (.getReducer tc-eq) lhs))
@@ -2100,12 +2100,12 @@
                             ;; It's the same as the function body but with tail fvar as scrutinee.
                             ;; Identify which field is the recursive one (type matches the inductive)
                             rec-field-idx (first (keep-indexed
-                                                   (fn [j ft]
-                                                     (let [[fh _] (e/get-app-fn-args ft)]
-                                                       (when (and (e/const? fh)
-                                                                  (= (name/->string (e/const-name fh)) ind-name-str))
-                                                         j)))
-                                                   field-types))
+                                                  (fn [j ft]
+                                                    (let [[fh _] (e/get-app-fn-args ft)]
+                                                      (when (and (e/const? fh)
+                                                                 (= (name/->string (e/const-name fh)) ind-name-str))
+                                                        j)))
+                                                  field-types))
                             rhs-clean
                             (if rec-field-idx
                               (try
@@ -2115,47 +2115,47 @@
                               ;; Lean 4: replaceRecApps finds .brecOn/.below references.
                               ;; Our approach: the rec-value has l=ctor-app baked in
                               ;; (from the outer beta reduction), matching the RHS.
-                              (let [tail-fvar (nth field-fvars rec-field-idx)
+                                (let [tail-fvar (nth field-fvars rec-field-idx)
                                     ;; Instantiate body with params + ctor-app for the discriminant
-                                    ^ConstantInfo fn-ci (env/lookup env' cname)
-                                    fn-body (.value fn-ci)
+                                      ^ConstantInfo fn-ci (env/lookup env' cname)
+                                      fn-body (.value fn-ci)
                                     ;; Instantiate outer lambdas with param fvars and ctor-app
                                     ;; Args in original parameter order: insert ctor-app at discr-pos
-                                    inst-args (let [pv (vec param-fvars)]
-                                                (into (into (subvec pv 0 discr-pos) [ctor-app])
-                                                      (subvec pv discr-pos)))
-                                    inst-body (loop [b fn-body fvs inst-args]
-                                                (if (empty? fvs) b
-                                                    (recur (e/instantiate1 (e/lam-body b) (first fvs))
-                                                           (rest fvs))))
+                                      inst-args (let [pv (vec param-fvars)]
+                                                  (into (into (subvec pv 0 discr-pos) [ctor-app])
+                                                        (subvec pv discr-pos)))
+                                      inst-body (loop [b fn-body fvs inst-args]
+                                                  (if (empty? fvs) b
+                                                      (recur (e/instantiate1 (e/lam-body b) (first fvs))
+                                                             (rest fvs))))
                                     ;; inst-body is the rec application with all params substituted
                                     ;; Replace major premise (last arg) with tail-fvar
-                                    [inst-head inst-args] (e/get-app-fn-args inst-body)
-                                    rec-val (reduce e/app inst-head
-                                                    (conj (vec (butlast inst-args)) tail-fvar))
+                                      [inst-head inst-args] (e/get-app-fn-args inst-body)
+                                      rec-val (reduce e/app inst-head
+                                                      (conj (vec (butlast inst-args)) tail-fvar))
                                     ;; The function call to replace with
                                     ;; Place tail-fvar at discriminant position
-                                    f-call-args (let [pv (vec param-fvars)]
-                                                  (into (into (subvec pv 0 discr-pos) [tail-fvar])
-                                                        (subvec pv discr-pos)))
-                                    f-call (reduce e/app (e/const' cname []) f-call-args)
+                                      f-call-args (let [pv (vec param-fvars)]
+                                                    (into (into (subvec pv 0 discr-pos) [tail-fvar])
+                                                          (subvec pv discr-pos)))
+                                      f-call (reduce e/app (e/const' cname []) f-call-args)
                                     ;; Find and replace rec-val with f-call in the RHS
-                                    replace-fn (fn replace-rv [expr]
-                                                 (if (= expr rec-val)
-                                                   f-call
-                                                   (case (e/tag expr)
-                                                     :app (let [nf (replace-rv (e/app-fn expr))
-                                                                na (replace-rv (e/app-arg expr))]
-                                                            (if (and (identical? nf (e/app-fn expr))
-                                                                     (identical? na (e/app-arg expr)))
-                                                              expr (e/app nf na)))
-                                                     :lam (let [nb (replace-rv (e/lam-body expr))]
-                                                            (if (identical? nb (e/lam-body expr))
-                                                              expr (e/lam (e/lam-name expr) (e/lam-type expr)
-                                                                         nb (e/lam-info expr))))
-                                                     expr)))]
-                                (replace-fn rhs-raw))
-                              (catch Exception _ rhs-raw))
+                                      replace-fn (fn replace-rv [expr]
+                                                   (if (= expr rec-val)
+                                                     f-call
+                                                     (case (e/tag expr)
+                                                       :app (let [nf (replace-rv (e/app-fn expr))
+                                                                  na (replace-rv (e/app-arg expr))]
+                                                              (if (and (identical? nf (e/app-fn expr))
+                                                                       (identical? na (e/app-arg expr)))
+                                                                expr (e/app nf na)))
+                                                       :lam (let [nb (replace-rv (e/lam-body expr))]
+                                                              (if (identical? nb (e/lam-body expr))
+                                                                expr (e/lam (e/lam-name expr) (e/lam-type expr)
+                                                                            nb (e/lam-info expr))))
+                                                       expr)))]
+                                  (replace-fn rhs-raw))
+                                (catch Exception _ rhs-raw))
                               rhs-raw)
                             ;; Create auxiliary matcher definitions for stuck inner recursors
                             ;; (Lean 4: each match expression becomes a named matcher).
@@ -2165,146 +2165,146 @@
                             (try
                               (let [aux-counter (atom 0)
                                     create-aux (fn create-aux [rhs depth]
-                                      (if (> depth 3) rhs
-                                        (let [[h as] (e/get-app-fn-args rhs)]
-                                          (if (and (e/const? h)
-                                                   (.endsWith ^String (name/->string (e/const-name h)) ".rec")
-                                                   (seq as) (e/fvar? (last as)))
+                                                 (if (> depth 3) rhs
+                                                     (let [[h as] (e/get-app-fn-args rhs)]
+                                                       (if (and (e/const? h)
+                                                                (.endsWith ^String (name/->string (e/const-name h)) ".rec")
+                                                                (seq as) (e/fvar? (last as)))
                                             ;; Found a stuck recursor — create auxiliary definition
-                                            (let [scrut-fvar-id (e/fvar-id (last as))
+                                                         (let [scrut-fvar-id (e/fvar-id (last as))
                                                   ;; Collect all fvars actually used in this stuck expression.
                                                   ;; This ensures deeper recursive calls capture the right context.
-                                                  expr-fvars (let [acc (atom #{})]
-                                                               (letfn [(walk [e]
-                                                                         (when (e/has-fvar-flag e)
-                                                                           (case (e/tag e)
-                                                                             :fvar (swap! acc conj (e/fvar-id e))
-                                                                             :app (do (walk (e/app-fn e)) (walk (e/app-arg e)))
-                                                                             :lam (do (walk (e/lam-type e)) (walk (e/lam-body e)))
-                                                                             :forall (do (walk (e/forall-type e)) (walk (e/forall-body e)))
-                                                                             nil)))]
-                                                                 (walk rhs))
-                                                               @acc)
-                                                  all-fv-ids (vec (remove #{scrut-fvar-id}
-                                                                    (sort (disj expr-fvars scrut-fvar-id))))
+                                                               expr-fvars (let [acc (atom #{})]
+                                                                            (letfn [(walk [e]
+                                                                                      (when (e/has-fvar-flag e)
+                                                                                        (case (e/tag e)
+                                                                                          :fvar (swap! acc conj (e/fvar-id e))
+                                                                                          :app (do (walk (e/app-fn e)) (walk (e/app-arg e)))
+                                                                                          :lam (do (walk (e/lam-type e)) (walk (e/lam-body e)))
+                                                                                          :forall (do (walk (e/forall-type e)) (walk (e/forall-body e)))
+                                                                                          nil)))]
+                                                                              (walk rhs))
+                                                                            @acc)
+                                                               all-fv-ids (vec (remove #{scrut-fvar-id}
+                                                                                       (sort (disj expr-fvars scrut-fvar-id))))
                                                   ;; The auxiliary takes: all free vars + the scrutinee as last param
-                                                  aux-fvids (conj all-fv-ids scrut-fvar-id)
-                                                  aux-n (swap! aux-counter inc)
-                                                  aux-name-str (str fn-name "._match_" aux-n)
-                                                  aux-cname (name/from-string aux-name-str)
+                                                               aux-fvids (conj all-fv-ids scrut-fvar-id)
+                                                               aux-n (swap! aux-counter inc)
+                                                               aux-name-str (str fn-name "._match_" aux-n)
+                                                               aux-cname (name/from-string aux-name-str)
                                                   ;; Build aux body: abstract fvars from rhs, wrap in lambdas
-                                                  aux-body-abs (e/abstract-many rhs aux-fvids)
-                                                  aux-fvar-types (mapv (fn [fid]
-                                                                         (let [d (get-in st' [:lctx fid])]
-                                                                           (or (:type d) (e/sort' lvl/zero))))
-                                                                       aux-fvids)
-                                                  aux-body (loop [j (dec (count aux-fvids)) body aux-body-abs]
-                                                             (if (< j 0) body
-                                                               (let [fid (nth aux-fvids j)
-                                                                     ft (nth aux-fvar-types j)
-                                                                     nm (or (:name (get-in st' [:lctx fid])) (str "x" j))]
-                                                                 (recur (dec j) (e/lam nm ft body :default)))))
+                                                               aux-body-abs (e/abstract-many rhs aux-fvids)
+                                                               aux-fvar-types (mapv (fn [fid]
+                                                                                      (let [d (get-in st' [:lctx fid])]
+                                                                                        (or (:type d) (e/sort' lvl/zero))))
+                                                                                    aux-fvids)
+                                                               aux-body (loop [j (dec (count aux-fvids)) body aux-body-abs]
+                                                                          (if (< j 0) body
+                                                                              (let [fid (nth aux-fvids j)
+                                                                                    ft (nth aux-fvar-types j)
+                                                                                    nm (or (:name (get-in st' [:lctx fid])) (str "x" j))]
+                                                                                (recur (dec j) (e/lam nm ft body :default)))))
                                                   ;; Infer aux type from body
-                                                  aux-type (try
-                                                             (let [tc-aux (ansatz.kernel.TypeChecker. @ansatz-env)]
-                                                               (.setFuel tc-aux (int config/*default-fuel*))
-                                                               (.inferType tc-aux aux-body))
-                                                             (catch Exception _ nil))]
-                                              (if-not aux-type
-                                                rhs  ;; fallback: return original stuck expr
-                                                (do ;; Register the auxiliary definition
-                                                (swap! ansatz-env env/add-constant
-                                                       (env/mk-def aux-cname [] aux-type aux-body))
+                                                               aux-type (try
+                                                                          (let [tc-aux (ansatz.kernel.TypeChecker. @ansatz-env)]
+                                                                            (.setFuel tc-aux (int config/*default-fuel*))
+                                                                            (.inferType tc-aux aux-body))
+                                                                          (catch Exception _ nil))]
+                                                           (if-not aux-type
+                                                             rhs  ;; fallback: return original stuck expr
+                                                             (do ;; Register the auxiliary definition
+                                                               (swap! ansatz-env env/add-constant
+                                                                      (env/mk-def aux-cname [] aux-type aux-body))
                                                 ;; Generate equation theorems for the auxiliary
                                                 ;; (Use a simple approach: the aux matches on its last param)
-                                                (try
-                                                  (let [irci (env/lookup @ansatz-env (e/const-name h))
-                                                        iind-str (let [s (name/->string (e/const-name h))]
-                                                                   (subs s 0 (- (count s) 4)))
-                                                        iind-ci (env/lookup @ansatz-env (name/from-string iind-str))
-                                                        ictors (.ctors iind-ci) inp (.numParams irci)
-                                                        iparams (vec (take inp as))
-                                                        ilevels (e/const-levels h)
-                                                        n-aux (count aux-fvids)]
-                                                    (doseq [ci-idx (range (count ictors))]
-                                                      (try
-                                                        (let [icn (nth ictors ci-idx)
-                                                              ^ConstantInfo icci (env/lookup @ansatz-env icn)
-                                                              inf (.numFields icci) icnp (.numParams icci)
+                                                               (try
+                                                                 (let [irci (env/lookup @ansatz-env (e/const-name h))
+                                                                       iind-str (let [s (name/->string (e/const-name h))]
+                                                                                  (subs s 0 (- (count s) 4)))
+                                                                       iind-ci (env/lookup @ansatz-env (name/from-string iind-str))
+                                                                       ictors (.ctors iind-ci) inp (.numParams irci)
+                                                                       iparams (vec (take inp as))
+                                                                       ilevels (e/const-levels h)
+                                                                       n-aux (count aux-fvids)]
+                                                                   (doseq [ci-idx (range (count ictors))]
+                                                                     (try
+                                                                       (let [icn (nth ictors ci-idx)
+                                                                             ^ConstantInfo icci (env/lookup @ansatz-env icn)
+                                                                             inf (.numFields icci) icnp (.numParams icci)
                                                               ;; Create fvars for ctor fields
-                                                              cf-base (+ fv-base 5000000 (* aux-n 10000) (* ci-idx 100))
-                                                              cf-fvids (mapv #(+ cf-base %) (range inf))
-                                                              cf-fvars (mapv e/fvar cf-fvids)
+                                                                             cf-base (+ fv-base 5000000 (* aux-n 10000) (* ci-idx 100))
+                                                                             cf-fvids (mapv #(+ cf-base %) (range inf))
+                                                                             cf-fvars (mapv e/fvar cf-fvids)
                                                               ;; Ctor field types
-                                                              ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
-                                                              ict-inst (if (seq ict-sub) (e/instantiate-level-params (.type icci) ict-sub) (.type icci))
-                                                              cf-types (loop [t ict-inst sk icnp j 0 acc []]
-                                                                         (if (or (not (e/forall? t)) (>= j inf)) acc
-                                                                           (if (pos? sk)
-                                                                             (recur (e/instantiate1 (e/forall-body t)
-                                                                                      (if (< (- icnp sk) (count iparams))
-                                                                                        (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
-                                                                                    (dec sk) j acc)
-                                                                             (recur (e/instantiate1 (e/forall-body t) (nth cf-fvars j))
-                                                                                    0 (inc j) (conj acc (e/forall-type t))))))
+                                                                             ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
+                                                                             ict-inst (if (seq ict-sub) (e/instantiate-level-params (.type icci) ict-sub) (.type icci))
+                                                                             cf-types (loop [t ict-inst sk icnp j 0 acc []]
+                                                                                        (if (or (not (e/forall? t)) (>= j inf)) acc
+                                                                                            (if (pos? sk)
+                                                                                              (recur (e/instantiate1 (e/forall-body t)
+                                                                                                                     (if (< (- icnp sk) (count iparams))
+                                                                                                                       (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
+                                                                                                     (dec sk) j acc)
+                                                                                              (recur (e/instantiate1 (e/forall-body t) (nth cf-fvars j))
+                                                                                                     0 (inc j) (conj acc (e/forall-type t))))))
                                                               ;; Build ctor application
-                                                              ica (reduce e/app (e/const' icn (vec (rest ilevels)))
-                                                                          (concat iparams cf-fvars))
+                                                                             ica (reduce e/app (e/const' icn (vec (rest ilevels)))
+                                                                                         (concat iparams cf-fvars))
                                                               ;; LHS: aux(params..., ctor-app)
-                                                              aux-lhs (reduce e/app (e/const' aux-cname [])
-                                                                              (concat (mapv e/fvar all-fv-ids) [ica]))
+                                                                             aux-lhs (reduce e/app (e/const' aux-cname [])
+                                                                                             (concat (mapv e/fvar all-fv-ids) [ica]))
                                                               ;; RHS: WHNF of aux applied to concrete ctor.
                                                               ;; Use CURRENT env (includes aux def) for TC state.
-                                                              st-cf (reduce (fn [s [fid nm tp]]
-                                                                              (update s :lctx red/lctx-add-local fid nm tp))
-                                                                            (assoc (tc/mk-tc-state @ansatz-env) :lctx (:lctx st'))
-                                                                            (map vector cf-fvids
-                                                                                     (map #(str "cf" %) (range inf)) cf-types))
-                                                              aux-rhs-raw (#'tc/cached-whnf st-cf aux-lhs)
+                                                                             st-cf (reduce (fn [s [fid nm tp]]
+                                                                                             (update s :lctx red/lctx-add-local fid nm tp))
+                                                                                           (assoc (tc/mk-tc-state @ansatz-env) :lctx (:lctx st'))
+                                                                                           (map vector cf-fvids
+                                                                                                (map #(str "cf" %) (range inf)) cf-types))
+                                                                             aux-rhs-raw (#'tc/cached-whnf st-cf aux-lhs)
                                                               ;; Recursively replace stuck recursors in the aux RHS
-                                                              aux-rhs (create-aux aux-rhs-raw (inc depth))
+                                                                             aux-rhs (create-aux aux-rhs-raw (inc depth))
                                                               ;; Build equation: ∀ params fields, aux(params, ctor) = rhs
-                                                              eq-body (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                                                              ret-ansatz aux-lhs aux-rhs)
-                                                              abs-eq (e/abstract-many eq-body (vec (concat param-fvids field-fvids all-fv-ids cf-fvids)))
+                                                                             eq-body (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                                                                             ret-ansatz aux-lhs aux-rhs)
+                                                                             abs-eq (e/abstract-many eq-body (vec (concat param-fvids field-fvids all-fv-ids cf-fvids)))
                                                               ;; Wait — this is getting complex. Let me simplify.
                                                               ;; Just register the equation with Eq.refl proof.
-                                                              all-eq-fvids (vec (distinct (concat all-fv-ids cf-fvids)))
-                                                              all-eq-types (vec (concat (mapv (fn [fid] (or (:type (get-in st-cf [:lctx fid])) (e/sort' lvl/zero))) all-fv-ids)
-                                                                                       cf-types))
-                                                              abs-eq2 (e/abstract-many eq-body all-eq-fvids)
-                                                              full-eq-type (loop [j (dec (count all-eq-fvids)) body abs-eq2]
-                                                                             (if (< j 0) body
-                                                                               (recur (dec j) (e/forall' (str "p" j) (nth all-eq-types j) body :default))))
-                                                              rfl-pf (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                                                             ret-ansatz aux-lhs)
-                                                              abs-pf (e/abstract-many rfl-pf all-eq-fvids)
-                                                              full-pf (loop [j (dec (count all-eq-fvids)) body abs-pf]
-                                                                        (if (< j 0) body
-                                                                          (recur (dec j) (e/lam (str "p" j) (nth all-eq-types j) body :default))))
-                                                              eqn-nm (name/from-string (str aux-name-str ".eq_" (inc ci-idx)))]
+                                                                             all-eq-fvids (vec (distinct (concat all-fv-ids cf-fvids)))
+                                                                             all-eq-types (vec (concat (mapv (fn [fid] (or (:type (get-in st-cf [:lctx fid])) (e/sort' lvl/zero))) all-fv-ids)
+                                                                                                       cf-types))
+                                                                             abs-eq2 (e/abstract-many eq-body all-eq-fvids)
+                                                                             full-eq-type (loop [j (dec (count all-eq-fvids)) body abs-eq2]
+                                                                                            (if (< j 0) body
+                                                                                                (recur (dec j) (e/forall' (str "p" j) (nth all-eq-types j) body :default))))
+                                                                             rfl-pf (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                                                                            ret-ansatz aux-lhs)
+                                                                             abs-pf (e/abstract-many rfl-pf all-eq-fvids)
+                                                                             full-pf (loop [j (dec (count all-eq-fvids)) body abs-pf]
+                                                                                       (if (< j 0) body
+                                                                                           (recur (dec j) (e/lam (str "p" j) (nth all-eq-types j) body :default))))
+                                                                             eqn-nm (name/from-string (str aux-name-str ".eq_" (inc ci-idx)))]
                                                           ;; Verify and register
-                                                          (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
-                                                            (.setFuel tc-v (int config/*default-fuel*))
-                                                            (.inferType tc-v full-pf)
-                                                            (swap! ansatz-env env/add-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
-                                                            (when *verbose* (println "  aux eq_" (inc ci-idx) "for" aux-name-str))))
-                                                        (catch Exception ex
-                                                          (when *verbose*
-                                                            (println "  aux eq_" (inc ci-idx) "for" aux-name-str "FAILED:" (.getMessage ex))
-                                                            (.printStackTrace ex *out*))))))
-                                                  (catch Exception ex
-                                                    (when *verbose*
-                                                      (println "  aux gen for" aux-name-str "FAILED:" (.getMessage ex)))))
+                                                                         (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
+                                                                           (.setFuel tc-v (int config/*default-fuel*))
+                                                                           (.inferType tc-v full-pf)
+                                                                           (swap! ansatz-env env/add-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
+                                                                           (when *verbose* (println "  aux eq_" (inc ci-idx) "for" aux-name-str))))
+                                                                       (catch Exception ex
+                                                                         (when *verbose*
+                                                                           (println "  aux eq_" (inc ci-idx) "for" aux-name-str "FAILED:" (.getMessage ex))
+                                                                           (.printStackTrace ex *out*))))))
+                                                                 (catch Exception ex
+                                                                   (when *verbose*
+                                                                     (println "  aux gen for" aux-name-str "FAILED:" (.getMessage ex)))))
                                                 ;; Return call to the auxiliary instead of the stuck recursor
-                                                (reduce e/app (e/const' aux-cname []) (mapv e/fvar aux-fvids)))))
+                                                               (reduce e/app (e/const' aux-cname []) (mapv e/fvar aux-fvids)))))
                                             ;; No stuck recursor at top — recurse into sub-expressions
-                                            (if (e/app? rhs)
-                                              (let [f (create-aux (e/app-fn rhs) depth)
-                                                    a (create-aux (e/app-arg rhs) depth)]
-                                                (if (and (identical? f (e/app-fn rhs)) (identical? a (e/app-arg rhs)))
-                                                  rhs (e/app f a)))
-                                              rhs)))))]
+                                                         (if (e/app? rhs)
+                                                           (let [f (create-aux (e/app-fn rhs) depth)
+                                                                 a (create-aux (e/app-arg rhs) depth)]
+                                                             (if (and (identical? f (e/app-fn rhs)) (identical? a (e/app-arg rhs)))
+                                                               rhs (e/app f a)))
+                                                           rhs)))))]
                                 (create-aux rhs-clean 0))
                               (catch Exception _ rhs-clean))
                             ;; Split inner stuck recursors (Lean 4: mkEqnTypes splitMatch?).
@@ -2313,69 +2313,69 @@
                             split-equations
                             (try
                               (let [split-counter (atom 0)]
-                              (letfn [(find-stuck [expr]
-                                        (let [[h as] (e/get-app-fn-args expr)]
-                                          (cond
-                                            (and (e/const? h)
-                                                 (.endsWith ^String (name/->string (e/const-name h)) ".rec")
-                                                 (seq as) (e/fvar? (last as)))
-                                            {:rec-head h :rec-args (vec as) :scrut-fvar (e/fvar-id (last as))}
-                                            (e/app? expr)
-                                            (or (find-stuck (e/app-fn expr)) (find-stuck (e/app-arg expr)))
-                                            :else nil)))
-                                      (split-rec [st rhs the-lhs xfvids xtypes sfx depth]
-                                        (if (> depth 2) nil
-                                          (when-let [{:keys [rec-head rec-args scrut-fvar]} (find-stuck rhs)]
-                                            (let [irci (env/lookup env' (e/const-name rec-head))
-                                                  iind-str (let [s (name/->string (e/const-name rec-head))]
-                                                             (subs s 0 (- (count s) 4)))
-                                                  iind-ci (env/lookup env' (name/from-string iind-str))
-                                                  ictors (.ctors iind-ci) inp (.numParams irci)
-                                                  iparams (vec (take inp rec-args))
-                                                  ilevels (e/const-levels rec-head)]
-                                              (vec (mapcat
-                                                     (fn [ci-idx]
-                                                       (try
-                                                         (let [icn (nth ictors ci-idx)
-                                                               ^ConstantInfo icci (env/lookup env' icn)
-                                                               inf (.numFields icci) icnp (.numParams icci)
-                                                               base (+ fv-base n-non-discr nf (count xfvids)
-                                                                       (* ci-idx 100) (* depth 1000))
-                                                               iffids (mapv #(+ base %) (range inf))
-                                                               iffvars (mapv e/fvar iffids)
-                                                               ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
-                                                               ict-inst (let [raw (.type icci)]
-                                                                          (if (seq ict-sub) (e/instantiate-level-params raw ict-sub) raw))
-                                                               iftypes (loop [t ict-inst sk icnp j 0 acc []]
-                                                                         (if (or (not (e/forall? t)) (>= j inf)) acc
-                                                                           (if (pos? sk)
-                                                                             (recur (e/instantiate1 (e/forall-body t)
-                                                                                      (if (< (- icnp sk) (count iparams))
-                                                                                        (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
-                                                                                    (dec sk) j acc)
-                                                                             (recur (e/instantiate1 (e/forall-body t) (nth iffvars j))
-                                                                                    0 (inc j) (conj acc (e/forall-type t))))))
-                                                               ica (reduce e/app (e/const' icn (vec (rest ilevels)))
-                                                                           (concat iparams iffvars))
-                                                               rhs' (e/instantiate1 (e/abstract1 rhs scrut-fvar) ica)
-                                                               lhs' (e/instantiate1 (e/abstract1 the-lhs scrut-fvar) ica)
-                                                               st' (reduce (fn [s [fid nm tp]]
-                                                                             (update s :lctx red/lctx-add-local fid nm tp))
-                                                                           st (map vector iffids
-                                                                                   (map #(str "g" %) (range inf)) iftypes))
-                                                               rhs-r (#'tc/cached-whnf st' rhs')]
+                                (letfn [(find-stuck [expr]
+                                          (let [[h as] (e/get-app-fn-args expr)]
+                                            (cond
+                                              (and (e/const? h)
+                                                   (.endsWith ^String (name/->string (e/const-name h)) ".rec")
+                                                   (seq as) (e/fvar? (last as)))
+                                              {:rec-head h :rec-args (vec as) :scrut-fvar (e/fvar-id (last as))}
+                                              (e/app? expr)
+                                              (or (find-stuck (e/app-fn expr)) (find-stuck (e/app-arg expr)))
+                                              :else nil)))
+                                        (split-rec [st rhs the-lhs xfvids xtypes sfx depth]
+                                          (if (> depth 2) nil
+                                              (when-let [{:keys [rec-head rec-args scrut-fvar]} (find-stuck rhs)]
+                                                (let [irci (env/lookup env' (e/const-name rec-head))
+                                                      iind-str (let [s (name/->string (e/const-name rec-head))]
+                                                                 (subs s 0 (- (count s) 4)))
+                                                      iind-ci (env/lookup env' (name/from-string iind-str))
+                                                      ictors (.ctors iind-ci) inp (.numParams irci)
+                                                      iparams (vec (take inp rec-args))
+                                                      ilevels (e/const-levels rec-head)]
+                                                  (vec (mapcat
+                                                        (fn [ci-idx]
+                                                          (try
+                                                            (let [icn (nth ictors ci-idx)
+                                                                  ^ConstantInfo icci (env/lookup env' icn)
+                                                                  inf (.numFields icci) icnp (.numParams icci)
+                                                                  base (+ fv-base n-non-discr nf (count xfvids)
+                                                                          (* ci-idx 100) (* depth 1000))
+                                                                  iffids (mapv #(+ base %) (range inf))
+                                                                  iffvars (mapv e/fvar iffids)
+                                                                  ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
+                                                                  ict-inst (let [raw (.type icci)]
+                                                                             (if (seq ict-sub) (e/instantiate-level-params raw ict-sub) raw))
+                                                                  iftypes (loop [t ict-inst sk icnp j 0 acc []]
+                                                                            (if (or (not (e/forall? t)) (>= j inf)) acc
+                                                                                (if (pos? sk)
+                                                                                  (recur (e/instantiate1 (e/forall-body t)
+                                                                                                         (if (< (- icnp sk) (count iparams))
+                                                                                                           (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
+                                                                                         (dec sk) j acc)
+                                                                                  (recur (e/instantiate1 (e/forall-body t) (nth iffvars j))
+                                                                                         0 (inc j) (conj acc (e/forall-type t))))))
+                                                                  ica (reduce e/app (e/const' icn (vec (rest ilevels)))
+                                                                              (concat iparams iffvars))
+                                                                  rhs' (e/instantiate1 (e/abstract1 rhs scrut-fvar) ica)
+                                                                  lhs' (e/instantiate1 (e/abstract1 the-lhs scrut-fvar) ica)
+                                                                  st' (reduce (fn [s [fid nm tp]]
+                                                                                (update s :lctx red/lctx-add-local fid nm tp))
+                                                                              st (map vector iffids
+                                                                                      (map #(str "g" %) (range inf)) iftypes))
+                                                                  rhs-r (#'tc/cached-whnf st' rhs')]
                                                            ;; Recurse for deeper splits
-                                                           (or (split-rec st' rhs-r lhs' (vec (concat xfvids iffids))
-                                                                          (vec (concat xtypes iftypes))
-                                                                          (+ (* sfx 10) (inc ci-idx)) (inc depth))
+                                                              (or (split-rec st' rhs-r lhs' (vec (concat xfvids iffids))
+                                                                             (vec (concat xtypes iftypes))
+                                                                             (+ (* sfx 10) (inc ci-idx)) (inc depth))
                                                                ;; Leaf: use flat sequential numbering (Lean 4 style)
-                                                               (let [n (swap! split-counter inc)]
-                                                                 [{:rhs rhs-r :lhs lhs' :extra-fvids (vec (concat xfvids iffids))
-                                                                   :extra-types (vec (concat xtypes iftypes))
-                                                                   :suffix (str "s" n)}])))
-                                                         (catch Exception _ nil)))
-                                                     (range (count ictors))))))))]
-                                (split-rec st' rhs-clean lhs [] [] 0 0)))
+                                                                  (let [n (swap! split-counter inc)]
+                                                                    [{:rhs rhs-r :lhs lhs' :extra-fvids (vec (concat xfvids iffids))
+                                                                      :extra-types (vec (concat xtypes iftypes))
+                                                                      :suffix (str "s" n)}])))
+                                                            (catch Exception _ nil)))
+                                                        (range (count ictors))))))))]
+                                  (split-rec st' rhs-clean lhs [] [] 0 0)))
                               (catch Exception _ nil))
                             ;; Following Lean 4 (mkEqnTypes/splitMatch?): when leaf-level
                             ;; split equations exist, use ONLY them — each has a concrete
@@ -2403,9 +2403,9 @@
                                                (walk lhs) (walk rhs))
                                              @acc)
                                 all-fv-pairs (filterv (fn [[fid _]] (contains? used-fvars fid))
-                                               (map vector
-                                                    (concat field-fvids extra-fvids)
-                                                    (concat field-types extra-types)))
+                                                      (map vector
+                                                           (concat field-fvids extra-fvids)
+                                                           (concat field-types extra-types)))
                                 all-fvids (mapv first all-fv-pairs)
                                 all-ftypes (mapv second all-fv-pairs)
                                 all-nf (count all-fvids)
@@ -2466,14 +2466,14 @@
                                             (list clj-form (first param-syms))
                                             (rest param-syms))]
                    (eval
-                     `(fn
-                        (~[(first param-syms)]
-                         ~(if (= n 2)
-                            `(fn [~(second param-syms)] ~curried-call)
-                            (reduce (fn [body s] `(fn [~s] ~body))
-                                    curried-call
-                                    (reverse (rest param-syms)))))
-                        (~param-syms ~curried-call)))))]
+                    `(fn
+                       (~[(first param-syms)]
+                        ~(if (= n 2)
+                           `(fn [~(second param-syms)] ~curried-call)
+                           (reduce (fn [body s] `(fn [~s] ~body))
+                                   curried-call
+                                   (reverse (rest param-syms)))))
+                       (~param-syms ~curried-call)))))]
     (when *verbose* (println "✓" fn-name ":" (pr-str clj-form)))
     clj-fn))
 
@@ -2490,10 +2490,10 @@
          ;; Bind *scope-types* so that auto-elaborate can infer implicit args
          ;; from parameter types (Lean 4: elaborator has full context)
          scope-types-map (into {} (map-indexed
-                                    (fn [i [pn pt-form]]
-                                      (let [s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))]
-                                        [pn (sexp->ansatz env s i pt-form)]))
-                                    pairs))
+                                   (fn [i [pn pt-form]]
+                                     (let [s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))]
+                                       [pn (sexp->ansatz env s i pt-form)]))
+                                   pairs))
          prop-ansatz (binding [*scope-types* scope-types-map]
                        (sexp->ansatz env scope-full n prop-form))
          goal-type (loop [i (dec n) body prop-ansatz]
@@ -2535,7 +2535,7 @@
                       [{} (first body-and-opts)])]
     (if (:termination-by opts)
       `(def ~fn-name (define-verified-wf '~fn-name '~params '~ret-type
-                                         '~body '~(:termination-by opts)))
+                       '~body '~(:termination-by opts)))
       `(def ~fn-name (define-verified '~fn-name '~params '~ret-type '~body)))))
 
 (defmacro theorem
@@ -2615,7 +2615,7 @@
                             (if (sequential? f)
                               [(first f) (second f)]
                               (throw (ex-info "structure field must be (name type)" {:field f}))))
-                         fields)
+                          fields)
         ;; Build the flat field vector for the constructor: [name1 type1 name2 type2 ...]
         flat-fields (vec (mapcat identity field-specs))
         ;; Single constructor named 'mk'
@@ -2629,44 +2629,44 @@
        ;; Each projection is: λ {params...} (x : T params) => proj T.name idx x
        ;; Following Lean 4: use Expr.proj (kernel primitive) with TC-inferred types.
        ~@(map-indexed
-           (fn [idx [fname _ftype]]
-             (let [proj-name (str type-name "." fname)
-                   n-params (/ (count params) 2)]
-               `(let [env# (env)
-                      type-name# (name/from-string ~(str type-name))
-                      proj-name# (name/from-string ~proj-name)
-                      _# (when-not (env/lookup env# proj-name#)
-                           (let [ci# (env/lookup env# type-name#)
-                                 ind-type# (.type ci#)
-                                 lvl-params# (vec (.levelParams ci#))
-                                 lvl-levels# (mapv lvl/param lvl-params#)
-                                 n-params# ~n-params
+          (fn [idx [fname _ftype]]
+            (let [proj-name (str type-name "." fname)
+                  n-params (/ (count params) 2)]
+              `(let [env# (env)
+                     type-name# (name/from-string ~(str type-name))
+                     proj-name# (name/from-string ~proj-name)
+                     _# (when-not (env/lookup env# proj-name#)
+                          (let [ci# (env/lookup env# type-name#)
+                                ind-type# (.type ci#)
+                                lvl-params# (vec (.levelParams ci#))
+                                lvl-levels# (mapv lvl/param lvl-params#)
+                                n-params# ~n-params
                                  ;; Extract param types from the inductive type forall telescope
-                                 param-types# (loop [t# ind-type# i# 0 types# []]
-                                                (if (and (< i# n-params#) (e/forall? t#))
-                                                  (recur (e/forall-body t#) (inc i#) (conj types# (e/forall-type t#)))
-                                                  types#))
+                                param-types# (loop [t# ind-type# i# 0 types# []]
+                                               (if (and (< i# n-params#) (e/forall? t#))
+                                                 (recur (e/forall-body t#) (inc i#) (conj types# (e/forall-type t#)))
+                                                 types#))
                                  ;; Build the applied inductive type at depth n-params
-                                 ind-applied# (reduce (fn [acc# i#]
-                                                        (e/app acc# (e/bvar (- n-params# i# 1))))
-                                                      (e/const' type-name# lvl-levels#)
-                                                      (range n-params#))
+                                ind-applied# (reduce (fn [acc# i#]
+                                                       (e/app acc# (e/bvar (- n-params# i# 1))))
+                                                     (e/const' type-name# lvl-levels#)
+                                                     (range n-params#))
                                  ;; Build value: λ {params...} (x : T params) => proj T idx x
-                                 proj-val# (e/proj type-name# ~idx (e/bvar 0))
-                                 proj-val# (e/lam "self" ind-applied# proj-val# :default)
-                                 proj-val# (loop [i# (dec n-params#) body# proj-val#]
-                                             (if (< i# 0) body#
-                                                 (recur (dec i#)
-                                                        (e/lam "p" (nth param-types# i#) body# :implicit))))
+                                proj-val# (e/proj type-name# ~idx (e/bvar 0))
+                                proj-val# (e/lam "self" ind-applied# proj-val# :default)
+                                proj-val# (loop [i# (dec n-params#) body# proj-val#]
+                                            (if (< i# 0) body#
+                                                (recur (dec i#)
+                                                       (e/lam "p" (nth param-types# i#) body# :implicit))))
                                  ;; Infer type from value using TC (avoids manual bvar computation)
-                                 st# (tc/mk-tc-state env#)
-                                 proj-type# (tc/infer-type st# proj-val#)
+                                st# (tc/mk-tc-state env#)
+                                proj-type# (tc/infer-type st# proj-val#)
                                  ;; Add as abbrev definition
-                                 proj-ci# (env/mk-def proj-name# lvl-params# proj-type# proj-val#
-                                                       :hints :abbrev)]
-                             (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
-                                     (env/add-constant env# proj-ci#))))])))
-           field-specs)
+                                proj-ci# (env/mk-def proj-name# lvl-params# proj-type# proj-val#
+                                                     :hints :abbrev)]
+                            (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
+                                    (env/add-constant env# proj-ci#))))])))
+          field-specs)
 
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)

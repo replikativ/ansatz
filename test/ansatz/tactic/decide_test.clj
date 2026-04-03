@@ -296,4 +296,4 @@
           ps (basic/exact ps term)]
       (is (proof/solved? ps))
       (let [proof-term (extract/verify ps)]
-         (is (some? proof-term))))))
+        (is (some? proof-term))))))
