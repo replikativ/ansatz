@@ -493,6 +493,8 @@ The CIC kernel is implemented in Java for performance:
 - `FlatStore` — memory-mapped expression store for zero-copy lookup
 - `Env` — declaration environment with external lookup
 
+For a deeper architectural walkthrough of the kernel, see [doc/kernel.md](doc/kernel.md).
+
 ### Tactic Layer (Clojure)
 
 Tactics are pure functions `(proof-state → proof-state)` on immutable Clojure maps. Backtracking is free via persistent data structures (no save/restore needed).
