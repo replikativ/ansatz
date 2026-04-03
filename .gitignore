@@ -11,6 +11,9 @@ target/
 # Test data (large ndjson files)
 test-data/
 
+# Generated resources (reproducible via setup-mathlib.sh)
+resources/instances.tsv
+
 # Lean export build artifacts
 lean-export/.lake/
 
@@ -20,3 +23,4 @@ lean-export/.lake/
 .clj-kondo/imports/
 .calva/
 .bundle/
+.internal/

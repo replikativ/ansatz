@@ -21,12 +21,9 @@
    Architecture:
    - ansatz.tactic.omega.problem: constraint algebra, justification tree, problem data
    - ansatz.tactic.omega.fm: Fourier-Motzkin solver backend
-   - ansatz.tactic.omega.smt-backend: zustand SMT solver backend with Farkas certificates
-   - ansatz.solver.smt: generic SMT service (usable by any tactic)
    - This file: Ansatz proof term construction, reification, tactic entry points"
   (:require [clojure.string]
             [ansatz.kernel.expr :as e]
-            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
@@ -34,10 +31,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.decide :as decide-tac]
             [ansatz.tactic.omega.problem :as op]
-            [ansatz.tactic.omega.fm :as fm]
-            ;; smt-backend requires zustand (optional)
-            ;; [ansatz.tactic.omega.smt-backend :as smt-backend]
-            ))
+            [ansatz.tactic.omega.fm :as fm]))
 
 ;; ============================================================
 ;; Ansatz names for Lean.Omega.* constants
@@ -230,46 +224,18 @@
 
 ;; ============================================================
 ;; Delegations to ansatz.tactic.omega.problem
-;; (kept as private vars for backward compat with test resolve)
+;; (kept as private vars where omega_proof still references them directly)
 ;; ============================================================
 
-(def ^:private safe-abs op/safe-abs)
 (def ^:private mk-lc op/mk-lc)
 (def ^:private lc-coordinate op/lc-coordinate)
 (def ^:private lc-add op/lc-add)
 (def ^:private lc-sub op/lc-sub)
 (def ^:private lc-negate op/lc-negate)
 (def ^:private lc-scale op/lc-scale)
-(def ^:private lc-is-zero? op/lc-is-zero?)
-(def ^:private lc-clean op/lc-clean)
 (def ^:private int-bmod op/int-bmod)
-(def ^:private coeffs-bmod op/coeffs-bmod)
-(def ^:private min-nat-abs op/min-nat-abs)
-(def ^:private max-nat-abs op/max-nat-abs)
 
-(def ^:private mk-constraint op/mk-constraint)
 (def ^:private constraint-exact op/constraint-exact)
-(def ^:private constraint-geq op/constraint-geq)
-(def ^:private constraint-leq op/constraint-leq)
-(def ^:private constraint-trivial op/constraint-trivial)
-(def ^:private constraint-impossible? op/constraint-impossible?)
-(def ^:private constraint-is-exact? op/constraint-is-exact?)
-(def ^:private constraint-combine op/constraint-combine)
-(def ^:private constraint-combo op/constraint-combo)
-
-(def ^:private justification-assumption op/justification-assumption)
-(def ^:private justification-tidy op/justification-tidy)
-(def ^:private justification-combine op/justification-combine)
-(def ^:private justification-combo op/justification-combo)
-(def ^:private justification-bmod op/justification-bmod)
-(def ^:private mk-fact op/mk-fact)
-
-(def ^:private gcd-list op/gcd-list)
-
-(defn- tidy-fact
-  "Delegate to op/tidy-fact."
-  [fact]
-  (op/tidy-fact fact))
 
 ;; Dead code below replaced by delegation — this block is now unreachable
 ;; but we keep the comment for the floor-div logic reference
@@ -353,9 +319,9 @@
   "Build HSub.hSub Int Int Int instHSubInt."
   []
   (e/app* (e/const' (:hsub omega-names) [lvl/zero lvl/zero lvl/zero])
-          int-type int-type int-type
-          (e/app* (e/const' (name/from-string "instHSub") [lvl/zero])
-                  int-type (e/const' (name/from-string "Int.instSub") []))))
+    int-type int-type int-type
+    (e/app* (e/const' (name/from-string "instHSub") [lvl/zero])
+      int-type (e/const' (name/from-string "Int.instSub") []))))
 
 (defn- mk-int-hmul
   "Build HMul.hMul Int Int Int instHMulInt."
@@ -2890,130 +2856,6 @@
                          {:goal goal-type})))))))))))))
 
 ;; ============================================================
-;; SMT solver: delegated to ansatz.tactic.omega.smt-backend
-;; ============================================================
-
-(defn- smt-solve
-  "Run zustand SMT solver on the reified omega problem.
-   Returns the problem with :possible false and :proof-false set, or nil."
-  [problem]
-  ((requiring-resolve 'ansatz.tactic.omega.smt-backend/solve) problem))
-
-(defn- smt-omega-check
-  "Run omega with zustand SMT backend instead of internal FM solver.
-   Falls back to internal solver if SMT fails."
-  [st goal-type lctx neg-hyp-proof]
-  (let [table (mk-atom-table)
-        problem (mk-problem)
-        [table problem] (collect-hypotheses st table problem lctx)
-        _ (when (:direct-false problem)
-            (throw (ex-info "::direct-false::"
-                            {:direct-false (:direct-false problem)
-                             :atom-table table})))
-        [table negated] (negate-goal st table problem goal-type neg-hyp-proof)]
-    (when (:direct-false negated)
-      (throw (ex-info "::direct-false::"
-                      {:direct-false (:direct-false negated)
-                       :atom-table table})))
-    (let [base-problem (if (:disjunction negated)
-                         (queue-disjunction problem (:disjunction negated))
-                         negated)
-          nn-problem (add-nat-nonnegativity st table base-problem)
-          dichotomy-problem (add-nat-sub-dichotomies nn-problem table)
-          [table' ready-problem] (add-div-bounds st table dichotomy-problem)
-          ;; Try SMT solver first
-          smt-result (smt-solve ready-problem)]
-      (if smt-result
-        (assoc smt-result :atom-table table')
-        ;; Fall back to internal FM solver
-        (omega-impl st table' ready-problem 0)))))
-
-(defn smt-omega
-  "Close the current goal using SMT-certified omega.
-
-   Like `omega`, but uses zustand SMT solver with Farkas certificates
-   for the constraint solving step. The proof term is fully kernel-verified —
-   the SMT solver is only an oracle, not trusted.
-
-   Falls back to internal Fourier-Motzkin if zustand fails."
-  [ps]
-  ;; Fast path: try decide
-  (try
-    (decide-tac/decide ps)
-    (catch Exception _
-      (let [goal (proof/current-goal ps)
-            _ (when-not goal (tactic-error! "No goals" {}))
-            env (:env ps)
-            st (tc/mk-tc-state env)
-            st (assoc st :lctx (:lctx goal))
-            goal-type (:type goal)
-            goal-whnf (#'tc/cached-whnf st goal-type)
-            [head args] (e/get-app-fn-args goal-whnf)]
-        ;; Try rfl
-        (if (and (e/const? head)
-                 (= (e/const-name head) (:eq-name omega-names))
-                 (= 3 (count args))
-                 (tc/is-def-eq st (nth args 1) (nth args 2)))
-          (let [proof-term (e/app* (e/const' (:eq-refl omega-names) (e/const-levels head))
-                                   (nth args 0) (nth args 1))]
-            (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
-                (proof/record-tactic :smt-omega [] (:id goal))))
-          ;; Strip forall binders, run smt-omega-check
-          (let [[inner-goal fvar-infos lctx-with-intros]
-                (strip-forall-binders st goal-whnf (:lctx goal))
-                st-intros (assoc st :lctx lctx-with-intros)
-                inner-whnf (#'tc/cached-whnf st-intros inner-goal)
-                is-false-goal (and (e/const? inner-whnf)
-                                   (= (e/const-name inner-whnf) (:false-name omega-names)))
-                neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
-                neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
-                neg-type (when-not is-false-goal
-                           (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
-                lctx' (if neg-hyp-fvar-id
-                        (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
-                        lctx-with-intros)
-                st' (assoc st :lctx lctx')
-                result (try
-                         (smt-omega-check st' inner-goal lctx' neg-hyp-proof)
-                         (catch clojure.lang.ExceptionInfo ex
-                           (if (= "::direct-false::" (.getMessage ex))
-                             {:direct-false (:direct-false (ex-data ex))
-                              :atom-table (:atom-table (ex-data ex))}
-                             (throw ex))))]
-            (if-not result
-              (tactic-error! "smt-omega failed — could not derive contradiction"
-                             {:goal goal-type})
-              (try
-                (let [false-proof
-                      (if (:direct-false result)
-                        (:direct-false result)
-                        (let [atom-table (:atom-table result)
-                              atoms-expr (if atom-table
-                                           (build-atoms-expr atom-table)
-                                           (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) int-type))]
-                          (build-false-proof-from-result env result atoms-expr)))
-                      inner-proof (if is-false-goal
-                                    false-proof
-                                    (let [lam-body (e/abstract1 false-proof neg-hyp-fvar-id)
-                                          lam-term (e/lam "h_neg" neg-type lam-body :default)]
-                                      (e/app* (e/const' (:decidable-by-contra omega-names) [])
-                                              inner-goal
-                                              (e/app (e/const' (:classical-prop-dec omega-names) [])
-                                                     inner-goal)
-                                              lam-term)))
-                      proof-term (wrap-proof-in-lambdas inner-proof fvar-infos)]
-                  (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
-                      (proof/record-tactic :smt-omega [] (:id goal))))
-                (catch Exception ex
-                  ;; Fall back to regular omega
-                  (try
-                    (omega ps)
-                    (catch Exception _
-                      (tactic-error!
-                       (str "smt-omega: found contradiction but cannot certify: " (.getMessage ex))
-                       {:goal goal-type}))))))))))))
-
-;; ============================================================
 ;; Interactive cross-level API
 ;; ============================================================
 ;;
@@ -3187,12 +3029,6 @@
    Returns the result map or nil."
   [{:keys [st table problem] :as reified}]
   (omega-impl st table problem 0))
-
-(defn solve-smt
-  "Run the zustand SMT solver on a reified problem.
-   Returns the result map or nil."
-  [{:keys [problem] :as reified}]
-  ((requiring-resolve 'ansatz.tactic.omega.smt-backend/solve) problem))
 
 (defn certify
   "Reconstruct the full proof term from a solver result.

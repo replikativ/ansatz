@@ -13,7 +13,6 @@
             [ansatz.tactic.search :as search]
             [ansatz.tactic.trace :as trace]
             [ansatz.tactic.decide :as decide-tac]
-            [ansatz.tactic.instance :as instance]
             [ansatz.tactic.omega :as omega-tac]
             [ansatz.tactic.omega-proof :as omega-proof-tac]
             [ansatz.tactic.ring :as ring-tac]
@@ -153,11 +152,6 @@
   "Run the Fourier-Motzkin solver on a reified problem."
   [reified]
   (omega-proof-tac/solve-fm reified))
-
-(defn omega-solve-smt
-  "Run the zustand SMT solver on a reified problem."
-  [reified]
-  (omega-proof-tac/solve-smt reified))
 
 (defn omega-certify
   "Reconstruct the proof term from a solver result and close the goal."

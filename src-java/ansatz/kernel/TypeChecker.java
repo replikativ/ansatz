@@ -336,11 +336,6 @@ public final class TypeChecker {
         return stats;
     }
 
-    /** Get the ring buffer trace from the Reducer. */
-    public String[] getReducerTrace() {
-        return this.reducer.getTraceRing();
-    }
-
     /** Get the max whnf recursion depth. */
     public int getReducerMaxDepth() {
         return this.reducer.whnfMaxDepth;
@@ -1658,12 +1653,6 @@ public final class TypeChecker {
      * Application equality check (Lean 4's is_def_eq_app).
      * Compares function and arguments of two applications.
      */
-    // Diagnostic: track per-argument isDefEq call costs for heavy comparisons
-    private static final boolean DIAG_ARGS = Boolean.getBoolean("ansatz.diagArgs");
-    // Track unique vs repeated expensive pairs (pointer-pair key = canonical L+R)
-    private final java.util.HashMap<String, Integer> diagArgRepeatTracker =
-        DIAG_ARGS ? new java.util.HashMap<>() : null;
-
     private boolean isDefEqApp(Expr t, Expr s) {
         Object[] tfa = Reducer.getAppFnArgs(t);
         Object[] sfa = Reducer.getAppFnArgs(s);
@@ -1674,24 +1663,7 @@ public final class TypeChecker {
         if (tArgs.length != sArgs.length) return false;
         if (!isDefEq(tFn, sFn)) return false;
         for (int i = 0; i < tArgs.length; i++) {
-            if (DIAG_ARGS && !tArgs[i].isEqp(sArgs[i])) {
-                long before = isDefEqCalls;
-                boolean eq = isDefEq(tArgs[i], sArgs[i]);
-                long cost = isDefEqCalls - before;
-                if (cost > 1000) {
-                    // Use pointer identity of canonical args as key — same pointer = same canonical form
-                    String ptrKey = System.identityHashCode(tArgs[i]) + ":" + System.identityHashCode(sArgs[i]);
-                    int count = diagArgRepeatTracker.merge(ptrKey, 1, Integer::sum);
-                    String repeatTag = count > 1 ? " [REPEAT#" + count + "]" : "";
-                    System.err.println("[DIAG-ARG@d" + isDefEqDepth + "] fn=" + exprFingerprint(tFn, 2)
-                        + " arg[" + i + "] cost=" + cost + " eq=" + eq + repeatTag
-                        + "\n  L=" + exprFingerprint(tArgs[i], 6)
-                        + "\n  R=" + exprFingerprint(sArgs[i], 6));
-                }
-                if (!eq) return false;
-            } else {
-                if (!isDefEq(tArgs[i], sArgs[i])) return false;
-            }
+            if (!isDefEq(tArgs[i], sArgs[i])) return false;
         }
         return true;
     }
@@ -1973,6 +1945,8 @@ public final class TypeChecker {
         }
     }
 
+    private static final String[] EMPTY_REDUCER_TRACE = new String[0];
+
     /**
      * Type-check and return fuel used. For instrumentation.
      */
@@ -2054,11 +2028,11 @@ public final class TypeChecker {
                 }
                 // Note: env.addConstant result not captured here —
                 // callers must add ci to their env themselves
-                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), tc.getReducerTrace(), null};
+                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), EMPTY_REDUCER_TRACE, null};
             } catch (RuntimeException ex) {
-                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), tc.getReducerTrace(), ex.getMessage()};
+                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), EMPTY_REDUCER_TRACE, ex.getMessage()};
             } catch (StackOverflowError ex) {
-                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), tc.getReducerTrace(),
+                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), EMPTY_REDUCER_TRACE,
                     "StackOverflowError (whnf max depth: " + tc.getReducerMaxDepth() + ")"};
             }
         } finally {

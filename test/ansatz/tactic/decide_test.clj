@@ -1,12 +1,10 @@
 (ns ansatz.tactic.decide-test
-  "Tests for instance resolution, decide tactic, Ansatz→SMT translation, and smt tactic."
+  "Tests for instance resolution and the decide tactic."
   (:require [clojure.test :refer [deftest testing is]]
-            [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
@@ -120,11 +118,10 @@
           [ps _] (proof/start-proof env goal-type)
           ps (decide/decide ps)]
       (is (proof/solved? ps))
-      (let [term (extract/extract ps)]
-        ;; Verify with Java TypeChecker
-        (let [tc (TypeChecker. env)
-              inferred (.inferType tc term)]
-          (is (.isDefEq tc inferred goal-type)))))))
+      ;; Verify with Java TypeChecker
+      (let [term (extract/extract ps)
+            inferred (.inferType (TypeChecker. env) term)]
+        (is (.isDefEq (TypeChecker. env) inferred goal-type))))))
 
 (deftest test-decide-eq-nat-nonzero
   (testing "decide closes Eq Nat 42 42"
@@ -192,94 +189,6 @@
       ;; After intro, the goal has a free variable, which rfl can handle but
       ;; decide cannot (it needs ground terms). This documents the boundary.
       (is (thrown? Exception (decide/decide ps))))))
-
-;; ============================================================
-;; Ansatz → SMT-LIB translation tests
-;; ============================================================
-
-(deftest test-smt-translation-eq
-  (testing "Eq Nat 1 2 → (= 1 2)"
-    (let [env (require-env)
-          u1 (lvl/succ lvl/zero)
-          nat (e/const' (name/from-string "Nat") [])
-          prop (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 1) (e/lit-nat 2))
-          smt (decide/prop->smt env prop)]
-      (is (= '(= 1 2) smt)))))
-
-(deftest test-smt-translation-and
-  (testing "And (Eq Nat 0 0) (Eq Nat 1 1) → (and (= 0 0) (= 1 1))"
-    (let [env (require-env)
-          u1 (lvl/succ lvl/zero)
-          nat (e/const' (name/from-string "Nat") [])
-          eq00 (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 0) (e/lit-nat 0))
-          eq11 (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 1) (e/lit-nat 1))
-          prop (e/app* (e/const' (name/from-string "And") []) eq00 eq11)
-          smt (decide/prop->smt env prop)]
-      (is (= '(and (= 0 0) (= 1 1)) smt)))))
-
-(deftest test-smt-translation-not
-  (testing "Not (Eq Nat 0 1) → (not (= 0 1))"
-    (let [env (require-env)
-          u1 (lvl/succ lvl/zero)
-          nat (e/const' (name/from-string "Nat") [])
-          eq01 (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 0) (e/lit-nat 1))
-          prop (e/app* (e/const' (name/from-string "Not") []) eq01)
-          smt (decide/prop->smt env prop)]
-      (is (= '(not (= 0 1)) smt)))))
-
-(deftest test-smt-translation-true-false
-  (testing "True → true, False → false"
-    (let [env (require-env)]
-      (is (= 'true (decide/prop->smt env (e/const' (name/from-string "True") []))))
-      (is (= 'false (decide/prop->smt env (e/const' (name/from-string "False") [])))))))
-
-;; ============================================================
-;; Mock Z3 tests
-;; ============================================================
-
-(deftest test-mock-z3-ground
-  (testing "Mock Z3 evaluates ground formulas"
-    (is (= :sat (decide/mock-z3 '(= 0 0))))
-    (is (= :unsat (decide/mock-z3 '(= 0 1))))
-    (is (= :sat (decide/mock-z3 '(and (= 1 1) (= 2 2)))))
-    (is (= :unsat (decide/mock-z3 '(and (= 0 0) (= 0 1)))))
-    (is (= :sat (decide/mock-z3 '(or (= 0 0) (= 0 1)))))
-    (is (= :sat (decide/mock-z3 '(not (= 0 1)))))
-    (is (= :unsat (decide/mock-z3 '(not (= 0 0)))))
-    (is (= :sat (decide/mock-z3 '(<= 1 2))))
-    (is (= :unsat (decide/mock-z3 '(< 2 2))))
-    (is (= :sat (decide/mock-z3 '(= (+ 1 2) 3))))))
-
-;; ============================================================
-;; smt tactic tests
-;; ============================================================
-
-(deftest test-smt-tactic-eq
-  (testing "smt tactic closes Eq Nat 0 0"
-    (let [env (require-env)
-          u1 (lvl/succ lvl/zero)
-          nat (e/const' (name/from-string "Nat") [])
-          goal-type (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 0) (e/lit-nat 0))
-          [ps _] (proof/start-proof env goal-type)
-          ps (decide/smt ps)]
-      (is (proof/solved? ps)))))
-
-(deftest test-smt-tactic-and-verified
-  (testing "smt tactic closes compound proposition and verifies with kernel"
-    (let [env (require-env)
-          u1 (lvl/succ lvl/zero)
-          nat (e/const' (name/from-string "Nat") [])
-          eq00 (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 0) (e/lit-nat 0))
-          eq11 (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 1) (e/lit-nat 1))
-          goal-type (e/app* (e/const' (name/from-string "And") []) eq00 eq11)
-          [ps _] (proof/start-proof env goal-type)
-          ps (decide/smt ps)]
-      (is (proof/solved? ps))
-      ;; Verify extraction and type-checking
-      (let [term (extract/extract ps)
-            tc (TypeChecker. env)
-            inferred (.inferType tc term)]
-        (is (.isDefEq tc inferred goal-type))))))
 
 ;; ============================================================
 ;; End-to-end: elaborate + decide
@@ -387,30 +296,4 @@
           ps (basic/exact ps term)]
       (is (proof/solved? ps))
       (let [proof-term (extract/verify ps)]
-        (is (some? proof-term))))))
-
-;; ============================================================
-;; sexp->zustand conversion tests
-;; ============================================================
-
-(deftest test-sexp->zustand-basic
-  (testing "sexp->zustand converts SMT-LIB s-expressions to zustand vectors"
-    (is (= [:eq :x 5] (decide/sexp->zustand '(= x 5))))
-    (is (= [:and [:>= :x 0] [:<= :x 10]]
-           (decide/sexp->zustand '(and (>= x 0) (<= x 10)))))
-    (is (= [:not [:eq :a :b]]
-           (decide/sexp->zustand '(not (= a b)))))
-    (is (= [:or [:< :x 3] [:> :x 7]]
-           (decide/sexp->zustand '(or (< x 3) (> x 7)))))
-    (is (= [:eq [:+ :x 1] 5]
-           (decide/sexp->zustand '(= (+ x 1) 5))))
-    (is (= [:eq [:- :a :b] [:* :c :d]]
-           (decide/sexp->zustand '(= (- a b) (* c d)))))
-    (is (= true (decide/sexp->zustand 'true)))
-    (is (= false (decide/sexp->zustand 'false)))
-    (is (= 42 (decide/sexp->zustand 42)))))
-
-;; ============================================================
-;; zustand SMT solver tests (require zustand optional dep)
-;; zustand SMT tests removed — zustand is an optional dependency (not yet released).
-;; Re-enable when zustand is on the classpath via the :smt alias.
+         (is (some? proof-term))))))

@@ -70,10 +70,12 @@
                         hk0 :- (<= Real 0 k), hk1 :- (<= Real k 1), he0 :- (<= Real 0 e0)]
                       '(<= Real (mul Real (pow Real k (+ n 1)) e0)
                            (mul Real (pow Real k n) e0))
-                      '[(apply mul_le_mul_of_nonneg_right) (apply pow_le_pow_of_le_one)
-                        (apply sub_nonneg_of_le) (assumption)
-                        (apply sub_le_self) (apply mul_nonneg) (assumption) (assumption)
-                        (apply Nat.le_add_right) (assumption)])
+                      '[(apply mul_le_mul_of_nonneg_right)
+                        (apply pow_le_pow_of_le_one)
+                        (assumption)
+                        (assumption)
+                        (apply Nat.le_add_right)
+                        (assumption)])
      (is true))))
 
 ;; ============================================================

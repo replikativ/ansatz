@@ -20,9 +20,6 @@
                  cheshire/cheshire {:mvn/version "5.11.0"}}
           :ns-default build}
 
-  ;; Optional: zustand SMT solver
-  :smt {:extra-deps {io.replikativ/zustand {:local/root "../sat-clj"}}}
-
   ;; Tests
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner

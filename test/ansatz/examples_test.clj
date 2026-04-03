@@ -19,40 +19,46 @@
       (when (.exists (java.io.File. f))
         (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
 
-(defn- with-init-env [f]
-  (when-let [base-env @init-env]
-    (let [env (env/fork base-env)
-          tsv "resources/instances.tsv"
-          load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-          build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-          idx (if (.exists (java.io.File. tsv))
-                (load-tsv tsv)
-                (build-fn env))]
-      (reset! a/ansatz-env env)
-      (reset! a/ansatz-instance-index idx)
-      ;; Define RB tree types once for all match tests
-      (binding [a/*verbose* false]
-        (when-not (env/lookup (a/env) (name/from-string "TRBColor"))
-          (eval '(ansatz.core/inductive TRBColor [] (red) (black)))
-          (eval '(ansatz.core/inductive TRBTree [α Type]
-                                        (leaf) (node [color TRBColor] [left (TRBTree α)] [key α] [right (TRBTree α)]))))
-        ;; Define isort functions once for all isort tests
-        (when-not (env/lookup (a/env) (name/from-string "ex-sorted"))
-          (eval '(ansatz.core/defn ex-sorted [l (List Nat)] Bool
-                   (match l (List Nat) Bool
-                     (nil true) (cons [hd tl] (match tl (List Nat) Bool
-                       (nil true) (cons [hd2 tl2] (match (<= hd hd2) Bool Bool
-                         (true ih_tail) (false false))))))))
-          (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
-                   (match l (List Nat) (List Nat)
-                     (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
-                       (true (cons x l)) (false (cons hd ih_tail)))))))
-          (eval '(ansatz.core/defn ex-isort [l (List Nat)] (List Nat)
-                   (match l (List Nat) (List Nat)
-                     (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail))))))
-        (f)))))
+(def ^:private baseline-state
+  (delay
+    (when-let [base-env @init-env]
+      (let [env (env/fork base-env)
+            tsv "resources/instances.tsv"
+            load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
+            build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
+            idx (if (.exists (java.io.File. tsv))
+                  (load-tsv tsv)
+                  (build-fn env))]
+        (reset! a/ansatz-env env)
+        (reset! a/ansatz-instance-index idx)
+        (binding [a/*verbose* false]
+          (when-not (env/lookup (a/env) (name/from-string "TRBColor"))
+            (eval '(ansatz.core/inductive TRBColor [] (red) (black)))
+            (eval '(ansatz.core/inductive TRBTree [α Type]
+                                          (leaf) (node [color TRBColor] [left (TRBTree α)] [key α] [right (TRBTree α)]))))
+          (when-not (env/lookup (a/env) (name/from-string "ex-sorted"))
+            (eval '(ansatz.core/defn ex-sorted [l (List Nat)] Bool
+                     (match l (List Nat) Bool
+                       (nil true) (cons [hd tl] (match tl (List Nat) Bool
+                         (nil true) (cons [hd2 tl2] (match (<= hd hd2) Bool Bool
+                           (true ih_tail) (false false))))))))
+            (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
+                     (match l (List Nat) (List Nat)
+                       (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
+                         (true (cons x l)) (false (cons hd ih_tail)))))))
+            (eval '(ansatz.core/defn ex-isort [l (List Nat)] (List Nat)
+                     (match l (List Nat) (List Nat)
+                       (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail)))))))
+          {:env @a/ansatz-env
+           :idx @a/ansatz-instance-index}))))
 
-(use-fixtures :once with-init-env)
+(defn- with-baseline-env [f]
+  (when-let [{:keys [env idx]} @baseline-state]
+    (reset! a/ansatz-env (env/fork env))
+    (reset! a/ansatz-instance-index idx)
+    (f)))
+
+(use-fixtures :each with-baseline-env)
 
 ;; ============================================================
 ;; Structure tests (init-medium sufficient)
@@ -679,15 +685,20 @@
   (delay
     (try
       (let [store-path "/var/tmp/ansatz-mathlib"]
-        (when (.exists (java.io.File. store-path))
-          (binding [a/*verbose* false]
-            (a/init! store-path "mathlib"))
-          (some? (env/lookup (a/env) (name/from-string "Real")))))
+        (.exists (java.io.File. store-path)))
       (catch Exception _ false))))
 
 (defmacro ^:private when-mathlib [& body]
   `(if @mathlib-available?
-     (binding [a/*verbose* false] ~@body)
+     (let [saved-env# @a/ansatz-env
+           saved-idx# @a/ansatz-instance-index]
+       (try
+         (binding [a/*verbose* false]
+           (a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+           ~@body)
+         (finally
+           (reset! a/ansatz-env saved-env#)
+           (reset! a/ansatz-instance-index saved-idx#))))
      (is true "skipped: Mathlib store not available")))
 
 (deftest test-gd-defn

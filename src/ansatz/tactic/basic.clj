@@ -55,6 +55,66 @@
   (let [st (mk-tc ps goal-lctx)]
     (#'tc/cached-whnf st expr)))
 
+(defn- instantiate-solved-mvars
+  "Instantiate solved proof-state mvars that are represented as fvars in expr."
+  [ps expr mvar-ids]
+  (reduce (fn [t mid]
+            (let [m (get-in ps [:mctx mid])]
+              (if (and m (:assignment m)
+                       (= :exact (:kind (:assignment m))))
+                (e/instantiate1 (e/abstract1 t mid)
+                                (:term (:assignment m)))
+                t)))
+          expr mvar-ids))
+
+(defn- normalize-for-match
+  "Recursively normalize an expression enough for tactic-side matching.
+   Unlike plain WHNF, this also reduces inside the application spine so
+   projection-heavy theorem conclusions can be compared to elaborated goals."
+  [ps goal-lctx expr]
+  (letfn [(go [expr]
+            (let [expr (whnf-in-goal ps goal-lctx expr)]
+              (case (e/tag expr)
+                :app (let [nf (go (e/app-fn expr))
+                           na (go (e/app-arg expr))
+                           rebuilt (if (and (identical? nf (e/app-fn expr))
+                                            (identical? na (e/app-arg expr)))
+                                     expr
+                                     (e/app nf na))]
+                       (whnf-in-goal ps goal-lctx rebuilt))
+                :lam (let [nt (go (e/lam-type expr))
+                           nb (go (e/lam-body expr))]
+                       (if (and (identical? nt (e/lam-type expr))
+                                (identical? nb (e/lam-body expr)))
+                         expr
+                         (e/lam (e/lam-name expr) nt nb (e/lam-info expr))))
+                :forall (let [nt (go (e/forall-type expr))
+                              nb (go (e/forall-body expr))]
+                          (if (and (identical? nt (e/forall-type expr))
+                                   (identical? nb (e/forall-body expr)))
+                            expr
+                            (e/forall' (e/forall-name expr) nt nb (e/forall-info expr))))
+                :let (let [nt (go (e/let-type expr))
+                           nv (go (e/let-value expr))
+                           nb (go (e/let-body expr))
+                           rebuilt (if (and (identical? nt (e/let-type expr))
+                                            (identical? nv (e/let-value expr))
+                                            (identical? nb (e/let-body expr)))
+                                     expr
+                                     (e/let' (e/let-name expr) nt nv nb))]
+                       (whnf-in-goal ps goal-lctx rebuilt))
+                :proj (let [ns (go (e/proj-struct expr))
+                            rebuilt (if (identical? ns (e/proj-struct expr))
+                                      expr
+                                      (e/proj (e/proj-type-name expr) (e/proj-idx expr) ns))]
+                        (whnf-in-goal ps goal-lctx rebuilt))
+                :mdata (let [ne (go (e/mdata-expr expr))]
+                         (if (identical? ne (e/mdata-expr expr))
+                           expr
+                           (e/mdata (e/mdata-data expr) ne)))
+                expr)))]
+    (go expr)))
+
 ;; ============================================================
 ;; First-order pattern matching (for apply unification)
 ;; ============================================================
@@ -354,23 +414,19 @@
         ;;
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
-        (let [goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
-              ty-whnf (whnf-in-goal ps (:lctx goal) ty)
-              ;; Substitute ALL resolved mvars into the result type
-              resolved-ty (reduce (fn [t mid]
-                                    (let [m (get-in ps [:mctx mid])]
-                                      (if (and m (:assignment m)
-                                               (= :exact (:kind (:assignment m))))
-                                        (e/instantiate1 (e/abstract1 t mid)
-                                                        (:term (:assignment m)))
-                                        t)))
-                                  ty arg-mvars)
-              resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)
+          (let [resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
+            goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
+            resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)
+            goal-norm (normalize-for-match ps (:lctx goal) (:type goal))
+            resolved-norm (normalize-for-match ps (:lctx goal) resolved-ty)
               ;; Strategy A: structural matching
-              subst (or (match-expr ty (:type goal) mvar-id-set)
-                        (match-expr ty goal-whnf mvar-id-set)
-                        (match-expr ty-whnf (:type goal) mvar-id-set)
-                        (match-expr ty-whnf goal-whnf mvar-id-set)
+            subst (or (match-expr resolved-ty (:type goal) mvar-id-set)
+              (match-expr resolved-ty goal-whnf mvar-id-set)
+              (match-expr resolved-whnf (:type goal) mvar-id-set)
+              (match-expr resolved-whnf goal-whnf mvar-id-set)
+              (match-expr resolved-norm goal-norm mvar-id-set)
+              (match-expr resolved-norm goal-whnf mvar-id-set)
+              (match-expr resolved-whnf goal-norm mvar-id-set)
                         ;; Strategy B: Java TC isDefEq (Lean 4's primary mechanism).
                         ;; isDefEq on resolved-ty (with assigned mvars substituted)
                         ;; handles cases where heads differ structurally but are def-eq
@@ -391,12 +447,12 @@
                             ;; First, try to resolve remaining mvars by WHNF-matching
                             ;; the resolved type against the goal type. This handles cases
                             ;; like Nat.le vs LE.le where heads differ but are def-eq.
-                            (let [;; Collect unresolved mvar fvar-ids
+                                (let [;; Collect unresolved mvar fvar-ids
                                   unresolved (set (filter (fn [mid]
                                                            (let [m (get-in ps [:mctx mid])]
                                                              (and m (not (:assignment m)))))
                                                          arg-mvars))
-                                  ;; Try structural extraction on WHNF'd forms first
+                                  ;; Try structural extraction on recursively-normalized forms first
                                   deep-subst (atom {})
                                   _ (letfn [(extract [r g]
                                               (cond
@@ -406,24 +462,29 @@
                                                 (do (extract (e/app-fn r) (e/app-fn g))
                                                     (extract (e/app-arg r) (e/app-arg g)))
                                                 :else nil))]
+                                      (try (extract resolved-norm goal-norm) (catch Exception _ nil))
                                       (try (extract resolved-whnf goal-whnf) (catch Exception _ nil)))
                                   ;; Substitute extracted bindings into resolved-ty
                                   resolved-ty' (reduce (fn [t [mid val]]
                                                          (e/instantiate1 (e/abstract1 t mid) val))
                                                        resolved-ty @deep-subst)
+                                  resolved-ty'' (normalize-for-match ps (:lctx goal) resolved-ty')
                                   ;; Now try isDefEq with all mvars resolved
-                                  deq (or (.isDefEq jtc resolved-ty' (:type goal))
+                                  deq (or (.isDefEq jtc resolved-ty'' goal-norm)
+                                          (.isDefEq jtc resolved-ty' (:type goal))
                                           ;; Also try with original (in case extraction was wrong)
                                           (.isDefEq jtc resolved-ty (:type goal)))]
                                 (when deq @deep-subst)))
                           (catch Exception _ nil))
                         ;; Direct equality
-                        (when (or (= ty (:type goal)) (= ty goal-whnf)) {}))]
+                        (when (or (= resolved-ty (:type goal))
+                                  (= resolved-ty goal-whnf)
+                                  (= resolved-norm goal-norm)) {}))]
           (when-not subst
             (tactic-error! (str "apply: result type does not match goal\n"
-                                "  result: " (e/->string ty) "\n"
+                                "  result: " (e/->string resolved-ty) "\n"
                                 "  goal:   " (e/->string (:type goal)))
-                           {:expected (:type goal) :actual ty :term term}))
+                           {:expected (:type goal) :actual resolved-ty :term term}))
 
           ;; Assign solved mvars from the substitution
           (let [ps (reduce (fn [ps mvar-id]

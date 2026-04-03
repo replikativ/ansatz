@@ -83,7 +83,7 @@ PSS external lookup loads declarations on demand, so skipping doesn't reprocess 
 
 ## Lean 4 Kernel Tracing
 
-The lean4 repo at `../lean4` has kernel tracing built in. Enable it with:
+The lean4 repo at `../lean4` has kernel tracing — this was added by us (commit `55f80e10`, not in upstream Lean 4). Enable it with:
 ```bash
 LEAN_KERNEL_TRACE=/tmp/lean-trace.ndjson lean4 ...
 ```

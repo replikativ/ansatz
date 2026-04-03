@@ -560,25 +560,26 @@
           (is (not (:possible result))
               "2x = 3 has no integer solution"))))))
 
-;; Full flatstore env for non-ground omega (needs Lean.Omega.* constants)
-(def ^:private flatstore-env
+;; Full Mathlib env for non-ground omega (needs Lean.Omega.* constants)
+(def ^:private mathlib-store-env
   (delay
-    (let [path "/tmp/ansatz-flatstore-mathlib"]
+    (let [path "/var/tmp/ansatz-mathlib"]
       (when (.exists (java.io.File. path))
         (try
           (require '[ansatz.export.storage :as storage])
-          (:env ((resolve 'ansatz.export.storage/prepare-verify-flat) path))
+          (let [store-map ((resolve 'ansatz.export.storage/open-store) path)]
+            ((resolve 'ansatz.export.storage/load-env) store-map "mathlib"))
           (catch Exception _ nil))))))
 
-(defn- require-flatstore-env []
-  (let [env @flatstore-env]
+(defn- require-mathlib-env []
+  (let [env @mathlib-store-env]
     (when-not env
-      (println "  SKIP: flatstore not available at /tmp/ansatz-flatstore-mathlib"))
+      (println "  SKIP: Mathlib store not available at /var/tmp/ansatz-mathlib (branch \"mathlib\")"))
     env))
 
 (deftest test-omega-proof-nonground-false
   (testing "omega-proof on non-ground False goals (verified by Java TC)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a < a → False"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -617,7 +618,7 @@
 
 (deftest test-omega-proof-equality-goal
   (testing "omega-proof on equality goals (by_contra + Or.elim disjunction)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a ≤ b → b ≤ a → a = b"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -642,7 +643,7 @@
 
 (deftest test-omega-proof-and-goal
   (testing "omega-proof on conjunction goals (¬(P ∧ Q) → ¬P ∨ ¬Q disjunction)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a ≤ b → b ≤ a → a ≤ b ∧ b ≤ a"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -673,7 +674,7 @@
 
 (deftest test-omega-proof-not-hypothesis
   (testing "omega-proof with Not hypotheses (¬LE, ¬LT converted to constraints)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "¬(a < b) → a < b → False"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -698,7 +699,7 @@
 
 (deftest test-omega-proof-or-goal
   (testing "omega-proof on disjunction goals (¬(P ∨ Q) → ¬P ∧ ¬Q)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a < b → a ≤ b ∨ b ≤ a"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -715,7 +716,7 @@
 
 (deftest test-omega-proof-or-hypothesis
   (testing "omega-proof with Or hypothesis (case-splitting via disjunction queue)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "(a < b ∨ b < a) → a = b → False"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -745,7 +746,7 @@
 
 (deftest test-omega-proof-ne-hypothesis
   (testing "omega-proof with Ne hypothesis (disjunction from Ne)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a ≠ b → a ≤ b → b ≤ a → False"
         (prove-and-verify env
                           (e/forall' "a" (mk-nat)
@@ -760,7 +761,7 @@
 
 (deftest test-omega-proof-nat-sub
   (testing "omega-proof with non-ground Nat.sub (solver finds contradiction)"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       ;; Note: proof term construction for Nat.sub dichotomies is not yet fully certified.
       ;; These tests verify the solver logic finds contradictions correctly.
       (testing "a ≤ b → a - b = 0"
@@ -807,7 +808,7 @@
 
 (deftest test-omega-proof-implication
   (testing "omega-proof with implication hypotheses"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       ;; P -> Q as hypothesis gets decomposed to Not-P Or Q
       (testing "trivial implication: 0 <= a -> 0 <= a"
         (let [goal-type (e/forall' "a" (mk-nat)
@@ -820,7 +821,7 @@
 
 (deftest test-omega-proof-neg-implication
   (testing "omega-proof with negated implication in goal"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       ;; Not(P -> Q) -> P And Not-Q via not_imp
       ;; Not(a <= 5 -> a <= 3) -> (a <= 5) And Not(a <= 3) -> a <= 5 and 3 < a -> 3 < a
       (testing "Not(a <= 5 -> a <= 3) -> 3 < a"
@@ -836,7 +837,7 @@
 
 (deftest test-omega-proof-positive-iff
   (testing "omega-proof with positive Iff hypothesis"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       ;; (a <= 3 Iff a >= 4) -> False
       ;; Left branch: a <= 3 And a >= 4 -> contradiction
       ;; Right branch: Not(a<=3) And Not(a>=4) -> 3 < a And a < 4 -> contradiction
@@ -853,7 +854,7 @@
 
 (deftest test-omega-proof-neg-iff
   (testing "omega-proof with negated Iff in goal"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       ;; a = 4 -> Not(a <= 5 Iff a <= 3)
       ;; a=4: a<=5=T, a<=3=F, T Iff F = F, Not F = T
       ;; by_contra assumes (a<=5 Iff a<=3), decomposes to contradiction with a=4
@@ -871,7 +872,7 @@
 
 (deftest test-omega-proof-div-bounds
   (testing "omega-proof with division bounds"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a / 3 * 3 <= a (Nat.div_mul_le_self)"
         (let [goal-type (e/forall' "a" (mk-nat)
                                    (mk-le-prop (mk-hmul (mk-hdiv (e/bvar 0) (n 3)) (n 3))
@@ -893,7 +894,7 @@
 
 (deftest test-omega-proof-mod-decomposition
   (testing "omega-proof with mod decomposition (a % k -> a - k*(a/k))"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (testing "a % 3 < 3"
         (let [goal-type (e/forall' "a" (mk-nat)
                                    (mk-lt-prop (mk-hmod (e/bvar 0) (n 3)) (n 3))
@@ -914,7 +915,7 @@
 
 (deftest test-omega-proof-int-negation
   (testing "omega-proof with Neg.neg (Int negation): -a + a = 0"
-    (when-let [env (require-flatstore-env)]
+    (when-let [env (require-mathlib-env)]
       (let [int-type (e/const' (name/from-string "Int") [])
             mk-int-add (fn [a b] (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
                                          int-type int-type int-type

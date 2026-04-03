@@ -50,14 +50,6 @@ public final class Reducer {
     int whnfDepth;           // current recursion depth
     int whnfMaxDepth;        // max recursion depth seen
     Expr whnfMaxDepthExpr;   // expression at max depth
-    Expr whnfFirstDeepExpr;  // first expression at depth 100
-    StackTraceElement[] whnfFirstDeepStack;  // stack trace at depth 100
-
-    // Ring buffer trace: last N operations
-    private static final int TRACE_RING_SIZE = 1024;
-    private final String[] traceRing = new String[TRACE_RING_SIZE];
-    private int traceRingPos = 0;
-    private long traceSeq = 0; // monotonic sequence number
 
     // Transparency mode (Lean 4: reducible < instances < default < all)
     // 0 = reducible only (most restrictive — for equation theorem generation)
@@ -871,13 +863,6 @@ public final class Reducer {
     /** Public fuel check for TypeChecker's isDefEq recursion. */
     public void checkFuelPublic() { checkFuel(); }
 
-    /** Record an operation in the ring buffer trace. */
-    private void traceOp(String op, Object detail) {
-        traceRing[traceRingPos] = traceSeq + ":" + op + ":" + detail;
-        traceRingPos = (traceRingPos + 1) & (TRACE_RING_SIZE - 1);
-        traceSeq++;
-    }
-
     /**
      * Get instrumentation counters as a HashMap (for Clojure interop).
      * Keys: "beta", "delta", "iota", "zeta", "mdata", "fvar-let", "proj",
@@ -903,24 +888,6 @@ public final class Reducer {
 
     /** Get the expression that triggered the maximum whnf depth. */
     public Expr getMaxDepthExpr() { return whnfMaxDepthExpr; }
-    /** Get the first expression at depth 100. */
-    public Expr getFirstDeepExpr() { return whnfFirstDeepExpr; }
-    /** Get the stack trace at depth 100. */
-    public StackTraceElement[] getFirstDeepStack() { return whnfFirstDeepStack; }
-
-    /**
-     * Get the last N trace entries (most recent last).
-     * Returns array of strings: "seq:op:detail".
-     */
-    public String[] getTraceRing() {
-        int count = (int) Math.min(traceSeq, TRACE_RING_SIZE);
-        String[] result = new String[count];
-        int start = (traceRingPos - count + TRACE_RING_SIZE) & (TRACE_RING_SIZE - 1);
-        for (int i = 0; i < count; i++) {
-            result[i] = traceRing[(start + i) & (TRACE_RING_SIZE - 1)];
-        }
-        return result;
-    }
 
     // ============================================================
     // Nat literal reduction
@@ -1748,7 +1715,6 @@ public final class Reducer {
                         if (decl != null && ((Integer) decl[0]) == 1) { // let-decl
                             checkFuel();
                             fvarLetCount++;
-                            traceOp("fvar-let", e.longVal);
                             e = (Expr) decl[3]; // value
                             continue;
                         }
@@ -1768,14 +1734,13 @@ public final class Reducer {
                 case Expr.LET:
                     checkFuel();
                     zetaCount++;
-                    traceOp("zeta", "let");
                     e = Expr.deepReIntern(instantiate1((Expr) e.o3, (Expr) e.o2));
                     { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
                     continue;
 
                 case Expr.PROJ: {
                     Expr r = tryReduceProj(e, cheapRec, cheapProj);
-                    if (r != null) { checkFuel(); projCount++; traceOp("proj", e.o0); e = r; continue; }
+                    if (r != null) { checkFuel(); projCount++; e = r; continue; }
                     return e;
                 }
 
@@ -1802,7 +1767,6 @@ public final class Reducer {
                     if (head2.tag == Expr.LAM) {
                         checkFuel();
                         betaCount++;
-                        traceOp("beta", numArgs);
                         Expr f = head2;
                         int m = 1;
                         while (((Expr) f.o2).tag == Expr.LAM && m < numArgs) {
@@ -1829,7 +1793,6 @@ public final class Reducer {
                         if (reduced != null) {
                             checkFuel();
                             iotaCount++;
-                            traceOp("iota", f0.o0);
                             e = Expr.deepReIntern(reduced);
                             { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
                             continue;
@@ -1880,11 +1843,6 @@ public final class Reducer {
             whnfMaxDepth = whnfDepth;
             whnfMaxDepthExpr = e;
         }
-        // Capture the expression and stack that first enters deep recursion
-        if (whnfDepth == 100 && whnfFirstDeepExpr == null) {
-            whnfFirstDeepExpr = e;
-            whnfFirstDeepStack = Thread.currentThread().getStackTrace();
-        }
         // Depth tracking is for diagnostics only — no limit enforced.
         try {
             Expr raw = whnfLoop(e);
@@ -1913,7 +1871,6 @@ public final class Reducer {
             Expr natResult = tryReduceNat(head, args);
             if (natResult != null) {
                 checkFuel();
-                traceOp("nat", head.o0);
                 e = whnfCore(natResult);
                 continue;
             }
@@ -1930,7 +1887,6 @@ public final class Reducer {
             if (unfolded != null) {
                 checkFuel();
                 deltaCount++;
-                traceOp("delta", head.o0);
                 e = whnfCore(mkApps(unfolded, args));
                 continue;
             }
