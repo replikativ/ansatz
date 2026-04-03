@@ -7,7 +7,7 @@
   (:import [java.util ArrayList]
            [ansatz.kernel ConstantInfo ExprStore Name]))
 
-(def example-file "/home/christian-weilbach/Development/lean4export/examples/Nat.add_succ.ndjson")
+(def example-file "test-data/Nat.add_succ.ndjson")
 
 (deftest parse-ndjson-file-test
   (testing "Parse Nat.add_succ.ndjson example"

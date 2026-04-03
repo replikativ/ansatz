@@ -9,7 +9,7 @@
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
-(def example-file "/home/christian-weilbach/Development/lean4export/examples/Nat.add_succ.ndjson")
+(def example-file "test-data/Nat.add_succ.ndjson")
 
 (defn- temp-dir []
   (str (Files/createTempDirectory "ansatz-storage-test"

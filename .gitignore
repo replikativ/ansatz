@@ -8,8 +8,10 @@ target/
 # nREPL
 .nrepl-port
 
-# Test data (large ndjson files)
-test-data/
+# Test data
+test-data/*
+!test-data/Nat.add_succ.ndjson
+!test-data/lean-sources/
 
 # Generated resources (reproducible via setup-mathlib.sh)
 resources/instances.tsv

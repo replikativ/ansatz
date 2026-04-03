@@ -5,7 +5,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]))
 
-(def example-file "/home/christian-weilbach/Development/lean4export/examples/Nat.add_succ.ndjson")
+(def example-file "test-data/Nat.add_succ.ndjson")
 
 (deftest replay-nat-add-succ-test
   (testing "Replay Nat.add_succ example"

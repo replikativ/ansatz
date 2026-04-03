@@ -4,7 +4,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.name :as name])
+            [ansatz.kernel.name :as name]
+            [ansatz.export.parser :refer [parse-ndjson-file]])
   (:import [ansatz.kernel TypeChecker Reducer Expr Env ConstantInfo Name Level]))
 
 ;; ============================================================
@@ -166,19 +167,22 @@
   (testing "Replay Nat.add_succ with checkConstantFuelStats"
     (let [f "test-data/Nat.add_succ.ndjson"]
       (when (.exists (java.io.File. f))
-        (let [parse-fn (requiring-resolve 'ansatz.export.parser/parse-ndjson-file)
-              st (parse-fn f)
-              env (Env.)
+        (let [st (parse-ndjson-file f)
+              env (atom (Env.))
               fuel 10000000
               errors (atom 0)]
-          (doseq [[n ci] (:decls st)]
+          (doseq [ci (:decls st)]
             (try
               (if (.isQuot ci)
-                (do (.enableQuot env) (.addConstant env ci))
+                (swap! env (fn [^Env current-env]
+                             (.addConstant (.enableQuot current-env) ci)))
                 (if (or (.isInduct ci) (.isCtor ci) (.isRecursor ci))
-                  (do (TypeChecker/checkType env ci fuel)
-                      (.addConstant env ci))
-                  (let [^objects result (TypeChecker/checkConstantFuelStats env ci fuel)]
+                  (do (TypeChecker/checkType ^Env @env ci fuel)
+                      (swap! env (fn [^Env current-env]
+                                   (.addConstant current-env ci))))
+                  (let [^objects result (TypeChecker/checkConstantFuelStats ^Env @env ci fuel)]
+                    (swap! env (fn [^Env current-env]
+                                 (.addConstant current-env ci)))
                     (when (or (.isThm ci) (.isOpaq ci))
                       (set! (.value ci) nil)))))
               (catch Exception ex
