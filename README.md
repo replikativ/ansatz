@@ -1,8 +1,8 @@
 # Ansatz
 
-**Write Clojure. Prove it correct. Run at native speed.**
+**Write Clojure. Prove it correct. Run as ordinary JVM code.**
 
-Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to native Clojure.
+Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to ordinary Clojure/JVM code.
 
 **Same kernel, different surface.** Ansatz shares Lean 4's CIC kernel — a proof verified in Ansatz is valid in Lean 4 and vice versa. Proofs can be [exported to Lean 4](doc/lean4-for-clojurians.md) syntax. The difference is the surface language: Lean 4 uses its own syntax; Ansatz uses Clojure s-expressions and runs on the JVM. See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the full comparison, translation guide, and learning path.
 
@@ -59,7 +59,7 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
                  (true true)              ;; found it
                  (false ih_right)))))))   ;; recurse into right subtree
 
-;; All verified functions compile to native Clojure and run at full speed
+;; All verified functions compile to ordinary Clojure and run on the JVM
 (rb-size tree)           ;; => 10
 (rb-member tree 4)       ;; => true
 (rb-member tree 42)      ;; => false
@@ -160,7 +160,7 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 - **Lean 4 Mathlib + CSLib** — 648k Mathlib declarations + CSLib verified algorithms
 - **Tactic proofs** — `apply`, `simp`, `omega`, `ring`, `grind`, `assumption`, `induction`, `cases`, and more
 - **Instance synthesis** — automatic typeclass resolution with tabled backtracking
-- **Compiled output** — verified `defn` compiles to native Clojure `fn` with arity-aware flat calls
+- **Compiled output** — verified `defn` compiles to ordinary Clojure `fn` with arity-aware flat calls
 - **Extensible** — register custom tactics, elaborators, and simprocs with full kernel access
 - **Immutable proof state** — free backtracking via Clojure persistent data structures
 
