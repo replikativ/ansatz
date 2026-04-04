@@ -105,8 +105,8 @@
 
       ;; Prove alpha = alpha using decide
       (is (nil? (a/theorem deq-test-eq []
-                  (= DEqTest (DEqTest.alpha) (DEqTest.alpha))
-                  (decide)))
+                           (= DEqTest (DEqTest.alpha) (DEqTest.alpha))
+                           (decide)))
           "decide should close alpha = alpha"))))
 
 (deftest test-decide-inequality
@@ -120,6 +120,6 @@
 
       ;; Prove Not (x1 = x2) using decide
       (is (nil? (a/theorem dneq-test []
-                  (Not (= DNeqTest (DNeqTest.x1) (DNeqTest.x2)))
-                  (decide)))
+                           (Not (= DNeqTest (DNeqTest.x1) (DNeqTest.x2)))
+                           (decide)))
           "decide should close Not (x1 = x2)"))))

@@ -464,10 +464,10 @@
         ps (basic/intro ps "op")
         goal (proof/current-goal ps)
         op-id (reduce (fn [best [id d]]
-                         (if (and (= "op" (:name d))
-                                  (or (nil? best) (> (long id) (long best))))
-                           id best))
-                       nil (:lctx goal))
+                        (if (and (= "op" (:name d))
+                                 (or (nil? best) (> (long id) (long best))))
+                          id best))
+                      nil (:lctx goal))
         ps (basic/cases ps op-id)
         ;; Each goal: Decidable (pred ctor = Bool.true)
         ;; After reduction, pred ctor is Bool.true or Bool.false
@@ -816,14 +816,14 @@
                    (case (:type morph-spec)
                      :existential
                      (let [pred-name (resolve-cap-pred-name
-                                     prefix (:results cap-results) morph-spec)]
+                                      prefix (:results cap-results) morph-spec)]
                        (compile-existential-morphism!
                         env prefix morph-id pred-name
                         (:op-type es-result)))
 
                      :containment
                      (let [pred-name (resolve-cap-pred-name
-                                     prefix (:results cap-results) morph-spec)]
+                                      prefix (:results cap-results) morph-spec)]
                        (compile-containment-morphism!
                         env prefix morph-id pred-name
                         (:op-type es-result)))

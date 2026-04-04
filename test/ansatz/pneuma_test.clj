@@ -43,9 +43,9 @@
   (testing "2-state on/off statechart"
     (let [env @a/ansatz-env
           result (pneuma/compile-statechart! env "Mini"
-                   {:states #{:on :off}
-                    :transitions [{:source :off :event :toggle :target :on}
-                                  {:source :on :event :toggle :target :off}]})]
+                                             {:states #{:on :off}
+                                              :transitions [{:source :off :event :toggle :target :on}
+                                                            {:source :on :event :toggle :target :off}]})]
       (reset! a/ansatz-env (:env result))
 
       (is (= ["off" "on"] (:state-names result)))
@@ -69,8 +69,8 @@
   (testing "Statechart with terminal/sink state proves sink theorem"
     (let [env @a/ansatz-env
           result (pneuma/compile-statechart! env "Sink"
-                   {:states #{:active :done}
-                    :transitions [{:source :active :event :finish :target :done}]})]
+                                             {:states #{:active :done}
+                                              :transitions [{:source :active :event :finish :target :done}]})]
       (reset! a/ansatz-env (:env result))
 
       (is (= ["SinkDelta_done_sink"] (:sink-theorems result))
@@ -86,7 +86,7 @@
   (testing "Effect signature generates Op type, AllOps list, and completeness theorem"
     (let [env @a/ansatz-env
           result (pneuma/compile-effect-signature! env "Eff"
-                   {:operations {:read {} :write {} :delete {}}})]
+                                                   {:operations {:read {} :write {} :delete {}}})]
       (reset! a/ansatz-env (:env result))
 
       (is (= ["delete" "read" "write"] (:op-names result)))
@@ -106,11 +106,11 @@
     (let [env @a/ansatz-env
           ;; First need an Op type
           es (pneuma/compile-effect-signature! env "Cap"
-               {:operations {:op-a {} :op-b {} :op-c {}}})
+                                               {:operations {:op-a {} :op-b {} :op-c {}}})
           env (:env es)
           result (pneuma/compile-capability-set! env "Cap" "Phase"
-                   (:op-type es) (:op-names es)
-                   {:dispatch #{:op-a :op-c}})]
+                                                 (:op-type es) (:op-names es)
+                                                 {:dispatch #{:op-a :op-c}})]
       (reset! a/ansatz-env (:env result))
 
       (is (= "CapPhaseDispatch" (:dispatch-pred result)))
@@ -125,14 +125,14 @@
   (testing "Existential morphism proves boundary theorem"
     (let [env @a/ansatz-env
           es (pneuma/compile-effect-signature! env "Morph"
-               {:operations {:x {} :y {} :z {}}})
+                                               {:operations {:x {} :y {} :z {}}})
           env (:env es)
           cap (pneuma/compile-capability-set! env "Morph" "Test"
-                (:op-type es) (:op-names es)
-                {:dispatch #{:x :z}})
+                                              (:op-type es) (:op-names es)
+                                              {:dispatch #{:x :z}})
           env (:env cap)
           result (pneuma/compile-existential-morphism! env "Morph" :test->ops
-                   (:dispatch-pred cap) (:op-type es))]
+                                                       (:dispatch-pred cap) (:op-type es))]
       (reset! a/ansatz-env (:env result))
 
       (is (= "Morphtest->ops_boundary" (:theorem result)))
@@ -147,9 +147,9 @@
   (testing "Type schema generates TypeId inductive with completeness"
     (let [env @a/ansatz-env
           result (pneuma/compile-type-schema! env "TS"
-                   {:types {:ConfigKey :keyword
-                            :ConfigValue :any
-                            :UnitResult :nil}})]
+                                              {:types {:ConfigKey :keyword
+                                                       :ConfigValue :any
+                                                       :UnitResult :nil}})]
       (reset! a/ansatz-env (:env result))
 
       (is (= "TSTypeId" (:type-id-type result)))
@@ -180,12 +180,12 @@
   (testing "Structural morphism maps operations to type identifiers"
     (let [env @a/ansatz-env
           es (pneuma/compile-effect-signature! env "Str"
-               {:operations {:read {:output :Data}
-                             :write {:output :Result}
-                             :delete {:output :Result}}})
+                                               {:operations {:read {:output :Data}
+                                                             :write {:output :Result}
+                                                             :delete {:output :Result}}})
           env (:env es)
           ts (pneuma/compile-type-schema! env "Str"
-               {:types {:Data :any :Result :any}})
+                                          {:types {:Data :any :Result :any}})
           env (:env ts)
           ;; Build allTypeIds list term
           tid-const (e/const' (name/from-string (:type-id-type ts)) [])
@@ -215,14 +215,14 @@
   (testing "Containment morphism proves same boundary theorem as existential"
     (let [env @a/ansatz-env
           es (pneuma/compile-effect-signature! env "Cont"
-               {:operations {:a {} :b {} :c {}}})
+                                               {:operations {:a {} :b {} :c {}}})
           env (:env es)
           cap (pneuma/compile-capability-set! env "Cont" "Phase"
-                (:op-type es) (:op-names es)
-                {:dispatch #{:a :b}})
+                                              (:op-type es) (:op-names es)
+                                              {:dispatch #{:a :b}})
           env (:env cap)
           result (pneuma/compile-containment-morphism! env "Cont" :phase->ops
-                   (:dispatch-pred cap) (:op-type es))]
+                                                       (:dispatch-pred cap) (:op-type es))]
       (reset! a/ansatz-env (:env result))
 
       (is (some? (env/lookup (:env result)
@@ -237,8 +237,8 @@
     (let [env @a/ansatz-env
           ;; Prove that :init comes before :deploy in the chain
           result (pneuma/compile-ordering-morphism! env "Ord" :init-before-deploy
-                   [:init :build :test :deploy]
-                   :init :deploy)]
+                                                    [:init :build :test :deploy]
+                                                    :init :deploy)]
       (reset! a/ansatz-env (:env result))
 
       (is (= "Ordinit-before-deploy_order" (:theorem result)))
@@ -247,14 +247,14 @@
 
   (testing "Ordering morphism rejects out-of-order pairs"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Ordering violation"
-          (pneuma/compile-ordering-morphism! @a/ansatz-env "Ord" :bad
-            [:a :b :c] :c :a))))
+                          (pneuma/compile-ordering-morphism! @a/ansatz-env "Ord" :bad
+                                                             [:a :b :c] :c :a))))
 
   (testing "Adjacent elements in chain"
     (let [env @a/ansatz-env
           result (pneuma/compile-ordering-morphism! env "Adj" :step
-                   [:first :second :third]
-                   :first :second)]
+                                                    [:first :second :third]
+                                                    :first :second)]
       (reset! a/ansatz-env (:env result))
       (is (some? (env/lookup (:env result)
                              (name/from-string "Adjstep_order")))))))
@@ -367,17 +367,17 @@
       ;; Verify all key declarations exist in env
       (let [e @a/ansatz-env]
         (doseq [n ["IntgState" "IntgEvent" "IntgOp" "IntgDelta"
-                    "IntgAllOps" "IntgAllOps_complete"
-                    "IntgTypeId" "IntgAllTypeIds" "IntgAllTypeIds_complete"
-                    "IntgInitDispatch" "IntgHaltDispatch"
-                    "IntgRunningQuery" "IntgSuspendDispatch" "IntgResumeDispatch"
-                    "IntgDelta_halted_sink"
-                    "Intginit->ops_boundary" "Intghalt->ops_boundary"
-                    "Intgrunning->ops_boundary" "Intgsuspend->ops_boundary"
-                    "Intgresume->ops_boundary"
-                    "Intgops->types_map" "Intgops->types_map_valid"
-                    "instDecidableEqIntgState" "instDecidableEqIntgEvent"
-                    "instDecidableEqIntgOp" "instDecidableEqIntgTypeId"]]
+                   "IntgAllOps" "IntgAllOps_complete"
+                   "IntgTypeId" "IntgAllTypeIds" "IntgAllTypeIds_complete"
+                   "IntgInitDispatch" "IntgHaltDispatch"
+                   "IntgRunningQuery" "IntgSuspendDispatch" "IntgResumeDispatch"
+                   "IntgDelta_halted_sink"
+                   "Intginit->ops_boundary" "Intghalt->ops_boundary"
+                   "Intgrunning->ops_boundary" "Intgsuspend->ops_boundary"
+                   "Intgresume->ops_boundary"
+                   "Intgops->types_map" "Intgops->types_map_valid"
+                   "instDecidableEqIntgState" "instDecidableEqIntgEvent"
+                   "instDecidableEqIntgOp" "instDecidableEqIntgTypeId"]]
           (is (some? (env/lookup e (name/from-string n)))
               (str n " should exist in env")))))))
 
