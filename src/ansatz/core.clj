@@ -1564,6 +1564,8 @@
                 (let [ps' (run-tactic ps (first args))]
                   (basic/all-goals ps' (fn [ps''] (reduce run-tactic ps'' (rest args))))))
    ;; Decision procedures
+   'decide    (fn [ps _args]
+                (let [f (requiring-resolve 'ansatz.tactic.decide/decide)] (f ps)))
    'norm_num  (fn [ps _args]
                 (let [f (requiring-resolve 'ansatz.tactic.norm-num/norm-num)] (f ps)))
    'linarith  (fn [ps _args]
@@ -2547,6 +2549,7 @@
 (defmacro inductive
   "Define an inductive type with constructors.
    (a/inductive Color [] (red) (green) (blue))
+   (a/inductive Color [] (red) (green) (blue) :deriving [DecidableEq])
 
    Indexed families use :indices and :where clauses:
    (a/inductive Vec [α Type] :indices [n Nat]
@@ -2561,7 +2564,15 @@
         [opts body] (if (= :indices (first body))
                       [(assoc opts :indices (second body)) (drop 2 body)]
                       [opts body])
-        ctors body
+        ;; Split :deriving option from end of body
+        body-vec (vec body)
+        [opts body-vec] (let [n (count body-vec)]
+                          (if (and (>= n 2)
+                                   (= :deriving (nth body-vec (- n 2))))
+                            [(assoc opts :deriving (nth body-vec (- n 1)))
+                             (subvec body-vec 0 (- n 2))]
+                            [opts body-vec]))
+        ctors body-vec
         ;; Parse a single constructor form, splitting off :where clause
         parse-ctor (fn [c]
                      (if (sequential? c)
@@ -2579,10 +2590,16 @@
                            [cname flat-fields (vec where-exprs)]
                            [cname flat-fields]))
                        [c []]))
-        ctor-specs (mapv parse-ctor ctors)]
+        ctor-specs (mapv parse-ctor ctors)
+        deriving-classes (:deriving opts)]
     `(do (inductive/define-inductive (env) ~(str type-name) '~params '~ctor-specs
            ~@(when (:in opts) [:in `'~(:in opts)])
            ~@(when (:indices opts) [:indices `'~(:indices opts)]))
+         ~@(when deriving-classes
+             [`(let [env# @ansatz-env
+                     env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
+                            env# ~(str type-name) '~ctor-specs '~deriving-classes)]
+                 (reset! ansatz-env env'#))])
          nil)))
 
 ;; ============================================================
