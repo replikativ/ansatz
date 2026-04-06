@@ -1587,8 +1587,8 @@
                   env)
                 env)]
       ;; Update global env atom with the new env
-      (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env))
+      (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
 
-    (println "✓ inductive" ind-name-str "defined:"
-             (count ctors) "constructors, recursor, casesOn, recOn")
-    env))
+      (println "✓ inductive" ind-name-str "defined:"
+               (count ctors) "constructors, recursor, casesOn, recOn")
+      env)))
