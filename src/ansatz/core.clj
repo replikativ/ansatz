@@ -34,6 +34,11 @@
 
 (def ^:dynamic *verbose* true)
 
+(def ^:dynamic *malli?*
+  "When true, a/defn automatically registers Malli function schemas.
+   Requires metosin/malli on the classpath."
+  false)
+
 ;; ============================================================
 ;; ProofContext — persistent value for proof/elaboration state
 ;; ============================================================
@@ -2530,15 +2535,26 @@
 
 (defmacro defn
   "Define a verified function. Use qualified: (a/defn double [n :- Nat] Nat (+ n n))
-   Well-founded recursion: (a/defn fact [n :- Nat] Nat :termination-by n (if ...))"
+   Well-founded recursion: (a/defn fact [n :- Nat] Nat :termination-by n (if ...))
+   When *malli?* is true, also registers a Malli function schema."
   [fn-name params ret-type & body-and-opts]
   (let [[opts body] (if (= :termination-by (first body-and-opts))
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
-                      [{} (first body-and-opts)])]
-    (if (:termination-by opts)
-      `(def ~fn-name (define-verified-wf '~fn-name '~params '~ret-type
-                       '~body '~(:termination-by opts)))
-      `(def ~fn-name (define-verified '~fn-name '~params '~ret-type '~body)))))
+                      [{} (first body-and-opts)])
+        ns-sym (symbol (str (ns-name *ns*)))]
+    `(def ~fn-name
+       (let [f# ~(if (:termination-by opts)
+                   `(define-verified-wf '~fn-name '~params '~ret-type
+                      '~body '~(:termination-by opts))
+                   `(define-verified '~fn-name '~params '~ret-type '~body))]
+         (when *malli?*
+           (try
+             ((requiring-resolve 'ansatz.malli/register-from-defn!)
+              '~ns-sym '~fn-name)
+             (catch Exception e#
+               (when *verbose*
+                 (println "  malli registration skipped:" (.getMessage e#))))))
+         f#))))
 
 (defmacro theorem
   "Prove a theorem.
