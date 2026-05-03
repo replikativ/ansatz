@@ -1461,8 +1461,10 @@ public final class TypeChecker {
             Expr snHead = (Expr) snFA[0];
 
             // Is either side a delta (unfoldable definition)?
-            boolean dtHasDelta = isDelta(tnHead);
-            boolean dsHasDelta = isDelta(snHead);
+            ConstantInfo dtInfo = deltaInfo(tnHead);
+            ConstantInfo dsInfo = deltaInfo(snHead);
+            boolean dtHasDelta = dtInfo != null;
+            boolean dsHasDelta = dsInfo != null;
 
             if (!dtHasDelta && !dsHasDelta) {
                 emitDeltaTrace("unknown.noDelta", tn, sn);
@@ -1497,8 +1499,8 @@ public final class TypeChecker {
                 }
             } else {
                 // Both sides are definitions — use hints to decide
-                int tHints = getHints(tnHead);
-                int sHints = getHints(snHead);
+                int tHints = dtInfo.getHints();
+                int sHints = dsInfo.getHints();
                 int cmp = compareHints(tHints, sHints);
 
                 if (cmp < 0) {
@@ -1514,10 +1516,11 @@ public final class TypeChecker {
                     sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                     emitDeltaTrace("unfold.right", tn, sn);
                 } else {
-                    // Same hint level — Lean only takes this shortcut when the unfolded
-                    // definitions are pointer-equal (is_eqp), not merely name-equal.
+                    // Same hint level — Lean takes this shortcut when is_delta
+                    // resolves both sides to the same declaration object, even if
+                    // the head constants carry syntactically different levels.
                     if (tn.tag == Expr.APP && sn.tag == Expr.APP &&
-                        tnHead.isEqp(snHead) && tHints > 0) {
+                        dtInfo == dsInfo && tHints > 0) {
                         emitPhase("lazyDelta.sameDefArgs");
                         // Same definition with Regular hints — identity-based failure cache
                         if (!failedBefore(tn, sn)) {
@@ -1703,11 +1706,16 @@ public final class TypeChecker {
         return !LeanExprKey.exprEquals(eNew, e) ? eNew : null;
     }
 
+    /** Return the delta declaration for a head constant, if it is unfoldable. */
+    private ConstantInfo deltaInfo(Expr head) {
+        if (head.tag != Expr.CONST) return null;
+        ConstantInfo ci = env.lookup((Name) head.o0);
+        return ci != null && ci.getValue() != null ? ci : null;
+    }
+
     /** Check if head constant is a delta (unfoldable definition). */
     private boolean isDelta(Expr head) {
-        if (head.tag != Expr.CONST) return false;
-        ConstantInfo ci = env.lookup((Name) head.o0);
-        return ci != null && ci.getValue() != null;
+        return deltaInfo(head) != null;
     }
 
     /** Get reducibility hints for a head constant. Returns -1 for opaque, 0 for abbrev, >0 for regular. */
@@ -1835,8 +1843,10 @@ public final class TypeChecker {
         Expr tnHead = (Expr) tnFA[0];
         Expr snHead = (Expr) snFA[0];
 
-        boolean dtHasDelta = isDelta(tnHead);
-        boolean dsHasDelta = isDelta(snHead);
+        ConstantInfo dtInfo = deltaInfo(tnHead);
+        ConstantInfo dsInfo = deltaInfo(snHead);
+        boolean dtHasDelta = dtInfo != null;
+        boolean dsHasDelta = dsInfo != null;
 
         if (!dtHasDelta && !dsHasDelta) return 0; // DefUnknown
 
@@ -1866,8 +1876,8 @@ public final class TypeChecker {
             }
         } else {
             // Both delta
-            int tHints = getHints(tnHead);
-            int sHints = getHints(snHead);
+            int tHints = dtInfo.getHints();
+            int sHints = dsInfo.getHints();
             int cmp = compareHints(tHints, sHints);
 
             if (cmp < 0) {
@@ -1881,12 +1891,12 @@ public final class TypeChecker {
                 sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                 holder[1] = sn;
             } else {
-                // Same hint level — Lean only takes this shortcut when the unfolded
-                // definitions are pointer-equal (is_eqp), not merely name-equal.
+                // Same hint level — Lean takes this shortcut when is_delta
+                // resolves both sides to the same declaration object, even if
+                // the head constants carry syntactically different levels.
                 Expr[] tnArgs = (Expr[]) tnFA[1];
                 Expr[] snArgs = (Expr[]) snFA[1];
-                if (tnHead.tag == Expr.CONST && snHead.tag == Expr.CONST
-                    && tnHead.isEqp(snHead)
+                if (dtInfo == dsInfo
                     && tnArgs.length == snArgs.length
                     && tHints > 0) { // regular hints (positive = regular in our encoding)
                     if (!failedBefore(tn, sn)) {

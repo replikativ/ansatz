@@ -185,6 +185,59 @@
       ;; callers that enable hash fast-rejection may reject this before core.
       (is (.isEquiv em lhs rhs false)))))
 
+(deftest level-constructor-lean-semantics-test
+  (testing "mk_max preserves Lean's syntactic level shape"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          lhs (Level/max (Level/succ u) (Level/succ v))
+          rhs (Level/max (Level/succ v) (Level/succ u))]
+      (is (not (.equals lhs rhs)))
+      (is (Level/eq lhs rhs))))
+
+  (testing "succ construction does not normalize through max"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          lhs (Level/succ (Level/max u v))
+          rhs (Level/max (Level/succ u) (Level/succ v))]
+      (is (not (.equals lhs rhs)))
+      (is (Level/eq lhs rhs))))
+
+  (testing "quick expression equivalence keeps syntactic levels, const_eq handles level defeq"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          cname (name/from-string "C")
+          lhs-level (Level/max (Level/succ u) (Level/succ v))
+          rhs-level (Level/max (Level/succ v) (Level/succ u))
+          lhs (Expr/mkConst cname (object-array [lhs-level]) true)
+          rhs (Expr/mkConst cname (object-array [rhs-level]) true)
+          em (EquivManager.)
+          tc (mk-tc)]
+      (is (not (.isEquiv em lhs rhs)))
+      (is (.isDefEq tc lhs rhs)))))
+
+(deftest lazy-delta-same-definition-uses-declaration-identity-test
+  (testing "same-definition shortcut is independent of syntactic universe arguments"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          w (name/from-string "w")
+          dname (name/from-string "TraceD")
+          lhs-level (Level/max (Level/succ u) (Level/succ v))
+          rhs-level (Level/max (Level/succ v) (Level/succ u))
+          dtype (e/forall' "P" prop prop bi)
+          dvalue (e/lam "P" prop (e/bvar 0) bi)
+          ci (ConstantInfo/mkDef dname (object-array [w]) dtype dvalue
+                                 1 (byte 0) (object-array []))
+          env (.addConstant (Env.) ci)
+          tc (mk-tc env)
+          trace (java.io.StringWriter.)
+          lhs (e/app (Expr/mkConst dname (object-array [lhs-level]) true) prop)
+          rhs (e/app (Expr/mkConst dname (object-array [rhs-level]) true) prop)]
+      (.setTraceWriter tc trace)
+      (is (.isDefEq tc lhs rhs))
+      (let [s (str trace)]
+        (is (.contains s "\"by\":\"lazy_delta\""))
+        (is (not (.contains s "\"by\":\"app\"")))))))
+
 ;; ============================================================
 ;; checkConstantFuelStats returns stats
 ;; ============================================================

@@ -39,19 +39,11 @@ public final class Level {
     // --- Factories ---
 
     public static Level succ(Level l) {
-        // Distribute succ into max: succ(max(a,b)) = max(succ(a), succ(b))
-        // This matches Lean 4's Level.normalize which strips all succs,
-        // normalizes the inner max, then re-adds the offset uniformly.
-        // Without this, succ(max(u,v)) and max(succ(u),succ(v)) produce
-        // different Level objects despite being semantically equal.
-        if (l.tag == MAX) {
-            return max(succ(l.maxLhs()), succ(l.maxRhs()));
-        }
         int h = l.hash * 31 + SUCC;
         return new Level(SUCC, h, l, null);
     }
 
-    /** Raw max constructor — no normalization. Use max() for normalized construction. */
+    /** Raw max constructor — no simplification. Use max() for Lean mk_max. */
     private static Level maxRaw(Level l1, Level l2) {
         int h = (l1.hash * 31 + l2.hash) * 31 + MAX;
         return new Level(MAX, h, l1, l2);
@@ -63,24 +55,30 @@ public final class Level {
         return new Level(IMAX, h, l1, l2);
     }
 
-    /** Matching Lean 4's mk_max (level.cpp:81-103). Normalizes at construction time. */
+    /** Matching Lean 4's mk_max (level.cpp:81-103).
+     *
+     * This deliberately performs only Lean's local constructor simplifications.
+     * Full normalization (flattening, sorting, deduplication, offset movement)
+     * belongs in simplify()/eq(), not in construction. Keeping construction
+     * syntactic matters because Lean's quick expression equivalence compares
+     * constant universe arguments structurally before falling back to level defeq.
+     */
     public static Level max(Level l1, Level l2) {
-        // Both explicit (concrete numbers): return larger
-        long n1 = toNat(l1), n2 = toNat(l2);
-        if (n1 >= 0 && n2 >= 0) {
-            return n1 >= n2 ? l1 : l2;
-        }
-        // Same level
+        long n1 = explicitDepth(l1), n2 = explicitDepth(l2);
+        if (n1 >= 0 && n2 >= 0) return n1 >= n2 ? l1 : l2;
         if (l1.equals(l2)) return l1;
-        // max(0, l) = l, max(l, 0) = l
         if (l1.tag == ZERO) return l2;
         if (l2.tag == ZERO) return l1;
-        // Normalize the result: sort components, subsume explicit constants.
-        // This matches Lean 4's behavior where hash-consed Level objects
-        // always have a canonical form. Without normalization, equivalent
-        // levels like max(max(u+1,v+1),v'+1) and max(u+1,max(v+1,v'+1))
-        // produce different objects, breaking pointer-equality caches.
-        return simplify(maxRaw(l1, l2));
+        if (l2.tag == MAX && (((Level) l2.o0).equals(l1) || ((Level) l2.o1).equals(l1))) return l2;
+        if (l1.tag == MAX && (((Level) l1.o0).equals(l2) || ((Level) l1.o1).equals(l2))) return l1;
+
+        long[] o1 = new long[1], o2 = new long[1];
+        Level b1 = getOffset(l1, o1);
+        Level b2 = getOffset(l2, o2);
+        if (b1.equals(b2)) {
+            return o1[0] > o2[0] ? l1 : l2;
+        }
+        return maxRaw(l1, l2);
     }
 
     /** Matching Lean 4's mk_imax (level.cpp:112-123). Normalizes at construction time. */
@@ -299,9 +297,19 @@ public final class Level {
         }
     }
 
+    /** Return k for succ^k(0), or -1 if the level is not explicit. */
+    private static long explicitDepth(Level l) {
+        long k = 0;
+        while (l.tag == SUCC) {
+            l = l.succPred();
+            k++;
+        }
+        return l.tag == ZERO ? k : -1;
+    }
+
     /** Check if a level is a concrete number (zero or succ^k(zero)). */
     private static boolean isExplicit(Level l) {
-        return toNat(l) >= 0;
+        return explicitDepth(l) >= 0;
     }
 
     /** Get the succ offset of a level. */
