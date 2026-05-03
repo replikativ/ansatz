@@ -22,27 +22,6 @@
 ;; Forward declarations for mutually-dependent tactics
 (declare generalize-indices unify-cases-eqs unify-eq revert)
 
-(defn- mk-impossible-branch-proof
-  "Build a proof term for an impossible branch in cases on indexed families.
-   The branch goal type is a Prop that should never be reached.
-   Uses a temporary axiom for soundness — the recursor never evaluates
-   this branch because the index head doesn't match.
-   TODO: replace with proper noConfusion derivation."
-  [ps goal-type]
-  ;; Register a temporary axiom and return [updated-ps proof-term].
-  ;; The axiom is needed for the kernel to type-check the impossible minor.
-  (let [axiom-name (name/from-string "Ansatz.impossible")
-        env (:env ps)
-        ps (if (env/lookup env axiom-name)
-             ps
-             ;; Axiom: ∀ {P : Prop}, P
-             (let [ax-type (e/forall' "P" (e/sort' lvl/zero) (e/bvar 0) :implicit)
-                   ax-ci (env/mk-axiom axiom-name [] ax-type)
-                   new-env (env/add-constant env ax-ci)]
-               (assoc ps :env new-env)))]
-    ;; Apply: Ansatz.impossible {goal-type}
-    [ps (e/app (e/const' axiom-name []) goal-type)]))
-
 (defn- mk-tc
   "Create a TC state from the proof state and a goal's local context."
   [ps lctx]
@@ -735,15 +714,23 @@
         ;;    This is the Lean 4 approach: generalize → cases (Path A) → unifyCasesEqs.
         st (mk-tc ps (:lctx goal))
         has-complex-indices (some #(not (e/fvar? %)) indices)
-        ;; Check if noConfusion is available for the index type (needed for Path C)
+        ;; Check if noConfusion is available for every complex index type (needed for Path C)
+        complex-index-info
+        (when has-complex-indices
+          (mapv (fn [idx-expr]
+                  (let [idx-type (try (tc/infer-type st idx-expr) (catch Exception _ nil))
+                        [idx-type-head _] (when idx-type (e/get-app-fn-args idx-type))]
+                    {:expr idx-expr
+                     :type idx-type
+                     :type-head idx-type-head
+                     :no-confusion?
+                     (when (and idx-type-head (e/const? idx-type-head))
+                       (some? (env/lookup (:env ps)
+                                          (name/mk-str (e/const-name idx-type-head) "noConfusion"))))}))
+                indices))
         has-no-confusion
-        (when (and has-complex-indices (seq indices))
-          (let [idx-expr (first indices)
-                idx-type (try (tc/infer-type st idx-expr) (catch Exception _ nil))
-                [idx-type-head _] (when idx-type (e/get-app-fn-args idx-type))]
-            (when (and idx-type-head (e/const? idx-type-head))
-              (let [nc-name (name/mk-str (e/const-name idx-type-head) "noConfusion")]
-                (some? (env/lookup (:env ps) nc-name))))))
+        (and (seq complex-index-info)
+             (every? :no-confusion? complex-index-info))
         ;; Build the motive (and possibly update ps with fresh fvar allocations)
         [ps motive motive-body use-whnf-branch-goals nextra]
         (if (and has-complex-indices (seq indices) has-no-confusion)
@@ -783,100 +770,11 @@
             ;; Return a sentinel — the work is already done, skip the rest of cases
             [ps :pipeline-done :pipeline-done :pipeline-done 0])
 
-          (if (and has-complex-indices (= 1 (count indices))
-                   (not has-no-confusion))
-          ;; Path B: CasesOn-based motive for single complex index
-            (let [idx-expr (first indices)
-                  [orig-head orig-args] (e/get-app-fn-args idx-expr)
-                  _ (when-not (e/const? orig-head)
-                      (tactic-error! "cases: complex index must be a constructor application"
-                                     {:index idx-expr}))
-                ;; Infer the index type
-                  idx-type (tc/infer-type st idx-expr)
-                  [idx-type-head idx-type-args] (e/get-app-fn-args idx-type)
-                  idx-type-name (e/const-name idx-type-head)
-                  idx-type-levels (e/const-levels idx-type-head)
-                  ^ConstantInfo idx-ind-ci (env/lookup! (:env ps) idx-type-name)
-                  idx-num-params (.numParams idx-ind-ci)
-                  idx-params (vec (take idx-num-params idx-type-args))
-                ;; Original index components (constructor args after params)
-                  orig-components (subvec (vec orig-args) idx-num-params)
-                  orig-ctor-name (e/const-name orig-head)
-                ;; Create fresh fvars for motive binders (idx and h)
-                  [ps idx-fid] (proof/alloc-id ps)
-                  idx-fvar (e/fvar idx-fid)
-                  [ps h-fid] (proof/alloc-id ps)
-                ;; CasesOn for the index type.
-                ;; The inner casesOn produces goal TYPES (e.g. ValidRB l : Prop).
-                ;; Goal types live in Sort(motive-level), so the casesOn motive
-                ;; returns Sort(motive-level) which itself lives in Sort(motive-level+1).
-                ;; Therefore the casesOn universe level = succ(motive-level).
-                  idx-co-name (name/mk-str idx-type-name "casesOn")
-                  idx-co-motive-level (lvl/succ motive-level)
-                  idx-co-levels (into [idx-co-motive-level] idx-type-levels)
-                ;; CasesOn motive: λ _ => Sort(motive-level)
-                  idx-co-motive (e/lam "_" idx-type (e/sort' motive-level) :default)
-                ;; Build a minor for each constructor of the index type
-                  idx-ctors (vec (.ctors idx-ind-ci))
-                  idx-minors
-                  (mapv
-                   (fn [idx-ctor-nm]
-                     (let [^ConstantInfo ctor-ci (env/lookup! (:env ps) idx-ctor-nm)
-                           ctor-ty (.type ctor-ci)
-                           subst-m (into {} (map vector (vec (.levelParams ctor-ci)) idx-type-levels))
-                           ctor-ty (e/instantiate-level-params ctor-ty subst-m)
-                          ;; Skip params
-                           ctor-ty (loop [t ctor-ty ps-args idx-params]
-                                     (if (and (seq ps-args) (e/forall? t))
-                                       (recur (e/instantiate1 (e/forall-body t) (first ps-args))
-                                              (rest ps-args))
-                                       t))
-                          ;; Collect field types (instantiate with originals for matching ctor)
-                           field-types
-                           (loop [t ctor-ty types [] ci 0]
-                             (if (e/forall? t)
-                               (let [ft (e/forall-type t)
-                                    ;; For matching ctor, instantiate body with original component
-                                     inst-val (if (= idx-ctor-nm orig-ctor-name)
-                                                (get orig-components ci (e/fvar 999999))
-                                                (e/fvar (+ 2000000 ci)))]
-                                 (recur (e/instantiate1 (e/forall-body t) inst-val)
-                                        (conj types ft) (inc ci)))
-                               types))]
-                       (if (= idx-ctor-nm orig-ctor-name)
-                        ;; Matching constructor: abstract original components from goal.
-                        ;; Process from innermost field to outermost (reverse order).
-                        ;; For fvar components: abstract1 (replaces fvar with bvar(0) at depth).
-                        ;; For non-fvar components: body unchanged (lambda param is unused).
-                         (reduce (fn [body [comp ft]]
-                                   (e/lam "_" ft
-                                          (if (e/fvar? comp)
-                                            (e/abstract1 body (e/fvar-id comp))
-                                            body)
-                                          :default))
-                                 (:type goal)
-                                 (reverse (map vector orig-components field-types)))
-                        ;; Non-matching constructor: return the original goal for all fields.
-                        ;; (Impossible branches will be closed by Ansatz.impossible.)
-                         (reduce (fn [body ft]
-                                   (e/lam "_" ft body :default))
-                                 (:type goal)
-                                 (reverse field-types)))))
-                   idx-ctors)
-                ;; Build the casesOn expression: @IdxType.casesOn params motive idx minors
-                  co-expr (reduce e/app
-                                  (e/const' idx-co-name idx-co-levels)
-                                  (concat idx-params [idx-co-motive idx-fvar] idx-minors))
-                ;; Abstract idx-fvar and h-fvar from the casesOn expression
-                  motive-body (e/abstract-many co-expr [idx-fid h-fid])
-                ;; Build the full motive: λ (idx : IdxType) (h : IndType params idx). body
-                  fresh-h-type (reduce e/app (e/const' ind-name ind-levels)
-                                       (concat params [idx-fvar]))
-                  h-type-abs (e/abstract1 fresh-h-type idx-fid)
-                  motive (e/lam "x" idx-type
-                                (e/lam "x" h-type-abs motive-body :default)
-                                :default)]
-              [ps motive motive-body true 0])
+          (if (and has-complex-indices (seq indices) (not has-no-confusion))
+            (tactic-error! "cases: complex indexed families require noConfusion support for index equalities"
+                           {:hyp hyp-type
+                            :indices indices
+                            :index-info complex-index-info})
           ;; Path A: Following Lean 4 MVarId.induction (lines 203-240):
           ;; Revert indices + major + dependents, re-intro indices + major,
           ;; build motive from the enlarged goal, then re-intro dependents in branches.
@@ -1081,14 +979,12 @@
                                      (whnf-in-goal ps new-lctx branch-goal-type-raw)
                                      branch-goal-type-raw)
                   [ps' branch-id] (if impossible?
-                                 ;; Impossible branch: create and immediately close.
-                                    (let [[ps-with-axiom dummy-term] (mk-impossible-branch-proof ps branch-goal-type)
-                                          [ps' id] (proof/alloc-id ps-with-axiom)]
-                                      [(-> ps'
-                                           (assoc-in [:mctx id] {:type branch-goal-type :lctx new-lctx
-                                                                 :assignment {:kind :exact :term dummy-term}}))
-                                       id])
-                                 ;; Possible branch: create open goal
+                                    (tactic-error! "cases: encountered impossible indexed branch without equality elimination support"
+                                                   {:ctor ctor-name
+                                                    :goal-type branch-goal-type
+                                                    :indices indices
+                                                    :ctor-ret-indices ctor-ret-indices})
+                                    ;; Possible branch: create open goal
                                     (proof/fresh-mvar ps' branch-goal-type new-lctx))]
           ;; Re-intro reverted dependents in each open branch (Lean 4 line 111)
           ;; The re-intro'd fvar IDs must be added to field-fvars so the cases

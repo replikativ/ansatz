@@ -194,7 +194,8 @@ Ansatz needs a store of Lean 4 Mathlib declarations. There's a one-command setup
 ./scripts/setup-mathlib.sh
 ```
 
-This clones `lean4export` and `mathlib4` (if not present), exports Mathlib to NDJSON,
+This clones `lean4export` and `mathlib4` (if not present), exports Mathlib to NDJSON
+with `mdata` preserved,
 generates the instance registry, and imports into an Ansatz store at `/var/tmp/ansatz-mathlib`.
 Takes ~20 minutes on first run.
 
@@ -208,10 +209,11 @@ git clone https://github.com/leanprover/lean4export.git ../lean4export
 cd ../lean4export && lake build
 
 # 2. Export Mathlib to NDJSON (~5 min, ~5GB)
-.lake/build/bin/lean4export --mathlib > ../ansatz/test-data/mathlib.ndjson
+# Preserve mdata so imported declarations stay closer to Lean kernel trace space.
+cd ../mathlib4
+lake env ../lean4export/.lake/build/bin/lean4export --export-mdata Mathlib > ../ansatz/test-data/mathlib.ndjson
 
 # 3. Generate instance registry from Mathlib (~2 min)
-cd ../mathlib4
 lake env lean DumpInstances.lean   # produces instances.tsv
 cp instances.tsv ../ansatz/resources/instances.tsv
 

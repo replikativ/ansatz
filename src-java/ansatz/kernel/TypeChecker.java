@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.io.Writer;
 import java.math.BigInteger;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -18,19 +19,27 @@ import java.util.concurrent.atomic.AtomicLong;
  * unnecessary unfolding entirely.
  */
 public final class TypeChecker {
+    static final byte DEFN_SAFE = 0;
+    static final byte DEFN_UNSAFE = 1;
+    static final byte DEFN_PARTIAL = 2;
 
     private final Env env;
     private final Reducer reducer;
     private final EquivManager eqvManager;
-    private final IdentityHashMap<Expr, Expr> inferCache;      // for check mode
-    private final IdentityHashMap<Expr, Expr> inferOnlyCache;  // for infer_only mode
-    private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureCache;
+    private final IdentityHashMap<Expr, Expr> inferIdentityCache;      // exact object fast path
+    private final HashMap<Expr, Expr> inferStructuralCache;            // structural cache, identity fast path above
+    private final IdentityHashMap<Expr, Expr> inferOnlyIdentityCache;  // exact object fast path
+    private final HashMap<Expr, Expr> inferOnlyStructuralCache;        // structural cache, identity fast path above
+    private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureIdentityCache;
+    private final HashMap<Expr, HashMap<Expr, Boolean>> failureStructuralCache;
     // Identity-based cache for isDefEqCore results.
     // Prevents exponential re-comparison of DAG-shared expression pairs.
     // Key: identity of (t,s) pair. Value: Boolean result.
     private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> isDefEqIdentityCache;
     private long nextId;
     private int isDefEqDepth;
+    private final byte definitionSafety;
+    private final HashSet<Object> allowedLevelParams;
     public boolean tracing;
 
     // isDefEq diagnostic counters
@@ -69,6 +78,15 @@ public final class TypeChecker {
     // Structured NDJSON trace output — write one JSON line per isDefEq call
     private Writer traceWriter;
     private long traceSeq;
+    private boolean phaseTracing;
+    private static final boolean TRACE_FULL =
+        Boolean.getBoolean("ansatz.kernel.trace.full");
+    private static final boolean TRACE_DELTA =
+        Boolean.getBoolean("ansatz.kernel.trace.delta");
+    private static final String TRACE_DELTA_FILTER =
+        System.getProperty("ansatz.kernel.trace.delta.filter", "");
+    private final Expr[] traceLhsStack = new Expr[1024];
+    private final Expr[] traceRhsStack = new Expr[1024];
 
     private static final long DEFAULT_FUEL = 5_000_000L;
     private static final int MAX_ISDEFEQ_DEPTH = 50000;
@@ -91,6 +109,58 @@ public final class TypeChecker {
         this.traceSeq = 0;
     }
 
+    public void setPhaseTracing(boolean on) {
+        this.phaseTracing = on;
+    }
+
+    private void emitPhase(String phase) {
+        if (!phaseTracing || traceWriter == null) return;
+        try {
+            traceWriter.write("{\"phase\":\"" + jsonEsc(phase) + "\"}\n");
+        } catch (IOException e) {
+            // ignore trace write failures
+        }
+    }
+
+    private void emitPhaseTypes(String phase, Expr a, Expr b) {
+        if (!phaseTracing || traceWriter == null) return;
+        try {
+            traceWriter.write("{\"phase\":\"" + jsonEsc(phase) +
+                "\",\"a\":\"" + jsonEsc(exprFingerprint(a, 6)) +
+                "\",\"b\":\"" + jsonEsc(exprFingerprint(b, 6)) + "\"}\n");
+        } catch (IOException e) {
+            // ignore trace write failures
+        }
+    }
+
+    private void emitPhasePairStats(String phase, Expr a, Expr b) {
+        if (!phaseTracing || traceWriter == null) return;
+        try {
+            Object[] aFA = Reducer.getAppFnArgs(a);
+            Object[] bFA = Reducer.getAppFnArgs(b);
+            Expr aHead = (Expr) aFA[0];
+            Expr bHead = (Expr) bFA[0];
+            Expr[] aArgs = (Expr[]) aFA[1];
+            Expr[] bArgs = (Expr[]) bFA[1];
+            traceWriter.write("{\"phase\":\"" + jsonEsc(phase) +
+                "\",\"eqp\":" + (a.isEqp(b) ? "true" : "false") +
+                ",\"deepEq\":" + (exprDeepEquals(a, b) ? "true" : "false") +
+                ",\"aHash\":" + a.structuralHash() +
+                ",\"bHash\":" + b.structuralHash() +
+                ",\"aStore\":" + a.storeId +
+                ",\"bStore\":" + b.storeId +
+                ",\"aHead\":\"" + jsonEsc(exprFingerprint(aHead, 4)) +
+                "\",\"bHead\":\"" + jsonEsc(exprFingerprint(bHead, 4)) +
+                "\",\"headEqp\":" + (aHead.isEqp(bHead) ? "true" : "false") +
+                ",\"headDeepEq\":" + (exprDeepEquals(aHead, bHead) ? "true" : "false") +
+                ",\"aArgs\":" + aArgs.length +
+                ",\"bArgs\":" + bArgs.length +
+                "}\n");
+        } catch (IOException e) {
+            // ignore trace write failures
+        }
+    }
+
     /** Emit a structured trace event. */
     private void emitTrace(String lhs, String rhs, boolean result, String resolvedBy) {
         if (traceWriter == null) return;
@@ -101,17 +171,57 @@ public final class TypeChecker {
             sb.append(",\"l\":\"").append(jsonEsc(lhs));
             sb.append("\",\"r\":\"").append(jsonEsc(rhs));
             sb.append("\",\"res\":").append(result);
-            sb.append(",\"by\":\"").append(resolvedBy);
-            sb.append("\"}\n");
+            sb.append(",\"by\":\"").append(resolvedBy).append("\"");
+            if (TRACE_FULL && isDefEqDepth >= 0 && isDefEqDepth < traceLhsStack.length) {
+                Expr curL = traceLhsStack[isDefEqDepth];
+                Expr curR = traceRhsStack[isDefEqDepth];
+                if (curL != null && curR != null) {
+                    sb.append(",\"lFull\":\"").append(jsonEscLimit(exprFingerprint(curL, 8), 4000)).append("\"");
+                    sb.append(",\"rFull\":\"").append(jsonEscLimit(exprFingerprint(curR, 8), 4000)).append("\"");
+                }
+                int parentDepth = isDefEqDepth - 1;
+                if (parentDepth >= 0) {
+                    Expr parentL = traceLhsStack[parentDepth];
+                    Expr parentR = traceRhsStack[parentDepth];
+                    if (parentL != null && parentR != null) {
+                        sb.append(",\"parentL\":\"").append(jsonEscLimit(exprFingerprint(parentL, 8), 4000)).append("\"");
+                        sb.append(",\"parentR\":\"").append(jsonEscLimit(exprFingerprint(parentR, 8), 4000)).append("\"");
+                    }
+                }
+            }
+            sb.append("}\n");
             traceWriter.write(sb.toString());
         } catch (IOException e) {
             // silently ignore write failures
         }
     }
 
+    private void emitDeltaTrace(String stage, Expr lhs, Expr rhs) {
+        if (!TRACE_DELTA || traceWriter == null) return;
+        String l = exprFingerprint(lhs, 6);
+        String r = exprFingerprint(rhs, 6);
+        if (!TRACE_DELTA_FILTER.isEmpty()
+            && !l.contains(TRACE_DELTA_FILTER)
+            && !r.contains(TRACE_DELTA_FILTER)) {
+            return;
+        }
+        try {
+            traceWriter.write("{\"delta\":\"" + jsonEsc(stage) +
+                "\",\"d\":" + isDefEqDepth +
+                ",\"l\":\"" + jsonEscLimit(l, 4000) +
+                "\",\"r\":\"" + jsonEscLimit(r, 4000) + "\"}\n");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /** Minimal JSON string escaping. */
     private static String jsonEsc(String s) {
-        if (s.length() > 200) s = s.substring(0, 200) + "...";
+        return jsonEscLimit(s, 200);
+    }
+
+    private static String jsonEscLimit(String s, int maxLen) {
+        if (s.length() > maxLen) s = s.substring(0, maxLen) + "...";
         return s.replace("\\", "\\\\").replace("\"", "\\\"")
                 .replace("\n", "\\n").replace("\r", "\\r");
     }
@@ -288,17 +398,68 @@ public final class TypeChecker {
     public int getIsDefEqDepth() { return isDefEqDepth; }
 
     public TypeChecker(Env env) {
+        this(env, DEFN_SAFE, null);
+    }
+
+    public TypeChecker(Env env, byte definitionSafety) {
+        this(env, definitionSafety, null);
+    }
+
+    public TypeChecker(Env env, byte definitionSafety, Object[] allowedLevelParams) {
         this.env = env;
+        this.definitionSafety = definitionSafety;
+        this.allowedLevelParams = mkAllowedLevelParamSet(allowedLevelParams);
         this.reducer = new Reducer(env);
         this.eqvManager = new EquivManager();
-        this.inferCache = new IdentityHashMap<>(1024);
-        this.inferOnlyCache = new IdentityHashMap<>(1024);
-        this.failureCache = new IdentityHashMap<>(256);
+        this.inferIdentityCache = new IdentityHashMap<>(1024);
+        this.inferStructuralCache = new HashMap<>(1024);
+        this.inferOnlyIdentityCache = new IdentityHashMap<>(1024);
+        this.inferOnlyStructuralCache = new HashMap<>(1024);
+        this.failureIdentityCache = new IdentityHashMap<>(256);
+        this.failureStructuralCache = new HashMap<>(256);
         this.isDefEqIdentityCache = new IdentityHashMap<>(1024);
         this.nextId = 0;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
         this.reducer.setCallbacks(this::inferTypeOnly, this::isDefEq);
+    }
+
+    private static HashSet<Object> mkAllowedLevelParamSet(Object[] levelParams) {
+        if (levelParams == null) return null;
+        HashSet<Object> allowed = new HashSet<>(levelParams.length * 2 + 1);
+        for (Object lp : levelParams) {
+            allowed.add(lp);
+        }
+        return allowed;
+    }
+
+    private void checkLevel(Level l) {
+        if (allowedLevelParams == null) return;
+        Object undef = getUndefinedLevelParam(l);
+        if (undef != null) {
+            throw new RuntimeException("Type error: invalid reference to undefined universe level parameter '" + undef + "'");
+        }
+    }
+
+    private Object getUndefinedLevelParam(Level l) {
+        switch (l.tag) {
+            case Level.ZERO:
+                return null;
+            case Level.SUCC:
+                return getUndefinedLevelParam(l.succPred());
+            case Level.MAX: {
+                Object lhs = getUndefinedLevelParam(l.maxLhs());
+                return lhs != null ? lhs : getUndefinedLevelParam(l.maxRhs());
+            }
+            case Level.IMAX: {
+                Object lhs = getUndefinedLevelParam(l.imaxLhs());
+                return lhs != null ? lhs : getUndefinedLevelParam(l.imaxRhs());
+            }
+            case Level.PARAM:
+                return allowedLevelParams.contains(l.paramName()) ? null : l.paramName();
+            default:
+                return null;
+        }
     }
 
     public void setFuel(long fuel) {
@@ -457,13 +618,19 @@ public final class TypeChecker {
 
     /**
      * Infer type in infer-only mode (Lean's infer_type → infer_type_core(e, true)).
-     * Skips isDefEq checks on application arguments. The final type match
-     * is checked separately via isDefEq(val_type, declared_type).
-     * Using full check mode (false) causes 198,000x more isDefEq calls than Lean 4
-     * for heavy proofs — every argument in every application gets checked.
+     * This is intentionally weaker than full checking and should not be used for
+     * declaration admission.
      */
     public Expr inferType(Expr e) {
         return inferTypeCore(e, true);
+    }
+
+    /**
+     * Fully check e and return its type (Lean's check → infer_type_core(e, false)).
+     * Use this at declaration admission boundaries.
+     */
+    public Expr check(Expr e) {
+        return inferTypeCore(e, false);
     }
 
     /**
@@ -476,8 +643,11 @@ public final class TypeChecker {
     }
 
     private Expr inferTypeCore(Expr e, boolean inferOnly) {
-        IdentityHashMap<Expr, Expr> cache = inferOnly ? inferOnlyCache : inferCache;
-        Expr cached = cache.get(e);
+        IdentityHashMap<Expr, Expr> identityCache = inferOnly ? inferOnlyIdentityCache : inferIdentityCache;
+        HashMap<Expr, Expr> structuralCache = inferOnly ? inferOnlyStructuralCache : inferStructuralCache;
+        Expr cached = identityCache.get(e);
+        if (cached != null) return cached;
+        cached = structuralCache.get(e);
         if (cached != null) return cached;
 
         Expr result;
@@ -486,6 +656,9 @@ public final class TypeChecker {
                 throw new RuntimeException("Type error: Loose bound variable in infer-type");
 
             case Expr.SORT:
+                if (!inferOnly) {
+                    checkLevel((Level) e.o0);
+                }
                 result = Expr.sort(Level.succ((Level) e.o0), Level.hasParam(Level.succ((Level) e.o0)));
                 break;
 
@@ -494,7 +667,19 @@ public final class TypeChecker {
                 Object[] levels = Reducer.constLevels(e);
                 if (ci.levelParams.length != levels.length) {
                     throw new RuntimeException("Type error: Universe level mismatch for " + e.o0 +
-                        " expected=" + ci.levelParams.length + " actual=" + levels.length);
+                        " expected=" + ci.levelParams.length + " actual=" + levels.length +
+                        " levels=" + java.util.Arrays.toString(levels));
+                }
+                if (!inferOnly) {
+                    if (ci.isUnsafe && definitionSafety != DEFN_UNSAFE) {
+                        throw new RuntimeException("Type error: invalid declaration, it uses unsafe declaration '" + e.o0 + "'");
+                    }
+                    if (ci.isDef() && ci.safety == DEFN_PARTIAL && definitionSafety == DEFN_SAFE) {
+                        throw new RuntimeException("Type error: invalid declaration, safe declaration must not contain partial declaration '" + e.o0 + "'");
+                    }
+                    for (Object level : levels) {
+                        checkLevel((Level) level);
+                    }
                 }
                 if (ci.levelParams.length == 0) {
                     result = Expr.deepReIntern(ci.type);
@@ -521,6 +706,8 @@ public final class TypeChecker {
                         this.eagerReduce = true;
                     }
                     try {
+                        emitPhase("inferApp.argDefEq");
+                        emitPhaseTypes("inferApp.argDefEq.types", argType, dType);
                         if (!isDefEq(argType, dType)) {
                             Expr fn = e;
                             while (fn.tag == Expr.APP) fn = (Expr) fn.o0;
@@ -758,7 +945,9 @@ public final class TypeChecker {
                 throw new RuntimeException("Type error: Unknown expression tag " + e.tag);
         }
 
-        cache.put(e, result);
+        result = normalizeInferResult(result);
+        identityCache.put(e, result);
+        structuralCache.put(e, result);
         return result;
     }
 
@@ -766,6 +955,32 @@ public final class TypeChecker {
         Expr w = whnf(e);
         if (w.tag == Expr.SORT) return w;
         throw new RuntimeException("Type error: Expected a sort (Type/Prop)");
+    }
+
+    private Expr normalizeInferResult(Expr e) {
+        Expr cur = e;
+        while (cur.tag == Expr.APP) {
+            Object[] fa = Reducer.getAppFnArgs(cur);
+            Expr fn = (Expr) fa[0];
+            Expr[] args = (Expr[]) fa[1];
+            if (args.length == 1 && fn.tag == Expr.CONST) {
+                Object nm = fn.o0;
+                if (nm == Name.OUT_PARAM || nm == Name.SEMI_OUT_PARAM) {
+                    cur = args[0];
+                    continue;
+                }
+            }
+            break;
+        }
+        return cur;
+    }
+
+    Expr whnfExpr(Expr e) {
+        return whnf(e);
+    }
+
+    Expr ensureSortExpr(Expr e) {
+        return ensureSort(e);
     }
 
     /**
@@ -801,16 +1016,20 @@ public final class TypeChecker {
      * Public entry point — records successful equivalences.
      */
     public boolean isDefEq(Expr t, Expr s) {
-        // Match Lean 4: all checks happen inside is_def_eq_core,
-        // including pointer/structural equality via quick_is_def_eq.
-        // addEquiv is now called inside isDefEqCore with canonical (deepReIntern'd)
-        // expressions, so quickIsDefEq's EquivManager check finds them by pointer.
-        return isDefEqCore(t, s);
+        // Lean only records successful equivalences at the public is_def_eq
+        // wrapper. Internal is_def_eq_core calls must not pollute the global
+        // equivalence manager, or later quick checks can succeed too early.
+        t = Expr.deepReIntern(t);
+        s = Expr.deepReIntern(s);
+        boolean result = isDefEqCore(t, s);
+        if (result) eqvManager.addEquiv(t, s);
+        return result;
     }
 
     private static final int ISDEFEQ_CACHE_MAX = 10_000_000;
 
     private boolean isDefEqCore(Expr t, Expr s) {
+        boolean doEmit = traceWriter != null;
         // Canonicalize inputs via the intern table. Matches Lean 4's global hash-consing:
         // after construction, structurally-equal expressions are pointer-equal.
         // For already-canonical expressions (the common case), deepReIntern is O(1).
@@ -826,12 +1045,31 @@ public final class TypeChecker {
             String ss = exprFingerprint(s, 6);
             diagCaptures.add(new String[]{ts, ss, "d=" + isDefEqDepth});
         }
-        if (t.isEqp(s)) { isDefEqQuickHits++; return true; }
+        if (t.isEqp(s)) {
+            isDefEqQuickHits++;
+            if (doEmit) {
+                isDefEqDepth++;
+                try {
+                    if (TRACE_FULL && isDefEqDepth < traceLhsStack.length) {
+                        traceLhsStack[isDefEqDepth] = t;
+                        traceRhsStack[isDefEqDepth] = s;
+                    }
+                    emitTrace(exprFingerprint(t), exprFingerprint(s), true, "quick");
+                } finally {
+                    if (TRACE_FULL && isDefEqDepth < traceLhsStack.length) {
+                        traceLhsStack[isDefEqDepth] = null;
+                        traceRhsStack[isDefEqDepth] = null;
+                    }
+                    isDefEqDepth--;
+                }
+            }
+            return true;
+        }
         reducer.checkFuelPublic();
         // Identity-based cache: avoid re-comparing the same (identity) pair
         // of expressions that arises from DAG sharing.
-        IdentityHashMap<Expr, Boolean> innerMap = isDefEqIdentityCache.get(t);
-        if (innerMap != null) {
+        IdentityHashMap<Expr, Boolean> innerMap = doEmit ? null : isDefEqIdentityCache.get(t);
+        if (!doEmit && innerMap != null) {
             Boolean cached = innerMap.get(s);
             if (cached != null) { isDefEqQuickHits++; return cached; }
         }
@@ -839,19 +1077,15 @@ public final class TypeChecker {
         try {
             boolean result = isDefEqCoreImpl(t, s);
             // Cache the result, but cap total size to prevent OOM
-            if (isDefEqIdentityCache.size() < ISDEFEQ_CACHE_MAX) {
+            if (!doEmit && isDefEqIdentityCache.size() < ISDEFEQ_CACHE_MAX) {
                 if (innerMap == null) {
                     innerMap = new IdentityHashMap<>(4);
                     isDefEqIdentityCache.put(t, innerMap);
                 }
                 innerMap.put(s, result);
-            } else {
+            } else if (!doEmit) {
                 isDefEqCacheFull++;
             }
-            // Store canonical (deepReIntern'd) expressions in EquivManager so that
-            // quickIsDefEq's pointer-based EquivManager check finds them. Without this,
-            // the caller's non-canonical t/s would be stored, missing all canonical lookups.
-            if (result) eqvManager.addEquiv(t, s);
             return result;
         } finally {
             isDefEqDepth--;
@@ -953,6 +1187,10 @@ public final class TypeChecker {
         boolean doTrace = tracing && isDefEqDepth >= traceMinDepth;
         boolean doEmit = traceWriter != null;
         boolean doStepDiag = isDefEqDepth >= STEP_DIAG_DEPTH;
+        if (TRACE_FULL && isDefEqDepth < traceLhsStack.length) {
+            traceLhsStack[isDefEqDepth] = t;
+            traceRhsStack[isDefEqDepth] = s;
+        }
         String lFp = null, rFp = null;
         if (doEmit) {
             lFp = exprFingerprint(t);
@@ -1088,6 +1326,8 @@ public final class TypeChecker {
             Expr tn2 = Expr.deepReIntern(reducer.whnfCore(tn, false, false));
             Expr sn2 = Expr.deepReIntern(reducer.whnfCore(sn, false, false));
             if (!tn2.isEqp(tn) || !sn2.isEqp(sn)) {
+                emitPhasePairStats("step6.whnfcore2.stats", tn2, sn2);
+                emitPhaseTypes("step6.whnfcore2.types", tn2, sn2);
                 boolean r = isDefEqCore(tn2, sn2);
                 if (doEmit) emitTrace(lFp, rFp, r, "whnfcore2");
                 if (doStepDiag) stepDiagWhnfCore2++;
@@ -1177,10 +1417,14 @@ public final class TypeChecker {
         for (int iter = 0; iter < 10000; iter++) {
             tn = deltaHolder[0];
             sn = deltaHolder[1];
+            emitDeltaTrace("start", tn, sn);
 
             // Nat offset check
             int offsetResult = isDefEqOffset(tn, sn);
-            if (offsetResult != 0) return offsetResult;
+            if (offsetResult != 0) {
+                emitDeltaTrace("offset", tn, sn);
+                return offsetResult;
+            }
 
             // Nat builtin reduction (matching Lean 4's lazy_delta_reduction lines 980-986)
             // Lean 4 delegates to is_def_eq_core on the reduced result.
@@ -1188,21 +1432,25 @@ public final class TypeChecker {
             if ((!tn.hasFVar() && !sn.hasFVar()) || eagerReduce) {
                 Expr natTn = reducer.tryReduceNatExpr(tn);
                 if (natTn != null) {
+                    emitDeltaTrace("reduceNat.left", natTn, sn);
                     return isDefEqCore(natTn, sn) ? 1 : -1;
                 }
                 Expr natSn = reducer.tryReduceNatExpr(sn);
                 if (natSn != null) {
+                    emitDeltaTrace("reduceNat.right", tn, natSn);
                     return isDefEqCore(tn, natSn) ? 1 : -1;
                 }
                 // Try Int reduction (native optimization)
                 Object[] tnFA0 = Reducer.getAppFnArgs(tn);
                 Expr intTn = reducer.tryReduceInt((Expr) tnFA0[0], (Expr[]) tnFA0[1]);
                 if (intTn != null) {
+                    emitDeltaTrace("reduceInt.left", intTn, sn);
                     return isDefEqCore(intTn, sn) ? 1 : -1;
                 }
                 Object[] snFA0 = Reducer.getAppFnArgs(sn);
                 Expr intSn = reducer.tryReduceInt((Expr) snFA0[0], (Expr[]) snFA0[1]);
                 if (intSn != null) {
+                    emitDeltaTrace("reduceInt.right", tn, intSn);
                     return isDefEqCore(tn, intSn) ? 1 : -1;
                 }
             }
@@ -1217,6 +1465,7 @@ public final class TypeChecker {
             boolean dsHasDelta = isDelta(snHead);
 
             if (!dtHasDelta && !dsHasDelta) {
+                emitDeltaTrace("unknown.noDelta", tn, sn);
                 return 0; // Neither side can be unfolded
             }
 
@@ -1226,10 +1475,12 @@ public final class TypeChecker {
                 Expr snNew = tryUnfoldProjApp(sn);
                 if (snNew != null) {
                     sn = snNew;
+                    emitDeltaTrace("proj.right", tn, sn);
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
                     tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                    emitDeltaTrace("unfold.left", tn, sn);
                 }
             } else if (!dtHasDelta && dsHasDelta) {
                 // Only right side is a definition — but first try to unfold projection app on left
@@ -1237,10 +1488,12 @@ public final class TypeChecker {
                 Expr tnNew = tryUnfoldProjApp(tn);
                 if (tnNew != null) {
                     tn = tnNew;
+                    emitDeltaTrace("proj.left", tn, sn);
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
                     sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                    emitDeltaTrace("unfold.right", tn, sn);
                 }
             } else {
                 // Both sides are definitions — use hints to decide
@@ -1253,18 +1506,22 @@ public final class TypeChecker {
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
                     tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                    emitDeltaTrace("unfold.left", tn, sn);
                 } else if (cmp > 0) {
                     // Unfold right
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
                     sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                    emitDeltaTrace("unfold.right", tn, sn);
                 } else {
-                    // Same hint level — try argument comparison first if same definition
+                    // Same hint level — Lean only takes this shortcut when the unfolded
+                    // definitions are pointer-equal (is_eqp), not merely name-equal.
                     if (tn.tag == Expr.APP && sn.tag == Expr.APP &&
-                        tnHead.o0 != null && tnHead.o0.equals(snHead.o0) && tHints > 0) {
+                        tnHead.isEqp(snHead) && tHints > 0) {
+                        emitPhase("lazyDelta.sameDefArgs");
                         // Same definition with Regular hints — identity-based failure cache
-                        IdentityHashMap<Expr, Boolean> inner = failureCache.get(tn);
-                        if (inner == null || !Boolean.TRUE.equals(inner.get(sn))) {
+                        if (!failedBefore(tn, sn)) {
+                            emitPhaseTypes("lazyDelta.sameDefArgs.types", tn, sn);
                             // Try comparing arguments
                             Object[] tLvls = Reducer.constLevels(tnHead);
                             Object[] sLvls = Reducer.constLevels(snHead);
@@ -1273,13 +1530,10 @@ public final class TypeChecker {
                                 deltaHolder[1] = sn;
                                 return 1; // Equal via argument comparison
                             }
-                            if (inner == null) {
-                                inner = new IdentityHashMap<>(4);
-                                failureCache.put(tn, inner);
-                            }
-                            inner.put(sn, Boolean.TRUE);
+                            cacheFailure(tn, sn);
                         }
                     }
+                    emitPhase("lazyDelta.unfoldBoth");
                     // Unfold both
                     Expr unfoldedT = reducer.tryUnfoldDef(tnHead);
                     Expr unfoldedS = reducer.tryUnfoldDef(snHead);
@@ -1290,6 +1544,8 @@ public final class TypeChecker {
                     if (unfoldedS != null) {
                         sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
                     }
+                    emitDeltaTrace("unfold.both", tn, sn);
+                    emitPhasePairStats("lazyDelta.unfoldBoth.stats", tn, sn);
                 }
             }
 
@@ -1298,6 +1554,10 @@ public final class TypeChecker {
             deltaHolder[1] = sn;
             {
                 int q = quickIsDefEq(tn, sn, false);
+                if (q != 0) emitPhase("lazyDelta.postQuick.hit");
+                else emitPhase("lazyDelta.postQuick.miss");
+                emitPhasePairStats("lazyDelta.postQuick.stats", tn, sn);
+                emitDeltaTrace(q == 1 ? "quick.eq" : (q == -1 ? "quick.diff" : "quick.unknown"), tn, sn);
                 if (q == 1) return 1;   // DefEqual
                 if (q == -1) return -1; // DefDiff
             }
@@ -1440,7 +1700,7 @@ public final class TypeChecker {
         Expr fn = (Expr) fa[0];
         if (fn.tag != Expr.PROJ) return null;
         Expr eNew = reducer.whnfCore(e);
-        return (eNew != e) ? eNew : null;
+        return !LeanExprKey.exprEquals(eNew, e) ? eNew : null;
     }
 
     /** Check if head constant is a delta (unfoldable definition). */
@@ -1490,6 +1750,47 @@ public final class TypeChecker {
             if (!Level.eq((Level) a[i], (Level) b[i])) return false;
         }
         return true;
+    }
+
+    /**
+     * Lean's failure cache for same-definition argument comparison is symmetric.
+     * Normalize the pair so retry checks behave the same for (t,s) and (s,t).
+     */
+    private static Expr[] canonicalFailurePair(Expr t, Expr s) {
+        int th = t.structuralHash();
+        int sh = s.structuralHash();
+        if (th < sh) return new Expr[]{t, s};
+        if (th > sh) return new Expr[]{s, t};
+        int tid = System.identityHashCode(t);
+        int sid = System.identityHashCode(s);
+        return tid <= sid ? new Expr[]{t, s} : new Expr[]{s, t};
+    }
+
+    private boolean failedBefore(Expr t, Expr s) {
+        Expr[] pair = canonicalFailurePair(t, s);
+        IdentityHashMap<Expr, Boolean> identityInner = failureIdentityCache.get(pair[0]);
+        if (identityInner != null && Boolean.TRUE.equals(identityInner.get(pair[1]))) {
+            return true;
+        }
+        HashMap<Expr, Boolean> structuralInner = failureStructuralCache.get(pair[0]);
+        return structuralInner != null && Boolean.TRUE.equals(structuralInner.get(pair[1]));
+    }
+
+    private void cacheFailure(Expr t, Expr s) {
+        Expr[] pair = canonicalFailurePair(t, s);
+        IdentityHashMap<Expr, Boolean> identityInner = failureIdentityCache.get(pair[0]);
+        if (identityInner == null) {
+            identityInner = new IdentityHashMap<>(4);
+            failureIdentityCache.put(pair[0], identityInner);
+        }
+        identityInner.put(pair[1], Boolean.TRUE);
+
+        HashMap<Expr, Boolean> structuralInner = failureStructuralCache.get(pair[0]);
+        if (structuralInner == null) {
+            structuralInner = new HashMap<>(4);
+            failureStructuralCache.put(pair[0], structuralInner);
+        }
+        structuralInner.put(pair[1], Boolean.TRUE);
     }
 
     /**
@@ -1580,27 +1881,22 @@ public final class TypeChecker {
                 sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
                 holder[1] = sn;
             } else {
-                // Same hint level — try argument comparison first if same definition
-                // (matching Lean 4's is_eqp optimization, using Name.equals)
+                // Same hint level — Lean only takes this shortcut when the unfolded
+                // definitions are pointer-equal (is_eqp), not merely name-equal.
                 Expr[] tnArgs = (Expr[]) tnFA[1];
                 Expr[] snArgs = (Expr[]) snFA[1];
                 if (tnHead.tag == Expr.CONST && snHead.tag == Expr.CONST
-                    && ((Name) tnHead.o0).equals((Name) snHead.o0)
+                    && tnHead.isEqp(snHead)
                     && tnArgs.length == snArgs.length
                     && tHints > 0) { // regular hints (positive = regular in our encoding)
-                    IdentityHashMap<Expr, Boolean> inner = failureCache.get(tn);
-                    if (inner == null || !Boolean.TRUE.equals(inner.get(sn))) {
+                    if (!failedBefore(tn, sn)) {
                         if (levelsEq(Reducer.constLevels(tnHead), Reducer.constLevels(snHead))
                             && isDefEqArgs(tn, sn)) {
                             holder[0] = tn;
                             holder[1] = sn;
                             return 1; // DefEqual via argument comparison
                         }
-                        if (inner == null) {
-                            inner = new IdentityHashMap<>(4);
-                            failureCache.put(tn, inner);
-                        }
-                        inner.put(sn, Boolean.TRUE);
+                        cacheFailure(tn, sn);
                     }
                 }
                 // Unfold both
@@ -1660,26 +1956,31 @@ public final class TypeChecker {
         Expr sFn = (Expr) sfa[0];
         Expr[] tArgs = (Expr[]) tfa[1];
         Expr[] sArgs = (Expr[]) sfa[1];
-        if (tArgs.length != sArgs.length) return false;
         if (!isDefEq(tFn, sFn)) return false;
+        if (tArgs.length != sArgs.length) return false;
         for (int i = 0; i < tArgs.length; i++) {
             if (!isDefEq(tArgs[i], sArgs[i])) return false;
         }
         return true;
     }
 
-    /** Check if two application expressions have equal arguments. */
+    /**
+     * Check whether two app spines have definitionally equal arguments.
+     *
+     * Lean's `is_def_eq_args` walks the app spine from the outside in, comparing
+     * the current `app_arg` before recursing into `app_fn`. This yields a
+     * right-to-left argument order for left-associated applications:
+     *   (((f a) b) c)  => compare c, then b, then a
+     *
+     * Keeping the same order matters for trace-space fidelity.
+     */
     private boolean isDefEqArgs(Expr t, Expr s) {
-        // Collect args from both
-        Object[] tfa = Reducer.getAppFnArgs(t);
-        Object[] sfa = Reducer.getAppFnArgs(s);
-        Expr[] tArgs = (Expr[]) tfa[1];
-        Expr[] sArgs = (Expr[]) sfa[1];
-        if (tArgs.length != sArgs.length) return false;
-        for (int i = 0; i < tArgs.length; i++) {
-            if (!isDefEq(tArgs[i], sArgs[i])) return false;
+        while (t.tag == Expr.APP && s.tag == Expr.APP) {
+            if (!isDefEq((Expr) t.o1, (Expr) s.o1)) return false;
+            t = (Expr) t.o0;
+            s = (Expr) s.o0;
         }
-        return true;
+        return t.tag != Expr.APP && s.tag != Expr.APP;
     }
 
     /** Try eta expansion: t =?= λ x. s x when s is lam and t is not. */
@@ -1813,6 +2114,46 @@ public final class TypeChecker {
         return checkConstant(env, ci, DEFAULT_FUEL);
     }
 
+    public static Env checkInductiveBundle(Env env, InductiveBundle bundle) {
+        return checkInductiveBundle(env, bundle, DEFAULT_FUEL);
+    }
+
+    public static Env checkInductiveBundle(Env env, InductiveBundle bundle, long fuel) {
+        return InductiveBundleChecker.checkBundle(env, bundle, fuel);
+    }
+
+    public static Expr debugExpectedRecursorType(Env env, InductiveBundle bundle, int recIdx, long fuel) {
+        InductiveChecker ic = new InductiveChecker(debugEnvWithoutBundle(env, bundle), bundle, fuel);
+        ic.prepareRecursorState();
+        return ic.debugBuildExpectedRecursorType(recIdx);
+    }
+
+    public static Expr debugNormalizedExpectedRecursorType(Env env, InductiveBundle bundle, int recIdx, long fuel) {
+        InductiveChecker ic = new InductiveChecker(debugEnvWithoutBundle(env, bundle), bundle, fuel);
+        ic.prepareRecursorState();
+        return ic.debugBuildNormalizedExpectedRecursorType(recIdx, bundle.recursors[recIdx]);
+    }
+
+    public static ConstantInfo.RecursorRule[] debugExpectedRecursorRules(Env env, InductiveBundle bundle, int recIdx, long fuel) {
+        InductiveChecker ic = new InductiveChecker(debugEnvWithoutBundle(env, bundle), bundle, fuel);
+        ic.prepareRecursorState();
+        return ic.debugBuildExpectedRecursorRules(recIdx, bundle.recursors[recIdx]);
+    }
+
+    private static Env debugEnvWithoutBundle(Env env, InductiveBundle bundle) {
+        java.util.HashSet<Name> excluded = new java.util.HashSet<>();
+        for (ConstantInfo ci : bundle.inductives) excluded.add(ci.name);
+        for (ConstantInfo ci : bundle.ctors) excluded.add(ci.name);
+        for (ConstantInfo ci : bundle.recursors) excluded.add(ci.name);
+        Env out = new Env();
+        for (ConstantInfo ci : env.allConstants()) {
+            if (ci != null && !excluded.contains(ci.name)) {
+                out = out.addConstant(ci);
+            }
+        }
+        return out;
+    }
+
     public static Env checkConstant(Env env, ConstantInfo ci, long fuel) {
         // Quotient primitives: just enable and add (no type-checking needed, they are axioms)
         if (ci.isQuot()) {
@@ -1834,7 +2175,7 @@ public final class TypeChecker {
             // expressions are pointer-identical to proof sub-expressions.
             Expr.seedIntern(scCache);
 
-            TypeChecker tc = new TypeChecker(env);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
             // Theorem: check is_prop first, matching Lean 4's add_theorem
             if (ci.isThm()) {
@@ -1843,7 +2184,7 @@ public final class TypeChecker {
             }
 
             // Check type is well-formed (must be a sort)
-            tc.ensureSort(tc.inferType(type));
+            tc.ensureSort(tc.check(type));
 
             // === Inductive type validation ===
             // Check that the inductive result (after stripping params/indices) is a sort,
@@ -1883,7 +2224,7 @@ public final class TypeChecker {
 
             // For definitions, theorems, and opaques: check value matches type
             if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                Expr inferred = tc.inferType(value);
+                Expr inferred = tc.check(value);
                 if (!tc.isDefEq(inferred, type)) {
                     String infStr = inferred.toString();
                     String declStr = ci.type.toString();
@@ -1909,6 +2250,269 @@ public final class TypeChecker {
         }
     }
 
+    static void checkInductiveHeader(Env env, ConstantInfo ci, long fuel) {
+        if (!ci.isInduct()) throw new RuntimeException("expected inductive declaration: " + ci.name);
+        Expr.enableIntern();
+        try {
+            checkDuplicateUnivParams(ci.levelParams, ci.name);
+            Expr type = Expr.shareCommon(ci.type);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
+            tc.setFuel(fuel);
+            tc.ensureSort(tc.check(type));
+            if (!ci.isUnsafe) {
+                validateInductiveResultSort(ci, tc);
+            }
+        } finally {
+            Expr.disableIntern();
+        }
+    }
+
+    static void checkConstructorDeclaration(Env env, ConstantInfo ci, long fuel) {
+        if (!ci.isCtor()) throw new RuntimeException("expected constructor declaration: " + ci.name);
+        Expr.enableIntern();
+        try {
+            checkDuplicateUnivParams(ci.levelParams, ci.name);
+            Expr type = Expr.shareCommon(ci.type);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
+            tc.setFuel(fuel);
+            tc.ensureSort(tc.check(type));
+            if (!ci.isUnsafe) {
+                ConstantInfo indCi = env.lookup(ci.inductName);
+                if (indCi != null && indCi.isInduct() && !indCi.isUnsafe) {
+                    validateConstructor(env, indCi, ci, tc);
+                }
+            }
+        } finally {
+            Expr.disableIntern();
+        }
+    }
+
+    static void checkRecursorDeclaration(Env env, ConstantInfo ci, long fuel) {
+        if (!ci.isRecursor()) throw new RuntimeException("expected recursor declaration: " + ci.name);
+        Expr.enableIntern();
+        try {
+            checkDuplicateUnivParams(ci.levelParams, ci.name);
+            Expr type = Expr.shareCommon(ci.type);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
+            tc.setFuel(fuel);
+            tc.ensureSort(tc.check(type));
+            if (ci.rules != null) {
+                for (ConstantInfo.RecursorRule rule : ci.rules) {
+                    ConstantInfo ctorCi = env.lookup(rule.ctor);
+                    if (ctorCi != null && ctorCi.isCtor()) {
+                        if (rule.nfields != ctorCi.numFields) {
+                            throw new RuntimeException("Type error: Recursor rule nfields mismatch for " +
+                                ci.name + " constructor " + rule.ctor +
+                                ": expected " + ctorCi.numFields + " got " + rule.nfields);
+                        }
+                    }
+                }
+            }
+        } finally {
+            Expr.disableIntern();
+        }
+    }
+
+    static void validateRecursorDeclarationRules(Env env, ConstantInfo ci) {
+        if (!ci.isRecursor()) throw new RuntimeException("expected recursor declaration: " + ci.name);
+        if (ci.rules != null && !ci.isUnsafe) {
+            validateRecursorRules(env, ci);
+        }
+    }
+
+    static ConstantInfo.RecursorRule[] buildExpectedRecursorRules(Env env, ConstantInfo recCi) {
+        if (!recCi.isRecursor()) throw new RuntimeException("expected recursor declaration: " + recCi.name);
+        if (recCi.rules == null) return null;
+        if (recCi.numMotives > recCi.all.length) {
+            throw new RuntimeException("expected non-nested recursor declaration: " + recCi.name);
+        }
+
+        int np = recCi.numParams;
+        int nm = recCi.numMotives;
+        int nmi = recCi.numMinors;
+
+        int minorOffset = 0;
+        for (int i = 0; i < recCi.all.length; i++) {
+            Name indName = (Name) recCi.all[i];
+            Name expectedRecName = Name.mkStr(indName, "rec");
+            if (expectedRecName.equals(recCi.name)) {
+                break;
+            }
+            ConstantInfo indCi = env.lookup(indName);
+            if (indCi != null && indCi.isInduct() && indCi.ctors != null) {
+                minorOffset += indCi.ctors.length;
+            }
+        }
+
+        Object[] levelParams = new Object[recCi.levelParams.length];
+        boolean hasLP = recCi.levelParams.length > 0;
+        for (int j = 0; j < levelParams.length; j++) {
+            levelParams[j] = Level.param((Name) recCi.levelParams[j]);
+        }
+
+        ConstantInfo.RecursorRule[] out = new ConstantInfo.RecursorRule[recCi.rules.length];
+        int minorIdx = minorOffset;
+        for (int ruleIdx = 0; ruleIdx < recCi.rules.length; ruleIdx++) {
+            ConstantInfo.RecursorRule rule = recCi.rules[ruleIdx];
+            ConstantInfo ctorCi = env.lookup(rule.ctor);
+            if (ctorCi == null || !ctorCi.isCtor()) {
+                throw new RuntimeException("Recursor rule references unknown constructor: " + rule.ctor);
+            }
+            int nf = rule.nfields;
+            Expr imported = rule.rhs;
+            int lambdaCount = 0;
+            while (imported.tag == Expr.LAM) {
+                imported = (Expr) imported.o2;
+                lambdaCount++;
+            }
+
+            Expr ctorType = ctorCi.type;
+            for (int i = 0; i < np; i++) {
+                if (ctorType.tag != Expr.FORALL) {
+                    throw new RuntimeException("Constructor " + rule.ctor +
+                        " type has fewer binders than numParams=" + np);
+                }
+                ctorType = (Expr) ctorType.o2;
+            }
+
+            boolean[] isRecField = new boolean[nf];
+            int[] recFieldExtraPis = new int[nf];
+            int[] recFieldIndIdx = new int[nf];
+            Expr[][] recFieldIndices = new Expr[nf][];
+            Expr[] fieldTypesRaw = new Expr[nf];
+
+            TypeChecker fieldTc = new TypeChecker(env);
+            fieldTc.setFuel(DEFAULT_FUEL);
+            java.util.HashSet<Name> inductiveNameSet = new java.util.HashSet<>();
+            for (Object n : recCi.all) inductiveNameSet.add((Name) n);
+
+            Expr ctorTypeWalk = ctorType;
+            for (int fi = 0; fi < nf; fi++) {
+                if (ctorTypeWalk.tag != Expr.FORALL) break;
+                Expr fieldType = (Expr) ctorTypeWalk.o1;
+                fieldTypesRaw[fi] = fieldType;
+
+                Expr ft = fieldTc.whnf(fieldType);
+                int extraPis = 0;
+                while (ft.tag == Expr.FORALL) {
+                    ft = fieldTc.whnf((Expr) ft.o2);
+                    extraPis++;
+                }
+
+                Expr head = ft;
+                int argCount = 0;
+                Expr temp = ft;
+                while (temp.tag == Expr.APP) { argCount++; temp = (Expr) temp.o0; }
+                head = temp;
+                Expr[] args = new Expr[argCount];
+                temp = ft;
+                for (int ai = argCount - 1; ai >= 0; ai--) {
+                    args[ai] = (Expr) temp.o1;
+                    temp = (Expr) temp.o0;
+                }
+
+                if (head.tag == Expr.CONST) {
+                    Name headName = (Name) head.o0;
+                    if (inductiveNameSet.contains(headName)) {
+                        ConstantInfo indCi = env.lookup(headName);
+                        if (indCi != null && indCi.isInduct()) {
+                            int indNp = indCi.numParams;
+                            int expectedArgs = indNp + indCi.numIndices;
+                            if (argCount == expectedArgs) {
+                                boolean paramsOk = true;
+                                for (int pi = 0; pi < indNp; pi++) {
+                                    Expr paramArg = args[pi];
+                                    long expectedBvar = np + fi + extraPis - 1 - pi;
+                                    if (paramArg.tag != Expr.BVAR || paramArg.longVal != expectedBvar) {
+                                        paramsOk = false;
+                                        break;
+                                    }
+                                }
+                                if (paramsOk) {
+                                    isRecField[fi] = true;
+                                    recFieldExtraPis[fi] = extraPis;
+                                    for (int ii = 0; ii < recCi.all.length; ii++) {
+                                        if (headName.equals(recCi.all[ii])) {
+                                            recFieldIndIdx[fi] = ii;
+                                            break;
+                                        }
+                                    }
+                                    int numInd = indCi.numIndices;
+                                    recFieldIndices[fi] = new Expr[numInd];
+                                    for (int j = 0; j < numInd; j++) {
+                                        recFieldIndices[fi][j] = args[indNp + j];
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                ctorTypeWalk = (Expr) ctorTypeWalk.o2;
+            }
+
+            Expr expectedBody = Expr.bvar(nf + nmi - 1 - minorIdx);
+            for (int fi = 0; fi < nf; fi++) {
+                expectedBody = Expr.app(expectedBody, Expr.bvar(nf - 1 - fi));
+            }
+            for (int fi = 0; fi < nf; fi++) {
+                if (!isRecField[fi]) continue;
+                int indIdx = recFieldIndIdx[fi];
+                Expr[] indices = recFieldIndices[fi];
+                int extraPis = recFieldExtraPis[fi];
+                Name targetRecName = recCi.all.length == 1 ? recCi.name : Name.mkStr((Name) recCi.all[indIdx], "rec");
+                if (extraPis == 0) {
+                    Expr ih = Expr.mkConst(targetRecName, levelParams, hasLP);
+                    for (int j = 0; j < np; j++) ih = Expr.app(ih, Expr.bvar(lambdaCount - 1 - j));
+                    for (int j = 0; j < nm; j++) ih = Expr.app(ih, Expr.bvar(nf + nmi + nm - 1 - j));
+                    for (int j = 0; j < nmi; j++) ih = Expr.app(ih, Expr.bvar(nf + nmi - 1 - j));
+                    if (indices != null && indices.length > 0) {
+                        for (Expr index : indices) ih = Expr.app(ih, reindexBvarsIH(index, 0, fi, nm + nmi, nf));
+                    }
+                    ih = Expr.app(ih, Expr.bvar(nf - 1 - fi));
+                    expectedBody = Expr.app(expectedBody, ih);
+                } else {
+                    Expr ihInner = Expr.mkConst(targetRecName, levelParams, hasLP);
+                    for (int j = 0; j < np; j++) ihInner = Expr.app(ihInner, Expr.bvar(lambdaCount - 1 - j + extraPis));
+                    for (int j = 0; j < nm; j++) ihInner = Expr.app(ihInner, Expr.bvar(nf + nmi + nm - 1 - j + extraPis));
+                    for (int j = 0; j < nmi; j++) ihInner = Expr.app(ihInner, Expr.bvar(nf + nmi - 1 - j + extraPis));
+                    if (indices != null && indices.length > 0) {
+                        for (Expr index : indices) ihInner = Expr.app(ihInner, reindexBvarsIH(index, extraPis, fi, nm + nmi, nf));
+                    }
+                    Expr fApp = Expr.bvar(nf - 1 - fi + extraPis);
+                    for (int j = 0; j < extraPis; j++) fApp = Expr.app(fApp, Expr.bvar(extraPis - 1 - j));
+                    ihInner = Expr.app(ihInner, fApp);
+                    Expr ih = ihInner;
+                    for (int j = extraPis - 1; j >= 0; j--) {
+                        Expr ftj = fieldTypesRaw[fi];
+                        for (int k = 0; k < j; k++) ftj = (Expr) ftj.o2;
+                        Expr binderType = reindexBvarsIH((Expr) ftj.o1, j, fi, nm + nmi, nf);
+                        ih = Expr.lam(ftj.o0, binderType, ih, ftj.o3);
+                    }
+                    expectedBody = Expr.app(expectedBody, ih);
+                }
+            }
+            Expr expectedRhs = rebuildRuleLambdas(rule.rhs, expectedBody);
+            out[ruleIdx] = new ConstantInfo.RecursorRule(rule.ctor, rule.nfields, expectedRhs);
+            minorIdx++;
+        }
+        return out;
+    }
+
+    private static Expr rebuildRuleLambdas(Expr template, Expr body) {
+        java.util.ArrayList<Expr> binders = new java.util.ArrayList<>();
+        Expr cur = template;
+        while (cur.tag == Expr.LAM) {
+            binders.add(cur);
+            cur = (Expr) cur.o2;
+        }
+        Expr result = body;
+        for (int i = binders.size() - 1; i >= 0; i--) {
+            Expr lam = binders.get(i);
+            result = Expr.lam(lam.o0, (Expr) lam.o1, result, lam.o3);
+        }
+        return result;
+    }
+
     /** Type-check a declaration with structured NDJSON trace output. */
     public static Env checkConstantTraced(Env env, ConstantInfo ci, long fuel, Writer traceWriter) {
         if (ci.isQuot()) {
@@ -1923,22 +2527,64 @@ public final class TypeChecker {
             // Seed intern table with shareCommon results so reduction-created
             // expressions are pointer-identical to proof sub-expressions.
             Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
             tc.setTraceWriter(traceWriter);
             if (ci.isThm()) {
                 if (!tc.isProp(type))
                     throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
             }
-            tc.ensureSort(tc.inferType(type));
+            tc.ensureSort(tc.check(type));
             if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                Expr inferred = tc.inferType(value);
+                Expr inferred = tc.check(value);
                 if (!tc.isDefEq(inferred, type)) {
                     throw new RuntimeException("Type error: value type mismatch for " + ci.name);
                 }
             }
             // Callers must add ci to env themselves (Env is immutable)
             try { traceWriter.flush(); } catch (IOException e) {}
+            return env.addConstant(ci);
+        } finally {
+            Expr.disableIntern();
+        }
+    }
+
+    /** Like checkConstantTraced, but emits simple phase markers for theorem/definition checking. */
+    public static Env checkConstantTracedPhased(Env env, ConstantInfo ci, long fuel, Writer traceWriter) {
+        if (ci.isQuot()) {
+            return env.enableQuot().addConstant(ci);
+        }
+        Expr.enableIntern();
+        try {
+            java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
+            java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
+            Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
+            Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
+            Expr.seedIntern(scCache);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
+            tc.setFuel(fuel);
+            tc.setTraceWriter(traceWriter);
+            tc.setPhaseTracing(true);
+            try {
+                if (ci.isThm()) {
+                    tc.emitPhase("isProp");
+                    if (!tc.isProp(type))
+                        throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
+                }
+                tc.emitPhase("checkType");
+                tc.ensureSort(tc.check(type));
+                if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
+                    tc.emitPhase("checkValue");
+                    Expr inferred = tc.check(value);
+                    tc.emitPhase("valueDefEqType");
+                    if (!tc.isDefEq(inferred, type)) {
+                        throw new RuntimeException("Type error: value type mismatch for " + ci.name);
+                    }
+                }
+                traceWriter.flush();
+            } catch (IOException e) {
+                throw new RuntimeException(e);
+            }
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
@@ -1964,15 +2610,15 @@ public final class TypeChecker {
             // Seed intern table with shareCommon results so reduction-created
             // expressions are pointer-identical to proof sub-expressions.
             Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
             if (ci.isThm()) {
                 if (!tc.isProp(type))
                     throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
             }
-            tc.ensureSort(tc.inferType(type));
+            tc.ensureSort(tc.check(type));
             if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                Expr inferred = tc.inferType(value);
+                Expr inferred = tc.check(value);
                 if (!tc.isDefEq(inferred, type)) {
                     String infStr = inferred.toString();
                     String declStr = ci.type.toString();
@@ -2007,16 +2653,16 @@ public final class TypeChecker {
             // Seed intern table with shareCommon results so reduction-created
             // expressions are pointer-identical to proof sub-expressions.
             Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
             try {
                 if (ci.isThm()) {
                     if (!tc.isProp(type))
                         throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
                 }
-                tc.ensureSort(tc.inferType(type));
+                tc.ensureSort(tc.check(type));
                 if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                    Expr inferred = tc.inferType(value);
+                    Expr inferred = tc.check(value);
                     if (!tc.isDefEq(inferred, type)) {
                         String infStr = inferred.toString();
                         String declStr = ci.type.toString();
@@ -2056,6 +2702,16 @@ public final class TypeChecker {
                 throw new RuntimeException("Duplicate universe level parameter '" + lp + "' in " + declName);
             }
         }
+    }
+
+    private static byte getDefinitionSafety(ConstantInfo ci) {
+        if (ci.isDef()) {
+            return ci.safety;
+        }
+        if (ci.isUnsafe) {
+            return DEFN_UNSAFE;
+        }
+        return DEFN_SAFE;
     }
 
     /**
@@ -2173,7 +2829,7 @@ public final class TypeChecker {
             }
 
             // Check 5: Strict positivity
-            checkPositivity(tc, fieldType, inductiveNames, ctorCi.name, fieldIdx + 1);
+            checkPositivity(tc, fieldType, inductiveNames, paramFvars, ctorCi.name, fieldIdx + 1);
 
             long fid = tc.nextFvarId();
             Expr fvar = Expr.fvar(fid);
@@ -2245,7 +2901,7 @@ public final class TypeChecker {
      * applied with wrong args) is a negative/non-positive occurrence.
      */
     private static void checkPositivity(TypeChecker tc, Expr type,
-            java.util.HashSet<Name> inductiveNames, Name ctorName, int argIdx) {
+            java.util.HashSet<Name> inductiveNames, Expr[] paramFvars, Name ctorName, int argIdx) {
         type = tc.whnf(type);
 
         // Case 1: No inductive occurrences at all — OK
@@ -2263,32 +2919,122 @@ public final class TypeChecker {
             Expr fvar = Expr.fvar(fid);
             tc.addLocalDecl(fid, type.o0, domain);
             Expr body = Reducer.instantiate1((Expr) type.o2, fvar);
-            checkPositivity(tc, body, inductiveNames, ctorName, argIdx);
+            checkPositivity(tc, body, inductiveNames, paramFvars, ctorName, argIdx);
         } else {
-            // Case 3: Must be a valid inductive application or a nested inductive
-            Expr head = type;
-            while (head.tag == Expr.APP) head = (Expr) head.o0;
-            if (head.tag == Expr.CONST) {
-                Name headName = (Name) head.o0;
-                if (inductiveNames.contains(headName)) {
-                    // Direct recursive application — OK
-                    return;
-                }
-                // Check for nested inductive: head is a known inductive whose params
-                // contain references to our mutual group (like Array(Syntax)).
-                // Lean 4 handles this via ElimNestedInductive; we allow it here since
-                // nested compilation preserves positivity.
-                Env env = tc.getEnv();
-                ConstantInfo headCi = env != null ? env.lookup(headName) : null;
-                if (headCi != null && headCi.isInduct()) {
-                    // This is a nested occurrence — allowed if the head inductive was
-                    // previously declared (not part of the current mutual group).
-                    return;
-                }
+            // Case 3: Must be a valid inductive application or a well-formed nested inductive.
+            if (isValidInductiveOccurrence(tc, type, inductiveNames, paramFvars)) {
+                return;
+            }
+            if (isValidNestedInductiveOccurrence(tc, type, inductiveNames, paramFvars)) {
+                return;
             }
             // Case 4: Contains inductive but not as valid application
             throw new RuntimeException("Constructor " + ctorName +
                 " arg #" + argIdx + " has non-valid occurrence of inductive type");
+        }
+    }
+
+    private static boolean isValidInductiveOccurrence(TypeChecker tc, Expr type,
+            java.util.HashSet<Name> inductiveNames, Expr[] paramFvars) {
+        Object[] app = decomposeApp(type);
+        Expr head = (Expr) app[0];
+        Expr[] args = (Expr[]) app[1];
+        if (head.tag != Expr.CONST) return false;
+
+        Name headName = (Name) head.o0;
+        if (!inductiveNames.contains(headName)) return false;
+
+        ConstantInfo headCi = tc.getEnv().lookup(headName);
+        if (headCi == null || !headCi.isInduct()) return false;
+        if (args.length != headCi.numParams + headCi.numIndices) return false;
+        if (paramFvars.length < headCi.numParams) return false;
+
+        for (int i = 0; i < headCi.numParams; i++) {
+            if (!tc.isDefEq(args[i], paramFvars[i])) {
+                return false;
+            }
+        }
+        for (int i = headCi.numParams; i < args.length; i++) {
+            if (exprContainsName(args[i], inductiveNames)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isValidNestedInductiveOccurrence(TypeChecker tc, Expr type,
+            java.util.HashSet<Name> inductiveNames, Expr[] paramFvars) {
+        Object[] app = decomposeApp(type);
+        Expr head = (Expr) app[0];
+        Expr[] args = (Expr[]) app[1];
+        if (head.tag != Expr.CONST) return false;
+
+        Name headName = (Name) head.o0;
+        if (inductiveNames.contains(headName)) return false;
+
+        ConstantInfo headCi = tc.getEnv().lookup(headName);
+        if (headCi == null || !headCi.isInduct()) return false;
+        if (args.length < headCi.numParams) return false;
+
+        java.util.HashSet<Long> allowedParamIds = new java.util.HashSet<>(paramFvars.length * 2 + 1);
+        for (Expr paramFvar : paramFvars) {
+            if (paramFvar != null && paramFvar.tag == Expr.FVAR) {
+                allowedParamIds.add(paramFvar.longVal);
+            }
+        }
+
+        boolean isNested = false;
+        for (int i = 0; i < headCi.numParams; i++) {
+            Expr paramArg = args[i];
+            if (exprContainsUnexpectedFVar(paramArg, allowedParamIds)) {
+                throw new RuntimeException("invalid nested inductive datatype '" + headName +
+                    "', nested inductive datatype parameters cannot contain local variables");
+            }
+            if (exprContainsName(paramArg, inductiveNames)) {
+                isNested = true;
+            }
+        }
+        return isNested;
+    }
+
+    private static Object[] decomposeApp(Expr e) {
+        int argCount = 0;
+        Expr head = e;
+        while (head.tag == Expr.APP) {
+            argCount++;
+            head = (Expr) head.o0;
+        }
+        Expr[] args = new Expr[argCount];
+        Expr cur = e;
+        for (int i = argCount - 1; i >= 0; i--) {
+            args[i] = (Expr) cur.o1;
+            cur = (Expr) cur.o0;
+        }
+        return new Object[]{head, args};
+    }
+
+    private static boolean exprContainsUnexpectedFVar(Expr e, java.util.HashSet<Long> allowedFVars) {
+        if (e == null) return false;
+        switch (e.tag) {
+            case Expr.FVAR:
+                return !allowedFVars.contains(e.longVal);
+            case Expr.APP:
+                return exprContainsUnexpectedFVar((Expr) e.o0, allowedFVars)
+                    || exprContainsUnexpectedFVar((Expr) e.o1, allowedFVars);
+            case Expr.LAM:
+            case Expr.FORALL:
+                return exprContainsUnexpectedFVar((Expr) e.o1, allowedFVars)
+                    || exprContainsUnexpectedFVar((Expr) e.o2, allowedFVars);
+            case Expr.LET:
+                return exprContainsUnexpectedFVar((Expr) e.o1, allowedFVars)
+                    || exprContainsUnexpectedFVar((Expr) e.o2, allowedFVars)
+                    || (e.o3 instanceof Expr && exprContainsUnexpectedFVar((Expr) e.o3, allowedFVars));
+            case Expr.PROJ:
+                return exprContainsUnexpectedFVar((Expr) e.o1, allowedFVars);
+            case Expr.MDATA:
+                return exprContainsUnexpectedFVar((Expr) e.o1, allowedFVars);
+            default:
+                return false;
         }
     }
 
@@ -2299,9 +3045,9 @@ public final class TypeChecker {
         Expr.enableIntern();
         try {
             Expr type = Expr.shareCommon(ci.type);  // single expr, no need for shared cache
-            TypeChecker tc = new TypeChecker(env);
+            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
-            tc.ensureSort(tc.inferType(type));
+            tc.ensureSort(tc.check(type));
         } finally {
             Expr.disableIntern();
         }
@@ -3404,7 +4150,7 @@ public final class TypeChecker {
      * @param nmNmi number of motives + minors (inserted binders)
      * @param nf total number of fields
      */
-    private static Expr reindexBvarsIH(Expr e, int j, int fi, int nmNmi, int nf) {
+    static Expr reindexBvarsIH(Expr e, int j, int fi, int nmNmi, int nf) {
         if (e.bvarRange() == 0) return e;
 
         switch (e.tag) {

@@ -102,7 +102,9 @@ else
 
     # Export the top-level Cslib module (includes all submodules)
     cd "$PARENT_DIR/cslib"
-    "$PARENT_DIR/lean4export/.lake/build/bin/lean4export" Cslib > "$NDJSON"
+    # Preserve mdata wrappers so imported declarations can match Lean's
+    # kernel trace/reduction behavior more closely.
+    "$PARENT_DIR/lean4export/.lake/build/bin/lean4export" --export-mdata Cslib > "$NDJSON"
 
     echo "    Exported: $(du -h "$NDJSON" | cut -f1) ($(wc -l < "$NDJSON") lines)"
 fi

@@ -29,6 +29,15 @@
        ['cons ['a 'alpha 'n 'Nat 'tail '(TVec alpha n)] ['(+ n 1)]]]
       :indices '[n Nat])))
 
+(defn- check-generated-recursor [base-env ind-name ctor-names rec-name]
+  (let [ind-ci (env/lookup (a/env) (name/from-string ind-name))
+        ctor-cis (mapv #(env/lookup (a/env) (name/from-string %)) ctor-names)
+        rec-ci (env/lookup (a/env) (name/from-string rec-name))
+        pre-env (reduce env/check-constant
+                        (env/check-constant base-env ind-ci)
+                        ctor-cis)]
+    (env/check-constant pre-env rec-ci)))
+
 (defn- with-init-env [f]
   (when-let [env @init-env]
     (reset! a/ansatz-env env)
@@ -80,7 +89,12 @@
       (is (= 1 (.numParams rec-ci)) "1 param (alpha)")
       (is (= 1 (.numIndices rec-ci)) "1 index (n)")
       (is (= 1 (.numMotives rec-ci)) "1 motive")
-      (is (= 2 (.numMinors rec-ci)) "2 minors (nil, cons)"))))
+      (is (= 2 (.numMinors rec-ci)) "2 minors (nil, cons)"))
+    (is (instance? ansatz.kernel.Env
+                   (check-generated-recursor @init-env
+                                             "TVec"
+                                             ["TVec.nil" "TVec.cons"]
+                                             "TVec.rec")))))
 
 (deftest test-vec-backward-compat
   (testing "Non-indexed types still work"
@@ -114,4 +128,9 @@
     (is (some? (env/lookup (a/env) (name/from-string "TFin.rec"))))
     (let [rec-ci (env/lookup (a/env) (name/from-string "TFin.rec"))]
       (is (= 0 (.numParams rec-ci)) "0 params")
-      (is (= 1 (.numIndices rec-ci)) "1 index (n)"))))
+      (is (= 1 (.numIndices rec-ci)) "1 index (n)"))
+    (is (instance? ansatz.kernel.Env
+                   (check-generated-recursor @init-env
+                                             "TFin"
+                                             ["TFin.zero" "TFin.succ"]
+                                             "TFin.rec")))))

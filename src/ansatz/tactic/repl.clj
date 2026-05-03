@@ -274,7 +274,7 @@
         term (extract/verify ps')
         cname (name/from-string (str thm-name))
         ci (ansatz.kernel.env/mk-thm cname [] type-expr term)]
-    (ansatz.kernel.env/add-constant env ci)))
+    (ansatz.kernel.env/check-constant env ci)))
 
 (defn define
   "Define a term constant and add it to the environment.
@@ -290,4 +290,4 @@
          cname (name/from-string (str def-name))
          hints (get opts :hints :opaque)
          ci (ansatz.kernel.env/mk-def cname [] type-expr value-expr :hints hints)]
-     (ansatz.kernel.env/add-constant env ci))))
+     (ansatz.kernel.env/check-constant env ci))))

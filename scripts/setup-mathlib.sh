@@ -71,7 +71,10 @@ else
     echo ""
     echo ">>> Exporting Mathlib to NDJSON (this takes ~5 minutes)..."
     mkdir -p "$PROJECT_DIR/test-data"
-    .lake/build/bin/lean4export --mathlib > "$NDJSON"
+    # Preserve mdata wrappers so imported declarations can match Lean's
+    # kernel trace/reduction behavior more closely.
+    cd "$PARENT_DIR/mathlib4"
+    lake env "$PARENT_DIR/lean4export/.lake/build/bin/lean4export" --export-mdata Mathlib > "$NDJSON"
     echo "    Exported: $(du -h "$NDJSON" | cut -f1)"
 fi
 

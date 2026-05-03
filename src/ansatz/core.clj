@@ -1853,7 +1853,7 @@
 
         ;; Add to environment (swap! to avoid stale env race)
         ci (env/mk-def cname [] type-ansatz final-body)
-        _ (swap! ansatz-env env/add-constant ci)
+        _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
         _ (when *verbose* (println (str "✓ " fn-name " defined (well-founded recursion)")))
@@ -1906,7 +1906,7 @@
                                                  (nth param-types i) body :default))))
                   eq-name (name/from-string (str fn-name ".eq_unfold"))
                   eq-ci (env/mk-thm eq-name [] eq-full-type proof-full)]
-              (swap! ansatz-env env/add-constant eq-ci)
+              (swap! ansatz-env env/check-constant eq-ci)
               (when *verbose*
                 (println (str "  ✓ " fn-name ".eq_unfold equation theorem"))))
             (catch Exception e
@@ -1966,7 +1966,7 @@
         ;; Add to environment (swap! to avoid stale env race)
         cname (name/from-string (str fn-name))
         ci (env/mk-def cname [] type-ansatz body-ansatz)
-        _ (swap! ansatz-env env/add-constant ci)
+        _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
         ;; Generate equation theorems for simp (Lean 4's getEqnsFor? pattern).
@@ -2215,7 +2215,7 @@
                                                            (if-not aux-type
                                                              rhs  ;; fallback: return original stuck expr
                                                              (do ;; Register the auxiliary definition
-                                                               (swap! ansatz-env env/add-constant
+                                                               (swap! ansatz-env env/check-constant
                                                                       (env/mk-def aux-cname [] aux-type aux-body))
                                                 ;; Generate equation theorems for the auxiliary
                                                 ;; (Use a simple approach: the aux matches on its last param)
@@ -2289,7 +2289,7 @@
                                                                          (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
                                                                            (.setFuel tc-v (int config/*default-fuel*))
                                                                            (.inferType tc-v full-pf)
-                                                                           (swap! ansatz-env env/add-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
+                                                                           (swap! ansatz-env env/check-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
                                                                            (when *verbose* (println "  aux eq_" (inc ci-idx) "for" aux-name-str))))
                                                                        (catch Exception ex
                                                                          (when *verbose*
@@ -2450,7 +2450,7 @@
                               (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
                                 (.setFuel tc-v (int config/*default-fuel*))
                                 (.inferType tc-v full-proof)
-                                (swap! ansatz-env env/add-constant (env/mk-thm eqn-name [] full-type full-proof))
+                                (swap! ansatz-env env/check-constant (env/mk-thm eqn-name [] full-type full-proof))
                                 (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) ":" (e/->string full-type))))
                               (catch Exception e
                                 (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) "skipped:" (.getMessage e))))))))
@@ -2511,13 +2511,14 @@
        (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
      (extract/verify ps)
      (let [term (extract/extract ps)
+           final-env (:env ps)
            cname (name/from-string (str thm-name))
            ci (env/mk-thm cname [] goal-type term)]
        ;; When using a context, add to context's env.
        ;; When using global, swap! to avoid stale env race.
        (if ctx
-         (env/add-constant (:env ctx) ci)
-         (swap! ansatz-env env/add-constant ci)))
+         (env/check-constant final-env ci)
+         (swap! ansatz-env (fn [_] (env/check-constant final-env ci)))))
      (when *verbose* (println "✓" thm-name "proved")))))
 
 ;; ============================================================
@@ -2682,7 +2683,7 @@
                                 proj-ci# (env/mk-def proj-name# lvl-params# proj-type# proj-val#
                                                      :hints :abbrev)]
                             (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
-                                    (env/add-constant env# proj-ci#))))])))
+                                    (env/check-constant env# proj-ci#))))])))
           field-specs)
 
        ;; Emit Clojure defrecord for runtime representation
@@ -2730,4 +2731,3 @@
           (list 'Bind.bind expr (list 'fn [var-name] (apply do* rest-steps))))
         ;; Statement step (no binding): expr => (Bind.bind expr (fn [_] rest))
         (list 'Bind.bind step (list 'fn ['_] (apply do* rest-steps)))))))
-
