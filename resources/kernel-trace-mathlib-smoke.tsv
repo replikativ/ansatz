@@ -4,8 +4,8 @@
 # Keep this list small enough for quick iteration. It is intended to sample
 # different kernel/reducer surfaces before paying for full Mathlib verification.
 # Rows should normally be trace-comparable: both instrumented Lean and Ansatz
-# should emit at least one target event. Some known semantic mismatches are kept
-# active because they are useful regression targets for the next kernel pass.
+# should emit at least one target event. List/Fin-adjacent files require the
+# Mathlib Plausible package to be present and built in .lake/packages.
 
 # Nat arithmetic
 Nat.succ_injective Mathlib/Data/Nat/Basic.lean
