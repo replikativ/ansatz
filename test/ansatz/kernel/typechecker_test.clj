@@ -31,6 +31,14 @@
     (.setAccessible field true)
     (.size ^java.util.Map (.get field obj))))
 
+(defn- invoke-private-method
+  [obj method-name arg-types & args]
+  (let [method (.getDeclaredMethod (class obj)
+                                   method-name
+                                   (into-array Class arg-types))]
+    (.setAccessible method true)
+    (.invoke method obj (object-array args))))
+
 ;; ============================================================
 ;; Type inference: sorts
 ;; ============================================================
@@ -100,6 +108,15 @@
         (.inferType tc rhs)
         (is (= size-after-lhs
                (private-map-size tc "inferOnlyStructuralCache")))))))
+
+(deftest failure-cache-uses-lean-expr-pair-equality-test
+  (testing "same-definition failure cache ignores binder names and binder info like Lean expr_pair_set"
+    (let [tc (mk-tc)
+          lhs (e/forall' "x" prop prop :default)
+          rhs (e/forall' "y" prop prop :implicit)]
+      (is (not= lhs rhs))
+      (invoke-private-method tc "cacheFailure" [Expr Expr] lhs type0)
+      (is (true? (invoke-private-method tc "failedBefore" [Expr Expr] rhs type0))))))
 
 ;; ============================================================
 ;; Type inference: let

@@ -31,7 +31,7 @@ public final class TypeChecker {
     private final IdentityHashMap<Expr, Expr> inferOnlyIdentityCache;  // exact object fast path
     private final HashMap<LeanExprKey, Expr> inferOnlyStructuralCache; // Lean expr_map equality, identity fast path above
     private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureIdentityCache;
-    private final HashMap<Expr, HashMap<Expr, Boolean>> failureStructuralCache;
+    private final HashMap<LeanExprKey, HashMap<LeanExprKey, Boolean>> failureStructuralCache;
     // Identity-based cache for isDefEqCore results.
     // Prevents exponential re-comparison of DAG-shared expression pairs.
     // Key: identity of (t,s) pair. Value: Boolean result.
@@ -1760,45 +1760,51 @@ public final class TypeChecker {
         return true;
     }
 
-    /**
-     * Lean's failure cache for same-definition argument comparison is symmetric.
-     * Normalize the pair so retry checks behave the same for (t,s) and (s,t).
-     */
-    private static Expr[] canonicalFailurePair(Expr t, Expr s) {
-        int th = t.structuralHash();
-        int sh = s.structuralHash();
-        if (th < sh) return new Expr[]{t, s};
-        if (th > sh) return new Expr[]{s, t};
-        int tid = System.identityHashCode(t);
-        int sid = System.identityHashCode(s);
-        return tid <= sid ? new Expr[]{t, s} : new Expr[]{s, t};
+    private boolean failedBeforeIdentity(Expr t, Expr s) {
+        IdentityHashMap<Expr, Boolean> inner = failureIdentityCache.get(t);
+        return inner != null && Boolean.TRUE.equals(inner.get(s));
+    }
+
+    private boolean failedBeforeStructural(Expr t, Expr s) {
+        HashMap<LeanExprKey, Boolean> inner = failureStructuralCache.get(new LeanExprKey(t));
+        return inner != null && Boolean.TRUE.equals(inner.get(new LeanExprKey(s)));
     }
 
     private boolean failedBefore(Expr t, Expr s) {
-        Expr[] pair = canonicalFailurePair(t, s);
-        IdentityHashMap<Expr, Boolean> identityInner = failureIdentityCache.get(pair[0]);
-        if (identityInner != null && Boolean.TRUE.equals(identityInner.get(pair[1]))) {
-            return true;
+        int cmp = Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s));
+        if (cmp < 0) {
+            return failedBeforeIdentity(t, s) || failedBeforeStructural(t, s);
+        } else if (cmp > 0) {
+            return failedBeforeIdentity(s, t) || failedBeforeStructural(s, t);
+        } else {
+            return failedBeforeIdentity(t, s) || failedBeforeIdentity(s, t)
+                || failedBeforeStructural(t, s) || failedBeforeStructural(s, t);
         }
-        HashMap<Expr, Boolean> structuralInner = failureStructuralCache.get(pair[0]);
-        return structuralInner != null && Boolean.TRUE.equals(structuralInner.get(pair[1]));
+    }
+
+    private void cacheFailureOrdered(Expr t, Expr s) {
+        IdentityHashMap<Expr, Boolean> identityInner = failureIdentityCache.get(t);
+        if (identityInner == null) {
+            identityInner = new IdentityHashMap<>(4);
+            failureIdentityCache.put(t, identityInner);
+        }
+        identityInner.put(s, Boolean.TRUE);
+
+        LeanExprKey tKey = new LeanExprKey(t);
+        HashMap<LeanExprKey, Boolean> structuralInner = failureStructuralCache.get(tKey);
+        if (structuralInner == null) {
+            structuralInner = new HashMap<>(4);
+            failureStructuralCache.put(tKey, structuralInner);
+        }
+        structuralInner.put(new LeanExprKey(s), Boolean.TRUE);
     }
 
     private void cacheFailure(Expr t, Expr s) {
-        Expr[] pair = canonicalFailurePair(t, s);
-        IdentityHashMap<Expr, Boolean> identityInner = failureIdentityCache.get(pair[0]);
-        if (identityInner == null) {
-            identityInner = new IdentityHashMap<>(4);
-            failureIdentityCache.put(pair[0], identityInner);
+        if (Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s)) <= 0) {
+            cacheFailureOrdered(t, s);
+        } else {
+            cacheFailureOrdered(s, t);
         }
-        identityInner.put(pair[1], Boolean.TRUE);
-
-        HashMap<Expr, Boolean> structuralInner = failureStructuralCache.get(pair[0]);
-        if (structuralInner == null) {
-            structuralInner = new HashMap<>(4);
-            failureStructuralCache.put(pair[0], structuralInner);
-        }
-        structuralInner.put(pair[1], Boolean.TRUE);
     }
 
     /**
