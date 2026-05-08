@@ -611,7 +611,7 @@
       :errors errors
       :results results})))
 
-(defn -main [& args]
+(defn- run-main [args]
   (case (first args)
     "trace-ansatz"
     (let [[_ store branch decl out fuel] args
@@ -651,3 +651,14 @@
       (prn (compare-traces-semantic left nil right nil max-mismatches window)))
 
     (usage)))
+
+(defn -main [& args]
+  (let [exit-code (try
+                    (run-main args)
+                    0
+                    (catch Throwable ex
+                      (.printStackTrace ex)
+                      1))]
+    (flush)
+    (shutdown-agents)
+    (System/exit exit-code)))
