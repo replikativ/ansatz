@@ -1999,19 +1999,17 @@ public final class TypeChecker {
         return t.tag != Expr.APP && s.tag != Expr.APP;
     }
 
-    /** Try eta expansion: t =?= λ x. s x when s is lam and t is not. */
+    /** Try eta expansion matching Lean's try_eta_expansion_core. */
     private boolean tryEta(Expr t, Expr s) {
-        if (s.tag == Expr.LAM && t.tag != Expr.LAM) {
-            long fvId = freshId();
-            Expr fv = Expr.fvar(fvId);
-            lctxAddLocal(fvId, null, (Expr) s.o1);
-            try {
-                return isDefEq(
-                    Expr.app(Reducer.lift(t, 1, 0), fv),
-                    Reducer.instantiate1((Expr) s.o2, fv));
-            } finally {
-                lctxRemove(fvId);
-            }
+        if (t.tag == Expr.LAM && s.tag != Expr.LAM) {
+            Expr sType = whnf(inferTypeOnly(s));
+            if (sType.tag != Expr.FORALL) return false;
+            Expr newS = Expr.lam(
+                sType.o0,
+                (Expr) sType.o1,
+                Expr.app(Reducer.lift(s, 1, 0), Expr.bvar(0)),
+                sType.o3);
+            return isDefEq(t, newS);
         }
         return false;
     }
