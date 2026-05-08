@@ -129,6 +129,22 @@
 (defn- by-histogram [events]
   (reduce (fn [m ev] (update m (:by ev) (fnil inc 0))) {} events))
 
+(defn- contains-mdata-text? [x]
+  (cond
+    (string? x) (str/includes? x "mdata(")
+    (map? x) (some contains-mdata-text? (vals x))
+    (sequential? x) (some contains-mdata-text? x)
+    :else false))
+
+(defn- source-mdata-mismatch?
+  "True when a strict mismatch is explained by Lean source metadata that is
+   absent from the imported declaration being checked by Ansatz."
+  [result semantic-ok?]
+  (and (not semantic-ok?)
+       (zero? (long (or (get-in result [:ansatz :type-mdata]) 0)))
+       (zero? (long (or (get-in result [:ansatz :value-mdata]) 0)))
+       (contains-mdata-text? (get-in result [:semantic :first-mismatch]))))
+
 (defn- mismatch-indices [left right]
   (let [common (min (count left) (count right))]
     (->> (range common)
@@ -559,33 +575,39 @@
                                       (true? (get-in result [:semantic :semantic :matched-all?])))
                     raw-length-ok? (and trace-comparable?
                                         (nil? (get-in result [:compare :length-mismatch])))
-                    lean-exit-ok? (not (true? (get-in result [:lean :nonzero-exit?])))]
+                    lean-exit-ok? (not (true? (get-in result [:lean :nonzero-exit?])))
+                    source-mdata-mismatch? (and trace-comparable?
+                                                (source-mdata-mismatch? result semantic-ok?))]
                 (assoc result
                        :decl decl
                        :lean-file file
                        :trace-comparable? trace-comparable?
                        :lean-exit-ok? lean-exit-ok?
                        :semantic-ok? semantic-ok?
-                       :raw-length-ok? raw-length-ok?))
+                       :raw-length-ok? raw-length-ok?
+                       :source-mdata-mismatch? source-mdata-mismatch?))
               (catch Throwable ex
                 {:decl decl
                  :lean-file file
                  :error (str (.getClass ex) ": " (.getMessage ex))
                  :trace-comparable? false
                  :semantic-ok? false
-                 :raw-length-ok? false})))
+                 :raw-length-ok? false
+                 :source-mdata-mismatch? false})))
           rows)
          total (count results)
          trace-comparable (count (filter :trace-comparable? results))
          semantic-ok (count (filter :semantic-ok? results))
          raw-length-ok (count (filter :raw-length-ok? results))
          lean-exit-ok (count (filter :lean-exit-ok? results))
+         source-mdata-mismatch (count (filter :source-mdata-mismatch? results))
          errors (count (filter :error results))]
      {:total total
       :trace-comparable trace-comparable
       :raw-length-ok raw-length-ok
       :semantic-ok semantic-ok
       :lean-exit-ok lean-exit-ok
+      :source-mdata-mismatch source-mdata-mismatch
       :errors errors
       :results results})))
 

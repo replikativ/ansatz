@@ -108,6 +108,20 @@
         (is (true? (get-in result [:semantic :matched-all?])))
         (is (nil? (:first-mismatch result)))))))
 
+(deftest source-mdata-mismatch-classifier-test
+  (testing "source metadata mismatches are classified without changing semantic status"
+    (let [result {:ansatz {:type-mdata 0
+                           :value-mdata 0}
+                  :semantic {:first-mismatch {:left {:l "fvar(_kernel_fresh.1)"
+                                                     :r "mdata(fvar(_kernel_fresh.1))"
+                                                     :res true
+                                                     :by "quick_whnfcore"}}}}]
+      (is (true? (#'kt/source-mdata-mismatch? result false)))
+      (is (false? (#'kt/source-mdata-mismatch? result true)))
+      (is (false? (#'kt/source-mdata-mismatch?
+                   (assoc-in result [:ansatz :value-mdata] 1)
+                   false))))))
+
 (deftest trace-batch-manifest-parser-test
   (testing "batch manifests accept comments, blanks, and declaration/file rows"
     (let [path (str (System/getProperty "java.io.tmpdir") "/kernel-trace-manifest.txt")]
