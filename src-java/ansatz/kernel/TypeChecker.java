@@ -27,9 +27,9 @@ public final class TypeChecker {
     private final Reducer reducer;
     private final EquivManager eqvManager;
     private final IdentityHashMap<Expr, Expr> inferIdentityCache;      // exact object fast path
-    private final HashMap<Expr, Expr> inferStructuralCache;            // structural cache, identity fast path above
+    private final HashMap<LeanExprKey, Expr> inferStructuralCache;     // Lean expr_map equality, identity fast path above
     private final IdentityHashMap<Expr, Expr> inferOnlyIdentityCache;  // exact object fast path
-    private final HashMap<Expr, Expr> inferOnlyStructuralCache;        // structural cache, identity fast path above
+    private final HashMap<LeanExprKey, Expr> inferOnlyStructuralCache; // Lean expr_map equality, identity fast path above
     private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureIdentityCache;
     private final HashMap<Expr, HashMap<Expr, Boolean>> failureStructuralCache;
     // Identity-based cache for isDefEqCore results.
@@ -644,10 +644,10 @@ public final class TypeChecker {
 
     private Expr inferTypeCore(Expr e, boolean inferOnly) {
         IdentityHashMap<Expr, Expr> identityCache = inferOnly ? inferOnlyIdentityCache : inferIdentityCache;
-        HashMap<Expr, Expr> structuralCache = inferOnly ? inferOnlyStructuralCache : inferStructuralCache;
+        HashMap<LeanExprKey, Expr> structuralCache = inferOnly ? inferOnlyStructuralCache : inferStructuralCache;
         Expr cached = identityCache.get(e);
         if (cached != null) return cached;
-        cached = structuralCache.get(e);
+        cached = structuralCache.get(new LeanExprKey(e));
         if (cached != null) return cached;
 
         Expr result;
@@ -947,7 +947,7 @@ public final class TypeChecker {
 
         result = normalizeInferResult(result);
         identityCache.put(e, result);
-        structuralCache.put(e, result);
+        structuralCache.put(new LeanExprKey(e), result);
         return result;
     }
 

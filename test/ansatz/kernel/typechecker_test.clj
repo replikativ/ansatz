@@ -25,6 +25,12 @@
   ([] (TypeChecker. (Env.)))
   ([^Env env] (TypeChecker. env)))
 
+(defn- private-map-size
+  [obj field-name]
+  (let [field (.getDeclaredField (class obj) field-name)]
+    (.setAccessible field true)
+    (.size ^java.util.Map (.get field obj))))
+
 ;; ============================================================
 ;; Type inference: sorts
 ;; ============================================================
@@ -82,6 +88,18 @@
       (is (= Expr/SORT (.tag result)))
       ;; Verify it simplifies correctly under isDefEq
       (is (.isDefEq tc result type0)))))
+
+(deftest infer-cache-uses-lean-expr-map-equality-test
+  (testing "infer_type cache ignores binder names and binder info like Lean expr_map"
+    (let [tc (mk-tc)
+          lhs (e/forall' "x" prop prop :default)
+          rhs (e/forall' "y" prop prop :implicit)]
+      (is (not= lhs rhs))
+      (.inferType tc lhs)
+      (let [size-after-lhs (private-map-size tc "inferOnlyStructuralCache")]
+        (.inferType tc rhs)
+        (is (= size-after-lhs
+               (private-map-size tc "inferOnlyStructuralCache")))))))
 
 ;; ============================================================
 ;; Type inference: let
