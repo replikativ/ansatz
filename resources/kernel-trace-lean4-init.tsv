@@ -1,0 +1,84 @@
+# Curated Lean4 Init kernel trace probe set.
+# Format: <declaration> <lean-file-relative-to-lean4-root>
+#
+# Run this with lean-root pointing at the instrumented Lean checkout, not at
+# Mathlib:
+#
+#   clojure -M -m ansatz.tools.kernel-trace trace-batch-summary \
+#     /var/tmp/ansatz-mathlib-new mathlib ../lean4 \
+#     resources/kernel-trace-lean4-init.tsv /tmp/lean4-init-trace 100000000
+#
+# This set complements the Mathlib manifests with declarations from Lean's own
+# Init files, covering primitive equality, HEq, quotients, proof irrelevance,
+# noConfusion-adjacent Nat/Bool equalities, Fin equality, and String/ByteArray
+# literal-adjacent reductions.
+
+# Core equality, HEq, proof irrelevance, and quotient primitives
+false_ne_true src/Init/Core.lean
+Eq.substr src/Init/Core.lean
+HEq.subst src/Init/Core.lean
+HEq.trans src/Init/Core.lean
+Eq.propIntro src/Init/Core.lean
+Nat.succ.inj src/Init/Core.lean
+Nat.succ.injEq src/Init/Core.lean
+Quot.liftBeta src/Init/Core.lean
+Quot.indBeta src/Init/Core.lean
+Quot.exists_rep src/Init/Core.lean
+Quot.liftIndepPr1 src/Init/Core.lean
+Quotient.sound src/Init/Core.lean
+Quotient.ind src/Init/Core.lean
+Quotient.exists_rep src/Init/Core.lean
+
+# Nat/noConfusion-adjacent and primitive recursion
+Nat.not_succ_le_zero src/Init/Prelude.lean
+Nat.not_succ_le_self src/Init/Prelude.lean
+Fin.val_eq_of_eq src/Init/Prelude.lean
+
+# Bool, congruence, and proposition rewrite lemmas
+Bool.false_ne_true src/Init/Data/Bool.lean
+ite_congr src/Init/SimpLemmas.lean
+ite_cond_congr src/Init/SimpLemmas.lean
+Eq.mpr_prop src/Init/SimpLemmas.lean
+Eq.mpr_not src/Init/SimpLemmas.lean
+dite_congr src/Init/SimpLemmas.lean
+Bool.beq_to_eq src/Init/SimpLemmas.lean
+
+# Fin subtype-like equality
+Fin.val_inj src/Init/Data/Fin/Basic.lean
+Fin.val_congr src/Init/Data/Fin/Basic.lean
+
+# String/ByteArray literal-adjacent and recursor-heavy declarations
+String.toByteArray_inj src/Init/Data/String/Defs.lean
+List.toByteArray_asString src/Init/Data/String/Defs.lean
+String.exists_eq_ofList src/Init/Data/String/Defs.lean
+String.singleton_eq_ofList src/Init/Data/String/Defs.lean
+String.append_left_inj src/Init/Data/String/Defs.lean
+String.append_right_inj src/Init/Data/String/Defs.lean
+String.ofList_nil src/Init/Data/String/Basic.lean
+String.ofList_append src/Init/Data/String/Basic.lean
+List.utf8Decode?_utf8Encode src/Init/Data/String/Basic.lean
+String.toList_ofList src/Init/Data/String/Basic.lean
+String.ofList_toList src/Init/Data/String/Basic.lean
+String.ofList_injective src/Init/Data/String/Basic.lean
+String.ofList_inj src/Init/Data/String/Basic.lean
+List.asString_inj src/Init/Data/String/Basic.lean
+String.toList_injective src/Init/Data/String/Basic.lean
+String.toList_inj src/Init/Data/String/Basic.lean
+List.utf8DecodeChar?_utf8Encode_cons src/Init/Data/String/Decode.lean
+
+# Useful probes currently left out of the clean gate:
+# - The next declarations compare against source terms containing mdata that is
+#   absent from the imported compiled declaration; the mismatch is classified by
+#   trace-batch-summary as source-mdata-mismatch.
+# Nat.eq_of_beq_eq_true src/Init/Prelude.lean
+# Nat.ne_of_beq_eq_false src/Init/Prelude.lean
+# noConfusion_of_Nat src/Init/Prelude.lean
+# Fin.eq_of_val_eq src/Init/Prelude.lean
+# ByteArray.utf8Decode?_utf8Encode_singleton_append src/Init/Data/String/Basic.lean
+# ByteArray.utf8DecodeChar?_utf8EncodeChar_append src/Init/Data/String/Decode.lean
+# ByteArray.utf8DecodeChar?_eq_utf8DecodeChar?_extract src/Init/Data/String/Decode.lean
+# ByteArray.utf8EncodeChar_utf8DecodeChar src/Init/Data/String/Decode.lean
+#
+# - Lean currently emits only the target declaration marker and no target events
+#   for this source theorem in the local instrumented checkout.
+# String.toByteArray_ofList src/Init/Data/String/Defs.lean
