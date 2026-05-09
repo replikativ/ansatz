@@ -1,0 +1,92 @@
+# Expanded Mathlib kernel trace probe set.
+# Format: <declaration> <lean-file-relative-to-mathlib-root>
+#
+# This set is intended for broader pre-Mathlib verification than the smoke set,
+# while still staying much cheaper than full Mathlib kernel verification.
+# It avoids known source-metadata-only mismatch targets; keep those in ad hoc
+# investigations unless we add a separate expected-mismatch manifest.
+
+# Nat arithmetic
+Nat.succ_injective Mathlib/Data/Nat/Basic.lean
+Nat.pow_left_injective Mathlib/Data/Nat/Basic.lean
+Nat.dvd_left_injective Mathlib/Data/Nat/Basic.lean
+
+# List recursion and structural equality
+List.singleton_injective Mathlib/Data/List/Basic.lean
+List.mem_pair Mathlib/Data/List/Basic.lean
+List.reverse_involutive Mathlib/Data/List/Basic.lean
+List.map_injective_iff Mathlib/Data/List/Basic.lean
+
+# Bool decidability and finite case analysis
+Bool.decide_iff Mathlib/Data/Bool/Basic.lean
+Bool.ofNat_toNat Mathlib/Data/Bool/Basic.lean
+Bool.injective_iff Mathlib/Data/Bool/Basic.lean
+Bool.apply_apply_apply Mathlib/Data/Bool/Basic.lean
+
+# Fin subtype-like equality
+Fin.val_injective Mathlib/Data/Fin/Basic.lean
+Fin.mk_eq_mk Mathlib/Data/Fin/Basic.lean
+
+# Option recursors and injectivity
+Option.some_injective Mathlib/Data/Option/Basic.lean
+Option.map_inj Mathlib/Data/Option/Basic.lean
+Option.casesOn'_some Mathlib/Data/Option/Basic.lean
+Option.casesOn'_eq_elim Mathlib/Data/Option/Basic.lean
+Option.elim_comp Mathlib/Data/Option/Basic.lean
+
+# Product eta, projections, and maps
+Prod.mk.eta Mathlib/Data/Prod/Basic.lean
+Prod.mk_right_injective Mathlib/Data/Prod/Basic.lean
+Prod.swap_injective Mathlib/Data/Prod/Basic.lean
+Prod.swap_bijective Mathlib/Data/Prod/Basic.lean
+Prod.map_injective Mathlib/Data/Prod/Basic.lean
+
+# Sum recursors and injectivity
+Sum.inl_injective Mathlib/Data/Sum/Basic.lean
+Sum.inr_injective Mathlib/Data/Sum/Basic.lean
+Sum.elim_swap Mathlib/Data/Sum/Basic.lean
+Sum.swap_leftInverse Mathlib/Data/Sum/Basic.lean
+Sum.swap_rightInverse Mathlib/Data/Sum/Basic.lean
+Function.Injective.sumMap Mathlib/Data/Sum/Basic.lean
+Sum.elim_injective Mathlib/Data/Sum/Basic.lean
+Sum.map_injective Mathlib/Data/Sum/Basic.lean
+
+# Sigma/PSigma dependent pairs and projections
+Sigma.mk.inj_iff Mathlib/Data/Sigma/Basic.lean
+Sigma.eta Mathlib/Data/Sigma/Basic.lean
+Sigma.fst_surjective Mathlib/Data/Sigma/Basic.lean
+Sigma.fst_injective Mathlib/Data/Sigma/Basic.lean
+Sigma.map_mk Mathlib/Data/Sigma/Basic.lean
+Function.Injective.sigma_map Mathlib/Data/Sigma/Basic.lean
+Sigma.uncurry_curry Mathlib/Data/Sigma/Basic.lean
+Sigma.curry_uncurry Mathlib/Data/Sigma/Basic.lean
+Prod.toSigma_injective Mathlib/Data/Sigma/Basic.lean
+Prod.toSigma_mk Mathlib/Data/Sigma/Basic.lean
+PSigma.elim_val Mathlib/Data/Sigma/Basic.lean
+
+# Subtype eta and extensionality
+Subtype.ext_val Mathlib/Data/Subtype.lean
+Subtype.ext_iff_val Mathlib/Data/Subtype.lean
+Subtype.coe_eta Mathlib/Data/Subtype.lean
+Subtype.coe_mk Mathlib/Data/Subtype.lean
+Subtype.mk_eq_mk Mathlib/Data/Subtype.lean
+Subtype.coe_injective Mathlib/Data/Subtype.lean
+Subtype.map_injective Mathlib/Data/Subtype.lean
+Subtype.map_involutive Mathlib/Data/Subtype.lean
+
+# Sets and propositions-as-types
+Set.ext Mathlib/Data/Set/Defs.lean
+Set.univ Mathlib/Data/Set/Defs.lean
+Set.image Mathlib/Data/Set/Defs.lean
+
+# Function extensionality-adjacent declarations
+Function.LeftInverse.comp_eq_id Mathlib/Logic/Function/Basic.lean
+Function.uncurry_injective Mathlib/Logic/Function/Basic.lean
+Function.update_eq_self Mathlib/Logic/Function/Basic.lean
+
+# Equiv-heavy dependent terms
+Equiv.piOptionEquivProd Mathlib/Logic/Equiv/Basic.lean
+Equiv.subtypeCongr Mathlib/Logic/Equiv/Basic.lean
+Equiv.Perm.subtypeCongr.apply Mathlib/Logic/Equiv/Basic.lean
+Equiv.swap_swap Mathlib/Logic/Equiv/Basic.lean
+Equiv.swap_apply_eq_iff Mathlib/Logic/Equiv/Basic.lean

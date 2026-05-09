@@ -14,6 +14,7 @@
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-lean <lean-root> <lean-file> <decl> <out> [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-mathlib <store> <branch> <decl> <lean-root> <lean-file> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
+  (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch-summary <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-normalized-fvars <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-semantic <left> <right> [max-mismatches] [window]"))
@@ -611,6 +612,36 @@
       :errors errors
       :results results})))
 
+(defn summarize-batch-result [result]
+  (let [rows (:results result)
+        bad? (fn [row]
+               (or (:error row)
+                   (not (:trace-comparable? row))
+                   (not (:semantic-ok? row))
+                   (:source-mdata-mismatch? row)))
+        lean-nonzero? (fn [row]
+                        (and (:trace-comparable? row)
+                             (false? (:lean-exit-ok? row))))
+        row-summary (fn [row]
+                      (cond-> {:decl (:decl row)
+                               :file (:lean-file row)
+                               :trace-comparable? (boolean (:trace-comparable? row))
+                               :semantic-ok? (boolean (:semantic-ok? row))
+                               :raw-length-ok? (boolean (:raw-length-ok? row))
+                               :lean-exit-ok? (boolean (:lean-exit-ok? row))
+                               :source-mdata-mismatch? (boolean (:source-mdata-mismatch? row))}
+                        (:error row) (assoc :error (:error row))
+                        (get-in row [:lean :events]) (assoc :lean-events (get-in row [:lean :events]))
+                        (get-in row [:ansatz :events]) (assoc :ansatz-events (get-in row [:ansatz :events]))
+                        (get-in row [:semantic :first-mismatch])
+                        (assoc :first-mismatch (get-in row [:semantic :first-mismatch]))))]
+    (-> result
+        (dissoc :results)
+        (assoc :semantic-with-reflexive-skips (- (long (:semantic-ok result))
+                                                 (long (:raw-length-ok result)))
+               :lean-nonzero-exit (count (filter lean-nonzero? rows))
+               :bad-results (mapv row-summary (filter bad? rows))))))
+
 (defn- run-main [args]
   (case (first args)
     "trace-ansatz"
@@ -631,6 +662,12 @@
     (let [[_ store branch lean-root manifest out-dir fuel lean-bin] args
           fuel (Long/parseLong (or fuel "100000000"))]
       (prn (trace-batch! store branch lean-root manifest out-dir fuel lean-bin)))
+
+    "trace-batch-summary"
+    (let [[_ store branch lean-root manifest out-dir fuel lean-bin] args
+          fuel (Long/parseLong (or fuel "100000000"))]
+      (prn (summarize-batch-result
+            (trace-batch! store branch lean-root manifest out-dir fuel lean-bin))))
 
     "compare"
     (let [[_ left right max-mismatches window] args

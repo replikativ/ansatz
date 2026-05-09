@@ -134,6 +134,46 @@
               {:decl "Baz.quux" :file "Mathlib/Baz.lean"}]
              (#'kt/read-batch-manifest path))))))
 
+(deftest trace-batch-summary-keeps-actionable-rows
+  (testing "batch summaries drop full trace payloads but keep mismatches and classifications"
+    (let [summary (kt/summarize-batch-result
+                   {:total 3
+                    :trace-comparable 3
+                    :raw-length-ok 1
+                    :semantic-ok 2
+                    :lean-exit-ok 2
+                    :source-mdata-mismatch 1
+                    :errors 0
+                    :results [{:decl "A"
+                               :lean-file "A.lean"
+                               :trace-comparable? true
+                               :semantic-ok? true
+                               :raw-length-ok? true
+                               :lean-exit-ok? true}
+                              {:decl "B"
+                               :lean-file "B.lean"
+                               :trace-comparable? true
+                               :semantic-ok? true
+                               :raw-length-ok? false
+                               :lean-exit-ok? false}
+                              {:decl "C"
+                               :lean-file "C.lean"
+                               :trace-comparable? true
+                               :semantic-ok? false
+                               :raw-length-ok? false
+                               :lean-exit-ok? true
+                               :source-mdata-mismatch? true
+                               :lean {:events 10}
+                               :ansatz {:events 8}
+                               :semantic {:first-mismatch {:left {:l "mdata(x)"}
+                                                           :right {:l "x"}}}}]})]
+      (is (nil? (:results summary)))
+      (is (= 1 (:semantic-with-reflexive-skips summary)))
+      (is (= 1 (:lean-nonzero-exit summary)))
+      (is (= ["C"] (mapv :decl (:bad-results summary))))
+      (is (= 10 (get-in summary [:bad-results 0 :lean-events])))
+      (is (true? (get-in summary [:bad-results 0 :source-mdata-mismatch?]))))))
+
 (deftest trace-lean-command-selects-mathlib-lake-mode
   (testing "Mathlib files under a Lake root use direct lean with computed search path"
     (let [dir (io/file (System/getProperty "java.io.tmpdir") "kernel-trace-lake-root")]
