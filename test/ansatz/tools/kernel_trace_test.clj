@@ -155,7 +155,11 @@
                                :trace-comparable? true
                                :semantic-ok? true
                                :raw-length-ok? false
-                               :lean-exit-ok? false}
+                               :lean-exit-ok? false
+                               :lean {:events 7}
+                               :ansatz {:events 5}
+                               :semantic {:semantic {:skipped-left 2
+                                                     :skipped-right 0}}}
                               {:decl "C"
                                :lean-file "C.lean"
                                :trace-comparable? true
@@ -170,6 +174,27 @@
       (is (nil? (:results summary)))
       (is (= 1 (:semantic-with-reflexive-skips summary)))
       (is (= 1 (:lean-nonzero-exit summary)))
+      (is (= 2 (:length-drift summary)))
+      (is (= 17 (:lean-events summary)))
+      (is (= 13 (:ansatz-events summary)))
+      (is (= -4 (:net-event-delta summary)))
+      (is (= 2 (:semantic-skipped-left summary)))
+      (is (= 0 (:semantic-skipped-right summary)))
+      (is (= [{:decl "B"
+               :file "B.lean"
+               :lean-events 7
+               :ansatz-events 5
+               :delta -2
+               :skipped-left 2
+               :skipped-right 0}
+              {:decl "C"
+               :file "C.lean"
+               :lean-events 10
+               :ansatz-events 8
+               :delta -2
+               :skipped-left 0
+               :skipped-right 0}]
+             (:largest-length-deltas summary)))
       (is (= ["C"] (mapv :decl (:bad-results summary))))
       (is (= 10 (get-in summary [:bad-results 0 :lean-events])))
       (is (true? (get-in summary [:bad-results 0 :source-mdata-mismatch?]))))))
@@ -181,9 +206,9 @@
       (write-lines! (.getPath (io/file dir "lakefile.lean")) ["import Lake"])
       (.mkdirs (io/file dir ".lake/build/lib/lean"))
       (.mkdirs (io/file dir ".lake/packages/batteries/.lake/build/lib/lean"))
-      (is (= ["/tmp/lean" "Mathlib/Data/Nat/Basic.lean"]
+      (is (= ["/tmp/lean" "-j1" "Mathlib/Data/Nat/Basic.lean"]
              (#'kt/trace-lean-command (.getPath dir) "Mathlib/Data/Nat/Basic.lean" "/tmp/lean")))
-      (is (= ["/tmp/lake" "env" "lean" "Mathlib/Data/Nat/Basic.lean"]
+      (is (= ["/tmp/lake" "env" "lean" "-j1" "Mathlib/Data/Nat/Basic.lean"]
              (#'kt/trace-lean-command (.getPath dir) "Mathlib/Data/Nat/Basic.lean" "/tmp/lake")))
       (is (re-find #"kernel-trace-lake-root/.lake/build/lib/lean"
                    (get (#'kt/trace-lean-env (.getPath dir)
@@ -192,5 +217,5 @@
                                              "Foo.bar"
                                              "/tmp/out.jsonl")
                         "LEAN_PATH")))
-      (is (= ["/tmp/lean" "-R" "src" "src/Init/Data/Nat/Basic.lean"]
+      (is (= ["/tmp/lean" "-j1" "-R" "src" "src/Init/Data/Nat/Basic.lean"]
              (#'kt/trace-lean-command (.getPath dir) "src/Init/Data/Nat/Basic.lean" "/tmp/lean"))))))

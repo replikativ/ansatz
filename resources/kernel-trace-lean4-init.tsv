@@ -66,6 +66,63 @@ String.toList_injective src/Init/Data/String/Basic.lean
 String.toList_inj src/Init/Data/String/Basic.lean
 List.utf8DecodeChar?_utf8Encode_cons src/Init/Data/String/Decode.lean
 
+# Option and Sum eliminator/cases lemmas
+Option.mem_some src/Init/Data/Option/Lemmas.lean
+Option.mem_some_iff src/Init/Data/Option/Lemmas.lean
+Option.mem_some_self src/Init/Data/Option/Lemmas.lean
+Option.some_ne_none src/Init/Data/Option/Lemmas.lean
+Option.eq_none_or_eq_some src/Init/Data/Option/Lemmas.lean
+Option.get_mem src/Init/Data/Option/Lemmas.lean
+Option.not_mem_none src/Init/Data/Option/Lemmas.lean
+Option.getD_eq_iff src/Init/Data/Option/Lemmas.lean
+Option.get!_some src/Init/Data/Option/Lemmas.lean
+Option.get_inj src/Init/Data/Option/Lemmas.lean
+Option.mem_unique src/Init/Data/Option/Lemmas.lean
+Option.eq_some_unique src/Init/Data/Option/Lemmas.lean
+Option.ext src/Init/Data/Option/Lemmas.lean
+Option.eq_none_iff_forall_ne_some src/Init/Data/Option/Lemmas.lean
+Option.isSome_iff_exists src/Init/Data/Option/Lemmas.lean
+Option.isSome_eq_false_iff src/Init/Data/Option/Lemmas.lean
+Option.bind_fun_some src/Init/Data/Option/Lemmas.lean
+Option.bind_eq_some_iff src/Init/Data/Option/Lemmas.lean
+Option.bind_assoc src/Init/Data/Option/Lemmas.lean
+Option.map_eq_some_iff src/Init/Data/Option/Lemmas.lean
+Option.map_eq_none_iff src/Init/Data/Option/Lemmas.lean
+Option.join_eq_some_iff src/Init/Data/Option/Lemmas.lean
+Sum.inl_getLeft src/Init/Data/Sum/Lemmas.lean
+Sum.inr_getRight src/Init/Data/Sum/Lemmas.lean
+Sum.getLeft?_eq_none_iff src/Init/Data/Sum/Lemmas.lean
+Sum.getRight?_eq_none_iff src/Init/Data/Sum/Lemmas.lean
+Sum.getLeft?_eq_some_iff src/Init/Data/Sum/Lemmas.lean
+Sum.getRight?_eq_some_iff src/Init/Data/Sum/Lemmas.lean
+Sum.inl.inj_iff src/Init/Data/Sum/Lemmas.lean
+Sum.inr.inj_iff src/Init/Data/Sum/Lemmas.lean
+Sum.inl_ne_inr src/Init/Data/Sum/Lemmas.lean
+Sum.inr_ne_inl src/Init/Data/Sum/Lemmas.lean
+Sum.elim_comp_inl src/Init/Data/Sum/Lemmas.lean
+Sum.elim_comp_inr src/Init/Data/Sum/Lemmas.lean
+Sum.elim_inl_inr src/Init/Data/Sum/Lemmas.lean
+Sum.map_map src/Init/Data/Sum/Lemmas.lean
+Sum.map_id_id src/Init/Data/Sum/Lemmas.lean
+Sum.swap_swap src/Init/Data/Sum/Lemmas.lean
+
+# ByteArray and Array structural lemmas
+ByteArray.data_empty src/Init/Data/ByteArray/Lemmas.lean
+ByteArray.empty_append src/Init/Data/ByteArray/Lemmas.lean
+ByteArray.append_empty src/Init/Data/ByteArray/Lemmas.lean
+ByteArray.append_right_inj src/Init/Data/ByteArray/Lemmas.lean
+ByteArray.append_left_inj src/Init/Data/ByteArray/Lemmas.lean
+ByteArray.append_assoc src/Init/Data/ByteArray/Lemmas.lean
+List.toByteArray_nil src/Init/Data/ByteArray/Lemmas.lean
+List.toByteArray_inj src/Init/Data/ByteArray/Lemmas.lean
+Array.toList_eq_nil_iff src/Init/Data/Array/Lemmas.lean
+Array.mem_toList_iff src/Init/Data/Array/Lemmas.lean
+Array.eq_toArray src/Init/Data/Array/Lemmas.lean
+Array.toArray_eq src/Init/Data/Array/Lemmas.lean
+Array.empty_eq src/Init/Data/Array/Lemmas.lean
+Array.pop_empty src/Init/Data/Array/Lemmas.lean
+Array.pop_push src/Init/Data/Array/Lemmas.lean
+
 # Useful probes currently left out of the clean gate:
 # - The next declarations compare against source terms containing mdata that is
 #   absent from the imported compiled declaration; the mismatch is classified by

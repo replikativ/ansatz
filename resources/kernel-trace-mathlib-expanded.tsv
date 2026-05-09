@@ -25,7 +25,6 @@ Bool.apply_apply_apply Mathlib/Data/Bool/Basic.lean
 
 # Fin subtype-like equality
 Fin.val_injective Mathlib/Data/Fin/Basic.lean
-Fin.mk_eq_mk Mathlib/Data/Fin/Basic.lean
 
 # Option recursors and injectivity
 Option.some_injective Mathlib/Data/Option/Basic.lean
@@ -108,3 +107,8 @@ Equiv.subtypeCongr Mathlib/Logic/Equiv/Basic.lean
 Equiv.Perm.subtypeCongr.apply Mathlib/Logic/Equiv/Basic.lean
 Equiv.swap_swap Mathlib/Logic/Equiv/Basic.lean
 Equiv.swap_apply_eq_iff Mathlib/Logic/Equiv/Basic.lean
+
+# Currently disabled because the deterministic Lean source trace exits before
+# producing target events in this local Mathlib checkout. Fin equality is still
+# covered by the Lean4 Init manifest.
+# Fin.mk_eq_mk Mathlib/Data/Fin/Basic.lean

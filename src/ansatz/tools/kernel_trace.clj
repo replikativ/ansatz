@@ -267,11 +267,11 @@
 
 (defn- trace-lean-command [lean-root lean-file lean-bin]
   (if (lake-bin? lean-bin)
-    [lean-bin "env" "lean" lean-file]
+    [lean-bin "env" "lean" "-j1" lean-file]
     (if (lake-project-file-mode? lean-root lean-file lean-bin)
-      [(or lean-bin (default-lean-bin)) lean-file]
-    [(or lean-bin (str lean-root "/build/release/stage1/bin/lean"))
-       "-R" "src" lean-file])))
+      [(or lean-bin (default-lean-bin)) "-j1" lean-file]
+      [(or lean-bin (str lean-root "/build/release/stage1/bin/lean"))
+       "-j1" "-R" "src" lean-file])))
 
 (defn- trace-lean-env [lean-root lean-file lean-bin decl-name out-path]
   (cond-> {"LEAN_KERNEL_TRACE" out-path
@@ -622,6 +622,23 @@
         lean-nonzero? (fn [row]
                         (and (:trace-comparable? row)
                              (false? (:lean-exit-ok? row))))
+        event-count (fn [row side]
+                      (long (or (get-in row [side :events]) 0)))
+        skipped-count (fn [row side]
+                        (long (or (get-in row [:semantic :semantic side]) 0)))
+        length-drift? (fn [row]
+                        (and (:trace-comparable? row)
+                             (not (:raw-length-ok? row))))
+        length-row (fn [row]
+                     (let [lean-events (event-count row :lean)
+                           ansatz-events (event-count row :ansatz)]
+                       {:decl (:decl row)
+                        :file (:lean-file row)
+                        :lean-events lean-events
+                        :ansatz-events ansatz-events
+                        :delta (- ansatz-events lean-events)
+                        :skipped-left (skipped-count row :skipped-left)
+                        :skipped-right (skipped-count row :skipped-right)}))
         row-summary (fn [row]
                       (cond-> {:decl (:decl row)
                                :file (:lean-file row)
@@ -640,6 +657,20 @@
         (assoc :semantic-with-reflexive-skips (- (long (:semantic-ok result))
                                                  (long (:raw-length-ok result)))
                :lean-nonzero-exit (count (filter lean-nonzero? rows))
+               :length-drift (count (filter length-drift? rows))
+               :lean-events (reduce + (map #(event-count % :lean) rows))
+               :ansatz-events (reduce + (map #(event-count % :ansatz) rows))
+               :net-event-delta (reduce + (map #(- (event-count % :ansatz)
+                                                    (event-count % :lean))
+                                                rows))
+               :semantic-skipped-left (reduce + (map #(skipped-count % :skipped-left) rows))
+               :semantic-skipped-right (reduce + (map #(skipped-count % :skipped-right) rows))
+               :largest-length-deltas (->> rows
+                                           (filter length-drift?)
+                                           (map length-row)
+                                           (sort-by #(Math/abs (long (:delta %))) >)
+                                           (take 10)
+                                           vec)
                :bad-results (mapv row-summary (filter bad? rows))))))
 
 (defn- run-main [args]
