@@ -79,6 +79,24 @@ Set.ext Mathlib/Data/Set/Defs.lean
 Set.univ Mathlib/Data/Set/Defs.lean
 Set.image Mathlib/Data/Set/Defs.lean
 
+# Quotients and quotient eliminators
+Quot.lift_mk Mathlib/Data/Quot.lean
+Quot.lift₂_mk Mathlib/Data/Quot.lean
+Quot.map₂_mk Mathlib/Data/Quot.lean
+Quot.eq Mathlib/Data/Quot.lean
+Quotient.eq Mathlib/Data/Quot.lean
+Quotient.lift_mk Mathlib/Data/Quot.lean
+Quotient.lift₂_mk Mathlib/Data/Quot.lean
+Quotient.out_eq Mathlib/Data/Quot.lean
+Quotient.out_inj Mathlib/Data/Quot.lean
+
+# String/List literal-adjacent declarations
+String.asString_nil Mathlib/Data/String/Basic.lean
+String.asString_toList Mathlib/Data/String/Basic.lean
+String.ofList_eq Mathlib/Data/String/Basic.lean
+List.toList_asString Mathlib/Data/String/Basic.lean
+List.asString_eq Mathlib/Data/String/Basic.lean
+
 # Function extensionality-adjacent declarations
 Function.LeftInverse.comp_eq_id Mathlib/Logic/Function/Basic.lean
 Function.uncurry_injective Mathlib/Logic/Function/Basic.lean
