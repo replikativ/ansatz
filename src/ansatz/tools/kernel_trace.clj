@@ -15,6 +15,7 @@
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-mathlib <store> <branch> <decl> <lean-root> <lean-file> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch-summary <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
+  (println "  clojure -M -m ansatz.tools.kernel-trace curate-batch <store> <branch> <lean-root> <manifest> <trace-out-dir> <report-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-normalized-fvars <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-semantic <left> <right> [max-mismatches] [window]"))
@@ -320,6 +321,12 @@
       (str/replace "/" "_")
       (str/replace "?" "_qmark_")
       (str/replace #"[^A-Za-z0-9._-]" "_")))
+
+(defn- write-lines! [path lines]
+  (with-open [w (io/writer path)]
+    (doseq [line lines]
+      (.write w line)
+      (.write w "\n"))))
 
 (defn compare-traces
   ([left-path right-path]
@@ -673,6 +680,145 @@
                                            vec)
                :bad-results (mapv row-summary (filter bad? rows))))))
 
+(defn- row-event-count [row side]
+  (long (or (get-in row [side :events]) 0)))
+
+(defn- row-skipped-count [row side]
+  (long (or (get-in row [:semantic :semantic side]) 0)))
+
+(defn- row-delta [row]
+  (- (row-event-count row :ansatz)
+     (row-event-count row :lean)))
+
+(defn- row-promotable? [row]
+  (and (not (:error row))
+       (:trace-comparable? row)
+       (:semantic-ok? row)
+       (not (:source-mdata-mismatch? row))))
+
+(defn- row-reasons [row]
+  (cond-> []
+    (:error row)
+    (conj :error)
+
+    (and (not (:error row))
+         (zero? (row-event-count row :lean)))
+    (conj :lean-zero-events)
+
+    (and (not (:error row))
+         (zero? (row-event-count row :ansatz)))
+    (conj :ansatz-zero-events)
+
+    (and (not (:error row))
+         (not (:trace-comparable? row)))
+    (conj :not-trace-comparable)
+
+    (:source-mdata-mismatch? row)
+    (conj :source-mdata-mismatch)
+
+    (and (:trace-comparable? row)
+         (not (:semantic-ok? row))
+         (not (:source-mdata-mismatch? row)))
+    (conj :semantic-mismatch)))
+
+(defn- row-warnings [row]
+  (cond-> []
+    (and (:trace-comparable? row)
+         (false? (:lean-exit-ok? row)))
+    (conj :lean-nonzero-exit)
+
+    (and (:trace-comparable? row)
+         (not (:raw-length-ok? row)))
+    (conj :raw-length-drift)))
+
+(defn- compact-detail [row]
+  (let [detail (or (:error row)
+                   (get-in row [:semantic :first-mismatch])
+                   (get-in row [:compare :first-mismatch])
+                   (get-in row [:compare :length-mismatch])
+                   (get-in row [:lean :err])
+                   "")
+        text (str/replace (pr-str detail) #"\s+" " ")]
+    (subs text 0 (min 2000 (count text)))))
+
+(defn- tsv-field [x]
+  (-> (if (nil? x) "" (str x))
+      (str/replace #"\t" " ")
+      (str/replace #"\r?\n" " ")))
+
+(defn- keyword-list-field [xs]
+  (->> xs (map name) (str/join ",")))
+
+(defn- manifest-line [row]
+  (str (:decl row) "\t" (:lean-file row)))
+
+(defn- quarantine-line [row]
+  (str/join "\t"
+            (map tsv-field
+                 [(:decl row)
+                  (:lean-file row)
+                  (keyword-list-field (row-reasons row))
+                  (keyword-list-field (row-warnings row))
+                  (row-event-count row :lean)
+                  (row-event-count row :ansatz)
+                  (row-delta row)
+                  (row-skipped-count row :skipped-left)
+                  (row-skipped-count row :skipped-right)
+                  (compact-detail row)])))
+
+(defn- frequencies-by-keywords [f rows]
+  (->> rows
+       (mapcat f)
+       frequencies
+       (into (sorted-map))))
+
+(defn write-curation-files!
+  "Write promote.tsv, quarantine.tsv, and summary.edn for a traced candidate batch.
+   Promotion is intentionally semantic: raw length drift and Lean nonzero exit are
+   warnings when both traces are comparable and semantically aligned."
+  [result report-dir]
+  (let [rows (:results result)
+        promoted (filter row-promotable? rows)
+        quarantined (remove row-promotable? rows)
+        report-dir-file (io/file report-dir)
+        promote-path (.getPath (io/file report-dir-file "promote.tsv"))
+        quarantine-path (.getPath (io/file report-dir-file "quarantine.tsv"))
+        summary-path (.getPath (io/file report-dir-file "summary.edn"))
+        batch-summary (summarize-batch-result result)
+        summary (assoc (dissoc batch-summary :bad-results)
+                       :bad-results (count (:bad-results batch-summary))
+                       :promoted (count promoted)
+                       :quarantined (count quarantined)
+                       :promoted-with-warnings (count (filter #(seq (row-warnings %)) promoted))
+                       :quarantine-by-reason (frequencies-by-keywords row-reasons quarantined)
+                       :warnings-by-kind (frequencies-by-keywords row-warnings rows)
+                       :report-files {:promote promote-path
+                                      :quarantine quarantine-path
+                                      :summary summary-path})]
+    (.mkdirs report-dir-file)
+    (write-lines! promote-path
+                  (concat ["# Promotable kernel trace declarations."
+                           "# Generated by ansatz.tools.kernel-trace curate-batch."
+                           "# Format: <declaration>\t<lean-file-relative-to-lean-root>"]
+                          (map manifest-line promoted)))
+    (write-lines! quarantine-path
+                  (concat ["# Kernel trace declarations that need investigation before promotion."
+                           "# Columns: decl\tfile\treasons\twarnings\tlean-events\tansatz-events\tdelta\tskipped-left\tskipped-right\tdetail"]
+                          (map quarantine-line quarantined)))
+    (with-open [w (io/writer summary-path)]
+      (binding [*out* w]
+        (prn summary)))
+    summary))
+
+(defn curate-batch!
+  ([store-path branch-name lean-root manifest-path trace-out-dir report-dir]
+   (curate-batch! store-path branch-name lean-root manifest-path trace-out-dir report-dir
+                  100000000 nil))
+  ([store-path branch-name lean-root manifest-path trace-out-dir report-dir fuel lean-bin]
+   (write-curation-files!
+    (trace-batch! store-path branch-name lean-root manifest-path trace-out-dir fuel lean-bin)
+    report-dir)))
+
 (defn- run-main [args]
   (case (first args)
     "trace-ansatz"
@@ -699,6 +845,11 @@
           fuel (Long/parseLong (or fuel "100000000"))]
       (prn (summarize-batch-result
             (trace-batch! store branch lean-root manifest out-dir fuel lean-bin))))
+
+    "curate-batch"
+    (let [[_ store branch lean-root manifest trace-out-dir report-dir fuel lean-bin] args
+          fuel (Long/parseLong (or fuel "100000000"))]
+      (prn (curate-batch! store branch lean-root manifest trace-out-dir report-dir fuel lean-bin)))
 
     "compare"
     (let [[_ left right max-mismatches window] args

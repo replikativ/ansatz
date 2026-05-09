@@ -123,6 +123,64 @@ Array.empty_eq src/Init/Data/Array/Lemmas.lean
 Array.pop_empty src/Init/Data/Array/Lemmas.lean
 Array.pop_push src/Init/Data/Array/Lemmas.lean
 
+# Extensionality, dependent projections, and List structural/cases lemmas
+Unit.ext src/Init/Ext.lean
+List.getElem_of_eq src/Init/Data/List/Lemmas.lean
+List.ext_getElem_iff src/Init/Data/List/Lemmas.lean
+List.ext_get src/Init/Data/List/Lemmas.lean
+Nat.ext_div_mod src/Init/Data/Nat/Div/Lemmas.lean
+Nat.ext_div_mod_iff src/Init/Data/Nat/Div/Lemmas.lean
+List.eq_nil_of_length_eq_zero src/Init/Data/List/Lemmas.lean
+List.ne_nil_of_length_pos src/Init/Data/List/Lemmas.lean
+List.eq_nil_iff_length_eq_zero src/Init/Data/List/Lemmas.lean
+List.length_pos_iff_exists_mem src/Init/Data/List/Lemmas.lean
+List.cons_ne_nil src/Init/Data/List/Lemmas.lean
+List.cons_ne_self src/Init/Data/List/Lemmas.lean
+List.head_eq_of_cons_eq src/Init/Data/List/Lemmas.lean
+List.tail_eq_of_cons_eq src/Init/Data/List/Lemmas.lean
+List.cons_inj_right src/Init/Data/List/Lemmas.lean
+List.cons_eq_cons src/Init/Data/List/Lemmas.lean
+List.singleton_inj src/Init/Data/List/Lemmas.lean
+List.get_eq_getElem src/Init/Data/List/Lemmas.lean
+List.getElem_eq_iff src/Init/Data/List/Lemmas.lean
+List.mem_cons_self src/Init/Data/List/Lemmas.lean
+List.mem_cons_of_mem src/Init/Data/List/Lemmas.lean
+List.mem_append_left src/Init/Data/List/Basic.lean
+List.mem_append_right src/Init/Data/List/Basic.lean
+List.reverseAux_eq_append src/Init/Data/List/Basic.lean
+List.flatMap_assoc src/Init/Data/List/Lemmas.lean
+List.replicate_succ' src/Init/Data/List/Lemmas.lean
+List.reverse_eq_iff src/Init/Data/List/Lemmas.lean
+List.append_singleton_inj src/Init/Data/List/Lemmas.lean
+List.foldr_cons_nil src/Init/Data/List/Lemmas.lean
+List.mem_iff_get src/Init/Data/List/Lemmas.lean
+
+# Additional Array/String and BitVec/UInt structural lemmas
+Array.replicate_succ src/Init/Data/Array/Lemmas.lean
+Array.replicate_succ' src/Init/Data/Array/Lemmas.lean
+String.append_assoc src/Init/Data/String/Defs.lean
+BitVec.eq_of_getElem_eq src/Init/Data/BitVec/Bootstrap.lean
+BitVec.toNat_ofNat src/Init/Data/BitVec/Bootstrap.lean
+BitVec.toNat_cast src/Init/Data/BitVec/Bootstrap.lean
+BitVec.toNat_ofFin src/Init/Data/BitVec/Bootstrap.lean
+BitVec.ofNat_toNat src/Init/Data/BitVec/Bootstrap.lean
+BitVec.cons_induction src/Init/Data/BitVec/Bootstrap.lean
+BitVec.eq_nil src/Init/Data/BitVec/Basic.lean
+BitVec.getLsbD_eq_getElem src/Init/Data/BitVec/Basic.lean
+BitVec.append_ofBool src/Init/Data/BitVec/Basic.lean
+BitVec.replicate_zero src/Init/Data/BitVec/Lemmas.lean
+BitVec.replicate_one src/Init/Data/BitVec/Lemmas.lean
+BitVec.replicate_succ src/Init/Data/BitVec/Lemmas.lean
+BitVec.reverse_reverse_eq src/Init/Data/BitVec/Lemmas.lean
+UInt8.toBitVec_inj src/Init/Data/UInt/Lemmas.lean
+UInt8.eq_of_toBitVec_eq src/Init/Data/UInt/Lemmas.lean
+UInt8.toNat_inj src/Init/Data/UInt/Lemmas.lean
+UInt8.not_not src/Init/Data/UInt/Bitwise.lean
+UInt8.not_inj src/Init/Data/UInt/Bitwise.lean
+UInt8.or_assoc src/Init/Data/UInt/Bitwise.lean
+UInt8.and_assoc src/Init/Data/UInt/Bitwise.lean
+UInt8.xor_assoc src/Init/Data/UInt/Bitwise.lean
+
 # Useful probes currently left out of the clean gate:
 # - The next declarations compare against source terms containing mdata that is
 #   absent from the imported compiled declaration; the mismatch is classified by
@@ -131,10 +189,33 @@ Array.pop_push src/Init/Data/Array/Lemmas.lean
 # Nat.ne_of_beq_eq_false src/Init/Prelude.lean
 # noConfusion_of_Nat src/Init/Prelude.lean
 # Fin.eq_of_val_eq src/Init/Prelude.lean
+# Thunk.ext src/Init/Ext.lean
+# List.ext_getElem src/Init/Data/List/Lemmas.lean
+# Array.ext_getElem? src/Init/Data/Array/Lemmas.lean
+# ByteArray.ext_getElem src/Init/Data/ByteArray/Lemmas.lean
+# BitVec.eq_of_toNat_eq src/Init/Data/BitVec/Bootstrap.lean
+# BitVec.eq_of_getLsbD_eq src/Init/Data/BitVec/Bootstrap.lean
+# BitVec.getElem_cons src/Init/Data/BitVec/Bootstrap.lean
+# BitVec.getLsbD_replicate src/Init/Data/BitVec/Lemmas.lean
+# BitVec.getElem_replicate src/Init/Data/BitVec/Lemmas.lean
+# BitVec.reverse_append src/Init/Data/BitVec/Lemmas.lean
+# UInt8.ofNat_toNat src/Init/Data/UInt/Lemmas.lean
+# UInt8.xor_eq_zero_iff src/Init/Data/UInt/Bitwise.lean
+# UInt8.and_not_self src/Init/Data/UInt/Bitwise.lean
 # ByteArray.utf8Decode?_utf8Encode_singleton_append src/Init/Data/String/Basic.lean
 # ByteArray.utf8DecodeChar?_utf8EncodeChar_append src/Init/Data/String/Decode.lean
 # ByteArray.utf8DecodeChar?_eq_utf8DecodeChar?_extract src/Init/Data/String/Decode.lean
 # ByteArray.utf8EncodeChar_utf8DecodeChar src/Init/Data/String/Decode.lean
+#
+# - The next BitVec append/replicate candidates have non-metadata semantic trace
+#   mismatches around Nat.lor/HOr/BitVec.toNat unfolding order. Leave them out
+#   until the reduction-order difference has been checked against Lean.
+# BitVec.ofBool_append src/Init/Data/BitVec/Basic.lean
+# BitVec.append_assoc src/Init/Data/BitVec/Lemmas.lean
+# BitVec.append_assoc' src/Init/Data/BitVec/Lemmas.lean
+# BitVec.replicate_append_self src/Init/Data/BitVec/Lemmas.lean
+# BitVec.replicate_succ' src/Init/Data/BitVec/Lemmas.lean
+# BitVec.reverse_replicate src/Init/Data/BitVec/Lemmas.lean
 #
 # - Lean currently emits only the target declaration marker and no target events
 #   for this source theorem in the local instrumented checkout.

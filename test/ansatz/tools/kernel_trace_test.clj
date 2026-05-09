@@ -1,5 +1,6 @@
 (ns ansatz.tools.kernel-trace-test
-  (:require [ansatz.tools.kernel-trace :as kt]
+  (:require [clojure.edn :as edn]
+            [ansatz.tools.kernel-trace :as kt]
             [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]))
 
@@ -198,6 +199,73 @@
       (is (= ["C"] (mapv :decl (:bad-results summary))))
       (is (= 10 (get-in summary [:bad-results 0 :lean-events])))
       (is (true? (get-in summary [:bad-results 0 :source-mdata-mismatch?]))))))
+
+(deftest trace-batch-curation-writes-promote-and-quarantine-files
+  (testing "candidate curation promotes semantic matches and quarantines actionable failures"
+    (let [dir (io/file (System/getProperty "java.io.tmpdir")
+                       (str "kernel-trace-curation-" (System/nanoTime)))
+          summary (#'kt/write-curation-files!
+                   {:total 4
+                    :trace-comparable 3
+                    :raw-length-ok 1
+                    :semantic-ok 2
+                    :lean-exit-ok 2
+                    :source-mdata-mismatch 1
+                    :errors 1
+                    :results [{:decl "A"
+                               :lean-file "A.lean"
+                               :trace-comparable? true
+                               :semantic-ok? true
+                               :raw-length-ok? true
+                               :lean-exit-ok? true
+                               :lean {:events 3}
+                               :ansatz {:events 3}
+                               :semantic {:semantic {:skipped-left 0
+                                                     :skipped-right 0}}}
+                              {:decl "B"
+                               :lean-file "B.lean"
+                               :trace-comparable? true
+                               :semantic-ok? true
+                               :raw-length-ok? false
+                               :lean-exit-ok? false
+                               :lean {:events 7}
+                               :ansatz {:events 5}
+                               :semantic {:semantic {:skipped-left 2
+                                                     :skipped-right 0}}}
+                              {:decl "C"
+                               :lean-file "C.lean"
+                               :trace-comparable? true
+                               :semantic-ok? false
+                               :raw-length-ok? false
+                               :lean-exit-ok? true
+                               :source-mdata-mismatch? true
+                               :lean {:events 4}
+                               :ansatz {:events 4}
+                               :semantic {:first-mismatch {:left {:l "mdata(x)"}
+                                                           :right {:l "x"}}}}
+                              {:decl "D"
+                               :lean-file "D.lean"
+                               :error "boom"
+                               :trace-comparable? false
+                               :semantic-ok? false
+                               :raw-length-ok? false
+                               :source-mdata-mismatch? false}]}
+                   (.getPath dir))
+          promote (slurp (io/file dir "promote.tsv"))
+          quarantine (slurp (io/file dir "quarantine.tsv"))
+          persisted-summary (edn/read-string (slurp (io/file dir "summary.edn")))]
+      (is (= 2 (:promoted summary)))
+      (is (= 2 (:quarantined summary)))
+      (is (= 1 (:promoted-with-warnings summary)))
+      (is (re-find #"(?m)^A\tA\.lean$" promote))
+      (is (re-find #"(?m)^B\tB\.lean$" promote))
+      (is (not (re-find #"(?m)^C\tC\.lean$" promote)))
+      (is (re-find #"(?m)^C\tC\.lean\tsource-mdata-mismatch" quarantine))
+      (is (re-find #"(?m)^D\tD\.lean\terror" quarantine))
+      (is (= (:promoted summary) (:promoted persisted-summary)))
+      (is (= {:raw-length-drift 2
+              :lean-nonzero-exit 1}
+             (:warnings-by-kind summary))))))
 
 (deftest trace-lean-command-selects-mathlib-lake-mode
   (testing "Mathlib files under a Lake root use direct lean with computed search path"
