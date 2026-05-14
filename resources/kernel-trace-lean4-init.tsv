@@ -168,9 +168,11 @@ BitVec.cons_induction src/Init/Data/BitVec/Bootstrap.lean
 BitVec.eq_nil src/Init/Data/BitVec/Basic.lean
 BitVec.getLsbD_eq_getElem src/Init/Data/BitVec/Basic.lean
 BitVec.append_ofBool src/Init/Data/BitVec/Basic.lean
+BitVec.append_assoc src/Init/Data/BitVec/Lemmas.lean
 BitVec.replicate_zero src/Init/Data/BitVec/Lemmas.lean
 BitVec.replicate_one src/Init/Data/BitVec/Lemmas.lean
 BitVec.replicate_succ src/Init/Data/BitVec/Lemmas.lean
+BitVec.reverse_replicate src/Init/Data/BitVec/Lemmas.lean
 BitVec.reverse_reverse_eq src/Init/Data/BitVec/Lemmas.lean
 UInt8.toBitVec_inj src/Init/Data/UInt/Lemmas.lean
 UInt8.eq_of_toBitVec_eq src/Init/Data/UInt/Lemmas.lean
@@ -207,15 +209,15 @@ UInt8.xor_assoc src/Init/Data/UInt/Bitwise.lean
 # ByteArray.utf8DecodeChar?_eq_utf8DecodeChar?_extract src/Init/Data/String/Decode.lean
 # ByteArray.utf8EncodeChar_utf8DecodeChar src/Init/Data/String/Decode.lean
 #
-# - The next BitVec append/replicate candidates have non-metadata semantic trace
-#   mismatches around Nat.lor/HOr/BitVec.toNat unfolding order. Leave them out
-#   until the reduction-order difference has been checked against Lean.
+# - The next BitVec append/replicate candidates still have non-metadata semantic
+#   trace mismatches around Nat.lor/HOr/BitVec.toNat parent-collapse order.
+#   BitVec.append_assoc and BitVec.reverse_replicate are active above because
+#   their remaining drift is explained by narrow Nat.lor/HOr wrapper and
+#   lazy_delta/whnfcore2 phase classifications.
 # BitVec.ofBool_append src/Init/Data/BitVec/Basic.lean
-# BitVec.append_assoc src/Init/Data/BitVec/Lemmas.lean
 # BitVec.append_assoc' src/Init/Data/BitVec/Lemmas.lean
 # BitVec.replicate_append_self src/Init/Data/BitVec/Lemmas.lean
 # BitVec.replicate_succ' src/Init/Data/BitVec/Lemmas.lean
-# BitVec.reverse_replicate src/Init/Data/BitVec/Lemmas.lean
 #
 # - Lean currently emits only the target declaration marker and no target events
 #   for this source theorem in the local instrumented checkout.

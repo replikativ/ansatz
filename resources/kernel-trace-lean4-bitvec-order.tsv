@@ -1,0 +1,14 @@
+# Lean4 Init BitVec reduction-order probes.
+# Format: <declaration> <lean-file-relative-to-lean4-root>
+#
+# These declarations exercise BitVec append/replicate equalities where Lean
+# exposes Nat.lor/HOr.hOr/BitVec.toNat unfolding in a different trace phase from
+# Ansatz. Keep this bucket separate from the clean Init gate until each mismatch
+# is either matched literally or classified by a narrow semantic trace rule.
+
+BitVec.ofBool_append src/Init/Data/BitVec/Basic.lean
+BitVec.append_assoc src/Init/Data/BitVec/Lemmas.lean
+BitVec.append_assoc' src/Init/Data/BitVec/Lemmas.lean
+BitVec.replicate_append_self src/Init/Data/BitVec/Lemmas.lean
+BitVec.replicate_succ' src/Init/Data/BitVec/Lemmas.lean
+BitVec.reverse_replicate src/Init/Data/BitVec/Lemmas.lean

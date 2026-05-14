@@ -48,7 +48,37 @@
       (let [result (kt/compare-traces-semantic left nil right nil 5 1)]
         (is (true? (get-in result [:semantic :matched-all?])))
         (is (= 1 (get-in result [:semantic :skipped-left])))
+        (is (= {:reflexive-quick 1}
+               (get-in result [:semantic :skipped-left-by-kind])))
         (is (= 0 (get-in result [:semantic :skipped-right])))
+        (is (nil? (:first-mismatch result)))))))
+
+(deftest compare-traces-semantic-skips-nat-lor-hor-wrapper-events
+  (testing "semantic compare treats successful Nat.lor/HOr.hOr wrapper checks as narrow epsilon events"
+    (let [left (str (System/getProperty "java.io.tmpdir") "/kernel-trace-left.jsonl")
+          right (str (System/getProperty "java.io.tmpdir") "/kernel-trace-right.jsonl")]
+      (write-lines! left
+                    ["{\"s\":0,\"d\":4,\"l\":\"@(Nat.lor x y)\",\"r\":\"@(HOr.hOr Nat Nat Nat inst x y)\",\"res\":true,\"by\":\"lazy_delta\"}"
+                     "{\"s\":1,\"d\":3,\"l\":\"A\",\"r\":\"B\",\"res\":true,\"by\":\"app\"}"])
+      (write-lines! right
+                    ["{\"s\":0,\"d\":3,\"l\":\"A\",\"r\":\"B\",\"res\":true,\"by\":\"app\"}"])
+      (let [result (kt/compare-traces-semantic left nil right nil 5 1)]
+        (is (true? (get-in result [:semantic :matched-all?])))
+        (is (= {:nat-lor-hor-wrapper 1}
+               (get-in result [:semantic :skipped-left-by-kind])))
+        (is (nil? (:first-mismatch result)))))))
+
+(deftest compare-traces-semantic-accepts-successful-lazy-delta-whnfcore2-phase-shift
+  (testing "semantic compare accepts the same successful pair resolved in lazy_delta vs whnfcore2"
+    (let [left (str (System/getProperty "java.io.tmpdir") "/kernel-trace-left.jsonl")
+          right (str (System/getProperty "java.io.tmpdir") "/kernel-trace-right.jsonl")]
+      (write-lines! left
+                    ["{\"s\":0,\"d\":7,\"l\":\"@(HOr.hOr Nat Nat Nat inst x y)\",\"r\":\"@(BitVec.toNat n z)\",\"res\":true,\"by\":\"whnfcore2\"}"])
+      (write-lines! right
+                    ["{\"s\":0,\"d\":7,\"l\":\"@(HOr.hOr Nat Nat Nat inst x y)\",\"r\":\"@(BitVec.toNat n z)\",\"res\":true,\"by\":\"lazy_delta\"}"])
+      (let [result (kt/compare-traces-semantic left nil right nil 5 1)]
+        (is (true? (get-in result [:semantic :matched-all?])))
+        (is (= 1 (get-in result [:semantic :phase-compatible])))
         (is (nil? (:first-mismatch result)))))))
 
 (deftest compare-traces-semantic-normalizes-fvars

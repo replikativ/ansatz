@@ -106,6 +106,22 @@
        (true? (:res view))
        (= (:l view) (:r view))))
 
+(defn- nat-lor-hor-wrapper? [view]
+  (and (= "lazy_delta" (:by view))
+       (true? (:res view))
+       (let [text (str (:l view) " " (:r view))]
+         (and (str/includes? text "Nat.lor")
+              (str/includes? text "HOr.hOr")))))
+
+(defn- semantic-epsilon-kind [view]
+  (cond
+    (reflexive-quick? view) :reflexive-quick
+    (nat-lor-hor-wrapper? view) :nat-lor-hor-wrapper
+    :else nil))
+
+(defn- semantic-epsilon? [view]
+  (boolean (semantic-epsilon-kind view)))
+
 (defn- trunc-prefix [s]
   (when (and (string? s) (str/ends-with? s "..."))
     (subs s 0 (- (count s) 3))))
@@ -121,10 +137,19 @@
           bp (str/starts-with? a bp)
           :else false))))
 
+(defn- phase-compatible-view? [a b]
+  (and (true? (:res a))
+       (true? (:res b))
+       (= (:d a) (:d b))
+       (= #{(:by a) (:by b)} #{"lazy_delta" "whnfcore2"})
+       (compatible-field? (:l a) (:l b))
+       (compatible-field? (:r a) (:r b))))
+
 (defn- compatible-view? [a b]
   (and (= (:d a) (:d b))
        (= (:res a) (:res b))
-       (= (:by a) (:by b))
+       (or (= (:by a) (:by b))
+           (phase-compatible-view? a b))
        (compatible-field? (:l a) (:l b))
        (compatible-field? (:r a) (:r b))))
 
@@ -178,6 +203,13 @@
             {:idx i
              :event (view-fn (nth events i))})
           (range start end))))
+
+(defn- kind-counts [rows]
+  (->> rows
+       (map :kind)
+       (remove nil?)
+       frequencies
+       (into (sorted-map))))
 
 (defn- first-subseq-index [haystack needle]
   (let [n (count needle)
@@ -422,24 +454,27 @@
     (loop [i 0
            j 0
            matched 0
+           phase-compatible 0
            skipped-left []
            skipped-right []]
       (cond
         (and (>= i left-count) (>= j right-count))
         {:matched matched
          :matched-all? true
+         :phase-compatible phase-compatible
          :skipped-left skipped-left
          :skipped-right skipped-right}
 
         (>= i left-count)
         (let [remaining (subvec right j right-count)]
           {:matched matched
-           :matched-all? (every? #(reflexive-quick? (view-fn %)) remaining)
+           :matched-all? (every? #(semantic-epsilon? (view-fn %)) remaining)
+           :phase-compatible phase-compatible
            :skipped-left skipped-left
            :skipped-right (into skipped-right
                                 (map (fn [k] {:idx k :event (view-fn (nth right k))})
                                      (range j right-count)))
-           :first-mismatch (when-not (every? #(reflexive-quick? (view-fn %)) remaining)
+           :first-mismatch (when-not (every? #(semantic-epsilon? (view-fn %)) remaining)
                              {:left-idx i :right-idx j
                               :left nil
                               :right (view-fn (nth right j))})})
@@ -447,12 +482,13 @@
         (>= j right-count)
         (let [remaining (subvec left i left-count)]
           {:matched matched
-           :matched-all? (every? #(reflexive-quick? (view-fn %)) remaining)
+           :matched-all? (every? #(semantic-epsilon? (view-fn %)) remaining)
+           :phase-compatible phase-compatible
            :skipped-left (into skipped-left
                                (map (fn [k] {:idx k :event (view-fn (nth left k))})
                                     (range i left-count)))
            :skipped-right skipped-right
-           :first-mismatch (when-not (every? #(reflexive-quick? (view-fn %)) remaining)
+           :first-mismatch (when-not (every? #(semantic-epsilon? (view-fn %)) remaining)
                              {:left-idx i :right-idx j
                               :left (view-fn (nth left i))
                               :right nil})})
@@ -462,21 +498,26 @@
               rv (view-fn (nth right j))]
           (cond
             (compatible-view? lv rv)
-            (recur (inc i) (inc j) (inc matched) skipped-left skipped-right)
+            (recur (inc i) (inc j) (inc matched)
+                   (+ phase-compatible (if (and (not= (:by lv) (:by rv))
+                                                (phase-compatible-view? lv rv))
+                                         1 0))
+                   skipped-left skipped-right)
 
-            (reflexive-quick? lv)
-            (recur (inc i) j matched
-                   (conj skipped-left {:idx i :event lv})
+            (semantic-epsilon? lv)
+            (recur (inc i) j matched phase-compatible
+                   (conj skipped-left {:idx i :kind (semantic-epsilon-kind lv) :event lv})
                    skipped-right)
 
-            (reflexive-quick? rv)
-            (recur i (inc j) matched
+            (semantic-epsilon? rv)
+            (recur i (inc j) matched phase-compatible
                    skipped-left
-                   (conj skipped-right {:idx j :event rv}))
+                   (conj skipped-right {:idx j :kind (semantic-epsilon-kind rv) :event rv}))
 
             :else
             {:matched matched
              :matched-all? false
+             :phase-compatible phase-compatible
              :skipped-left skipped-left
              :skipped-right skipped-right
              :first-mismatch {:left-idx i
@@ -510,8 +551,11 @@
               :by (by-histogram right)}
       :semantic {:matched (:matched result)
                  :matched-all? (:matched-all? result)
+                 :phase-compatible (:phase-compatible result)
                  :skipped-left (count skipped-left)
                  :skipped-right (count skipped-right)
+                 :skipped-left-by-kind (kind-counts skipped-left)
+                 :skipped-right-by-kind (kind-counts skipped-right)
                  :skipped-left-window (vec (take max-mismatches skipped-left))
                  :skipped-right-window (vec (take max-mismatches skipped-right))}
       :first-mismatch
@@ -633,6 +677,14 @@
                       (long (or (get-in row [side :events]) 0)))
         skipped-count (fn [row side]
                         (long (or (get-in row [:semantic :semantic side]) 0)))
+        skipped-kind-counts (fn [side]
+                              (->> rows
+                                   (map #(get-in % [:semantic :semantic side]))
+                                   (remove nil?)
+                                   (apply merge-with +)
+                                   (into (sorted-map))))
+        phase-compatible-count (fn [row]
+                                 (long (or (get-in row [:semantic :semantic :phase-compatible]) 0)))
         length-drift? (fn [row]
                         (and (:trace-comparable? row)
                              (not (:raw-length-ok? row))))
@@ -661,7 +713,11 @@
                         (assoc :first-mismatch (get-in row [:semantic :first-mismatch]))))]
     (-> result
         (dissoc :results)
-        (assoc :semantic-with-reflexive-skips (- (long (:semantic-ok result))
+        (assoc :semantic-with-epsilon-skips (- (long (:semantic-ok result))
+                                               (long (:raw-length-ok result)))
+               ;; Kept for compatibility with older reports; this now includes
+               ;; all narrow semantic epsilon skips, not just reflexive quicks.
+               :semantic-with-reflexive-skips (- (long (:semantic-ok result))
                                                  (long (:raw-length-ok result)))
                :lean-nonzero-exit (count (filter lean-nonzero? rows))
                :length-drift (count (filter length-drift? rows))
@@ -670,8 +726,11 @@
                :net-event-delta (reduce + (map #(- (event-count % :ansatz)
                                                     (event-count % :lean))
                                                 rows))
+               :semantic-phase-compatible (reduce + (map phase-compatible-count rows))
                :semantic-skipped-left (reduce + (map #(skipped-count % :skipped-left) rows))
                :semantic-skipped-right (reduce + (map #(skipped-count % :skipped-right) rows))
+               :semantic-skipped-left-by-kind (skipped-kind-counts :skipped-left-by-kind)
+               :semantic-skipped-right-by-kind (skipped-kind-counts :skipped-right-by-kind)
                :largest-length-deltas (->> rows
                                            (filter length-drift?)
                                            (map length-row)
