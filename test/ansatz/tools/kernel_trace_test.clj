@@ -205,12 +205,17 @@
       (is (nil? (:results summary)))
       (is (= 1 (:semantic-with-reflexive-skips summary)))
       (is (= 1 (:lean-nonzero-exit summary)))
+      (is (false? (:strict-lean-exit? summary)))
+      (is (false? (:strict-lean-version? summary)))
+      (is (= 0 (:lean-version-mismatch summary)))
+      (is (false? (:strict-ok? summary)))
       (is (= 2 (:length-drift summary)))
       (is (= 17 (:lean-events summary)))
       (is (= 13 (:ansatz-events summary)))
       (is (= -4 (:net-event-delta summary)))
       (is (= 2 (:semantic-skipped-left summary)))
       (is (= 0 (:semantic-skipped-right summary)))
+      (is (= ["B"] (mapv :decl (:lean-nonzero-results summary))))
       (is (= [{:decl "B"
                :file "B.lean"
                :lean-events 7
@@ -229,6 +234,65 @@
       (is (= ["C"] (mapv :decl (:bad-results summary))))
       (is (= 10 (get-in summary [:bad-results 0 :lean-events])))
       (is (true? (get-in summary [:bad-results 0 :source-mdata-mismatch?]))))))
+
+(deftest trace-batch-summary-strict-lean-exit-mode
+  (testing "strict summaries turn comparable nonzero Lean exits into bad results"
+    (let [summary (kt/summarize-batch-result
+                   {:total 1
+                    :trace-comparable 1
+                    :raw-length-ok 1
+                    :semantic-ok 1
+                    :lean-exit-ok 0
+                    :source-mdata-mismatch 0
+                    :errors 0
+                    :results [{:decl "A"
+                               :lean-file "A.lean"
+                               :trace-comparable? true
+                               :semantic-ok? true
+                               :raw-length-ok? true
+                               :lean-exit-ok? false
+                               :lean {:exit 1
+                                      :err "unknown declaration Foo\n"
+                                      :events 3}
+                               :ansatz {:events 3}}]}
+                   {:strict-lean-exit? true})]
+      (is (true? (:strict-lean-exit? summary)))
+      (is (false? (:strict-ok? summary)))
+      (is (= 1 (:lean-nonzero-exit summary)))
+      (is (= ["A"] (mapv :decl (:bad-results summary))))
+      (is (= 1 (get-in summary [:bad-results 0 :lean-exit])))
+      (is (re-find #"unknown declaration"
+                   (get-in summary [:bad-results 0 :lean-stderr]))))))
+
+(deftest trace-batch-summary-strict-lean-version-mode
+  (testing "strict summaries turn version-skewed Lean traces into bad results"
+    (let [summary (kt/summarize-batch-result
+                   {:total 1
+                    :trace-comparable 1
+                    :raw-length-ok 1
+                    :semantic-ok 1
+                    :lean-exit-ok 1
+                    :source-mdata-mismatch 0
+                    :errors 0
+                    :results [{:decl "A"
+                               :lean-file "A.lean"
+                               :trace-comparable? true
+                               :semantic-ok? true
+                               :raw-length-ok? true
+                               :lean-exit-ok? true
+                               :lean {:exit 0
+                                      :events 3
+                                      :version "Lean (version 4.30.0-pre)"
+                                      :expected-version "4.29.0-rc2"
+                                      :version-compatible? false}
+                               :ansatz {:events 3}}]}
+                   {:strict-lean-version? true})]
+      (is (true? (:strict-lean-version? summary)))
+      (is (false? (:strict-ok? summary)))
+      (is (= 1 (:lean-version-mismatch summary)))
+      (is (= ["A"] (mapv :decl (:lean-version-mismatch-results summary))))
+      (is (= "4.29.0-rc2"
+             (get-in summary [:bad-results 0 :expected-lean-version]))))))
 
 (deftest trace-batch-curation-writes-promote-and-quarantine-files
   (testing "candidate curation promotes semantic matches and quarantines actionable failures"

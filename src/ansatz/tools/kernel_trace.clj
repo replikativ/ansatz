@@ -15,6 +15,7 @@
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-mathlib <store> <branch> <decl> <lean-root> <lean-file> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch-summary <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
+  (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch-summary-strict <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace curate-batch <store> <branch> <lean-root> <manifest> <trace-out-dir> <report-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-normalized-fvars <left> <right> [max-mismatches] [window]")
@@ -306,6 +307,35 @@
       [(or lean-bin (str lean-root "/build/release/stage1/bin/lean"))
        "-j1" "-R" "src" lean-file])))
 
+(defn- lean-version-command [lean-root lean-file lean-bin]
+  (if (lake-bin? lean-bin)
+    [lean-bin "env" "lean" "--version"]
+    [(first (trace-lean-command lean-root lean-file lean-bin)) "--version"]))
+
+(defonce ^:private lean-version-cache (atom {}))
+
+(defn- lean-version [lean-root lean-file lean-bin]
+  (let [cmd (lean-version-command lean-root lean-file lean-bin)
+        cache-key [lean-root cmd]]
+    (or (get @lean-version-cache cache-key)
+        (let [{:keys [exit out err]} (apply sh/sh (concat cmd [:dir lean-root]))
+              version (if (zero? exit) (str/trim out) (str/trim err))]
+          (swap! lean-version-cache assoc cache-key version)
+          version))))
+
+(defn- expected-lean-version [lean-root]
+  (let [toolchain (io/file lean-root "lean-toolchain")]
+    (when (.exists toolchain)
+      (let [text (str/trim (slurp toolchain))]
+        (or (second (re-find #"leanprover/lean4:v([^\s]+)" text))
+            (second (re-find #"leanprover/lean4:([^\s]+)" text))
+            text)))))
+
+(defn- lean-version-compatible? [actual expected]
+  (or (not (seq expected))
+      (and (string? actual)
+           (str/includes? actual expected))))
+
 (defn- trace-lean-env [lean-root lean-file lean-bin decl-name out-path]
   (cond-> {"LEAN_KERNEL_TRACE" out-path
            "LEAN_KERNEL_TRACE_DECL" decl-name}
@@ -317,6 +347,8 @@
    (trace-lean! lean-root lean-file decl-name out-path nil))
   ([lean-root lean-file decl-name out-path lean-bin]
    (let [cmd (trace-lean-command lean-root lean-file lean-bin)
+         version (lean-version lean-root lean-file lean-bin)
+         expected-version (expected-lean-version lean-root)
          {:keys [exit out err]}
          (apply sh/sh
                 (concat cmd
@@ -345,6 +377,9 @@
       :exit exit
       :err err
       :out-text out
+      :version version
+      :expected-version expected-version
+      :version-compatible? (lean-version-compatible? version expected-version)
       :nonzero-exit? (not (zero? exit))
       :events (count (event-lines out-path decl-name))})))
 
@@ -663,16 +698,32 @@
       :errors errors
       :results results})))
 
-(defn summarize-batch-result [result]
-  (let [rows (:results result)
+(defn summarize-batch-result
+  ([result]
+   (summarize-batch-result result {}))
+  ([result {:keys [strict-lean-exit?]
+            :or {strict-lean-exit? false}
+            :as opts}]
+   (let [rows (:results result)
+        strict-lean-version? (boolean (:strict-lean-version? opts))
+        compact-text (fn [x]
+                       (let [text (str/replace (str x) #"\s+" " ")]
+                         (subs text 0 (min 1000 (count text)))))
+        lean-nonzero? (fn [row]
+                        (and (:trace-comparable? row)
+                             (false? (:lean-exit-ok? row))))
+        lean-version-mismatch? (fn [row]
+                                 (and (get-in row [:lean :expected-version])
+                                      (false? (get-in row [:lean :version-compatible?]))))
         bad? (fn [row]
                (or (:error row)
                    (not (:trace-comparable? row))
                    (not (:semantic-ok? row))
-                   (:source-mdata-mismatch? row)))
-        lean-nonzero? (fn [row]
-                        (and (:trace-comparable? row)
-                             (false? (:lean-exit-ok? row))))
+                   (:source-mdata-mismatch? row)
+                   (and strict-lean-exit?
+                        (lean-nonzero? row))
+                   (and strict-lean-version?
+                        (lean-version-mismatch? row))))
         event-count (fn [row side]
                       (long (or (get-in row [side :events]) 0)))
         skipped-count (fn [row side]
@@ -707,6 +758,11 @@
                                :lean-exit-ok? (boolean (:lean-exit-ok? row))
                                :source-mdata-mismatch? (boolean (:source-mdata-mismatch? row))}
                         (:error row) (assoc :error (:error row))
+                        (some? (get-in row [:lean :exit])) (assoc :lean-exit (get-in row [:lean :exit]))
+                        (seq (get-in row [:lean :err])) (assoc :lean-stderr (compact-text (get-in row [:lean :err])))
+                        (seq (get-in row [:lean :version])) (assoc :lean-version (get-in row [:lean :version]))
+                        (seq (get-in row [:lean :expected-version])) (assoc :expected-lean-version (get-in row [:lean :expected-version]))
+                        (some? (get-in row [:lean :version-compatible?])) (assoc :lean-version-compatible? (boolean (get-in row [:lean :version-compatible?])))
                         (get-in row [:lean :events]) (assoc :lean-events (get-in row [:lean :events]))
                         (get-in row [:ansatz :events]) (assoc :ansatz-events (get-in row [:ansatz :events]))
                         (get-in row [:semantic :first-mismatch])
@@ -731,13 +787,19 @@
                :semantic-skipped-right (reduce + (map #(skipped-count % :skipped-right) rows))
                :semantic-skipped-left-by-kind (skipped-kind-counts :skipped-left-by-kind)
                :semantic-skipped-right-by-kind (skipped-kind-counts :skipped-right-by-kind)
+               :strict-lean-exit? strict-lean-exit?
+               :strict-lean-version? strict-lean-version?
+               :lean-version-mismatch (count (filter lean-version-mismatch? rows))
                :largest-length-deltas (->> rows
                                            (filter length-drift?)
                                            (map length-row)
                                            (sort-by #(Math/abs (long (:delta %))) >)
                                            (take 10)
                                            vec)
-               :bad-results (mapv row-summary (filter bad? rows))))))
+               :lean-nonzero-results (mapv row-summary (filter lean-nonzero? rows))
+               :lean-version-mismatch-results (mapv row-summary (filter lean-version-mismatch? rows))
+               :bad-results (mapv row-summary (filter bad? rows))
+               :strict-ok? (empty? (filter bad? rows)))))))
 
 (defn- row-event-count [row side]
   (long (or (get-in row [side :events]) 0)))
@@ -782,6 +844,10 @@
 
 (defn- row-warnings [row]
   (cond-> []
+    (and (get-in row [:lean :expected-version])
+         (false? (get-in row [:lean :version-compatible?])))
+    (conj :lean-version-mismatch)
+
     (and (:trace-comparable? row)
          (false? (:lean-exit-ok? row)))
     (conj :lean-nonzero-exit)
@@ -905,6 +971,24 @@
       (prn (summarize-batch-result
             (trace-batch! store branch lean-root manifest out-dir fuel lean-bin))))
 
+    "trace-batch-summary-strict"
+    (let [[_ store branch lean-root manifest out-dir fuel lean-bin] args
+          fuel (Long/parseLong (or fuel "100000000"))
+          summary (summarize-batch-result
+                   (trace-batch! store branch lean-root manifest out-dir fuel lean-bin)
+                   {:strict-lean-exit? true
+                    :strict-lean-version? true})]
+      (prn summary)
+      (when-not (:strict-ok? summary)
+        (throw (ex-info "Strict trace batch summary failed"
+                        (select-keys summary [:total
+                                              :trace-comparable
+                                              :semantic-ok
+                                              :lean-nonzero-exit
+                                              :lean-version-mismatch
+                                              :errors
+                                              :bad-results])))))
+
     "curate-batch"
     (let [[_ store branch lean-root manifest trace-out-dir report-dir fuel lean-bin] args
           fuel (Long/parseLong (or fuel "100000000"))]
@@ -934,6 +1018,12 @@
   (let [exit-code (try
                     (run-main args)
                     0
+                    (catch clojure.lang.ExceptionInfo ex
+                      (binding [*out* *err*]
+                        (println (.getMessage ex))
+                        (when-let [data (ex-data ex)]
+                          (prn data)))
+                      1)
                     (catch Throwable ex
                       (.printStackTrace ex)
                       1))]
