@@ -11,6 +11,11 @@ Nat.succ_injective Mathlib/Data/Nat/Basic.lean
 Nat.pow_left_injective Mathlib/Data/Nat/Basic.lean
 Nat.dvd_left_injective Mathlib/Data/Nat/Basic.lean
 
+# Integer arithmetic and divisibility
+Int.ofNat_injective Mathlib/Data/Int/Basic.lean
+Int.eq_zero_of_dvd_of_nonneg_of_lt Mathlib/Data/Int/Basic.lean
+Int.gcd_emod Mathlib/Data/Int/Basic.lean
+
 # List recursion and structural equality
 List.singleton_injective Mathlib/Data/List/Basic.lean
 List.mem_pair Mathlib/Data/List/Basic.lean
@@ -100,6 +105,47 @@ List.asString_eq Mathlib/Data/String/Basic.lean
 Function.LeftInverse.comp_eq_id Mathlib/Logic/Function/Basic.lean
 Function.uncurry_injective Mathlib/Logic/Function/Basic.lean
 Function.update_eq_self Mathlib/Logic/Function/Basic.lean
+
+# Algebraic class projections and monoid/group rewrites
+pow_dite Mathlib/Algebra/Group/Basic.lean
+dite_pow Mathlib/Algebra/Group/Basic.lean
+pow_ite Mathlib/Algebra/Group/Basic.lean
+ite_pow Mathlib/Algebra/Group/Basic.lean
+Semigroup.to_isAssociative Mathlib/Algebra/Group/Basic.lean
+comp_mul_left Mathlib/Algebra/Group/Basic.lean
+comp_mul_right Mathlib/Algebra/Group/Basic.lean
+Semigroup.to_isLawfulIdentity Mathlib/Algebra/Group/Basic.lean
+ite_mul_one Mathlib/Algebra/Group/Basic.lean
+ite_one_mul Mathlib/Algebra/Group/Basic.lean
+eq_one_iff_eq_one_of_mul_eq_one Mathlib/Algebra/Group/Basic.lean
+one_mul_eq_id Mathlib/Algebra/Group/Basic.lean
+mul_one_eq_id Mathlib/Algebra/Group/Basic.lean
+mul_rotate Mathlib/Algebra/Group/Basic.lean
+pow_boole Mathlib/Algebra/Group/Basic.lean
+pow_mul_pow_sub Mathlib/Algebra/Group/Basic.lean
+pow_sub_mul_pow Mathlib/Algebra/Group/Basic.lean
+pow_eq_pow_mod Mathlib/Algebra/Group/Basic.lean
+
+# Order primitives and relation transport
+LE.le.ge Mathlib/Order/Basic.lean
+GE.ge.le Mathlib/Order/Basic.lean
+le_of_le_of_eq' Mathlib/Order/Basic.lean
+le_of_eq_of_le' Mathlib/Order/Basic.lean
+LT.lt.gt Mathlib/Order/Basic.lean
+GT.gt.lt Mathlib/Order/Basic.lean
+Order.Preimage Mathlib/Order/Basic.lean
+Order.Preimage.decidable Mathlib/Order/Basic.lean
+not_lt_iff_not_le_or_ge Mathlib/Order/Basic.lean
+not_lt_iff_le_imp_ge Mathlib/Order/Basic.lean
+lt_self_iff_false Mathlib/Order/Basic.lean
+LT.lt.false Mathlib/Order/Basic.lean
+Eq.not_lt Mathlib/Order/Basic.lean
+ne_of_not_le Mathlib/Order/Basic.lean
+le_of_subsingleton Mathlib/Order/Basic.lean
+not_lt_of_subsingleton Mathlib/Order/Basic.lean
+forall_le_iff_le Mathlib/Order/Basic.lean
+le_imp_le_of_le_of_le Mathlib/Order/Basic.lean
+lt_imp_lt_of_le_of_le Mathlib/Order/Basic.lean
 
 # Equiv-heavy dependent terms
 Equiv.piOptionEquivProd Mathlib/Logic/Equiv/Basic.lean
