@@ -87,6 +87,8 @@ public final class TypeChecker {
         System.getProperty("ansatz.kernel.trace.delta.filter", "");
     private static final String TRACE_EQV_FILTER =
         System.getProperty("ansatz.kernel.trace.equiv.filter", "");
+    private static final boolean TRACE_BINDING =
+        Boolean.getBoolean("ansatz.kernel.trace.binding");
     private final Expr[] traceLhsStack = new Expr[1024];
     private final Expr[] traceRhsStack = new Expr[1024];
 
@@ -228,6 +230,27 @@ public final class TypeChecker {
                 ",\"l\":\"" + jsonEscLimit(l, 4000) +
                 "\",\"r\":\"" + jsonEscLimit(r, 4000) +
                 "\"," + eqvManager.debugStateJson(lhs, rhs) + "}\n");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void emitBindingDomainTrace(Expr t, Expr s, Expr domT, Expr domS) {
+        if (!TRACE_BINDING || traceWriter == null) return;
+        try {
+            traceWriter.write("{\"binding_domain\":\"check\"" +
+                ",\"ptr_eq\":" + domT.isEqp(domS) +
+                ",\"object_eq\":" + (domT == domS) +
+                ",\"same_store\":" + (domT.storeId >= 0 && domT.storeId == domS.storeId) +
+                ",\"deepEq\":" + exprDeepEquals(domT, domS) +
+                ",\"depth\":" + isDefEqDepth +
+                ",\"t\":\"" + jsonEscLimit(exprFingerprint(t, 6), 4000) +
+                "\",\"s\":\"" + jsonEscLimit(exprFingerprint(s, 6), 4000) +
+                "\",\"domT\":\"" + jsonEscLimit(exprFingerprint(domT, 6), 4000) +
+                "\",\"domS\":\"" + jsonEscLimit(exprFingerprint(domS, 6), 4000) +
+                "\",\"domTStore\":" + domT.storeId +
+                ",\"domSStore\":" + domS.storeId +
+                "}\n");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -1155,6 +1178,7 @@ public final class TypeChecker {
                 Expr varSType = null;
                 // Lean uses pointer equality (is_eqp) here.
                 // We use isEqp which checks Java identity OR matching storeId.
+                emitBindingDomainTrace(t, s, domT, domS);
                 if (!domT.isEqp(domS)) {
                     varSType = instantiateRevList(domS, substList);
                     Expr varTType = instantiateRevList(domT, substList);
