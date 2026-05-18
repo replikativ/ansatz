@@ -112,6 +112,9 @@ dite_pow Mathlib/Algebra/Group/Basic.lean
 pow_ite Mathlib/Algebra/Group/Basic.lean
 ite_pow Mathlib/Algebra/Group/Basic.lean
 Semigroup.to_isAssociative Mathlib/Algebra/Group/Basic.lean
+mul_left_comm Mathlib/Algebra/Group/Basic.lean
+mul_right_comm Mathlib/Algebra/Group/Basic.lean
+mul_mul_mul_comm Mathlib/Algebra/Group/Basic.lean
 comp_mul_left Mathlib/Algebra/Group/Basic.lean
 comp_mul_right Mathlib/Algebra/Group/Basic.lean
 Semigroup.to_isLawfulIdentity Mathlib/Algebra/Group/Basic.lean

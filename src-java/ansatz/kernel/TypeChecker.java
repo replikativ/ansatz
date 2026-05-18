@@ -85,6 +85,8 @@ public final class TypeChecker {
         Boolean.getBoolean("ansatz.kernel.trace.delta");
     private static final String TRACE_DELTA_FILTER =
         System.getProperty("ansatz.kernel.trace.delta.filter", "");
+    private static final String TRACE_EQV_FILTER =
+        System.getProperty("ansatz.kernel.trace.equiv.filter", "");
     private final Expr[] traceLhsStack = new Expr[1024];
     private final Expr[] traceRhsStack = new Expr[1024];
 
@@ -210,6 +212,22 @@ public final class TypeChecker {
                 "\",\"d\":" + isDefEqDepth +
                 ",\"l\":\"" + jsonEscLimit(l, 4000) +
                 "\",\"r\":\"" + jsonEscLimit(r, 4000) + "\"}\n");
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private void emitEquivTrace(String phase, Expr lhs, Expr rhs) {
+        if (traceWriter == null || TRACE_EQV_FILTER.isEmpty()) return;
+        String l = exprFingerprint(lhs, 12);
+        String r = exprFingerprint(rhs, 12);
+        if (!l.contains(TRACE_EQV_FILTER) && !r.contains(TRACE_EQV_FILTER)) return;
+        try {
+            traceWriter.write("{\"phase\":\"" + jsonEsc(phase) +
+                "\",\"d\":" + isDefEqDepth +
+                ",\"l\":\"" + jsonEscLimit(l, 4000) +
+                "\",\"r\":\"" + jsonEscLimit(r, 4000) +
+                "\"," + eqvManager.debugStateJson(lhs, rhs) + "}\n");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -1019,10 +1037,12 @@ public final class TypeChecker {
         // Lean only records successful equivalences at the public is_def_eq
         // wrapper. Internal is_def_eq_core calls must not pollute the global
         // equivalence manager, or later quick checks can succeed too early.
-        t = Expr.deepReIntern(t);
-        s = Expr.deepReIntern(s);
         boolean result = isDefEqCore(t, s);
-        if (result) eqvManager.addEquiv(t, s);
+        if (result) {
+            emitEquivTrace("add_equiv.before", t, s);
+            eqvManager.addEquiv(t, s);
+            emitEquivTrace("add_equiv.after", t, s);
+        }
         return result;
     }
 
@@ -1030,13 +1050,6 @@ public final class TypeChecker {
 
     private boolean isDefEqCore(Expr t, Expr s) {
         boolean doEmit = traceWriter != null;
-        // Canonicalize inputs via the intern table. Matches Lean 4's global hash-consing:
-        // after construction, structurally-equal expressions are pointer-equal.
-        // For already-canonical expressions (the common case), deepReIntern is O(1).
-        // For fresh non-canonical expressions (e.g. from instantiateRev), this pays
-        // O(|expr|) once and subsequent structurally-equal expressions are O(1).
-        t = Expr.deepReIntern(t);
-        s = Expr.deepReIntern(s);
         isDefEqCalls++;
         if (isDefEqDepth < isDefEqDepthHist.length) isDefEqDepthHist[isDefEqDepth]++;
         // Capture a sample of expression shapes for diagnostics (only non-pointer-equal pairs)
@@ -1228,13 +1241,18 @@ public final class TypeChecker {
         // deepReIntern canonicalizes the result bottom-up through the intern table,
         // matching Lean 4's global hash-consing: structurally equal trees from
         // different reduction paths become pointer-equal → quick identity check fires.
-        Expr tn = Expr.deepReIntern(reducer.whnfCore(t, false, true));
-        Expr sn = Expr.deepReIntern(reducer.whnfCore(s, false, true));
+        Expr tnRaw = reducer.whnfCore(t, false, true);
+        Expr snRaw = reducer.whnfCore(s, false, true);
+        boolean whnfChanged = !tnRaw.isEqp(t) || !snRaw.isEqp(s);
+        Expr tn = Expr.deepReIntern(tnRaw);
+        Expr sn = Expr.deepReIntern(snRaw);
 
         // Quick check after whnf_core (Lean 4 lines 1116-1124)
         // Note: Lean uses use_hash=false (default) for the second quick check
-        if (!tn.isEqp(t) || !sn.isEqp(s)) {
+        if (whnfChanged) {
+            emitEquivTrace("quick_whnfcore.before", tn, sn);
             int q = quickIsDefEq(tn, sn, false);
+            emitEquivTrace("quick_whnfcore.after." + q, tn, sn);
             if (q != 0) {
                 boolean r = q == 1;
                 if (doTrace) trace("=> quickEq after whnfCore");
@@ -1242,9 +1260,20 @@ public final class TypeChecker {
                 return r;
             }
         }
+        if (!whnfChanged
+            && tn.tag == Expr.PROJ && sn.tag == Expr.PROJ
+            && tn.longVal == sn.longVal
+            && eqvManager.isKnownEquiv(tn, sn)) {
+            // Lean may retrieve a structurally equal but pointer-distinct projection
+            // from its whnf_core cache here. Our stronger sharing can collapse that
+            // pointer distinction, so preserve Lean's second-quick behavior when the
+            // public equivalence manager already knows this projection pair.
+            if (doEmit) emitTrace(lFp, rFp, true, "quick_whnfcore");
+            return true;
+        }
 
         if (doTrace) {
-            if (!tn.isEqp(t) || !sn.isEqp(s))
+            if (whnfChanged)
                 trace("  whnfCore: " + exprSummary(tn, 3) + " =?= " + exprSummary(sn, 3));
         }
 
@@ -1323,9 +1352,12 @@ public final class TypeChecker {
 
         // Step 6: Second whnf_core pass with full flags
         {
-            Expr tn2 = Expr.deepReIntern(reducer.whnfCore(tn, false, false));
-            Expr sn2 = Expr.deepReIntern(reducer.whnfCore(sn, false, false));
-            if (!tn2.isEqp(tn) || !sn2.isEqp(sn)) {
+            Expr tn2Raw = reducer.whnfCore(tn, false, false);
+            Expr sn2Raw = reducer.whnfCore(sn, false, false);
+            boolean whnf2Changed = !tn2Raw.isEqp(tn) || !sn2Raw.isEqp(sn);
+            Expr tn2 = Expr.deepReIntern(tn2Raw);
+            Expr sn2 = Expr.deepReIntern(sn2Raw);
+            if (whnf2Changed) {
                 emitPhasePairStats("step6.whnfcore2.stats", tn2, sn2);
                 emitPhaseTypes("step6.whnfcore2.types", tn2, sn2);
                 boolean r = isDefEqCore(tn2, sn2);

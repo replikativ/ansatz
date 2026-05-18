@@ -81,6 +81,14 @@ public final class EquivManager {
         return isEquivCore(a, b, useHash);
     }
 
+    boolean isKnownEquiv(Expr a, Expr b) {
+        if (a.isEqp(b)) return true;
+        Integer aNode = toNode.get(new LeanExprKey(a));
+        if (aNode == null) return false;
+        Integer bNode = toNode.get(new LeanExprKey(b));
+        return bNode != null && find(aNode) == find(bNode);
+    }
+
     private boolean isEquivCore(Expr a, Expr b, boolean useHash) {
         if (a.isEqp(b)) return true;
         if (useHash && LeanExprKey.hashExpr(a) != LeanExprKey.hashExpr(b)) return false;
@@ -154,6 +162,38 @@ public final class EquivManager {
         int n1 = getOrCreateNode(e1);
         int n2 = getOrCreateNode(e2);
         merge(n1, n2);
+    }
+
+    String debugStateJson(Expr a, Expr b) {
+        LeanExprKey aKey = new LeanExprKey(a);
+        LeanExprKey bKey = new LeanExprKey(b);
+        Integer aNode = toNode.get(aKey);
+        Integer bNode = toNode.get(bKey);
+        StringBuilder sb = new StringBuilder(160);
+        sb.append("\"aKeyHash\":").append(aKey.hashCode());
+        sb.append(",\"bKeyHash\":").append(bKey.hashCode());
+        sb.append(",\"aExprHash\":").append(a.structuralHash());
+        sb.append(",\"bExprHash\":").append(b.structuralHash());
+        sb.append(",\"aStore\":").append(a.storeId);
+        sb.append(",\"bStore\":").append(b.storeId);
+        appendNode(sb, "a", aNode);
+        appendNode(sb, "b", bNode);
+        sb.append(",\"sameRoot\":")
+          .append(aNode != null && bNode != null && find(aNode) == find(bNode));
+        sb.append(",\"nodes\":").append(nodes.size());
+        sb.append(",\"mapSize\":").append(toNode.size());
+        return sb.toString();
+    }
+
+    private void appendNode(StringBuilder sb, String prefix, Integer node) {
+        sb.append(",\"").append(prefix).append("Node\":");
+        if (node == null) {
+            sb.append("null");
+            sb.append(",\"").append(prefix).append("Root\":null");
+        } else {
+            sb.append(node);
+            sb.append(",\"").append(prefix).append("Root\":").append(find(node));
+        }
     }
 
     public void clear() {
