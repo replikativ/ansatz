@@ -192,6 +192,7 @@ List.Vector.length_val Mathlib/Data/Vector/Basic.lean
 List.Vector.pmap_cons Mathlib/Data/Vector/Basic.lean
 List.Vector.pmap_cons' Mathlib/Data/Vector/Basic.lean
 List.Vector.toList_map Mathlib/Data/Vector/Basic.lean
+Function.swap Mathlib/Logic/Function/Defs.lean
 Function.eval Mathlib/Logic/Function/Basic.lean
 Function.eval_apply Mathlib/Logic/Function/Basic.lean
 Function.const_def Mathlib/Logic/Function/Basic.lean
