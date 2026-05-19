@@ -287,6 +287,7 @@ Function.Embedding.coe_injective Mathlib/Logic/Embedding/Basic.lean
 Function.Embedding.ext Mathlib/Logic/Embedding/Basic.lean
 Function.Embedding.toFun_eq_coe Mathlib/Logic/Embedding/Basic.lean
 Function.Embedding.coeFn_mk Mathlib/Logic/Embedding/Basic.lean
+Function.Embedding.mk_coe Mathlib/Logic/Embedding/Basic.lean
 Function.Embedding.injective Mathlib/Logic/Embedding/Basic.lean
 Function.Embedding.apply_eq_iff_eq Mathlib/Logic/Embedding/Basic.lean
 AddHom.mulLeft Mathlib/Algebra/Ring/Basic.lean

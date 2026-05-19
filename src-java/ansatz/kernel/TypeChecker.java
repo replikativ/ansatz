@@ -1285,13 +1285,14 @@ public final class TypeChecker {
             }
         }
         if (!whnfChanged
-            && tn.tag == Expr.PROJ && sn.tag == Expr.PROJ
-            && tn.longVal == sn.longVal
+            && (tn.tag == Expr.PROJ || sn.tag == Expr.PROJ)
             && eqvManager.isKnownEquiv(tn, sn)) {
-            // Lean may retrieve a structurally equal but pointer-distinct projection
-            // from its whnf_core cache here. Our stronger sharing can collapse that
-            // pointer distinction, so preserve Lean's second-quick behavior when the
-            // public equivalence manager already knows this projection pair.
+            // Lean may observe a pointer change from whnf_core around projection
+            // expressions, then use quick_is_def_eq(..., use_hash=false) to reuse
+            // an existing equivalence-manager proof. Our stronger sharing can hide
+            // that pointer change, so preserve Lean's second-quick behavior for
+            // projection-involved pairs that the public equivalence manager already
+            // knows are equal.
             if (doEmit) emitTrace(lFp, rFp, true, "quick_whnfcore");
             return true;
         }
