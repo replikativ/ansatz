@@ -165,6 +165,19 @@
               {:decl "Baz.quux" :file "Mathlib/Baz.lean"}]
              (#'kt/read-batch-manifest path))))))
 
+(deftest trace-file-analysis-detects-ambiguous-lean-sequences
+  (testing "multiple s=0 event sequences under one decl marker are classified as ambiguous"
+    (let [path (str (System/getProperty "java.io.tmpdir") "/kernel-trace-ambiguous.jsonl")]
+      (write-lines! path
+                    ["{\"decl\":\"Foo\"}"
+                     "{\"s\":0,\"d\":1,\"l\":\"A\",\"r\":\"A\",\"res\":true,\"by\":\"quick\"}"
+                     "{\"s\":1,\"d\":1,\"l\":\"B\",\"r\":\"B\",\"res\":true,\"by\":\"quick\"}"
+                     "{\"s\":0,\"d\":1,\"l\":\"C\",\"r\":\"C\",\"res\":true,\"by\":\"quick\"}"])
+      (let [analysis (#'kt/trace-file-analysis path "Foo")]
+        (is (true? (:ambiguous? analysis)))
+        (is (= 2 (:event-sequences analysis)))
+        (is (= ["Foo"] (:distinct-decl-markers analysis)))))))
+
 (deftest trace-batch-summary-keeps-actionable-rows
   (testing "batch summaries drop full trace payloads but keep mismatches and classifications"
     (let [summary (kt/summarize-batch-result
@@ -234,6 +247,41 @@
       (is (= ["C"] (mapv :decl (:bad-results summary))))
       (is (= 10 (get-in summary [:bad-results 0 :lean-events])))
       (is (true? (get-in summary [:bad-results 0 :source-mdata-mismatch?]))))))
+
+(deftest trace-batch-curation-quarantines-ambiguous-lean-traces
+  (testing "ambiguous Lean traces are quarantined as trace-target artifacts, not semantic kernel mismatches"
+    (let [dir (io/file (System/getProperty "java.io.tmpdir")
+                       (str "kernel-trace-ambiguous-curation-" (System/nanoTime)))
+          summary (#'kt/write-curation-files!
+                   {:total 1
+                    :trace-comparable 1
+                    :raw-length-ok 0
+                    :semantic-ok 0
+                    :lean-exit-ok 1
+                    :source-mdata-mismatch 0
+                    :ambiguous-lean-trace 1
+                    :errors 0
+                    :results [{:decl "OrderHomClass"
+                               :lean-file "Mathlib/Order/Hom/Basic.lean"
+                               :trace-comparable? true
+                               :semantic-ok? false
+                               :raw-length-ok? false
+                               :lean-exit-ok? true
+                               :lean-trace-ambiguous? true
+                               :lean {:events 80
+                                      :trace-analysis {:ambiguous? true
+                                                       :event-sequences 3}}
+                               :ansatz {:events 30}
+                               :semantic {:first-mismatch {:left {:l "A"}
+                                                           :right {:l "B"}}}}]}
+                   (.getPath dir))
+          quarantine (slurp (io/file dir "quarantine.tsv"))]
+      (is (= 0 (:promoted summary)))
+      (is (= 1 (:quarantined summary)))
+      (is (= {:ambiguous-lean-trace 1}
+             (:quarantine-by-reason summary)))
+      (is (re-find #"(?m)^OrderHomClass\tMathlib/Order/Hom/Basic\.lean\tambiguous-lean-trace\t" quarantine))
+      (is (not (re-find #"semantic-mismatch" quarantine))))))
 
 (deftest trace-batch-summary-strict-lean-exit-mode
   (testing "strict summaries turn comparable nonzero Lean exits into bad results"

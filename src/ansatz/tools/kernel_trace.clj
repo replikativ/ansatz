@@ -47,6 +47,38 @@
        (->> (filter :by)
             vec))))
 
+(defn- trace-file-analysis
+  "Classify structural properties of a trace file after applying the same
+   declaration slicing used for event comparison. Multiple event sequence
+   starts usually mean the Lean substring filter captured more than the target
+   declaration or a stale type_checker kept the active trace file."
+  ([path]
+   (trace-file-analysis path nil))
+  ([path decl-name]
+   (let [lines (vec (read-json-lines path))
+         sliced (slice-decl-lines lines decl-name)
+         events (vec (filter :by sliced))
+         decl-markers (vec (keep :decl sliced))
+         seq-zero-events (->> events
+                              (keep-indexed
+                               (fn [idx ev]
+                                 (when (zero? (long (or (:s ev) -1)))
+                                   {:idx idx
+                                    :event (select-keys ev [:d :l :r :res :by])})))
+                              vec)
+         distinct-decls (vec (distinct decl-markers))
+         unexpected-decls (if (seq decl-name)
+                            (vec (remove #{decl-name} distinct-decls))
+                            [])]
+     {:decl-markers decl-markers
+      :distinct-decl-markers distinct-decls
+      :unexpected-decl-markers unexpected-decls
+      :event-sequences (count seq-zero-events)
+      :sequence-starts seq-zero-events
+      :ambiguous? (or (> (count distinct-decls) 1)
+                      (seq unexpected-decls)
+                      (> (count seq-zero-events) 1))})))
+
 (defn- event-view [ev]
   (select-keys ev [:d :l :r :res :by]))
 
@@ -372,16 +404,19 @@
                         :decl decl-name
                         :out out-path
                         :hint "Check that the Lean binary is instrumented and the declaration filter matches."})))
-     {:decl decl-name
-      :out out-path
-      :exit exit
-      :err err
-      :out-text out
-      :version version
-      :expected-version expected-version
-      :version-compatible? (lean-version-compatible? version expected-version)
-      :nonzero-exit? (not (zero? exit))
-      :events (count (event-lines out-path decl-name))})))
+     (let [analysis (trace-file-analysis out-path decl-name)]
+       {:decl decl-name
+        :out out-path
+        :exit exit
+        :err err
+        :out-text out
+        :version version
+        :expected-version expected-version
+        :version-compatible? (lean-version-compatible? version expected-version)
+        :nonzero-exit? (not (zero? exit))
+        :trace-analysis analysis
+        :trace-ambiguous? (boolean (:ambiguous? analysis))
+        :events (count (event-lines out-path decl-name))}))))
 
 (defn- safe-decl-name [decl-name]
   (-> decl-name
@@ -663,6 +698,7 @@
                     raw-length-ok? (and trace-comparable?
                                         (nil? (get-in result [:compare :length-mismatch])))
                     lean-exit-ok? (not (true? (get-in result [:lean :nonzero-exit?])))
+                    lean-trace-ambiguous? (true? (get-in result [:lean :trace-ambiguous?]))
                     source-mdata-mismatch? (and trace-comparable?
                                                 (source-mdata-mismatch? result semantic-ok?))]
                 (assoc result
@@ -670,6 +706,7 @@
                        :lean-file file
                        :trace-comparable? trace-comparable?
                        :lean-exit-ok? lean-exit-ok?
+                       :lean-trace-ambiguous? lean-trace-ambiguous?
                        :semantic-ok? semantic-ok?
                        :raw-length-ok? raw-length-ok?
                        :source-mdata-mismatch? source-mdata-mismatch?))
@@ -680,6 +717,7 @@
                  :trace-comparable? false
                  :semantic-ok? false
                  :raw-length-ok? false
+                 :lean-trace-ambiguous? false
                  :source-mdata-mismatch? false})))
           rows)
          total (count results)
@@ -688,6 +726,7 @@
          raw-length-ok (count (filter :raw-length-ok? results))
          lean-exit-ok (count (filter :lean-exit-ok? results))
          source-mdata-mismatch (count (filter :source-mdata-mismatch? results))
+         ambiguous-lean-trace (count (filter :lean-trace-ambiguous? results))
          errors (count (filter :error results))]
      {:total total
       :trace-comparable trace-comparable
@@ -695,6 +734,7 @@
       :semantic-ok semantic-ok
       :lean-exit-ok lean-exit-ok
       :source-mdata-mismatch source-mdata-mismatch
+      :ambiguous-lean-trace ambiguous-lean-trace
       :errors errors
       :results results})))
 
@@ -718,6 +758,7 @@
         bad? (fn [row]
                (or (:error row)
                    (not (:trace-comparable? row))
+                   (:lean-trace-ambiguous? row)
                    (not (:semantic-ok? row))
                    (:source-mdata-mismatch? row)
                    (and strict-lean-exit?
@@ -756,6 +797,7 @@
                                :semantic-ok? (boolean (:semantic-ok? row))
                                :raw-length-ok? (boolean (:raw-length-ok? row))
                                :lean-exit-ok? (boolean (:lean-exit-ok? row))
+                               :lean-trace-ambiguous? (boolean (:lean-trace-ambiguous? row))
                                :source-mdata-mismatch? (boolean (:source-mdata-mismatch? row))}
                         (:error row) (assoc :error (:error row))
                         (some? (get-in row [:lean :exit])) (assoc :lean-exit (get-in row [:lean :exit]))
@@ -764,6 +806,9 @@
                         (seq (get-in row [:lean :expected-version])) (assoc :expected-lean-version (get-in row [:lean :expected-version]))
                         (some? (get-in row [:lean :version-compatible?])) (assoc :lean-version-compatible? (boolean (get-in row [:lean :version-compatible?])))
                         (get-in row [:lean :events]) (assoc :lean-events (get-in row [:lean :events]))
+                        (and (:lean-trace-ambiguous? row)
+                             (get-in row [:lean :trace-analysis]))
+                        (assoc :lean-trace-analysis (get-in row [:lean :trace-analysis]))
                         (get-in row [:ansatz :events]) (assoc :ansatz-events (get-in row [:ansatz :events]))
                         (get-in row [:semantic :first-mismatch])
                         (assoc :first-mismatch (get-in row [:semantic :first-mismatch]))))]
@@ -776,6 +821,7 @@
                :semantic-with-reflexive-skips (- (long (:semantic-ok result))
                                                  (long (:raw-length-ok result)))
                :lean-nonzero-exit (count (filter lean-nonzero? rows))
+               :ambiguous-lean-trace (count (filter :lean-trace-ambiguous? rows))
                :length-drift (count (filter length-drift? rows))
                :lean-events (reduce + (map #(event-count % :lean) rows))
                :ansatz-events (reduce + (map #(event-count % :ansatz) rows))
@@ -814,6 +860,7 @@
 (defn- row-promotable? [row]
   (and (not (:error row))
        (:trace-comparable? row)
+       (not (:lean-trace-ambiguous? row))
        (:semantic-ok? row)
        (not (:source-mdata-mismatch? row))))
 
@@ -834,12 +881,16 @@
          (not (:trace-comparable? row)))
     (conj :not-trace-comparable)
 
+    (:lean-trace-ambiguous? row)
+    (conj :ambiguous-lean-trace)
+
     (:source-mdata-mismatch? row)
     (conj :source-mdata-mismatch)
 
     (and (:trace-comparable? row)
          (not (:semantic-ok? row))
-         (not (:source-mdata-mismatch? row)))
+         (not (:source-mdata-mismatch? row))
+         (not (:lean-trace-ambiguous? row)))
     (conj :semantic-mismatch)))
 
 (defn- row-warnings [row]
@@ -858,6 +909,8 @@
 
 (defn- compact-detail [row]
   (let [detail (or (:error row)
+                   (when (:lean-trace-ambiguous? row)
+                     (get-in row [:lean :trace-analysis]))
                    (get-in row [:semantic :first-mismatch])
                    (get-in row [:compare :first-mismatch])
                    (get-in row [:compare :length-mismatch])
