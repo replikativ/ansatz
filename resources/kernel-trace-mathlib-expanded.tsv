@@ -107,7 +107,6 @@ Function.uncurry_injective Mathlib/Logic/Function/Basic.lean
 Function.update_eq_self Mathlib/Logic/Function/Basic.lean
 
 # Algebraic class projections and monoid/group rewrites
-pow_dite Mathlib/Algebra/Group/Basic.lean
 dite_pow Mathlib/Algebra/Group/Basic.lean
 pow_ite Mathlib/Algebra/Group/Basic.lean
 ite_pow Mathlib/Algebra/Group/Basic.lean
@@ -170,11 +169,9 @@ GaloisConnection.isGLB_l Mathlib/Order/GaloisConnection/Basic.lean
 GaloisConnection.isLUB_u Mathlib/Order/GaloisConnection/Basic.lean
 gc_sSup_Iic Mathlib/Order/GaloisConnection/Basic.lean
 gc_Ici_sInf Mathlib/Order/GaloisConnection/Basic.lean
-hidden Mathlib/Logic/Basic.lean
 congr_heq Mathlib/Logic/Basic.lean
 eq_iff_eq_cancel_left Mathlib/Logic/Basic.lean
 eq_iff_eq_cancel_right Mathlib/Logic/Basic.lean
-ne_and_eq_iff_right Mathlib/Logic/Basic.lean
 Fact.elim Mathlib/Logic/Basic.lean
 fact_iff Mathlib/Logic/Basic.lean
 Function.mt Mathlib/Logic/Basic.lean
@@ -186,14 +183,12 @@ List.Vector.cons_val Mathlib/Data/Vector/Basic.lean
 List.Vector.eq_cons_iff Mathlib/Data/Vector/Basic.lean
 List.Vector.ne_cons_iff Mathlib/Data/Vector/Basic.lean
 List.Vector.exists_eq_cons Mathlib/Data/Vector/Basic.lean
-List.Vector.toList_ofFn Mathlib/Data/Vector/Basic.lean
 List.Vector.mk_toList Mathlib/Data/Vector/Basic.lean
 List.Vector.length_val Mathlib/Data/Vector/Basic.lean
 List.Vector.pmap_cons Mathlib/Data/Vector/Basic.lean
 List.Vector.pmap_cons' Mathlib/Data/Vector/Basic.lean
 List.Vector.toList_map Mathlib/Data/Vector/Basic.lean
 Function.swap Mathlib/Logic/Function/Defs.lean
-Function.eval Mathlib/Logic/Function/Basic.lean
 Function.eval_apply Mathlib/Logic/Function/Basic.lean
 Function.const_def Mathlib/Logic/Function/Basic.lean
 Function.const_injective Mathlib/Logic/Function/Basic.lean
@@ -204,7 +199,6 @@ Function.funext_iff_of_subsingleton Mathlib/Logic/Function/Basic.lean
 Function.swap_lt Mathlib/Logic/Function/Basic.lean
 Function.swap_le Mathlib/Logic/Function/Basic.lean
 Function.swap_gt Mathlib/Logic/Function/Basic.lean
-Set.mem_injective Mathlib/Data/Set/Basic.lean
 Set.mem_surjective Mathlib/Data/Set/Basic.lean
 Set.mem_bijective Mathlib/Data/Set/Basic.lean
 Set.top_eq_univ Mathlib/Data/Set/Basic.lean
@@ -227,7 +221,6 @@ map_inv_le_map_inv_iff Mathlib/Order/Hom/Basic.lean
 map_lt_map_iff Mathlib/Order/Hom/Basic.lean
 map_inv_lt_iff Mathlib/Order/Hom/Basic.lean
 map_inv_lt_map_inv_iff Mathlib/Order/Hom/Basic.lean
-left_ne_zero_of_mul Mathlib/Algebra/GroupWithZero/Basic.lean
 right_ne_zero_of_mul Mathlib/Algebra/GroupWithZero/Basic.lean
 ne_zero_and_ne_zero_of_mul Mathlib/Algebra/GroupWithZero/Basic.lean
 zero_mul_eq_const Mathlib/Algebra/GroupWithZero/Basic.lean
@@ -255,7 +248,6 @@ Multiset.toFinset_inter Mathlib/Data/Finset/Basic.lean
 Multiset.toFinset_union Mathlib/Data/Finset/Basic.lean
 Multiset.toFinset_eq_empty Mathlib/Data/Finset/Basic.lean
 Multiset.toFinset_nonempty Mathlib/Data/Finset/Basic.lean
-MulAction.toPerm Mathlib/Algebra/Group/Action/Basic.lean
 MulAction.toPerm_injective Mathlib/Algebra/Group/Action/Basic.lean
 MulAction.bijective Mathlib/Algebra/Group/Action/Basic.lean
 MulAction.injective Mathlib/Algebra/Group/Action/Basic.lean
@@ -267,7 +259,6 @@ isCancelSMul_iff_eq_one_of_smul_eq Mathlib/Algebra/Group/Action/Basic.lean
 invOf_smul_smul Mathlib/Algebra/Group/Action/Basic.lean
 smul_invOf_smul Mathlib/Algebra/Group/Action/Basic.lean
 invOf_smul_eq_iff Mathlib/Algebra/Group/Action/Basic.lean
-mem_upperBounds Mathlib/Order/Bounds/Basic.lean
 mem_upperBounds_iff_subset_Iic Mathlib/Order/Bounds/Basic.lean
 bddAbove_def Mathlib/Order/Bounds/Basic.lean
 top_mem_upperBounds Mathlib/Order/Bounds/Basic.lean
@@ -294,6 +285,62 @@ Function.Embedding.apply_eq_iff_eq Mathlib/Logic/Embedding/Basic.lean
 AddHom.mulLeft Mathlib/Algebra/Ring/Basic.lean
 AddHom.mulRight Mathlib/Algebra/Ring/Basic.lean
 AddMonoidHom.mulLeft Mathlib/Algebra/Ring/Basic.lean
+
+# Expansion pass: relation closures, set operations, complete lattices, finset lattices.
+Relation.comp_eq_fun Mathlib/Logic/Relation.lean
+Relation.comp_assoc Mathlib/Logic/Relation.lean
+Relation.flip_comp Mathlib/Logic/Relation.lean
+Relation.map_map Mathlib/Logic/Relation.lean
+Relation.map_apply_apply Mathlib/Logic/Relation.lean
+Relation.map_reflexive Mathlib/Logic/Relation.lean
+Relation.map_transitive Mathlib/Logic/Relation.lean
+Relation.onFun_map_eq_of_injective Mathlib/Logic/Relation.lean
+Relation.SymmGen.swap Mathlib/Logic/Relation.lean
+Relation.ReflTransGen.trans Mathlib/Logic/Relation.lean
+Relation.ReflTransGen.head_induction_on Mathlib/Logic/Relation.lean
+Relation.ReflTransGen.cases_head_iff Mathlib/Logic/Relation.lean
+Relation.TransGen.head_induction_on Mathlib/Logic/Relation.lean
+Relation.TransGen.tail'_iff Mathlib/Logic/Relation.lean
+Relation.TransGen.lift Mathlib/Logic/Relation.lean
+Relation.TransGen.swap Mathlib/Logic/Relation.lean
+Relation.transGen_swap Mathlib/Logic/Relation.lean
+Relation.reflTransGen_iff_eq_or_transGen Mathlib/Logic/Relation.lean
+Set.mem_preimage Mathlib/Data/Set/Operations.lean
+Set.mem_image Mathlib/Data/Set/Operations.lean
+Set.mem_image_of_mem Mathlib/Data/Set/Operations.lean
+Set.imageFactorization Mathlib/Data/Set/Operations.lean
+Set.rangeFactorization_injective Mathlib/Data/Set/Operations.lean
+Set.rangeFactorization_bijective Mathlib/Data/Set/Operations.lean
+Set.rangeFactorization_eq_iff Mathlib/Data/Set/Operations.lean
+Set.comp_rangeSplitting Mathlib/Data/Set/Operations.lean
+Set.prod_image_left Mathlib/Data/Set/Operations.lean
+Set.prod_image_right Mathlib/Data/Set/Operations.lean
+Set.mem_diagonal_iff Mathlib/Data/Set/Operations.lean
+Set.mem_offDiag Mathlib/Data/Set/Operations.lean
+Set.mem_pi Mathlib/Data/Set/Operations.lean
+Set.mem_univ_pi Mathlib/Data/Set/Operations.lean
+Set.mapsTo_image Mathlib/Data/Set/Operations.lean
+sSup_union Mathlib/Order/CompleteLattice/Basic.lean
+sInf_union Mathlib/Order/CompleteLattice/Basic.lean
+sSup_insert Mathlib/Order/CompleteLattice/Basic.lean
+sInf_insert Mathlib/Order/CompleteLattice/Basic.lean
+iSup_congr Mathlib/Order/CompleteLattice/Basic.lean
+biSup_congr Mathlib/Order/CompleteLattice/Basic.lean
+Function.Surjective.iSup_comp Mathlib/Order/CompleteLattice/Basic.lean
+Equiv.iSup_comp Mathlib/Order/CompleteLattice/Basic.lean
+iSup_congr_Prop Mathlib/Order/CompleteLattice/Basic.lean
+sSup_image' Mathlib/Order/CompleteLattice/Basic.lean
+OrderIso.map_iSup Mathlib/Order/CompleteLattice/Basic.lean
+OrderIso.map_sSup Mathlib/Order/CompleteLattice/Basic.lean
+Finset.mem_union Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.union_subset Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.union_assoc Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.inter_assoc Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.union_eq_union_iff_left Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.inter_eq_inter_iff_right Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.union_subset_iff Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.subset_inter_iff Mathlib/Data/Finset/Lattice/Basic.lean
+Finset.inter_union_distrib_left Mathlib/Data/Finset/Lattice/Basic.lean
 
 # Currently disabled because the deterministic Lean source trace exits before
 # producing target events in this local Mathlib checkout. Fin equality is still
