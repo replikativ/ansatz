@@ -1336,9 +1336,11 @@
    Options:
      :stop-on-error?  stop on first error (default true)
      :verbose?        log progress every 1000 decls (default false)
-     :fuel            fuel limit (default 0 = unlimited)"
-  [ctx n & {:keys [verbose? fuel stop-on-error?]
-            :or {verbose? false fuel default-fuel stop-on-error? true}}]
+     :fuel            fuel limit (default 0 = unlimited)
+     :timeout-ms      per-declaration wall-clock timeout
+                      (default 120000, 0 disables)"
+  [ctx n & {:keys [verbose? fuel timeout-ms stop-on-error?]
+            :or {verbose? false fuel default-fuel timeout-ms 120000 stop-on-error? true}}]
   (let [{:keys [^java.io.Writer log-writer ok errors error-names idx decl-order]} ctx
         start-idx @idx
         end-idx (min (+ start-idx n) (count decl-order))
@@ -1347,7 +1349,7 @@
         last-result (atom nil)]
     (loop []
       (when (< @idx end-idx)
-        (let [result (verify-one! ctx :fuel fuel)]
+        (let [result (verify-one! ctx :fuel fuel :timeout-ms timeout-ms)]
           (reset! last-result result)
           (when (:fuel-used result)
             (swap! max-fuel-used max (:fuel-used result)))
@@ -1381,14 +1383,15 @@
   "Convenience: verify all declarations in one go.
    Runs on a 64MB stack thread for deep recursion.
    For interactive use, prefer prepare-verify + verify-one!/verify-batch!."
-  [store-map branch-name & {:keys [verbose? log-file]
+  [store-map branch-name & {:keys [verbose? log-file timeout-ms]
                             :or {verbose? false
+                                 timeout-ms 120000
                                  log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (run-with-large-stack
    (fn []
      (let [ctx (prepare-verify store-map branch-name :log-file log-file)
            total (count (:decl-order ctx))
-           result (verify-batch! ctx total :verbose? verbose?)]
+           result (verify-batch! ctx total :verbose? verbose? :timeout-ms timeout-ms)]
        (.close ^java.io.Writer (:log-writer ctx))
        result))))
 
