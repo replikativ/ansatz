@@ -550,6 +550,10 @@ public final class TypeChecker {
 
     private long freshId() { return nextId++; }
 
+    private void reserveLocalId(long id) {
+        if (id >= nextId) nextId = id + 1;
+    }
+
     /**
      * Return true iff e is a proposition (its type is Prop).
      * Matches Lean 4's type_checker::is_prop.
@@ -576,6 +580,7 @@ public final class TypeChecker {
     // ============================================================
 
     private void lctxAddLocal(long id, Object name, Expr type) {
+        reserveLocalId(id);
         lctx.put(id, new Object[]{0, name, type});
     }
 
@@ -598,6 +603,7 @@ public final class TypeChecker {
     }
 
     private void lctxAddLet(long id, Object name, Expr type, Expr value) {
+        reserveLocalId(id);
         lctx.put(id, new Object[]{1, name, type, value});
     }
 
@@ -650,6 +656,7 @@ public final class TypeChecker {
      * Add a local to lctx with binder info preserved (for mkPi reconstruction).
      */
     private void lctxAddLocalWithInfo(long id, Object name, Expr type, Object binderInfo) {
+        reserveLocalId(id);
         lctx.put(id, new Object[]{0, name, type, binderInfo});
     }
 
