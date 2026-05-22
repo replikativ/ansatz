@@ -17,6 +17,7 @@
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch-summary <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace trace-batch-summary-strict <store> <branch> <lean-root> <manifest> <out-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace curate-batch <store> <branch> <lean-root> <manifest> <trace-out-dir> <report-dir> [fuel] [lean-bin|lake]")
+  (println "  clojure -M -m ansatz.tools.kernel-trace curate-batch-grouped <store> <branch> <lean-root> <manifest> <trace-out-dir> <report-dir> [fuel] [lean-bin|lake]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-normalized-fvars <left> <right> [max-mismatches] [window]")
   (println "  clojure -M -m ansatz.tools.kernel-trace compare-semantic <left> <right> [max-mismatches] [window]"))
@@ -27,6 +28,10 @@
      (map #(json/read-str % :key-fn keyword)
           (line-seq r)))))
 
+(defn- read-raw-lines [path]
+  (with-open [r (io/reader path)]
+    (vec (line-seq r))))
+
 (defn- slice-decl-lines [lines decl-name]
   (let [decl-idxs (keep-indexed (fn [i x] (when (:decl x) i)) lines)]
     (if (and decl-name (seq decl-idxs))
@@ -36,6 +41,14 @@
           (subvec (vec lines) start end))
         [])
       lines)))
+
+(defn- slice-decl-raw-lines [raw-lines parsed-lines decl-name]
+  (let [decl-idxs (keep-indexed (fn [i x] (when (:decl x) i)) parsed-lines)]
+    (if-let [start (first (filter #(= decl-name (:decl (nth parsed-lines %))) decl-idxs))]
+      (let [end (or (first (filter #(< start %) decl-idxs))
+                    (count raw-lines))]
+        (subvec raw-lines start end))
+      [])))
 
 (defn- event-lines
   ([path]
@@ -369,8 +382,10 @@
            (str/includes? actual expected))))
 
 (defn- trace-lean-env [lean-root lean-file lean-bin decl-name out-path]
-  (cond-> {"LEAN_KERNEL_TRACE" out-path
-           "LEAN_KERNEL_TRACE_DECL" decl-name}
+  (cond-> {"LEAN_KERNEL_TRACE" out-path}
+    (seq decl-name)
+    (assoc "LEAN_KERNEL_TRACE_DECL" decl-name)
+
     (lake-project-file-mode? lean-root lean-file lean-bin)
     (assoc "LEAN_PATH" (lake-lean-path lean-root))))
 
@@ -417,6 +432,43 @@
         :trace-analysis analysis
         :trace-ambiguous? (boolean (:ambiguous? analysis))
         :events (count (event-lines out-path decl-name))}))))
+
+(defn- trace-lean-file!
+  "Trace all kernel checks produced while elaborating lean-file once.
+   Declaration-specific traces are sliced from this file by exact decl markers."
+  [lean-root lean-file out-path lean-bin]
+  (let [cmd (trace-lean-command lean-root lean-file lean-bin)
+        version (lean-version lean-root lean-file lean-bin)
+        expected-version (expected-lean-version lean-root)
+        {:keys [exit out err]}
+        (apply sh/sh
+               (concat cmd
+                       [:dir lean-root
+                        :env (trace-lean-env lean-root lean-file lean-bin nil out-path)]))]
+    (when (and (not (zero? exit))
+               (not (.exists (io/file out-path))))
+      (throw (ex-info "Lean grouped trace command failed"
+                      {:exit exit
+                       :err err
+                       :out out
+                       :cmd cmd
+                       :lean-root lean-root
+                       :lean-file lean-file})))
+    (when-not (.exists (io/file out-path))
+      (throw (ex-info "Lean grouped trace file was not produced"
+                      {:cmd cmd
+                       :lean-root lean-root
+                       :lean-file lean-file
+                       :out out-path
+                       :hint "Check that the Lean binary is instrumented."})))
+    {:out out-path
+     :exit exit
+     :err err
+     :out-text out
+     :version version
+     :expected-version expected-version
+     :version-compatible? (lean-version-compatible? version expected-version)
+     :nonzero-exit? (not (zero? exit))}))
 
 (defn- safe-decl-name [decl-name]
   (-> decl-name
@@ -649,6 +701,48 @@
       :compare (compare-traces lean-out decl-name ansatz-out nil 10 2)
       :semantic (compare-traces-semantic lean-out decl-name ansatz-out nil 10 2)}))
 
+(defn- sliced-lean-result [decl-name lean-file lean-out shared-lean-result]
+  (let [analysis (trace-file-analysis lean-out decl-name)]
+    (assoc shared-lean-result
+           :decl decl-name
+           :lean-file lean-file
+           :out lean-out
+           :trace-analysis analysis
+           :trace-ambiguous? (boolean (:ambiguous? analysis))
+           :events (count (event-lines lean-out decl-name)))))
+
+(defn- trace-mathlib-with-sliced-lean!
+  [ctx decl-name lean-file lean-out shared-lean-result out-dir fuel]
+  (let [safe-decl (safe-decl-name decl-name)
+        ansatz-out (str out-dir "/" safe-decl ".ansatz.jsonl")
+        lean-result (sliced-lean-result decl-name lean-file lean-out shared-lean-result)]
+    {:ansatz (trace-ansatz-ctx! ctx decl-name ansatz-out fuel)
+     :lean lean-result
+     :compare (compare-traces lean-out decl-name ansatz-out nil 10 2)
+     :semantic (compare-traces-semantic lean-out decl-name ansatz-out nil 10 2)}))
+
+(defn- annotate-row-result [decl file result]
+  (let [lean-events (long (or (get-in result [:lean :events]) 0))
+        ansatz-events (long (or (get-in result [:ansatz :events]) 0))
+        trace-comparable? (and (pos? lean-events) (pos? ansatz-events))
+        semantic-ok? (and trace-comparable?
+                          (true? (get-in result [:semantic :semantic :matched-all?])))
+        raw-length-ok? (and trace-comparable?
+                            (nil? (get-in result [:compare :length-mismatch])))
+        lean-exit-ok? (not (true? (get-in result [:lean :nonzero-exit?])))
+        lean-trace-ambiguous? (true? (get-in result [:lean :trace-ambiguous?]))
+        source-mdata-mismatch? (and trace-comparable?
+                                    (source-mdata-mismatch? result semantic-ok?))]
+    (assoc result
+           :decl decl
+           :lean-file file
+           :trace-comparable? trace-comparable?
+           :lean-exit-ok? lean-exit-ok?
+           :lean-trace-ambiguous? lean-trace-ambiguous?
+           :semantic-ok? semantic-ok?
+           :raw-length-ok? raw-length-ok?
+           :source-mdata-mismatch? source-mdata-mismatch?)))
+
 (defn trace-mathlib!
   ([store-path branch-name decl-name lean-root lean-file out-dir]
    (trace-mathlib! store-path branch-name decl-name lean-root lean-file out-dir
@@ -673,6 +767,37 @@
                        {:decl decl :file file})))))
          doall)))
 
+(defn- batch-result [results]
+  (let [total (count results)
+        trace-comparable (count (filter :trace-comparable? results))
+        semantic-ok (count (filter :semantic-ok? results))
+        raw-length-ok (count (filter :raw-length-ok? results))
+        lean-exit-ok (count (filter :lean-exit-ok? results))
+        source-mdata-mismatch (count (filter :source-mdata-mismatch? results))
+        ambiguous-lean-trace (count (filter :lean-trace-ambiguous? results))
+        grouped-fallback (count (filter :grouped-fallback? results))
+        errors (count (filter :error results))]
+    {:total total
+     :trace-comparable trace-comparable
+     :raw-length-ok raw-length-ok
+     :semantic-ok semantic-ok
+     :lean-exit-ok lean-exit-ok
+     :source-mdata-mismatch source-mdata-mismatch
+     :ambiguous-lean-trace ambiguous-lean-trace
+     :grouped-fallback grouped-fallback
+     :errors errors
+     :results results}))
+
+(defn- error-row-result [decl file ex]
+  {:decl decl
+   :lean-file file
+   :error (str (.getClass ex) ": " (.getMessage ex))
+   :trace-comparable? false
+   :semantic-ok? false
+   :raw-length-ok? false
+   :lean-trace-ambiguous? false
+   :source-mdata-mismatch? false})
+
 (defn trace-batch!
   "Trace a manifest of declarations. Manifest rows are:
      <decl-name> <lean-file-relative-to-lean-root>
@@ -687,56 +812,83 @@
                                                     "/ansatz-kernel-trace.log"))
          results
          (mapv
-          (fn [{:keys [decl file]}]
+         (fn [{:keys [decl file]}]
             (try
-              (let [result (trace-mathlib-with-ctx! ctx decl lean-root file out-dir fuel lean-bin)
-                    lean-events (long (or (get-in result [:lean :events]) 0))
-                    ansatz-events (long (or (get-in result [:ansatz :events]) 0))
-                    trace-comparable? (and (pos? lean-events) (pos? ansatz-events))
-                    semantic-ok? (and trace-comparable?
-                                      (true? (get-in result [:semantic :semantic :matched-all?])))
-                    raw-length-ok? (and trace-comparable?
-                                        (nil? (get-in result [:compare :length-mismatch])))
-                    lean-exit-ok? (not (true? (get-in result [:lean :nonzero-exit?])))
-                    lean-trace-ambiguous? (true? (get-in result [:lean :trace-ambiguous?]))
-                    source-mdata-mismatch? (and trace-comparable?
-                                                (source-mdata-mismatch? result semantic-ok?))]
-                (assoc result
-                       :decl decl
-                       :lean-file file
-                       :trace-comparable? trace-comparable?
-                       :lean-exit-ok? lean-exit-ok?
-                       :lean-trace-ambiguous? lean-trace-ambiguous?
-                       :semantic-ok? semantic-ok?
-                       :raw-length-ok? raw-length-ok?
-                       :source-mdata-mismatch? source-mdata-mismatch?))
+              (annotate-row-result
+               decl file
+               (trace-mathlib-with-ctx! ctx decl lean-root file out-dir fuel lean-bin))
               (catch Throwable ex
-                {:decl decl
-                 :lean-file file
-                 :error (str (.getClass ex) ": " (.getMessage ex))
-                 :trace-comparable? false
-                 :semantic-ok? false
-                 :raw-length-ok? false
-                 :lean-trace-ambiguous? false
-                 :source-mdata-mismatch? false})))
-          rows)
-         total (count results)
-         trace-comparable (count (filter :trace-comparable? results))
-         semantic-ok (count (filter :semantic-ok? results))
-         raw-length-ok (count (filter :raw-length-ok? results))
-         lean-exit-ok (count (filter :lean-exit-ok? results))
-         source-mdata-mismatch (count (filter :source-mdata-mismatch? results))
-         ambiguous-lean-trace (count (filter :lean-trace-ambiguous? results))
-         errors (count (filter :error results))]
-     {:total total
-      :trace-comparable trace-comparable
-      :raw-length-ok raw-length-ok
-      :semantic-ok semantic-ok
-      :lean-exit-ok lean-exit-ok
-      :source-mdata-mismatch source-mdata-mismatch
-      :ambiguous-lean-trace ambiguous-lean-trace
-      :errors errors
-      :results results})))
+                (error-row-result decl file ex))))
+          rows)]
+     (batch-result results))))
+
+(defn- write-sliced-trace!
+  [raw-lines parsed-lines decl out-path]
+  (write-lines! out-path (slice-decl-raw-lines raw-lines parsed-lines decl)))
+
+(defn trace-batch-grouped!
+  "Trace a manifest using one Lean process per source file.
+   The shared Lean trace is sliced by exact declaration markers before comparison."
+  ([store-path branch-name lean-root manifest-path out-dir]
+   (trace-batch-grouped! store-path branch-name lean-root manifest-path out-dir 100000000 nil))
+  ([store-path branch-name lean-root manifest-path out-dir fuel lean-bin]
+   (let [rows (vec (read-batch-manifest manifest-path))
+         store (storage/open-store store-path)
+         ctx (storage/prepare-verify store branch-name
+                                     :log-file (str (System/getProperty "java.io.tmpdir")
+                                                    "/ansatz-kernel-trace.log"))
+         out-dir-file (io/file out-dir)
+         _ (.mkdirs out-dir-file)
+         grouped (group-by :file rows)
+         result-by-row (atom {})]
+     (doseq [[file file-rows] grouped]
+       (let [safe-file (safe-decl-name file)
+             shared-lean-out (str out-dir "/" safe-file ".lean.all.jsonl")]
+         (try
+           (let [shared-lean-result (trace-lean-file! lean-root file shared-lean-out lean-bin)
+                 raw-lines (read-raw-lines shared-lean-out)
+                 parsed-lines (mapv #(json/read-str % :key-fn keyword) raw-lines)]
+             (doseq [{:keys [decl] :as row} file-rows]
+               (let [safe-decl (safe-decl-name decl)
+                     lean-out (str out-dir "/" safe-decl ".lean.jsonl")]
+                 (try
+                   (write-sliced-trace! raw-lines parsed-lines decl lean-out)
+                   (swap! result-by-row assoc row
+                          (annotate-row-result
+                           decl file
+                           (trace-mathlib-with-sliced-lean!
+                            ctx decl file lean-out shared-lean-result out-dir fuel)))
+                   (catch Throwable ex
+                     (swap! result-by-row assoc row
+                            {:decl decl
+                             :lean-file file
+                             :error (str (.getClass ex) ": " (.getMessage ex))
+                             :trace-comparable? false
+                             :semantic-ok? false
+                             :raw-length-ok? false
+                             :lean-trace-ambiguous? false
+                             :source-mdata-mismatch? false}))))))
+           (catch Throwable ex
+             ;; The Lean trace writer can interleave full-file JSON events on
+             ;; some large Mathlib files even under -j1. Keep grouped mode fast
+             ;; for normal files, but fall back to the original per-declaration
+             ;; filtered Lean trace when the shared file cannot be parsed.
+             (doseq [{:keys [decl] :as row} file-rows]
+               (swap! result-by-row assoc row
+                      (try
+                        (assoc
+                         (annotate-row-result
+                          decl file
+                          (trace-mathlib-with-ctx!
+                           ctx decl lean-root file out-dir fuel lean-bin))
+                         :grouped-fallback? true
+                         :grouped-fallback-cause (str (.getClass ex) ": " (.getMessage ex)))
+                        (catch Throwable fallback-ex
+                          (assoc (error-row-result decl file fallback-ex)
+                                 :grouped-fallback? true
+                                 :grouped-fallback-cause (str (.getClass ex) ": "
+                                                              (.getMessage ex)))))))))))
+     (batch-result (mapv @result-by-row rows)))))
 
 (defn summarize-batch-result
   ([result]
@@ -997,6 +1149,15 @@
     (trace-batch! store-path branch-name lean-root manifest-path trace-out-dir fuel lean-bin)
     report-dir)))
 
+(defn curate-batch-grouped!
+  ([store-path branch-name lean-root manifest-path trace-out-dir report-dir]
+   (curate-batch-grouped! store-path branch-name lean-root manifest-path trace-out-dir report-dir
+                          100000000 nil))
+  ([store-path branch-name lean-root manifest-path trace-out-dir report-dir fuel lean-bin]
+   (write-curation-files!
+    (trace-batch-grouped! store-path branch-name lean-root manifest-path trace-out-dir fuel lean-bin)
+    report-dir)))
+
 (defn- run-main [args]
   (case (first args)
     "trace-ansatz"
@@ -1046,6 +1207,11 @@
     (let [[_ store branch lean-root manifest trace-out-dir report-dir fuel lean-bin] args
           fuel (Long/parseLong (or fuel "100000000"))]
       (prn (curate-batch! store branch lean-root manifest trace-out-dir report-dir fuel lean-bin)))
+
+    "curate-batch-grouped"
+    (let [[_ store branch lean-root manifest trace-out-dir report-dir fuel lean-bin] args
+          fuel (Long/parseLong (or fuel "100000000"))]
+      (prn (curate-batch-grouped! store branch lean-root manifest trace-out-dir report-dir fuel lean-bin)))
 
     "compare"
     (let [[_ left right max-mismatches window] args
