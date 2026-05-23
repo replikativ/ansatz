@@ -77,8 +77,7 @@
   "Load Ansatz environment from LMDB store and build instance index."
   [store-path branch]
   (let [sm (storage/open-store store-path)
-        ctx (storage/prepare-verify sm branch)
-        env (:env ctx)]
+        env (storage/load-env sm branch)]
     (reset! ansatz-env env)
     ;; Build instance index:
     ;; 1. Try loading from TSV (Lean 4 export, complete)

@@ -162,3 +162,24 @@
           (storage/close-store store-map))
         (finally
           (delete-dir-recursive dir))))))
+
+(deftest prepare-verify-stages-environment
+  (testing "Verification env exposes only declarations admitted before the current index"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [ctx (storage/prepare-verify store-map "verify-test")
+                nat-name (name/from-string "Nat")
+                thm-name (name/from-string "Nat.add_succ")
+                [[thm-idx _]] (storage/find-decl ctx "Nat.add_succ")]
+            (try
+              (is (nil? (env/lookup (:env ctx) thm-name)))
+              (storage/skip-to! ctx thm-idx)
+              (is (some? (env/lookup (:env ctx) nat-name)))
+              (is (nil? (env/lookup (:env ctx) thm-name)))
+              (finally
+                (.close ^java.io.Writer (:log-writer ctx)))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))

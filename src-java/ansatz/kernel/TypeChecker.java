@@ -2344,6 +2344,7 @@ public final class TypeChecker {
             return newEnv;
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2361,6 +2362,7 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2381,6 +2383,7 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2407,6 +2410,7 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2643,6 +2647,7 @@ public final class TypeChecker {
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2685,6 +2690,7 @@ public final class TypeChecker {
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2729,6 +2735,7 @@ public final class TypeChecker {
             return tc.getFuelUsed();
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2780,6 +2787,7 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -3147,6 +3155,7 @@ public final class TypeChecker {
             tc.ensureSort(tc.check(type));
         } finally {
             Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
         }
     }
 

@@ -1,6 +1,7 @@
 (ns ansatz.tools.kernel-trace
   "Helpers for tracing kernel checks and comparing trace streams."
   (:require [ansatz.export.storage :as storage]
+            [ansatz.kernel.name :as ansatz-name]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
             [clojure.java.shell :as sh]
@@ -291,6 +292,10 @@
   [ctx decl-name out-path fuel]
   (let [env (:env ctx)
         resolve-fn (:resolve-fn ctx)
+        rank (when-let [ranks (:decl-ranks ctx)]
+               (.get ^java.util.HashMap ranks (ansatz-name/from-string decl-name)))
+        _ (when rank
+            (storage/skip-to! ctx rank))
         ^ConstantInfo ci (resolve-fn decl-name)]
     (when-not ci
       (throw (ex-info "Declaration not found" {:decl decl-name})))

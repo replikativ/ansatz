@@ -1,6 +1,7 @@
 package ansatz.kernel;
 
 import java.math.BigInteger;
+import java.util.IdentityHashMap;
 import java.util.Objects;
 
 /**
@@ -14,10 +15,16 @@ import java.util.Objects;
 final class LeanExprKey {
     final Expr expr;
     private final int hash;
+    private static final ThreadLocal<IdentityHashMap<Expr, Integer>> HASH_CACHE =
+        ThreadLocal.withInitial(() -> new IdentityHashMap<>(16384));
 
     LeanExprKey(Expr expr) {
         this.expr = expr;
         this.hash = hashExpr(expr);
+    }
+
+    static void clearThreadCache() {
+        HASH_CACHE.remove();
     }
 
     @Override
@@ -33,6 +40,15 @@ final class LeanExprKey {
     }
 
     static int hashExpr(Expr e) {
+        IdentityHashMap<Expr, Integer> cache = HASH_CACHE.get();
+        Integer cached = cache.get(e);
+        if (cached != null) return cached;
+        int h = hashExprUncached(e);
+        cache.put(e, h);
+        return h;
+    }
+
+    private static int hashExprUncached(Expr e) {
         switch (e.tag) {
             case Expr.BVAR:
             case Expr.FVAR:

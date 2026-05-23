@@ -633,8 +633,12 @@
    For DAG-based storage, expressions are resolved from the store on demand.
    Supports two formats:
    - Full PSS (non-DAG): env-PSS holds ConstantInfo with full Expr objects
-   - PSS DAG: dag-storage? + exprs-root → expr/name/level PSS trees"
-  [store-map branch-name]
+   - PSS DAG: dag-storage? + exprs-root → expr/name/level PSS trees
+
+   Optional :visible? predicate restricts external lookup. Verification uses
+   this to model Lean admission order: a declaration can only see earlier
+   declarations, plus explicitly allowed same-bundle declarations."
+  [store-map branch-name & {:keys [visible?]}]
   (let [{:keys [storage store]} store-map
         branch-meta (store-get store [:branches branch-name])]
     (when (nil? branch-meta)
@@ -660,12 +664,13 @@
                 (create-expr-resolver store resolve-name-fn resolve-level-fn))))
           ^Env env (Env.)
           lookup-fn (fn [^Name name]
-                      (let [result (pss/lookup env-pss [name nil])]
-                        (when result
-                          (let [entry (nth result 1)]
-                            (if dag?
-                              (resolve-ci-shell entry resolve-expr-fn)
-                              entry)))))]
+                      (when (or (nil? visible?) (visible? name))
+                        (let [result (pss/lookup env-pss [name nil])]
+                          (when result
+                            (let [entry (nth result 1)]
+                              (if dag?
+                                (resolve-ci-shell entry resolve-expr-fn)
+                                entry))))))]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
             env (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0)))]
         env))))
@@ -1176,13 +1181,23 @@
                        (store-get store [:decl-order branch-name]))
           _ (when (nil? decl-order)
               (throw (ex-info "Declaration order not found" {:branch branch-name})))
-          env (load-env store-map branch-name)
-          ;; Delegate to env.lookup() which already has PSS-backed external lookup
-          ;; from load-env. This avoids creating a duplicate PSS tree that would
-          ;; accumulate deserialized nodes and grow memory unboundedly.
+          idx (atom 0)
+          visible-extra (atom #{})
+          decl-ranks (java.util.HashMap. (* 2 (count decl-order)))
+          _ (doseq [[i name-str] (map-indexed vector decl-order)]
+              (.put decl-ranks (ansatz-name/from-string name-str) (long i)))
+          visible? (fn [^Name name]
+                     (or (contains? @visible-extra name)
+                         (when-let [rank (.get decl-ranks name)]
+                           (< (long rank) @idx))))
+          env (load-env store-map branch-name :visible? visible?)
+          ;; Verification must type-check against the staged env above, but it
+          ;; still needs an unrestricted lookup to fetch the declaration being
+          ;; checked before it is visible to that staged env.
+          resolve-env (load-env store-map branch-name)
           resolve-fn (fn [name-str]
                        (let [name-obj (ansatz-name/from-string name-str)]
-                         (.lookup ^Env env name-obj)))]
+                         (.lookup ^Env resolve-env name-obj)))]
       (log! lw "Prepared verification for branch" (pr-str branch-name)
             ":" (count decl-order) "declarations")
       {:env env
@@ -1192,7 +1207,9 @@
        :ok (atom 0)
        :errors (atom 0)
        :error-names (atom [])
-       :idx (atom 0)
+       :idx idx
+       :visible-extra visible-extra
+       :decl-ranks decl-ranks
        :start-time (System/currentTimeMillis)})))
 
 (def ^:private default-fuel
@@ -1229,7 +1246,14 @@
             (swap! error-names conj {:name name-str :error "MISSING"})
             (swap! idx inc)
             {:status :missing :name name-str :idx i})
-        (let [tag (.tag ci)]
+        (let [tag (.tag ci)
+              visible-extra (:visible-extra ctx)]
+          (when visible-extra
+            (let [all (.all ci)]
+              (reset! visible-extra
+                      (if (and all (> (alength all) 1))
+                        (set all)
+                        #{}))))
           (try
             (let [raw-result
                   (run-with-large-stack
@@ -1284,7 +1308,10 @@
                                          :fuel-exceeded? (instance? OutOfMemoryError ex)})
                 (swap! idx inc)
                 {:status :error :name name-str :idx i
-                 :error msg :elapsed-ms elapsed-ms}))))))))
+                 :error msg :elapsed-ms elapsed-ms}))
+            (finally
+              (when visible-extra
+                (reset! visible-extra #{})))))))))
 
 (defn skip!
   "Advance idx by `n` without verifying. For resuming past known-good ranges.
