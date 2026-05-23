@@ -1293,17 +1293,19 @@ public final class TypeChecker {
         }
         if (!whnfChanged
             && (tn.tag == Expr.PROJ || sn.tag == Expr.PROJ)
-            && eqvManager.isKnownEquiv(tn, sn)) {
-            // Lean may observe a pointer change from whnf_core around projection
-            // expressions, then use quick_is_def_eq(..., use_hash=false) to reuse
-            // an existing equivalence-manager proof. Our stronger sharing can hide
-            // that pointer change, so preserve Lean's second-quick behavior for
-            // projection-involved pairs that the public equivalence manager already
-            // knows are equal.
+            && eqvManager.isKnownEquiv(tn, sn)
+            && !hasZeroFieldStructureType(tn)
+            && !hasZeroFieldStructureType(sn)) {
+            // Lean can observe a pointer change from whnf_core around projection
+            // terms and then reuse an existing equivalence-manager proof in the
+            // second quick check. Our stronger re-interning/pointer preservation
+            // can hide that change, so keep the same phase for projection pairs
+            // whose equality has already been established by the public
+            // isDefEq/addEquiv path. Do not do this for unit-like result types:
+            // Lean keeps exploring those until the dedicated unit_like rule.
             if (doEmit) emitTrace(lFp, rFp, true, "quick_whnfcore");
             return true;
         }
-
         if (doTrace) {
             if (whnfChanged)
                 trace("  whnfCore: " + exprSummary(tn, 3) + " =?= " + exprSummary(sn, 3));
@@ -2109,8 +2111,6 @@ public final class TypeChecker {
         int nparams = ctorCi.numParams;
         int nfields = ctorCi.numFields;
         if (sArgs.length != nparams + nfields) return false;
-        if (nfields == 0) return false; // unit-like handled separately
-
         Name inductName = ctorCi.inductName;
         if (!isStructureLike(inductName)) return false;
 
@@ -2156,6 +2156,25 @@ public final class TypeChecker {
             // Both must have the same type (use inferTypeOnly — called from isDefEq)
             return isDefEq(tType, inferTypeOnly(s));
         } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean hasZeroFieldStructureType(Expr e) {
+        try {
+            Expr type = whnf(inferTypeOnly(e));
+            Object[] fa = Reducer.getAppFnArgs(type);
+            Expr head = (Expr) fa[0];
+            if (head.tag != Expr.CONST) return false;
+
+            Name iName = (Name) head.o0;
+            if (!isStructureLike(iName)) return false;
+
+            ConstantInfo indCi = env.lookup(iName);
+            if (indCi == null || indCi.ctors.length == 0) return false;
+            ConstantInfo ctorCi = env.lookup(indCi.ctors[0]);
+            return ctorCi != null && ctorCi.numFields == 0;
+        } catch (Exception e1) {
             return false;
         }
     }

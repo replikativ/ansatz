@@ -1388,14 +1388,14 @@ public final class Reducer {
             Name majorInductName = (Name) ci.all[0];
             if (isStructureLike(majorInductName)) {
                 try {
-                    Expr majorType = whnf(inferFn.infer(args[majorIdx]));
+                    Expr majorType = whnf(inferFn.infer(major));
                     Expr typeHead = getAppFn(majorType);
                     if (typeHead.tag == Expr.CONST && typeHead.o0.equals(majorInductName)) {
                         // Check it's not a Prop (Lean 4 line 70-71)
                         Expr typeOfType = whnf(inferFn.infer(majorType));
                         if (!(typeOfType.tag == Expr.SORT && Level.simplify((Level) typeOfType.o0).tag == Level.ZERO)) {
                             // Expand: Ctor(params, proj(I, 0, e), ..., proj(I, n-1, e))
-                            major = expandEtaStruct(majorInductName, majorType, args[majorIdx]);
+                            major = expandEtaStruct(majorInductName, majorType, major);
                             fnArgs = getAppFnArgs(major);
                             ctorHead = (Expr) fnArgs[0];
                             ctorArgs = (Expr[]) fnArgs[1];
