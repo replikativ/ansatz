@@ -38,6 +38,14 @@
     (compare (.toString ^Name (nth a 0))
              (.toString ^Name (nth b 0)))))
 
+(defn- long-prop
+  [prop-name default]
+  (try
+    (let [v (Long/parseLong (System/getProperty prop-name (str default)))]
+      (if (pos? v) v default))
+    (catch Throwable _
+      default)))
+
 ;; ============================================================
 ;; Fressian handlers for Ansatz types
 ;; ============================================================
@@ -626,6 +634,44 @@
 ;; Load — reconstruct Env from persisted PSS
 ;; ============================================================
 
+(defn- branch-loader
+  "Create shared lazy branch lookup state.
+
+   The returned lookup function is intentionally unrestricted. Callers that
+   need admission-order visibility must wrap it before installing it into Env.
+   Keeping this state shared avoids duplicate expression/name/level resolver
+   caches between staged verifier lookup and declaration fetch."
+  [store-map branch-name]
+  (let [{:keys [storage store]} store-map
+        branch-meta (store-get store [:branches branch-name])]
+    (when (nil? branch-meta)
+      (throw (ex-info "Branch not found" {:branch branch-name})))
+    (let [env-root (:env-root branch-meta)
+          env-pss (pss/restore-by name-cmp env-root storage)
+          dag? (:dag-storage? branch-meta)
+          pss-dag? (and dag? (:exprs-root branch-meta))
+          resolve-expr-fn
+          (when dag?
+            (if pss-dag?
+              (let [exprs-pss (pss/restore-by id-cmp (:exprs-root branch-meta) storage)
+                    names-pss (pss/restore-by id-cmp (:names-root branch-meta) storage)
+                    levels-pss (pss/restore-by id-cmp (:levels-root branch-meta) storage)
+                    resolve-name-fn (create-name-resolver names-pss)
+                    resolve-level-fn (create-level-resolver levels-pss)]
+                (create-expr-resolver exprs-pss resolve-name-fn resolve-level-fn))
+              (let [resolve-name-fn (create-name-resolver store)
+                    resolve-level-fn (create-level-resolver store)]
+                (create-expr-resolver store resolve-name-fn resolve-level-fn))))
+          lookup-ci (fn [^Name name]
+                      (let [result (pss/lookup env-pss [name nil])]
+                        (when result
+                          (let [entry (nth result 1)]
+                            (if dag?
+                              (resolve-ci-shell entry resolve-expr-fn)
+                              entry)))))]
+      {:branch-meta branch-meta
+       :lookup-ci lookup-ci})))
+
 (defn load-env
   "Load an Env from a persisted branch.
    Returns a lazy PSS-backed Env that loads declarations on demand.
@@ -638,39 +684,12 @@
    Optional :visible? predicate restricts external lookup. Verification uses
    this to model Lean admission order: a declaration can only see earlier
    declarations, plus explicitly allowed same-bundle declarations."
-  [store-map branch-name & {:keys [visible?]}]
-  (let [{:keys [storage store]} store-map
-        branch-meta (store-get store [:branches branch-name])]
-    (when (nil? branch-meta)
-      (throw (ex-info "Branch not found" {:branch branch-name})))
-    (let [env-root (:env-root branch-meta)
-          env-pss (pss/restore-by name-cmp env-root storage)
-          dag? (:dag-storage? branch-meta)
-          pss-dag? (and dag? (:exprs-root branch-meta))
-          ;; For DAG storage, create expression resolver
-          resolve-expr-fn
-          (when dag?
-            (if pss-dag?
-              ;; PSS-based DAG: resolve from PSS trees
-              (let [exprs-pss (pss/restore-by id-cmp (:exprs-root branch-meta) storage)
-                    names-pss (pss/restore-by id-cmp (:names-root branch-meta) storage)
-                    levels-pss (pss/restore-by id-cmp (:levels-root branch-meta) storage)
-                    resolve-name-fn (create-name-resolver names-pss)
-                    resolve-level-fn (create-level-resolver levels-pss)]
-                (create-expr-resolver exprs-pss resolve-name-fn resolve-level-fn))
-              ;; Flat DAG: resolve from flat LMDB entries
-              (let [resolve-name-fn (create-name-resolver store)
-                    resolve-level-fn (create-level-resolver store)]
-                (create-expr-resolver store resolve-name-fn resolve-level-fn))))
-          ^Env env (Env.)
+  [store-map branch-name & {:keys [visible? loader]}]
+  (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name))]
+    (let [^Env env (Env.)
           lookup-fn (fn [^Name name]
                       (when (or (nil? visible?) (visible? name))
-                        (let [result (pss/lookup env-pss [name nil])]
-                          (when result
-                            (let [entry (nth result 1)]
-                              (if dag?
-                                (resolve-ci-shell entry resolve-expr-fn)
-                                entry))))))]
+                        (lookup-ci name)))]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
             env (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0)))]
         env))))
@@ -727,9 +746,10 @@
         lookup-raw (if pss?
                      (fn [id] (pss-lookup-raw source id))
                      (fn [id] (store-get source [:expr id])))
-        ^java.util.Map cache (proxy [java.util.LinkedHashMap] [16384 (float 0.75) true]
+        expr-cache-size (long-prop "ansatz.storage.expr-cache-size" 16384)
+        ^java.util.Map cache (proxy [java.util.LinkedHashMap] [(int expr-cache-size) (float 0.75) true]
                                (removeEldestEntry [_entry]
-                                 (> (.size ^java.util.Map this) 16384)))]
+                                 (> (.size ^java.util.Map this) expr-cache-size)))]
     (letfn [(decode-leaf [^bytes raw]
               (let [bb (java.nio.ByteBuffer/wrap raw)
                     tag (int (.get bb))]
@@ -1168,11 +1188,10 @@
              :log-writer Writer, :ok atom, :errors atom, :error-names atom, :idx atom}"
   [store-map branch-name & {:keys [log-file]
                             :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
-  (let [{:keys [storage store]} store-map
+  (let [{:keys [store]} store-map
         lw (java.io.FileWriter. (str log-file) false)
-        branch-meta (store-get store [:branches branch-name])]
-    (when (nil? branch-meta)
-      (throw (ex-info "Branch not found" {:branch branch-name})))
+        loader (branch-loader store-map branch-name)
+        {:keys [branch-meta lookup-ci]} loader]
     (let [decl-order (if-let [num-chunks (:decl-order-chunks branch-meta)]
                       ;; Chunked decl-order: reassemble from parts
                        (into [] (mapcat (fn [i] (store-get store [:decl-order branch-name i])))
@@ -1190,14 +1209,14 @@
                      (or (contains? @visible-extra name)
                          (when-let [rank (.get decl-ranks name)]
                            (< (long rank) @idx))))
-          env (load-env store-map branch-name :visible? visible?)
-          ;; Verification must type-check against the staged env above, but it
-          ;; still needs an unrestricted lookup to fetch the declaration being
-          ;; checked before it is visible to that staged env.
-          resolve-env (load-env store-map branch-name)
+          env (load-env store-map branch-name :visible? visible? :loader loader)
+          ;; Verification type-checks against the staged env above, but fetching
+          ;; the declaration being checked must be unrestricted. Both paths share
+          ;; the branch loader so expression/name/level materialization caches
+          ;; are not duplicated.
           resolve-fn (fn [name-str]
                        (let [name-obj (ansatz-name/from-string name-str)]
-                         (.lookup ^Env resolve-env name-obj)))]
+                         (lookup-ci name-obj)))]
       (log! lw "Prepared verification for branch" (pr-str branch-name)
             ":" (count decl-order) "declarations")
       {:env env
