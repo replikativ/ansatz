@@ -1384,9 +1384,9 @@ public final class Reducer {
         // expand it to Ctor(proj(0,e), proj(1,e), ..., proj(n-1,e)).
         // This is critical for e.g. ByteArray.push where the major premise is a fvar,
         // but also fires when the major whnf's to another recursor application.
-        if (inferFn != null && ci.all != null && ci.all.length > 0 && !isConstructorApp(major)) {
-            Name majorInductName = (Name) ci.all[0];
-            if (isStructureLike(majorInductName)) {
+        if (inferFn != null && !isConstructorApp(major)) {
+            Name majorInductName = getMajorInductName(ci);
+            if (majorInductName != null && isStructureLike(majorInductName)) {
                 try {
                     Expr majorType = whnf(inferFn.infer(major));
                     Expr typeHead = getAppFn(majorType);
@@ -1466,13 +1466,37 @@ public final class Reducer {
         return cheapRec ? whnfCoreImpl(major, true, cheapProj) : whnf(major);
     }
 
+    /**
+     * Lean's recursor_val::get_major_induct derives the major inductive from
+     * the recursor type, not from recursor_val.all.  Nested auxiliary recursors
+     * are named under the outer inductive, but their major premise can be a
+     * nested type such as Option/List/Task/SnapshotTask.
+     */
+    private Name getMajorInductName(ConstantInfo recCi) {
+        int majorIdx = recCi.numParams + recCi.numMotives + recCi.numMinors + recCi.numIndices;
+        Expr t = recCi.type;
+        for (int i = 0; i < majorIdx; i++) {
+            if (t.tag != Expr.FORALL) return fallbackMajorInductName(recCi);
+            t = (Expr) t.o2;
+        }
+        if (t.tag != Expr.FORALL) return fallbackMajorInductName(recCi);
+        Expr domain = (Expr) t.o1;
+        Expr head = getAppFn(domain);
+        if (head.tag == Expr.CONST) return (Name) head.o0;
+        return fallbackMajorInductName(recCi);
+    }
+
+    private Name fallbackMajorInductName(ConstantInfo recCi) {
+        return (recCi.all != null && recCi.all.length > 0) ? (Name) recCi.all[0] : null;
+    }
+
     private Expr toCnstrWhenK(ConstantInfo recCi, Expr major, boolean cheapRec, boolean cheapProj) {
         try {
             Expr majorType = reduceRecursorMajor(inferFn.infer(major), cheapRec, cheapProj);
             Expr typeHead = getAppFn(majorType);
             if (typeHead.tag != Expr.CONST) return major;
-            if (recCi.all == null || recCi.all.length == 0) return major;
-            if (!typeHead.o0.equals(recCi.all[0])) return major;
+            Name majorInductName = getMajorInductName(recCi);
+            if (majorInductName == null || !typeHead.o0.equals(majorInductName)) return major;
 
             Expr newCnstr = mkNullaryCnstr(majorType, recCi.numParams);
             if (newCnstr == null) return major;
