@@ -1643,13 +1643,28 @@
   [flat-store-path & {:keys [log-file]
                       :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (let [lw (java.io.FileWriter. (str log-file) false)
-        {:keys [env decl-order] :as fs-map} (open-flatstore flat-store-path)
+        {:keys [decl-order] :as fs-map} (open-flatstore flat-store-path)
         ^FlatStore store (::flat-store fs-map)
+        idx (atom 0)
+        admitted-ranks (java.util.BitSet. (count decl-order))
+        decl-ranks (java.util.HashMap. (* 2 (count decl-order)))
         ;; Build name-str → Name lookup using getDeclName (handles special chars)
         name-lookup (let [m (java.util.HashMap. (count decl-order))]
                       (dotimes [i (count decl-order)]
-                        (.put m (nth decl-order i) (.getDeclName store (int i))))
+                        (let [^Name name (.getDeclName store (int i))]
+                          (.put m (nth decl-order i) name)
+                          (.put decl-ranks name (long i))))
                       m)
+        visible? (fn [^Name name]
+                   (when-let [rank (.get decl-ranks name)]
+                     (let [rank (long rank)]
+                       (and (< rank @idx)
+                            (.get admitted-ranks (int rank))))))
+        lookup-fn (reify clojure.lang.IFn
+                    (invoke [_ name]
+                      (when (and (instance? Name name) (visible? name))
+                        (.lookupDecl store ^Name name))))
+        env (.withExternalLookupUncached (Env.) lookup-fn (int (count decl-order)))
         resolve-fn (fn [name-str]
                      (let [^Name name-obj (.get ^java.util.HashMap name-lookup name-str)]
                        (when name-obj
@@ -1663,6 +1678,8 @@
      :ok (atom 0)
      :errors (atom 0)
      :error-names (atom [])
-     :idx (atom 0)
+     :idx idx
+     :admitted-ranks admitted-ranks
+     :decl-ranks decl-ranks
      :start-time (System/currentTimeMillis)
      ::flat-store store}))
