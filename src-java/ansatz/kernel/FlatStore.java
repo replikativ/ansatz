@@ -468,9 +468,8 @@ public final class FlatStore implements AutoCloseable {
      * Much faster than PSS-backed lookup.
      */
     public Env createEnv() {
-        Env env = new Env();
         FlatStore self = this;
-        env.setExternalLookup(new clojure.lang.AFn() {
+        return new Env().withExternalLookup(new clojure.lang.AFn() {
             @Override
             public Object invoke(Object nameObj) {
                 if (nameObj instanceof Name) {
@@ -479,7 +478,6 @@ public final class FlatStore implements AutoCloseable {
                 return null;
             }
         }, declOrder.length);
-        return env;
     }
 
     // ================================================================

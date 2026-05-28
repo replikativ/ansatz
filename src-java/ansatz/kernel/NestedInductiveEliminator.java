@@ -12,8 +12,7 @@ import java.util.IdentityHashMap;
  * throwing immediately for nested bundles: it discovers nested occurrences,
  * creates explicit auxiliary inductive types and constructors, rewrites
  * constructor bodies to refer to those auxiliaries, and records the metadata
- * needed for restoration. Bundle admission still remains conservative until
- * restoration/comparison is wired into the checker.
+ * needed for restoration and recursor comparison.
  */
 public final class NestedInductiveEliminator {
     private NestedInductiveEliminator() {}

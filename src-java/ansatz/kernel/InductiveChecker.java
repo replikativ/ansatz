@@ -11,9 +11,8 @@ import java.util.HashMap;
  * check inductive headers -> declare inductives -> check constructors ->
  * declare constructors -> handle recursors.
  *
- * <p>The current implementation still reuses the existing TypeChecker-based
- * validation helpers rather than regenerating recursors from first principles,
- * but the bundle state and admission order now live in one dedicated object.
+ * <p>The checker regenerates the recursor type and reduction rules and compares
+ * them with the imported constants before admitting the bundle.
  */
 final class InductiveChecker {
     private static final Object BINDER_DEFAULT = clojure.lang.Keyword.intern(null, "default");
@@ -593,7 +592,7 @@ final class InductiveChecker {
     }
 
     static ConstantInfo[] lowerImportedRecursors(InductiveBundle original, NestedElimResult elim) {
-        ConstantInfo[] out = new ConstantInfo[original.recursors.length];
+        HashMap<Name, ConstantInfo> byAuxName = new HashMap<>();
         for (int i = 0; i < original.recursors.length; i++) {
             ConstantInfo rec = original.recursors[i];
             Name auxName = lowerRecursorName(elim, rec.name);
@@ -609,7 +608,7 @@ final class InductiveChecker {
                         elim.lowerToAux(rule.rhs));
                 }
             }
-            out[i] = ConstantInfo.mkRecursor(
+            ConstantInfo lowered = ConstantInfo.mkRecursor(
                 auxName,
                 rec.levelParams,
                 auxType,
@@ -621,6 +620,18 @@ final class InductiveChecker {
                 auxRules,
                 rec.isK,
                 rec.isUnsafe);
+            byAuxName.put(auxName, lowered);
+        }
+
+        ConstantInfo[] out = new ConstantInfo[elim.auxBundle.inductives.length];
+        for (int i = 0; i < elim.auxBundle.inductives.length; i++) {
+            Name expectedRecName = Name.mkStr(elim.auxBundle.inductives[i].name, "rec");
+            ConstantInfo rec = byAuxName.get(expectedRecName);
+            if (rec == null) {
+                throw new RuntimeException("missing imported recursor for auxiliary inductive " +
+                    elim.auxBundle.inductives[i].name);
+            }
+            out[i] = rec;
         }
         return out;
     }

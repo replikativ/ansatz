@@ -1476,18 +1476,14 @@ public final class Reducer {
         int majorIdx = recCi.numParams + recCi.numMotives + recCi.numMinors + recCi.numIndices;
         Expr t = recCi.type;
         for (int i = 0; i < majorIdx; i++) {
-            if (t.tag != Expr.FORALL) return fallbackMajorInductName(recCi);
+            if (t.tag != Expr.FORALL) return null;
             t = (Expr) t.o2;
         }
-        if (t.tag != Expr.FORALL) return fallbackMajorInductName(recCi);
+        if (t.tag != Expr.FORALL) return null;
         Expr domain = (Expr) t.o1;
         Expr head = getAppFn(domain);
         if (head.tag == Expr.CONST) return (Name) head.o0;
-        return fallbackMajorInductName(recCi);
-    }
-
-    private Name fallbackMajorInductName(ConstantInfo recCi) {
-        return (recCi.all != null && recCi.all.length > 0) ? (Name) recCi.all[0] : null;
+        return null;
     }
 
     private Expr toCnstrWhenK(ConstantInfo recCi, Expr major, boolean cheapRec, boolean cheapProj) {

@@ -2251,97 +2251,76 @@ public final class TypeChecker {
         return out;
     }
 
+    private static final class ConstantCheckState {
+        final TypeChecker tc;
+        ConstantCheckState(TypeChecker tc) {
+            this.tc = tc;
+        }
+    }
+
+    private static ConstantCheckState checkConstantPreAdd(Env env, ConstantInfo ci, long fuel,
+            Writer traceWriter, boolean phaseTracing) {
+        if (ci.isInduct() || ci.isCtor() || ci.isRecursor()) {
+            throw new RuntimeException("inductive declarations must be admitted through checkInductiveBundle: " + ci.name);
+        }
+
+        // === Check 0: Duplicate universe level parameters ===
+        // Following Lean 4 environment.cpp:111-125.
+        checkDuplicateUnivParams(ci.levelParams, ci.name);
+
+        // Share common sub-expressions before type-checking.
+        java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
+        java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
+        Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
+        Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
+        // Seed intern table with shareCommon results so reduction-created
+        // expressions are pointer-identical to proof sub-expressions.
+        Expr.seedIntern(scCache);
+
+        TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
+        tc.setFuel(fuel);
+        if (traceWriter != null) tc.setTraceWriter(traceWriter);
+        tc.setPhaseTracing(phaseTracing);
+
+        // Theorem: check is_prop first, matching Lean 4's add_theorem.
+        if (ci.isThm()) {
+            if (phaseTracing) tc.emitPhase("isProp");
+            if (!tc.isProp(type)) {
+                throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
+            }
+        }
+
+        // Check type is well-formed (must be a sort).
+        if (phaseTracing) tc.emitPhase("checkType");
+        tc.ensureSort(tc.check(type));
+
+        // For definitions, theorems, and opaques: check value matches type.
+        if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
+            if (phaseTracing) tc.emitPhase("checkValue");
+            Expr inferred = tc.check(value);
+            if (phaseTracing) tc.emitPhase("valueDefEqType");
+            if (!tc.isDefEq(inferred, type)) {
+                String infStr = inferred.toString();
+                String declStr = ci.type.toString();
+                if (infStr.length() > 300) infStr = infStr.substring(0, 300) + "...";
+                if (declStr.length() > 300) declStr = declStr.substring(0, 300) + "...";
+                throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name +
+                    "\n  inferred: " + infStr + "\n  declared: " + declStr);
+            }
+        }
+        return new ConstantCheckState(tc);
+    }
+
     public static Env checkConstant(Env env, ConstantInfo ci, long fuel) {
-        // Quotient primitives: just enable and add (no type-checking needed, they are axioms)
+        // Quotient primitives: just enable and add (no type-checking needed, they are axioms).
         if (ci.isQuot()) {
             return env.enableQuot().addConstant(ci);
         }
 
         Expr.enableIntern();
         try {
-            // === Check 0: Duplicate universe level parameters ===
-            // Following Lean 4 environment.cpp:111-125
-            checkDuplicateUnivParams(ci.levelParams, ci.name);
-
-            // Share common sub-expressions before type-checking.
-            java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
-            java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
-            Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
-            Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-            // Seed intern table with shareCommon results so reduction-created
-            // expressions are pointer-identical to proof sub-expressions.
-            Expr.seedIntern(scCache);
-
-            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-            tc.setFuel(fuel);
-            // Theorem: check is_prop first, matching Lean 4's add_theorem
-            if (ci.isThm()) {
-                if (!tc.isProp(type))
-                    throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
-            }
-
-            // Check type is well-formed (must be a sort)
-            tc.ensureSort(tc.check(type));
-
-            // === Inductive type validation ===
-            // Check that the inductive result (after stripping params/indices) is a sort,
-            // and that numParams doesn't exceed the actual forall binder count.
-            if (ci.isInduct() && !ci.isUnsafe) {
-                validateInductiveResultSort(ci, tc);
-            }
-
-            // === Constructor validation ===
-            // Run when processing the CONSTRUCTOR (not the inductive type itself),
-            // because by this point the inductive type is already in the env.
-            // Following Lean 4 inductive.cpp check_constructors (lines 412-453).
-            if (ci.isCtor() && !ci.isUnsafe) {
-                ConstantInfo indCi = env.lookup(ci.inductName);
-                if (indCi != null && indCi.isInduct() && !indCi.isUnsafe) {
-                    validateConstructor(env, indCi, ci, tc);
-                }
-            }
-
-            // For recursors: validate rule field counts match constructors.
-            // We also type-check rule RHS AFTER adding the recursor to env
-            // (the RHS references the recursor itself for recursive calls).
-            // Lean 4 regenerates recursors from scratch (inductive.cpp:752-776);
-            // we validate imported rules post-addition instead.
-            if (ci.isRecursor() && ci.rules != null) {
-                for (ConstantInfo.RecursorRule rule : ci.rules) {
-                    ConstantInfo ctorCi = env.lookup(rule.ctor);
-                    if (ctorCi != null && ctorCi.isCtor()) {
-                        if (rule.nfields != ctorCi.numFields) {
-                            throw new RuntimeException("Type error: Recursor rule nfields mismatch for " +
-                                ci.name + " constructor " + rule.ctor +
-                                ": expected " + ctorCi.numFields + " got " + rule.nfields);
-                        }
-                    }
-                }
-            }
-
-            // For definitions, theorems, and opaques: check value matches type
-            if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                Expr inferred = tc.check(value);
-                if (!tc.isDefEq(inferred, type)) {
-                    String infStr = inferred.toString();
-                    String declStr = ci.type.toString();
-                    if (infStr.length() > 300) infStr = infStr.substring(0, 300) + "...";
-                    if (declStr.length() > 300) declStr = declStr.substring(0, 300) + "...";
-                    throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name +
-                        "\n  inferred: " + infStr + "\n  declared: " + declStr);
-                }
-            }
-
-            // Add to environment
-            Env newEnv = env.addConstant(ci);
-
-            // Post-addition: validate recursor rules by regenerating expected RHS
-            // bodies and comparing. Follows Lean 4 inductive.cpp:705-748 mk_rec_rules.
-            if (ci.isRecursor() && ci.rules != null && !ci.isUnsafe) {
-                validateRecursorRules(newEnv, ci);
-            }
-
-            return newEnv;
+            checkConstantPreAdd(env, ci, fuel, null, false);
+            return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
             LeanExprKey.clearThreadCache();
@@ -2357,9 +2336,7 @@ public final class TypeChecker {
             TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
             tc.ensureSort(tc.check(type));
-            if (!ci.isUnsafe) {
-                validateInductiveResultSort(ci, tc);
-            }
+            validateInductiveResultSort(ci, tc);
         } finally {
             Expr.disableIntern();
             LeanExprKey.clearThreadCache();
@@ -2375,11 +2352,9 @@ public final class TypeChecker {
             TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
             tc.setFuel(fuel);
             tc.ensureSort(tc.check(type));
-            if (!ci.isUnsafe) {
-                ConstantInfo indCi = env.lookup(ci.inductName);
-                if (indCi != null && indCi.isInduct() && !indCi.isUnsafe) {
-                    validateConstructor(env, indCi, ci, tc);
-                }
+            ConstantInfo indCi = env.lookup(ci.inductName);
+            if (indCi != null && indCi.isInduct()) {
+                validateConstructor(env, indCi, ci, tc, !(ci.isUnsafe || indCi.isUnsafe));
             }
         } finally {
             Expr.disableIntern();
@@ -2621,28 +2596,7 @@ public final class TypeChecker {
         }
         Expr.enableIntern();
         try {
-            java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
-            java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
-            Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
-            Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-            // Seed intern table with shareCommon results so reduction-created
-            // expressions are pointer-identical to proof sub-expressions.
-            Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-            tc.setFuel(fuel);
-            tc.setTraceWriter(traceWriter);
-            if (ci.isThm()) {
-                if (!tc.isProp(type))
-                    throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
-            }
-            tc.ensureSort(tc.check(type));
-            if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                Expr inferred = tc.check(value);
-                if (!tc.isDefEq(inferred, type)) {
-                    throw new RuntimeException("Type error: value type mismatch for " + ci.name);
-                }
-            }
-            // Callers must add ci to env themselves (Env is immutable)
+            checkConstantPreAdd(env, ci, fuel, traceWriter, false);
             try { traceWriter.flush(); } catch (IOException e) {}
             return env.addConstant(ci);
         } finally {
@@ -2658,35 +2612,8 @@ public final class TypeChecker {
         }
         Expr.enableIntern();
         try {
-            java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
-            java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
-            Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
-            Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-            Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-            tc.setFuel(fuel);
-            tc.setTraceWriter(traceWriter);
-            tc.setPhaseTracing(true);
-            try {
-                if (ci.isThm()) {
-                    tc.emitPhase("isProp");
-                    if (!tc.isProp(type))
-                        throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
-                }
-                tc.emitPhase("checkType");
-                tc.ensureSort(tc.check(type));
-                if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                    tc.emitPhase("checkValue");
-                    Expr inferred = tc.check(value);
-                    tc.emitPhase("valueDefEqType");
-                    if (!tc.isDefEq(inferred, type)) {
-                        throw new RuntimeException("Type error: value type mismatch for " + ci.name);
-                    }
-                }
-                traceWriter.flush();
-            } catch (IOException e) {
-                throw new RuntimeException(e);
-            }
+            checkConstantPreAdd(env, ci, fuel, traceWriter, true);
+            try { traceWriter.flush(); } catch (IOException e) { throw new RuntimeException(e); }
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
@@ -2706,33 +2633,8 @@ public final class TypeChecker {
         }
         Expr.enableIntern();
         try {
-            java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
-            java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
-            Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
-            Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-            // Seed intern table with shareCommon results so reduction-created
-            // expressions are pointer-identical to proof sub-expressions.
-            Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-            tc.setFuel(fuel);
-            if (ci.isThm()) {
-                if (!tc.isProp(type))
-                    throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
-            }
-            tc.ensureSort(tc.check(type));
-            if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                Expr inferred = tc.check(value);
-                if (!tc.isDefEq(inferred, type)) {
-                    String infStr = inferred.toString();
-                    String declStr = ci.type.toString();
-                    if (infStr.length() > 300) infStr = infStr.substring(0, 300) + "...";
-                    if (declStr.length() > 300) declStr = declStr.substring(0, 300) + "...";
-                    throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name +
-                        "\n  inferred: " + infStr + "\n  declared: " + declStr);
-                }
-            }
-            // Callers must add ci to env themselves (Env is immutable)
-            return tc.getFuelUsed();
+            ConstantCheckState state = checkConstantPreAdd(env, ci, fuel, null, false);
+            return state.tc.getFuelUsed();
         } finally {
             Expr.disableIntern();
             LeanExprKey.clearThreadCache();
@@ -2741,7 +2643,7 @@ public final class TypeChecker {
 
     /**
      * Type-check and return detailed stats (counters + trace).
-     * Returns Object[3]: [fuelUsed (Long), stats (HashMap), trace (String[])].
+     * Returns Object[4]: [fuelUsed (Long), stats (HashMap), trace (String[]), errorOrNull].
      */
     public static Object[] checkConstantFuelStats(Env env, ConstantInfo ci, long fuel) {
         if (ci.isQuot()) {
@@ -2750,40 +2652,22 @@ public final class TypeChecker {
         }
         Expr.enableIntern();
         try {
-            java.util.HashMap<Expr, Expr> scCache = new java.util.HashMap<>(4096);
-            java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
-            Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
-            Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-            // Seed intern table with shareCommon results so reduction-created
-            // expressions are pointer-identical to proof sub-expressions.
-            Expr.seedIntern(scCache);
-            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-            tc.setFuel(fuel);
+            TypeChecker tc = null;
             try {
-                if (ci.isThm()) {
-                    if (!tc.isProp(type))
-                        throw new RuntimeException("Type error: Theorem type is not a proposition for " + ci.name);
-                }
-                tc.ensureSort(tc.check(type));
-                if (value != null && (ci.isDef() || ci.isThm() || ci.isOpaq())) {
-                    Expr inferred = tc.check(value);
-                    if (!tc.isDefEq(inferred, type)) {
-                        String infStr = inferred.toString();
-                        String declStr = ci.type.toString();
-                        if (infStr.length() > 300) infStr = infStr.substring(0, 300) + "...";
-                        if (declStr.length() > 300) declStr = declStr.substring(0, 300) + "...";
-                        throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name +
-                            "\n  inferred: " + infStr + "\n  declared: " + declStr);
-                    }
-                }
-                // Note: env.addConstant result not captured here —
-                // callers must add ci to their env themselves
+                ConstantCheckState state = checkConstantPreAdd(env, ci, fuel, null, false);
+                tc = state.tc;
+                env.addConstant(ci);
                 return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), EMPTY_REDUCER_TRACE, null};
             } catch (RuntimeException ex) {
-                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), EMPTY_REDUCER_TRACE, ex.getMessage()};
+                HashMap<String, Long> stats = tc != null ? tc.getReducerStats() : new HashMap<String, Long>();
+                long fuelUsed = tc != null ? tc.getFuelUsed() : 0L;
+                return new Object[]{fuelUsed, stats, EMPTY_REDUCER_TRACE, ex.getMessage()};
             } catch (StackOverflowError ex) {
-                return new Object[]{tc.getFuelUsed(), tc.getReducerStats(), EMPTY_REDUCER_TRACE,
-                    "StackOverflowError (whnf max depth: " + tc.getReducerMaxDepth() + ")"};
+                HashMap<String, Long> stats = tc != null ? tc.getReducerStats() : new HashMap<String, Long>();
+                long fuelUsed = tc != null ? tc.getFuelUsed() : 0L;
+                long maxDepth = tc != null ? tc.getReducerMaxDepth() : -1L;
+                return new Object[]{fuelUsed, stats, EMPTY_REDUCER_TRACE,
+                    "StackOverflowError (whnf max depth: " + maxDepth + ")"};
             }
         } finally {
             Expr.disableIntern();
@@ -2855,7 +2739,8 @@ public final class TypeChecker {
      * 4. Field universe levels ≤ inductive's result level (or inductive is Prop)
      * 5. Strict positivity: no negative recursive occurrences
      */
-    private static void validateConstructor(Env env, ConstantInfo indCi, ConstantInfo ctorCi, TypeChecker tc) {
+    private static void validateConstructor(Env env, ConstantInfo indCi, ConstantInfo ctorCi,
+            TypeChecker tc, boolean checkStrictPositivity) {
         int np = indCi.numParams;
         int ni = indCi.numIndices;
 
@@ -2933,8 +2818,11 @@ public final class TypeChecker {
                 }
             }
 
-            // Check 5: Strict positivity
-            checkPositivity(tc, fieldType, inductiveNames, paramFvars, ctorCi.name, fieldIdx + 1);
+            // Check 5: Strict positivity. Lean skips only this check for unsafe
+            // inductives; all shape, universe, and result checks still apply.
+            if (checkStrictPositivity) {
+                checkPositivity(tc, fieldType, inductiveNames, paramFvars, ctorCi.name, fieldIdx + 1);
+            }
 
             long fid = tc.nextFvarId();
             Expr fvar = Expr.fvar(fid);
@@ -3143,22 +3031,6 @@ public final class TypeChecker {
         }
     }
 
-    /**
-     * Check just the type of a ConstantInfo (for inductives, ctors, recursors).
-     */
-    public static void checkType(Env env, ConstantInfo ci, long fuel) {
-        Expr.enableIntern();
-        try {
-            Expr type = Expr.shareCommon(ci.type);  // single expr, no need for shared cache
-            TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
-            tc.setFuel(fuel);
-            tc.ensureSort(tc.check(type));
-        } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
-        }
-    }
-
     /** Expose Reducer.constLevels for the package. */
     static Object[] constLevels(Expr e) {
         return Reducer.constLevels(e);
@@ -3171,11 +3043,6 @@ public final class TypeChecker {
 
     /**
      * Validate recursor rules by regenerating expected RHS bodies and comparing.
-     *
-     * Two validation levels:
-     * 1. Simple inductives (non-nested, no function-type recursive fields):
-     *    Full body regeneration and deep comparison.
-     * 2. Nested/complex inductives: Minor uniqueness + range check.
      *
      * This catches soundness attacks like nat-rec-rules where a bogus rule
      * returns the wrong minor premise (h_zero instead of h_succ(n, IH)).
@@ -3550,117 +3417,17 @@ public final class TypeChecker {
             }
 
             if (!exprDeepEquals(importedBody, expectedBody)) {
-                if (isNested) {
-                    // For nested inductives, the same outer type can be nested with
-                    // different params, creating multiple auxiliary rec_N names.
-                    // Our BFS assigns one rec_N per outer type name, but Lean 4's
-                    // ElimNestedInductive creates separate auxiliaries per distinct
-                    // application I(Ds). The rec_N ordering may differ.
-                    //
-                    // Structural validation: verify each IH targets a recursor from
-                    // the same group, has correct arity, and references the right field.
-                    validateNestedBodyStructure(env, recCi, importedBody, nf, nmi, minorIdx,
-                        np, nm, rule.ctor);
-                } else {
-                    String impStr = importedBody.toString();
-                    String expStr = expectedBody.toString();
-                    if (impStr.length() > 200) impStr = impStr.substring(0, 200) + "...";
-                    if (expStr.length() > 200) expStr = expStr.substring(0, 200) + "...";
-                    throw new RuntimeException("Recursor rule body mismatch for " +
-                        recCi.name + " ctor " + rule.ctor +
-                        "\n  expected: " + expStr +
-                        "\n  got:      " + impStr);
-                }
+                String impStr = importedBody.toString();
+                String expStr = expectedBody.toString();
+                if (impStr.length() > 200) impStr = impStr.substring(0, 200) + "...";
+                if (expStr.length() > 200) expStr = expStr.substring(0, 200) + "...";
+                throw new RuntimeException("Recursor rule body mismatch for " +
+                    recCi.name + " ctor " + rule.ctor +
+                    "\n  expected: " + expStr +
+                    "\n  got:      " + impStr);
             }
 
             minorIdx++;
-        }
-    }
-
-    /**
-     * Structural validation for nested recursor rule bodies where full body comparison
-     * fails due to rec_N ordering differences (same outer type nested with different params
-     * creates multiple auxiliaries).
-     *
-     * Validates:
-     * 1. Correct minor head (bvar at expected position)
-     * 2. Correct field bvars in order
-     * 3. Each IH targets a recursor from the same group (rec or rec_N with matching prefix)
-     * 4. Each IH has correct arity (np + nm + nmi + ni_target + 1)
-     * 5. Each IH's last arg is a field bvar
-     */
-    private static void validateNestedBodyStructure(Env env, ConstantInfo recCi,
-            Expr body, int nf, int nmi, int minorIdx, int np, int nm, Name ctorName) {
-        // Decompose body into head + args
-        java.util.ArrayList<Expr> bodyArgs = new java.util.ArrayList<>();
-        Expr bodyHead = body;
-        while (bodyHead.tag == Expr.APP) {
-            bodyArgs.add(0, (Expr) bodyHead.o1);
-            bodyHead = (Expr) bodyHead.o0;
-        }
-
-        // Check 1: minor head
-        long expectedMinorBvar = nf + nmi - 1 - minorIdx;
-        if (bodyHead.tag != Expr.BVAR || bodyHead.longVal != expectedMinorBvar) {
-            throw new RuntimeException("Nested recursor rule body head mismatch for " +
-                recCi.name + " ctor " + ctorName +
-                ": expected bvar(" + expectedMinorBvar + ") got " + bodyHead);
-        }
-
-        // Check 2: first nf args must be field bvars in order
-        if (bodyArgs.size() < nf) {
-            throw new RuntimeException("Nested recursor rule body has too few args for " +
-                recCi.name + " ctor " + ctorName + ": expected at least " + nf + " got " + bodyArgs.size());
-        }
-        for (int fi = 0; fi < nf; fi++) {
-            Expr arg = bodyArgs.get(fi);
-            long expectedField = nf - 1 - fi;
-            if (arg.tag != Expr.BVAR || arg.longVal != expectedField) {
-                throw new RuntimeException("Nested recursor rule body field mismatch for " +
-                    recCi.name + " ctor " + ctorName + " field " + fi +
-                    ": expected bvar(" + expectedField + ") got " + arg);
-            }
-        }
-
-        // Check 3-5: remaining args are IHs
-        Name mainIndName = (Name) recCi.all[0];
-        Name recPrefix = Name.mkStr(mainIndName, "rec");
-        int expectedIhArity = np + nm + nmi; // + ni_target + 1 (field)
-
-        for (int i = nf; i < bodyArgs.size(); i++) {
-            Expr ih = bodyArgs.get(i);
-            // The IH may be wrapped in lambdas (function-type recursive fields)
-            // Peel lambdas to get the inner application
-            while (ih.tag == Expr.LAM) ih = (Expr) ih.o2;
-
-            // Decompose IH application
-            Expr ihHead = ih;
-            int ihArgCount = 0;
-            while (ihHead.tag == Expr.APP) { ihArgCount++; ihHead = (Expr) ihHead.o0; }
-
-            // Check 3: IH head must be a recursor from the group
-            if (ihHead.tag != Expr.CONST) {
-                throw new RuntimeException("Nested recursor rule IH head is not a const for " +
-                    recCi.name + " ctor " + ctorName + " IH " + (i - nf));
-            }
-            Name ihRecName = (Name) ihHead.o0;
-            // Must be either the main rec or rec_N from the same type
-            boolean validRec = ihRecName.equals(recPrefix) || // main rec
-                (ihRecName.tag == Name.STR && ihRecName.prefix != null &&
-                 ihRecName.prefix.equals(mainIndName) &&
-                 ihRecName.str.startsWith("rec"));
-            if (!validRec) {
-                throw new RuntimeException("Nested recursor rule IH targets wrong recursor for " +
-                    recCi.name + " ctor " + ctorName + " IH " + (i - nf) +
-                    ": " + ihRecName + " not in group of " + mainIndName);
-            }
-
-            // Check 4: IH arity (at least np + nm + nmi + 1)
-            if (ihArgCount < expectedIhArity + 1) {
-                throw new RuntimeException("Nested recursor rule IH has too few args for " +
-                    recCi.name + " ctor " + ctorName + " IH " + (i - nf) +
-                    ": " + ihArgCount + " < " + (expectedIhArity + 1));
-            }
         }
     }
 

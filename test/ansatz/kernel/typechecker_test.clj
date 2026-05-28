@@ -304,27 +304,84 @@
   (testing "Replay Nat.add_succ with checkConstantFuelStats"
     (let [f "test-data/Nat.add_succ.ndjson"]
       (when (.exists (java.io.File. f))
-        (let [st (parse-ndjson-file f)
-              env (atom (Env.))
-              fuel 10000000
-              errors (atom 0)]
-          (doseq [ci (:decls st)]
-            (try
-              (if (.isQuot ci)
-                (swap! env (fn [^Env current-env]
-                             (.addConstant (.enableQuot current-env) ci)))
-                (if (or (.isInduct ci) (.isCtor ci) (.isRecursor ci))
-                  (do (TypeChecker/checkType ^Env @env ci fuel)
-                      (swap! env (fn [^Env current-env]
-                                   (.addConstant current-env ci))))
-                  (let [^objects result (TypeChecker/checkConstantFuelStats ^Env @env ci fuel)]
-                    (swap! env (fn [^Env current-env]
-                                 (.addConstant current-env ci)))
-                    (when (or (.isThm ci) (.isOpaq ci))
-                      (set! (.value ci) nil)))))
-              (catch Exception ex
-                (swap! errors inc))))
-          (is (zero? @errors)))))))
+        (letfn [(same-name-array? [^objects xs ^objects ys]
+                  (and xs ys
+                       (= (alength xs) (alength ys))
+                       (loop [i 0]
+                         (cond
+                           (= i (alength xs)) true
+                           (= (aget xs i) (aget ys i)) (recur (inc i))
+                           :else false))))
+                (bundle-member? [^objects all-names ^ConstantInfo ci]
+                  (case (int (.tag ci))
+                    5 (boolean (some #(= ^Object % (.name ci)) all-names))
+                    6 (boolean (some #(= ^Object % (.inductName ci)) all-names))
+                    7 (same-name-array? all-names (.all ci))
+                    false))
+                (collect-bundle [decls ^ConstantInfo head]
+                  (let [all-names (or (.all head) (object-array [(.name head)]))]
+                    (loop [remaining decls
+                           members []]
+                      (if-let [^ConstantInfo ci (first remaining)]
+                        (if (bundle-member? all-names ci)
+                          (recur (next remaining) (conj members ci))
+                          {:members members :rest remaining})
+                        {:members members :rest nil}))))
+                (mk-bundle [members]
+                  (let [inductives (filterv #(.isInduct ^ConstantInfo %) members)
+                        ctors (filterv #(.isCtor ^ConstantInfo %) members)
+                        recursors (filterv #(.isRecursor ^ConstantInfo %) members)
+                        ^ConstantInfo first-ind (first inductives)]
+                    (env/mk-inductive-bundle
+                     (vec (.levelParams first-ind))
+                     (.numParams first-ind)
+                     (.isUnsafe first-ind)
+                     inductives
+                     ctors
+                     recursors)))]
+          (let [st (parse-ndjson-file f)
+                current-env (atom (Env.))
+                fuel 10000000
+                errors (atom 0)]
+            (loop [decls (seq (:decls st))]
+              (when-let [^ConstantInfo ci (first decls)]
+                (let [next-decls
+                      (try
+                        (cond
+                          (.isInduct ci)
+                          (let [{:keys [members rest]} (collect-bundle decls ci)
+                                bundle (mk-bundle members)]
+                            (swap! current-env
+                                   (fn [^Env env]
+                                     (TypeChecker/checkInductiveBundle env bundle fuel)))
+                            rest)
+
+                          (or (.isCtor ci) (.isRecursor ci))
+                          (do
+                            (swap! errors inc)
+                            (next decls))
+
+                          (.isQuot ci)
+                          (do
+                            (swap! current-env
+                                   (fn [^Env env]
+                                     (TypeChecker/checkConstant env ci fuel)))
+                            (next decls))
+
+                          :else
+                          (let [^objects result (TypeChecker/checkConstantFuelStats ^Env @current-env ci fuel)
+                                err (aget result 3)]
+                            (if err
+                              (swap! errors inc)
+                              (swap! current-env
+                                     (fn [^Env env]
+                                       (.addConstant env ci))))
+                            (next decls)))
+                        (catch Exception _
+                          (swap! errors inc)
+                          (next decls)))]
+                  (recur next-decls))))
+            (is (zero? @errors))))))))
 
 ;; ============================================================
 ;; Admission regressions
@@ -385,12 +442,12 @@
                                                      bi)
                                           bi)
                                bi)
-          ind-ci (env/mk-induct badp-name [] ind-type
-                                :num-params 1
-                                :num-indices 0
-                                :all [badp-name]
-                                :ctors [ctor-name])
-          env1 (TypeChecker/checkConstant (Env.) ind-ci 1000000)
-          ctor-ci (env/mk-ctor ctor-name [] ctor-type badp-name 0 1 2)]
+           ind-ci (env/mk-induct badp-name [] ind-type
+                                 :num-params 1
+                                 :num-indices 0
+                                 :all [badp-name]
+                                 :ctors [ctor-name])
+          ctor-ci (env/mk-ctor ctor-name [] ctor-type badp-name 0 1 2)
+          bundle (env/mk-inductive-bundle [] 1 false [ind-ci] [ctor-ci] [])]
       (is (thrown? Exception
-                   (TypeChecker/checkConstant env1 ctor-ci 1000000))))))
+                   (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))

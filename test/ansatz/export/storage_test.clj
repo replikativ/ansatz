@@ -4,7 +4,7 @@
             [ansatz.export.parser :as parser]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel Name ConstantInfo Env]
+  (:import [ansatz.kernel Name ConstantInfo Env Expr]
            [java.io File]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -178,6 +178,36 @@
               (storage/skip-to! ctx thm-idx)
               (is (some? (env/lookup (:env ctx) nat-name)))
               (is (nil? (env/lookup (:env ctx) thm-name)))
+              (finally
+                (.close ^java.io.Writer (:log-writer ctx)))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest failed-declaration-is-not-made-visible
+  (testing "Advancing after a failed declaration does not admit it"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [ctx (storage/prepare-verify store-map "verify-test")
+                first-name-str (first (:decl-order ctx))
+                first-name (name/from-string first-name-str)
+                original-resolve (:resolve-fn ctx)
+                bad-ci (ConstantInfo/mkAxiom first-name
+                                             (object-array [])
+                                             (Expr/bvar 0)
+                                             false)
+                failing-ctx (assoc ctx :resolve-fn
+                                   (fn [name-str]
+                                     (if (= name-str first-name-str)
+                                       bad-ci
+                                       (original-resolve name-str))))]
+            (try
+              (let [result (storage/verify-one! failing-ctx :timeout-ms 0)]
+                (is (= :error (:status result)))
+                (is (= 1 @(:idx ctx)))
+                (is (nil? (env/lookup (:env ctx) first-name))))
               (finally
                 (.close ^java.io.Writer (:log-writer ctx)))))
           (storage/close-store store-map))

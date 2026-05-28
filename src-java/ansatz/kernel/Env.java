@@ -64,15 +64,14 @@ public final class Env {
     }
 
     /**
-     * For backward compatibility during migration.
-     * @deprecated Use withExternalLookup instead.
+     * Set external lookup without the shared ConstantInfo cache.
+     *
+     * Staged verification installs a visibility-filtered lookup. A declaration
+     * that was visible in one stage must not remain visible later just because
+     * it was cached under the same name.
      */
-    public void setExternalLookup(clojure.lang.IFn lookupFn, int size) {
-        // Bridge: create new env-like state. Since callers still expect mutation,
-        // we store in a way that lookup() can find it.
-        // This is temporary — will be removed when all callers are updated.
-        throw new UnsupportedOperationException(
-            "Env is now immutable. Use withExternalLookup() instead.");
+    public Env withExternalLookupUncached(clojure.lang.IFn lookupFn, int size) {
+        return new Env(locals, null, quotEnabled, lookupFn, size);
     }
 
     public ConstantInfo lookup(Name name) {
@@ -93,7 +92,9 @@ public final class Env {
             Object result = externalLookup.invoke(name);
             if (result instanceof ConstantInfo) {
                 ConstantInfo ext = (ConstantInfo) result;
-                sharedCache.put(ext.name, new SoftReference<>(ext));
+                if (sharedCache != null) {
+                    sharedCache.put(ext.name, new SoftReference<>(ext));
+                }
                 return ext;
             }
         }
@@ -113,28 +114,8 @@ public final class Env {
      * The original Env is unchanged (persistent/immutable).
      */
     public Env addConstant(ConstantInfo ci) {
-        if (externalLookup != null) {
-            // PSS-backed: add to locals overlay
-            return new Env(locals.assoc(ci.name, ci), sharedCache,
-                          quotEnabled, externalLookup, externalSize);
-        }
-        // Non-PSS: check for duplicates
-        if (locals.valAt(ci.name) != null) {
+        if (lookup(ci.name) != null) {
             throw new RuntimeException("Constant already declared: " + ci.name);
-        }
-        return new Env(locals.assoc(ci.name, ci), sharedCache,
-                      quotEnabled, externalLookup, externalSize);
-    }
-
-    /**
-     * Add constant, ignoring duplicates (for replay error recovery).
-     * Returns a NEW Env.
-     */
-    public Env addConstantIfAbsent(ConstantInfo ci) {
-        if (locals.valAt(ci.name) != null) return this;
-        if (sharedCache != null) {
-            SoftReference<ConstantInfo> ref = sharedCache.get(ci.name);
-            if (ref != null && ref.get() != null) return this;
         }
         return new Env(locals.assoc(ci.name, ci), sharedCache,
                       quotEnabled, externalLookup, externalSize);

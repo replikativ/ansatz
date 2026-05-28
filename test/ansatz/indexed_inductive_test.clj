@@ -33,10 +33,14 @@
   (let [ind-ci (env/lookup (a/env) (name/from-string ind-name))
         ctor-cis (mapv #(env/lookup (a/env) (name/from-string %)) ctor-names)
         rec-ci (env/lookup (a/env) (name/from-string rec-name))
-        pre-env (reduce env/check-constant
-                        (env/check-constant base-env ind-ci)
-                        ctor-cis)]
-    (env/check-constant pre-env rec-ci)))
+        bundle (env/mk-inductive-bundle
+                (vec (.levelParams ind-ci))
+                (.numParams ind-ci)
+                (.isUnsafe ind-ci)
+                [ind-ci]
+                ctor-cis
+                [rec-ci])]
+    (env/check-inductive-bundle base-env bundle)))
 
 (defn- with-init-env [f]
   (when-let [env @init-env]

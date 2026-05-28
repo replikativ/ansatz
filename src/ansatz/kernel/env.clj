@@ -109,13 +109,6 @@
   (^Env [^Env env ^ConstantInfo ci fuel]
    (TypeChecker/checkConstant env ci fuel)))
 
-(defn check-type
-  "Type-check just the type/header of a declaration using the Java kernel checker."
-  ([^Env env ^ConstantInfo ci]
-   (TypeChecker/checkType env ci 5000000))
-  ([^Env env ^ConstantInfo ci fuel]
-   (TypeChecker/checkType env ci fuel)))
-
 (defn check-inductive-bundle
   "Type-check and add a mutual inductive bundle through the Java kernel bundle checker."
   (^Env [^Env env ^InductiveBundle bundle]
@@ -176,8 +169,7 @@
 (defn enable-quot
   "Enable quotient type support in the environment."
   [^Env env]
-  (.enableQuot env)
-  env)
+  (.enableQuot env))
 
 (defn quot-enabled? [^Env env]
   (.isQuotEnabled env))

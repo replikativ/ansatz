@@ -44,38 +44,26 @@
   (let [tag (.tag ci)
         name-str (.toString (.name ci))]
     (try
-      (case tag
-        ;; Quotient primitives
-        4 ;; QUOT
+      (cond
+        ;; Quotient primitives.
+        (= 4 (int tag))
         (let [env (.addConstant env ci)
               env (.enableQuot env)]
           [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
 
-        ;; Inductives, constructors, recursors: full validation
-        ;; (Lean 4 regenerates recursors; we validate imported rules)
-        (5 6 7) ;; INDUCT, CTOR, RECURSOR
-        (let [env (TypeChecker/checkConstant env ci default-fuel)]
-          [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
+        ;; Inductives, constructors, recursors must be replayed as a bundle.
+        (#{5 6 7} (int tag))
+        [env {:status :error :name name-str :tag (env/ci-tag ci)
+              :error "inductive declarations must be admitted as a bundle"}]
 
-        ;; Everything else: full type check via Java TypeChecker
-        ;; checkConstant returns new env with ci added
+        :else
         (let [env (TypeChecker/checkConstant env ci default-fuel)]
-          ;; Note: do NOT strip theorem values — downstream isDefEq may need them
+          ;; Note: do NOT strip theorem values — downstream isDefEq may need them.
           [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))
 
       (catch Exception ex
-        ;; Known lean4export bug: _sizeOf_N_eq theorems for nested inductives
-        ;; are exported with Eq.refl proofs, but the actual proof requires
-        ;; induction (see Lean 4 src/Lean/Meta/SizeOf.lean:347).
-        ;; Accept these as axioms — the theorem TYPES are correct.
-        (if (and (.isThm ci) (re-find #"_sizeOf_\d+_eq$" name-str))
-          (let [env (try (.addConstant env ci) (catch Exception _ (.addConstantIfAbsent env ci)))]
-            [env {:status :ok :name name-str :tag (env/ci-tag ci)
-                  :note "lean4export sizeOf proof workaround"}])
-          ;; Otherwise: real error
-          (let [env (try (.addConstantIfAbsent env ci) (catch Exception _ env))]
-            [env {:status :error :name name-str :tag (env/ci-tag ci)
-                  :error (.getMessage ex)}]))))))
+        [env {:status :error :name name-str :tag (env/ci-tag ci)
+              :error (.getMessage ex)}]))))
 
 (defn- bundle-member?
   [^objects all-names ^ConstantInfo ci]
@@ -129,15 +117,12 @@
                           members)]
         [env' results])
       (catch Exception ex
-        (let [env' (reduce (fn [^Env acc ^ConstantInfo ci]
-                             (try (.addConstantIfAbsent acc ci) (catch Exception _ acc)))
-                           env members)
-              msg (.getMessage ex)
+        (let [msg (.getMessage ex)
               results (mapv (fn [^ConstantInfo ci]
                               {:status :error :name (.toString (.name ci)) :tag (env/ci-tag ci)
                                :error msg})
                             members)]
-          [env' results])))))
+          [env results])))))
 
 (defn replay
   "Replay all declarations through the type checker.
@@ -215,6 +200,54 @@
     (println "Done:" (:stats result))
     (assoc result :meta meta)))
 
+(defn- record-stream-result
+  [state result]
+  (-> state
+      (update (if (= :ok (:status result)) :ok :errors) inc)
+      (assoc :last-result result)
+      (cond-> (= :error (:status result))
+        (update :error-names conj (:name result)))))
+
+(defn- record-stream-results
+  [state results]
+  (reduce record-stream-result state results))
+
+(defn- flush-stream-bundle
+  [state]
+  (if-let [members (:pending-inductive-members state)]
+    (let [[env' results] (replay-inductive-bundle (:env state) members)]
+      (-> state
+          (assoc :env env')
+          (dissoc :pending-inductive-members :pending-all-names)
+          (record-stream-results results)))
+    state))
+
+(declare process-stream-decl)
+
+(defn- process-stream-decl
+  [state ^ConstantInfo ci]
+  (if-let [^objects pending-all (:pending-all-names state)]
+    (if (bundle-member? pending-all ci)
+      (update state :pending-inductive-members conj ci)
+      (process-stream-decl (flush-stream-bundle state) ci))
+    (cond
+      (.isInduct ci)
+      (assoc state
+             :pending-inductive-members [ci]
+             :pending-all-names (or (.all ci) (into-array Object [(.name ci)])))
+
+      (or (.isCtor ci) (.isRecursor ci))
+      (record-stream-result
+       state
+       {:status :error
+        :name (.toString (.name ci))
+        :tag (env/ci-tag ci)
+        :error "inductive bundle member encountered outside bundle head"})
+
+      :else
+      (let [[env' result] (replay-one (:env state) ci)]
+        (record-stream-result (assoc state :env env') result)))))
+
 (defn replay-file-streaming
   "Parse and replay declarations in streaming mode.
    Runs on a thread with a 64MB stack to handle deep recursion."
@@ -228,19 +261,18 @@
                    path
                    {:env env :ok 0 :errors 0 :error-names []}
                    (fn [state ci]
-                     (let [[_ result] (replay-one (:env state) ci)]
+                     (let [state' (process-stream-decl state ci)
+                           result (:last-result state')]
                        (when verbose?
                          (case (:status result)
                            :ok (when (zero? (mod (+ (:ok state) (:errors state)) 1000))
                                  (let [rt (Runtime/getRuntime)
                                        used (quot (- (.totalMemory rt) (.freeMemory rt)) 1048576)]
                                    (println (str "  [" (+ (:ok state) (:errors state)) "] ok=" (:ok state) " err=" (:errors state) " mem=" used "MB"))))
-                           :error (println "ERROR:" (:name result) "-" (:error result))))
-                       (-> state
-                           (update (if (= :ok (:status result)) :ok :errors) inc)
-                           (cond-> (= :error (:status result))
-                             (update :error-names conj (:name result)))))))]
-       (let [st (:final-state result)
+                           :error (println "ERROR:" (:name result) "-" (:error result))
+                           nil))
+                       state')))]
+       (let [st (flush-stream-bundle (:final-state result))
              elapsed (- (System/currentTimeMillis) start-time)]
          (println "Done: ok=" (:ok st) "errors=" (:errors st) "elapsed=" elapsed "ms")
          (when (seq (:error-names st))

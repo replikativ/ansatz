@@ -16,7 +16,7 @@
             [ansatz.kernel.name :as ansatz-name]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
-  (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker FlatStore FlatStoreWriter FlatStoreWriter$DeclProvider]
+  (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker InductiveBundle FlatStore FlatStoreWriter FlatStoreWriter$DeclProvider]
            [ansatz.export.types CIShell]
            [org.replikativ.persistent_sorted_set PersistentSortedSet IStorage Leaf Branch Settings RefType]
            [org.fressian Writer Reader]
@@ -682,8 +682,8 @@
    - PSS DAG: dag-storage? + exprs-root → expr/name/level PSS trees
 
    Optional :visible? predicate restricts external lookup. Verification uses
-   this to model Lean admission order: a declaration can only see earlier
-   declarations, plus explicitly allowed same-bundle declarations."
+   this to model Lean admission order: a declaration can only see admitted
+   earlier declarations."
   [store-map branch-name & {:keys [visible? loader]}]
   (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name))]
     (let [^Env env (Env.)
@@ -691,7 +691,9 @@
                       (when (or (nil? visible?) (visible? name))
                         (lookup-ci name)))]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
-            env (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0)))]
+            env (if visible?
+                  (.withExternalLookupUncached env lookup-fn (int (:env-count branch-meta 0)))
+                  (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0))))]
         env))))
 
 (defn resolve-expr
@@ -1201,14 +1203,15 @@
           _ (when (nil? decl-order)
               (throw (ex-info "Declaration order not found" {:branch branch-name})))
           idx (atom 0)
-          visible-extra (atom #{})
+          admitted-ranks (java.util.BitSet. (count decl-order))
           decl-ranks (java.util.HashMap. (* 2 (count decl-order)))
           _ (doseq [[i name-str] (map-indexed vector decl-order)]
               (.put decl-ranks (ansatz-name/from-string name-str) (long i)))
           visible? (fn [^Name name]
-                     (or (contains? @visible-extra name)
-                         (when-let [rank (.get decl-ranks name)]
-                           (< (long rank) @idx))))
+                     (when-let [rank (.get decl-ranks name)]
+                       (let [rank (long rank)]
+                         (and (< rank @idx)
+                              (.get admitted-ranks (int rank))))))
           env (load-env store-map branch-name :visible? visible? :loader loader)
           ;; Verification type-checks against the staged env above, but fetching
           ;; the declaration being checked must be unrestricted. Both paths share
@@ -1227,9 +1230,15 @@
        :errors (atom 0)
        :error-names (atom [])
        :idx idx
-       :visible-extra visible-extra
+       :admitted-ranks admitted-ranks
        :decl-ranks decl-ranks
        :start-time (System/currentTimeMillis)})))
+
+(defn- mark-admitted-range!
+  [ctx start-idx end-idx]
+  (when-let [^java.util.BitSet admitted (:admitted-ranks ctx)]
+    (when (< start-idx end-idx)
+      (.set admitted (int start-idx) (int end-idx)))))
 
 (def ^:private default-fuel
   "Default fuel per declaration. 20M steps is enough for all known mathlib proofs
@@ -1243,94 +1252,132 @@
    Lean's C++ has smaller stack frames so doesn't need this."
   (* 256 1024 1024))
 
+(defn- same-name-array?
+  [^objects xs ^objects ys]
+  (and xs ys
+       (= (alength xs) (alength ys))
+       (loop [i 0]
+         (cond
+           (= i (alength xs)) true
+           (= (aget xs i) (aget ys i)) (recur (inc i))
+           :else false))))
+
+(defn- bundle-all-names
+  ^objects [^ConstantInfo ci]
+  (or (.all ci) (into-array Object [(.name ci)])))
+
+(defn- inductive-bundle-member?
+  [^objects all-names ^ConstantInfo ci]
+  (case (int (.tag ci))
+    5 (boolean (some #(= ^Object % (.name ci)) all-names))
+    6 (boolean (some #(= ^Object % (.inductName ci)) all-names))
+    7 (same-name-array? all-names (.all ci))
+    false))
+
+(defn- build-inductive-bundle
+  ^InductiveBundle [members]
+  (let [inductives (filterv #(.isInduct ^ConstantInfo %) members)
+        ctors (filterv #(.isCtor ^ConstantInfo %) members)
+        recursors (filterv #(.isRecursor ^ConstantInfo %) members)
+        ^ConstantInfo first-ind (first inductives)]
+    (when-not first-ind
+      (throw (ex-info "Inductive bundle has no inductive declarations"
+                      {:members (mapv #(str (.name ^ConstantInfo %)) members)})))
+    (InductiveBundle.
+     (.levelParams first-ind)
+     (.numParams first-ind)
+     (.isUnsafe first-ind)
+     (into-array ConstantInfo inductives)
+     (into-array ConstantInfo ctors)
+     (into-array ConstantInfo recursors))))
+
+(defn- collect-inductive-bundle
+  [decl-order resolve-fn start-idx ^ConstantInfo head-ci]
+  (let [all-names (bundle-all-names head-ci)
+        total (count decl-order)]
+    (loop [j start-idx
+           members []]
+      (if (< j total)
+        (let [name-str (nth decl-order j)
+              ^ConstantInfo ci (resolve-fn name-str)]
+          (when-not ci
+            (throw (ex-info "Missing declaration while collecting inductive bundle"
+                            {:idx j :name name-str})))
+          (if (inductive-bundle-member? all-names ci)
+            (recur (inc j) (conj members ci))
+            {:members members :next-idx j}))
+        {:members members :next-idx j}))))
+
 (defn verify-one!
   "Verify the next declaration from ctx. Type checking runs on a large-stack
    thread (256MB) to handle deep isDefEq recursion.
    Returns result map with :status, :name, :fuel-used, :elapsed-ms.
-   Declarations that exceed fuel are added to env without full check
-   and flagged :fuel-exceeded."
+   Inductive declarations are verified as a contiguous Lean-style bundle.
+   Failed declarations are not marked admitted; non-stop mode is diagnostic only."
   [ctx & {:keys [fuel timeout-ms] :or {fuel default-fuel timeout-ms 120000}}]
-  (let [{:keys [env decl-order resolve-fn ^java.io.Writer log-writer
-                ok errors error-names idx]} ctx
+  (let [{:keys [env decl-order resolve-fn ok errors error-names idx]} ctx
         i @idx
         total (count decl-order)]
     (when (>= i total)
       (throw (ex-info "All declarations verified" {:idx i :total total})))
     (let [name-str (nth decl-order i)
           t0 (System/nanoTime)
-          ^ConstantInfo ci (resolve-fn name-str)
-          env-vol (volatile! env)]
+          ^ConstantInfo ci (resolve-fn name-str)]
       (if (nil? ci)
         (do (swap! errors inc)
             (swap! error-names conj {:name name-str :error "MISSING"})
             (swap! idx inc)
             {:status :missing :name name-str :idx i})
-        (let [tag (.tag ci)
-              visible-extra (:visible-extra ctx)]
-          (when visible-extra
-            (let [all (.all ci)]
-              (reset! visible-extra
-                      (if (and all (> (alength all) 1))
-                        (set all)
-                        #{}))))
-          (try
-            (let [raw-result
-                  (run-with-large-stack
-                   (fn []
-                     (case (int tag)
-                       4 ;; QUOT — no check needed
-                       (do (vreset! env-vol (.enableQuot (.addConstant @env-vol ci))) 0)
-                       (5 6 7) ;; INDUCT, CTOR, RECURSOR — check type only
-                       (do (TypeChecker/checkType @env-vol ci (long fuel))
-                           (vreset! env-vol (.addConstant @env-vol ci)) 0)
-                       ;; DEF, THM, OPAQUE, AXIOM — full check with fuel+stats instrumentation
-                       (let [result (TypeChecker/checkConstantFuelStats @env-vol ci (long fuel))]
-                         (vreset! env-vol (.addConstantIfAbsent @env-vol ci))
-                         result)))
-                   verify-stack-size
-                   timeout-ms)
+        (try
+          (let [bundle? (.isInduct ci)
+                {:keys [members next-idx]}
+                (when bundle?
+                  (collect-inductive-bundle decl-order resolve-fn i ci))
+                fuel-used
+                (long
+                 (run-with-large-stack
+                  (fn []
+                    (cond
+                      bundle?
+                      (do
+                        (TypeChecker/checkInductiveBundle
+                         env (build-inductive-bundle members) (long fuel))
+                        0)
+
+                      (or (.isCtor ci) (.isRecursor ci))
+                      (throw (ex-info "Inductive bundle member encountered outside bundle head"
+                                      {:idx i :name name-str}))
+
+                      :else
+                      (do
+                        (TypeChecker/checkConstant env ci (long fuel))
+                        0)))
+                  verify-stack-size
+                  timeout-ms))
+                elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
+            (mark-admitted-range! ctx i (if bundle? next-idx (inc i)))
+            (swap! ok + (if bundle? (count members) 1))
+            (if bundle?
+              (reset! idx next-idx)
+              (swap! idx inc))
+            (cond-> {:status :ok :name name-str :idx i
+                     :fuel-used fuel-used :elapsed-ms elapsed-ms}
+              bundle? (assoc :bundle-size (count members)
+                             :next-idx next-idx)))
+          (catch Throwable ex
+            (let [msg (str (.getClass ex) ": " (.getMessage ex))
                   elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
-                  ;; Extract stats when available (Object[4] from checkConstantFuelStats)
-                  has-stats? (.isArray (class raw-result))
-                  fuel-used (if has-stats? (long (aget ^objects raw-result 0)) (long raw-result))
-                  stats (when has-stats? (into {} (aget ^objects raw-result 1)))
-                  trace (when has-stats? (vec (aget ^objects raw-result 2)))
-                  err-msg (when has-stats? (aget ^objects raw-result 3))]
-              (if err-msg
-                ;; Error with stats (fuel exhaustion, type mismatch, etc.)
-                (let [fuel-exceeded? (.contains ^String err-msg "fuel exhausted")]
-                  (try (vreset! env-vol (.addConstantIfAbsent @env-vol ci)) (catch Exception _))
-                  (swap! errors inc)
-                  (swap! error-names conj {:name name-str :error err-msg
-                                           :fuel-exceeded? fuel-exceeded?})
-                  (swap! idx inc)
-                  (cond-> {:status (if fuel-exceeded? :fuel-exceeded :error)
-                           :name name-str :idx i :error err-msg
-                           :fuel-used fuel-used :elapsed-ms elapsed-ms}
-                    stats (assoc :stats stats)
-                    trace (assoc :trace trace)))
-                ;; Success
-                (do (swap! ok inc)
-                    (swap! idx inc)
-                    (cond-> {:status :ok :name name-str :idx i
-                             :fuel-used fuel-used :elapsed-ms elapsed-ms}
-                      stats (assoc :stats stats)
-                      trace (assoc :trace trace)))))
-            (catch Throwable ex
-              (let [msg (str (.getClass ex) ": " (.getMessage ex))
-                    elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
-                (when (instance? OutOfMemoryError ex)
-                  (System/gc)) ;; try to recover
-                (try (vreset! env-vol (.addConstantIfAbsent @env-vol ci)) (catch Exception _))
-                (swap! errors inc)
-                (swap! error-names conj {:name name-str :error msg
-                                         :fuel-exceeded? (instance? OutOfMemoryError ex)})
-                (swap! idx inc)
-                {:status :error :name name-str :idx i
-                 :error msg :elapsed-ms elapsed-ms}))
-            (finally
-              (when visible-extra
-                (reset! visible-extra #{})))))))))
+                  fuel-exceeded? (or (instance? OutOfMemoryError ex)
+                                     (.contains ^String msg "fuel exhausted"))]
+              (when (instance? OutOfMemoryError ex)
+                (System/gc))
+              (swap! errors inc)
+              (swap! error-names conj {:name name-str :error msg
+                                       :fuel-exceeded? fuel-exceeded?})
+              (swap! idx inc)
+              {:status (if fuel-exceeded? :fuel-exceeded :error)
+               :name name-str :idx i
+               :error msg :elapsed-ms elapsed-ms})))))))
 
 (defn skip!
   "Advance idx by `n` without verifying. For resuming past known-good ranges.
@@ -1338,7 +1385,9 @@
    just advance the index. Quot is already enabled from branch metadata in load-env."
   [ctx n]
   (let [{:keys [idx decl-order]} ctx
-        end-idx (min (+ @idx (long n)) (count decl-order))]
+        start-idx @idx
+        end-idx (min (+ start-idx (long n)) (count decl-order))]
+    (mark-admitted-range! ctx start-idx end-idx)
     (reset! idx end-idx)
     end-idx))
 
@@ -1356,7 +1405,9 @@
   "Jump directly to index n. Alias for (reset! (:idx ctx) n)."
   [ctx n]
   (let [{:keys [idx decl-order]} ctx
+        start-idx @idx
         n (min (long n) (count decl-order))]
+    (mark-admitted-range! ctx start-idx n)
     (reset! idx n)
     n))
 
