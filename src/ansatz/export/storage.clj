@@ -1664,7 +1664,9 @@
                     (invoke [_ name]
                       (when (and (instance? Name name) (visible? name))
                         (.lookupDecl store ^Name name))))
-        env (.withExternalLookupUncached (Env.) lookup-fn (int (count decl-order)))
+        quot-enabled? (boolean (some #{"Quot"} decl-order))
+        env (cond-> (Env.) quot-enabled? (.enableQuot))
+        env (.withExternalLookupUncached env lookup-fn (int (count decl-order)))
         resolve-fn (fn [name-str]
                      (let [^Name name-obj (.get ^java.util.HashMap name-lookup name-str)]
                        (when name-obj
