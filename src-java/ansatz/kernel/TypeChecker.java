@@ -32,10 +32,6 @@ public final class TypeChecker {
     private final HashMap<LeanExprKey, Expr> inferOnlyStructuralCache; // Lean expr_map equality, identity fast path above
     private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureIdentityCache;
     private final HashMap<LeanExprKey, HashMap<LeanExprKey, Boolean>> failureStructuralCache;
-    // Identity-based cache for isDefEqCore results.
-    // Prevents exponential re-comparison of DAG-shared expression pairs.
-    // Key: identity of (t,s) pair. Value: Boolean result.
-    private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> isDefEqIdentityCache;
     private long nextId;
     private int isDefEqDepth;
     private final byte definitionSafety;
@@ -47,7 +43,6 @@ public final class TypeChecker {
     long isDefEqQuickHits;    // pointer equality or hash mismatch
     long isDefEqEquivHits;    // EquivManager hits
     long isDefEqProofIrrelHits;
-    long isDefEqCacheFull;    // calls that happened after cache was full (couldn't store result)
     long[] isDefEqDepthHist = new long[500]; // histogram: calls at each depth
     // Per-step resolution counters for depth >= STEP_DIAG_DEPTH
     static final int STEP_DIAG_DEPTH = 45;
@@ -79,6 +74,7 @@ public final class TypeChecker {
     private Writer traceWriter;
     private long traceSeq;
     private boolean phaseTracing;
+
     private static final boolean TRACE_FULL =
         Boolean.getBoolean("ansatz.kernel.trace.full");
     private static final boolean TRACE_DELTA =
@@ -458,7 +454,6 @@ public final class TypeChecker {
         this.inferOnlyStructuralCache = new HashMap<>(1024);
         this.failureIdentityCache = new IdentityHashMap<>(256);
         this.failureStructuralCache = new HashMap<>(256);
-        this.isDefEqIdentityCache = new IdentityHashMap<>(1024);
         this.nextId = 0;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
@@ -516,7 +511,6 @@ public final class TypeChecker {
         HashMap<String, Long> stats = this.reducer.getStats();
         stats.put("isDefEq-calls", isDefEqCalls);
         stats.put("isDefEq-quick-hits", isDefEqQuickHits);
-        stats.put("isDefEq-cache-full", isDefEqCacheFull);
         // Per-step resolution counters at depth >= STEP_DIAG_DEPTH
         if (stepDiagTotal > 0) {
             stats.put("step-diag-total", stepDiagTotal);
@@ -1076,8 +1070,6 @@ public final class TypeChecker {
         return result;
     }
 
-    private static final int ISDEFEQ_CACHE_MAX = 10_000_000;
-
     private boolean isDefEqCore(Expr t, Expr s) {
         boolean doEmit = traceWriter != null;
         isDefEqCalls++;
@@ -1109,27 +1101,9 @@ public final class TypeChecker {
             return true;
         }
         reducer.checkFuelPublic();
-        // Identity-based cache: avoid re-comparing the same (identity) pair
-        // of expressions that arises from DAG sharing.
-        IdentityHashMap<Expr, Boolean> innerMap = doEmit ? null : isDefEqIdentityCache.get(t);
-        if (!doEmit && innerMap != null) {
-            Boolean cached = innerMap.get(s);
-            if (cached != null) { isDefEqQuickHits++; return cached; }
-        }
         isDefEqDepth++;
         try {
-            boolean result = isDefEqCoreImpl(t, s);
-            // Cache the result, but cap total size to prevent OOM
-            if (!doEmit && isDefEqIdentityCache.size() < ISDEFEQ_CACHE_MAX) {
-                if (innerMap == null) {
-                    innerMap = new IdentityHashMap<>(4);
-                    isDefEqIdentityCache.put(t, innerMap);
-                }
-                innerMap.put(s, result);
-            } else if (!doEmit) {
-                isDefEqCacheFull++;
-            }
-            return result;
+            return isDefEqCoreImpl(t, s);
         } finally {
             isDefEqDepth--;
         }
@@ -2977,15 +2951,19 @@ public final class TypeChecker {
         }
 
         boolean isNested = false;
+        boolean hasUnexpectedFVar = false;
         for (int i = 0; i < headCi.numParams; i++) {
             Expr paramArg = args[i];
             if (exprContainsUnexpectedFVar(paramArg, allowedParamIds)) {
-                throw new RuntimeException("invalid nested inductive datatype '" + headName +
-                    "', nested inductive datatype parameters cannot contain local variables");
+                hasUnexpectedFVar = true;
             }
             if (exprContainsName(paramArg, inductiveNames)) {
                 isNested = true;
             }
+        }
+        if (isNested && hasUnexpectedFVar) {
+            throw new RuntimeException("invalid nested inductive datatype '" + headName +
+                "', nested inductive datatype parameters cannot contain local variables");
         }
         return isNested;
     }

@@ -29,6 +29,7 @@ public final class Name {
     public final Name prefix;  // null for anonymous
     public final String str;   // for STR
     public final long num;     // for NUM
+    private volatile String cachedString;
 
     private Name(byte tag, int hash, Name prefix, String str, long num) {
         this.tag = tag;
@@ -191,9 +192,13 @@ public final class Name {
     @Override
     public String toString() {
         if (tag == ANONYMOUS) return "[anonymous]";
+        String cached = cachedString;
+        if (cached != null) return cached;
         StringBuilder sb = new StringBuilder();
         appendTo(sb);
-        return sb.toString();
+        String result = sb.toString();
+        cachedString = result;
+        return result;
     }
 
     private void appendTo(StringBuilder sb) {

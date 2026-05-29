@@ -686,14 +686,11 @@
    earlier declarations."
   [store-map branch-name & {:keys [visible? loader]}]
   (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name))]
-    (let [^Env env (Env.)
-          lookup-fn (fn [^Name name]
-                      (when (or (nil? visible?) (visible? name))
-                        (lookup-ci name)))]
+    (let [^Env env (Env.)]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
             env (if visible?
-                  (.withExternalLookupUncached env lookup-fn (int (:env-count branch-meta 0)))
-                  (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0))))]
+                  (.withExternalLookupFiltered env lookup-ci (int (:env-count branch-meta 0)) visible?)
+                  (.withExternalLookup env lookup-ci (int (:env-count branch-meta 0))))]
         env))))
 
 (defn resolve-expr
@@ -1662,11 +1659,14 @@
                             (.get admitted-ranks (int rank))))))
         lookup-fn (reify clojure.lang.IFn
                     (invoke [_ name]
-                      (when (and (instance? Name name) (visible? name))
+                      (when (instance? Name name)
                         (.lookupDecl store ^Name name))))
+        visible-fn (reify clojure.lang.IFn
+                     (invoke [_ name]
+                       (and (instance? Name name) (visible? name))))
         quot-enabled? (boolean (some #{"Quot"} decl-order))
         env (cond-> (Env.) quot-enabled? (.enableQuot))
-        env (.withExternalLookupUncached env lookup-fn (int (count decl-order)))
+        env (.withExternalLookupFiltered env lookup-fn (int (count decl-order)) visible-fn)
         resolve-fn (fn [name-str]
                      (let [^Name name-obj (.get ^java.util.HashMap name-lookup name-str)]
                        (when name-obj

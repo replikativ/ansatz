@@ -124,7 +124,7 @@ public final class NestedInductiveEliminator {
                 for (int i = 0; i < spec.ctors.length; i++) {
                     ConstantInfo ctor = spec.ctors[i];
                     ParamScope scope = peelParams(ctor.type, bundle.numParams);
-                    Expr newBody = replaceAllNested(scope.fvars, scope.body, new IdentityHashMap<>());
+                    Expr newBody = replaceAllNested(scope.binders, scope.fvars, scope.body, new IdentityHashMap<>());
                     Expr newType = buildForall(scope.binders, newBody);
                     newCtors[i] = ConstantInfo.mkCtor(
                         ctor.name,
@@ -193,10 +193,11 @@ public final class NestedInductiveEliminator {
                 auxNames);
         }
 
-        private Expr replaceAllNested(Expr[] localParams, Expr e, IdentityHashMap<Expr, Expr> visited) {
+        private Expr replaceAllNested(ParamBinder[] localBinders, Expr[] localParams, Expr e,
+                IdentityHashMap<Expr, Expr> visited) {
             Expr cached = visited.get(e);
             if (cached != null) return cached;
-            Expr replaced = replaceIfNested(localParams, e);
+            Expr replaced = replaceIfNested(localBinders, localParams, e);
             if (replaced != null) {
                 visited.put(e, replaced);
                 return replaced;
@@ -204,37 +205,37 @@ public final class NestedInductiveEliminator {
             Expr result;
             switch (e.tag) {
                 case Expr.APP: {
-                    Expr fn = replaceAllNested(localParams, (Expr) e.o0, visited);
-                    Expr arg = replaceAllNested(localParams, (Expr) e.o1, visited);
+                    Expr fn = replaceAllNested(localBinders, localParams, (Expr) e.o0, visited);
+                    Expr arg = replaceAllNested(localBinders, localParams, (Expr) e.o1, visited);
                     result = (fn == e.o0 && arg == e.o1) ? e : Expr.app(fn, arg);
                     break;
                 }
                 case Expr.FORALL: {
-                    Expr type = replaceAllNested(localParams, (Expr) e.o1, visited);
-                    Expr body = replaceAllNested(localParams, (Expr) e.o2, visited);
+                    Expr type = replaceAllNested(localBinders, localParams, (Expr) e.o1, visited);
+                    Expr body = replaceAllNested(localBinders, localParams, (Expr) e.o2, visited);
                     result = (type == e.o1 && body == e.o2) ? e : Expr.forall(e.o0, type, body, e.o3);
                     break;
                 }
                 case Expr.LAM: {
-                    Expr type = replaceAllNested(localParams, (Expr) e.o1, visited);
-                    Expr body = replaceAllNested(localParams, (Expr) e.o2, visited);
+                    Expr type = replaceAllNested(localBinders, localParams, (Expr) e.o1, visited);
+                    Expr body = replaceAllNested(localBinders, localParams, (Expr) e.o2, visited);
                     result = (type == e.o1 && body == e.o2) ? e : Expr.lam(e.o0, type, body, e.o3);
                     break;
                 }
                 case Expr.LET: {
-                    Expr type = replaceAllNested(localParams, (Expr) e.o1, visited);
-                    Expr val = replaceAllNested(localParams, (Expr) e.o2, visited);
-                    Expr body = replaceAllNested(localParams, (Expr) e.o3, visited);
+                    Expr type = replaceAllNested(localBinders, localParams, (Expr) e.o1, visited);
+                    Expr val = replaceAllNested(localBinders, localParams, (Expr) e.o2, visited);
+                    Expr body = replaceAllNested(localBinders, localParams, (Expr) e.o3, visited);
                     result = (type == e.o1 && val == e.o2 && body == e.o3) ? e : Expr.mkLet(e.o0, type, val, body);
                     break;
                 }
                 case Expr.MDATA: {
-                    Expr inner = replaceAllNested(localParams, (Expr) e.o1, visited);
+                    Expr inner = replaceAllNested(localBinders, localParams, (Expr) e.o1, visited);
                     result = inner == e.o1 ? e : Expr.mdata(e.o0, inner);
                     break;
                 }
                 case Expr.PROJ: {
-                    Expr inner = replaceAllNested(localParams, (Expr) e.o1, visited);
+                    Expr inner = replaceAllNested(localBinders, localParams, (Expr) e.o1, visited);
                     result = inner == e.o1 ? e : Expr.proj(e.o0, e.longVal, inner);
                     break;
                 }
@@ -245,7 +246,7 @@ public final class NestedInductiveEliminator {
             return result;
         }
 
-        private Expr replaceIfNested(Expr[] localParams, Expr e) {
+        private Expr replaceIfNested(ParamBinder[] localBinders, Expr[] localParams, Expr e) {
             NestedApp nested = isNestedInductiveApp(e);
             if (nested == null) return null;
 
@@ -277,7 +278,7 @@ public final class NestedInductiveEliminator {
 
                 Expr auxTypeBody = instantiateNestedLevels(jInfo.type, jInfo.levelParams, nested.headConst.o1);
                 auxTypeBody = instantiatePiParams(auxTypeBody, nested.iNumParams, nested.paramArgs);
-                Expr auxType = buildForall(paramBinders, auxTypeBody);
+                Expr auxType = buildForall(localBinders, auxTypeBody);
 
                 Name[] ctorNames = jInfo.ctors != null ? jInfo.ctors : new Name[0];
                 ConstantInfo[] auxCtors = new ConstantInfo[ctorNames.length];
@@ -289,7 +290,7 @@ public final class NestedInductiveEliminator {
                     Name auxCtorName = ctor.name.replacePrefix(jName, auxName);
                     Expr auxCtorBody = instantiateNestedLevels(ctor.type, ctor.levelParams, nested.headConst.o1);
                     auxCtorBody = instantiatePiParams(auxCtorBody, nested.iNumParams, nested.paramArgs);
-                    Expr auxCtorType = buildForall(paramBinders, auxCtorBody);
+                    Expr auxCtorType = buildForall(localBinders, auxCtorBody);
                     auxCtors[i] = ConstantInfo.mkCtor(
                         auxCtorName,
                         bundle.levelParams,
@@ -423,17 +424,21 @@ public final class NestedInductiveEliminator {
             int iNumParams = indInfo.numParams;
             if (args.length < iNumParams) return null;
             boolean nested = false;
+            boolean looseBvars = false;
             for (int i = 0; i < iNumParams; i++) {
                 if (args[i].bvarRange() > 0) {
-                    throw new RuntimeException(
-                        "invalid nested inductive datatype '" + indName +
-                        "', nested inductive datatype parameters cannot contain local variables");
+                    looseBvars = true;
                 }
                 if (exprContainsAnyName(args[i], newTypeNames, new IdentityHashMap<>())) {
                     nested = true;
                 }
             }
             if (!nested) return null;
+            if (looseBvars) {
+                throw new RuntimeException(
+                    "invalid nested inductive datatype '" + indName +
+                    "', nested inductive datatype parameters cannot contain local variables");
+            }
             Expr[] paramArgs = new Expr[iNumParams];
             Expr[] indexArgs = new Expr[args.length - iNumParams];
             System.arraycopy(args, 0, paramArgs, 0, iNumParams);

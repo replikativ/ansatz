@@ -133,7 +133,7 @@ final class InductiveChecker {
             if (first) {
                 resultLevel = lvl;
                 isResultNeverZero = Level.isNeverZero(lvl);
-            } else if (!resultLevel.equals(lvl)) {
+            } else if (!Level.eq(resultLevel, lvl)) {
                 throw new RuntimeException("mutually inductive types must live in the same universe");
             }
             indConsts[dIdx] = Expr.mkConst(ind.name, levelValues, hasLevelParams);
@@ -163,9 +163,10 @@ final class InductiveChecker {
     private void checkAndDeclareRecursors() {
         for (int i = 0; i < bundle.recursors.length; i++) {
             ConstantInfo rec = bundle.recursors[i];
-            Expr expectedType = buildExpectedRecursorType(i);
+            int indIdx = recursorInductiveIndex(rec.name);
+            Expr expectedType = buildExpectedRecursorType(indIdx);
             compareGeneratedType(rec, expectedType);
-            ConstantInfo.RecursorRule[] expectedRules = buildExpectedRecursorRules(i, rec);
+            ConstantInfo.RecursorRule[] expectedRules = buildExpectedRecursorRules(indIdx, rec);
             compareGeneratedRules(rec, expectedRules);
             TypeChecker.checkRecursorDeclaration(workingEnv, rec, fuel);
             workingEnv = workingEnv.addConstant(rec);
@@ -207,8 +208,8 @@ final class InductiveChecker {
         while (type.tag == Expr.FORALL) {
             LocalDecl fvar = mkLocalDeclFor(tc, type);
             if (i >= bundle.numParams) {
-                Expr s = tc.ensureSortExpr(tc.check((Expr) type.o1));
-                if (!((Level) s.o0).equals(Level.ZERO_LEVEL)) {
+                Expr s = tc.ensureSortExpr(tc.inferType((Expr) type.o1));
+                if (!Level.eq((Level) s.o0, Level.ZERO_LEVEL)) {
                     toCheck.add(fvar.fvar);
                 }
             }
@@ -487,7 +488,7 @@ final class InductiveChecker {
                 int indIdx = recFieldIndIdx[fi];
                 Expr[] indices = recFieldIndices[fi];
                 int extraPis = recFieldExtraPis[fi];
-                Name targetRecName = bundle.inductives.length == 1 ? recCi.name : bundle.recursors[indIdx].name;
+                Name targetRecName = bundle.inductives.length == 1 ? recCi.name : recursorNameForInductiveIndex(indIdx);
                 if (extraPis == 0) {
                     Expr ih = Expr.mkConst(targetRecName, recLevelValues, recHasLevelParams);
                     for (int j = 0; j < np; j++) ih = Expr.app(ih, Expr.bvar(lambdaCount - 1 - j));
@@ -603,7 +604,7 @@ final class InductiveChecker {
                 for (int j = 0; j < rec.rules.length; j++) {
                     ConstantInfo.RecursorRule rule = rec.rules[j];
                     auxRules[j] = new ConstantInfo.RecursorRule(
-                        lowerConstructorName(elim, rule.ctor),
+                        lowerConstructorNameForRecursor(elim, auxName, rule.ctor),
                         rule.nfields,
                         elim.lowerToAux(rule.rhs));
                 }
@@ -658,7 +659,7 @@ final class InductiveChecker {
             ConstantInfo restored = elim.auxBundle.inductives[i];
             ConstantInfo expected = original[i];
             Expr restoredType = elim.restoreNested(restored.type);
-            if (!restoredType.equals(expected.type)) {
+            if (!TypeChecker.exprDeepEquals(restoredType, expected.type)) {
                 throw new RuntimeException("nested inductive restoration mismatch for " + expected.name + " type");
             }
         }
@@ -672,7 +673,7 @@ final class InductiveChecker {
                 throw new RuntimeException("invalid nested inductive bundle: missing restored constructor " + expected.name);
             }
             Expr restoredType = elim.restoreNested(restored.type);
-            if (!restoredType.equals(expected.type)) {
+            if (!TypeChecker.exprDeepEquals(restoredType, expected.type)) {
                 throw new RuntimeException("nested inductive restoration mismatch for constructor " + expected.name);
             }
         }
@@ -688,7 +689,7 @@ final class InductiveChecker {
                 throw new RuntimeException("invalid nested inductive bundle: missing aux recursor for " + expected.name);
             }
             Expr restoredType = elim.restoreNested(auxRec.type, elim.auxRecToRestoredRec);
-            if (!restoredType.equals(expected.type)) {
+            if (!TypeChecker.exprDeepEquals(restoredType, expected.type)) {
                 throw new RuntimeException("nested inductive restoration mismatch for recursor " + expected.name);
             }
             compareRecursorRules(expected, auxRec, elim);
@@ -703,13 +704,13 @@ final class InductiveChecker {
         for (int i = 0; i < expected.rules.length; i++) {
             ConstantInfo.RecursorRule expectedRule = expected.rules[i];
             ConstantInfo.RecursorRule auxRule = auxRec.rules[i];
-            Name loweredExpectedCtor = lowerConstructorName(elim, expectedRule.ctor);
+            Name loweredExpectedCtor = lowerConstructorNameForRecursor(elim, auxRec.name, expectedRule.ctor);
             if (!auxRule.ctor.equals(loweredExpectedCtor)) {
                 throw new RuntimeException(
                     "nested inductive recursor constructor mismatch for " + expected.name + " rule #" + (i + 1));
             }
             Expr restoredRhs = elim.restoreNested(auxRule.rhs, elim.auxRecToRestoredRec);
-            if (!restoredRhs.equals(expectedRule.rhs)) {
+            if (!TypeChecker.exprDeepEquals(restoredRhs, expectedRule.rhs)) {
                 throw new RuntimeException(
                     "nested inductive recursor RHS mismatch for " + expected.name + " rule #" + (i + 1));
             }
@@ -732,6 +733,41 @@ final class InductiveChecker {
             }
         }
         return restoredCtorName;
+    }
+
+    private static Name lowerConstructorNameForRecursor(NestedElimResult elim, Name auxRecName, Name restoredCtorName) {
+        Name auxIndName = recursorInductiveName(elim, auxRecName);
+        if (auxIndName == null) return lowerConstructorName(elim, restoredCtorName);
+
+        Name restoredPrefix = elim.auxPrefixToRestoredPrefix.get(auxIndName);
+        if (restoredPrefix == null) return restoredCtorName;
+
+        Name lowered = restoredCtorName.replacePrefix(restoredPrefix, auxIndName);
+        return lowered.equals(restoredCtorName) ? restoredCtorName : lowered;
+    }
+
+    private static Name recursorInductiveName(NestedElimResult elim, Name recName) {
+        for (ConstantInfo ind : elim.auxBundle.inductives) {
+            Name expected = Name.mkStr(ind.name, "rec");
+            if (expected.equals(recName)) return ind.name;
+        }
+        return null;
+    }
+
+    private int recursorInductiveIndex(Name recName) {
+        for (int i = 0; i < bundle.inductives.length; i++) {
+            Name expected = Name.mkStr(bundle.inductives[i].name, "rec");
+            if (expected.equals(recName)) return i;
+        }
+        throw new RuntimeException("recursor does not match any inductive in bundle: " + recName);
+    }
+
+    private Name recursorNameForInductiveIndex(int indIdx) {
+        Name expected = Name.mkStr(bundle.inductives[indIdx].name, "rec");
+        for (ConstantInfo rec : bundle.recursors) {
+            if (expected.equals(rec.name)) return rec.name;
+        }
+        throw new RuntimeException("missing recursor for inductive in bundle: " + bundle.inductives[indIdx].name);
     }
 
     private static boolean hasPrefix(Name n, Name prefix) {

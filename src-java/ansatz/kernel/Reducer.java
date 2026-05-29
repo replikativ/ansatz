@@ -917,106 +917,12 @@ public final class Reducer {
             Expr.litNat(n.subtract(BigInteger.ONE)));
     }
 
-    /**
-     * Reduce expression to a Nat literal, iteratively peeling Nat.succ layers.
-     * Matches Lean 4's is_nat_lit_ext + get_nat_val pattern.
-     *
-     * Uses a two-level loop: the outer loop calls whnf once to get the initial
-     * form, then an inner loop handles the common case where whnf produces
-     * Nat.succ(Nat.rec...) chains by using whnfCore (iterative, no recursive whnf)
-     * plus inline delta/nat reduction. This prevents deep recursive whnf chains
-     * for expressions like Nat.add(604800, fvar) which would otherwise create
-     * 604800 nested whnf calls.
-     */
+    /** Reduce expression to a Nat literal using Lean's is_nat_lit_ext test. */
     private Expr whnfToNat(Expr e) {
-        BigInteger acc = BIG_ZERO;
-        Expr cur = e;
-        while (true) {
-            Expr w = whnf(cur);
-            if (w.tag == Expr.LIT_NAT) {
-                return Expr.litNat(((BigInteger) w.o0).add(acc));
-            }
-            if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
-                return Expr.litNat(acc);
-            }
-            if (w.tag == Expr.APP) {
-                Expr fn = (Expr) w.o0;
-                if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
-                    acc = acc.add(BigInteger.ONE);
-                    // Instead of calling whnf(arg) recursively, try iterative reduction
-                    Expr inner = (Expr) w.o1;
-                    // Fast path: try iterative Nat reduction without recursive whnf
-                    Expr iterResult = iterativeWhnfToNat(inner);
-                    if (iterResult != null) {
-                        return Expr.litNat(((BigInteger) iterResult.o0).add(acc));
-                    }
-                    // Slow path: fall back to recursive whnf
-                    cur = inner;
-                    continue;
-                }
-            }
-            return null; // not reducible to Nat literal
-        }
-    }
-
-    /**
-     * Try to reduce a Nat expression to a literal using only iterative operations:
-     * whnfCore (iterative) + cheap native Nat/Int reduction + delta unfolding.
-     * No recursive whnf calls. Returns a LIT_NAT or null.
-     *
-     * This handles the common case of Nat.rec-based functions (like Nat.add,
-     * Nat.gcd implemented via brecOn) applied to large concrete values.
-     */
-    private Expr iterativeWhnfToNat(Expr e) {
-        BigInteger innerAcc = BIG_ZERO;
-        Expr cur = e;
-        for (int i = 0; i < 100_000_000; i++) { // safety limit
-            checkFuel();
-            // Step 1: whnfCore (iterative — handles beta, iota, proj)
-            Expr w = whnfCore(cur);
-
-            // Check result
-            if (w.tag == Expr.LIT_NAT) {
-                return Expr.litNat(((BigInteger) w.o0).add(innerAcc));
-            }
-            if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
-                return Expr.litNat(innerAcc);
-            }
-
-            // Peel Nat.succ layers
-            if (w.tag == Expr.APP) {
-                Expr fn = (Expr) w.o0;
-                if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
-                    innerAcc = innerAcc.add(BigInteger.ONE);
-                    cur = (Expr) w.o1;
-                    continue;
-                }
-            }
-
-            // Step 2: Try cheap native Nat/Int reduction
-            Object[] fnArgs = getAppFnArgs(w);
-            Expr head = (Expr) fnArgs[0];
-            Expr[] args = (Expr[]) fnArgs[1];
-
-            Expr natR = tryCheapReduceNat(head, args);
-            if (natR != null) { cur = natR; continue; }
-            Expr intR = tryCheapReduceInt(head, args);
-            if (intR != null) { cur = intR; continue; }
-
-            // Step 3: Try delta unfolding
-            if (head.tag == Expr.CONST) {
-                Expr unfolded = tryUnfoldDef(head);
-                if (unfolded != null) {
-                    deltaCount++;
-                    cur = whnfCore(mkApps(unfolded, args));
-                    continue;
-                }
-            }
-
-            // Can't reduce further iteratively — return null to trigger slow path
-            return null;
-        }
-        return null; // safety limit reached
+        Expr w = whnf(e);
+        if (w.tag == Expr.LIT_NAT) return w;
+        if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) return Expr.litNat(BIG_ZERO);
+        return null;
     }
 
     /**

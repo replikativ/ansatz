@@ -246,7 +246,7 @@ public final class NestedElimResult {
     private static boolean hasAppPrefix(Expr[] args, Expr[] prefix) {
         if (args.length < prefix.length) return false;
         for (int i = 0; i < prefix.length; i++) {
-            if (!args[i].equals(prefix[i])) return false;
+            if (!TypeChecker.exprDeepEquals(args[i], prefix[i])) return false;
         }
         return true;
     }
