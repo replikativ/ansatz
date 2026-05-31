@@ -72,7 +72,7 @@
              frames)
        (some (fn [^StackTraceElement f]
                (str/starts-with? (.getClassName f)
-                                  "ansatz.export.storage$run_with_large_stack"))
+                                 "ansatz.export.storage$run_with_large_stack"))
              frames)))
 
 (defn- update-count [m k]
@@ -157,33 +157,33 @@
                     statuses stats-sum slowest last-result sample-ms nil))
   ([out sampler t0 store-path branch-name start n completed idx statuses stats-sum
     slowest last-result sample-ms extra]
-  (let [elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
-        samples ((:stop sampler))
-        summary (merge
-                 {:store store-path
-                  :branch branch-name
-                  :start start
-                  :n n
-                  :completed completed
-                  :idx idx
-                  :elapsed-ms elapsed-ms
-                  :decls-per-sec (if (pos? elapsed-ms)
-                                   (/ (* 1000.0 completed) elapsed-ms)
-                                   0.0)
-                  :statuses statuses
-                  :stats-sum stats-sum
-                  :slowest slowest
-                  :last-result (some-> last-result compact-result)
-                  :sample-ms sample-ms
-                  :samples (:samples samples)
-                  :thread-samples (:thread-samples samples)
-                  :top-states (top-n (:states samples) 30)
-                  :top-categories (top-n (:categories samples) 30)
-                  :top-frames (top-n (:top-frames samples) 40)
-                  :top-stacks (top-n (:stacks samples) 20)}
-                 extra)]
-    (spit (io/file out "summary.edn") (pr-str summary))
-    summary)))
+   (let [elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
+         samples ((:stop sampler))
+         summary (merge
+                  {:store store-path
+                   :branch branch-name
+                   :start start
+                   :n n
+                   :completed completed
+                   :idx idx
+                   :elapsed-ms elapsed-ms
+                   :decls-per-sec (if (pos? elapsed-ms)
+                                    (/ (* 1000.0 completed) elapsed-ms)
+                                    0.0)
+                   :statuses statuses
+                   :stats-sum stats-sum
+                   :slowest slowest
+                   :last-result (some-> last-result compact-result)
+                   :sample-ms sample-ms
+                   :samples (:samples samples)
+                   :thread-samples (:thread-samples samples)
+                   :top-states (top-n (:states samples) 30)
+                   :top-categories (top-n (:categories samples) 30)
+                   :top-frames (top-n (:top-frames samples) 40)
+                   :top-stacks (top-n (:stacks samples) 20)}
+                  extra)]
+     (spit (io/file out "summary.edn") (pr-str summary))
+     summary)))
 
 (defn- failed-status? [status]
   (contains? #{:error :fuel-exceeded :missing} status))

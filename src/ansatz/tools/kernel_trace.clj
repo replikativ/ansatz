@@ -265,27 +265,27 @@
       (first
        (for [i (range (inc (- h n)))
              :when (= (mapv event-view (subvec haystack i (+ i n)))
-         (mapv event-view needle))]
+                      (mapv event-view needle))]
          i)))))
 
 (defn- count-mdata [^Expr root]
   (let [seen (java.util.IdentityHashMap.)]
     (letfn [(go [^Expr e]
-              (cond
-                (nil? e) 0
-                (.containsKey seen e) 0
-                :else
-                (do
-                  (.put seen e Boolean/TRUE)
-                  (+ (if (= Expr/MDATA (.tag e)) 1 0)
-                     (case (int (.tag e))
-                       3 (+ (go (.o0 e)) (go (.o1 e)))
-                       4 (+ (go (.o1 e)) (go (.o2 e)))
-                       5 (+ (go (.o1 e)) (go (.o2 e)))
-                       6 (+ (go (.o1 e)) (go (.o2 e)) (go (.o3 e)))
-                       9 (go (.o1 e))
-                       10 (go (.o1 e))
-                       0)))))]
+                (cond
+                  (nil? e) 0
+                  (.containsKey seen e) 0
+                  :else
+                  (do
+                    (.put seen e Boolean/TRUE)
+                    (+ (if (= Expr/MDATA (.tag e)) 1 0)
+                       (case (int (.tag e))
+                         3 (+ (go (.o0 e)) (go (.o1 e)))
+                         4 (+ (go (.o1 e)) (go (.o2 e)))
+                         5 (+ (go (.o1 e)) (go (.o2 e)))
+                         6 (+ (go (.o1 e)) (go (.o2 e)) (go (.o3 e)))
+                         9 (go (.o1 e))
+                         10 (go (.o1 e))
+                         0)))))]
       (go root))))
 
 (defn- trace-ansatz-ctx!
@@ -698,13 +698,13 @@
 (defn- trace-mathlib-with-ctx!
   [ctx decl-name lean-root lean-file out-dir fuel lean-bin]
   (let [safe-decl (safe-decl-name decl-name)
-         ansatz-out (str out-dir "/" safe-decl ".ansatz.jsonl")
-         lean-out (str out-dir "/" safe-decl ".lean.jsonl")]
-     (.mkdirs (io/file out-dir))
-     {:ansatz (trace-ansatz-ctx! ctx decl-name ansatz-out fuel)
-      :lean (trace-lean! lean-root lean-file decl-name lean-out lean-bin)
-      :compare (compare-traces lean-out decl-name ansatz-out nil 10 2)
-      :semantic (compare-traces-semantic lean-out decl-name ansatz-out nil 10 2)}))
+        ansatz-out (str out-dir "/" safe-decl ".ansatz.jsonl")
+        lean-out (str out-dir "/" safe-decl ".lean.jsonl")]
+    (.mkdirs (io/file out-dir))
+    {:ansatz (trace-ansatz-ctx! ctx decl-name ansatz-out fuel)
+     :lean (trace-lean! lean-root lean-file decl-name lean-out lean-bin)
+     :compare (compare-traces lean-out decl-name ansatz-out nil 10 2)
+     :semantic (compare-traces-semantic lean-out decl-name ansatz-out nil 10 2)}))
 
 (defn- sliced-lean-result [decl-name lean-file lean-out shared-lean-result]
   (let [analysis (trace-file-analysis lean-out decl-name)]
@@ -817,7 +817,7 @@
                                                     "/ansatz-kernel-trace.log"))
          results
          (mapv
-         (fn [{:keys [decl file]}]
+          (fn [{:keys [decl file]}]
             (try
               (annotate-row-result
                decl file
@@ -902,107 +902,107 @@
             :or {strict-lean-exit? false}
             :as opts}]
    (let [rows (:results result)
-        strict-lean-version? (boolean (:strict-lean-version? opts))
-        compact-text (fn [x]
-                       (let [text (str/replace (str x) #"\s+" " ")]
-                         (subs text 0 (min 1000 (count text)))))
-        lean-nonzero? (fn [row]
-                        (and (:trace-comparable? row)
-                             (false? (:lean-exit-ok? row))))
-        lean-version-mismatch? (fn [row]
-                                 (and (get-in row [:lean :expected-version])
-                                      (false? (get-in row [:lean :version-compatible?]))))
-        bad? (fn [row]
-               (or (:error row)
-                   (not (:trace-comparable? row))
-                   (:lean-trace-ambiguous? row)
-                   (not (:semantic-ok? row))
-                   (:source-mdata-mismatch? row)
-                   (and strict-lean-exit?
-                        (lean-nonzero? row))
-                   (and strict-lean-version?
-                        (lean-version-mismatch? row))))
-        event-count (fn [row side]
-                      (long (or (get-in row [side :events]) 0)))
-        skipped-count (fn [row side]
-                        (long (or (get-in row [:semantic :semantic side]) 0)))
-        skipped-kind-counts (fn [side]
-                              (->> rows
-                                   (map #(get-in % [:semantic :semantic side]))
-                                   (remove nil?)
-                                   (apply merge-with +)
-                                   (into (sorted-map))))
-        phase-compatible-count (fn [row]
-                                 (long (or (get-in row [:semantic :semantic :phase-compatible]) 0)))
-        length-drift? (fn [row]
-                        (and (:trace-comparable? row)
-                             (not (:raw-length-ok? row))))
-        length-row (fn [row]
-                     (let [lean-events (event-count row :lean)
-                           ansatz-events (event-count row :ansatz)]
-                       {:decl (:decl row)
-                        :file (:lean-file row)
-                        :lean-events lean-events
-                        :ansatz-events ansatz-events
-                        :delta (- ansatz-events lean-events)
-                        :skipped-left (skipped-count row :skipped-left)
-                        :skipped-right (skipped-count row :skipped-right)}))
-        row-summary (fn [row]
-                      (cond-> {:decl (:decl row)
-                               :file (:lean-file row)
-                               :trace-comparable? (boolean (:trace-comparable? row))
-                               :semantic-ok? (boolean (:semantic-ok? row))
-                               :raw-length-ok? (boolean (:raw-length-ok? row))
-                               :lean-exit-ok? (boolean (:lean-exit-ok? row))
-                               :lean-trace-ambiguous? (boolean (:lean-trace-ambiguous? row))
-                               :source-mdata-mismatch? (boolean (:source-mdata-mismatch? row))}
-                        (:error row) (assoc :error (:error row))
-                        (some? (get-in row [:lean :exit])) (assoc :lean-exit (get-in row [:lean :exit]))
-                        (seq (get-in row [:lean :err])) (assoc :lean-stderr (compact-text (get-in row [:lean :err])))
-                        (seq (get-in row [:lean :version])) (assoc :lean-version (get-in row [:lean :version]))
-                        (seq (get-in row [:lean :expected-version])) (assoc :expected-lean-version (get-in row [:lean :expected-version]))
-                        (some? (get-in row [:lean :version-compatible?])) (assoc :lean-version-compatible? (boolean (get-in row [:lean :version-compatible?])))
-                        (get-in row [:lean :events]) (assoc :lean-events (get-in row [:lean :events]))
-                        (and (:lean-trace-ambiguous? row)
-                             (get-in row [:lean :trace-analysis]))
-                        (assoc :lean-trace-analysis (get-in row [:lean :trace-analysis]))
-                        (get-in row [:ansatz :events]) (assoc :ansatz-events (get-in row [:ansatz :events]))
-                        (get-in row [:semantic :first-mismatch])
-                        (assoc :first-mismatch (get-in row [:semantic :first-mismatch]))))]
-    (-> result
-        (dissoc :results)
-        (assoc :semantic-with-epsilon-skips (- (long (:semantic-ok result))
-                                               (long (:raw-length-ok result)))
+         strict-lean-version? (boolean (:strict-lean-version? opts))
+         compact-text (fn [x]
+                        (let [text (str/replace (str x) #"\s+" " ")]
+                          (subs text 0 (min 1000 (count text)))))
+         lean-nonzero? (fn [row]
+                         (and (:trace-comparable? row)
+                              (false? (:lean-exit-ok? row))))
+         lean-version-mismatch? (fn [row]
+                                  (and (get-in row [:lean :expected-version])
+                                       (false? (get-in row [:lean :version-compatible?]))))
+         bad? (fn [row]
+                (or (:error row)
+                    (not (:trace-comparable? row))
+                    (:lean-trace-ambiguous? row)
+                    (not (:semantic-ok? row))
+                    (:source-mdata-mismatch? row)
+                    (and strict-lean-exit?
+                         (lean-nonzero? row))
+                    (and strict-lean-version?
+                         (lean-version-mismatch? row))))
+         event-count (fn [row side]
+                       (long (or (get-in row [side :events]) 0)))
+         skipped-count (fn [row side]
+                         (long (or (get-in row [:semantic :semantic side]) 0)))
+         skipped-kind-counts (fn [side]
+                               (->> rows
+                                    (map #(get-in % [:semantic :semantic side]))
+                                    (remove nil?)
+                                    (apply merge-with +)
+                                    (into (sorted-map))))
+         phase-compatible-count (fn [row]
+                                  (long (or (get-in row [:semantic :semantic :phase-compatible]) 0)))
+         length-drift? (fn [row]
+                         (and (:trace-comparable? row)
+                              (not (:raw-length-ok? row))))
+         length-row (fn [row]
+                      (let [lean-events (event-count row :lean)
+                            ansatz-events (event-count row :ansatz)]
+                        {:decl (:decl row)
+                         :file (:lean-file row)
+                         :lean-events lean-events
+                         :ansatz-events ansatz-events
+                         :delta (- ansatz-events lean-events)
+                         :skipped-left (skipped-count row :skipped-left)
+                         :skipped-right (skipped-count row :skipped-right)}))
+         row-summary (fn [row]
+                       (cond-> {:decl (:decl row)
+                                :file (:lean-file row)
+                                :trace-comparable? (boolean (:trace-comparable? row))
+                                :semantic-ok? (boolean (:semantic-ok? row))
+                                :raw-length-ok? (boolean (:raw-length-ok? row))
+                                :lean-exit-ok? (boolean (:lean-exit-ok? row))
+                                :lean-trace-ambiguous? (boolean (:lean-trace-ambiguous? row))
+                                :source-mdata-mismatch? (boolean (:source-mdata-mismatch? row))}
+                         (:error row) (assoc :error (:error row))
+                         (some? (get-in row [:lean :exit])) (assoc :lean-exit (get-in row [:lean :exit]))
+                         (seq (get-in row [:lean :err])) (assoc :lean-stderr (compact-text (get-in row [:lean :err])))
+                         (seq (get-in row [:lean :version])) (assoc :lean-version (get-in row [:lean :version]))
+                         (seq (get-in row [:lean :expected-version])) (assoc :expected-lean-version (get-in row [:lean :expected-version]))
+                         (some? (get-in row [:lean :version-compatible?])) (assoc :lean-version-compatible? (boolean (get-in row [:lean :version-compatible?])))
+                         (get-in row [:lean :events]) (assoc :lean-events (get-in row [:lean :events]))
+                         (and (:lean-trace-ambiguous? row)
+                              (get-in row [:lean :trace-analysis]))
+                         (assoc :lean-trace-analysis (get-in row [:lean :trace-analysis]))
+                         (get-in row [:ansatz :events]) (assoc :ansatz-events (get-in row [:ansatz :events]))
+                         (get-in row [:semantic :first-mismatch])
+                         (assoc :first-mismatch (get-in row [:semantic :first-mismatch]))))]
+     (-> result
+         (dissoc :results)
+         (assoc :semantic-with-epsilon-skips (- (long (:semantic-ok result))
+                                                (long (:raw-length-ok result)))
                ;; Kept for compatibility with older reports; this now includes
                ;; all narrow semantic epsilon skips, not just reflexive quicks.
-               :semantic-with-reflexive-skips (- (long (:semantic-ok result))
-                                                 (long (:raw-length-ok result)))
-               :lean-nonzero-exit (count (filter lean-nonzero? rows))
-               :ambiguous-lean-trace (count (filter :lean-trace-ambiguous? rows))
-               :length-drift (count (filter length-drift? rows))
-               :lean-events (reduce + (map #(event-count % :lean) rows))
-               :ansatz-events (reduce + (map #(event-count % :ansatz) rows))
-               :net-event-delta (reduce + (map #(- (event-count % :ansatz)
+                :semantic-with-reflexive-skips (- (long (:semantic-ok result))
+                                                  (long (:raw-length-ok result)))
+                :lean-nonzero-exit (count (filter lean-nonzero? rows))
+                :ambiguous-lean-trace (count (filter :lean-trace-ambiguous? rows))
+                :length-drift (count (filter length-drift? rows))
+                :lean-events (reduce + (map #(event-count % :lean) rows))
+                :ansatz-events (reduce + (map #(event-count % :ansatz) rows))
+                :net-event-delta (reduce + (map #(- (event-count % :ansatz)
                                                     (event-count % :lean))
                                                 rows))
-               :semantic-phase-compatible (reduce + (map phase-compatible-count rows))
-               :semantic-skipped-left (reduce + (map #(skipped-count % :skipped-left) rows))
-               :semantic-skipped-right (reduce + (map #(skipped-count % :skipped-right) rows))
-               :semantic-skipped-left-by-kind (skipped-kind-counts :skipped-left-by-kind)
-               :semantic-skipped-right-by-kind (skipped-kind-counts :skipped-right-by-kind)
-               :strict-lean-exit? strict-lean-exit?
-               :strict-lean-version? strict-lean-version?
-               :lean-version-mismatch (count (filter lean-version-mismatch? rows))
-               :largest-length-deltas (->> rows
-                                           (filter length-drift?)
-                                           (map length-row)
-                                           (sort-by #(Math/abs (long (:delta %))) >)
-                                           (take 10)
-                                           vec)
-               :lean-nonzero-results (mapv row-summary (filter lean-nonzero? rows))
-               :lean-version-mismatch-results (mapv row-summary (filter lean-version-mismatch? rows))
-               :bad-results (mapv row-summary (filter bad? rows))
-               :strict-ok? (empty? (filter bad? rows)))))))
+                :semantic-phase-compatible (reduce + (map phase-compatible-count rows))
+                :semantic-skipped-left (reduce + (map #(skipped-count % :skipped-left) rows))
+                :semantic-skipped-right (reduce + (map #(skipped-count % :skipped-right) rows))
+                :semantic-skipped-left-by-kind (skipped-kind-counts :skipped-left-by-kind)
+                :semantic-skipped-right-by-kind (skipped-kind-counts :skipped-right-by-kind)
+                :strict-lean-exit? strict-lean-exit?
+                :strict-lean-version? strict-lean-version?
+                :lean-version-mismatch (count (filter lean-version-mismatch? rows))
+                :largest-length-deltas (->> rows
+                                            (filter length-drift?)
+                                            (map length-row)
+                                            (sort-by #(Math/abs (long (:delta %))) >)
+                                            (take 10)
+                                            vec)
+                :lean-nonzero-results (mapv row-summary (filter lean-nonzero? rows))
+                :lean-version-mismatch-results (mapv row-summary (filter lean-version-mismatch? rows))
+                :bad-results (mapv row-summary (filter bad? rows))
+                :strict-ok? (empty? (filter bad? rows)))))))
 
 (defn- row-event-count [row side]
   (long (or (get-in row [side :events]) 0)))

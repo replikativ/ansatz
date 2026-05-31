@@ -442,11 +442,11 @@
                                                      bi)
                                           bi)
                                bi)
-           ind-ci (env/mk-induct badp-name [] ind-type
-                                 :num-params 1
-                                 :num-indices 0
-                                 :all [badp-name]
-                                 :ctors [ctor-name])
+          ind-ci (env/mk-induct badp-name [] ind-type
+                                :num-params 1
+                                :num-indices 0
+                                :all [badp-name]
+                                :ctors [ctor-name])
           ctor-ci (env/mk-ctor ctor-name [] ctor-type badp-name 0 1 2)
           bundle (env/mk-inductive-bundle [] 1 false [ind-ci] [ctor-ci] [])]
       (is (thrown? Exception
