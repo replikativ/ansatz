@@ -86,10 +86,17 @@ capture. These are the `instantiate` and `lift` operations in `Reducer.java`.
 
 Type checking in Lean 4 is technically **undecidable** — Abel and Coquand showed
 that type checking with proof irrelevance and universe polymorphism can diverge.
-The kernel implements a decidable **under-approximation** using the fuel
-counter: if the checker runs out of fuel it rejects the term conservatively
-(never incorrectly accepts). In practice all known Lean/Mathlib proofs check
-well within the 20M-step default.
+Lean 4's kernel does not use a fuel counter. The Ansatz kernel does: if the
+checker runs out of fuel it rejects the term conservatively (never incorrectly
+accepts).
+
+There are two practical fuel defaults:
+
+- Interactive tactic/kernel calls use `ansatz.config/*default-fuel*`, currently
+  20M steps, to keep ordinary REPL work responsive.
+- Imported-store verification uses a higher 100M default. Full Mathlib contains
+  legitimate declarations above 20M; for example
+  `Polynomial.taylorLinearEquiv_symm` used about 25.4M steps in this checker.
 
 Unique typing (each term has at most one type up to definitional equality) and
 definitional inversion (`Sort ≢ ∀`) are **conjectured** but not yet formally
@@ -269,9 +276,16 @@ This is important because:
   `PersistentHashMap`).
 - Fork is free — no copying needed.
 
-For large stores (Mathlib's 648K declarations), a `SoftReference` cache wraps
-an external PSS lookup. Declarations are fetched from disk on demand and cached
-with soft references so the JVM can reclaim cold entries under memory pressure.
+For large stores (Mathlib's 648K declarations), `Env` can wrap an external PSS
+or FlatStore lookup. Store verification installs an admission-order visibility
+predicate in front of that lookup: a declaration is visible only after a
+successful previous check has marked its declaration-order rank admitted. The
+visibility predicate is checked **before** the shared cache, so a declaration
+cached by a later lookup cannot bypass staged admission.
+
+Visible external declarations are still cached with `SoftReference`s. This keeps
+repeated lookups pointer-stable enough for the identity-based kernel caches
+while letting the JVM reclaim cold declarations under memory pressure.
 
 **Lean 4 reference**: `src/kernel/environment.h`, `src/kernel/environment.cpp`
 
@@ -520,9 +534,17 @@ unfolding unnecessarily.
 
 ---
 
-## 6. Checking a declaration
+## 6. Checking declarations
 
-`TypeChecker.checkConstant(env, ci, fuel)` is the top-level entry point. It:
+There are two public kernel admission entry points:
+
+- `TypeChecker.checkConstant(env, ci, fuel)` admits non-inductive constants:
+  axioms, definitions, theorems, opaque declarations, and quotient primitives.
+- `TypeChecker.checkInductiveBundle(env, bundle, fuel)` admits inductive
+  groups. Individual inductive, constructor, and recursor constants are rejected
+  by `checkConstant`; they must pass through the bundle checker.
+
+`checkConstant`:
 
 1. **`shareCommon`**: Run all expressions in the declaration (type + value)
    through the pointer-sharing pass. This makes identity-based caches work.
@@ -535,10 +557,28 @@ unfolding unnecessarily.
    - Check `T_inferred ≡ T_declared` via `isDefEq`
    - This is the core correctness check: the proof really proves what it claims
 
-4. For **inductives** (`checkConstant` with tag 5):
-   - `validateInductiveResultSort`: universe of the result type is correct
-   - `validateConstructor`: each constructor type is well-formed
-   - `validateRecursorRules`: computation rules match constructor patterns
+4. For **quotient primitives**:
+   - Enable quotient reduction support in the environment.
+   - Add the primitive declaration. These are Lean kernel primitives, not
+     ordinary definitions with proof terms.
+
+`checkInductiveBundle` follows Lean's inductive admission shape:
+
+1. Lower nested inductives to auxiliary ordinary inductives when needed.
+2. Check inductive headers in the base environment.
+3. Declare inductive type constants.
+4. Check constructors for parameter discipline, result shape, universe bounds,
+   and strict positivity.
+5. Declare constructors.
+6. Regenerate recursor types and iota rules, compare them with the imported
+   constants, then declare recursors.
+7. For nested bundles, restore the original imported declarations and compare
+   restored types, constructors, recursors, and rules before admitting the
+   original bundle.
+
+The older package-private recursor-rule validation helpers in `TypeChecker`
+remain as defensive checks for recursor declarations, but the bundle admission
+source of truth is `InductiveChecker`/`InductiveBundleChecker`.
 
 5. **Tracing**: Both kernels support NDJSON trace output, but the Lean 4 side
    requires a patched build. We added `LEAN_KERNEL_TRACE` support to our local
@@ -549,12 +589,14 @@ unfolding unnecessarily.
    sequence, depth, lhs/rhs fingerprints, result, and which step resolved it.
 
 6. **Fuel**: Each `isDefEq` step decrements a fuel counter. If it reaches zero,
-   checking fails with a fuel-exhaustion error. The default is 20M steps, which
-   is sufficient for all known Mathlib declarations (heaviest: ~6K steps for
-   `localCohomology.diagramComp` after the `use_hash` fix).
+   checking fails with a fuel-exhaustion error. For full imported Mathlib
+   verification, use the store verifier default (100M) or pass an explicit
+   `:fuel`.
 
-The returned `Env` has the new declaration added. The caller threads this new
-`Env` to the next declaration, building up the cumulative environment.
+For ordinary in-memory calls, the returned `Env` has the new declaration added
+and the caller threads it to the next declaration. For store verification, the
+environment is backed by staged external lookup; success marks the current
+declaration-order range admitted instead of relying on local additions.
 
 ---
 
@@ -570,8 +612,9 @@ The kernel's job is narrow by design. It does **not**:
 - **Handle metavariables**: `MVAR` expressions are an elaborator concept. The
   kernel only sees closed, fully-instantiated terms.
 
-The boundary is `TypeChecker/checkConstant`. Everything above it is untrusted
-tooling that helps construct terms; everything below is the trusted checker.
+The boundary is `TypeChecker/checkConstant` plus
+`TypeChecker/checkInductiveBundle`. Everything above it is untrusted tooling
+that helps construct terms; everything below is the trusted checker.
 
 ---
 

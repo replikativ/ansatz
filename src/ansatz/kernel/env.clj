@@ -2,8 +2,10 @@
 ;; Thin wrapper over Java ConstantInfo and Env classes.
 
 (ns ansatz.kernel.env
-  "The kernel environment: a mutable HashMap from Name to ConstantInfo.
-   Uses Java classes for fast lookup and compact storage.
+  "The kernel environment: an immutable Java Env from Name to ConstantInfo.
+   Env supports persistent local additions plus optional staged external
+   lookup for imported stores, preserving Lean-style admission order while
+   keeping repeated lookups pointer-stable through the shared cache.
 
    ConstantInfo variants:
      :axiom, :def, :thm, :opaque, :quot, :induct, :ctor, :recursor"

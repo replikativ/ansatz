@@ -3,10 +3,11 @@ package ansatz.kernel;
 /**
  * Bundle-level inductive checker.
  *
- * <p>This is the kernel entrypoint that will eventually own the full Lean-like
- * inductive admission pipeline:
+ * <p>This is the kernel entrypoint for Lean-like inductive admission:
  * nested elimination -> ordinary inductive checking on the aux bundle ->
  * restoration -> comparison -> admission of the restored/original bundle.
+ * Individual inductive, constructor, and recursor constants are rejected by
+ * TypeChecker.checkConstant and must pass through this bundle path.
  */
 public final class InductiveBundleChecker {
     private InductiveBundleChecker() {}

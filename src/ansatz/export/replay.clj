@@ -7,9 +7,10 @@
   (:import [ansatz.kernel ConstantInfo InductiveBundle TypeChecker Env ExprStore Name]))
 
 (def ^:private default-fuel
-  "Default fuel per declaration. Lean 4 has no fuel limit; we use 20M as a
-  safety bound. With useHash=false in lazyDeltaReduction, all known Mathlib
-  proofs verify within this limit (heaviest: localCohomology.diagramComp ~6K)."
+  "Default fuel per declaration for legacy in-memory replay. Lean 4 has no
+  fuel limit; this 20M bound keeps small replay jobs responsive. Full Mathlib
+  store verification should use ansatz.export.storage with its higher verifier
+  default or an explicit :fuel."
   20000000)
 
 (def ^:private default-stack-size

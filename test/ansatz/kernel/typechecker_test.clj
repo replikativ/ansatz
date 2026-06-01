@@ -7,7 +7,8 @@
             [ansatz.kernel.name :as name]
             [ansatz.export.parser :refer [parse-ndjson-file]]
             [ansatz.export.replay :as replay])
-  (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo Name Level]))
+  (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo Name Level]
+           [java.io StringWriter]))
 
 ;; ============================================================
 ;; Helpers
@@ -295,6 +296,54 @@
       (is (.isArray (class (aget result 2))))
       ;; error message (nil on success)
       (is (nil? (aget result 3))))))
+
+(deftest traced-check-entrypoints-test
+  (testing "traced declaration checking emits equality events and admits the declaration"
+    (let [dname (name/from-string "tracedId")
+          dtype (e/forall' "x" prop prop bi)
+          dvalue (e/lam "x" prop (e/bvar 0) bi)
+          ci (env/mk-def dname [] dtype dvalue)
+          trace (StringWriter.)
+          env' (TypeChecker/checkConstantTraced (Env.) ci 1000000 trace)]
+      (is (some? (env/lookup env' dname)))
+      (is (.contains (str trace) "\"by\""))))
+
+  (testing "phased tracing emits declaration-check phase markers"
+    (let [dname (name/from-string "phasedId")
+          dtype (e/forall' "x" prop prop bi)
+          dvalue (e/lam "x" prop (e/bvar 0) bi)
+          ci (env/mk-def dname [] dtype dvalue)
+          trace (StringWriter.)
+          env' (TypeChecker/checkConstantTracedPhased (Env.) ci 1000000 trace)
+          out (str trace)]
+      (is (some? (env/lookup env' dname)))
+      (is (.contains out "\"phase\":\"checkType\""))
+      (is (.contains out "\"phase\":\"checkValue\""))
+      (is (.contains out "\"phase\":\"valueDefEqType\"")))))
+
+(deftest inductive-declarations-require-bundle-entrypoint-test
+  (testing "inductive declarations cannot be admitted through checkConstant"
+    (let [ind-name (name/from-string "TInd")
+          ctor-name (name/from-string "TInd.mk")
+          rec-name (name/from-string "TInd.rec")
+          ind-ci (env/mk-induct ind-name [] prop
+                                :num-params 0
+                                :num-indices 0
+                                :all [ind-name]
+                                :ctors [ctor-name])
+          ctor-ci (env/mk-ctor ctor-name [] prop ind-name 0 0 0)
+          rec-ci (env/mk-recursor rec-name [] prop
+                                  :all [ind-name]
+                                  :num-params 0
+                                  :num-indices 0
+                                  :num-motives 1
+                                  :num-minors 1)]
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) ind-ci 1000000)))
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) ctor-ci 1000000)))
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) rec-ci 1000000))))))
 
 ;; ============================================================
 ;; Full replay with fuel stats

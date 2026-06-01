@@ -1238,11 +1238,12 @@
       (.set admitted (int start-idx) (int end-idx)))))
 
 (def ^:private default-fuel
-  "Default fuel per declaration. 20M steps is enough for all known mathlib proofs
-   (heaviest legitimate batch used ~6M). Acts as a safety net against divergent
-   computation while keeping the REPL responsive.
+  "Default fuel per declaration for imported-store verification.
+   Full Mathlib verification has legitimate declarations above 20M reduction
+   steps (for example Polynomial.taylorLinearEquiv_symm used ~25.4M), so the
+   store verifier defaults to 100M. Lower this explicitly for quick smoke runs.
    Set to 0 for unlimited (not recommended — tight loops become unkillable)."
-  20000000)
+  100000000)
 
 (def ^:private verify-stack-size
   "256MB stack for deep isDefEq recursion on large Mathlib proofs.
@@ -1308,7 +1309,8 @@
 (defn verify-one!
   "Verify the next declaration from ctx. Type checking runs on a large-stack
    thread (256MB) to handle deep isDefEq recursion.
-   Returns result map with :status, :name, :fuel-used, :elapsed-ms.
+   Returns result map with :status, :name, :fuel-used, :elapsed-ms. Non-inductive
+   constants report measured fuel; inductive bundles currently report 0.
    Inductive declarations are verified as a contiguous Lean-style bundle.
    Failed declarations are not marked admitted; non-stop mode is diagnostic only."
   [ctx & {:keys [fuel timeout-ms] :or {fuel default-fuel timeout-ms 120000}}]
@@ -1346,9 +1348,7 @@
                                       {:idx i :name name-str}))
 
                       :else
-                      (do
-                        (TypeChecker/checkConstant env ci (long fuel))
-                        0)))
+                      (TypeChecker/checkConstantFuel env ci (long fuel))))
                   verify-stack-size
                   timeout-ms))
                 elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
@@ -1430,7 +1430,7 @@
    Options:
      :stop-on-error?  stop on first error (default true)
      :verbose?        log progress every 1000 decls (default false)
-     :fuel            fuel limit (default 0 = unlimited)
+     :fuel            fuel limit (default 100M; 0 = unlimited)
      :timeout-ms      per-declaration wall-clock timeout
                       (default 120000, 0 disables)"
   [ctx n & {:keys [verbose? fuel timeout-ms stop-on-error?]
@@ -1475,7 +1475,8 @@
 
 (defn verify-from-store!
   "Convenience: verify all declarations in one go.
-   Runs on a 64MB stack thread for deep recursion.
+   Uses verify-one!, which runs each declaration on a 256MB stack thread for
+   deep kernel recursion.
    For interactive use, prefer prepare-verify + verify-one!/verify-batch!."
   [store-map branch-name & {:keys [verbose? log-file timeout-ms]
                             :or {verbose? false

@@ -199,6 +199,26 @@ with `mdata` preserved,
 generates the instance registry, and imports into an Ansatz store at `/var/tmp/ansatz-mathlib`.
 Takes ~20 minutes on first run.
 
+To re-check an imported store through the kernel:
+
+```bash
+clj -M -e '
+(require (quote [ansatz.export.storage :as s]))
+(let [store (s/open-store "/var/tmp/ansatz-mathlib")]
+  (try
+    (prn (s/verify-from-store! store "mathlib"
+                               :verbose? true
+                               :timeout-ms 300000))
+    (finally
+      (s/close-store store))))
+'
+```
+
+The imported-store verifier uses a higher fuel default than interactive tactic
+calls because full Mathlib contains legitimate declarations above 20M kernel
+steps. For trace-level comparison against a patched Lean 4 build, see
+[doc/kernel-validation.md](doc/kernel-validation.md).
+
 **Manual setup**
 
 If you prefer step-by-step:
@@ -396,7 +416,7 @@ All limits are configurable via dynamic vars in `ansatz.config`:
 
 | Var | Default | Description |
 |-----|---------|-------------|
-| `*default-fuel*` | 20M | Type checker fuel per operation |
+| `*default-fuel*` | 20M | Interactive tactic/typechecker fuel per operation |
 | `*high-fuel*` | 50M | Fuel for deep instance chains |
 | `*max-whnf-depth*` | 512 | Maximum WHNF reduction depth |
 | `*max-synth-depth*` | 16 | Instance synthesis recursion depth |
@@ -496,8 +516,9 @@ Lean 4 Mathlib + CSLib  →  lean4export  →  Ansatz PSS store
 The CIC kernel is implemented in Java for performance:
 - `TypeChecker` — type inference and definitional equality
 - `Reducer` — WHNF reduction (beta, delta, iota, zeta, projection)
+- `InductiveBundleChecker` — Lean-shaped bundled inductive admission, including nested-inductive lowering/restoration
 - `FlatStore` — memory-mapped expression store for zero-copy lookup
-- `Env` — declaration environment with external lookup
+- `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
 For a deeper architectural walkthrough of the kernel, see [doc/kernel.md](doc/kernel.md).
 
