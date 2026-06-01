@@ -1491,12 +1491,14 @@
        result))))
 
 ;; ============================================================
-;; FlatStore — mmap'd flat store import and verification
+;; FlatStore — mmap'd performance-oriented store import and verification
 ;; ============================================================
 
 (defn import-to-flatstore!
   "Parse an ndjson file and write directly to FlatStore format.
-   Bypasses PSS entirely — no LMDB needed.
+   Bypasses PSS entirely — no LMDB needed. This is an experimental imported-store
+   performance path; the PSS-backed verifier remains the full Mathlib validation
+   gate until FlatStore is verified at that scale.
    Returns the output directory path."
   [ndjson-path out-dir & {:keys [max-count log-file]
                           :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-import.log")}}]

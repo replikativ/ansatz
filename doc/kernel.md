@@ -277,11 +277,16 @@ This is important because:
 - Fork is free — no copying needed.
 
 For large stores (Mathlib's 648K declarations), `Env` can wrap an external PSS
-or FlatStore lookup. Store verification installs an admission-order visibility
-predicate in front of that lookup: a declaration is visible only after a
-successful previous check has marked its declaration-order rank admitted. The
-visibility predicate is checked **before** the shared cache, so a declaration
-cached by a later lookup cannot bypass staged admission.
+or FlatStore lookup. PSS is the store path used for the current full Mathlib
+kernel verification. FlatStore is a performance-oriented mmap store path with
+targeted tests; it is intended to speed up lookup/materialization, not to define
+a separate kernel semantics.
+
+Store verification installs an admission-order visibility predicate in front of
+the lookup: a declaration is visible only after a successful previous check has
+marked its declaration-order rank admitted. The visibility predicate is checked
+**before** the shared cache, so a declaration cached by a later lookup cannot
+bypass staged admission.
 
 Visible external declarations are still cached with `SoftReference`s. This keeps
 repeated lookups pointer-stable enough for the identity-based kernel caches

@@ -465,7 +465,11 @@ public final class FlatStore implements AutoCloseable {
 
     /**
      * Create an Env that uses this FlatStore for lookups.
-     * Much faster than PSS-backed lookup.
+     *
+     * FlatStore is a performance-oriented imported-store path. It changes
+     * declaration materialization and lookup, not kernel admission semantics;
+     * staged verification still calls the same TypeChecker entry points as the
+     * PSS-backed verifier.
      */
     public Env createEnv() {
         FlatStore self = this;

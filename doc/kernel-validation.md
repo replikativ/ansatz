@@ -71,8 +71,24 @@ Current full-corpus coverage from `/var/tmp/ansatz-mathlib-new`, branch
 ```
 
 That run covered all imported declaration tags through the PSS staged verifier.
-FlatStore has targeted tests, but full Mathlib-scale FlatStore verification is
-not yet part of the normal validation gate.
+
+## FlatStore Status
+
+FlatStore is a performance-oriented mmap store path intended to reduce imported
+kernel lookup and materialization overhead. It is not a second kernel: FlatStore
+verification builds the same staged `Env` shape and calls the same
+`verify-one!`, `TypeChecker.checkConstantFuel`, and
+`TypeChecker.checkInductiveBundle` admission paths as PSS-backed verification.
+
+Current FlatStore coverage is targeted:
+
+- Import and verify the `Nat.add_succ` fixture through `prepare-verify-flat`.
+- Check staged visibility before and after FlatStore admission.
+- Check quotient enablement with a minimal FlatStore `Quot` fixture.
+
+Full Mathlib-scale FlatStore verification is not yet part of the normal
+validation gate. Until that is run and kept stable, the PSS-backed full Mathlib
+verification remains the authoritative full-corpus kernel check.
 
 ## Trace Comparison
 
