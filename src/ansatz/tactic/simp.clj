@@ -2322,7 +2322,7 @@
             (let [tc (ansatz.kernel.TypeChecker. env)]
               (.setFuel tc 20000000)
               (.inferType tc full-proof))
-            (env/add-constant env (env/mk-thm ble-eq-name [] full-type full-proof)))
+            (env/check-constant env (env/mk-thm ble-eq-name [] full-type full-proof)))
           (catch Exception _ env))))))
 
 (defn- try-close-eq-rfl

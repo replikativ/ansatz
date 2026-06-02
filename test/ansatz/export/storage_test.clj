@@ -4,8 +4,8 @@
             [ansatz.export.parser :as parser]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel Name ConstantInfo Env]
-           [java.io File]
+  (:import [ansatz.kernel Name ConstantInfo Env Expr FlatStore]
+           [java.io File Writer]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -23,6 +23,19 @@
           (delete-dir-recursive (.getPath child))
           (.delete child)))
       (.delete f))))
+
+(defn- close-flat-ctx! [ctx]
+  (when-let [w (:log-writer ctx)]
+    (.close ^Writer w))
+  (when-let [fs (::storage/flat-store ctx)]
+    (.close ^FlatStore fs)))
+
+(defn- write-quot-ndjson! [path]
+  (spit path
+        (str "{\"in\":1,\"str\":{\"pre\":0,\"str\":\"Quot\"}}\n"
+             "{\"il\":1,\"succ\":0}\n"
+             "{\"ie\":0,\"sort\":1}\n"
+             "{\"quot\":{\"kind\":\"type\",\"levelParams\":[],\"name\":1,\"type\":0}}\n")))
 
 (deftest roundtrip-test
   (testing "Parse → persist → close → open → load-env round-trip"
@@ -160,5 +173,99 @@
             (is (zero? (:errors stats)))
             (is (= (:total stats) (+ (:ok stats) (:errors stats)))))
           (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest prepare-verify-stages-environment
+  (testing "Verification env exposes only declarations admitted before the current index"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [ctx (storage/prepare-verify store-map "verify-test")
+                nat-name (name/from-string "Nat")
+                thm-name (name/from-string "Nat.add_succ")
+                [[thm-idx _]] (storage/find-decl ctx "Nat.add_succ")]
+            (try
+              (is (nil? (env/lookup (:env ctx) thm-name)))
+              (storage/skip-to! ctx thm-idx)
+              (is (some? (env/lookup (:env ctx) nat-name)))
+              (is (nil? (env/lookup (:env ctx) thm-name)))
+              (finally
+                (.close ^java.io.Writer (:log-writer ctx)))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest failed-declaration-is-not-made-visible
+  (testing "Advancing after a failed declaration does not admit it"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [ctx (storage/prepare-verify store-map "verify-test")
+                first-name-str (first (:decl-order ctx))
+                first-name (name/from-string first-name-str)
+                original-resolve (:resolve-fn ctx)
+                bad-ci (ConstantInfo/mkAxiom first-name
+                                             (object-array [])
+                                             (Expr/bvar 0)
+                                             false)
+                failing-ctx (assoc ctx :resolve-fn
+                                   (fn [name-str]
+                                     (if (= name-str first-name-str)
+                                       bad-ci
+                                       (original-resolve name-str))))]
+            (try
+              (let [result (storage/verify-one! failing-ctx :timeout-ms 0)]
+                (is (= :error (:status result)))
+                (is (= 1 @(:idx ctx)))
+                (is (nil? (env/lookup (:env ctx) first-name))))
+              (finally
+                (.close ^java.io.Writer (:log-writer ctx)))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest flatstore-verify-test
+  (testing "FlatStore verification uses the same staged kernel admission path"
+    (let [dir (temp-dir)]
+      (try
+        (storage/import-to-flatstore! example-file dir)
+        (let [ctx (storage/prepare-verify-flat dir)
+              thm-name (name/from-string "Nat.add_succ")]
+          (try
+            (is (nil? (env/lookup (:env ctx) thm-name))
+                "future declarations must not be visible before admission")
+            (let [stats (storage/verify-batch! ctx (count (:decl-order ctx))
+                                               :timeout-ms 0)]
+              (is (zero? (:errors stats)))
+              (is (:done? stats))
+              (is (some? (env/lookup (:env ctx) thm-name))
+                  "admitted FlatStore declarations become visible through the staged env"))
+            (finally
+              (close-flat-ctx! ctx))))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest flatstore-quot-enables-kernel-support-test
+  (testing "FlatStore verification enables quotient reduction support from imported Quot"
+    (let [dir (temp-dir)
+          ndjson (str dir File/separator "quot.ndjson")
+          out-dir (str dir File/separator "flat")]
+      (try
+        (write-quot-ndjson! ndjson)
+        (storage/import-to-flatstore! ndjson out-dir)
+        (let [ctx (storage/prepare-verify-flat out-dir)
+              quot-name (name/from-string "Quot")]
+          (try
+            (is (.isQuotEnabled ^Env (:env ctx)))
+            (is (nil? (env/lookup (:env ctx) quot-name)))
+            (let [result (storage/verify-one! ctx :timeout-ms 0)]
+              (is (= :ok (:status result)))
+              (is (.isQuotEnabled ^Env (:env ctx)))
+              (is (some? (env/lookup (:env ctx) quot-name))))
+            (finally
+              (close-flat-ctx! ctx))))
         (finally
           (delete-dir-recursive dir))))))

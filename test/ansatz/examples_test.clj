@@ -443,8 +443,8 @@
                          ctx)
         (is true "indexed family induction with multiple recursive fields"))
       ;; Cases on indexed family with COMPLEX index (constructor application)
-      ;; Uses casesOn-based motive: pattern-matches on the index type to produce
-      ;; the correct branch goal type without equality arrows or noConfusion.
+      ;; Uses the generalizeIndices + noConfusion pipeline to eliminate the
+      ;; impossible branch and recover the matching constructor fields.
       (let [ctx (a/make-context @a/ansatz-env @a/ansatz-instance-index)]
         ;; cases hl where hl : ValidRB(node c l k r) → ValidRB l
         (a/prove-theorem 'vrb-cases-l
@@ -562,9 +562,8 @@
     (binding [a/*verbose* false]
       ;; This test verifies the core capability: after `cases hl` where
       ;; hl : ValidRB(node c l k r) and the goal references l and r
-      ;; in other positions, the goal type correctly keeps l and r.
-      ;; The old Path B over-abstracted them; Path C (generalizeIndices
-      ;; + unifyCasesEqs) properly resolves the equalities.
+      ;; in other positions, the goal type correctly keeps l and r via
+      ;; the generalizeIndices + unifyCasesEqs + noConfusion pipeline.
       (when (env/lookup (a/env) (name/from-string "ValidRB"))
         ;; Test: given hl : ValidRB(node c l k r), hr : ValidRB r
         ;; prove: ValidRB l ∧ ValidRB r (both components accessible)

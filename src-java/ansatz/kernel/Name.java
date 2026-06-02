@@ -29,6 +29,7 @@ public final class Name {
     public final Name prefix;  // null for anonymous
     public final String str;   // for STR
     public final long num;     // for NUM
+    private volatile String cachedString;
 
     private Name(byte tag, int hash, Name prefix, String str, long num) {
         this.tag = tag;
@@ -145,6 +146,8 @@ public final class Name {
     public static final Name LIST_NIL = fromString("List.nil");
     public static final Name CHAR = fromString("Char");
     public static final Name CHAR_OF_NAT = fromString("Char.ofNat");
+    public static final Name OUT_PARAM = fromString("outParam");
+    public static final Name SEMI_OUT_PARAM = fromString("semiOutParam");
 
     public static final Name EAGER_REDUCE = fromString("eagerReduce");
 
@@ -189,9 +192,13 @@ public final class Name {
     @Override
     public String toString() {
         if (tag == ANONYMOUS) return "[anonymous]";
+        String cached = cachedString;
+        if (cached != null) return cached;
         StringBuilder sb = new StringBuilder();
         appendTo(sb);
-        return sb.toString();
+        String result = sb.toString();
+        cachedString = result;
+        return result;
     }
 
     private void appendTo(StringBuilder sb) {
@@ -202,6 +209,30 @@ public final class Name {
         }
         if (tag == STR) sb.append(str);
         else if (tag == NUM) sb.append(num);
+    }
+
+    /**
+     * If the last component is a string, append "_i" to it. Otherwise add a
+     * new final string component "_i". Matches Lean's name::append_after(unsigned).
+     */
+    public Name appendAfter(int i) {
+        String suffix = "_" + i;
+        if (tag == STR) return mkStr(prefix, str + suffix);
+        return mkStr(this, suffix);
+    }
+
+    /**
+     * Replace the given prefix if it is a prefix of this name, otherwise return this.
+     * Matches Lean's name::replace_prefix.
+     */
+    public Name replacePrefix(Name prefix, Name newPrefix) {
+        if (prefix == null || prefix.isAnonymous()) return this;
+        if (this.equals(prefix)) return newPrefix;
+        if (this.tag == ANONYMOUS) return this;
+        Name newParent = this.prefix != null ? this.prefix.replacePrefix(prefix, newPrefix) : null;
+        if (newParent == this.prefix) return this;
+        if (tag == STR) return mkStr(newParent, str);
+        return mkNum(newParent, num);
     }
 
     /** Number of interned names (for diagnostics). */

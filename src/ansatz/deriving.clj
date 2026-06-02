@@ -224,7 +224,7 @@
           inst-name (name/from-string (str "instDecidableEq" type-name-str))
           ci (env/mk-def inst-name [] goal-type term :hints :abbrev)]
       (println "✓ deriving DecidableEq" type-name-str)
-      (env/add-constant env ci))))
+      (env/check-constant env ci))))
 
 ;; ============================================================
 ;; Register built-in handlers

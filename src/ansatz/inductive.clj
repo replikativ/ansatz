@@ -13,7 +13,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl])
-  (:import [ansatz.kernel ConstantInfo]))
+  (:import [ansatz.kernel ConstantInfo TypeChecker]))
 
 ;; ============================================================
 ;; Scope helpers (de Bruijn index computation)
@@ -391,8 +391,14 @@
                                   rc
                                   (let [rec-field-type (:type (nth fields field-idx))
                                         [_ rargs] (e/get-app-fn-args rec-field-type)
+                                        field-depth (+ pre-fields field-idx)
+                                        lift-amount (- body-depth field-depth)
                                         idx-exprs (when (>= (count rargs) (+ n-params n-indices))
-                                                    (subvec (vec rargs) n-params (+ n-params n-indices)))]
+                                                    (mapv (fn [idx]
+                                                            (if (pos? lift-amount)
+                                                              (e/lift idx lift-amount 0)
+                                                              idx))
+                                                          (subvec (vec rargs) n-params (+ n-params n-indices))))]
                                     (reduce (fn [t idx] (e/app t idx)) rc (or idx-exprs []))))
                              ;; Apply the recursive field
                              rc (e/app rc (e/bvar (- body-depth (+ pre-fields field-idx) 1)))]
@@ -1553,12 +1559,28 @@
         rec-ci (build-recursor env params compiled-indices ctors ind-name ind-level-levels
                                rec-name rec-level-params rec-level-levels
                                result-level elim-level is-rec
-                               self-const ind-name-str)]
+                               self-const ind-name-str)
+        preliminary-bundle (env/mk-inductive-bundle ind-levels n-params false
+                                                    [ind-ci] ctor-cis [rec-ci])
+        ;; Use the kernel's Lean-shaped generator for local declarations too.
+        ;; This keeps frontend-authored inductives on the same admission path as imports.
+        lean-rules (vec (TypeChecker/generateExpectedRecursorRules env preliminary-bundle 0 1000000))
+        rec-ci (env/mk-recursor (.name ^ConstantInfo rec-ci)
+                                (vec (.levelParams ^ConstantInfo rec-ci))
+                                (.type ^ConstantInfo rec-ci)
+                                :all (vec (.all ^ConstantInfo rec-ci))
+                                :num-params (.numParams ^ConstantInfo rec-ci)
+                                :num-indices (.numIndices ^ConstantInfo rec-ci)
+                                :num-motives (.numMotives ^ConstantInfo rec-ci)
+                                :num-minors (.numMinors ^ConstantInfo rec-ci)
+                                :rules lean-rules
+                                :k? (.isK ^ConstantInfo rec-ci)
+                                :unsafe? (.isUnsafe ^ConstantInfo rec-ci))
+        kernel-bundle (env/mk-inductive-bundle ind-levels n-params false
+                                               [ind-ci] ctor-cis [rec-ci])]
 
     ;; Add core declarations (thread immutable env)
-    (let [env (env/add-constant env ind-ci)
-          env (reduce (fn [e ci] (env/add-constant e ci)) env ctor-cis)
-          env (env/add-constant env rec-ci)
+    (let [env (env/check-inductive-bundle env kernel-bundle)
           ;; Build and add auxiliaries (skip for indexed families for now —
           ;; casesOn/recOn need index-aware motive rewriting)
           env (if (zero? n-indices)
@@ -1570,8 +1592,8 @@
                                               rec-name rec-level-params rec-level-levels
                                               result-level elim-level is-rec
                                               self-const ind-name-str)
-                      env (env/add-constant env cases-on-ci)
-                      env (env/add-constant env rec-on-ci)]
+                      env (env/check-constant env cases-on-ci)
+                      env (env/check-constant env rec-on-ci)]
                   env)
                 env)
           ;; Build noConfusion for non-indexed, non-Prop types
@@ -1582,8 +1604,8 @@
                       nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
                                                 level-param-names rec-name rec-level-params
                                                 result-level is-rec ind-name-str)
-                      env (env/add-constant env nct-ci)
-                      env (env/add-constant env nc-ci)]
+                      env (env/check-constant env nct-ci)
+                      env (env/check-constant env nc-ci)]
                   env)
                 env)]
       ;; Update global env atom with the new env

@@ -465,12 +465,15 @@ public final class FlatStore implements AutoCloseable {
 
     /**
      * Create an Env that uses this FlatStore for lookups.
-     * Much faster than PSS-backed lookup.
+     *
+     * FlatStore is a performance-oriented imported-store path. It changes
+     * declaration materialization and lookup, not kernel admission semantics;
+     * staged verification still calls the same TypeChecker entry points as the
+     * PSS-backed verifier.
      */
     public Env createEnv() {
-        Env env = new Env();
         FlatStore self = this;
-        env.setExternalLookup(new clojure.lang.AFn() {
+        return new Env().withExternalLookup(new clojure.lang.AFn() {
             @Override
             public Object invoke(Object nameObj) {
                 if (nameObj instanceof Name) {
@@ -479,7 +482,6 @@ public final class FlatStore implements AutoCloseable {
                 return null;
             }
         }, declOrder.length);
-        return env;
     }
 
     // ================================================================

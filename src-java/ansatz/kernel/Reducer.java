@@ -21,9 +21,16 @@ import java.util.IdentityHashMap;
 public final class Reducer {
 
     private final Env env;
-    private final IdentityHashMap<Expr, Expr> whnfCoreCache;
-    private final IdentityHashMap<Expr, Expr> whnfCache;
-    private final IdentityHashMap<Expr, Expr> unfoldCache;
+    private static final boolean TRACE_REDUCER =
+        Boolean.getBoolean("ansatz.kernel.trace.reducer");
+    private static final String TRACE_REDUCER_FILTER =
+        System.getProperty("ansatz.kernel.trace.reducer.filter", "");
+    private final IdentityHashMap<Expr, Expr> whnfCoreIdentityCache;
+    private final HashMap<Expr, Expr> whnfCoreStructuralCache;
+    private final IdentityHashMap<Expr, Expr> whnfIdentityCache;
+    private final HashMap<Expr, Expr> whnfStructuralCache;
+    private final IdentityHashMap<Expr, Expr> unfoldIdentityCache;
+    private final HashMap<Expr, Expr> unfoldStructuralCache;
     private final HashMap<Expr, Expr> resultIntern;  // result deduplication for pointer sharing
 
     // Local context: fvar id -> LocalDecl
@@ -66,9 +73,12 @@ public final class Reducer {
     public void setTransparency(int mode) {
         this.transparencyMode = mode;
         // Clear caches since reduction behavior changes
-        this.whnfCoreCache.clear();
-        this.whnfCache.clear();
-        this.unfoldCache.clear();
+        this.whnfCoreIdentityCache.clear();
+        this.whnfCoreStructuralCache.clear();
+        this.whnfIdentityCache.clear();
+        this.whnfStructuralCache.clear();
+        this.unfoldIdentityCache.clear();
+        this.unfoldStructuralCache.clear();
     }
 
     public int getTransparency() { return transparencyMode; }
@@ -98,9 +108,12 @@ public final class Reducer {
 
     public Reducer(Env env) {
         this.env = env;
-        this.whnfCoreCache = new IdentityHashMap<>(4096);
-        this.whnfCache = new IdentityHashMap<>(4096);
-        this.unfoldCache = new IdentityHashMap<>(1024);
+        this.whnfCoreIdentityCache = new IdentityHashMap<>(4096);
+        this.whnfCoreStructuralCache = new HashMap<>(4096);
+        this.whnfIdentityCache = new IdentityHashMap<>(4096);
+        this.whnfStructuralCache = new HashMap<>(4096);
+        this.unfoldIdentityCache = new IdentityHashMap<>(1024);
+        this.unfoldStructuralCache = new HashMap<>(1024);
         this.resultIntern = new HashMap<>(4096);
         this.lctx = null;
         this.fuel = DEFAULT_FUEL;
@@ -904,106 +917,12 @@ public final class Reducer {
             Expr.litNat(n.subtract(BigInteger.ONE)));
     }
 
-    /**
-     * Reduce expression to a Nat literal, iteratively peeling Nat.succ layers.
-     * Matches Lean 4's is_nat_lit_ext + get_nat_val pattern.
-     *
-     * Uses a two-level loop: the outer loop calls whnf once to get the initial
-     * form, then an inner loop handles the common case where whnf produces
-     * Nat.succ(Nat.rec...) chains by using whnfCore (iterative, no recursive whnf)
-     * plus inline delta/nat reduction. This prevents deep recursive whnf chains
-     * for expressions like Nat.add(604800, fvar) which would otherwise create
-     * 604800 nested whnf calls.
-     */
+    /** Reduce expression to a Nat literal using Lean's is_nat_lit_ext test. */
     private Expr whnfToNat(Expr e) {
-        BigInteger acc = BIG_ZERO;
-        Expr cur = e;
-        while (true) {
-            Expr w = whnf(cur);
-            if (w.tag == Expr.LIT_NAT) {
-                return Expr.litNat(((BigInteger) w.o0).add(acc));
-            }
-            if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
-                return Expr.litNat(acc);
-            }
-            if (w.tag == Expr.APP) {
-                Expr fn = (Expr) w.o0;
-                if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
-                    acc = acc.add(BigInteger.ONE);
-                    // Instead of calling whnf(arg) recursively, try iterative reduction
-                    Expr inner = (Expr) w.o1;
-                    // Fast path: try iterative Nat reduction without recursive whnf
-                    Expr iterResult = iterativeWhnfToNat(inner);
-                    if (iterResult != null) {
-                        return Expr.litNat(((BigInteger) iterResult.o0).add(acc));
-                    }
-                    // Slow path: fall back to recursive whnf
-                    cur = inner;
-                    continue;
-                }
-            }
-            return null; // not reducible to Nat literal
-        }
-    }
-
-    /**
-     * Try to reduce a Nat expression to a literal using only iterative operations:
-     * whnfCore (iterative) + cheap native Nat/Int reduction + delta unfolding.
-     * No recursive whnf calls. Returns a LIT_NAT or null.
-     *
-     * This handles the common case of Nat.rec-based functions (like Nat.add,
-     * Nat.gcd implemented via brecOn) applied to large concrete values.
-     */
-    private Expr iterativeWhnfToNat(Expr e) {
-        BigInteger innerAcc = BIG_ZERO;
-        Expr cur = e;
-        for (int i = 0; i < 100_000_000; i++) { // safety limit
-            checkFuel();
-            // Step 1: whnfCore (iterative — handles beta, iota, proj)
-            Expr w = whnfCore(cur);
-
-            // Check result
-            if (w.tag == Expr.LIT_NAT) {
-                return Expr.litNat(((BigInteger) w.o0).add(innerAcc));
-            }
-            if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) {
-                return Expr.litNat(innerAcc);
-            }
-
-            // Peel Nat.succ layers
-            if (w.tag == Expr.APP) {
-                Expr fn = (Expr) w.o0;
-                if (fn.tag == Expr.CONST && fn.o0 == Name.NAT_SUCC) {
-                    innerAcc = innerAcc.add(BigInteger.ONE);
-                    cur = (Expr) w.o1;
-                    continue;
-                }
-            }
-
-            // Step 2: Try cheap native Nat/Int reduction
-            Object[] fnArgs = getAppFnArgs(w);
-            Expr head = (Expr) fnArgs[0];
-            Expr[] args = (Expr[]) fnArgs[1];
-
-            Expr natR = tryCheapReduceNat(head, args);
-            if (natR != null) { cur = natR; continue; }
-            Expr intR = tryCheapReduceInt(head, args);
-            if (intR != null) { cur = intR; continue; }
-
-            // Step 3: Try delta unfolding
-            if (head.tag == Expr.CONST) {
-                Expr unfolded = tryUnfoldDef(head);
-                if (unfolded != null) {
-                    deltaCount++;
-                    cur = whnfCore(mkApps(unfolded, args));
-                    continue;
-                }
-            }
-
-            // Can't reduce further iteratively — return null to trigger slow path
-            return null;
-        }
-        return null; // safety limit reached
+        Expr w = whnf(e);
+        if (w.tag == Expr.LIT_NAT) return w;
+        if (w.tag == Expr.CONST && w.o0 == Name.NAT_ZERO) return Expr.litNat(BIG_ZERO);
+        return null;
     }
 
     /**
@@ -1161,9 +1080,13 @@ public final class Reducer {
             opName != Name.NAT_SHIFT_LEFT && opName != Name.NAT_SHIFT_RIGHT) {
             return null;
         }
+        // Lean's reduce_bin_nat_* checks the left operand first and stops if it
+        // is not already Nat-like. Do not normalize the right operand eagerly:
+        // doing so can populate projection caches before Lean would.
         Expr a = whnfToNat(args[0]);
+        if (a == null) return null;
         Expr b = whnfToNat(args[1]);
-        if (a == null || b == null) return null;
+        if (b == null) return null;
         BigInteger va = (BigInteger) a.o0;
         BigInteger vb = (BigInteger) b.o0;
         return reduceNatBinop(opName, va, vb);
@@ -1306,7 +1229,7 @@ public final class Reducer {
     // Iota reduction (recursor application)
     // ============================================================
 
-    private Expr tryReduceRecursor(Expr head, Expr[] args, boolean useWhnf) {
+    private Expr tryReduceRecursor(Expr head, Expr[] args, boolean cheapRec, boolean cheapProj) {
         if (head.tag != Expr.CONST) return null;
         ConstantInfo ci = env.lookup((Name) head.o0);
         if (ci == null || !ci.isRecursor()) return null;
@@ -1319,18 +1242,25 @@ public final class Reducer {
         int majorIdx = numParams + numMotives + numMinors + numIndices;
         Expr rawMajor = args[majorIdx];
 
+        // Lean applies K-conversion to the raw major premise before reducing it
+        // (inductive.h:86-90). This matters for Eq.rec-like proof terms: reducing
+        // first can expose a different proof shape and shift defeq trace order.
+        Expr major = rawMajor;
+        if (ci.isK && inferFn != null && isDefEqFn != null) {
+            major = toCnstrWhenK(ci, rawMajor, cheapRec, cheapProj);
+        }
+
         // Short-circuit: if major is already a constructor (Nat.succ(LIT_NAT),
         // Nat.zero, other constructor apps) skip the whnf call.
         // Also: for Nat literals, try natLitToConstructor without whnf.
         // This avoids deep whnf recursion for Nat.brecOn chains where each step
         // produces Nat.succ(LIT_NAT) as the major premise.
-        Expr major;
-        if (rawMajor.tag == Expr.LIT_NAT || rawMajor.tag == Expr.LIT_STR) {
-            major = rawMajor;
-        } else if (isConstructorApp(rawMajor)) {
-            major = rawMajor;
+        if (major.tag == Expr.LIT_NAT || major.tag == Expr.LIT_STR) {
+            // keep major as-is
+        } else if (isConstructorApp(major)) {
+            // keep major as-is
         } else {
-            major = useWhnf ? whnf(rawMajor) : rawMajor;
+            major = reduceRecursorMajor(major, cheapRec, cheapProj);
         }
 
         // Get constructor head
@@ -1360,18 +1290,18 @@ public final class Reducer {
         // expand it to Ctor(proj(0,e), proj(1,e), ..., proj(n-1,e)).
         // This is critical for e.g. ByteArray.push where the major premise is a fvar,
         // but also fires when the major whnf's to another recursor application.
-        if (inferFn != null && ci.all != null && ci.all.length > 0 && !isConstructorApp(major)) {
-            Name majorInductName = (Name) ci.all[0];
-            if (isStructureLike(majorInductName)) {
+        if (inferFn != null && !isConstructorApp(major)) {
+            Name majorInductName = getMajorInductName(ci);
+            if (majorInductName != null && isStructureLike(majorInductName)) {
                 try {
-                    Expr majorType = whnf(inferFn.infer(args[majorIdx]));
+                    Expr majorType = whnf(inferFn.infer(major));
                     Expr typeHead = getAppFn(majorType);
                     if (typeHead.tag == Expr.CONST && typeHead.o0.equals(majorInductName)) {
                         // Check it's not a Prop (Lean 4 line 70-71)
                         Expr typeOfType = whnf(inferFn.infer(majorType));
                         if (!(typeOfType.tag == Expr.SORT && Level.simplify((Level) typeOfType.o0).tag == Level.ZERO)) {
                             // Expand: Ctor(params, proj(I, 0, e), ..., proj(I, n-1, e))
-                            major = expandEtaStruct(majorInductName, majorType, args[majorIdx]);
+                            major = expandEtaStruct(majorInductName, majorType, major);
                             fnArgs = getAppFnArgs(major);
                             ctorHead = (Expr) fnArgs[0];
                             ctorArgs = (Expr[]) fnArgs[1];
@@ -1390,23 +1320,6 @@ public final class Reducer {
             }
         }
 
-        // K-recursor: try mk_nullary_cnstr
-        if (ci.isK && directRule == null && inferFn != null && isDefEqFn != null) {
-            try {
-                Expr majorType = whnf(inferFn.infer(args[majorIdx]));
-                Expr newCnstr = mkNullaryCnstr(majorType, numParams);
-                if (newCnstr != null) {
-                    Expr newType = inferFn.infer(newCnstr);
-                    if (isDefEqFn.isDefEq(majorType, newType)) {
-                        Object[] nc = getAppFnArgs(newCnstr);
-                        ctorHead = (Expr) nc[0];
-                        ctorArgs = (Expr[]) nc[1];
-                        major = newCnstr;
-                    }
-                }
-            } catch (Exception ignored) {}
-        }
-
         if (ctorHead.tag != Expr.CONST) return null;
         Name ctorName = (Name) ctorHead.o0;
 
@@ -1420,7 +1333,9 @@ public final class Reducer {
         if (rule == null) return null;
 
         // Instantiate RHS with level params
-        HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, constLevels(head));
+        Object[] recLevels = constLevels(head);
+        if (recLevels.length != ci.levelParams.length) return null;
+        HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, recLevels);
         Expr rhs = instantiateLevelParams(rule.rhs, subst);
 
         // Build result: apply rhs to params, motives, minors, constructor fields
@@ -1439,9 +1354,9 @@ public final class Reducer {
             Expr[] expandedArgs = (Expr[]) ea[1];
             for (Expr a : expandedArgs) result = Expr.app(result, a);
         } else {
-            ConstantInfo ctorCi = env.lookup(ctorName);
-            int ctorNumParams = ctorCi != null ? ctorCi.numParams : numParams;
-            for (int i = ctorNumParams; i < ctorArgs.length; i++) {
+            int ctorParamPrefix = ctorArgs.length - rule.nfields;
+            if (ctorParamPrefix < 0) return null;
+            for (int i = ctorParamPrefix; i < ctorArgs.length; i++) {
                 result = Expr.app(result, ctorArgs[i]);
             }
         }
@@ -1451,6 +1366,47 @@ public final class Reducer {
             result = Expr.app(result, args[i]);
         }
         return result;
+    }
+
+    private Expr reduceRecursorMajor(Expr major, boolean cheapRec, boolean cheapProj) {
+        return cheapRec ? whnfCoreImpl(major, true, cheapProj) : whnf(major);
+    }
+
+    /**
+     * Lean's recursor_val::get_major_induct derives the major inductive from
+     * the recursor type, not from recursor_val.all.  Nested auxiliary recursors
+     * are named under the outer inductive, but their major premise can be a
+     * nested type such as Option/List/Task/SnapshotTask.
+     */
+    private Name getMajorInductName(ConstantInfo recCi) {
+        int majorIdx = recCi.numParams + recCi.numMotives + recCi.numMinors + recCi.numIndices;
+        Expr t = recCi.type;
+        for (int i = 0; i < majorIdx; i++) {
+            if (t.tag != Expr.FORALL) return null;
+            t = (Expr) t.o2;
+        }
+        if (t.tag != Expr.FORALL) return null;
+        Expr domain = (Expr) t.o1;
+        Expr head = getAppFn(domain);
+        if (head.tag == Expr.CONST) return (Name) head.o0;
+        return null;
+    }
+
+    private Expr toCnstrWhenK(ConstantInfo recCi, Expr major, boolean cheapRec, boolean cheapProj) {
+        try {
+            Expr majorType = reduceRecursorMajor(inferFn.infer(major), cheapRec, cheapProj);
+            Expr typeHead = getAppFn(majorType);
+            if (typeHead.tag != Expr.CONST) return major;
+            Name majorInductName = getMajorInductName(recCi);
+            if (majorInductName == null || !typeHead.o0.equals(majorInductName)) return major;
+
+            Expr newCnstr = mkNullaryCnstr(majorType, recCi.numParams);
+            if (newCnstr == null) return major;
+            Expr newType = inferFn.infer(newCnstr);
+            return isDefEqFn.isDefEq(majorType, newType) ? newCnstr : major;
+        } catch (Exception ignored) {
+            return major;
+        }
     }
 
     private Expr mkNullaryCnstr(Expr majorType, int numParams) {
@@ -1587,12 +1543,15 @@ public final class Reducer {
 
     private Expr tryReduceProj(Expr e, boolean cheapRec, boolean cheapProj) {
         if (e.tag != Expr.PROJ) return null;
+        reducerTrace("proj.enter cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, null);
         // Lean 4's reduce_proj: cheapProj → whnf_core(struct, cheapRec, cheapProj), else whnf(struct)
         Expr struct = cheapProj ? whnfCore((Expr) e.o1, cheapRec, cheapProj) : whnf((Expr) e.o1);
+        reducerTrace("proj.struct cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, struct);
 
         // Handle string literals: proj(String, 0, lit-str) → expand to String.mk(charList)
         if (struct.tag == Expr.LIT_STR) {
             struct = whnf(stringLitToConstructor(struct));
+            reducerTrace("proj.string cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, struct);
         }
 
         Object[] fa = getAppFnArgs(struct);
@@ -1606,7 +1565,9 @@ public final class Reducer {
         int fieldStart = ci.numParams;
         int fieldIdx = fieldStart + (int) e.longVal;
         if (fieldIdx < structArgs.length) {
-            return structArgs[fieldIdx];
+            Expr r = structArgs[fieldIdx];
+            reducerTrace("proj.reduced cheapRec=" + cheapRec + " cheapProj=" + cheapProj, e, r);
+            return r;
         }
         return null;
     }
@@ -1637,7 +1598,7 @@ public final class Reducer {
         }
 
         // Check unfold cache
-        Expr cached = unfoldCache.get(head);
+        Expr cached = cacheGet(unfoldIdentityCache, unfoldStructuralCache, head);
         if (cached != null) return cached;
 
         HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, headLevels);
@@ -1645,7 +1606,7 @@ public final class Reducer {
         // Without this, their non-interned sub-expressions pollute all expression trees,
         // breaking IdentityHashMap-based caches (inferCache, eqvManager, whnfCache).
         Expr result = Expr.deepReIntern(internResult(instantiateLevelParams(value, subst)));
-        unfoldCache.put(head, result);
+        cachePut(unfoldIdentityCache, unfoldStructuralCache, head, result);
         return result;
     }
 
@@ -1658,24 +1619,13 @@ public final class Reducer {
      * Handles: beta, zeta, iota, projection, mdata, fvar let-unfolding.
      * Default: cheapRec=false, cheapProj=false (matching Lean 4's whnf_core defaults).
      * cheapRec=false means recursor major premise is fully whnf-reduced.
-     *
-     * Wrapper caches ALL inputs → results for default flags, compensating for Java's
-     * lack of hash-consing (Lean 4 uses hash-consing for expression identity, which
-     * makes isDefEq's pointer-equality "quick" path work across whnf_core calls).
      */
     public Expr whnfCore(Expr e) {
         // Canonicalize input via intern table so IdentityHashMap cache hits
         // for structurally-equal but pointer-different expressions.
         // Matches Lean 4's hash-consing invariant: same structure → same pointer.
         // O(1) for already-canonical expressions (intern table fast-path).
-        e = Expr.deepReIntern(e);
-        Expr cached = whnfCoreCache.get(e);
-        if (cached != null) { whnfCoreCacheHits++; return cached; }
-        Expr raw = whnfCoreImpl(e, false, false);
-        // Preserve pointer identity when nothing changed (Lean's is_eqp guarantee)
-        Expr r = raw.isEqp(e) ? e : internResult(raw);
-        whnfCoreCache.put(e, r);
-        return r;
+        return whnfCoreImpl(Expr.deepReIntern(e), false, false);
     }
 
     /**
@@ -1686,130 +1636,134 @@ public final class Reducer {
      */
     public Expr whnfCore(Expr e, boolean cheapRec, boolean cheapProj) {
         if (!cheapRec && !cheapProj) return whnfCore(e);
-        Expr cached = whnfCoreCache.get(e);
-        if (cached != null) { whnfCoreCacheHits++; return cached; }
         return whnfCoreImpl(e, cheapRec, cheapProj);
     }
 
     /**
-     * Iterative whnfCore implementation (type_checker.cpp:435-517).
-     * Uses local args array instead of getAppFnArgs to avoid ArrayList + Object[2] allocation.
+     * Lean-shaped whnfCore implementation (type_checker.cpp:446-530).
+     * Easy cases and metadata return before the cache lookup; neutral apps and
+     * recursor reductions return before the cache write.
      * Nat.succ folding removed (handled by whnfLoop/reduce_nat instead).
      */
     private Expr whnfCoreImpl(Expr e, boolean cheapRec, boolean cheapProj) {
-        while (true) {
-            // Check cache on each iteration for cheap-flag calls, matching Lean 4's recursive
-            // whnf_core which checks cache on every call (type_checker.cpp:457-459).
-            if (cheapRec || cheapProj) {
-                Expr cached = whnfCoreCache.get(e);
-                if (cached != null) { whnfCoreCacheHits++; return cached; }
-            }
-            switch (e.tag) {
-                case Expr.BVAR: case Expr.SORT: case Expr.LAM: case Expr.FORALL:
-                case Expr.LIT_NAT: case Expr.LIT_STR:
-                    return e;
-
-                case Expr.FVAR: {
-                    if (lctx != null) {
-                        Object[] decl = lctx.get(e.longVal);
-                        if (decl != null && ((Integer) decl[0]) == 1) { // let-decl
-                            checkFuel();
-                            fvarLetCount++;
-                            e = (Expr) decl[3]; // value
-                            continue;
-                        }
-                    }
-                    return e;
-                }
-
-                case Expr.CONST:
-                    return e;
-
-                case Expr.MDATA:
-                    checkFuel();
-                    mdataCount++;
-                    e = (Expr) e.o1;
-                    continue;
-
-                case Expr.LET:
-                    checkFuel();
-                    zetaCount++;
-                    e = Expr.deepReIntern(instantiate1((Expr) e.o3, (Expr) e.o2));
-                    { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
-                    continue;
-
-                case Expr.PROJ: {
-                    Expr r = tryReduceProj(e, cheapRec, cheapProj);
-                    if (r != null) { checkFuel(); projCount++; e = r; continue; }
-                    return e;
-                }
-
-                case Expr.APP: {
-                    // Collect args in forward order using local array
-                    // (avoids ArrayList + Object[2] allocation from getAppFnArgs)
-                    int numArgs = 0;
-                    Expr cur = e;
-                    while (cur.tag == Expr.APP) { numArgs++; cur = (Expr) cur.o0; }
-                    Expr f0 = cur;
-                    Expr[] args = new Expr[numArgs];
-                    cur = e;
-                    for (int i = numArgs - 1; i >= 0; i--) {
-                        args[i] = (Expr) cur.o1;
-                        cur = (Expr) cur.o0;
-                    }
-                    Expr head2 = whnfCoreImpl(f0, cheapRec, cheapProj);
-                    // Cache the head result for default flags
-                    if (!cheapRec && !cheapProj && head2 != f0) {
-                        head2 = internResult(head2);
-                        whnfCoreCache.put(f0, head2);
-                    }
-
-                    if (head2.tag == Expr.LAM) {
-                        checkFuel();
-                        betaCount++;
-                        Expr f = head2;
-                        int m = 1;
-                        while (((Expr) f.o2).tag == Expr.LAM && m < numArgs) {
-                            f = (Expr) f.o2;
-                            m++;
-                        }
-                        Expr body = instantiateRev((Expr) f.o2, m, args, 0);
-                        e = Expr.deepReIntern(mkApps(body, args, m));
-                        { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
-                        continue;
-                    } else if (head2 == f0) {
-                        // Head unchanged — try cheap native reduction BEFORE recursor.
-                        // Unlike whnfLoop's tryReduceNat/tryReduceInt (which call whnfToNat/
-                        // whnfToInt → whnf recursively), this only fires when args are
-                        // ALREADY literals. This prevents deep recursive chains for
-                        // expressions like Nat.add(UInt64.size, fvar) while still catching
-                        // operations like Nat.gcd(lit, lit) before they unfold to Nat.rec.
-                        Expr cheapNat = tryCheapReduceNat(f0, args);
-                        if (cheapNat != null) { checkFuel(); e = cheapNat; continue; }
-                        Expr cheapInt = tryCheapReduceInt(f0, args);
-                        if (cheapInt != null) { checkFuel(); e = cheapInt; continue; }
-                        Expr reduced = tryReduceRecursor(f0, args, !cheapRec);
-                        if (reduced == null) reduced = tryReduceQuot(f0, args);
-                        if (reduced != null) {
-                            checkFuel();
-                            iotaCount++;
-                            e = Expr.deepReIntern(reduced);
-                            { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
-                            continue;
-                        }
-                        return e;
-                    } else {
-                        // Head changed but not lambda — rebuild app and continue
-                        checkFuel();
-                        e = Expr.deepReIntern(mkApps(head2, args));
-                        { Expr cached = whnfCoreCache.get(e); if (cached != null) { whnfCoreCacheHits++; return cached; } }
-                        continue;
-                    }
-                }
-
-                default: return e;
-            }
+        switch (e.tag) {
+            case Expr.BVAR: case Expr.SORT: case Expr.MVAR: case Expr.LAM: case Expr.FORALL:
+            case Expr.CONST: case Expr.LIT_NAT: case Expr.LIT_STR:
+                return e;
+            case Expr.MDATA:
+                checkFuel();
+                mdataCount++;
+                return whnfCoreImpl((Expr) e.o1, cheapRec, cheapProj);
+            case Expr.FVAR:
+                if (!isLetFVar(e)) return e;
+                break;
+            case Expr.APP: case Expr.LET: case Expr.PROJ:
+                break;
+            default:
+                return e;
         }
+
+        Expr cached = cacheGet(whnfCoreIdentityCache, whnfCoreStructuralCache, e);
+        if (cached != null) {
+            whnfCoreCacheHits++;
+            reducerTrace("whnfCore.cache", e, cached);
+            return cached;
+        }
+
+        Expr r;
+        switch (e.tag) {
+            case Expr.FVAR: {
+                checkFuel();
+                fvarLetCount++;
+                Object[] decl = lctx.get(e.longVal);
+                return whnfCoreImpl((Expr) decl[3], cheapRec, cheapProj);
+            }
+            case Expr.PROJ: {
+                Expr p = tryReduceProj(e, cheapRec, cheapProj);
+                if (p != null) {
+                    checkFuel();
+                    projCount++;
+                    r = whnfCoreImpl(Expr.deepReIntern(p), cheapRec, cheapProj);
+                } else {
+                    r = e;
+                }
+                break;
+            }
+            case Expr.APP: {
+                int numArgs = 0;
+                Expr cur = e;
+                while (cur.tag == Expr.APP) { numArgs++; cur = (Expr) cur.o0; }
+                Expr f0 = cur;
+                Expr[] args = new Expr[numArgs];
+                cur = e;
+                for (int i = numArgs - 1; i >= 0; i--) {
+                    args[i] = (Expr) cur.o1;
+                    cur = (Expr) cur.o0;
+                }
+
+                Expr head2 = whnfCoreImpl(f0, cheapRec, cheapProj);
+                if (head2.tag == Expr.LAM) {
+                    checkFuel();
+                    betaCount++;
+                    Expr f = head2;
+                    int m = 1;
+                    while (((Expr) f.o2).tag == Expr.LAM && m < numArgs) {
+                        f = (Expr) f.o2;
+                        m++;
+                    }
+                    Expr body = instantiateRev((Expr) f.o2, m, args, 0);
+                    r = whnfCoreImpl(Expr.deepReIntern(mkApps(body, args, m)), cheapRec, cheapProj);
+                } else if (LeanExprKey.exprEquals(head2, f0)) {
+                    Expr reduced = tryReduceRecursor(f0, args, cheapRec, cheapProj);
+                    if (reduced == null) reduced = tryReduceQuot(f0, args);
+                    if (reduced != null) {
+                        checkFuel();
+                        iotaCount++;
+                        return whnfCoreImpl(Expr.deepReIntern(reduced), cheapRec, cheapProj);
+                    }
+                    return e;
+                } else {
+                    checkFuel();
+                    r = whnfCoreImpl(Expr.deepReIntern(mkApps(head2, args)), cheapRec, cheapProj);
+                }
+                break;
+            }
+            case Expr.LET:
+                checkFuel();
+                zetaCount++;
+                r = whnfCoreImpl(Expr.deepReIntern(instantiate1((Expr) e.o3, (Expr) e.o2)), cheapRec, cheapProj);
+                break;
+            default:
+                return e;
+        }
+
+        if (!cheapRec && !cheapProj) {
+            r = r.isEqp(e) ? e : internResult(r);
+            cachePut(whnfCoreIdentityCache, whnfCoreStructuralCache, e, r);
+            reducerTrace("whnfCore.cache.put", e, r);
+        }
+        return r;
+    }
+
+    private boolean isLetFVar(Expr e) {
+        if (lctx == null) return false;
+        Object[] decl = lctx.get(e.longVal);
+        if (decl == null) return false;
+        Object tag = decl[0];
+        return tag instanceof Number && ((Number) tag).intValue() == 1;
+    }
+
+    private static void reducerTrace(String stage, Expr key, Expr value) {
+        if (!TRACE_REDUCER) return;
+        String k = TypeChecker.exprFingerprint(key, 6);
+        String v = value != null ? TypeChecker.exprFingerprint(value, 6) : "";
+        if (!TRACE_REDUCER_FILTER.isEmpty()
+            && !k.contains(TRACE_REDUCER_FILTER)
+            && !v.contains(TRACE_REDUCER_FILTER)) {
+            return;
+        }
+        System.err.println("[reducer] " + stage + " key=" + k
+            + (value != null ? " value=" + v : ""));
     }
 
     // ============================================================
@@ -1831,11 +1785,12 @@ public final class Reducer {
         // Canonicalize input so IdentityHashMap cache hits for structurally-equal inputs.
         // Matches Lean 4's global hash-consing. O(1) for already-canonical expressions.
         e = Expr.deepReIntern(e);
+        reducerTrace("whnf.enter", e, null);
 
         // Check cache — unconditionally, matching Lean 4 (no hasFVar guard).
         // Within a single declaration check, lctx only grows monotonically,
         // so cached results for fvar-containing expressions remain valid.
-        Expr cached = whnfCache.get(e);
+        Expr cached = cacheGet(whnfIdentityCache, whnfStructuralCache, e);
         if (cached != null) { whnfCacheHits++; return cached; }
 
         whnfDepth++;
@@ -1850,7 +1805,8 @@ public final class Reducer {
             // enableIntern) are canonicalized. Fast for already-interned expressions
             // (table.get() hit returns immediately).
             Expr result = raw.isEqp(e) ? e : Expr.deepReIntern(raw);
-            whnfCache.put(e, result);
+            cachePut(whnfIdentityCache, whnfStructuralCache, e, result);
+            reducerTrace("whnf.result", e, result);
             return result;
         } finally {
             whnfDepth--;
@@ -1861,9 +1817,10 @@ public final class Reducer {
         // Matching Lean 4's whnf loop (type_checker.cpp lines 666-682):
         // whnf_core → try reduce_native → try reduce_nat → try unfold_definition → loop
         // Note: NO recursor reduction here — that's handled by whnfCore.
-        e = whnfCore(e);
+        Expr cur = e;
         while (true) {
-            Object[] fnArgs = getAppFnArgs(e);
+            Expr w = whnfCore(cur);
+            Object[] fnArgs = getAppFnArgs(w);
             Expr head = (Expr) fnArgs[0];
             Expr[] args = (Expr[]) fnArgs[1];
 
@@ -1871,28 +1828,26 @@ public final class Reducer {
             Expr natResult = tryReduceNat(head, args);
             if (natResult != null) {
                 checkFuel();
-                e = whnfCore(natResult);
-                continue;
+                return natResult;
             }
 
             // Try Int reduction (native optimization — bypasses def unfolding chain)
             Expr intResult = tryReduceInt(head, args);
             if (intResult != null) {
                 checkFuel();
-                e = whnfCore(intResult);
-                continue;
+                return intResult;
             }
 
             Expr unfolded = tryUnfoldDef(head);
             if (unfolded != null) {
                 checkFuel();
                 deltaCount++;
-                e = whnfCore(mkApps(unfolded, args));
+                cur = mkApps(unfolded, args);
                 continue;
             }
 
             // Nat.succ is now handled by tryReduceNat (1-arg case above)
-            return e;
+            return w;
         }
     }
 
@@ -1936,9 +1891,28 @@ public final class Reducer {
 
     /** Clear all caches (call when starting a new declaration check). */
     public void clearCaches() {
-        whnfCoreCache.clear();
-        whnfCache.clear();
-        unfoldCache.clear();
+        whnfCoreIdentityCache.clear();
+        whnfCoreStructuralCache.clear();
+        whnfIdentityCache.clear();
+        whnfStructuralCache.clear();
+        unfoldIdentityCache.clear();
+        unfoldStructuralCache.clear();
         resultIntern.clear();
+    }
+
+    private static Expr cacheGet(IdentityHashMap<Expr, Expr> identityCache,
+                                 HashMap<Expr, Expr> structuralCache,
+                                 Expr e) {
+        Expr cached = identityCache.get(e);
+        if (cached != null) return cached;
+        return structuralCache.get(e);
+    }
+
+    private static void cachePut(IdentityHashMap<Expr, Expr> identityCache,
+                                 HashMap<Expr, Expr> structuralCache,
+                                 Expr key,
+                                 Expr value) {
+        identityCache.put(key, value);
+        structuralCache.put(key, value);
     }
 }

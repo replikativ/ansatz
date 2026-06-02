@@ -16,7 +16,7 @@
             [ansatz.kernel.name :as ansatz-name]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
-  (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker FlatStore FlatStoreWriter FlatStoreWriter$DeclProvider]
+  (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker InductiveBundle FlatStore FlatStoreWriter FlatStoreWriter$DeclProvider]
            [ansatz.export.types CIShell]
            [org.replikativ.persistent_sorted_set PersistentSortedSet IStorage Leaf Branch Settings RefType]
            [org.fressian Writer Reader]
@@ -37,6 +37,14 @@
   (fn [a b]
     (compare (.toString ^Name (nth a 0))
              (.toString ^Name (nth b 0)))))
+
+(defn- long-prop
+  [prop-name default]
+  (try
+    (let [v (Long/parseLong (System/getProperty prop-name (str default)))]
+      (if (pos? v) v default))
+    (catch Throwable _
+      default)))
 
 ;; ============================================================
 ;; Fressian handlers for Ansatz types
@@ -626,14 +634,13 @@
 ;; Load — reconstruct Env from persisted PSS
 ;; ============================================================
 
-(defn load-env
-  "Load an Env from a persisted branch.
-   Returns a lazy PSS-backed Env that loads declarations on demand.
-   Only the PSS tree nodes needed for lookup are deserialized.
-   For DAG-based storage, expressions are resolved from the store on demand.
-   Supports two formats:
-   - Full PSS (non-DAG): env-PSS holds ConstantInfo with full Expr objects
-   - PSS DAG: dag-storage? + exprs-root → expr/name/level PSS trees"
+(defn- branch-loader
+  "Create shared lazy branch lookup state.
+
+   The returned lookup function is intentionally unrestricted. Callers that
+   need admission-order visibility must wrap it before installing it into Env.
+   Keeping this state shared avoids duplicate expression/name/level resolver
+   caches between staged verifier lookup and declaration fetch."
   [store-map branch-name]
   (let [{:keys [storage store]} store-map
         branch-meta (store-get store [:branches branch-name])]
@@ -643,31 +650,47 @@
           env-pss (pss/restore-by name-cmp env-root storage)
           dag? (:dag-storage? branch-meta)
           pss-dag? (and dag? (:exprs-root branch-meta))
-          ;; For DAG storage, create expression resolver
           resolve-expr-fn
           (when dag?
             (if pss-dag?
-              ;; PSS-based DAG: resolve from PSS trees
               (let [exprs-pss (pss/restore-by id-cmp (:exprs-root branch-meta) storage)
                     names-pss (pss/restore-by id-cmp (:names-root branch-meta) storage)
                     levels-pss (pss/restore-by id-cmp (:levels-root branch-meta) storage)
                     resolve-name-fn (create-name-resolver names-pss)
                     resolve-level-fn (create-level-resolver levels-pss)]
                 (create-expr-resolver exprs-pss resolve-name-fn resolve-level-fn))
-              ;; Flat DAG: resolve from flat LMDB entries
               (let [resolve-name-fn (create-name-resolver store)
                     resolve-level-fn (create-level-resolver store)]
                 (create-expr-resolver store resolve-name-fn resolve-level-fn))))
-          ^Env env (Env.)
-          lookup-fn (fn [^Name name]
+          lookup-ci (fn [^Name name]
                       (let [result (pss/lookup env-pss [name nil])]
                         (when result
                           (let [entry (nth result 1)]
                             (if dag?
                               (resolve-ci-shell entry resolve-expr-fn)
                               entry)))))]
+      {:branch-meta branch-meta
+       :lookup-ci lookup-ci})))
+
+(defn load-env
+  "Load an Env from a persisted branch.
+   Returns a lazy PSS-backed Env that loads declarations on demand.
+   Only the PSS tree nodes needed for lookup are deserialized.
+   For DAG-based storage, expressions are resolved from the store on demand.
+   Supports two formats:
+   - Full PSS (non-DAG): env-PSS holds ConstantInfo with full Expr objects
+   - PSS DAG: dag-storage? + exprs-root → expr/name/level PSS trees
+
+   Optional :visible? predicate restricts external lookup. Verification uses
+   this to model Lean admission order: a declaration can only see admitted
+   earlier declarations."
+  [store-map branch-name & {:keys [visible? loader]}]
+  (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name))]
+    (let [^Env env (Env.)]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
-            env (.withExternalLookup env lookup-fn (int (:env-count branch-meta 0)))]
+            env (if visible?
+                  (.withExternalLookupFiltered env lookup-ci (int (:env-count branch-meta 0)) visible?)
+                  (.withExternalLookup env lookup-ci (int (:env-count branch-meta 0))))]
         env))))
 
 (defn resolve-expr
@@ -722,9 +745,10 @@
         lookup-raw (if pss?
                      (fn [id] (pss-lookup-raw source id))
                      (fn [id] (store-get source [:expr id])))
-        ^java.util.Map cache (proxy [java.util.LinkedHashMap] [16384 (float 0.75) true]
+        expr-cache-size (long-prop "ansatz.storage.expr-cache-size" 16384)
+        ^java.util.Map cache (proxy [java.util.LinkedHashMap] [(int expr-cache-size) (float 0.75) true]
                                (removeEldestEntry [_entry]
-                                 (> (.size ^java.util.Map this) 16384)))]
+                                 (> (.size ^java.util.Map this) expr-cache-size)))]
     (letfn [(decode-leaf [^bytes raw]
               (let [bb (java.nio.ByteBuffer/wrap raw)
                     tag (int (.get bb))]
@@ -1163,11 +1187,10 @@
              :log-writer Writer, :ok atom, :errors atom, :error-names atom, :idx atom}"
   [store-map branch-name & {:keys [log-file]
                             :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
-  (let [{:keys [storage store]} store-map
+  (let [{:keys [store]} store-map
         lw (java.io.FileWriter. (str log-file) false)
-        branch-meta (store-get store [:branches branch-name])]
-    (when (nil? branch-meta)
-      (throw (ex-info "Branch not found" {:branch branch-name})))
+        loader (branch-loader store-map branch-name)
+        {:keys [branch-meta lookup-ci]} loader]
     (let [decl-order (if-let [num-chunks (:decl-order-chunks branch-meta)]
                       ;; Chunked decl-order: reassemble from parts
                        (into [] (mapcat (fn [i] (store-get store [:decl-order branch-name i])))
@@ -1176,13 +1199,24 @@
                        (store-get store [:decl-order branch-name]))
           _ (when (nil? decl-order)
               (throw (ex-info "Declaration order not found" {:branch branch-name})))
-          env (load-env store-map branch-name)
-          ;; Delegate to env.lookup() which already has PSS-backed external lookup
-          ;; from load-env. This avoids creating a duplicate PSS tree that would
-          ;; accumulate deserialized nodes and grow memory unboundedly.
+          idx (atom 0)
+          admitted-ranks (java.util.BitSet. (count decl-order))
+          decl-ranks (java.util.HashMap. (* 2 (count decl-order)))
+          _ (doseq [[i name-str] (map-indexed vector decl-order)]
+              (.put decl-ranks (ansatz-name/from-string name-str) (long i)))
+          visible? (fn [^Name name]
+                     (when-let [rank (.get decl-ranks name)]
+                       (let [rank (long rank)]
+                         (and (< rank @idx)
+                              (.get admitted-ranks (int rank))))))
+          env (load-env store-map branch-name :visible? visible? :loader loader)
+          ;; Verification type-checks against the staged env above, but fetching
+          ;; the declaration being checked must be unrestricted. Both paths share
+          ;; the branch loader so expression/name/level materialization caches
+          ;; are not duplicated.
           resolve-fn (fn [name-str]
                        (let [name-obj (ansatz-name/from-string name-str)]
-                         (.lookup ^Env env name-obj)))]
+                         (lookup-ci name-obj)))]
       (log! lw "Prepared verification for branch" (pr-str branch-name)
             ":" (count decl-order) "declarations")
       {:env env
@@ -1192,99 +1226,155 @@
        :ok (atom 0)
        :errors (atom 0)
        :error-names (atom [])
-       :idx (atom 0)
+       :idx idx
+       :admitted-ranks admitted-ranks
+       :decl-ranks decl-ranks
        :start-time (System/currentTimeMillis)})))
 
+(defn- mark-admitted-range!
+  [ctx start-idx end-idx]
+  (when-let [^java.util.BitSet admitted (:admitted-ranks ctx)]
+    (when (< start-idx end-idx)
+      (.set admitted (int start-idx) (int end-idx)))))
+
 (def ^:private default-fuel
-  "Default fuel per declaration. 20M steps is enough for all known mathlib proofs
-   (heaviest legitimate batch used ~6M). Acts as a safety net against divergent
-   computation while keeping the REPL responsive.
+  "Default fuel per declaration for imported-store verification.
+   Full Mathlib verification has legitimate declarations above 20M reduction
+   steps (for example Polynomial.taylorLinearEquiv_symm used ~25.4M), so the
+   store verifier defaults to 100M. Lower this explicitly for quick smoke runs.
    Set to 0 for unlimited (not recommended — tight loops become unkillable)."
-  20000000)
+  100000000)
 
 (def ^:private verify-stack-size
   "256MB stack for deep isDefEq recursion on large Mathlib proofs.
    Lean's C++ has smaller stack frames so doesn't need this."
   (* 256 1024 1024))
 
+(defn- same-name-array?
+  [^objects xs ^objects ys]
+  (and xs ys
+       (= (alength xs) (alength ys))
+       (loop [i 0]
+         (cond
+           (= i (alength xs)) true
+           (= (aget xs i) (aget ys i)) (recur (inc i))
+           :else false))))
+
+(defn- bundle-all-names
+  ^objects [^ConstantInfo ci]
+  (or (.all ci) (into-array Object [(.name ci)])))
+
+(defn- inductive-bundle-member?
+  [^objects all-names ^ConstantInfo ci]
+  (case (int (.tag ci))
+    5 (boolean (some #(= ^Object % (.name ci)) all-names))
+    6 (boolean (some #(= ^Object % (.inductName ci)) all-names))
+    7 (same-name-array? all-names (.all ci))
+    false))
+
+(defn- build-inductive-bundle
+  ^InductiveBundle [members]
+  (let [inductives (filterv #(.isInduct ^ConstantInfo %) members)
+        ctors (filterv #(.isCtor ^ConstantInfo %) members)
+        recursors (filterv #(.isRecursor ^ConstantInfo %) members)
+        ^ConstantInfo first-ind (first inductives)]
+    (when-not first-ind
+      (throw (ex-info "Inductive bundle has no inductive declarations"
+                      {:members (mapv #(str (.name ^ConstantInfo %)) members)})))
+    (InductiveBundle.
+     (.levelParams first-ind)
+     (.numParams first-ind)
+     (.isUnsafe first-ind)
+     (into-array ConstantInfo inductives)
+     (into-array ConstantInfo ctors)
+     (into-array ConstantInfo recursors))))
+
+(defn- collect-inductive-bundle
+  [decl-order resolve-fn start-idx ^ConstantInfo head-ci]
+  (let [all-names (bundle-all-names head-ci)
+        total (count decl-order)]
+    (loop [j start-idx
+           members []]
+      (if (< j total)
+        (let [name-str (nth decl-order j)
+              ^ConstantInfo ci (resolve-fn name-str)]
+          (when-not ci
+            (throw (ex-info "Missing declaration while collecting inductive bundle"
+                            {:idx j :name name-str})))
+          (if (inductive-bundle-member? all-names ci)
+            (recur (inc j) (conj members ci))
+            {:members members :next-idx j}))
+        {:members members :next-idx j}))))
+
 (defn verify-one!
   "Verify the next declaration from ctx. Type checking runs on a large-stack
    thread (256MB) to handle deep isDefEq recursion.
-   Returns result map with :status, :name, :fuel-used, :elapsed-ms.
-   Declarations that exceed fuel are added to env without full check
-   and flagged :fuel-exceeded."
+   Returns result map with :status, :name, :fuel-used, :elapsed-ms. Non-inductive
+   constants report measured fuel; inductive bundles currently report 0.
+   Inductive declarations are verified as a contiguous Lean-style bundle.
+   Failed declarations are not marked admitted; non-stop mode is diagnostic only."
   [ctx & {:keys [fuel timeout-ms] :or {fuel default-fuel timeout-ms 120000}}]
-  (let [{:keys [env decl-order resolve-fn ^java.io.Writer log-writer
-                ok errors error-names idx]} ctx
+  (let [{:keys [env decl-order resolve-fn ok errors error-names idx]} ctx
         i @idx
         total (count decl-order)]
     (when (>= i total)
       (throw (ex-info "All declarations verified" {:idx i :total total})))
     (let [name-str (nth decl-order i)
           t0 (System/nanoTime)
-          ^ConstantInfo ci (resolve-fn name-str)
-          env-vol (volatile! env)]
+          ^ConstantInfo ci (resolve-fn name-str)]
       (if (nil? ci)
         (do (swap! errors inc)
             (swap! error-names conj {:name name-str :error "MISSING"})
             (swap! idx inc)
             {:status :missing :name name-str :idx i})
-        (let [tag (.tag ci)]
-          (try
-            (let [raw-result
-                  (run-with-large-stack
-                   (fn []
-                     (case (int tag)
-                       4 ;; QUOT — no check needed
-                       (do (vreset! env-vol (.enableQuot (.addConstant @env-vol ci))) 0)
-                       (5 6 7) ;; INDUCT, CTOR, RECURSOR — check type only
-                       (do (TypeChecker/checkType @env-vol ci (long fuel))
-                           (vreset! env-vol (.addConstant @env-vol ci)) 0)
-                       ;; DEF, THM, OPAQUE, AXIOM — full check with fuel+stats instrumentation
-                       (let [result (TypeChecker/checkConstantFuelStats @env-vol ci (long fuel))]
-                         (vreset! env-vol (.addConstantIfAbsent @env-vol ci))
-                         result)))
-                   verify-stack-size
-                   timeout-ms)
+        (try
+          (let [bundle? (.isInduct ci)
+                {:keys [members next-idx]}
+                (when bundle?
+                  (collect-inductive-bundle decl-order resolve-fn i ci))
+                fuel-used
+                (long
+                 (run-with-large-stack
+                  (fn []
+                    (cond
+                      bundle?
+                      (do
+                        (TypeChecker/checkInductiveBundle
+                         env (build-inductive-bundle members) (long fuel))
+                        0)
+
+                      (or (.isCtor ci) (.isRecursor ci))
+                      (throw (ex-info "Inductive bundle member encountered outside bundle head"
+                                      {:idx i :name name-str}))
+
+                      :else
+                      (TypeChecker/checkConstantFuel env ci (long fuel))))
+                  verify-stack-size
+                  timeout-ms))
+                elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
+            (mark-admitted-range! ctx i (if bundle? next-idx (inc i)))
+            (swap! ok + (if bundle? (count members) 1))
+            (if bundle?
+              (reset! idx next-idx)
+              (swap! idx inc))
+            (cond-> {:status :ok :name name-str :idx i
+                     :fuel-used fuel-used :elapsed-ms elapsed-ms}
+              bundle? (assoc :bundle-size (count members)
+                             :next-idx next-idx)))
+          (catch Throwable ex
+            (let [msg (str (.getClass ex) ": " (.getMessage ex))
                   elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
-                  ;; Extract stats when available (Object[4] from checkConstantFuelStats)
-                  has-stats? (.isArray (class raw-result))
-                  fuel-used (if has-stats? (long (aget ^objects raw-result 0)) (long raw-result))
-                  stats (when has-stats? (into {} (aget ^objects raw-result 1)))
-                  trace (when has-stats? (vec (aget ^objects raw-result 2)))
-                  err-msg (when has-stats? (aget ^objects raw-result 3))]
-              (if err-msg
-                ;; Error with stats (fuel exhaustion, type mismatch, etc.)
-                (let [fuel-exceeded? (.contains ^String err-msg "fuel exhausted")]
-                  (try (vreset! env-vol (.addConstantIfAbsent @env-vol ci)) (catch Exception _))
-                  (swap! errors inc)
-                  (swap! error-names conj {:name name-str :error err-msg
-                                           :fuel-exceeded? fuel-exceeded?})
-                  (swap! idx inc)
-                  (cond-> {:status (if fuel-exceeded? :fuel-exceeded :error)
-                           :name name-str :idx i :error err-msg
-                           :fuel-used fuel-used :elapsed-ms elapsed-ms}
-                    stats (assoc :stats stats)
-                    trace (assoc :trace trace)))
-                ;; Success
-                (do (swap! ok inc)
-                    (swap! idx inc)
-                    (cond-> {:status :ok :name name-str :idx i
-                             :fuel-used fuel-used :elapsed-ms elapsed-ms}
-                      stats (assoc :stats stats)
-                      trace (assoc :trace trace)))))
-            (catch Throwable ex
-              (let [msg (str (.getClass ex) ": " (.getMessage ex))
-                    elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
-                (when (instance? OutOfMemoryError ex)
-                  (System/gc)) ;; try to recover
-                (try (vreset! env-vol (.addConstantIfAbsent @env-vol ci)) (catch Exception _))
-                (swap! errors inc)
-                (swap! error-names conj {:name name-str :error msg
-                                         :fuel-exceeded? (instance? OutOfMemoryError ex)})
-                (swap! idx inc)
-                {:status :error :name name-str :idx i
-                 :error msg :elapsed-ms elapsed-ms}))))))))
+                  fuel-exceeded? (or (instance? OutOfMemoryError ex)
+                                     (.contains ^String msg "fuel exhausted"))]
+              (when (instance? OutOfMemoryError ex)
+                (System/gc))
+              (swap! errors inc)
+              (swap! error-names conj {:name name-str :error msg
+                                       :fuel-exceeded? fuel-exceeded?})
+              (swap! idx inc)
+              {:status (if fuel-exceeded? :fuel-exceeded :error)
+               :name name-str :idx i
+               :error msg :elapsed-ms elapsed-ms})))))))
 
 (defn skip!
   "Advance idx by `n` without verifying. For resuming past known-good ranges.
@@ -1292,7 +1382,9 @@
    just advance the index. Quot is already enabled from branch metadata in load-env."
   [ctx n]
   (let [{:keys [idx decl-order]} ctx
-        end-idx (min (+ @idx (long n)) (count decl-order))]
+        start-idx @idx
+        end-idx (min (+ start-idx (long n)) (count decl-order))]
+    (mark-admitted-range! ctx start-idx end-idx)
     (reset! idx end-idx)
     end-idx))
 
@@ -1310,7 +1402,9 @@
   "Jump directly to index n. Alias for (reset! (:idx ctx) n)."
   [ctx n]
   (let [{:keys [idx decl-order]} ctx
+        start-idx @idx
         n (min (long n) (count decl-order))]
+    (mark-admitted-range! ctx start-idx n)
     (reset! idx n)
     n))
 
@@ -1336,9 +1430,11 @@
    Options:
      :stop-on-error?  stop on first error (default true)
      :verbose?        log progress every 1000 decls (default false)
-     :fuel            fuel limit (default 0 = unlimited)"
-  [ctx n & {:keys [verbose? fuel stop-on-error?]
-            :or {verbose? false fuel default-fuel stop-on-error? true}}]
+     :fuel            fuel limit (default 100M; 0 = unlimited)
+     :timeout-ms      per-declaration wall-clock timeout
+                      (default 120000, 0 disables)"
+  [ctx n & {:keys [verbose? fuel timeout-ms stop-on-error?]
+            :or {verbose? false fuel default-fuel timeout-ms 120000 stop-on-error? true}}]
   (let [{:keys [^java.io.Writer log-writer ok errors error-names idx decl-order]} ctx
         start-idx @idx
         end-idx (min (+ start-idx n) (count decl-order))
@@ -1347,7 +1443,7 @@
         last-result (atom nil)]
     (loop []
       (when (< @idx end-idx)
-        (let [result (verify-one! ctx :fuel fuel)]
+        (let [result (verify-one! ctx :fuel fuel :timeout-ms timeout-ms)]
           (reset! last-result result)
           (when (:fuel-used result)
             (swap! max-fuel-used max (:fuel-used result)))
@@ -1379,26 +1475,30 @@
 
 (defn verify-from-store!
   "Convenience: verify all declarations in one go.
-   Runs on a 64MB stack thread for deep recursion.
+   Uses verify-one!, which runs each declaration on a 256MB stack thread for
+   deep kernel recursion.
    For interactive use, prefer prepare-verify + verify-one!/verify-batch!."
-  [store-map branch-name & {:keys [verbose? log-file]
+  [store-map branch-name & {:keys [verbose? log-file timeout-ms]
                             :or {verbose? false
+                                 timeout-ms 120000
                                  log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (run-with-large-stack
    (fn []
      (let [ctx (prepare-verify store-map branch-name :log-file log-file)
            total (count (:decl-order ctx))
-           result (verify-batch! ctx total :verbose? verbose?)]
+           result (verify-batch! ctx total :verbose? verbose? :timeout-ms timeout-ms)]
        (.close ^java.io.Writer (:log-writer ctx))
        result))))
 
 ;; ============================================================
-;; FlatStore — mmap'd flat store import and verification
+;; FlatStore — mmap'd performance-oriented store import and verification
 ;; ============================================================
 
 (defn import-to-flatstore!
   "Parse an ndjson file and write directly to FlatStore format.
-   Bypasses PSS entirely — no LMDB needed.
+   Bypasses PSS entirely — no LMDB needed. This is an experimental imported-store
+   performance path; the PSS-backed verifier remains the full Mathlib validation
+   gate until FlatStore is verified at that scale.
    Returns the output directory path."
   [ndjson-path out-dir & {:keys [max-count log-file]
                           :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-import.log")}}]
@@ -1543,13 +1643,33 @@
   [flat-store-path & {:keys [log-file]
                       :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (let [lw (java.io.FileWriter. (str log-file) false)
-        {:keys [env decl-order] :as fs-map} (open-flatstore flat-store-path)
+        {:keys [decl-order] :as fs-map} (open-flatstore flat-store-path)
         ^FlatStore store (::flat-store fs-map)
+        idx (atom 0)
+        admitted-ranks (java.util.BitSet. (count decl-order))
+        decl-ranks (java.util.HashMap. (* 2 (count decl-order)))
         ;; Build name-str → Name lookup using getDeclName (handles special chars)
         name-lookup (let [m (java.util.HashMap. (count decl-order))]
                       (dotimes [i (count decl-order)]
-                        (.put m (nth decl-order i) (.getDeclName store (int i))))
+                        (let [^Name name (.getDeclName store (int i))]
+                          (.put m (nth decl-order i) name)
+                          (.put decl-ranks name (long i))))
                       m)
+        visible? (fn [^Name name]
+                   (when-let [rank (.get decl-ranks name)]
+                     (let [rank (long rank)]
+                       (and (< rank @idx)
+                            (.get admitted-ranks (int rank))))))
+        lookup-fn (reify clojure.lang.IFn
+                    (invoke [_ name]
+                      (when (instance? Name name)
+                        (.lookupDecl store ^Name name))))
+        visible-fn (reify clojure.lang.IFn
+                     (invoke [_ name]
+                       (and (instance? Name name) (visible? name))))
+        quot-enabled? (boolean (some #{"Quot"} decl-order))
+        env (cond-> (Env.) quot-enabled? (.enableQuot))
+        env (.withExternalLookupFiltered env lookup-fn (int (count decl-order)) visible-fn)
         resolve-fn (fn [name-str]
                      (let [^Name name-obj (.get ^java.util.HashMap name-lookup name-str)]
                        (when name-obj
@@ -1563,6 +1683,8 @@
      :ok (atom 0)
      :errors (atom 0)
      :error-names (atom [])
-     :idx (atom 0)
+     :idx idx
+     :admitted-ranks admitted-ranks
+     :decl-ranks decl-ranks
      :start-time (System/currentTimeMillis)
      ::flat-store store}))

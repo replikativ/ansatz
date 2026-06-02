@@ -5,8 +5,11 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
-            [ansatz.export.parser :refer [parse-ndjson-file]])
-  (:import [ansatz.kernel TypeChecker Reducer Expr Env ConstantInfo Name Level]))
+            [ansatz.export.parser :refer [parse-ndjson-file]]
+            [ansatz.export.replay :as replay])
+  (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo
+            ConstantInfo$RecursorRule Name Level]
+           [java.io StringWriter]))
 
 ;; ============================================================
 ;; Helpers
@@ -23,6 +26,20 @@
   "Create a TypeChecker with empty env."
   ([] (TypeChecker. (Env.)))
   ([^Env env] (TypeChecker. env)))
+
+(defn- private-map-size
+  [obj field-name]
+  (let [field (.getDeclaredField (class obj) field-name)]
+    (.setAccessible field true)
+    (.size ^java.util.Map (.get field obj))))
+
+(defn- invoke-private-method
+  [obj method-name arg-types & args]
+  (let [method (.getDeclaredMethod (class obj)
+                                   method-name
+                                   (into-array Class arg-types))]
+    (.setAccessible method true)
+    (.invoke method obj (object-array args))))
 
 ;; ============================================================
 ;; Type inference: sorts
@@ -82,6 +99,27 @@
       ;; Verify it simplifies correctly under isDefEq
       (is (.isDefEq tc result type0)))))
 
+(deftest infer-cache-uses-lean-expr-map-equality-test
+  (testing "infer_type cache ignores binder names and binder info like Lean expr_map"
+    (let [tc (mk-tc)
+          lhs (e/forall' "x" prop prop :default)
+          rhs (e/forall' "y" prop prop :implicit)]
+      (is (not= lhs rhs))
+      (.inferType tc lhs)
+      (let [size-after-lhs (private-map-size tc "inferOnlyStructuralCache")]
+        (.inferType tc rhs)
+        (is (= size-after-lhs
+               (private-map-size tc "inferOnlyStructuralCache")))))))
+
+(deftest failure-cache-uses-lean-expr-pair-equality-test
+  (testing "same-definition failure cache ignores binder names and binder info like Lean expr_pair_set"
+    (let [tc (mk-tc)
+          lhs (e/forall' "x" prop prop :default)
+          rhs (e/forall' "y" prop prop :implicit)]
+      (is (not= lhs rhs))
+      (invoke-private-method tc "cacheFailure" [Expr Expr] lhs type0)
+      (is (true? (invoke-private-method tc "failedBefore" [Expr Expr] rhs type0))))))
+
 ;; ============================================================
 ;; Type inference: let
 ;; ============================================================
@@ -136,6 +174,107 @@
           rhs (e/lam "x" prop (e/bvar 0) bi)]
       (is (.isDefEq tc lhs rhs)))))
 
+(deftest native-nat-reduction-order-test
+  (testing "binary Nat reduction short-circuits before normalizing the right operand"
+    (let [reducer (Reducer. (Env.))
+          add (Expr/mkConst Name/NAT_ADD clojure.lang.PersistentVector/EMPTY false)
+          expr (Expr/app (Expr/app add (Expr/fvar 1)) (Expr/litNat 1))]
+      (is (nil? (.tryReduceNatExpr reducer expr)))
+      (is (= 1 (get (.getStats reducer) "whnf-calls"))))))
+
+(deftest equiv-manager-lean-semantics-test
+  (testing "equivalence uses syntactic level equality, not pointer identity"
+    (let [u (name/from-string "u")
+          l1 (lvl/param u)
+          l2 (lvl/param u)
+          em (EquivManager.)]
+      (is (not (identical? l1 l2)))
+      (is (.isEquiv em (Expr/sort l1 true) (Expr/sort l2 true)))))
+
+  (testing "constant universe arguments are compared structurally"
+    (let [u (name/from-string "u")
+          cname (name/from-string "C")
+          l1 (lvl/param u)
+          l2 (lvl/param u)
+          c1 (Expr/mkConst cname (object-array [l1]) true)
+          c2 (Expr/mkConst cname (object-array [l2]) true)
+          em (EquivManager.)]
+      (is (.isEquiv em c1 c2))))
+
+  (testing "equivalence ignores binder names and binder info"
+    (let [lhs (e/forall' "x" prop prop :default)
+          rhs (e/forall' "y" prop prop :implicit)
+          em (EquivManager.)]
+      (is (.isEquiv em lhs rhs))))
+
+  (testing "equivalence ignores metadata payloads"
+    (let [lhs (e/mdata {:source "left"} prop)
+          rhs (e/mdata {:source "right"} prop)
+          em (EquivManager.)]
+      (is (.isEquiv em lhs rhs))))
+
+  (testing "the core equivalence relation ignores projection structure names"
+    (let [struct (e/fvar 1)
+          lhs (e/proj (name/from-string "S1") 0 struct)
+          rhs (e/proj (name/from-string "S2") 0 struct)
+          em (EquivManager.)]
+      ;; Lean's expression hash includes the projection structure name, so
+      ;; callers that enable hash fast-rejection may reject this before core.
+      (is (.isEquiv em lhs rhs false)))))
+
+(deftest level-constructor-lean-semantics-test
+  (testing "mk_max preserves Lean's syntactic level shape"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          lhs (Level/max (Level/succ u) (Level/succ v))
+          rhs (Level/max (Level/succ v) (Level/succ u))]
+      (is (not (.equals lhs rhs)))
+      (is (Level/eq lhs rhs))))
+
+  (testing "succ construction does not normalize through max"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          lhs (Level/succ (Level/max u v))
+          rhs (Level/max (Level/succ u) (Level/succ v))]
+      (is (not (.equals lhs rhs)))
+      (is (Level/eq lhs rhs))))
+
+  (testing "quick expression equivalence keeps syntactic levels, const_eq handles level defeq"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          cname (name/from-string "C")
+          lhs-level (Level/max (Level/succ u) (Level/succ v))
+          rhs-level (Level/max (Level/succ v) (Level/succ u))
+          lhs (Expr/mkConst cname (object-array [lhs-level]) true)
+          rhs (Expr/mkConst cname (object-array [rhs-level]) true)
+          em (EquivManager.)
+          tc (mk-tc)]
+      (is (not (.isEquiv em lhs rhs)))
+      (is (.isDefEq tc lhs rhs)))))
+
+(deftest lazy-delta-same-definition-uses-declaration-identity-test
+  (testing "same-definition shortcut is independent of syntactic universe arguments"
+    (let [u (lvl/param (name/from-string "u"))
+          v (lvl/param (name/from-string "v"))
+          w (name/from-string "w")
+          dname (name/from-string "TraceD")
+          lhs-level (Level/max (Level/succ u) (Level/succ v))
+          rhs-level (Level/max (Level/succ v) (Level/succ u))
+          dtype (e/forall' "P" prop prop bi)
+          dvalue (e/lam "P" prop (e/bvar 0) bi)
+          ci (ConstantInfo/mkDef dname (object-array [w]) dtype dvalue
+                                 1 (byte 0) (object-array []))
+          env (.addConstant (Env.) ci)
+          tc (mk-tc env)
+          trace (java.io.StringWriter.)
+          lhs (e/app (Expr/mkConst dname (object-array [lhs-level]) true) prop)
+          rhs (e/app (Expr/mkConst dname (object-array [rhs-level]) true) prop)]
+      (.setTraceWriter tc trace)
+      (is (.isDefEq tc lhs rhs))
+      (let [s (str trace)]
+        (is (.contains s "\"by\":\"lazy_delta\""))
+        (is (not (.contains s "\"by\":\"app\"")))))))
+
 ;; ============================================================
 ;; checkConstantFuelStats returns stats
 ;; ============================================================
@@ -159,6 +298,54 @@
       ;; error message (nil on success)
       (is (nil? (aget result 3))))))
 
+(deftest traced-check-entrypoints-test
+  (testing "traced declaration checking emits equality events and admits the declaration"
+    (let [dname (name/from-string "tracedId")
+          dtype (e/forall' "x" prop prop bi)
+          dvalue (e/lam "x" prop (e/bvar 0) bi)
+          ci (env/mk-def dname [] dtype dvalue)
+          trace (StringWriter.)
+          env' (TypeChecker/checkConstantTraced (Env.) ci 1000000 trace)]
+      (is (some? (env/lookup env' dname)))
+      (is (.contains (str trace) "\"by\""))))
+
+  (testing "phased tracing emits declaration-check phase markers"
+    (let [dname (name/from-string "phasedId")
+          dtype (e/forall' "x" prop prop bi)
+          dvalue (e/lam "x" prop (e/bvar 0) bi)
+          ci (env/mk-def dname [] dtype dvalue)
+          trace (StringWriter.)
+          env' (TypeChecker/checkConstantTracedPhased (Env.) ci 1000000 trace)
+          out (str trace)]
+      (is (some? (env/lookup env' dname)))
+      (is (.contains out "\"phase\":\"checkType\""))
+      (is (.contains out "\"phase\":\"checkValue\""))
+      (is (.contains out "\"phase\":\"valueDefEqType\"")))))
+
+(deftest inductive-declarations-require-bundle-entrypoint-test
+  (testing "inductive declarations cannot be admitted through checkConstant"
+    (let [ind-name (name/from-string "TInd")
+          ctor-name (name/from-string "TInd.mk")
+          rec-name (name/from-string "TInd.rec")
+          ind-ci (env/mk-induct ind-name [] prop
+                                :num-params 0
+                                :num-indices 0
+                                :all [ind-name]
+                                :ctors [ctor-name])
+          ctor-ci (env/mk-ctor ctor-name [] prop ind-name 0 0 0)
+          rec-ci (env/mk-recursor rec-name [] prop
+                                  :all [ind-name]
+                                  :num-params 0
+                                  :num-indices 0
+                                  :num-motives 1
+                                  :num-minors 1)]
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) ind-ci 1000000)))
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) ctor-ci 1000000)))
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) rec-ci 1000000))))))
+
 ;; ============================================================
 ;; Full replay with fuel stats
 ;; ============================================================
@@ -167,24 +354,194 @@
   (testing "Replay Nat.add_succ with checkConstantFuelStats"
     (let [f "test-data/Nat.add_succ.ndjson"]
       (when (.exists (java.io.File. f))
+        (letfn [(same-name-array? [^objects xs ^objects ys]
+                  (and xs ys
+                       (= (alength xs) (alength ys))
+                       (loop [i 0]
+                         (cond
+                           (= i (alength xs)) true
+                           (= (aget xs i) (aget ys i)) (recur (inc i))
+                           :else false))))
+                (bundle-member? [^objects all-names ^ConstantInfo ci]
+                  (case (int (.tag ci))
+                    5 (boolean (some #(= ^Object % (.name ci)) all-names))
+                    6 (boolean (some #(= ^Object % (.inductName ci)) all-names))
+                    7 (same-name-array? all-names (.all ci))
+                    false))
+                (collect-bundle [decls ^ConstantInfo head]
+                  (let [all-names (or (.all head) (object-array [(.name head)]))]
+                    (loop [remaining decls
+                           members []]
+                      (if-let [^ConstantInfo ci (first remaining)]
+                        (if (bundle-member? all-names ci)
+                          (recur (next remaining) (conj members ci))
+                          {:members members :rest remaining})
+                        {:members members :rest nil}))))
+                (mk-bundle [members]
+                  (let [inductives (filterv #(.isInduct ^ConstantInfo %) members)
+                        ctors (filterv #(.isCtor ^ConstantInfo %) members)
+                        recursors (filterv #(.isRecursor ^ConstantInfo %) members)
+                        ^ConstantInfo first-ind (first inductives)]
+                    (env/mk-inductive-bundle
+                     (vec (.levelParams first-ind))
+                     (.numParams first-ind)
+                     (.isUnsafe first-ind)
+                     inductives
+                     ctors
+                     recursors)))]
+          (let [st (parse-ndjson-file f)
+                current-env (atom (Env.))
+                fuel 10000000
+                errors (atom 0)]
+            (loop [decls (seq (:decls st))]
+              (when-let [^ConstantInfo ci (first decls)]
+                (let [next-decls
+                      (try
+                        (cond
+                          (.isInduct ci)
+                          (let [{:keys [members rest]} (collect-bundle decls ci)
+                                bundle (mk-bundle members)]
+                            (swap! current-env
+                                   (fn [^Env env]
+                                     (TypeChecker/checkInductiveBundle env bundle fuel)))
+                            rest)
+
+                          (or (.isCtor ci) (.isRecursor ci))
+                          (do
+                            (swap! errors inc)
+                            (next decls))
+
+                          (.isQuot ci)
+                          (do
+                            (swap! current-env
+                                   (fn [^Env env]
+                                     (TypeChecker/checkConstant env ci fuel)))
+                            (next decls))
+
+                          :else
+                          (let [^objects result (TypeChecker/checkConstantFuelStats ^Env @current-env ci fuel)
+                                err (aget result 3)]
+                            (if err
+                              (swap! errors inc)
+                              (swap! current-env
+                                     (fn [^Env env]
+                                       (.addConstant env ci))))
+                            (next decls)))
+                        (catch Exception _
+                          (swap! errors inc)
+                          (next decls)))]
+                  (recur next-decls))))
+            (is (zero? @errors))))))))
+
+;; ============================================================
+;; Admission regressions
+;; ============================================================
+
+(deftest reject-ill-typed-definition-test
+  (testing "checkConstant rejects definitions whose body only typechecks in infer-only mode"
+    (let [f "test-data/init-medium.ndjson"]
+      (when (.exists (java.io.File. f))
         (let [st (parse-ndjson-file f)
-              env (atom (Env.))
-              fuel 10000000
-              errors (atom 0)]
-          (doseq [ci (:decls st)]
-            (try
-              (if (.isQuot ci)
-                (swap! env (fn [^Env current-env]
-                             (.addConstant (.enableQuot current-env) ci)))
-                (if (or (.isInduct ci) (.isCtor ci) (.isRecursor ci))
-                  (do (TypeChecker/checkType ^Env @env ci fuel)
-                      (swap! env (fn [^Env current-env]
-                                   (.addConstant current-env ci))))
-                  (let [^objects result (TypeChecker/checkConstantFuelStats ^Env @env ci fuel)]
-                    (swap! env (fn [^Env current-env]
-                                 (.addConstant current-env ci)))
-                    (when (or (.isThm ci) (.isOpaq ci))
-                      (set! (.value ci) nil)))))
-              (catch Exception ex
-                (swap! errors inc))))
-          (is (zero? @errors)))))))
+              env (:env (replay/replay (:decls st)))
+              nat (e/const' (name/from-string "Nat") [])
+              body (e/app (e/const' (name/from-string "Nat.succ") [])
+                          (e/const' (name/from-string "True.intro") []))
+              ci (env/mk-def (name/from-string "bad") [] nat body)]
+          (is (thrown? Exception
+                       (TypeChecker/checkConstant env ci 1000000))))))))
+
+(deftest reject-safe-use-of-unsafe-test
+  (testing "safe declarations cannot depend on unsafe constants"
+    (let [prop (e/sort' lvl/zero)
+          unsafe-ax (env/mk-axiom (name/from-string "u") [] prop :unsafe? true)
+          env (TypeChecker/checkConstant (Env.) unsafe-ax 1000000)
+          safe-def (env/mk-def (name/from-string "d") [] prop
+                               (e/const' (name/from-string "u") [])
+                               :safety :safe)]
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant env safe-def 1000000))))))
+
+(deftest universe-parameter-admission-test
+  (testing "checkConstant rejects declaration types that mention undeclared universe params"
+    (let [u (name/from-string "u")
+          bad-ax (env/mk-axiom (name/from-string "badU") []
+                               (e/sort' (lvl/param u)))]
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant (Env.) bad-ax 1000000)))))
+
+  (testing "checkConstant accepts declaration types that only mention declared universe params"
+    (let [u (name/from-string "u")
+          good-ax (env/mk-axiom (name/from-string "goodU") [u]
+                                (e/sort' (lvl/param u)))]
+      (is (instance? Env
+                     (TypeChecker/checkConstant (Env.) good-ax 1000000))))))
+
+(deftest positivity-parameter-discipline-test
+  (testing "constructors reject recursive occurrences with non-parameter arguments"
+    (let [badp-name (name/from-string "BadP")
+          ctor-name (name/from-string "BadP.mk")
+          alpha-name (name/from-string "alpha")
+          beta-name (name/from-string "beta")
+          badp-app-alpha (e/app (e/const' badp-name []) (e/bvar 1))
+          badp-app-beta (e/app (e/const' badp-name []) (e/bvar 0))
+          ind-type (e/forall' alpha-name prop prop bi)
+          ctor-type (e/forall' alpha-name prop
+                               (e/forall' beta-name prop
+                                          (e/forall' "_" badp-app-beta
+                                                     badp-app-alpha
+                                                     bi)
+                                          bi)
+                               bi)
+          ind-ci (env/mk-induct badp-name [] ind-type
+                                :num-params 1
+                                :num-indices 0
+                                :all [badp-name]
+                                :ctors [ctor-name])
+          ctor-ci (env/mk-ctor ctor-name [] ctor-type badp-name 0 1 2)
+          bundle (env/mk-inductive-bundle [] 1 false [ind-ci] [ctor-ci] [])]
+      (is (thrown? Exception
+                   (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))
+
+(deftest reject-corrupt-imported-recursor-rule-test
+  (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
+    (let [f "test-data/Nat.add_succ.ndjson"]
+      (when (.exists (java.io.File. f))
+        (let [members (vec (take 4 (:decls (parse-ndjson-file f))))
+              inductives (filterv #(.isInduct ^ConstantInfo %) members)
+              ctors (filterv #(.isCtor ^ConstantInfo %) members)
+              rec ^ConstantInfo (first (filter #(.isRecursor ^ConstantInfo %) members))
+              rules ^"[Lansatz.kernel.ConstantInfo$RecursorRule;" (.rules rec)
+              bad-rules (aclone rules)
+              zero-rule ^ConstantInfo$RecursorRule (aget rules 0)
+              succ-rule ^ConstantInfo$RecursorRule (aget rules 1)
+              bad-rec (do
+                        (aset bad-rules 1
+                              (ConstantInfo$RecursorRule.
+                               (.ctor succ-rule)
+                               (.nfields succ-rule)
+                               (.rhs zero-rule)))
+                        (ConstantInfo/mkRecursor
+                         (.name rec)
+                         (.levelParams rec)
+                         (.type rec)
+                         (.all rec)
+                         (.numParams rec)
+                         (.numIndices rec)
+                         (.numMotives rec)
+                         (.numMinors rec)
+                         bad-rules
+                         (.isK rec)
+                         (.isUnsafe rec)))
+              first-ind ^ConstantInfo (first inductives)
+              bundle (env/mk-inductive-bundle
+                      (vec (.levelParams first-ind))
+                      (.numParams first-ind)
+                      (.isUnsafe first-ind)
+                      inductives
+                      ctors
+                      [bad-rec])]
+          (is (= (name/from-string "Nat") (.name first-ind)))
+          (is (thrown-with-msg?
+               Exception
+               #"generated recursor rule mismatch"
+               (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))))

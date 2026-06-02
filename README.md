@@ -194,9 +194,33 @@ Ansatz needs a store of Lean 4 Mathlib declarations. There's a one-command setup
 ./scripts/setup-mathlib.sh
 ```
 
-This clones `lean4export` and `mathlib4` (if not present), exports Mathlib to NDJSON,
+This clones `lean4export` and `mathlib4` (if not present), exports Mathlib to NDJSON
+with `mdata` preserved,
 generates the instance registry, and imports into an Ansatz store at `/var/tmp/ansatz-mathlib`.
 Takes ~20 minutes on first run.
+
+To re-check an imported store through the kernel:
+
+```bash
+clj -M -e '
+(require (quote [ansatz.export.storage :as s]))
+(let [store (s/open-store "/var/tmp/ansatz-mathlib")]
+  (try
+    (prn (s/verify-from-store! store "mathlib"
+                               :verbose? true
+                               :timeout-ms 300000))
+    (finally
+      (s/close-store store))))
+'
+```
+
+The authoritative full-corpus check currently uses the PSS-backed store. The
+FlatStore path is a performance-oriented mmap store experiment with targeted
+kernel tests, not the normal Mathlib validation gate yet. The imported-store
+verifier uses a higher fuel default than interactive tactic calls because full
+Mathlib contains legitimate declarations above 20M kernel steps. For trace-level
+comparison against a patched Lean 4 build, see
+[doc/kernel-validation.md](doc/kernel-validation.md).
 
 **Manual setup**
 
@@ -208,10 +232,11 @@ git clone https://github.com/leanprover/lean4export.git ../lean4export
 cd ../lean4export && lake build
 
 # 2. Export Mathlib to NDJSON (~5 min, ~5GB)
-.lake/build/bin/lean4export --mathlib > ../ansatz/test-data/mathlib.ndjson
+# Preserve mdata so imported declarations stay closer to Lean kernel trace space.
+cd ../mathlib4
+lake env ../lean4export/.lake/build/bin/lean4export --export-mdata Mathlib > ../ansatz/test-data/mathlib.ndjson
 
 # 3. Generate instance registry from Mathlib (~2 min)
-cd ../mathlib4
 lake env lean DumpInstances.lean   # produces instances.tsv
 cp instances.tsv ../ansatz/resources/instances.tsv
 
@@ -394,7 +419,7 @@ All limits are configurable via dynamic vars in `ansatz.config`:
 
 | Var | Default | Description |
 |-----|---------|-------------|
-| `*default-fuel*` | 20M | Type checker fuel per operation |
+| `*default-fuel*` | 20M | Interactive tactic/typechecker fuel per operation |
 | `*high-fuel*` | 50M | Fuel for deep instance chains |
 | `*max-whnf-depth*` | 512 | Maximum WHNF reduction depth |
 | `*max-synth-depth*` | 16 | Instance synthesis recursion depth |
@@ -494,8 +519,10 @@ Lean 4 Mathlib + CSLib  →  lean4export  →  Ansatz PSS store
 The CIC kernel is implemented in Java for performance:
 - `TypeChecker` — type inference and definitional equality
 - `Reducer` — WHNF reduction (beta, delta, iota, zeta, projection)
-- `FlatStore` — memory-mapped expression store for zero-copy lookup
-- `Env` — declaration environment with external lookup
+- `InductiveBundleChecker` — Lean-shaped bundled inductive admission, including nested-inductive lowering/restoration
+- `RecursorGenerator` — Lean-shaped recursor type and iota-rule generation for imported and frontend-authored inductive bundles
+- `FlatStore` — experimental memory-mapped store for faster imported-kernel lookup
+- `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
 For a deeper architectural walkthrough of the kernel, see [doc/kernel.md](doc/kernel.md).
 

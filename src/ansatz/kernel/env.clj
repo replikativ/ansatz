@@ -2,12 +2,14 @@
 ;; Thin wrapper over Java ConstantInfo and Env classes.
 
 (ns ansatz.kernel.env
-  "The kernel environment: a mutable HashMap from Name to ConstantInfo.
-   Uses Java classes for fast lookup and compact storage.
+  "The kernel environment: an immutable Java Env from Name to ConstantInfo.
+   Env supports persistent local additions plus optional staged external
+   lookup for imported stores, preserving Lean-style admission order while
+   keeping repeated lookups pointer-stable through the shared cache.
 
    ConstantInfo variants:
      :axiom, :def, :thm, :opaque, :quot, :induct, :ctor, :recursor"
-  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Name]))
+  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Name TypeChecker]))
 
 ;; ============================================================
 ;; Tag keyword mapping
@@ -76,6 +78,17 @@
 (defn mk-recursor-rule [ctor nfields rhs]
   (ConstantInfo$RecursorRule. ctor (int nfields) rhs))
 
+(defn mk-inductive-bundle
+  "Create a kernel inductive bundle from a mutual group of inductives, constructors, and recursors."
+  [level-params num-params unsafe? inductives ctors recursors]
+  (InductiveBundle.
+   (into-array Object level-params)
+   (int num-params)
+   (boolean unsafe?)
+   (into-array ConstantInfo inductives)
+   (into-array ConstantInfo ctors)
+   (into-array ConstantInfo recursors)))
+
 ;; ============================================================
 ;; Environment
 ;; ============================================================
@@ -90,6 +103,20 @@
    Throws if already present (for non-PSS envs)."
   ^Env [^Env env ^ConstantInfo ci]
   (.addConstant env ci))
+
+(defn check-constant
+  "Type-check and add a constant to the environment using the Java kernel checker."
+  (^Env [^Env env ^ConstantInfo ci]
+   (TypeChecker/checkConstant env ci))
+  (^Env [^Env env ^ConstantInfo ci fuel]
+   (TypeChecker/checkConstant env ci fuel)))
+
+(defn check-inductive-bundle
+  "Type-check and add a mutual inductive bundle through the Java kernel bundle checker."
+  (^Env [^Env env ^InductiveBundle bundle]
+   (TypeChecker/checkInductiveBundle env bundle))
+  (^Env [^Env env ^InductiveBundle bundle fuel]
+   (TypeChecker/checkInductiveBundle env bundle fuel)))
 
 (defn lookup
   "Look up a constant by name. Returns nil if not found."
@@ -144,8 +171,7 @@
 (defn enable-quot
   "Enable quotient type support in the environment."
   [^Env env]
-  (.enableQuot env)
-  env)
+  (.enableQuot env))
 
 (defn quot-enabled? [^Env env]
   (.isQuotEnabled env))

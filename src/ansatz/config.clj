@@ -9,7 +9,8 @@
 
 ;; -- Kernel fuel --
 (def ^:dynamic *default-fuel*
-  "Default fuel for Java TypeChecker operations (20M steps)."
+  "Default fuel for interactive Java TypeChecker operations (20M steps).
+   Imported-store verification uses its own higher verifier default."
   20000000)
 
 (def ^:dynamic *high-fuel*

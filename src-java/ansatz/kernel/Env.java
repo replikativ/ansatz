@@ -12,6 +12,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - locals: Clojure PersistentHashMap — immutable, per-context additions
  * - sharedCache: ConcurrentHashMap<Name, SoftReference<ConstantInfo>> — GC-managed cache
  * - externalLookup: pure function to konserve/flatstore (read-only)
+ * - visibilityCheck: optional staged-admission predicate checked before cache
  *
  * addConstant() returns a NEW Env (structural sharing via PersistentHashMap).
  * sharedCache uses SoftReferences so the JVM can reclaim cold declarations under
@@ -35,50 +36,67 @@ public final class Env {
      */
     private final clojure.lang.IFn externalLookup;
     private final int externalSize;
+    private final clojure.lang.IFn visibilityCheck;
 
     // Private constructor — use factory methods
     private Env(clojure.lang.IPersistentMap locals,
                 ConcurrentHashMap<Name, SoftReference<ConstantInfo>> sharedCache,
                 boolean quotEnabled,
                 clojure.lang.IFn externalLookup,
-                int externalSize) {
+                int externalSize,
+                clojure.lang.IFn visibilityCheck) {
         this.locals = locals;
         this.sharedCache = sharedCache;
         this.quotEnabled = quotEnabled;
         this.externalLookup = externalLookup;
         this.externalSize = externalSize;
+        this.visibilityCheck = visibilityCheck;
     }
 
     /** Create an empty environment (no external lookup). */
     public Env() {
         this(clojure.lang.PersistentHashMap.EMPTY,
              new ConcurrentHashMap<>(),
-             false, null, 0);
+             false, null, 0, null);
     }
 
     /**
      * Set external lookup. Returns a NEW Env (immutable).
      */
     public Env withExternalLookup(clojure.lang.IFn lookupFn, int size) {
-        return new Env(locals, sharedCache, quotEnabled, lookupFn, size);
+        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, null);
     }
 
     /**
-     * For backward compatibility during migration.
-     * @deprecated Use withExternalLookup instead.
+     * Set external lookup with an admission-order visibility predicate.
+     *
+     * The predicate is checked before the shared cache, so cached declarations
+     * cannot bypass staged verification. Visible declarations are still cached,
+     * matching Lean's in-memory environment and preserving pointer-stable
+     * repeated lookups for IdentityHashMap-based kernel caches.
      */
-    public void setExternalLookup(clojure.lang.IFn lookupFn, int size) {
-        // Bridge: create new env-like state. Since callers still expect mutation,
-        // we store in a way that lookup() can find it.
-        // This is temporary — will be removed when all callers are updated.
-        throw new UnsupportedOperationException(
-            "Env is now immutable. Use withExternalLookup() instead.");
+    public Env withExternalLookupFiltered(clojure.lang.IFn lookupFn,
+                                          int size,
+                                          clojure.lang.IFn visibilityCheck) {
+        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, visibilityCheck);
+    }
+
+    /**
+     * Set external lookup without the shared ConstantInfo cache.
+     */
+    public Env withExternalLookupUncached(clojure.lang.IFn lookupFn, int size) {
+        return new Env(locals, null, quotEnabled, lookupFn, size, null);
     }
 
     public ConstantInfo lookup(Name name) {
         // 1. Check locals (immutable, per-context)
         Object local = locals.valAt(name);
         if (local != null) return (ConstantInfo) local;
+        // Staged verification must reject not-yet-admitted constants even if
+        // they were cached by a different view of the same environment.
+        if (visibilityCheck != null && !truthy(visibilityCheck.invoke(name))) {
+            return null;
+        }
         // 2. Check shared cache — SoftReference may have been cleared under GC pressure
         if (sharedCache != null) {
             SoftReference<ConstantInfo> ref = sharedCache.get(name);
@@ -93,7 +111,9 @@ public final class Env {
             Object result = externalLookup.invoke(name);
             if (result instanceof ConstantInfo) {
                 ConstantInfo ext = (ConstantInfo) result;
-                sharedCache.put(ext.name, new SoftReference<>(ext));
+                if (sharedCache != null) {
+                    sharedCache.put(ext.name, new SoftReference<>(ext));
+                }
                 return ext;
             }
         }
@@ -113,37 +133,17 @@ public final class Env {
      * The original Env is unchanged (persistent/immutable).
      */
     public Env addConstant(ConstantInfo ci) {
-        if (externalLookup != null) {
-            // PSS-backed: add to locals overlay
-            return new Env(locals.assoc(ci.name, ci), sharedCache,
-                          quotEnabled, externalLookup, externalSize);
-        }
-        // Non-PSS: check for duplicates
-        if (locals.valAt(ci.name) != null) {
+        if (lookup(ci.name) != null) {
             throw new RuntimeException("Constant already declared: " + ci.name);
         }
         return new Env(locals.assoc(ci.name, ci), sharedCache,
-                      quotEnabled, externalLookup, externalSize);
-    }
-
-    /**
-     * Add constant, ignoring duplicates (for replay error recovery).
-     * Returns a NEW Env.
-     */
-    public Env addConstantIfAbsent(ConstantInfo ci) {
-        if (locals.valAt(ci.name) != null) return this;
-        if (sharedCache != null) {
-            SoftReference<ConstantInfo> ref = sharedCache.get(ci.name);
-            if (ref != null && ref.get() != null) return this;
-        }
-        return new Env(locals.assoc(ci.name, ci), sharedCache,
-                      quotEnabled, externalLookup, externalSize);
+                      quotEnabled, externalLookup, externalSize, visibilityCheck);
     }
 
     /** Returns a NEW Env with quot enabled. */
     public Env enableQuot() {
         if (quotEnabled) return this;
-        return new Env(locals, sharedCache, true, externalLookup, externalSize);
+        return new Env(locals, sharedCache, true, externalLookup, externalSize, visibilityCheck);
     }
 
     public boolean isQuotEnabled() {
@@ -180,5 +180,9 @@ public final class Env {
         // Already immutable — just return this.
         // The caller can addConstant() which returns a new Env.
         return this;
+    }
+
+    private static boolean truthy(Object value) {
+        return value != null && !Boolean.FALSE.equals(value);
     }
 }

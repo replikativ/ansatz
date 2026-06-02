@@ -4,12 +4,13 @@
   "Replays imported declarations through the Ansatz kernel type checker."
   (:require [ansatz.kernel.env :as env]
             [ansatz.export.parser :as parser])
-  (:import [ansatz.kernel ConstantInfo TypeChecker Env ExprStore]))
+  (:import [ansatz.kernel ConstantInfo InductiveBundle TypeChecker Env ExprStore Name]))
 
 (def ^:private default-fuel
-  "Default fuel per declaration. Lean 4 has no fuel limit; we use 20M as a
-  safety bound. With useHash=false in lazyDeltaReduction, all known Mathlib
-  proofs verify within this limit (heaviest: localCohomology.diagramComp ~6K)."
+  "Default fuel per declaration for legacy in-memory replay. Lean 4 has no
+  fuel limit; this 20M bound keeps small replay jobs responsive. Full Mathlib
+  store verification should use ansatz.export.storage with its higher verifier
+  default or an explicit :fuel."
   20000000)
 
 (def ^:private default-stack-size
@@ -44,38 +45,85 @@
   (let [tag (.tag ci)
         name-str (.toString (.name ci))]
     (try
-      (case tag
-        ;; Quotient primitives
-        4 ;; QUOT
+      (cond
+        ;; Quotient primitives.
+        (= 4 (int tag))
         (let [env (.addConstant env ci)
               env (.enableQuot env)]
           [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
 
-        ;; Inductives, constructors, recursors: full validation
-        ;; (Lean 4 regenerates recursors; we validate imported rules)
-        (5 6 7) ;; INDUCT, CTOR, RECURSOR
-        (let [env (TypeChecker/checkConstant env ci default-fuel)]
-          [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
+        ;; Inductives, constructors, recursors must be replayed as a bundle.
+        (#{5 6 7} (int tag))
+        [env {:status :error :name name-str :tag (env/ci-tag ci)
+              :error "inductive declarations must be admitted as a bundle"}]
 
-        ;; Everything else: full type check via Java TypeChecker
-        ;; checkConstant returns new env with ci added
+        :else
         (let [env (TypeChecker/checkConstant env ci default-fuel)]
-          ;; Note: do NOT strip theorem values — downstream isDefEq may need them
+          ;; Note: do NOT strip theorem values — downstream isDefEq may need them.
           [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))
 
       (catch Exception ex
-        ;; Known lean4export bug: _sizeOf_N_eq theorems for nested inductives
-        ;; are exported with Eq.refl proofs, but the actual proof requires
-        ;; induction (see Lean 4 src/Lean/Meta/SizeOf.lean:347).
-        ;; Accept these as axioms — the theorem TYPES are correct.
-        (if (and (.isThm ci) (re-find #"_sizeOf_\d+_eq$" name-str))
-          (let [env (try (.addConstant env ci) (catch Exception _ (.addConstantIfAbsent env ci)))]
-            [env {:status :ok :name name-str :tag (env/ci-tag ci)
-                  :note "lean4export sizeOf proof workaround"}])
-          ;; Otherwise: real error
-          (let [env (try (.addConstantIfAbsent env ci) (catch Exception _ env))]
-            [env {:status :error :name name-str :tag (env/ci-tag ci)
-                  :error (.getMessage ex)}]))))))
+        [env {:status :error :name name-str :tag (env/ci-tag ci)
+              :error (.getMessage ex)}]))))
+
+(defn- bundle-member?
+  [^objects all-names ^ConstantInfo ci]
+  (let [tag (.tag ci)]
+    (case tag
+      5 (some #(= ^Object % (.name ci)) all-names)
+      6 (some #(= ^Object % (.inductName ci)) all-names)
+      7 (let [rec-all (.all ci)]
+          (and rec-all
+               (= (alength all-names) (alength rec-all))
+               (every? true?
+                       (map (fn [a b] (= a b))
+                            all-names rec-all))))
+      false)))
+
+(defn- collect-inductive-bundle
+  "Collect one contiguous inductive bundle starting at decls/head.
+   Returns {:bundle ... :members [...] :rest remaining-decls}."
+  [decls]
+  (let [^ConstantInfo first-ci (first decls)
+        all-names (or (.all first-ci) (into-array Object [(.name first-ci)]))]
+    (loop [remaining (seq decls)
+           members []]
+      (if-let [^ConstantInfo ci (first remaining)]
+        (if (bundle-member? all-names ci)
+          (recur (next remaining) (conj members ci))
+          {:members members :rest remaining})
+        {:members members :rest nil}))))
+
+(defn- build-inductive-bundle
+  [members]
+  (let [inductives (filterv #(.isInduct ^ConstantInfo %) members)
+        ctors (filterv #(.isCtor ^ConstantInfo %) members)
+        recursors (filterv #(.isRecursor ^ConstantInfo %) members)
+        ^ConstantInfo first-ind (first inductives)]
+    (env/mk-inductive-bundle
+     (vec (.levelParams first-ind))
+     (.numParams first-ind)
+     (.isUnsafe first-ind)
+     inductives
+     ctors
+     recursors)))
+
+(defn- replay-inductive-bundle
+  [^Env env members]
+  (let [bundle (build-inductive-bundle members)]
+    (try
+      (let [env' (env/check-inductive-bundle env bundle default-fuel)
+            results (mapv (fn [^ConstantInfo ci]
+                            {:status :ok :name (.toString (.name ci)) :tag (env/ci-tag ci)})
+                          members)]
+        [env' results])
+      (catch Exception ex
+        (let [msg (.getMessage ex)
+              results (mapv (fn [^ConstantInfo ci]
+                              {:status :error :name (.toString (.name ci)) :tag (env/ci-tag ci)
+                               :error msg})
+                            members)]
+          [env results])))))
 
 (defn replay
   "Replay all declarations through the type checker.
@@ -92,21 +140,43 @@
               ok-count 0
               err-count 0]
          (if-let [ci (first decls)]
-           (let [[env' result] (replay-one env ci)]
-             (when verbose?
-               (case (:status result)
-                 :ok (print ".")
-                 :error (do (println)
-                            (println "ERROR:" (:name result) "-" (:error result)))))
-             (when (and stop-on-error? (= :error (:status result)))
-               (throw (ex-info "Replay stopped on error"
-                               {:result result :env env
-                                :results (persistent! (conj! results result))})))
-             (recur (next decls)
-                    env'
-                    (conj! results result)
-                    (if (= :ok (:status result)) (inc ok-count) ok-count)
-                    (if (= :error (:status result)) (inc err-count) err-count)))
+           (if (.isInduct ^ConstantInfo ci)
+             (let [{:keys [members rest]} (collect-inductive-bundle decls)
+                   [env' bundle-results] (replay-inductive-bundle env members)
+                   results' (reduce conj! results bundle-results)
+                   ok+ (count (filter #(= :ok (:status %)) bundle-results))
+                   err+ (count (filter #(= :error (:status %)) bundle-results))]
+               (when verbose?
+                 (doseq [result bundle-results]
+                   (case (:status result)
+                     :ok (print ".")
+                     :error (do (println)
+                                (println "ERROR:" (:name result) "-" (:error result))))))
+               (when (and stop-on-error? (pos? err+))
+                 (throw (ex-info "Replay stopped on error"
+                                 {:result (first (filter #(= :error (:status %)) bundle-results))
+                                  :env env
+                                  :results (persistent! results')})))
+               (recur rest
+                      env'
+                      results'
+                      (+ ok-count ok+)
+                      (+ err-count err+)))
+             (let [[env' result] (replay-one env ci)]
+               (when verbose?
+                 (case (:status result)
+                   :ok (print ".")
+                   :error (do (println)
+                              (println "ERROR:" (:name result) "-" (:error result)))))
+               (when (and stop-on-error? (= :error (:status result)))
+                 (throw (ex-info "Replay stopped on error"
+                                 {:result result :env env
+                                  :results (persistent! (conj! results result))})))
+               (recur (next decls)
+                      env'
+                      (conj! results result)
+                      (if (= :ok (:status result)) (inc ok-count) ok-count)
+                      (if (= :error (:status result)) (inc err-count) err-count))))
            (do
              (when verbose? (println))
              {:env env
@@ -131,6 +201,54 @@
     (println "Done:" (:stats result))
     (assoc result :meta meta)))
 
+(defn- record-stream-result
+  [state result]
+  (-> state
+      (update (if (= :ok (:status result)) :ok :errors) inc)
+      (assoc :last-result result)
+      (cond-> (= :error (:status result))
+        (update :error-names conj (:name result)))))
+
+(defn- record-stream-results
+  [state results]
+  (reduce record-stream-result state results))
+
+(defn- flush-stream-bundle
+  [state]
+  (if-let [members (:pending-inductive-members state)]
+    (let [[env' results] (replay-inductive-bundle (:env state) members)]
+      (-> state
+          (assoc :env env')
+          (dissoc :pending-inductive-members :pending-all-names)
+          (record-stream-results results)))
+    state))
+
+(declare process-stream-decl)
+
+(defn- process-stream-decl
+  [state ^ConstantInfo ci]
+  (if-let [^objects pending-all (:pending-all-names state)]
+    (if (bundle-member? pending-all ci)
+      (update state :pending-inductive-members conj ci)
+      (process-stream-decl (flush-stream-bundle state) ci))
+    (cond
+      (.isInduct ci)
+      (assoc state
+             :pending-inductive-members [ci]
+             :pending-all-names (or (.all ci) (into-array Object [(.name ci)])))
+
+      (or (.isCtor ci) (.isRecursor ci))
+      (record-stream-result
+       state
+       {:status :error
+        :name (.toString (.name ci))
+        :tag (env/ci-tag ci)
+        :error "inductive bundle member encountered outside bundle head"})
+
+      :else
+      (let [[env' result] (replay-one (:env state) ci)]
+        (record-stream-result (assoc state :env env') result)))))
+
 (defn replay-file-streaming
   "Parse and replay declarations in streaming mode.
    Runs on a thread with a 64MB stack to handle deep recursion."
@@ -144,19 +262,18 @@
                    path
                    {:env env :ok 0 :errors 0 :error-names []}
                    (fn [state ci]
-                     (let [[_ result] (replay-one (:env state) ci)]
+                     (let [state' (process-stream-decl state ci)
+                           result (:last-result state')]
                        (when verbose?
                          (case (:status result)
                            :ok (when (zero? (mod (+ (:ok state) (:errors state)) 1000))
                                  (let [rt (Runtime/getRuntime)
                                        used (quot (- (.totalMemory rt) (.freeMemory rt)) 1048576)]
                                    (println (str "  [" (+ (:ok state) (:errors state)) "] ok=" (:ok state) " err=" (:errors state) " mem=" used "MB"))))
-                           :error (println "ERROR:" (:name result) "-" (:error result))))
-                       (-> state
-                           (update (if (= :ok (:status result)) :ok :errors) inc)
-                           (cond-> (= :error (:status result))
-                             (update :error-names conj (:name result)))))))]
-       (let [st (:final-state result)
+                           :error (println "ERROR:" (:name result) "-" (:error result))
+                           nil))
+                       state')))]
+       (let [st (flush-stream-bundle (:final-state result))
              elapsed (- (System/currentTimeMillis) start-time)]
          (println "Done: ok=" (:ok st) "errors=" (:errors st) "elapsed=" elapsed "ms")
          (when (seq (:error-names st))
