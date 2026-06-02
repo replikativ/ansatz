@@ -4,13 +4,14 @@ import java.util.ArrayList;
 import java.util.HashMap;
 
 /**
- * Lean-shaped recursor generator for imported inductive bundles.
+ * Lean-shaped recursor generator for inductive bundle admission.
  *
  * <p>This mirrors the recursor-generation half of Lean's add_inductive_fn:
  * mk_rec_infos -> collect_Cs/collect_minor_premises -> mk_rec_rules ->
- * declare_recursors. Lean constructs recursor declarations directly; Ansatz
- * regenerates the expected type/rules, compares them with the imported
- * declarations, and then admits the imported recursors.
+ * declare_recursors. Lean constructs recursor declarations directly. Ansatz
+ * regenerates the expected type/rules, compares them with bundle recursor
+ * declarations, and then admits them. The Clojure inductive frontend also uses
+ * this generator to populate Lean-shaped iota rules before bundle admission.
  */
 final class RecursorGenerator {
     private static final Object BINDER_DEFAULT = clojure.lang.Keyword.intern(null, "default");

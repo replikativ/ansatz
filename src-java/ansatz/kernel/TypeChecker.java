@@ -2214,6 +2214,7 @@ public final class TypeChecker {
         return generateExpectedRecursorRules(env, bundle, recIdx, fuel);
     }
 
+    /** Generate Lean-shaped recursor iota rules for a bundle before admission. */
     public static ConstantInfo.RecursorRule[] generateExpectedRecursorRules(Env env, InductiveBundle bundle, int recIdx, long fuel) {
         InductiveChecker ic = new InductiveChecker(debugEnvWithoutBundle(env, bundle), bundle, fuel);
         ic.prepareRecursorState();
