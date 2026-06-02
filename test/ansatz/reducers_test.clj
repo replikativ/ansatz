@@ -1,6 +1,18 @@
 (ns ansatz.reducers-test
   (:require [ansatz.reducers :as r]
+            [ansatz.export.parser :as parser]
+            [ansatz.export.replay :as replay]
             [clojure.test :refer [deftest is]]))
+
+(def ^:private init-medium-env
+  (delay
+    (let [f "test-data/init-medium.ndjson"]
+      (when (.exists (java.io.File. f))
+        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+
+(defn- require-env []
+  (or @init-medium-env
+      (throw (ex-info "test-data/init-medium.ndjson not found" {}))))
 
 (deftest pipeline-compiles-to-transducer
   (let [pipeline (-> r/empty
@@ -63,3 +75,34 @@
     (is (= 6
            (r/unchecked-fold-map r/empty (constantly 0) + identity [1 2 3]
                                  {:grain 1})))))
+
+(deftest kernel-validates-monoid-law-certificates
+  (let [env (require-env)
+        checked (r/validate-monoid-spec env r/nat-add)]
+    (is (r/lawful? checked))
+    (is (r/kernel-lawful? checked))
+    (is (= 10
+           (r/fold-map-checked r/empty checked identity [1 2 3 4]
+                               {:grain 1})))
+    (is (= {0 2, 1 2}
+           (r/group-by-checked r/empty checked #(mod % 2) (constantly 1)
+                               [1 2 3 4]
+                               {:grain 1})))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Kernel-checked fold requires validate-monoid-spec"
+         (r/fold-map-checked r/empty r/nat-add identity [1 2 3])))))
+
+(deftest kernel-validation-rejects-mismatched-law-type
+  (let [env (require-env)
+        bad-spec (r/monoid-spec
+                  {:name :bad/nat-add
+                   :unit-fn (:unit-fn r/nat-add)
+                   :combine (:combine r/nat-add)
+                   :laws (assoc (:laws r/nat-add)
+                                :right-identity 'Nat.zero_add)
+                   :metadata (:metadata r/nat-add)})]
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Kernel law type does not match MonoidSpec"
+         (r/validate-monoid-spec env bad-spec)))))

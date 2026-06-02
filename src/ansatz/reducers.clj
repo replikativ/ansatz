@@ -7,7 +7,12 @@
 (ns ansatz.reducers
   (:refer-clojure :exclude [cat eduction empty filter group-by into map mapcat reduce remove transduce])
   (:require [clojure.core :as core]
-            [clojure.core.reducers :as reducers]))
+            [clojure.core.reducers :as reducers]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.name :as name])
+  (:import [ansatz.kernel Env TypeChecker]))
 
 ;; ============================================================
 ;; Pipeline AST
@@ -159,6 +164,11 @@
   (and (instance? MonoidSpec spec)
        (every? #(contains? (:laws spec) %) required-laws)))
 
+(defn kernel-lawful?
+  "True when a MonoidSpec has been checked against kernel theorem types."
+  [spec]
+  (true? (get-in spec [:metadata :kernel :checked?])))
+
 (defn- assert-lawful! [spec]
   (when-not (lawful? spec)
     (throw (ex-info "Parallel fold requires a lawful MonoidSpec"
@@ -185,6 +195,150 @@
       ([] (unit-fn))
       ([left right] (combine left right)))))
 
+(defn- c [s]
+  (e/const' (name/from-string s) []))
+
+(defn- hadd-combine [type-expr add-inst-name]
+  (let [inst-hadd (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
+                          type-expr
+                          (c add-inst-name))]
+    (fn [left right]
+      (e/app* (e/const' (name/from-string "HAdd.hAdd")
+                        [lvl/zero lvl/zero lvl/zero])
+              type-expr type-expr type-expr inst-hadd left right))))
+
+(defn- nat-zero-expr []
+  (let [nat (c "Nat")]
+    (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])
+            nat
+            (e/lit-nat 0)
+            (e/app (c "instOfNatNat") (e/lit-nat 0)))))
+
+(defn- int-zero-expr []
+  (let [int-type (c "Int")]
+    (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])
+            int-type
+            (e/lit-nat 0)
+            (e/app (c "instOfNat") (e/lit-nat 0)))))
+
+(defn- monoid-kernel
+  [type-expr unit-expr combine-expr]
+  {:type type-expr
+   :unit unit-expr
+   :combine-expr combine-expr})
+
+(defn- eq-expr [type-expr lhs rhs]
+  (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+          type-expr lhs rhs))
+
+(defn- assoc-type [{:keys [type combine-expr]}]
+  (let [a (e/bvar 2)
+        b (e/bvar 1)
+        c (e/bvar 0)
+        lhs (combine-expr (combine-expr a b) c)
+        rhs (combine-expr a (combine-expr b c))]
+    (e/forall' "_" type
+               (e/forall' "_" type
+                          (e/forall' "_" type
+                                     (eq-expr type lhs rhs)
+                                     :default)
+                          :default)
+               :default)))
+
+(defn- left-identity-type [{:keys [type unit combine-expr]}]
+  (let [a (e/bvar 0)]
+    (e/forall' "_" type
+               (eq-expr type (combine-expr unit a) a)
+               :default)))
+
+(defn- right-identity-type [{:keys [type unit combine-expr]}]
+  (let [a (e/bvar 0)]
+    (e/forall' "_" type
+               (eq-expr type (combine-expr a unit) a)
+               :default)))
+
+(defn- expected-law-type [kernel law]
+  (case law
+    :assoc (assoc-type kernel)
+    :left-identity (left-identity-type kernel)
+    :right-identity (right-identity-type kernel)))
+
+(defn- law-name-str [law-name]
+  (cond
+    (symbol? law-name) (str law-name)
+    (string? law-name) law-name
+    :else nil))
+
+(defn- assert-kernel-metadata! [spec]
+  (let [kernel (get-in spec [:metadata :kernel])]
+    (when-not (and (:type kernel) (:unit kernel) (:combine-expr kernel))
+      (throw (ex-info "MonoidSpec needs :metadata :kernel with :type, :unit, and :combine-expr"
+                      {:name (:name spec)
+                       :metadata (:metadata spec)})))
+    kernel))
+
+(defn validate-monoid-spec
+  "Kernel-check a MonoidSpec's law certificates.
+
+   This validates theorem *types*: each law reference must resolve to a
+   declaration whose type is definitionally equal to the generated monoid-law
+   type for the spec's kernel type/unit/combine terms. The returned spec is
+   marked kernel-checked.
+
+   This still leaves a runtime backend trust boundary: for the built-in Nat/Int
+   specs, the runtime functions are the same primitives used by Ansatz's Clojure
+   compiler for those kernel operations."
+  ([^Env kernel-env spec]
+   (validate-monoid-spec kernel-env spec {}))
+  ([^Env kernel-env spec {:keys [fuel] :or {fuel 50000000}}]
+   (assert-lawful! spec)
+   (let [kernel (assert-kernel-metadata! spec)
+         tc (doto (TypeChecker. kernel-env)
+              (.setFuel (long fuel)))
+         checks
+         (core/into {}
+                    (for [law required-laws
+                          :let [law-ref (get (:laws spec) law)
+                                law-name (law-name-str law-ref)
+                                _ (when-not law-name
+                                    (throw (ex-info "Kernel law reference must be a symbol or string"
+                                                    {:name (:name spec)
+                                                     :law law
+                                                     :law-ref law-ref})))
+                                ci (env/lookup kernel-env (name/from-string law-name))
+                                _ (when-not ci
+                                    (throw (ex-info "Kernel law declaration not found"
+                                                    {:name (:name spec)
+                                                     :law law
+                                                     :law-name law-name})))
+                                expected (expected-law-type kernel law)
+                                actual (.type ci)
+                                ok? (.isDefEq tc actual expected)]
+                          :when true]
+                      (do
+                        (when-not ok?
+                          (throw (ex-info "Kernel law type does not match MonoidSpec"
+                                          {:name (:name spec)
+                                           :law law
+                                           :law-name law-name
+                                           :expected (e/->string expected)
+                                           :actual (e/->string actual)})))
+                        [law {:theorem law-name
+                              :type-checked? true}])))
+         checked-at (java.time.Instant/now)]
+     (assoc spec :metadata
+            (-> (:metadata spec)
+                (assoc-in [:kernel :checked?] true)
+                (assoc-in [:kernel :checked-at] (str checked-at))
+                (assoc-in [:kernel :law-checks] checks))))))
+
+(defn- assert-kernel-lawful! [spec]
+  (when-not (kernel-lawful? spec)
+    (throw (ex-info "Kernel-checked fold requires validate-monoid-spec"
+                    {:name (:name spec)
+                     :kernel-checked? (kernel-lawful? spec)})))
+  (assert-lawful! spec))
+
 (def nat-add
   "Law certificate for exact non-negative integer addition.
 
@@ -199,7 +353,11 @@
            :left-identity 'Nat.zero_add
            :right-identity 'Nat.add_zero}
     :metadata {:ansatz/type 'Nat
-               :ansatz/op 'Nat.add}}))
+               :ansatz/op 'Nat.add
+               :kernel (monoid-kernel (c "Nat")
+                                      (nat-zero-expr)
+                                      (hadd-combine (c "Nat") "instAddNat"))
+               :runtime {:trusted-primitive :clojure.lang.Numbers/add}}}))
 
 (def int-add
   "Law certificate for exact integer addition."
@@ -211,7 +369,11 @@
            :left-identity 'Int.zero_add
            :right-identity 'Int.add_zero}
     :metadata {:ansatz/type 'Int
-               :ansatz/op 'Int.add}}))
+               :ansatz/op 'Int.add
+               :kernel (monoid-kernel (c "Int")
+                                      (int-zero-expr)
+                                      (hadd-combine (c "Int") "Int.instAdd"))
+               :runtime {:trusted-primitive :clojure.lang.Numbers/add}}}))
 
 ;; ============================================================
 ;; Parallel terminals
@@ -238,6 +400,18 @@
          xf (xform pipeline)
          reducef (xf (fn [acc x] (combine acc (f x))))]
      (reducers/fold grain (combinef spec) reducef coll))))
+
+(defn fold-map-checked
+  "Kernel-checked variant of `fold-map`.
+
+   Call `validate-monoid-spec` first. This is the API to use when the caller
+   wants the fold laws backed by checked Ansatz/Lean declarations rather than
+   just structurally present certificate names."
+  ([pipeline spec f coll]
+   (fold-map-checked pipeline spec f coll {}))
+  ([pipeline spec f coll opts]
+   (assert-kernel-lawful! spec)
+   (fold-map pipeline spec f coll opts)))
 
 (defn unchecked-fold-map
   "Parallel map-then-fold without law checking.
@@ -296,3 +470,14 @@
              (fn [x] {(key-f x) (value-f x)})
              coll
              opts)))
+
+(defn group-by-checked
+  "Kernel-checked variant of `group-by` for the value monoid.
+
+   The map-level group monoid laws are derived pointwise from the checked value
+   monoid; this function requires the value monoid itself to be kernel-checked."
+  ([pipeline value-spec key-f value-f coll]
+   (group-by-checked pipeline value-spec key-f value-f coll {}))
+  ([pipeline value-spec key-f value-f coll opts]
+   (assert-kernel-lawful! value-spec)
+   (group-by pipeline value-spec key-f value-f coll opts)))
