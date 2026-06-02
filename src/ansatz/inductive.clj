@@ -1426,12 +1426,22 @@
                     fields: flat vector [field-name field-type ...]
                     return-indices: vector of index expressions for this ctor's return type
      opts:
-       :in         - result universe: 'Prop or 'Type (default: auto from params)
-       :indices    - flat vector [idx-name idx-type ...] for indexed families
+       :in              - result universe: 'Prop or 'Type (default: auto from params)
+       :indices         - flat vector [idx-name idx-type ...] for indexed families
+       :no-confusion?   - emit T.noConfusionType and T.noConfusion. Default true.
+                          Set false to skip noConfusion entirely; useful for
+                          inductives that mix Prop-valued fields with a Type
+                          result level (the current generator uses a single
+                          eq-level = result-level for all fields, which fails
+                          when a field's universe is lower than the result —
+                          see TODO Bug C). gatlab.ansatz.export passes false
+                          so axioms-as-fields can be admitted without hitting
+                          that path.
 
-   Adds: inductive, constructors, recursor, casesOn, recOn.
-   Returns env."
-  [env ind-name-str params-spec ctors-spec & {:keys [in indices]}]
+   Adds: inductive, constructors, recursor, casesOn, recOn, optionally
+   noConfusionType and noConfusion. Returns env."
+  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion?]
+                                              :or {no-confusion? true}}]
   (let [ind-name (name/from-string ind-name-str)
 
         ;; Parse parameters, extracting universe level params
@@ -1629,8 +1639,9 @@
                       env (env/check-constant env rec-on-ci)]
                   env)
                 env)
-          ;; Build noConfusion for non-indexed, non-Prop types
-          env (if (and (zero? n-indices) (not is-prop))
+          ;; Build noConfusion for non-indexed, non-Prop types — caller can
+          ;; opt out via :no-confusion? false (see docstring re: Bug C).
+          env (if (and no-confusion? (zero? n-indices) (not is-prop))
                 (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
                                                       level-param-names rec-name rec-level-params
                                                       result-level is-rec ind-name-str)
