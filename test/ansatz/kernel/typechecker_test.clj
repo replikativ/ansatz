@@ -7,7 +7,8 @@
             [ansatz.kernel.name :as name]
             [ansatz.export.parser :refer [parse-ndjson-file]]
             [ansatz.export.replay :as replay])
-  (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo Name Level]
+  (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo
+            ConstantInfo$RecursorRule Name Level]
            [java.io StringWriter]))
 
 ;; ============================================================
@@ -500,3 +501,47 @@
           bundle (env/mk-inductive-bundle [] 1 false [ind-ci] [ctor-ci] [])]
       (is (thrown? Exception
                    (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))
+
+(deftest reject-corrupt-imported-recursor-rule-test
+  (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
+    (let [f "test-data/Nat.add_succ.ndjson"]
+      (when (.exists (java.io.File. f))
+        (let [members (vec (take 4 (:decls (parse-ndjson-file f))))
+              inductives (filterv #(.isInduct ^ConstantInfo %) members)
+              ctors (filterv #(.isCtor ^ConstantInfo %) members)
+              rec ^ConstantInfo (first (filter #(.isRecursor ^ConstantInfo %) members))
+              rules ^"[Lansatz.kernel.ConstantInfo$RecursorRule;" (.rules rec)
+              bad-rules (aclone rules)
+              zero-rule ^ConstantInfo$RecursorRule (aget rules 0)
+              succ-rule ^ConstantInfo$RecursorRule (aget rules 1)
+              bad-rec (do
+                        (aset bad-rules 1
+                              (ConstantInfo$RecursorRule.
+                               (.ctor succ-rule)
+                               (.nfields succ-rule)
+                               (.rhs zero-rule)))
+                        (ConstantInfo/mkRecursor
+                         (.name rec)
+                         (.levelParams rec)
+                         (.type rec)
+                         (.all rec)
+                         (.numParams rec)
+                         (.numIndices rec)
+                         (.numMotives rec)
+                         (.numMinors rec)
+                         bad-rules
+                         (.isK rec)
+                         (.isUnsafe rec)))
+              first-ind ^ConstantInfo (first inductives)
+              bundle (env/mk-inductive-bundle
+                      (vec (.levelParams first-ind))
+                      (.numParams first-ind)
+                      (.isUnsafe first-ind)
+                      inductives
+                      ctors
+                      [bad-rec])]
+          (is (= (name/from-string "Nat") (.name first-ind)))
+          (is (thrown-with-msg?
+               Exception
+               #"generated recursor rule mismatch"
+               (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))))

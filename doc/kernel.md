@@ -581,9 +581,26 @@ There are two public kernel admission entry points:
    restored types, constructors, recursors, and rules before admitting the
    original bundle.
 
-The older package-private recursor-rule validation helpers in `TypeChecker`
-remain as defensive checks for recursor declarations, but the bundle admission
-source of truth is `InductiveChecker`/`InductiveBundleChecker`.
+Recursor iota rules are not validated by a second `TypeChecker` path. The
+bundle admission source of truth is `InductiveChecker`/`InductiveBundleChecker`.
+Recursor generation is isolated in `RecursorGenerator`, which regenerates the
+Lean-shaped recursor types and rules and compares them with the imported
+declarations before admission.
+
+The recursor code is intentionally laid out for side-by-side comparison with
+Lean 4's `src/kernel/inductive.cpp`:
+
+- `add_inductive_fn::mk_rec_infos` maps to `RecursorGenerator.mkRecInfos`.
+- `collect_Cs` maps to `RecursorGenerator.collectMotives`.
+- `collect_minor_premises` maps to `RecursorGenerator.collectMinors`.
+- `add_inductive_fn::mk_rec_rules` maps to
+  `RecursorGenerator.buildExpectedRecursorRules`.
+- `add_inductive_fn::declare_recursors` maps to
+  `RecursorGenerator.checkAndDeclareRecursors`.
+
+Lean constructs recursor declarations directly. Ansatz imports recursor
+declarations, regenerates the Lean-shaped expected type and iota rules, and
+admits the imported recursor only after the generated data matches.
 
 5. **Tracing**: Both kernels support NDJSON trace output, but the Lean 4 side
    requires a patched build. We added `LEAN_KERNEL_TRACE` support to our local

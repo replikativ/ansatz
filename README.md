@@ -520,6 +520,7 @@ The CIC kernel is implemented in Java for performance:
 - `TypeChecker` — type inference and definitional equality
 - `Reducer` — WHNF reduction (beta, delta, iota, zeta, projection)
 - `InductiveBundleChecker` — Lean-shaped bundled inductive admission, including nested-inductive lowering/restoration
+- `RecursorGenerator` — Lean-shaped recursor type and iota-rule generation for imported inductive bundles
 - `FlatStore` — experimental memory-mapped store for faster imported-kernel lookup
 - `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
