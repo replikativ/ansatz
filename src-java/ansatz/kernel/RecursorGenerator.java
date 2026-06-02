@@ -80,7 +80,7 @@ final class RecursorGenerator {
                 t = tc.whnfExpr(t);
             }
             Expr majorType = mkApp(indConsts[dIdx], appendLocals(params, info.indices));
-            info.major = mkLocalDecl(tc, "t", majorType, BINDER_DEFAULT);
+            info.major = mkLocalDecl(tc, Name.fromString("t"), majorType, BINDER_DEFAULT);
             Expr motiveType = Expr.sort(elimLevel, Level.hasParam(elimLevel));
             ArrayList<LocalDecl> motiveTele = new ArrayList<>(info.indices.size() + 1);
             motiveTele.addAll(info.indices);
@@ -137,7 +137,7 @@ final class RecursorGenerator {
                     int itIdx = getIIndices(uTy, itIndices);
                     Expr cApp = mkApp(recInfos[itIdx].motive.fvar, appendExprs(itIndices, mkApp(uI.fvar, xs)));
                     Expr vTy = buildPi(xs, cApp);
-                    Object ihName = uI.name instanceof Name ? Name.mkStr((Name) uI.name, "_ih") : uI.name + "_ih";
+                    Object ihName = appendAfterIH(uI.name);
                     v.add(mkLocalDecl(ctorTc, ihName, vTy, BINDER_DEFAULT));
                 }
 
@@ -212,153 +212,84 @@ final class RecursorGenerator {
      * Mirrors Lean add_inductive_fn::mk_rec_rules.
      */
     private ConstantInfo.RecursorRule[] buildExpectedRecursorRules(int recIdx, ConstantInfo recCi) {
-        if (recCi.rules == null) return null;
         if (recCi.numMotives > recCi.all.length) {
             throw new RuntimeException("expected non-nested recursor declaration: " + recCi.name);
         }
 
-        int np = recCi.numParams;
-        int nm = recCi.numMotives;
-        int nmi = recCi.numMinors;
-        Object[] recLevelValues = getRecLevelValues(recCi);
+        ArrayList<LocalDecl> motives = collectMotives();
+        ArrayList<LocalDecl> minors = collectMinors();
+        Object[] recLevelValues = getExpectedRecLevelValues();
         boolean recHasLevelParams = recLevelValues.length > 0;
 
-        int minorOffset = 0;
+        int minorIdx = 0;
         for (int i = 0; i < recIdx; i++) {
-            minorOffset += recInfos[i].minors.size();
+            minorIdx += recInfos[i].minors.size();
         }
 
-        ConstantInfo.RecursorRule[] out = new ConstantInfo.RecursorRule[recCi.rules.length];
-        int minorIdx = minorOffset;
-        for (int ruleIdx = 0; ruleIdx < recCi.rules.length; ruleIdx++) {
-            ConstantInfo.RecursorRule rule = recCi.rules[ruleIdx];
-            ConstantInfo ctorCi = workingEnv.lookup(rule.ctor);
+        ConstantInfo ind = bundle.inductives[recIdx];
+        ConstantInfo.RecursorRule[] out = new ConstantInfo.RecursorRule[ind.ctors.length];
+        for (int ruleIdx = 0; ruleIdx < ind.ctors.length; ruleIdx++) {
+            Name ctorName = ind.ctors[ruleIdx];
+            ConstantInfo ctorCi = workingEnv.lookup(ctorName);
             if (ctorCi == null || !ctorCi.isCtor()) {
-                throw new RuntimeException("Recursor rule references unknown constructor: " + rule.ctor);
-            }
-            int nf = rule.nfields;
-            Expr imported = rule.rhs;
-            int lambdaCount = 0;
-            while (imported.tag == Expr.LAM) {
-                imported = (Expr) imported.o2;
-                lambdaCount++;
+                throw new RuntimeException("Recursor rule references unknown constructor: " + ctorName);
             }
 
-            Expr ctorType = ctorCi.type;
-            for (int i = 0; i < np; i++) {
-                if (ctorType.tag != Expr.FORALL) {
-                    throw new RuntimeException("Constructor " + rule.ctor +
-                        " type has fewer binders than numParams=" + np);
-                }
-                ctorType = (Expr) ctorType.o2;
-            }
+            ArrayList<LocalDecl> bU = new ArrayList<>();
+            ArrayList<LocalDecl> u = new ArrayList<>();
+            TypeChecker ctorTc = new TypeChecker(workingEnv, bundle.isUnsafe ? TypeChecker.DEFN_UNSAFE : TypeChecker.DEFN_SAFE, bundle.levelParams);
+            ctorTc.setFuel(fuel);
+            addParamsTo(ctorTc);
 
-            boolean[] isRecField = new boolean[nf];
-            int[] recFieldExtraPis = new int[nf];
-            int[] recFieldIndIdx = new int[nf];
-            Expr[][] recFieldIndices = new Expr[nf][];
-            Expr[] fieldTypesRaw = new Expr[nf];
-
-            TypeChecker fieldTc = new TypeChecker(workingEnv);
-            fieldTc.setFuel(fuel);
-            HashMap<Name, Integer> inductiveIdxByName = new HashMap<>();
-            for (int i = 0; i < bundle.inductives.length; i++) {
-                inductiveIdxByName.put(bundle.inductives[i].name, i);
-            }
-
-            Expr ctorTypeWalk = ctorType;
-            for (int fi = 0; fi < nf; fi++) {
-                if (ctorTypeWalk.tag != Expr.FORALL) break;
-                Expr fieldType = (Expr) ctorTypeWalk.o1;
-                fieldTypesRaw[fi] = fieldType;
-
-                Expr ft = fieldTc.whnfExpr(fieldType);
-                int extraPis = 0;
-                while (ft.tag == Expr.FORALL) {
-                    ft = fieldTc.whnfExpr((Expr) ft.o2);
-                    extraPis++;
-                }
-
-                Object[] app = decomposeApp(ft);
-                Expr head = (Expr) app[0];
-                Expr[] args = (Expr[]) app[1];
-
-                if (head.tag == Expr.CONST) {
-                    Name headName = (Name) head.o0;
-                    Integer indIdx = inductiveIdxByName.get(headName);
-                    if (indIdx != null) {
-                        ConstantInfo indCi = bundle.inductives[indIdx];
-                        int indNp = indCi.numParams;
-                        int expectedArgs = indNp + indCi.numIndices;
-                        if (args.length == expectedArgs) {
-                            boolean paramsOk = true;
-                            for (int pi = 0; pi < indNp; pi++) {
-                                Expr paramArg = args[pi];
-                                long expectedBvar = np + fi + extraPis - 1 - pi;
-                                if (paramArg.tag != Expr.BVAR || paramArg.longVal != expectedBvar) {
-                                    paramsOk = false;
-                                    break;
-                                }
-                            }
-                            if (paramsOk) {
-                                isRecField[fi] = true;
-                                recFieldExtraPis[fi] = extraPis;
-                                recFieldIndIdx[fi] = indIdx;
-                                int numInd = indCi.numIndices;
-                                recFieldIndices[fi] = new Expr[numInd];
-                                for (int j = 0; j < numInd; j++) {
-                                    recFieldIndices[fi][j] = args[indNp + j];
-                                }
-                            }
-                        }
-                    }
-                }
-                ctorTypeWalk = (Expr) ctorTypeWalk.o2;
-            }
-
-            Expr expectedBody = Expr.bvar(nf + nmi - 1 - minorIdx);
-            for (int fi = 0; fi < nf; fi++) {
-                expectedBody = Expr.app(expectedBody, Expr.bvar(nf - 1 - fi));
-            }
-            for (int fi = 0; fi < nf; fi++) {
-                if (!isRecField[fi]) continue;
-                int indIdx = recFieldIndIdx[fi];
-                Expr[] indices = recFieldIndices[fi];
-                int extraPis = recFieldExtraPis[fi];
-                Name targetRecName = bundle.inductives.length == 1 ? recCi.name : recursorNameForInductiveIndex(indIdx);
-                if (extraPis == 0) {
-                    Expr ih = Expr.mkConst(targetRecName, recLevelValues, recHasLevelParams);
-                    for (int j = 0; j < np; j++) ih = Expr.app(ih, Expr.bvar(lambdaCount - 1 - j));
-                    for (int j = 0; j < nm; j++) ih = Expr.app(ih, Expr.bvar(nf + nmi + nm - 1 - j));
-                    for (int j = 0; j < nmi; j++) ih = Expr.app(ih, Expr.bvar(nf + nmi - 1 - j));
-                    if (indices != null && indices.length > 0) {
-                        for (Expr index : indices) ih = Expr.app(ih, TypeChecker.reindexBvarsIH(index, 0, fi, nm + nmi, nf));
-                    }
-                    ih = Expr.app(ih, Expr.bvar(nf - 1 - fi));
-                    expectedBody = Expr.app(expectedBody, ih);
+            Expr t = ctorCi.type;
+            int i = 0;
+            while (t.tag == Expr.FORALL) {
+                if (i < bundle.numParams) {
+                    t = Reducer.instantiate1((Expr) t.o2, params.get(i).fvar);
                 } else {
-                    Expr ihInner = Expr.mkConst(targetRecName, recLevelValues, recHasLevelParams);
-                    for (int j = 0; j < np; j++) ihInner = Expr.app(ihInner, Expr.bvar(lambdaCount - 1 - j + extraPis));
-                    for (int j = 0; j < nm; j++) ihInner = Expr.app(ihInner, Expr.bvar(nf + nmi + nm - 1 - j + extraPis));
-                    for (int j = 0; j < nmi; j++) ihInner = Expr.app(ihInner, Expr.bvar(nf + nmi - 1 - j + extraPis));
-                    if (indices != null && indices.length > 0) {
-                        for (Expr index : indices) ihInner = Expr.app(ihInner, TypeChecker.reindexBvarsIH(index, extraPis, fi, nm + nmi, nf));
+                    LocalDecl l = mkLocalDeclFor(ctorTc, t);
+                    bU.add(l);
+                    if (isRecArgument(ctorTc, l.type)) {
+                        u.add(l);
                     }
-                    Expr fApp = Expr.bvar(nf - 1 - fi + extraPis);
-                    for (int j = 0; j < extraPis; j++) fApp = Expr.app(fApp, Expr.bvar(extraPis - 1 - j));
-                    ihInner = Expr.app(ihInner, fApp);
-                    Expr ih = ihInner;
-                    for (int j = extraPis - 1; j >= 0; j--) {
-                        Expr ftj = fieldTypesRaw[fi];
-                        for (int k = 0; k < j; k++) ftj = (Expr) ftj.o2;
-                        Expr binderType = TypeChecker.reindexBvarsIH((Expr) ftj.o1, j, fi, nm + nmi, nf);
-                        ih = Expr.lam(ftj.o0, binderType, ih, ftj.o3);
-                    }
-                    expectedBody = Expr.app(expectedBody, ih);
+                    t = Reducer.instantiate1((Expr) t.o2, l.fvar);
                 }
+                i++;
             }
-            Expr expectedRhs = rebuildRuleLambdas(rule.rhs, expectedBody);
-            out[ruleIdx] = new ConstantInfo.RecursorRule(rule.ctor, rule.nfields, expectedRhs);
+
+            ArrayList<Expr> v = new ArrayList<>();
+            for (LocalDecl uI : u) {
+                Expr uTy = ctorTc.whnfExpr(ctorTc.inferType(uI.fvar));
+                TypeChecker uTc = new TypeChecker(workingEnv, bundle.isUnsafe ? TypeChecker.DEFN_UNSAFE : TypeChecker.DEFN_SAFE, bundle.levelParams);
+                uTc.setFuel(fuel);
+                addParamsTo(uTc);
+                addLocalsTo(uTc, bU);
+                ArrayList<LocalDecl> xs = new ArrayList<>();
+                while (uTy.tag == Expr.FORALL) {
+                    LocalDecl x = mkLocalDeclFor(uTc, uTy);
+                    xs.add(x);
+                    uTy = uTc.whnfExpr(Reducer.instantiate1((Expr) uTy.o2, x.fvar));
+                }
+                ArrayList<Expr> itIndices = new ArrayList<>();
+                int indIdx = getIIndices(uTy, itIndices);
+                Name targetRecName = bundle.inductives.length == 1 ? recCi.name : recursorNameForInductiveIndex(indIdx);
+                Expr recApp = Expr.mkConst(targetRecName, recLevelValues, recHasLevelParams);
+                recApp = mkApp(recApp, params);
+                recApp = mkApp(recApp, motives);
+                recApp = mkApp(recApp, minors);
+                recApp = mkApp(recApp, itIndices);
+                recApp = Expr.app(recApp, mkApp(uI.fvar, xs));
+                v.add(buildLambda(xs, recApp));
+            }
+
+            Expr eApp = mkApp(minors.get(minorIdx).fvar, bU);
+            eApp = mkApp(eApp, v);
+            Expr expectedRhs = buildLambda(params,
+                buildLambda(motives,
+                    buildLambda(minors,
+                        buildLambda(bU, eApp)),
+                    BINDER_DEFAULT));
+            out[ruleIdx] = new ConstantInfo.RecursorRule(ctorName, bU.size(), expectedRhs);
             minorIdx++;
         }
         return out;
@@ -376,10 +307,16 @@ final class RecursorGenerator {
         return buildExpectedRecursorRules(recIdx, recCi);
     }
 
-    private Object[] getRecLevelValues(ConstantInfo recCi) {
-        Object[] out = new Object[recCi.levelParams.length];
-        for (int i = 0; i < recCi.levelParams.length; i++) {
-            out[i] = Level.param((Name) recCi.levelParams[i]);
+    private Object[] getExpectedRecLevelValues() {
+        int extra = elimLevel.tag == Level.PARAM ? 1 : 0;
+        Object[] out = new Object[levelValues.length + extra];
+        int offset = 0;
+        if (extra == 1) {
+            out[0] = elimLevel;
+            offset = 1;
+        }
+        for (int i = 0; i < levelValues.length; i++) {
+            out[i + offset] = levelValues[i];
         }
         return out;
     }
@@ -447,8 +384,9 @@ final class RecursorGenerator {
 
     private LocalDecl mkLocalDecl(TypeChecker tc, Object name, Expr type, Object binderInfo) {
         long id = nextLocalId++;
-        tc.addLocalDecl(id, name, type);
-        return new LocalDecl(id, name, type, binderInfo);
+        Expr localType = TypeChecker.consumeTypeAnnotations(type);
+        tc.addLocalDecl(id, name, localType);
+        return new LocalDecl(id, name, localType, binderInfo);
     }
 
     private LocalDecl mkLocalDeclFor(TypeChecker tc, Expr forallExpr) {
@@ -559,6 +497,24 @@ final class RecursorGenerator {
         return result;
     }
 
+    private static Expr buildLambda(ArrayList<LocalDecl> locals, Expr body) {
+        return buildLambda(locals, body, null);
+    }
+
+    private static Expr buildLambda(ArrayList<LocalDecl> locals, Expr body, Object binderInfoOverride) {
+        if (locals.isEmpty()) return body;
+        long[] ids = new long[locals.size()];
+        for (int i = 0; i < locals.size(); i++) ids[i] = locals.get(i).id;
+        Expr result = Reducer.abstractFvars(body, ids.length, ids);
+        for (int i = locals.size() - 1; i >= 0; i--) {
+            LocalDecl local = locals.get(i);
+            Expr domain = Reducer.abstractFvars(local.type, i, ids);
+            Object binderInfo = binderInfoOverride != null ? binderInfoOverride : local.binderInfo;
+            result = Expr.lam(local.name, domain, result, binderInfo);
+        }
+        return result;
+    }
+
     private static Expr mkApp(Expr fn, ArrayList<? extends Object> args) {
         Expr result = fn;
         for (Object arg : args) {
@@ -603,21 +559,6 @@ final class RecursorGenerator {
         return new Object[]{cur, args};
     }
 
-    private static Expr rebuildRuleLambdas(Expr template, Expr body) {
-        ArrayList<Expr> binders = new ArrayList<>();
-        Expr cur = template;
-        while (cur.tag == Expr.LAM) {
-            binders.add(cur);
-            cur = (Expr) cur.o2;
-        }
-        Expr result = body;
-        for (int i = binders.size() - 1; i >= 0; i--) {
-            Expr lam = binders.get(i);
-            result = Expr.lam(lam.o0, (Expr) lam.o1, result, lam.o3);
-        }
-        return result;
-    }
-
     private static Expr[] getAppArgs(Expr e) {
         int n = 0;
         Expr cur = e;
@@ -640,6 +581,15 @@ final class RecursorGenerator {
             return ctorName.replacePrefix(indName, Name.ANONYMOUS_NAME);
         }
         return ctorName;
+    }
+
+    private static Object appendAfterIH(Object name) {
+        if (name instanceof Name) {
+            Name n = (Name) name;
+            if (n.tag == Name.STR) return Name.mkStr(n.prefix, n.str + "_ih");
+            return Name.mkStr(n, "_ih");
+        }
+        return name + "_ih";
     }
 
     private static boolean hasPrefix(Name n, Name prefix) {

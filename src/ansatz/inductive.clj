@@ -13,7 +13,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl])
-  (:import [ansatz.kernel ConstantInfo]))
+  (:import [ansatz.kernel ConstantInfo TypeChecker]))
 
 ;; ============================================================
 ;; Scope helpers (de Bruijn index computation)
@@ -1560,6 +1560,22 @@
                                rec-name rec-level-params rec-level-levels
                                result-level elim-level is-rec
                                self-const ind-name-str)
+        preliminary-bundle (env/mk-inductive-bundle ind-levels n-params false
+                                                    [ind-ci] ctor-cis [rec-ci])
+        ;; Use the kernel's Lean-shaped generator for local declarations too.
+        ;; This keeps frontend-authored inductives on the same admission path as imports.
+        lean-rules (vec (TypeChecker/generateExpectedRecursorRules env preliminary-bundle 0 1000000))
+        rec-ci (env/mk-recursor (.name ^ConstantInfo rec-ci)
+                                (vec (.levelParams ^ConstantInfo rec-ci))
+                                (.type ^ConstantInfo rec-ci)
+                                :all (vec (.all ^ConstantInfo rec-ci))
+                                :num-params (.numParams ^ConstantInfo rec-ci)
+                                :num-indices (.numIndices ^ConstantInfo rec-ci)
+                                :num-motives (.numMotives ^ConstantInfo rec-ci)
+                                :num-minors (.numMinors ^ConstantInfo rec-ci)
+                                :rules lean-rules
+                                :k? (.isK ^ConstantInfo rec-ci)
+                                :unsafe? (.isUnsafe ^ConstantInfo rec-ci))
         kernel-bundle (env/mk-inductive-bundle ind-levels n-params false
                                                [ind-ci] ctor-cis [rec-ci])]
 

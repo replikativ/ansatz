@@ -407,8 +407,9 @@ final class InductiveChecker {
 
     private LocalDecl mkLocalDecl(TypeChecker tc, Object name, Expr type, Object binderInfo) {
         long id = nextLocalId++;
-        tc.addLocalDecl(id, name, type);
-        return new LocalDecl(id, name, type, binderInfo);
+        Expr localType = TypeChecker.consumeTypeAnnotations(type);
+        tc.addLocalDecl(id, name, localType);
+        return new LocalDecl(id, name, localType, binderInfo);
     }
 
     private LocalDecl mkLocalDeclFor(TypeChecker tc, Expr forallExpr) {

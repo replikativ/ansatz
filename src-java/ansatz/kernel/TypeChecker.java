@@ -1000,6 +1000,10 @@ public final class TypeChecker {
     }
 
     private Expr normalizeInferResult(Expr e) {
+        return consumeTypeAnnotations(e);
+    }
+
+    static Expr consumeTypeAnnotations(Expr e) {
         Expr cur = e;
         while (cur.tag == Expr.APP) {
             Object[] fa = Reducer.getAppFnArgs(cur);
@@ -1007,7 +1011,8 @@ public final class TypeChecker {
             Expr[] args = (Expr[]) fa[1];
             if (args.length == 1 && fn.tag == Expr.CONST) {
                 Object nm = fn.o0;
-                if (nm == Name.OUT_PARAM || nm == Name.SEMI_OUT_PARAM) {
+                if (nm == Name.OUT_PARAM || nm == Name.SEMI_OUT_PARAM ||
+                        Name.OUT_PARAM.equals(nm) || Name.SEMI_OUT_PARAM.equals(nm)) {
                     cur = args[0];
                     continue;
                 }
@@ -2206,6 +2211,10 @@ public final class TypeChecker {
     }
 
     public static ConstantInfo.RecursorRule[] debugExpectedRecursorRules(Env env, InductiveBundle bundle, int recIdx, long fuel) {
+        return generateExpectedRecursorRules(env, bundle, recIdx, fuel);
+    }
+
+    public static ConstantInfo.RecursorRule[] generateExpectedRecursorRules(Env env, InductiveBundle bundle, int recIdx, long fuel) {
         InductiveChecker ic = new InductiveChecker(debugEnvWithoutBundle(env, bundle), bundle, fuel);
         ic.prepareRecursorState();
         return ic.debugBuildExpectedRecursorRules(recIdx, bundle.recursors[recIdx]);
