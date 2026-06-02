@@ -37,6 +37,19 @@
 
 (declare compile-type)
 
+(defn- parse-binders
+  "Parse [a Type, b Type] or [a : Type, b : Type] → [[a Type] [b Type]].
+   Commas and colons are syntactic sugar; both are ignored."
+  [binder-vec]
+  (let [tokens (remove (fn [t] (or (= (str t) ",") (= (str t) ":"))) binder-vec)]
+    (loop [ts (seq tokens) result []]
+      (if (or (nil? ts) (empty? ts))
+        result
+        (let [nam (first ts) typ (second ts)]
+          (when (nil? typ)
+            (throw (ex-info (str "Binder missing type for: " nam) {:name nam})))
+          (recur (nnext ts) (conj result [nam typ])))))))
+
 (defn- compile-type
   "Compile a type s-expression to Ansatz Expr.
    Handles self-references to the inductive being defined."
@@ -77,6 +90,26 @@
         ("->" "arrow")
         (e/arrow (compile-type env scope depth (nth form 1) self-name self-const)
                  (compile-type env scope (inc depth) (nth form 2) self-name self-const))
+        ;; Dependent function type: (forall [a Type, b Type, ...] body)
+        ;; Needed so structure/inductive fields can express categorical operations
+        ;; like (forall [a Ob b Ob c Ob] (-> (Hom a b) (-> (Hom b c) (Hom a c))))
+        ;; and equation axioms like (forall [a M b M c M] (= (mul (mul a b) c) ...)).
+        "forall"
+        (let [[_ binder-vec & body-forms] form
+              binders    (parse-binders binder-vec)
+              body-sexpr (if (= 1 (count body-forms))
+                           (first body-forms)
+                           (throw (ex-info "forall expects exactly one body form"
+                                           {:forms body-forms})))]
+          (letfn [(build [bs scope depth]
+                    (if (empty? bs)
+                      (compile-type env scope depth body-sexpr self-name self-const)
+                      (let [[nam typ-sexpr] (first bs)
+                            typ-expr  (compile-type env scope depth typ-sexpr self-name self-const)
+                            new-scope (assoc scope nam depth)
+                            body-expr (build (rest bs) new-scope (inc depth))]
+                        (e/forall' (str nam) typ-expr body-expr :default))))]
+            (build binders scope depth)))
         ;; Arithmetic operators
         ("+" "-" "*")
         (let [op (case h "+" "HAdd.hAdd" "*" "HMul.hMul" "-" "HSub.hSub")
@@ -1393,12 +1426,22 @@
                     fields: flat vector [field-name field-type ...]
                     return-indices: vector of index expressions for this ctor's return type
      opts:
-       :in         - result universe: 'Prop or 'Type (default: auto from params)
-       :indices    - flat vector [idx-name idx-type ...] for indexed families
+       :in              - result universe: 'Prop or 'Type (default: auto from params)
+       :indices         - flat vector [idx-name idx-type ...] for indexed families
+       :no-confusion?   - emit T.noConfusionType and T.noConfusion. Default true.
+                          Set false to skip noConfusion entirely; useful for
+                          inductives that mix Prop-valued fields with a Type
+                          result level (the current generator uses a single
+                          eq-level = result-level for all fields, which fails
+                          when a field's universe is lower than the result —
+                          see TODO Bug C). gatlab.ansatz.export passes false
+                          so axioms-as-fields can be admitted without hitting
+                          that path.
 
-   Adds: inductive, constructors, recursor, casesOn, recOn.
-   Returns env."
-  [env ind-name-str params-spec ctors-spec & {:keys [in indices]}]
+   Adds: inductive, constructors, recursor, casesOn, recOn, optionally
+   noConfusionType and noConfusion. Returns env."
+  [env ind-name-str params-spec ctors-spec & {:keys [in indices no-confusion?]
+                                              :or {no-confusion? true}}]
   (let [ind-name (name/from-string ind-name-str)
 
         ;; Parse parameters, extracting universe level params
@@ -1596,8 +1639,9 @@
                       env (env/check-constant env rec-on-ci)]
                   env)
                 env)
-          ;; Build noConfusion for non-indexed, non-Prop types
-          env (if (and (zero? n-indices) (not is-prop))
+          ;; Build noConfusion for non-indexed, non-Prop types — caller can
+          ;; opt out via :no-confusion? false (see docstring re: Bug C).
+          env (if (and no-confusion? (zero? n-indices) (not is-prop))
                 (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
                                                       level-param-names rec-name rec-level-params
                                                       result-level is-rec ind-name-str)

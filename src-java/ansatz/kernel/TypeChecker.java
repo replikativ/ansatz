@@ -2222,17 +2222,22 @@ public final class TypeChecker {
     }
 
     private static Env debugEnvWithoutBundle(Env env, InductiveBundle bundle) {
-        java.util.HashSet<Name> excluded = new java.util.HashSet<>();
-        for (ConstantInfo ci : bundle.inductives) excluded.add(ci.name);
-        for (ConstantInfo ci : bundle.ctors) excluded.add(ci.name);
-        for (ConstantInfo ci : bundle.recursors) excluded.add(ci.name);
-        Env out = new Env();
-        for (ConstantInfo ci : env.allConstants()) {
-            if (ci != null && !excluded.contains(ci.name)) {
-                out = out.addConstant(ci);
-            }
-        }
-        return out;
+        // At every current call site (generateExpectedRecursorRules,
+        // debugExpectedRecursorType, debugNormalizedExpectedRecursorType), the
+        // bundle's constants are not yet admitted to env — admission happens
+        // afterwards via checkInductiveBundle. So no exclusion is required.
+        //
+        // The prior implementation rebuilt env via allConstants(), which on
+        // PSS / LMDB-backed envs returns locals only (externalLookup is not
+        // enumerable). That silently dropped Mathlib, so any inductive whose
+        // constructor field types referenced a Mathlib constant (Eq, LE.le,
+        // HEq, …) failed recursor generation with "Unknown constant: …".
+        //
+        // If a future call site admits the bundle before invoking these
+        // helpers, replace this with a name-set visibility filter via
+        // env.withExternalLookupFiltered — that preserves externals without
+        // requiring enumeration.
+        return env;
     }
 
     private static final class ConstantCheckState {
