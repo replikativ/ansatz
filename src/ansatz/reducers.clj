@@ -299,7 +299,7 @@
       (let [[step normalize-opts] (normalize-step (first remaining))
             optimizations (core/into optimizations normalize-opts)]
         (if-let [[fused fuse-opt] (when-let [left (peek stack)]
-                                   (try-fuse-steps left step))]
+                                    (try-fuse-steps left step))]
           (recur (next remaining)
                  (conj (pop stack) fused)
                  (conj optimizations fuse-opt))
