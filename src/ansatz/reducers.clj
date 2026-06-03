@@ -5,7 +5,7 @@
 ;; kernel-checked definitions and proofs.
 
 (ns ansatz.reducers
-  (:refer-clojure :exclude [cat eduction empty filter group-by into map mapcat reduce remove transduce])
+  (:refer-clojure :exclude [cat eduction empty filter frequencies group-by into map mapcat reduce remove transduce])
   (:require [clojure.core :as core]
             [clojure.core.reducers :as reducers]
             [ansatz.kernel.env :as env]
@@ -76,6 +76,56 @@
   "Compose pipelines left-to-right, matching normal threading order."
   [& pipelines]
   (->Pipeline (vec (core/mapcat (comp :steps ensure-pipeline) pipelines))))
+
+(defn- unsupported-pipeline-form [form]
+  (throw (ex-info "Unsupported reducer pipeline form"
+                  {:form form
+                   :supported '(map filter remove cat mapcat flat-map)})))
+
+(defn- pipeline-step-form [acc form]
+  (let [head (if (seq? form) (first form) form)
+        op (when (symbol? head) (symbol (name head)))
+        args (when (seq? form) (rest form))]
+    (case op
+      map (if (= 1 (count args))
+            `(map ~acc ~(first args))
+            (unsupported-pipeline-form form))
+      filter (if (= 1 (count args))
+               `(filter ~acc ~(first args))
+               (unsupported-pipeline-form form))
+      remove (if (= 1 (count args))
+               `(remove ~acc ~(first args))
+               (unsupported-pipeline-form form))
+      cat (if (empty? args)
+            `(cat ~acc)
+            (unsupported-pipeline-form form))
+      mapcat (if (= 1 (count args))
+               `(mapcat ~acc ~(first args))
+               (unsupported-pipeline-form form))
+      flat-map (if (= 1 (count args))
+                 `(flat-map ~acc ~(first args))
+                 (unsupported-pipeline-form form))
+      (unsupported-pipeline-form form))))
+
+(defmacro pipeline
+  "Create a Pipeline using Clojure-transducer-like forms.
+
+   Example:
+     (pipeline
+       (map inc)
+       (filter even?)
+       (mapcat range))
+
+   The forms are not ordinary Clojure transducers; they are compiled to an
+   explicit Ansatz reducer pipeline so later terminals can require proofs before
+   using parallel regrouping."
+  [& forms]
+  (core/reduce pipeline-step-form `empty forms))
+
+(defmacro defpipeline
+  "Define a named reducer pipeline."
+  [pipeline-name & forms]
+  `(def ~pipeline-name (pipeline ~@forms)))
 
 (defn fold-safe?
   "Whether a pipeline can be applied inside `reducers/fold` chunks.
@@ -332,6 +382,13 @@
                 (assoc-in [:kernel :checked-at] (str checked-at))
                 (assoc-in [:kernel :law-checks] checks))))))
 
+(defn checked
+  "Convenience wrapper for `validate-monoid-spec`."
+  ([kernel-env spec]
+   (validate-monoid-spec kernel-env spec))
+  ([kernel-env spec opts]
+   (validate-monoid-spec kernel-env spec opts)))
+
 (defn- assert-kernel-lawful! [spec]
   (when-not (kernel-lawful? spec)
     (throw (ex-info "Kernel-checked fold requires validate-monoid-spec"
@@ -413,6 +470,34 @@
    (assert-kernel-lawful! spec)
    (fold-map pipeline spec f coll opts)))
 
+(defn sum-by
+  "Lawful parallel sum after mapping each input to a monoid value."
+  ([pipeline spec f coll]
+   (sum-by pipeline spec f coll {}))
+  ([pipeline spec f coll opts]
+   (fold-map pipeline spec f coll opts)))
+
+(defn sum
+  "Lawful parallel sum using identity as the value function."
+  ([pipeline spec coll]
+   (sum pipeline spec coll {}))
+  ([pipeline spec coll opts]
+   (sum-by pipeline spec identity coll opts)))
+
+(defn sum-by-checked
+  "Kernel-checked variant of `sum-by`."
+  ([pipeline spec f coll]
+   (sum-by-checked pipeline spec f coll {}))
+  ([pipeline spec f coll opts]
+   (fold-map-checked pipeline spec f coll opts)))
+
+(defn sum-checked
+  "Kernel-checked variant of `sum`."
+  ([pipeline spec coll]
+   (sum-checked pipeline spec coll {}))
+  ([pipeline spec coll opts]
+   (sum-by-checked pipeline spec identity coll opts)))
+
 (defn unchecked-fold-map
   "Parallel map-then-fold without law checking.
 
@@ -471,6 +556,15 @@
              coll
              opts)))
 
+(defn frequencies
+  "Lawful parallel frequency map.
+
+   `count-spec` is usually `nat-add` or a kernel-checked version of it."
+  ([pipeline count-spec key-f coll]
+   (frequencies pipeline count-spec key-f coll {}))
+  ([pipeline count-spec key-f coll opts]
+   (group-by pipeline count-spec key-f (constantly 1) coll opts)))
+
 (defn group-by-checked
   "Kernel-checked variant of `group-by` for the value monoid.
 
@@ -481,3 +575,10 @@
   ([pipeline value-spec key-f value-f coll opts]
    (assert-kernel-lawful! value-spec)
    (group-by pipeline value-spec key-f value-f coll opts)))
+
+(defn frequencies-checked
+  "Kernel-checked variant of `frequencies`."
+  ([pipeline count-spec key-f coll]
+   (frequencies-checked pipeline count-spec key-f coll {}))
+  ([pipeline count-spec key-f coll opts]
+   (group-by-checked pipeline count-spec key-f (constantly 1) coll opts)))
