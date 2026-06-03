@@ -525,6 +525,8 @@ The CIC kernel is implemented in Java for performance:
 - `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
 For a deeper architectural walkthrough of the kernel, see [doc/kernel.md](doc/kernel.md).
+For the reducer/transducer optimization design, see
+[doc/reducer-optimizations.md](doc/reducer-optimizations.md).
 
 ### Tactic Layer (Clojure)
 
