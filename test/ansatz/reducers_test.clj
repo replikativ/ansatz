@@ -2,6 +2,10 @@
   (:require [ansatz.reducers :as r]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.name :as name]
             [clojure.test :refer [deftest is]]))
 
 (def ^:private init-medium-env
@@ -13,6 +17,10 @@
 (defn- require-env []
   (or @init-medium-env
       (throw (ex-info "test-data/init-medium.ndjson not found" {}))))
+
+(defn- add-test-law [kernel-env theorem type]
+  (env/add-constant kernel-env
+                    (env/mk-axiom (name/from-string theorem) [] type)))
 
 (r/defpipeline odd-squares
   (map inc)
@@ -75,6 +83,58 @@
             [:f 0] [:g 1] [:p 2] [:q 2]
             [:f 1] [:g 2] [:p 4] [:q 4]]
            @events))))
+
+(deftest reducer-law-spec-validates-kernel-theorem-type
+  (let [law-type (e/sort' lvl/zero)
+        kernel-env (add-test-law (env/empty-env) "Ansatz.Reducer.map_map" law-type)
+        spec (r/reducer-law-spec {:rule :map-map
+                                  :theorem "Ansatz.Reducer.map_map"
+                                  :expected-type law-type})
+        checked (r/validate-reducer-law-spec kernel-env spec)]
+    (is (r/reducer-law-checked? checked))
+    (is (= "Ansatz.Reducer.map_map"
+           (get-in checked [:metadata :kernel :theorem])))
+    (is (thrown-with-msg?
+         clojure.lang.ExceptionInfo
+         #"Reducer law type does not match"
+         (r/validate-reducer-law-spec
+          kernel-env
+          (r/reducer-law-spec {:rule :map-map
+                               :theorem "Ansatz.Reducer.map_map"
+                               :expected-type (e/sort' (lvl/succ lvl/zero))}))))))
+
+(deftest checked-pipeline-requires-checked-laws-and-functions
+  (let [base-env (require-env)
+        law-type (e/sort' lvl/zero)
+        kernel-env (add-test-law base-env "Ansatz.Reducer.map_map" law-type)
+        succ-ci (env/lookup kernel-env (name/from-string "Nat.succ"))
+        unchecked-succ (r/certified-fn {:name 'Nat.succ
+                                        :type (.type succ-ci)
+                                        :runtime inc})
+        checked-succ (r/validate-certified-fn kernel-env unchecked-succ)
+        law (r/reducer-law-spec {:rule :map-map
+                                 :theorem "Ansatz.Reducer.map_map"
+                                 :expected-type law-type})
+        checked-pipeline (r/check-pipeline kernel-env
+                                           (r/pipeline
+                                            (map checked-succ)
+                                            (map checked-succ))
+                                           [law])
+        unchecked-pipeline (r/check-pipeline kernel-env
+                                             (r/pipeline
+                                              (map unchecked-succ)
+                                              (map unchecked-succ))
+                                             [law])
+        checked-opt (first (:optimizations (r/explain checked-pipeline)))
+        unchecked-opt (first (:optimizations (r/explain unchecked-pipeline)))]
+    (is (= [3 4]
+           (r/into [] checked-pipeline [1 2])))
+    (is (true? (:rule-kernel-checked? checked-opt)))
+    (is (true? (:functions-certified? checked-opt)))
+    (is (true? (:kernel-checked? checked-opt)))
+    (is (true? (:rule-kernel-checked? unchecked-opt)))
+    (is (false? (:functions-certified? unchecked-opt)))
+    (is (false? (:kernel-checked? unchecked-opt)))))
 
 (deftest compose-preserves-left-to-right-order
   (let [pipeline (r/compose (r/map inc)

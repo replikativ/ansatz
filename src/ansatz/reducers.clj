@@ -12,7 +12,7 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel Env TypeChecker]))
+  (:import [ansatz.kernel Env Expr TypeChecker]))
 
 ;; ============================================================
 ;; Pipeline AST
@@ -21,6 +21,65 @@
 (declare compile-xform* optimize-steps empty)
 
 (defrecord Pipeline [steps optimized-steps optimizations compiled-xform])
+
+(def ^:private certification-key ::certified-fn)
+
+(defn certified-fn
+  "Wrap a runtime function with kernel-side certification metadata.
+
+   The returned value remains an ordinary callable Clojure function. The
+   metadata is intentionally separate from kernel validation: use
+   `validate-certified-fn` before treating the kernel side as checked."
+  [{:keys [name type kernel-term runtime metadata]}]
+  (when-not (fn? runtime)
+    (throw (ex-info "certified-fn requires a callable :runtime"
+                    {:name name
+                     :runtime runtime})))
+  (when-not (or name kernel-term)
+    (throw (ex-info "certified-fn requires :name or :kernel-term"
+                    {:metadata metadata})))
+  (with-meta
+    (fn
+      ([] (runtime))
+      ([x] (runtime x))
+      ([x y] (runtime x y))
+      ([x y z] (runtime x y z))
+      ([x y z & more] (apply runtime x y z more)))
+    {certification-key {:name name
+                        :type type
+                        :kernel-term kernel-term
+                        :runtime runtime
+                        :metadata metadata}}))
+
+(defn certification
+  "Return certification metadata attached by `certified-fn`, if present."
+  [f]
+  (get (meta f) certification-key))
+
+(defn certified-fn?
+  "True when `f` carries Ansatz reducer certification metadata."
+  [f]
+  (boolean (certification f)))
+
+(defn- derived-certification [kind components]
+  {:name (symbol (str "ansatz.reducers.derived/" (name kind)))
+   :derived? true
+   :kind kind
+   :components (vec components)})
+
+(defn- attach-certification [step cert]
+  (if cert
+    (assoc step :certification cert)
+    step))
+
+(defn- certification-checked? [cert]
+  (true? (get-in cert [:metadata :kernel :checked?])))
+
+(defn- step-certified? [step]
+  (case (:op step)
+    :cat true
+    (:map :filter :remove :mapcat) (certification-checked? (:certification step))
+    false))
 
 (defn- mk-pipeline [steps]
   (let [steps (vec steps)
@@ -47,19 +106,22 @@
   "Append a stateless map transform, or create a one-step pipeline."
   ([f] (map empty f))
   ([pipeline f]
-   (append-step pipeline {:op :map :f f :fold-safe? true})))
+   (append-step pipeline (attach-certification {:op :map :f f :fold-safe? true}
+                                               (certification f)))))
 
 (defn filter
   "Append a stateless filter transform, or create a one-step pipeline."
   ([pred] (filter empty pred))
   ([pipeline pred]
-   (append-step pipeline {:op :filter :pred pred :fold-safe? true})))
+   (append-step pipeline (attach-certification {:op :filter :pred pred :fold-safe? true}
+                                               (certification pred)))))
 
 (defn remove
   "Append a stateless remove transform, or create a one-step pipeline."
   ([pred] (remove empty pred))
   ([pipeline pred]
-   (append-step pipeline {:op :remove :pred pred :fold-safe? true})))
+   (append-step pipeline (attach-certification {:op :remove :pred pred :fold-safe? true}
+                                               (certification pred)))))
 
 (defn cat
   "Append Clojure's `cat` transducer, or create a one-step pipeline."
@@ -71,7 +133,8 @@
   "Append a stateless mapcat transform, or create a one-step pipeline."
   ([f] (mapcat empty f))
   ([pipeline f]
-   (append-step pipeline {:op :mapcat :f f :fold-safe? true})))
+   (append-step pipeline (attach-certification {:op :mapcat :f f :fold-safe? true}
+                                               (certification f)))))
 
 (def flat-map
   "Alias for `mapcat`; closer to lean-reducers naming."
@@ -158,18 +221,30 @@
    :filter-filter {:law 'ansatz.reducers.law/filter-filter
                    :kernel-checked? false}})
 
+(defn- certification-summary [cert]
+  (when cert
+    (cond-> {:name (:name cert)}
+      (:derived? cert) (assoc :derived? true)
+      (get-in cert [:metadata :kernel :checked?]) (assoc :kernel-checked? true))))
+
 (defn- step-summary [step]
-  (select-keys step [:op :fold-safe?]))
+  (let [cert (:certification step)]
+    (cond-> (select-keys step [:op :fold-safe?])
+      cert (assoc :certification (certification-summary cert)
+                  :function-kernel-checked? (certification-checked? cert)))))
 
 (defn- map-step [f]
-  {:op :map :f f :fold-safe? true})
+  (attach-certification {:op :map :f f :fold-safe? true}
+                        (certification f)))
 
 (defn- filter-step [pred]
-  {:op :filter :pred pred :fold-safe? true})
+  (attach-certification {:op :filter :pred pred :fold-safe? true}
+                        (certification pred)))
 
 (defn- optimization [rule from to]
   (assoc (get optimization-laws rule)
          :rule rule
+         :functions-certified? (every? step-certified? from)
          :from (mapv step-summary from)
          :to (mapv step-summary to)))
 
@@ -177,7 +252,10 @@
   (case (:op step)
     :remove
     (let [pred (:pred step)
-          normalized (filter-step (fn [x] (not (pred x))))]
+          cert (:certification step)
+          normalized (attach-certification (filter-step (fn [x] (not (pred x))))
+                                           (when cert
+                                             (derived-certification :not [cert])))]
       [normalized [(optimization :remove->filter [step] [normalized])]])
     [step []]))
 
@@ -186,13 +264,21 @@
     [:map :map]
     (let [f (:f left)
           g (:f right)
-          fused (map-step (fn [x] (g (f x))))]
+          left-cert (:certification left)
+          right-cert (:certification right)
+          fused (attach-certification (map-step (fn [x] (g (f x))))
+                                      (when (and left-cert right-cert)
+                                        (derived-certification :compose [left-cert right-cert])))]
       [fused (optimization :map-map [left right] [fused])])
 
     [:filter :filter]
     (let [p (:pred left)
           q (:pred right)
-          fused (filter-step (fn [x] (and (p x) (q x))))]
+          left-cert (:certification left)
+          right-cert (:certification right)
+          fused (attach-certification (filter-step (fn [x] (and (p x) (q x))))
+                                      (when (and left-cert right-cert)
+                                        (derived-certification :and [left-cert right-cert])))]
       [fused (optimization :filter-filter [left right] [fused])])
 
     nil))
@@ -249,11 +335,180 @@
   "Return a small data summary of the pipeline."
   [pipeline]
   (let [pipeline (ensure-pipeline pipeline)]
-    {:steps (mapv step-summary (:steps pipeline))
-     :optimized-steps (mapv step-summary (:optimized-steps pipeline))
-     :optimizations (mapv #(select-keys % [:rule :law :kernel-checked? :from :to])
-                          (:optimizations pipeline))
-     :fold-safe? (fold-safe? pipeline)}))
+    (cond-> {:steps (mapv step-summary (:steps pipeline))
+             :optimized-steps (mapv step-summary (:optimized-steps pipeline))
+             :optimizations (mapv #(select-keys % [:rule :law :kernel-checked?
+                                                   :rule-kernel-checked? :functions-certified?
+                                                   :from :to])
+                                  (:optimizations pipeline))
+             :fold-safe? (fold-safe? pipeline)}
+      (:reducer-law-checks pipeline)
+      (assoc :reducer-law-checks (:reducer-law-checks pipeline)))))
+
+;; ============================================================
+;; Kernel-checked reducer law and function certificates
+;; ============================================================
+
+(defrecord ReducerLawSpec [rule theorem expected-type metadata])
+
+(defn- declaration-name-str [decl-name]
+  (cond
+    (symbol? decl-name) (str decl-name)
+    (string? decl-name) decl-name
+    :else nil))
+
+(defn reducer-law-spec
+  "Create a reducer optimizer law descriptor.
+
+   `expected-type` is the kernel expression for the theorem type that must be
+   definitionally equal to the referenced declaration's type. This validates the
+   rewrite schema, not any arbitrary Clojure function captured by a pipeline."
+  [{:keys [rule theorem expected-type metadata]}]
+  (when-not rule
+    (throw (ex-info "ReducerLawSpec requires :rule" {:theorem theorem})))
+  (when-not (declaration-name-str theorem)
+    (throw (ex-info "ReducerLawSpec requires theorem symbol or string"
+                    {:rule rule
+                     :theorem theorem})))
+  (when-not (instance? Expr expected-type)
+    (throw (ex-info "ReducerLawSpec requires kernel Expr :expected-type"
+                    {:rule rule
+                     :theorem theorem
+                     :expected-type expected-type})))
+  (->ReducerLawSpec rule theorem expected-type metadata))
+
+(defn reducer-law-checked?
+  "True when a reducer law spec has been checked against a kernel declaration."
+  [spec]
+  (true? (get-in spec [:metadata :kernel :checked?])))
+
+(defn validate-reducer-law-spec
+  "Kernel-check a reducer optimizer law theorem type."
+  ([^Env kernel-env spec]
+   (validate-reducer-law-spec kernel-env spec {}))
+  ([^Env kernel-env spec {:keys [fuel] :or {fuel 50000000}}]
+   (let [spec (if (instance? ReducerLawSpec spec)
+                spec
+                (reducer-law-spec spec))
+         theorem-name (declaration-name-str (:theorem spec))
+         ci (env/lookup kernel-env (name/from-string theorem-name))]
+     (when-not ci
+       (throw (ex-info "Reducer law declaration not found"
+                       {:rule (:rule spec)
+                        :theorem theorem-name})))
+     (let [tc (doto (TypeChecker. kernel-env)
+                (.setFuel (long fuel)))
+           expected (:expected-type spec)
+           actual (.type ci)
+           ok? (.isDefEq tc actual expected)]
+       (when-not ok?
+         (throw (ex-info "Reducer law type does not match"
+                         {:rule (:rule spec)
+                          :theorem theorem-name
+                          :expected (e/->string expected)
+                          :actual (e/->string actual)})))
+       (assoc spec :metadata
+              (-> (:metadata spec)
+                  (assoc-in [:kernel :checked?] true)
+                  (assoc-in [:kernel :checked-at] (str (java.time.Instant/now)))
+                  (assoc-in [:kernel :theorem] theorem-name)
+                  (assoc-in [:kernel :type-checked?] true)))))))
+
+(defn validate-reducer-law-specs
+  "Kernel-check a collection or map of reducer law specs."
+  ([^Env kernel-env law-specs]
+   (validate-reducer-law-specs kernel-env law-specs {}))
+  ([^Env kernel-env law-specs opts]
+   (let [specs (cond
+                 (nil? law-specs) []
+                 (map? law-specs) (vals law-specs)
+                 (sequential? law-specs) law-specs
+                 :else [law-specs])]
+     (core/into {}
+                (for [spec specs
+                      :let [checked (validate-reducer-law-spec kernel-env spec opts)]]
+                  [(:rule checked) checked])))))
+
+(defn validate-certified-fn
+  "Check the kernel-side type attached to a `certified-fn`.
+
+   This validates the kernel declaration or expression. It still records a
+   runtime trust boundary: Ansatz must know why the Clojure runtime function
+   corresponds to the checked kernel term before stronger optimizer claims can
+   be made."
+  ([^Env kernel-env f]
+   (validate-certified-fn kernel-env f {}))
+  ([^Env kernel-env f {:keys [fuel] :or {fuel 50000000}}]
+   (let [cert (certification f)]
+     (when-not cert
+       (throw (ex-info "Expected function created by certified-fn" {:value f})))
+     (let [tc (doto (TypeChecker. kernel-env)
+                (.setFuel (long fuel)))
+           term (:kernel-term cert)
+           decl-name (or (declaration-name-str term)
+                         (declaration-name-str (:name cert)))
+           actual (cond
+                    (instance? Expr term) (.inferType tc term)
+                    decl-name (let [ci (env/lookup kernel-env (name/from-string decl-name))]
+                                (when-not ci
+                                  (throw (ex-info "Certified function declaration not found"
+                                                  {:name decl-name})))
+                                (.type ci))
+                    :else (throw (ex-info "Certified function needs :kernel-term or :name"
+                                          {:certification cert})))
+           expected (:type cert)]
+       (when (and expected (not (instance? Expr expected)))
+         (throw (ex-info "Certified function :type must be a kernel Expr when validating"
+                         {:name (:name cert)
+                          :type expected})))
+       (when (and expected (not (.isDefEq tc actual expected)))
+         (throw (ex-info "Certified function type does not match"
+                         {:name (:name cert)
+                          :expected (e/->string expected)
+                          :actual (e/->string actual)})))
+       (with-meta f
+         {certification-key
+          (assoc cert :metadata
+                 (-> (:metadata cert)
+                     (assoc-in [:kernel :checked?] true)
+                     (assoc-in [:kernel :checked-at] (str (java.time.Instant/now)))
+                     (assoc-in [:kernel :type] actual)
+                     (assoc-in [:runtime :trusted?] (true? (get-in cert [:metadata :runtime :trusted?])))))})))))
+
+(defn- reducer-law-check-summary [spec]
+  {:rule (:rule spec)
+   :theorem (get-in spec [:metadata :kernel :theorem])
+   :kernel-checked? (reducer-law-checked? spec)})
+
+(defn- mark-optimization-checked [checked-laws opt]
+  (let [law (get checked-laws (:rule opt))
+        rule-checked? (boolean (and law (reducer-law-checked? law)))
+        functions-certified? (boolean (:functions-certified? opt))
+        checked? (and rule-checked? functions-certified?)]
+    (cond-> opt
+      law (assoc :law (or (get-in law [:metadata :kernel :theorem])
+                          (:theorem law))
+                 :rule-kernel-checked? rule-checked?)
+      checked? (assoc :kernel-checked? true))))
+
+(defn check-pipeline
+  "Attach kernel-checked reducer law information to a pipeline.
+
+   The optimized transducer is unchanged. This marks an optimization as
+   `:kernel-checked? true` only when the rewrite theorem type was checked and
+   all functions involved in that rewrite carry kernel-validated certification
+   metadata."
+  ([^Env kernel-env pipeline law-specs]
+   (check-pipeline kernel-env pipeline law-specs {}))
+  ([^Env kernel-env pipeline law-specs opts]
+   (let [pipeline (ensure-pipeline pipeline)
+         checked-laws (validate-reducer-law-specs kernel-env law-specs opts)
+         checked-opts (mapv #(mark-optimization-checked checked-laws %)
+                            (:optimizations pipeline))]
+     (assoc pipeline
+            :optimizations checked-opts
+            :reducer-law-checks (mapv reducer-law-check-summary
+                                      (vals checked-laws))))))
 
 ;; ============================================================
 ;; Sequential terminals

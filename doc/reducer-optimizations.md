@@ -27,9 +27,12 @@ The current Ansatz reducer prototype instead provides:
 - Law-carrying monoid specs for safe `reducers/fold` regrouping.
 - A small internal optimizer that canonicalizes adjacent `map`/`filter` steps
   and records the rewrite laws it used.
+- `ReducerLawSpec` and `certified-fn` scaffolding, so the optimizer can
+  distinguish unchecked Clojure closures from kernel-validated function
+  metadata and kernel-validated rewrite theorem types.
 
-The design goal is to turn that last point into a proof-carrying optimizer,
-without pretending that arbitrary Clojure closures are CIC terms.
+The design goal is to turn these pieces into a proof-carrying optimizer, without
+pretending that arbitrary Clojure closures are CIC terms.
 
 ## Core Distinction
 
@@ -176,6 +179,11 @@ Then add a checked pipeline entry point:
     (r/checked env)
     (r/into [] xs))
 ```
+
+The current implementation calls this step `r/check-pipeline` and expects
+validated reducer law specs. It marks a rewrite `:kernel-checked? true` only
+when the rewrite theorem type was checked and all functions involved in that
+rewrite carry kernel-validated certification metadata.
 
 In checked mode, Ansatz can distinguish:
 
@@ -361,11 +369,12 @@ be:
 
 ## Roadmap
 
-1. Add `doc/reducer-optimizations.md` and keep the current optimizer described
-   as conservative canonicalization.
-2. Add `ReducerLawSpec` and validate rewrite theorem types against an imported
-   environment.
-3. Add certified function/predicate wrappers.
+1. Keep the current optimizer described as conservative canonicalization for
+   unchecked Clojure code.
+2. Extend the reducer theory with real Lean/Ansatz declarations for the
+   optimizer laws sketched above.
+3. Use `ReducerLawSpec` and `certified-fn` to validate rewrite theorem types
+   and function declarations against an imported environment.
 4. Mark optimizer rewrites checked only when the rule and involved functions are
    certified.
 5. Add terminal-specific sequential compilation for `sum`, `frequencies`, and
