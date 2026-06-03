@@ -35,8 +35,46 @@
     (is (= {:steps [{:op :map :fold-safe? true}
                     {:op :filter :fold-safe? true}
                     {:op :mapcat :fold-safe? true}]
+            :optimized-steps [{:op :map :fold-safe? true}
+                              {:op :filter :fold-safe? true}
+                              {:op :mapcat :fold-safe? true}]
+            :optimizations []
             :fold-safe? true}
            (r/explain pipeline)))))
+
+(deftest optimizer-fuses-order-preserving-steps
+  (let [pipeline (r/pipeline
+                  (map inc)
+                  (map #(* 2 %))
+                  (filter even?)
+                  (remove #(> % 6)))
+        report (r/explain pipeline)]
+    (is (= [2 4 6]
+           (r/into [] pipeline [0 1 2 3 4 5])))
+    (is (= [{:op :map :fold-safe? true}
+            {:op :filter :fold-safe? true}]
+           (:optimized-steps report)))
+    (is (= [:map-map :remove->filter :filter-filter]
+           (mapv :rule (:optimizations report))))
+    (is (every? false? (mapv :kernel-checked? (:optimizations report))))))
+
+(deftest optimizer-preserves-clojure-evaluation-order
+  (let [events (atom [])
+        pipeline (r/pipeline
+                  (map #(do (swap! events conj [:f %])
+                            (inc %)))
+                  (map #(do (swap! events conj [:g %])
+                            (* 2 %)))
+                  (filter #(do (swap! events conj [:p %])
+                               (pos? %)))
+                  (filter #(do (swap! events conj [:q %])
+                               (even? %))))]
+    (is (= [2 4]
+           (r/into [] pipeline [-1 0 1])))
+    (is (= [[:f -1] [:g 0] [:p 0]
+            [:f 0] [:g 1] [:p 2] [:q 2]
+            [:f 1] [:g 2] [:p 4] [:q 4]]
+           @events))))
 
 (deftest compose-preserves-left-to-right-order
   (let [pipeline (r/compose (r/map inc)

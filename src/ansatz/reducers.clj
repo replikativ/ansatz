@@ -18,17 +18,16 @@
 ;; Pipeline AST
 ;; ============================================================
 
-(declare compile-xform*)
+(declare compile-xform* optimize-steps empty)
 
-(defrecord Pipeline [steps compiled-xform])
+(defrecord Pipeline [steps optimized-steps optimizations compiled-xform])
 
 (defn- mk-pipeline [steps]
-  (let [steps (vec steps)]
-    (->Pipeline steps (delay (compile-xform* steps)))))
-
-(def empty
-  "The identity reducer pipeline."
-  (mk-pipeline []))
+  (let [steps (vec steps)
+        optimized (optimize-steps steps)
+        optimized-steps (:steps optimized)
+        optimizations (:optimizations optimized)]
+    (->Pipeline steps optimized-steps optimizations (delay (compile-xform* optimized-steps)))))
 
 (defn pipeline?
   "True when `x` is an Ansatz reducer pipeline."
@@ -142,6 +141,90 @@
   [pipeline]
   (every? :fold-safe? (:steps (ensure-pipeline pipeline))))
 
+;; ============================================================
+;; Pipeline Optimizer
+;; ============================================================
+
+(def ^:private optimization-laws
+  "Reducer rewrite law catalog.
+
+   These entries are semantic law names for the optimizer trace. The current
+   implementation applies only evaluation-order-preserving rewrites; the next
+   step is to back these law names with kernel declarations over a reducer DSL."
+  {:remove->filter {:law 'ansatz.reducers.law/remove->filter
+                    :kernel-checked? false}
+   :map-map {:law 'ansatz.reducers.law/map-map
+             :kernel-checked? false}
+   :filter-filter {:law 'ansatz.reducers.law/filter-filter
+                   :kernel-checked? false}})
+
+(defn- step-summary [step]
+  (select-keys step [:op :fold-safe?]))
+
+(defn- map-step [f]
+  {:op :map :f f :fold-safe? true})
+
+(defn- filter-step [pred]
+  {:op :filter :pred pred :fold-safe? true})
+
+(defn- optimization [rule from to]
+  (assoc (get optimization-laws rule)
+         :rule rule
+         :from (mapv step-summary from)
+         :to (mapv step-summary to)))
+
+(defn- normalize-step [step]
+  (case (:op step)
+    :remove
+    (let [pred (:pred step)
+          normalized (filter-step (fn [x] (not (pred x))))]
+      [normalized [(optimization :remove->filter [step] [normalized])]])
+    [step []]))
+
+(defn- try-fuse-steps [left right]
+  (case [(:op left) (:op right)]
+    [:map :map]
+    (let [f (:f left)
+          g (:f right)
+          fused (map-step (fn [x] (g (f x))))]
+      [fused (optimization :map-map [left right] [fused])])
+
+    [:filter :filter]
+    (let [p (:pred left)
+          q (:pred right)
+          fused (filter-step (fn [x] (and (p x) (q x))))]
+      [fused (optimization :filter-filter [left right] [fused])])
+
+    nil))
+
+(defn- optimize-steps
+  "Normalize and fuse pipeline steps.
+
+   Rewrites preserve Clojure evaluation order. The returned optimization trace is
+   intentionally explicit so callers can inspect which law justified each
+   transformation."
+  [steps]
+  (loop [remaining (seq steps)
+         stack []
+         optimizations []]
+    (if-not remaining
+      {:steps (vec stack)
+       :optimizations (vec optimizations)}
+      (let [[step normalize-opts] (normalize-step (first remaining))
+            optimizations (core/into optimizations normalize-opts)]
+        (if-let [[fused fuse-opt] (when-let [left (peek stack)]
+                                   (try-fuse-steps left step))]
+          (recur (next remaining)
+                 (conj (pop stack) fused)
+                 (conj optimizations fuse-opt))
+          (recur (next remaining)
+                 (conj stack step)
+                 optimizations))))))
+
+(def empty
+  "The identity reducer pipeline."
+  (mk-pipeline []))
+
 (defn- step->xform [{:keys [op f pred]}]
   (case op
     :map (core/map f)
@@ -151,22 +234,26 @@
     :mapcat (core/mapcat f)))
 
 (defn- compile-xform* [steps]
-    (if (seq steps)
-      (apply comp (core/map step->xform steps))
-      identity))
+  (if (seq steps)
+    (apply comp (core/map step->xform steps))
+    identity))
 
 (defn xform
   "Compile a pipeline to an ordinary Clojure transducer.
 
-   The compiled transducer is cached on the immutable Pipeline value."
+   The optimized compiled transducer is cached on the immutable Pipeline value."
   [pipeline]
   (force (:compiled-xform (ensure-pipeline pipeline))))
 
 (defn explain
   "Return a small data summary of the pipeline."
   [pipeline]
-  {:steps (mapv #(select-keys % [:op :fold-safe?]) (:steps (ensure-pipeline pipeline)))
-   :fold-safe? (fold-safe? pipeline)})
+  (let [pipeline (ensure-pipeline pipeline)]
+    {:steps (mapv step-summary (:steps pipeline))
+     :optimized-steps (mapv step-summary (:optimized-steps pipeline))
+     :optimizations (mapv #(select-keys % [:rule :law :kernel-checked? :from :to])
+                          (:optimizations pipeline))
+     :fold-safe? (fold-safe? pipeline)}))
 
 ;; ============================================================
 ;; Sequential terminals
