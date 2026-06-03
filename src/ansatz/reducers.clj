@@ -18,11 +18,17 @@
 ;; Pipeline AST
 ;; ============================================================
 
-(defrecord Pipeline [steps])
+(declare compile-xform*)
+
+(defrecord Pipeline [steps compiled-xform])
+
+(defn- mk-pipeline [steps]
+  (let [steps (vec steps)]
+    (->Pipeline steps (delay (compile-xform* steps)))))
 
 (def empty
   "The identity reducer pipeline."
-  (->Pipeline []))
+  (mk-pipeline []))
 
 (defn pipeline?
   "True when `x` is an Ansatz reducer pipeline."
@@ -36,7 +42,7 @@
     :else (throw (ex-info "Expected ansatz.reducers/Pipeline" {:value x}))))
 
 (defn- append-step [pipeline step]
-  (->Pipeline (conj (:steps (ensure-pipeline pipeline)) step)))
+  (mk-pipeline (conj (:steps (ensure-pipeline pipeline)) step)))
 
 (defn map
   "Append a stateless map transform, or create a one-step pipeline."
@@ -75,7 +81,7 @@
 (defn compose
   "Compose pipelines left-to-right, matching normal threading order."
   [& pipelines]
-  (->Pipeline (vec (core/mapcat (comp :steps ensure-pipeline) pipelines))))
+  (mk-pipeline (core/mapcat (comp :steps ensure-pipeline) pipelines)))
 
 (defn- unsupported-pipeline-form [form]
   (throw (ex-info "Unsupported reducer pipeline form"
@@ -144,13 +150,17 @@
     :cat core/cat
     :mapcat (core/mapcat f)))
 
-(defn xform
-  "Compile a pipeline to an ordinary Clojure transducer."
-  [pipeline]
-  (let [steps (:steps (ensure-pipeline pipeline))]
+(defn- compile-xform* [steps]
     (if (seq steps)
       (apply comp (core/map step->xform steps))
-      identity)))
+      identity))
+
+(defn xform
+  "Compile a pipeline to an ordinary Clojure transducer.
+
+   The compiled transducer is cached on the immutable Pipeline value."
+  [pipeline]
+  (force (:compiled-xform (ensure-pipeline pipeline))))
 
 (defn explain
   "Return a small data summary of the pipeline."
@@ -470,6 +480,27 @@
    (assert-kernel-lawful! spec)
    (fold-map pipeline spec f coll opts)))
 
+(defn fold-map-seq
+  "Sequential map-then-fold using Clojure's `transduce`.
+
+   This is the low-overhead path for ordinary Clojure workloads. It still uses a
+   lawful monoid descriptor so callers can share the same terminal spec with the
+   parallel path, but it does not rely on regrouping."
+  [pipeline spec f coll]
+  (let [pipeline (ensure-pipeline pipeline)
+        {:keys [unit-fn combine]} (assert-lawful! spec)
+        rf (fn
+             ([] (unit-fn))
+             ([acc] acc)
+             ([acc x] (combine acc (f x))))]
+    (core/transduce (xform pipeline) rf (unit-fn) coll)))
+
+(defn fold-map-seq-checked
+  "Kernel-checked variant of `fold-map-seq`."
+  [pipeline spec f coll]
+  (assert-kernel-lawful! spec)
+  (fold-map-seq pipeline spec f coll))
+
 (defn sum-by
   "Lawful parallel sum after mapping each input to a monoid value."
   ([pipeline spec f coll]
@@ -484,6 +515,16 @@
   ([pipeline spec coll opts]
    (sum-by pipeline spec identity coll opts)))
 
+(defn sum-by-seq
+  "Sequential sum after mapping each input to a monoid value."
+  [pipeline spec f coll]
+  (fold-map-seq pipeline spec f coll))
+
+(defn sum-seq
+  "Sequential sum using identity as the value function."
+  [pipeline spec coll]
+  (sum-by-seq pipeline spec identity coll))
+
 (defn sum-by-checked
   "Kernel-checked variant of `sum-by`."
   ([pipeline spec f coll]
@@ -497,6 +538,16 @@
    (sum-checked pipeline spec coll {}))
   ([pipeline spec coll opts]
    (sum-by-checked pipeline spec identity coll opts)))
+
+(defn sum-by-seq-checked
+  "Kernel-checked variant of `sum-by-seq`."
+  [pipeline spec f coll]
+  (fold-map-seq-checked pipeline spec f coll))
+
+(defn sum-seq-checked
+  "Kernel-checked variant of `sum-seq`."
+  [pipeline spec coll]
+  (sum-by-seq-checked pipeline spec identity coll))
 
 (defn unchecked-fold-map
   "Parallel map-then-fold without law checking.
@@ -556,6 +607,27 @@
              coll
              opts)))
 
+(defn group-by-seq
+  "Sequential grouping using a transient map accumulator."
+  [pipeline value-spec key-f value-f coll]
+  (let [pipeline (ensure-pipeline pipeline)
+        value-combine (:combine (assert-lawful! value-spec))]
+    (persistent!
+     (core/transduce
+      (xform pipeline)
+      (fn
+        ([] (transient {}))
+        ([groups] groups)
+        ([groups x]
+         (let [k (key-f x)
+               rv (value-f x)
+               lv (get groups k missing-value)]
+           (assoc! groups k (if (identical? lv missing-value)
+                              rv
+                              (value-combine lv rv))))))
+      (transient {})
+      coll))))
+
 (defn frequencies
   "Lawful parallel frequency map.
 
@@ -564,6 +636,11 @@
    (frequencies pipeline count-spec key-f coll {}))
   ([pipeline count-spec key-f coll opts]
    (group-by pipeline count-spec key-f (constantly 1) coll opts)))
+
+(defn frequencies-seq
+  "Sequential frequency map using a transient map accumulator."
+  [pipeline count-spec key-f coll]
+  (group-by-seq pipeline count-spec key-f (constantly 1) coll))
 
 (defn group-by-checked
   "Kernel-checked variant of `group-by` for the value monoid.
@@ -576,9 +653,20 @@
    (assert-kernel-lawful! value-spec)
    (group-by pipeline value-spec key-f value-f coll opts)))
 
+(defn group-by-seq-checked
+  "Kernel-checked variant of `group-by-seq`."
+  [pipeline value-spec key-f value-f coll]
+  (assert-kernel-lawful! value-spec)
+  (group-by-seq pipeline value-spec key-f value-f coll))
+
 (defn frequencies-checked
   "Kernel-checked variant of `frequencies`."
   ([pipeline count-spec key-f coll]
    (frequencies-checked pipeline count-spec key-f coll {}))
   ([pipeline count-spec key-f coll opts]
    (group-by-checked pipeline count-spec key-f (constantly 1) coll opts)))
+
+(defn frequencies-seq-checked
+  "Kernel-checked variant of `frequencies-seq`."
+  [pipeline count-spec key-f coll]
+  (group-by-seq-checked pipeline count-spec key-f (constantly 1) coll))

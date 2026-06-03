@@ -24,6 +24,8 @@
                      (r/map inc)
                      (r/filter even?)
                      (r/flat-map (fn [x] [x (* 10 x)])))]
+    (is (identical? (r/xform pipeline) (r/xform pipeline))
+        "compiled xform is cached on the pipeline value")
     (is (= [2 20 4 40]
            (r/into [] pipeline [0 1 2 3])))
     (is (= 66
@@ -75,10 +77,16 @@
         pipeline (r/pipeline (map inc) (filter odd?))]
     (is (= 25
            (r/sum pipeline r/nat-add xs {:grain 2})))
+    (is (= 25
+           (r/sum-seq pipeline r/nat-add xs)))
     (is (= 55
            (r/sum-by r/empty r/nat-add inc xs {:grain 2})))
+    (is (= 55
+           (r/sum-by-seq r/empty r/nat-add inc xs)))
     (is (= {0 5, 1 5}
-           (r/frequencies r/empty r/nat-add #(mod % 2) xs {:grain 2})))))
+           (r/frequencies r/empty r/nat-add #(mod % 2) xs {:grain 2})))
+    (is (= {0 5, 1 5}
+           (r/frequencies-seq r/empty r/nat-add #(mod % 2) xs)))))
 
 (deftest group-by-uses-value-monoid
   (let [xs (vec (range 1 31))
@@ -112,14 +120,22 @@
     (is (= 10
            (r/sum-checked r/empty checked [1 2 3 4]
                           {:grain 1})))
+    (is (= 10
+           (r/sum-seq-checked r/empty checked [1 2 3 4])))
     (is (= {0 2, 1 2}
            (r/group-by-checked r/empty checked #(mod % 2) (constantly 1)
                                [1 2 3 4]
                                {:grain 1})))
     (is (= {0 2, 1 2}
+           (r/group-by-seq-checked r/empty checked #(mod % 2) (constantly 1)
+                                   [1 2 3 4])))
+    (is (= {0 2, 1 2}
            (r/frequencies-checked r/empty checked #(mod % 2)
                                   [1 2 3 4]
                                   {:grain 1})))
+    (is (= {0 2, 1 2}
+           (r/frequencies-seq-checked r/empty checked #(mod % 2)
+                                      [1 2 3 4])))
     (is (thrown-with-msg?
          clojure.lang.ExceptionInfo
          #"Kernel-checked fold requires validate-monoid-spec"
