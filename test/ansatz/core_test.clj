@@ -49,7 +49,7 @@
 (deftest test-defn-identity
   (testing "Define identity function on Nat"
     (binding [a/*verbose* false]
-      (let [f (a/define-verified 'id-nat '[n Nat] 'Nat 'n)]
+      (let [f (a/define-verified 'id-nat '[^Nat n] 'Nat 'n)]
         (is (fn? f))
         (is (= 42 (f 42)))
         (is (= 0 (f 0)))))))
@@ -57,15 +57,15 @@
 (deftest test-defn-addition
   (testing "Define addition function on Nat"
     (binding [a/*verbose* false]
-      (let [f (a/define-verified 'add-nat '[a Nat b Nat] 'Nat '(+ a b))]
+      (let [f (a/define-verified 'add-nat '[^Nat a ^Nat b] 'Nat '(+ a b))]
         (is (fn? f))
         (is (= 5 ((f 2) 3)))
         (is (= 0 ((f 0) 0)))))))
 
 (deftest test-defn-with-separator
-  (testing "Define function using :- separator syntax"
+  (testing "Define function (metadata-typed direct call)"
     (binding [a/*verbose* false]
-      (let [f (a/define-verified 'double '[n :- Nat] 'Nat '(+ n n))]
+      (let [f (a/define-verified 'double '[^Nat n] 'Nat '(+ n n))]
         (is (fn? f))
         (is (= 10 (f 5)))))))
 
@@ -76,32 +76,32 @@
 (deftest test-theorem-rfl
   (testing "Prove trivial equality by rfl"
     (binding [a/*verbose* false]
-      (a/prove-theorem 'eq-rfl '[n Nat] '(= Nat n n) '[(rfl)])
+      (a/prove-theorem 'eq-rfl '[^Nat n] '(= Nat n n) '[(rfl)])
       (is true "theorem proved"))))
 
 (deftest test-theorem-simp
   (testing "Prove Nat.add_zero by simp"
     (binding [a/*verbose* false]
-      (a/prove-theorem 'add-zero-test '[n Nat] '(= Nat (+ n 0) n) '[(simp "Nat.add_zero")])
+      (a/prove-theorem 'add-zero-test '[^Nat n] '(= Nat (+ n 0) n) '[(simp "Nat.add_zero")])
       (is true "theorem proved"))))
 
 (deftest test-theorem-assumption
   (testing "Prove by assumption"
     (binding [a/*verbose* false]
-      (a/prove-theorem 'assume-test '[n Nat h (= Nat n n)] '(= Nat n n) '[(assumption)])
+      (a/prove-theorem 'assume-test '[^Nat n ^{:- (= Nat n n)} h] '(= Nat n n) '[(assumption)])
       (is true "theorem proved"))))
 
 (deftest test-theorem-induction
   (testing "Prove by induction on Nat"
     (binding [a/*verbose* false]
-      (a/prove-theorem 'add-zero-ind '[n Nat] '(= Nat (+ n 0) n)
+      (a/prove-theorem 'add-zero-ind '[^Nat n] '(= Nat (+ n 0) n)
                        '[(induction n) (rfl) (simp "Nat.add_succ")])
       (is true "theorem proved"))))
 
 (deftest test-theorem-with-separator
-  (testing "Prove theorem using :- separator syntax"
+  (testing "Prove theorem (metadata-typed direct call)"
     (binding [a/*verbose* false]
-      (a/prove-theorem 'rfl-sep '[n :- Nat] '(= Nat n n) '[(rfl)])
+      (a/prove-theorem 'rfl-sep '[^Nat n] '(= Nat n n) '[(rfl)])
       (is true "theorem proved"))))
 
 ;; ============================================================
@@ -126,10 +126,10 @@
   (testing "Wrong tactic application throws"
     (binding [a/*verbose* false]
       (is (thrown? clojure.lang.ExceptionInfo
-                   (a/prove-theorem 'bad-proof '[n Nat] '(= Nat (+ n 1) n) '[(rfl)]))))))
+                   (a/prove-theorem 'bad-proof '[^Nat n] '(= Nat (+ n 1) n) '[(rfl)]))))))
 
 (deftest test-theorem-fails-wrong-tactic
   (testing "Wrong tactic throws"
     (binding [a/*verbose* false]
       (is (thrown? clojure.lang.ExceptionInfo
-                   (a/prove-theorem 'bad-tac '[n Nat] '(= Nat n n) '[(omega-nonexistent)]))))))
+                   (a/prove-theorem 'bad-tac '[^Nat n] '(= Nat n n) '[(omega-nonexistent)]))))))

@@ -3,7 +3,7 @@
 ;; Write Clojure functions with Ansatz types. Prove properties. Run at native speed.
 ;;
 ;; (ansatz/init! "path/to/store" "branch")
-;; (ansatz/defn double [n Nat] Nat (+ n n))
+;; (ansatz/defn ^Nat double [^Nat n] (+ n n))
 ;; (ansatz/theorem add-zero [n Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))
 ;; (double 21)  ;; => 42, native speed
 
@@ -75,6 +75,20 @@
 ;; Structure registry — maps type-name → {:fields [field-name ...], :record-sym symbol}
 ;; Used by ansatz->clj to compile constructors to defrecord and projections to keyword access.
 (defonce ^{:doc "Structure field registry for defrecord compilation."} structure-registry (atom {}))
+
+;; ── Runtime seams (filled additively by wandler) ────────────────────────────────────────────────
+;; ansatz.core is the DSL: it elaborates surface Clojure to kernel terms, kernel-checks them, and
+;; codegens the base (Nat/Int/inductive/record) fragment. A runtime layer (wandler) plugs in a
+;; certified OPTIMIZER and the COLLECTION/relational codegen through these seams — without ansatz
+;; depending on it, and leaving ansatz-alone a/defn fully runnable.
+;; SEAM — optimizer: nil, or (fn [env term] → term') where term' is kernel-EQUAL to term (the hook
+;; certifies optimized ≡ original itself). define-verified runs it on the elaborated body just before
+;; codegen; the ORIGINAL term stays in the env (the proven definition).
+(defonce ^{:doc "Optimizer hook for the runtime. nil or (fn [env term] → term')."} optimize-hook (atom nil))
+;; SEAM — codegen: head-constant Name-string → (fn [env expr names] → clj-form). ansatz->clj consults
+;; it for application heads it does not lower natively (e.g. List.map → wandler's amapl). Base kernel
+;; codegen stays in ansatz; the runtime adds collection/relational lowering additively.
+(defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
 
 (clojure.core/defn init!
   "Load Ansatz environment from LMDB store and build instance index."
@@ -501,6 +515,14 @@
                  (build-telescope env new-scope (inc depth) (rest pairs) body-form ctor))]
       (ctor (str pname) ptype body binfo))))
 
+(clojure.core/defn- cond->if
+  "Desugar a flat cond clause list `(c1 e1 c2 e2 … :else en)` to nested `if`."
+  [clauses]
+  (if (empty? clauses)
+    (throw (ex-info "cond: no clause matched and no :else branch" {}))
+    (let [[c e & more] clauses]
+      (if (= c :else) e (list 'if c e (cond->if more))))))
+
 (clojure.core/defn sexp->ansatz
   "Compile Clojure s-expression to Ansatz Expr.
    Handles types, terms, operators, binders — everything in one function.
@@ -776,6 +798,11 @@
                    (e/app* (e/const' (name/from-string (str class-name "." h)) [lvl/zero])
                            type-expr inst a b)
                    (throw (ex-info (str "No " class-name " instance for " type-name) {}))))
+
+        ;; cond → nested if; do (pure) → its last form.
+        ;; (let/let* deferred: needs de-Bruijn-aware value-type inference — task #72.)
+               "cond" (sexp->ansatz env scope depth (cond->if (rest form)))
+               "do" (sexp->ansatz env scope depth (last form))
 
         ;; If-then-else (Bool condition → Bool.rec)
         ;; (if cond then-val else-val)
@@ -1388,13 +1415,17 @@
                         (reduce (fn [f a] (list f a)) rec-result extra-args)))))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
-                (let [{:keys [arity erased]} (get @arity-registry h)]
-                  (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
-                    ;; FAP (full application): flat multi-arg call, skip erased prefix
-                    (let [rt-args (subvec ca erased (+ erased arity))]
-                      (apply list (symbol h) rt-args))
-                    ;; Curried (unknown arity, single-arg, or partial application)
-                    (reduce (fn [f a] (list f a)) (symbol h) ca)))))))
+                (if-let [cg (get @codegen-registry h)]
+                  ;; Codegen seam: runtime-registered lowering for heads ansatz doesn't know
+                  ;; natively (e.g. List.map → wandler's amapl). Consulted before the user-fn fallback.
+                  (cg env expr names)
+                  (let [{:keys [arity erased]} (get @arity-registry h)]
+                    (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
+                      ;; FAP (full application): flat multi-arg call, skip erased prefix
+                      (let [rt-args (subvec ca erased (+ erased arity))]
+                        (apply list (symbol h) rt-args))
+                      ;; Curried (unknown arity, single-arg, or partial application)
+                      (reduce (fn [f a] (list f a)) (symbol h) ca))))))))
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
           (reduce (fn [f a] (list f a)) compiled))))
     (e/const? expr) (let [cn (name/->string (e/const-name expr))]
@@ -1469,7 +1500,7 @@
            (e/app (e/const' (name/from-string \"MyFn\") []) a))))
 
    Then use in definitions:
-     (a/defn f [x :- Nat] Nat (my-form x))"
+     (a/defn ^Nat f [^Nat x] (my-form x))"
   [name f]
   (swap! elaborator-registry assoc name f))
 
@@ -1626,26 +1657,49 @@
 ;; Param parsing — handles :- and :inst markers
 ;; ============================================================
 
-(clojure.core/defn- parse-params
-  "Parse parameter vector into triples [name type-form binder-info].
-   Supports:
-     [n :- Nat]           → [[n Nat :default]]
-     [inst :- (Ord α) :inst] → [[inst (Ord α) :inst-implicit]]
-     [n Nat]              → [[n Nat :default]]  (legacy)"
+(clojure.core/defn binder-type
+  "A binder's declared type, read from metadata: prefer ^{:- T} (for compound types like
+   (List Nat)), else the ^Type :tag shorthand (for simple types like ^Nat). Returns the type
+   form, or nil for an untyped binder (→ the elaborator infers it)."
+  [sym]
+  (let [m (meta sym)] (or (:- m) (:tag m))))
+
+(clojure.core/defn metadata-params?
+  "Is this a METADATA parameter/binder vector (types ride as metadata on the binders),
+   vs the legacy positional/`:-`-separator form? True iff some element carries :-, :tag, or
+   :inst metadata. (A bare `[n Nat]` or `[n :- Nat]` carries none → legacy.)"
   [params]
-  (let [cleaned (remove #{:-} params)
-        result (atom [])
-        remaining (atom (vec cleaned))]
-    (while (seq @remaining)
-      (let [r @remaining
-            pname (first r)
-            ptype (second r)]
-        (if (and (> (count r) 2) (= :inst (nth r 2)))
-          (do (swap! result conj [pname ptype :inst-implicit])
-              (reset! remaining (vec (drop 3 r))))
-          (do (swap! result conj [pname ptype :default])
-              (reset! remaining (vec (drop 2 r)))))))
-    @result))
+  (boolean (some (fn [x] (let [m (meta x)] (or (:- m) (:tag m) (:inst m)))) params)))
+
+(clojure.core/defn- parse-params
+  "Parse a parameter vector into triples [name type-form binder-info]. Surfaces, auto-detected:
+     metadata (preferred, for a/defn):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
+     :- separator (natural for proof binders / a/theorem):  [n :- Nat,  h :- (= Nat n n)]
+     positional pairs (older):           [n Nat]
+   Metadata composes — types ride on the binder symbols, so the binding vector stays a normal
+   Clojure vector; ^:inst marks an instance binder. The :- and positional forms remain accepted
+   (the :- separator reads naturally for theorem hypotheses)."
+  [params]
+  (if (metadata-params? params)
+    ;; metadata form: each element is a binder symbol carrying its type/kind as metadata
+    (mapv (fn [sym]
+            (let [binfo (if (:inst (meta sym)) :inst-implicit :default)]
+              [(with-meta sym nil) (binder-type sym) binfo]))
+          params)
+    ;; :- separator or positional pairs: name [:-] type [ :inst ]
+    (let [cleaned (remove #{:-} params)
+          result (atom [])
+          remaining (atom (vec cleaned))]
+      (while (seq @remaining)
+        (let [r @remaining
+              pname (first r)
+              ptype (second r)]
+          (if (and (> (count r) 2) (= :inst (nth r 2)))
+            (do (swap! result conj [pname ptype :inst-implicit])
+                (reset! remaining (vec (drop 3 r))))
+            (do (swap! result conj [pname ptype :default])
+                (reset! remaining (vec (drop 2 r)))))))
+      @result)))
 
 ;; ============================================================
 ;; Well-Founded Recursion (following Lean 4's WellFounded.Nat.fix)
@@ -2480,8 +2534,13 @@
                         (when *verbose* (println "  eq" (inc i) "gen failed:" (.getMessage e)))))))))
             (catch Exception ex
               (when *verbose* (println "  eq-gen outer:" (.getMessage ex)))))
+        ;; Optimizer seam: a runtime (wandler) may rewrite the body to a kernel-EQUAL, faster term
+        ;; just for codegen — the original stays the proven definition in the env.
+        runtime-body (if-let [opt @optimize-hook]
+                       (or (opt @ansatz-env body-ansatz) body-ansatz)
+                       body-ansatz)
         ;; Compile to Clojure — uncurry multi-arg functions for flat calls
-        clj-form (ansatz->clj @ansatz-env body-ansatz [])
+        clj-form (ansatz->clj @ansatz-env runtime-body [])
         clj-fn (if (<= n 1)
                  (eval clj-form)
                  ;; Multi-arg: support both flat (f x y) and curried ((f x) y) calls
@@ -2552,16 +2611,26 @@
 ;; ============================================================
 
 (defmacro defn
-  "Define a verified function. Use qualified: (a/defn double [n :- Nat] Nat (+ n n))
-   Well-founded recursion: (a/defn fact [n :- Nat] Nat :termination-by n (if ...))"
-  [fn-name params ret-type & body-and-opts]
-  (let [[opts body] (if (= :termination-by (first body-and-opts))
+  "Define a verified function. Types are METADATA on the binders and the name — the binding vector
+   stays a normal Clojure vector, so typing composes (add types without reshaping the form):
+     (a/defn ^Nat double [^Nat n] (+ n n))
+     (a/defn ^{:- (List Nat)} squares [^{:- (List Nat)} xs] (map (fn [x] (* x x)) xs))
+   ^Type is the simple-type shorthand; ^{:- T} carries compound types. The legacy :- separator form
+   is still accepted (auto-detected):
+     (a/defn double [n :- Nat] Nat (+ n n))
+   Well-founded recursion: put  :termination-by <measure>  before the body."
+  [fn-name params & more]
+  (let [meta?    (metadata-params? params)
+        ret-type (if meta? (binder-type fn-name) (first more))
+        body-and-opts (if meta? more (rest more))
+        [opts body] (if (= :termination-by (first body-and-opts))
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
-                      [{} (first body-and-opts)])]
+                      [{} (first body-and-opts)])
+        nm (vary-meta fn-name dissoc :- :tag)]
     (if (:termination-by opts)
-      `(def ~fn-name (define-verified-wf '~fn-name '~params '~ret-type
-                       '~body '~(:termination-by opts)))
-      `(def ~fn-name (define-verified '~fn-name '~params '~ret-type '~body)))))
+      `(def ~nm (define-verified-wf '~nm '~params '~ret-type
+                  '~body '~(:termination-by opts)))
+      `(def ~nm (define-verified '~nm '~params '~ret-type '~body)))))
 
 (defmacro theorem
   "Prove a theorem.
