@@ -199,7 +199,7 @@
 ;; ============================================================
 
 (defn- parse-binders [binder-vec]
-  (let [tokens (remove (fn [t] (or (= (str t) ",") (= (str t) ":"))) binder-vec)]
+  (let [tokens (remove (fn [t] (or (= (str t) ",") (= (str t) ":") (= (str t) ":-"))) binder-vec)]
     (loop [ts (seq tokens) result []]
       (if (or (nil? ts) (empty? ts))
         result
@@ -522,10 +522,12 @@
         ("<" "==" "<=" ">" ">=" "≤" "≥")
         (let [hs (str head)]
           (if (= 4 (count sexpr))
-            (let [[_ T a b] sexpr
-                  [a* b*] (case hs (">" ">=" "≥") [b a] [a b])
-                  rel (case hs ("<" ">") "lt" "le")]
-              (elab-term est (list (symbol rel) T a* b*)))
+            (let [[_ T a b] sexpr]
+              (if (= hs "==")
+                (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
+                (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
+                      rel (case hs ("<" ">") "lt" "le")]
+                  (elab-term est (list (symbol rel) T a* b*)))))
             (let [[op a b] (case hs
                              "<"  ["Nat.blt" (nth sexpr 1) (nth sexpr 2)]
                              "==" ["Nat.beq" (nth sexpr 1) (nth sexpr 2)]
@@ -533,6 +535,32 @@
                              (">"  ) ["Nat.blt" (nth sexpr 2) (nth sexpr 1)]
                              (">=" "≥") ["Nat.ble" (nth sexpr 2) (nth sexpr 1)])]
               (e/app* (e/const' (name/from-string op) []) (elab-term est a) (elab-term est b)))))
+
+        ;; Dependent if over a Prop condition → dite. The Decidable instance is an
+        ;; inst-implicit mvar solved by synthesis (no comparison fallback needed); the
+        ;; branch binders (proof of cond / ¬cond) are fvars abstracted back to lambdas.
+        "dif" (let [[_ cond-form then-clause else-clause] sexpr
+                    [tv tbody] then-clause
+                    [ev ebody] else-clause
+                    cond-expr (elab-term est cond-form)
+                    dec-ty (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
+                    inst (fresh-mvar! est dec-ty)
+                    _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)
+                    mk-branch (fn [bv bty body]
+                                (let [fid (fresh-id! est)
+                                      est' (-> est
+                                               (assoc-in [:scope bv] {:fvar-id fid :type bty})
+                                               (update :tc update :lctx red/lctx-add-local fid (str bv) bty))
+                                      be (elab-term est' body)]
+                                  [(e/lam (str bv) bty (e/abstract1 be fid) :default)
+                                   (tc/infer-type (:tc est') (zonk est be))]))
+                    [then-fn ret-type] (mk-branch tv cond-expr tbody)
+                    not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
+                    [else-fn _] (mk-branch ev not-cond ebody)
+                    ret-sort (tc/infer-type (:tc est) (zonk est ret-type))
+                    u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))]
+                (e/app* (e/const' (name/from-string "dite") [u])
+                        ret-type cond-expr inst then-fn else-fn))
 
         ;; Default: application with implicit insertion
         (elab-app est (first sexpr) (rest sexpr))))
