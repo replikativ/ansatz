@@ -479,10 +479,13 @@
                                                   {:level level-form}))]
                    (e/sort' level))
 
-        "let"    (let [[_ binder-vec & body-forms] sexpr]
-                   (when (not= 1 (count body-forms))
-                     (elab-error! "let expects one body" {:forms body-forms}))
-                   (elab-let est binder-vec (first body-forms)))
+        "let"    (let [[_ binder-vec & body-forms] sexpr
+                       toks (remove #(contains? #{":" ":-" "=" ","} (str %)) binder-vec)]
+                   ;; ansatz typed surface let is a single [name type value] (3 tokens);
+                   ;; Clojure's let (name/value pairs) is a macro → expand to let*.
+                   (if (and (= 3 (count toks)) (= 1 (count body-forms)))
+                     (elab-let est binder-vec (first body-forms))
+                     (elab-term est (macroexpand-1 sexpr))))
 
         "app"    (let [[_ f a] sexpr]
                    (e/app (elab-term est f) (elab-term est a)))
@@ -562,8 +565,53 @@
                 (e/app* (e/const' (name/from-string "dite") [u])
                         ret-type cond-expr inst then-fn else-fn))
 
-        ;; Default: application with implicit insertion
-        (elab-app est (first sexpr) (rest sexpr))))
+        ;; Arithmetic: bare ops default to Nat (matching sexp->ansatz); explicit-type
+        ;; forms (add/sub/mul T a b) handled separately. Nat.* avoids HAdd's output param.
+        ("+" "-" "*") (elab-app est (symbol (case (str head) "+" "Nat.add"
+                                                             "-" "Nat.sub"
+                                                             "*" "Nat.mul"))
+                                (rest sexpr))
+
+        ;; do → value of the last form (pure setting: earlier forms have no effect).
+        "do" (elab-term est (last sexpr))
+
+        ;; cond is NOT macroexpanded (Clojure's :else isn't Bool); desugar natively to
+        ;; nested if, with :else/:default/true as the catch-all.
+        "cond" (letfn [(build [cs]
+                         (if (empty? cs)
+                           (elab-error! "cond: no clause matched and no :else" {:form sexpr})
+                           (let [[t e & more] cs]
+                             (if (contains? #{:else :default true} t)
+                               (elab-term est e)
+                               (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                                       (e/lam "_" (e/const' (name/from-string "Bool") [])
+                                              (tc/infer-type (:tc est) (zonk est (elab-term est e))) :default)
+                                       (build more) (elab-term est e) (elab-term est t))))))]
+                 (build (rest sexpr)))
+
+        ;; Clojure let* : [name val name val …] with inferred types → nested let.
+        "let*" (let [[_ bindings & body] sexpr]
+                 (letfn [(build [ps est]
+                           (if (empty? ps)
+                             (elab-term est (if (= 1 (count body)) (first body) (cons 'do body)))
+                             (let [[nm vform] (first ps)
+                                   vexpr (elab-term est vform)
+                                   vtype (tc/infer-type (:tc est) (zonk est vexpr))
+                                   fid (fresh-id! est)
+                                   est' (-> est
+                                            (assoc-in [:scope nm] {:fvar-id fid :type vtype})
+                                            (update :tc update :lctx
+                                                    red/lctx-add-let fid (str nm) vtype vexpr))
+                                   body-expr (build (rest ps) est')]
+                               (e/let' (str nm) vtype vexpr (e/abstract1 body-expr fid)))))]
+                   (build (partition 2 bindings) est)))
+
+        ;; Default: macroexpand any clojure macro (cond/->/and/or/…) and re-elaborate;
+        ;; otherwise application with implicit insertion.
+        (if (and (symbol? head)
+                 ((requiring-resolve 'ansatz.core/expand-macro?) head))
+          (elab-term est (macroexpand-1 sexpr))
+          (elab-app est (first sexpr) (rest sexpr)))))
 
     (vector? sexpr)
     (elab-error! "Unexpected vector in term position" {:form sexpr})
