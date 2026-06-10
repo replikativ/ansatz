@@ -37,16 +37,16 @@
             (eval '(ansatz.core/inductive TRBTree [α Type]
                                           (leaf) (node [color TRBColor] [left (TRBTree α)] [key α] [right (TRBTree α)]))))
           (when-not (env/lookup (a/env) (name/from-string "ex-sorted"))
-            (eval '(ansatz.core/defn ex-sorted [l (List Nat)] Bool
+            (eval '(ansatz.core/defn ^Bool ex-sorted [^{:- (List Nat)} l]
                      (match l (List Nat) Bool
                             (nil true) (cons [hd tl] (match tl (List Nat) Bool
                                                             (nil true) (cons [hd2 tl2] (match (<= hd hd2) Bool Bool
                                                                                               (true ih_tail) (false false))))))))
-            (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
+            (eval '(ansatz.core/defn ^{:- (List Nat)} ex-insertSorted [^Nat x ^{:- (List Nat)} l]
                      (match l (List Nat) (List Nat)
                             (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
                                                                     (true (cons x l)) (false (cons hd ih_tail)))))))
-            (eval '(ansatz.core/defn ex-isort [l (List Nat)] (List Nat)
+            (eval '(ansatz.core/defn ^{:- (List Nat)} ex-isort [^{:- (List Nat)} l]
                      (match l (List Nat) (List Nat)
                             (nil nil) (cons [hd tl] ((ex-insertSorted hd) ih_tail)))))))
         {:env @a/ansatz-env
@@ -90,7 +90,7 @@
   (testing "WF recursion: countdown with match on Nat"
     (binding [a/*verbose* false]
       (when-not (env/lookup (a/env) (name/from-string "ex-countdown"))
-        (eval '(ansatz.core/defn ex-countdown [n :- Nat] Nat
+        (eval '(ansatz.core/defn ^Nat ex-countdown [^Nat n]
                  :termination-by n
                  (match n Nat Nat (zero 0) (succ [pred] (+ 1 (ex-countdown pred)))))))
       (is (some? (env/lookup (a/env) (name/from-string "ex-countdown")))
@@ -106,7 +106,7 @@
   (testing "WF recursion: factorial with if on Bool"
     (binding [a/*verbose* false]
       (when-not (env/lookup (a/env) (name/from-string "ex-fact"))
-        (eval '(ansatz.core/defn ex-fact [n :- Nat] Nat
+        (eval '(ansatz.core/defn ^Nat ex-fact [^Nat n]
                  :termination-by n
                  (if (== n 0) 1 (* n (ex-fact (- n 1)))))))
       (is (some? (env/lookup (a/env) (name/from-string "ex-fact")))
@@ -121,7 +121,7 @@
   (testing "WF recursion: multi-arg with compound measure"
     (binding [a/*verbose* false]
       (when-not (env/lookup (a/env) (name/from-string "ex-myadd"))
-        (eval '(ansatz.core/defn ex-myadd [x :- Nat, y :- Nat] Nat
+        (eval '(ansatz.core/defn ^Nat ex-myadd [^Nat x ^Nat y]
                  :termination-by (+ x y)
                  (match x Nat Nat (zero y) (succ [k] (+ 1 (ex-myadd k y)))))))
       (is (some? (env/lookup (a/env) (name/from-string "ex-myadd")))
@@ -148,7 +148,7 @@
 (deftest test-match-bool
   (testing "Match on Bool type compiles and runs"
     (binding [a/*verbose* false]
-      (let [f (a/define-verified 'ex-is-true '[b Bool] 'Nat
+      (let [f (a/define-verified 'ex-is-true '[^Bool b] 'Nat
                 '(match b Bool Nat (true 1) (false 0)))]
         (is (fn? f))
         (is (= 1 (f true)))
@@ -159,7 +159,7 @@
     (binding [a/*verbose* false]
       ;; Types defined in fixture
       ;; Define rb-size
-      (let [f (a/define-verified 'ex-rb-size '[t (TRBTree Nat)] 'Nat
+      (let [f (a/define-verified 'ex-rb-size '[^{:- (TRBTree Nat)} t] 'Nat
                 '(match t (TRBTree Nat) Nat
                         (leaf 0)
                         (node [color left key right] (+ 1 (+ ih_left ih_right)))))]
@@ -173,7 +173,7 @@
     (binding [a/*verbose* false]
       ;; Types defined in fixture
       (let [f (a/define-verified 'ex-rb-member
-                '[t (TRBTree Nat) k Nat] 'Bool
+                '[^{:- (TRBTree Nat)} t ^Nat k] 'Bool
                 '(match t (TRBTree Nat) Bool
                         (leaf false)
                         (node [color left key right]
@@ -191,7 +191,7 @@
 (deftest test-match-rb-sum
   (testing "Recursive match rb-sum compiles and runs"
     (binding [a/*verbose* false]
-      (let [f (a/define-verified 'ex-rb-sum '[t (TRBTree Nat)] 'Nat
+      (let [f (a/define-verified 'ex-rb-sum '[^{:- (TRBTree Nat)} t] 'Nat
                 '(match t (TRBTree Nat) Nat
                         (leaf 0)
                         (node [color left key right] (+ key (+ ih_left ih_right)))))]
@@ -213,7 +213,7 @@
   (testing "Left subtree size bounded by node size (omega)"
     (binding [a/*verbose* false]
       ;; Uses omega to prove: rb-size l ≤ 1 + (rb-size l + rb-size r)
-      (let [f (a/define-verified 'ex-rb-size3 '[t (TRBTree Nat)] 'Nat
+      (let [f (a/define-verified 'ex-rb-size3 '[^{:- (TRBTree Nat)} t] 'Nat
                 '(match t (TRBTree Nat) Nat
                         (leaf 0)
                         (node [color left key right] (+ 1 (+ ih_left ih_right)))))]
@@ -229,7 +229,7 @@
     (binding [a/*verbose* false]
       ;; Define balance1 for testing
       (a/define-verified 'ex-balance1
-        '[l (TRBTree Nat) v Nat r (TRBTree Nat)] '(TRBTree Nat)
+        '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
         '(match l (TRBTree Nat) (TRBTree Nat)
                 (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
                 (node [lc ll lk lr]
@@ -319,7 +319,7 @@
           (reset! a/ansatz-instance-index saved-idx)
           (reset! @(resolve 'ansatz.tactic.simp/fun-info-cache) {})
           ;; Define insertSorted in the fresh env
-          (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
+          (eval '(ansatz.core/defn ^{:- (List Nat)} ex-insertSorted [^Nat x ^{:- (List Nat)} l]
                    (match l (List Nat) (List Nat)
                           (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
                                                                   (true (cons x l)) (false (cons hd ih_tail)))))))
@@ -390,7 +390,7 @@
           (reset! a/ansatz-env fresh-env)
           (reset! a/ansatz-instance-index saved-idx)
           (reset! @(resolve 'ansatz.tactic.simp/fun-info-cache) {})
-          (eval '(ansatz.core/defn ex-insertSorted [x Nat l (List Nat)] (List Nat)
+          (eval '(ansatz.core/defn ^{:- (List Nat)} ex-insertSorted [^Nat x ^{:- (List Nat)} l]
                    (match l (List Nat) (List Nat)
                           (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
                                                                   (true (cons x l)) (false (cons hd ih_tail)))))))
@@ -479,7 +479,7 @@
       ;; The leaf equation should be: balance1 leaf v r = node black leaf v r
       ;; NOT: balance1 v r leaf = ... (wrong discriminant position)
       (a/define-verified 'ex-balance1b
-        '[l (TRBTree Nat) v Nat r (TRBTree Nat)] '(TRBTree Nat)
+        '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
         '(match l (TRBTree Nat) (TRBTree Nat)
                 (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
                 (node [lc ll lk lr] (TRBTree.node Nat (TRBColor.black) l v r))))
@@ -497,7 +497,7 @@
       ;; insertSorted has (cons x l) in the true branch where l is the match param.
       ;; After the match compilation fix, l should be substituted with (cons hd tl).
       ;; The equation theorem eq_2 must be kernel-verifiable.
-      (eval '(ansatz.core/defn ex-ins2 [x Nat l (List Nat)] (List Nat)
+      (eval '(ansatz.core/defn ^{:- (List Nat)} ex-ins2 [^Nat x ^{:- (List Nat)} l]
                (match l (List Nat) (List Nat)
                       (nil (cons x nil)) (cons [hd tl] (match (<= x hd) Bool (List Nat)
                                                               (true (cons x l)) (false (cons hd ih_tail)))))))
@@ -516,7 +516,7 @@
       ;; Uses the ValidRB from test-indexed-family-induction (already defined in fixture env)
       (when (env/lookup (a/env) (name/from-string "ValidRB"))
         (a/define-verified 'ex-bal1c
-          '[l (TRBTree Nat) v Nat r (TRBTree Nat)] '(TRBTree Nat)
+          '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
           '(match l (TRBTree Nat) (TRBTree Nat)
                   (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
                   (node [lc ll lk lr]
@@ -593,7 +593,7 @@
         ;; Define balance1 if needed
         (when-not (env/lookup (a/env) (name/from-string "ex-bal1full"))
           (a/define-verified 'ex-bal1full
-            '[l (TRBTree Nat) v Nat r (TRBTree Nat)] '(TRBTree Nat)
+            '[^{:- (TRBTree Nat)} l ^Nat v ^{:- (TRBTree Nat)} r] '(TRBTree Nat)
             '(match l (TRBTree Nat) (TRBTree Nat)
                     (leaf (TRBTree.node Nat (TRBColor.black) (TRBTree.leaf Nat) v r))
                     (node [lc ll lk lr]

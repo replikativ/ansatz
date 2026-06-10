@@ -1641,12 +1641,13 @@
   (boolean (some (fn [x] (let [m (meta x)] (or (:- m) (:tag m) (:inst m)))) params)))
 
 (clojure.core/defn- parse-params
-  "Parse a parameter vector into triples [name type-form binder-info]. Two surfaces, auto-detected:
-     metadata (preferred):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
-     legacy:                [n :- Nat,  xs :- (List Nat),  inst :- (Ord α) :inst]  and  [n Nat]
-   Metadata composes — types ride on the binder symbols, so the vector stays a normal Clojure
-   binding vector. An untyped metadata binder yields type-form nil (inferred); ^:inst marks an
-   instance binder."
+  "Parse a parameter vector into triples [name type-form binder-info]. Surfaces, auto-detected:
+     metadata (preferred, for a/defn):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
+     :- separator (natural for proof binders / a/theorem):  [n :- Nat,  h :- (= Nat n n)]
+     positional pairs (older):           [n Nat]
+   Metadata composes — types ride on the binder symbols, so the binding vector stays a normal
+   Clojure vector; ^:inst marks an instance binder. The :- and positional forms remain accepted
+   (the :- separator reads naturally for theorem hypotheses)."
   [params]
   (if (metadata-params? params)
     ;; metadata form: each element is a binder symbol carrying its type/kind as metadata
@@ -1654,7 +1655,7 @@
             (let [binfo (if (:inst (meta sym)) :inst-implicit :default)]
               [(with-meta sym nil) (binder-type sym) binfo]))
           params)
-    ;; legacy form (`:-` separator or positional `[n T]` pairs)
+    ;; :- separator or positional pairs: name [:-] type [ :inst ]
     (let [cleaned (remove #{:-} params)
           result (atom [])
           remaining (atom (vec cleaned))]
