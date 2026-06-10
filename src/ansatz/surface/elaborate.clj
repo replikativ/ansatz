@@ -491,6 +491,49 @@
                    (match/compile-match est elab-term discr-sexpr
                                         (mapv vec alt-forms)))
 
+        "=>" (let [[_ a b] sexpr]
+               (e/arrow (elab-term est a) (elab-term est b)))
+
+        ;; Bool if-then-else → Bool.rec. The motive is the then-branch's type,
+        ;; inferred directly (fvar context is present — no open/close needed).
+        "if" (let [[_ c t e] sexpr
+                   cond-expr (elab-term est c)
+                   then-expr (elab-term est t)
+                   else-expr (elab-term est e)
+                   ret-type (tc/infer-type (:tc est) (zonk est then-expr))]
+               (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                       (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
+                       else-expr then-expr cond-expr))
+
+        ;; Prop-valued comparisons over an explicit type: (le T a b) / (lt T a b)
+        ;; → LE.le.{?u} T ?inst a b — the instance + level resolve via synthesis.
+        ("le" "lt") (let [[_ T a b] sexpr
+                          cn  (if (= (str head) "le") "LE.le" "LT.lt")
+                          icn (if (= (str head) "le") "LE" "LT")
+                          T'  (elab-term est T)
+                          a'  (elab-term est a)
+                          b'  (elab-term est b)
+                          u   (fresh-level-mvar! est)
+                          inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T'))
+                          _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)]
+                      (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
+
+        ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool (Nat.b*).
+        ("<" "==" "<=" ">" ">=" "≤" "≥")
+        (let [hs (str head)]
+          (if (= 4 (count sexpr))
+            (let [[_ T a b] sexpr
+                  [a* b*] (case hs (">" ">=" "≥") [b a] [a b])
+                  rel (case hs ("<" ">") "lt" "le")]
+              (elab-term est (list (symbol rel) T a* b*)))
+            (let [[op a b] (case hs
+                             "<"  ["Nat.blt" (nth sexpr 1) (nth sexpr 2)]
+                             "==" ["Nat.beq" (nth sexpr 1) (nth sexpr 2)]
+                             ("<=" "≤") ["Nat.ble" (nth sexpr 1) (nth sexpr 2)]
+                             (">"  ) ["Nat.blt" (nth sexpr 2) (nth sexpr 1)]
+                             (">=" "≥") ["Nat.ble" (nth sexpr 2) (nth sexpr 1)])]
+              (e/app* (e/const' (name/from-string op) []) (elab-term est a) (elab-term est b)))))
+
         ;; Default: application with implicit insertion
         (elab-app est (first sexpr) (rest sexpr))))
 
