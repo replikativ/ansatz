@@ -76,6 +76,20 @@
 ;; Used by ansatz->clj to compile constructors to defrecord and projections to keyword access.
 (defonce ^{:doc "Structure field registry for defrecord compilation."} structure-registry (atom {}))
 
+;; ── Runtime seams (filled additively by wandler) ────────────────────────────────────────────────
+;; ansatz.core is the DSL: it elaborates surface Clojure to kernel terms, kernel-checks them, and
+;; codegens the base (Nat/Int/inductive/record) fragment. A runtime layer (wandler) plugs in a
+;; certified OPTIMIZER and the COLLECTION/relational codegen through these seams — without ansatz
+;; depending on it, and leaving ansatz-alone a/defn fully runnable.
+;; SEAM — optimizer: nil, or (fn [env term] → term') where term' is kernel-EQUAL to term (the hook
+;; certifies optimized ≡ original itself). define-verified runs it on the elaborated body just before
+;; codegen; the ORIGINAL term stays in the env (the proven definition).
+(defonce ^{:doc "Optimizer hook for the runtime. nil or (fn [env term] → term')."} optimize-hook (atom nil))
+;; SEAM — codegen: head-constant Name-string → (fn [env expr names] → clj-form). ansatz->clj consults
+;; it for application heads it does not lower natively (e.g. List.map → wandler's amapl). Base kernel
+;; codegen stays in ansatz; the runtime adds collection/relational lowering additively.
+(defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
+
 (clojure.core/defn init!
   "Load Ansatz environment from LMDB store and build instance index."
   [store-path branch]
@@ -1388,13 +1402,17 @@
                         (reduce (fn [f a] (list f a)) rec-result extra-args)))))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
-                (let [{:keys [arity erased]} (get @arity-registry h)]
-                  (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
-                    ;; FAP (full application): flat multi-arg call, skip erased prefix
-                    (let [rt-args (subvec ca erased (+ erased arity))]
-                      (apply list (symbol h) rt-args))
-                    ;; Curried (unknown arity, single-arg, or partial application)
-                    (reduce (fn [f a] (list f a)) (symbol h) ca)))))))
+                (if-let [cg (get @codegen-registry h)]
+                  ;; Codegen seam: runtime-registered lowering for heads ansatz doesn't know
+                  ;; natively (e.g. List.map → wandler's amapl). Consulted before the user-fn fallback.
+                  (cg env expr names)
+                  (let [{:keys [arity erased]} (get @arity-registry h)]
+                    (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
+                      ;; FAP (full application): flat multi-arg call, skip erased prefix
+                      (let [rt-args (subvec ca erased (+ erased arity))]
+                        (apply list (symbol h) rt-args))
+                      ;; Curried (unknown arity, single-arg, or partial application)
+                      (reduce (fn [f a] (list f a)) (symbol h) ca))))))))
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
           (reduce (fn [f a] (list f a)) compiled))))
     (e/const? expr) (let [cn (name/->string (e/const-name expr))]
@@ -2503,8 +2521,13 @@
                         (when *verbose* (println "  eq" (inc i) "gen failed:" (.getMessage e)))))))))
             (catch Exception ex
               (when *verbose* (println "  eq-gen outer:" (.getMessage ex)))))
+        ;; Optimizer seam: a runtime (wandler) may rewrite the body to a kernel-EQUAL, faster term
+        ;; just for codegen — the original stays the proven definition in the env.
+        runtime-body (if-let [opt @optimize-hook]
+                       (or (opt @ansatz-env body-ansatz) body-ansatz)
+                       body-ansatz)
         ;; Compile to Clojure — uncurry multi-arg functions for flat calls
-        clj-form (ansatz->clj @ansatz-env body-ansatz [])
+        clj-form (ansatz->clj @ansatz-env runtime-body [])
         clj-fn (if (<= n 1)
                  (eval clj-form)
                  ;; Multi-arg: support both flat (f x y) and curried ((f x) y) calls
