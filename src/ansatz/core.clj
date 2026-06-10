@@ -90,6 +90,23 @@
 ;; codegen stays in ansatz; the runtime adds collection/relational lowering additively.
 (defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
 
+;; ── Incremental Clojure ingestion ───────────────────────────────────────────────────────────────
+;; The elaborator macroexpand-1's a whitelist of pure STRUCTURAL clojure.core macros on the way in,
+;; so the binding/threading sugar (and the destructuring it carries) reaches the kernel as
+;; let*/fn*/application without a hand-written case per macro. Deliberately EXCLUDED: `->` (it is the
+;; type arrow here) and the truthiness/nil-punning family (when/cond/and/or/if-let/some->) — their
+;; macroexpansions assume Clojure's dynamic truthy/nil and don't typecheck against the total `Bool.rec`,
+;; so they need typed handlers, not blind expansion. Extensible: conj your own pure-structural macros.
+(defonce ^{:doc "Whitelisted pure-structural clojure.core macros the elaborator macroexpands."}
+  expandable-clj-macros
+  (atom '#{let ->> as->}))
+
+(clojure.core/defn- expandable-clj-macro?
+  "Is `head` a whitelisted macro to macroexpand-1 during elaboration? Matches the unqualified name,
+   so clojure.core/let etc. count too."
+  [head]
+  (boolean (and (symbol? head) (contains? @expandable-clj-macros (symbol (name head))))))
+
 (clojure.core/defn init!
   "Load Ansatz environment from LMDB store and build instance index."
   [store-path branch]
@@ -523,6 +540,50 @@
     (let [[c e & more] clauses]
       (if (= c :else) e (list 'if c e (cond->if more))))))
 
+(clojure.core/defn- infer-value-type
+  "Infer the type of an elaborated expression `v-expr` that may mention the enclosing binders as
+   bvars 0..depth-1 (types in `bvar-types`, a {bvar-index → type} map). The kernel can't infer a
+   term with loose bvars, so we OPEN them to fresh fvars, infer with those fvars registered as
+   locals, then ABSTRACT the fvars back — so the resulting type is valid in the original (bvar)
+   context. Returns the type Expr, or nil if inference fails."
+  [env depth bvar-types v-expr]
+  (if (zero? depth)
+    (try (tc/infer-type (tc/mk-tc-state env) v-expr) (catch Exception _ nil))
+    (let [base (inc (reduce max 6999999 (keys (or *current-lctx* {}))))
+          fids (mapv #(+ base %) (range depth))            ; fids[k] replaces bvar k
+          v-open (e/instantiate v-expr (mapv e/fvar fids))
+          lctx-map (merge (or *current-lctx* {})
+                          (into {} (keep (fn [k] (when-let [ty (get bvar-types k)]
+                                                   [(nth fids k) {:name (str "_p" k) :type ty
+                                                                  :tag :local}]))
+                                         (range depth))))
+          vt-open (try (tc/infer-type (tc/mk-tc-state-with-locals env lctx-map) v-open)
+                       (catch Exception _ nil))]
+      (when vt-open
+        (e/abstract-many vt-open (vec (reverse fids)))))))   ; close: fids[k] → bvar k
+
+(clojure.core/defn- compile-let*
+  "Elaborate `(let* [x1 v1 x2 v2 …] body)` to nested kernel `let` (Lean letE), de-Bruijn style to
+   match the rest of the elaborator: each value's type is INFERRED (open-infer-close over the
+   enclosing binders), the bound var enters `scope` at the current depth, and the body elaborates
+   one binder deeper. This is what makes `let` (and, with accessor elaboration, destructuring) reach
+   the kernel."
+  [env scope depth bindings body-form lctx]
+  (if (empty? bindings)
+    (sexp->ansatz env scope depth body-form lctx)
+    (let [[x v-form & more] bindings
+          v-expr (sexp->ansatz env scope depth v-form lctx)
+          bvar-types (into {} (keep (fn [[sym d]]
+                                      (when-let [ty (get *scope-types* sym)] [(- depth 1 d) ty]))
+                                    scope))
+          vtype (or (infer-value-type env depth bvar-types v-expr)
+                    (throw (ex-info (str "let: cannot infer the type of binding " x)
+                                    {:binding x :value v-form})))
+          scope' (assoc scope x depth)
+          body-expr (binding [*scope-types* (assoc *scope-types* x vtype)]
+                      (compile-let* env scope' (inc depth) (vec more) body-form lctx))]
+      (e/let' (str x) vtype v-expr body-expr))))
+
 (clojure.core/defn sexp->ansatz
   "Compile Clojure s-expression to Ansatz Expr.
    Handles types, terms, operators, binders — everything in one function.
@@ -601,6 +662,13 @@
                                                  lvl/zero)]
                                (mapv (fn [_] default-lvl) lps)))))
              (throw (ex-info (str "Unknown: " s) {:scope (keys scope)})))))
+
+       ;; Incremental macroexpansion: expand a whitelisted pure-structural clojure.core macro
+       ;; (let/->>/as-> → let*/application) and re-elaborate. Registered elaborators still win.
+       (and (sequential? form) (seq form)
+            (expandable-clj-macro? (first form))
+            (nil? (get @elaborator-registry (first form))))
+       (sexp->ansatz env scope depth (macroexpand-1 form) lctx)
 
        (and (sequential? form) (seq form))
     ;; Check custom elaborator registry first
@@ -801,6 +869,9 @@
 
         ;; cond → nested if; do (pure) → its last form.
         ;; (let/let* deferred: needs de-Bruijn-aware value-type inference — task #72.)
+               "let*" (compile-let* env scope depth (vec (nth form 1))
+                                    (if (> (count form) 3) (cons 'do (drop 2 form)) (nth form 2))
+                                    lctx)
                "cond" (sexp->ansatz env scope depth (cond->if (rest form)))
                "do" (sexp->ansatz env scope depth (last form))
 
