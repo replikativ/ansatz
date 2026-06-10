@@ -15,7 +15,7 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 (a/init! "/var/tmp/ansatz-cslib" "cslib")
 
 ;; Verified merge sort — kernel-checked, compiles to Clojure
-(a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
+(a/defn ^{:- (List Nat)} merge [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
   :termination-by (+ (List.length xs) (List.length ys))
   (match xs (List Nat) (List Nat)
     (nil ys)
@@ -53,7 +53,7 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
     (node [color left key right] (+ 1 (+ ih_left ih_right)))))
 
 ;; Nested match for BST lookup — references outer param k
-(a/defn rb-member [t (RBTree Nat) k Nat] Bool
+(a/defn ^Bool rb-member [^{:- (RBTree Nat)} t ^Nat k]
   (match t (RBTree Nat) Bool
     (leaf false)
     (node [color left key right]
@@ -280,7 +280,7 @@ in the repo and sufficient for basic proofs on Nat. No Mathlib setup required:
 (a/init! "/var/tmp/ansatz-mathlib" "mathlib")
 
 ;; Define and prove
-(a/defn double [n :- Nat] Nat (+ n n))
+(a/defn ^Nat double [^Nat n] (+ n n))
 
 (a/theorem add-zero [n :- Nat]
   (= Nat (+ n 0) n)
@@ -322,15 +322,15 @@ Type                         ;; types
 
 ```clojure
 ;; Verified function (structural recursion)
-(a/defn name [param :- Type, ...] ReturnType body)
+(a/defn ^ReturnType name [^{:- Type} param ...] body)   ; types are metadata, ReturnType on the name
 
 ;; Well-founded recursion (non-structural, e.g. merge sort)
-(a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
+(a/defn ^{:- (List Nat)} merge [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
   :termination-by (+ (List.length xs) (List.length ys))
   body)
 
 ;; Typeclass params
-(a/defn sort [α :- Type, inst :- (Ord α) :inst, xs :- (List α)] (List α) ...)
+(a/defn ^{:- (List α)} sort [^{:- Type} α ^:inst ^{:- (Ord α)} inst ^{:- (List α)} xs] ...)
 
 ;; Theorem
 (a/theorem name [param :- Type, hyp :- (le Real 0 x), ...]
@@ -458,7 +458,7 @@ Ansatz provides three extension points, following Lean 4's metaprogramming model
       ...)))
 
 ;; Use in definitions:
-(a/defn f [n :- Nat] Nat (double n))
+(a/defn ^Nat f [^Nat n] (double n))
 ```
 
 ### Custom Simprocs (Lean 4's `@[simproc]`)

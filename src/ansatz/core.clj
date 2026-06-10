@@ -3,7 +3,7 @@
 ;; Write Clojure functions with Ansatz types. Prove properties. Run at native speed.
 ;;
 ;; (ansatz/init! "path/to/store" "branch")
-;; (ansatz/defn double [n Nat] Nat (+ n n))
+;; (ansatz/defn ^Nat double [^Nat n] (+ n n))
 ;; (ansatz/theorem add-zero [n Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))
 ;; (double 21)  ;; => 42, native speed
 
@@ -1500,7 +1500,7 @@
            (e/app (e/const' (name/from-string \"MyFn\") []) a))))
 
    Then use in definitions:
-     (a/defn f [x :- Nat] Nat (my-form x))"
+     (a/defn ^Nat f [^Nat x] (my-form x))"
   [name f]
   (swap! elaborator-registry assoc name f))
 

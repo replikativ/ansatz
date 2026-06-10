@@ -42,7 +42,7 @@ The full Mathlib store lives in `/var/tmp/ansatz-mathlib` (648,612 declarations)
 ### Proving theorems
 ```clojure
 ;; Define a verified function
-(a/defn gd-step [x :- Real, grad :- Real, eta :- Real] Real
+(a/defn ^{:- Real} gd-step [^{:- Real} x ^{:- Real} grad ^{:- Real} eta]
   (sub Real x (mul Real eta grad)))
 
 ;; Prove convergence

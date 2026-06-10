@@ -37,6 +37,12 @@
         "ansatz->clj consulted the codegen-registry for the sh-base head (not the user-fn fallback)")
     (finally (reset! a/codegen-registry {}))))
 
+(deftest clojure-fragment-cond-and-do
+  (eval '(ansatz.core/defn ^Nat sh-cond [^Nat n] (cond (Nat.ble n 5) 0 (Nat.ble n 10) 1 :else 2)))
+  (eval '(ansatz.core/defn ^Nat sh-do   [^Nat n] (do (Nat.add n n))))
+  (is (= [0 1 2] (mapv (resolve 'sh-cond) [3 7 20])) "cond → nested if")
+  (is (= 42 ((resolve 'sh-do) 21)) "do → last form"))
+
 (deftest type-annotation-surfaces
   (eval '(ansatz.core/defn ^Nat md-add [^Nat a ^Nat b] (+ a b)))          ; metadata ^Type
   (eval '(ansatz.core/defn ^{:- Nat} md-add2 [^{:- Nat} a ^{:- Nat} b] (+ a b))) ; metadata ^{:- T}
