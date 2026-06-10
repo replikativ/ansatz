@@ -99,9 +99,12 @@
 ;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
 ;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce
 ;; an unsound definition. The set only keeps OUR handlers winning and errors clean.
-(defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified name."}
+(defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified name.
+   Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's :else/truthy
+   semantics differ from our typed cond->if. (`->` is NOT here — it threads in term position and is
+   the type arrow only in type position; see *type-mode*.)"}
   no-expand-macros
-  (atom '#{-> cond}))
+  (atom '#{cond}))
 
 (clojure.core/defn- expand-macro?
   "Should the elaborator macroexpand-1 this list head? True iff it resolves to a macro and is not in
@@ -167,6 +170,10 @@
 ;; Dynamic vars for elaboration context threading
 (def ^:dynamic *scope-types* {})
 (def ^:dynamic *current-lctx* nil)
+;; True while elaborating a TYPE form (param/return/goal types). In type position `->` reads as the
+;; function-type arrow; in term position (the default) `->` is Clojure's threading macro and is
+;; macroexpanded. `=>` is the canonical, unambiguous arrow in any position.
+(def ^:dynamic *type-mode* false)
 
 (clojure.core/defn- compute-arity
   "Compute the runtime arity of a function type.
@@ -519,18 +526,25 @@
 ;; Set by build-telescope when compiling function bodies.
 ;; *scope-types* and *current-lctx* are defined at the top of the file.
 
+(clojure.core/defn- stype
+  "Elaborate a TYPE form (a param/return/goal type) — like sexp->ansatz but with *type-mode* true, so
+   `->` reads as the function-type arrow. (`=>` is the canonical arrow and works in any position; `->`
+   is accepted in type position so existing signatures don't churn.)"
+  [env scope depth form]
+  (binding [*type-mode* true] (sexp->ansatz env scope depth form)))
+
 (clojure.core/defn- build-telescope
   "Build nested foralls or lambdas from param pairs.
    ctor: e/forall' or e/lam.
    Each pair is [name type-form] or [name type-form binder-info]."
   [env scope depth pairs body-form ctor]
   (if (empty? pairs)
-    (sexp->ansatz env scope depth body-form)
+    (binding [*type-mode* false] (sexp->ansatz env scope depth body-form))
     (let [pair (first pairs)
           pname (first pair)
           ptype-form (second pair)
           binfo (if (>= (count pair) 3) (nth pair 2) :default)
-          ptype (sexp->ansatz env scope depth ptype-form)
+          ptype (stype env scope depth ptype-form)
           new-scope (assoc scope pname depth)
           body (binding [*scope-types* (assoc *scope-types* pname ptype)]
                  (build-telescope env new-scope (inc depth) (rest pairs) body-form ctor))]
@@ -675,7 +689,9 @@
        ;; elaborators and ansatz's own typed handlers still win (checked here / below).
        (and (sequential? form) (seq form)
             (expand-macro? (first form))
-            (nil? (get @elaborator-registry (first form))))
+            (nil? (get @elaborator-registry (first form)))
+            ;; In type position, `->` is the arrow (handled below), not threading — don't expand it.
+            (not (and *type-mode* (symbol? (first form)) (= "->" (name (first form))))))
        (sexp->ansatz env scope depth (macroexpand-1 form) lctx)
 
        (and (sequential? form) (seq form))
@@ -953,8 +969,11 @@
                                          (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/forall')
                ("fn" "lam") (build-telescope env scope depth
                                              (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/lam)
-               ("->" "arrow") (e/arrow (sexp->ansatz env scope depth (nth form 1))
-                                       (sexp->ansatz env scope (inc depth) (nth form 2)))
+               ;; Function-type arrow. `=>` is canonical (any position); `->` reaches here only in
+               ;; type position (in term position it was macroexpanded as threading). Arguments are
+               ;; types, so elaborate them in type-mode.
+               ("=>" "->" "arrow") (e/arrow (stype env scope depth (nth form 1))
+                                            (stype env scope (inc depth) (nth form 2)))
 
         ;; Logic
                "And" (e/app* (e/const' (name/from-string "And") [])
@@ -1881,12 +1900,12 @@
 
         ;; Build the function type: ∀ params → ret-type (same as define-verified)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
+        ret-ansatz (stype env scope-full n ret-type-form)
         type-ansatz (loop [i (dec n) body ret-ansatz]
                       (if (< i 0) body
                           (let [[pn pt binfo] (nth pairs i)
                                 s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
+                                ty (stype env s i pt)]
                             (recur (dec i) (e/forall' (str pn) ty body binfo)))))
 
         ;; Compile param types
@@ -2102,12 +2121,12 @@
         ;; Build type: ∀ params → ret-type
         n (count pairs)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
+        ret-ansatz (stype env scope-full n ret-type-form)
         type-ansatz (loop [i (dec n) body ret-ansatz]
                       (if (< i 0) body
                           (let [[pn pt binfo] (nth pairs i)
                                 s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
+                                ty (stype env s i pt)]
                             (recur (dec i) (e/forall' (str pn) ty body binfo)))))
         ;; Type-check
         tc (ansatz.kernel.TypeChecker. env)
@@ -2648,15 +2667,15 @@
          scope-types-map (into {} (map-indexed
                                    (fn [i [pn pt-form]]
                                      (let [s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))]
-                                       [pn (sexp->ansatz env s i pt-form)]))
+                                       [pn (stype env s i pt-form)]))
                                    pairs))
          prop-ansatz (binding [*scope-types* scope-types-map]
-                       (sexp->ansatz env scope-full n prop-form))
+                       (stype env scope-full n prop-form))
          goal-type (loop [i (dec n) body prop-ansatz]
                      (if (< i 0) body
                          (let [[pn pt binfo] (nth pairs i)
                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                               ty (sexp->ansatz env s i pt)]
+                               ty (stype env s i pt)]
                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
          [ps _] (proof/start-proof env goal-type)
          ps (if (seq pairs) (basic/intros ps (mapv (comp str first) pairs)) ps)
