@@ -39,6 +39,16 @@
   (is (= 9 ((resolve 'ci-thread1) 6)) "-> threads in term position")
   (is (= 9 ((resolve 'ci-ho-eq) (resolve 'ci-thread1) 6)) "=> is the function-type arrow"))
 
+(deftest partial-recursion-runs
+  ;; The recursion ladder's lenient fallback: a free self-call recursion we don't prove total, marked
+  ;; ^:partial, loads as a TRUSTED axiom at its type (not verified, not usable in proofs) and RUNS via
+  ;; the original recursive Clojure body. So any recursive fn can be copied over and executed.
+  (binding [a/*verbose* false]
+    (eval '(ansatz.core/defn ^:partial ^Nat ci-countdown [^Nat n] (if (<= n 0) 0 (ci-countdown (- n 1)))))
+    (eval '(ansatz.core/defn ^:partial ^Nat ci-sumto [^Nat n] (if (<= n 0) 0 (+ n (ci-sumto (- n 1))))))
+    (is (= [0 0 0] (mapv (resolve 'ci-countdown) [0 5 100])) "free self-call recursion runs")
+    (is (= [0 15 55] (mapv (resolve 'ci-sumto) [0 5 10])) "accumulating recursion runs")))
+
 (deftest get-record-accessor
   ;; (get rec :field) → keyword projection (a sound record accessor). Full {:keys […]} destructuring
   ;; needs a custom typed desugar (Clojure's injects a dynamic seq-normalization preamble) — follow-on.

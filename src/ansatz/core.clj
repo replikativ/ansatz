@@ -2115,6 +2115,51 @@
                        (~param-syms ~curried-call)))))]
     clj-fn))
 
+(clojure.core/defn define-partial
+  "Define a PARTIAL (trusted, opaque) function — the recursion ladder's lenient fallback, for recursion
+   we can't or won't prove total. The kernel gets an AXIOM at the function's type: trusted, NOT verified,
+   and never usable in proofs (data-only). The runtime is the original recursive Clojure body — self-calls
+   resolve to the def'd var at call time. Mark with ^:partial. Mirrors Lean's `partial def`."
+  [fn-name params ret-type-form body-form]
+  (let [env (env)
+        pairs (parse-params params)
+        n (count pairs)
+        ;; function type  ∀ params → ret  (same construction as define-verified)
+        scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
+        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
+        type-ansatz (loop [i (dec n) body ret-ansatz]
+                      (if (< i 0) body
+                          (let [[pn pt binfo] (nth pairs i)
+                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
+                                ty (sexp->ansatz env s i pt)]
+                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
+        cname (name/from-string (str fn-name))
+        ;; trusted axiom at the type; also the self-reference used to elaborate the body for codegen
+        ax (env/mk-axiom cname [] type-ansatz)
+        tmp-env (env/add-constant (env/fork env) ax)
+        body-ansatz (binding [surface-match/*use-cases-on?* true]
+                      (build-telescope tmp-env {} 0 pairs body-form e/lam))]
+    ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
+    (swap! ansatz-env env/add-constant ax)
+    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+    (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
+    ;; codegen the recursive body; self-calls compile to (fn-name …) and resolve at call time
+    (let [clj-form (ansatz->clj @ansatz-env body-ansatz [])
+          clj-fn (if (<= n 1)
+                   (eval clj-form)
+                   (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) (vec pairs))
+                         curried-call (reduce (fn [f s] (list f s))
+                                              (list clj-form (first param-syms)) (rest param-syms))]
+                     (eval
+                      `(fn
+                         (~[(first param-syms)]
+                          ~(if (= n 2)
+                             `(fn [~(second param-syms)] ~curried-call)
+                             (reduce (fn [body s] `(fn [~s] ~body))
+                                     curried-call (reverse (rest param-syms)))))
+                         (~param-syms ~curried-call)))))]
+      clj-fn)))
+
 ;; ============================================================
 ;; Public API
 ;; ============================================================
@@ -2725,10 +2770,14 @@
         [opts body] (if (= :termination-by (first body-and-opts))
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
                       [{} (first body-and-opts)])
-        nm (vary-meta fn-name dissoc :- :tag)]
-    (if (:termination-by opts)
-      `(def ~nm (define-verified-wf '~nm '~params '~ret-type
-                  '~body '~(:termination-by opts)))
+        partial? (:partial (meta fn-name))
+        nm (vary-meta fn-name dissoc :- :tag :partial)]
+    (cond
+      partial?
+      `(def ~nm (define-partial '~nm '~params '~ret-type '~body))
+      (:termination-by opts)
+      `(def ~nm (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)))
+      :else
       `(def ~nm (define-verified '~nm '~params '~ret-type '~body)))))
 
 (defmacro theorem
