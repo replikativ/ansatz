@@ -73,7 +73,11 @@
                            (mk-succ a) b)))
 
 (defn- prove-and-verify
-  "Start a proof, apply tactic-fn, verify the result."
+  "Start a proof, apply tactic-fn, verify the result with the STRICT kernel checker
+   (extract/verify → TypeChecker.check, which re-checks every application argument).
+   Any failure — a kernel type error OR a missing store node — fails the test loudly.
+   (A store loaded from the durable data-root is complete; an incomplete store is a
+   real signal, e.g. a store mistakenly placed in an auto-cleaned dir — see #42.)"
   [env goal-type tactic-fn]
   (let [ps (first (proof/start-proof env goal-type))
         ps' (tactic-fn ps)]
@@ -560,21 +564,21 @@
           (is (not (:possible result))
               "2x = 3 has no integer solution"))))))
 
-;; Full Mathlib env for non-ground omega (needs Lean.Omega.* constants)
+;; Full Mathlib env for non-ground omega (needs Lean.Omega.* constants).
+;; Located via ansatz.store (durable data-root, legacy /var/tmp fallback).
 (def ^:private mathlib-store-env
   (delay
-    (let [path "/var/tmp/ansatz-mathlib"]
-      (when (.exists (java.io.File. path))
-        (try
-          (require '[ansatz.export.storage :as storage])
-          (let [store-map ((resolve 'ansatz.export.storage/open-store) path)]
-            ((resolve 'ansatz.export.storage/load-env) store-map "mathlib"))
-          (catch Exception _ nil))))))
+    (when-let [path ((requiring-resolve 'ansatz.store/resolve-existing) "mathlib")]
+      (try
+        (require '[ansatz.export.storage :as storage])
+        (let [store-map ((resolve 'ansatz.export.storage/open-store) path)]
+          ((resolve 'ansatz.export.storage/load-env) store-map "mathlib"))
+        (catch Exception _ nil)))))
 
 (defn- require-mathlib-env []
   (let [env @mathlib-store-env]
     (when-not env
-      (println "  SKIP: Mathlib store not available at /var/tmp/ansatz-mathlib (branch \"mathlib\")"))
+      (println "  SKIP: Mathlib store not found (set ANSATZ_STORE_DIR or run scripts/setup-mathlib.sh)"))
     env))
 
 (deftest test-omega-proof-nonground-false

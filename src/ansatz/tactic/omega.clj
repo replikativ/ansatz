@@ -257,6 +257,22 @@
     (let [[table' idx] (intern-atom table st expr)]
       [table' (lc-var idx)])))
 
+(defn- full-whnf-nat-lit
+  "Full (delta) whnf fallback: if `expr` reduces to a Nat literal/zero, return
+   its numeric value; else nil. Used before interning a stuck term as an opaque
+   omega atom — e.g. a literal that survives as the `OfNat.ofNat` instance
+   projection `instOfNatNat.0` only collapses to `1` after delta-unfolding the
+   instance (simp's reduceProjFn leaves it as a `proj` on the un-unfolded inst).
+   Accept ONLY a clean literal: a genuine atom (`Subtype.val x`) stays stuck and
+   an arithmetic redex could explode into brecOn — neither should be accepted."
+  [st expr]
+  (try
+    (let [w (red/whnf (:env st) expr (:lctx st))]
+      (cond (e/lit-nat? w) (e/lit-nat-val w)
+            (and (e/const? w) (= (e/const-name w) nat-zero-name)) 0
+            :else nil))
+    (catch Throwable _ nil)))
+
 (defn- reify-term
   "Reify a CIC term (Nat/Int arithmetic) into a linear combination.
    Returns [atom-table linear-combo].
@@ -288,9 +304,11 @@
           (let [matched (try-match-head st expr-whnf)]
             (if (and matched (contains? arithmetic-heads (first matched)))
               (reify-arithmetic st table expr-whnf matched)
-              ;; Unknown application — intern as atom
-              (let [[table' idx] (intern-atom table st expr-whnf)]
-                [table' (lc-var idx)])))
+              ;; Unknown application — try full whnf for a literal, else atom
+              (if-let [n (full-whnf-nat-lit st expr-whnf)]
+                [table (mk-lc n)]
+                (let [[table' idx] (intern-atom table st expr-whnf)]
+                  [table' (lc-var idx)]))))
 
           ;; Free variable — intern as atom
           (e/fvar? expr-whnf)
@@ -304,10 +322,13 @@
             (let [[table' idx] (intern-atom table st expr-whnf)]
               [table' (lc-var idx)]))
 
-          ;; Anything else — intern as atom
+          ;; Anything else (e.g. a stuck `proj` like the OfNat instance field) —
+          ;; try full whnf for a literal, else intern as atom
           :else
-          (let [[table' idx] (intern-atom table st expr-whnf)]
-            [table' (lc-var idx)]))))))
+          (if-let [n (full-whnf-nat-lit st expr-whnf)]
+            [table (mk-lc n)]
+            (let [[table' idx] (intern-atom table st expr-whnf)]
+              [table' (lc-var idx)])))))))
 
 ;; ============================================================
 ;; Reification: Ansatz propositions → constraints
@@ -325,6 +346,7 @@
 (def ^:private false-name (name/from-string "False"))
 (def ^:private true-name (name/from-string "True"))
 (def ^:private nat-le-name (name/from-string "Nat.le"))
+(def ^:private nat-lt-name (name/from-string "Nat.lt"))
 (declare reify-prop)
 
 (defn- reify-prop
@@ -344,22 +366,31 @@
                 lhs-raw (nth args 1)
                 rhs-w (#'tc/cached-whnf st (nth args 2))
                 [lh la] (e/get-app-fn-args lhs-raw)]
-            (if (and (e/const? lh)
-                     (= (name/->string (e/const-name lh)) "Nat.ble")
-                     (= 2 (count la)))
-              ;; Nat.ble a b = true/false → LE constraint
-              (let [[table' lc-a] (reify-term st table (nth la 0))
-                    [table'' lc-b] (reify-term st table' (nth la 1))]
-                (cond
-                  (and (e/const? rhs-w) (= (name/->string (e/const-name rhs-w)) "Bool.true"))
-                  [table'' [(mk-geq (lc-sub lc-b lc-a))]]   ;; a ≤ b → b - a ≥ 0
-                  (and (e/const? rhs-w) (= (name/->string (e/const-name rhs-w)) "Bool.false"))
-                  [table'' [(mk-geq (lc-add (lc-sub lc-a lc-b) (mk-lc -1)))]]  ;; ¬(a ≤ b) → a - b ≥ 1
-                  :else [table []]))
-              ;; General Eq: a - b = 0
-              (let [[table' lc-a] (reify-term st table (nth args 1))
-                    [table'' lc-b] (reify-term st table' (nth args 2))]
-                [table'' [(mk-eq (lc-sub lc-a lc-b))]])))
+            (let [lh-name (when (e/const? lh) (name/->string (e/const-name lh)))
+                  true? (and (e/const? rhs-w) (= (name/->string (e/const-name rhs-w)) "Bool.true"))
+                  false? (and (e/const? rhs-w) (= (name/->string (e/const-name rhs-w)) "Bool.false"))]
+              (cond
+                ;; Nat.ble a b = true/false → a ≤ b / a > b
+                (and (= lh-name "Nat.ble") (= 2 (count la)))
+                (let [[table' lc-a] (reify-term st table (nth la 0))
+                      [table'' lc-b] (reify-term st table' (nth la 1))]
+                  (cond
+                    true?  [table'' [(mk-geq (lc-sub lc-b lc-a))]]                         ;; a ≤ b
+                    false? [table'' [(mk-geq (lc-add (lc-sub lc-a lc-b) (mk-lc -1)))]]      ;; a > b
+                    :else [table []]))
+                ;; Nat.blt a b = true/false → a < b / a ≥ b
+                (and (= lh-name "Nat.blt") (= 2 (count la)))
+                (let [[table' lc-a] (reify-term st table (nth la 0))
+                      [table'' lc-b] (reify-term st table' (nth la 1))]
+                  (cond
+                    true?  [table'' [(mk-geq (lc-add (lc-sub lc-b lc-a) (mk-lc -1)))]]      ;; a < b → b ≥ a+1
+                    false? [table'' [(mk-geq (lc-sub lc-a lc-b))]]                         ;; a ≥ b
+                    :else [table []]))
+                ;; General Eq: a - b = 0
+                :else
+                (let [[table' lc-a] (reify-term st table (nth args 1))
+                      [table'' lc-b] (reify-term st table' (nth args 2))]
+                  [table'' [(mk-eq (lc-sub lc-a lc-b))]]))))
 
           ;; LE.le _ _ a b → b - a ≥ 0
           (and (= head-name le-name) (= 4 (count args)))
@@ -372,6 +403,12 @@
           (let [[table' lc-a] (reify-term st table (nth args 0))
                 [table'' lc-b] (reify-term st table' (nth args 1))]
             [table'' [(mk-geq (lc-sub lc-b lc-a))]])
+
+          ;; Nat.lt a b → b - a - 1 ≥ 0 (i.e. b ≥ a + 1)
+          (and (= head-name nat-lt-name) (= 2 (count args)))
+          (let [[table' lc-a] (reify-term st table (nth args 0))
+                [table'' lc-b] (reify-term st table' (nth args 1))]
+            [table'' [(mk-geq (lc-add (lc-sub lc-b lc-a) (mk-lc -1)))]])
 
           ;; LT.lt _ _ a b → b - a - 1 ≥ 0 (i.e. b ≥ a + 1)
           (and (= head-name lt-name) (= 4 (count args)))
@@ -681,6 +718,18 @@
                 [table'' lc-b] (reify-term st table' (nth args 3))]
             [table'' [(mk-geq (lc-sub lc-b lc-a))]])
 
+          ;; Goal: Nat.le a b (bare, 2-arg) → assume ¬(a ≤ b) → b < a → a - b ≥ 1
+          (and (= head-name nat-le-name) (= 2 (count args)))
+          (let [[table' lc-a] (reify-term st table (nth args 0))
+                [table'' lc-b] (reify-term st table' (nth args 1))]
+            [table'' [(mk-geq (lc-add (lc-sub lc-a lc-b) (mk-lc -1)))]])
+
+          ;; Goal: Nat.lt a b (bare, 2-arg) → assume ¬(a < b) → b ≤ a → a - b ≥ 0
+          (and (= head-name nat-lt-name) (= 2 (count args)))
+          (let [[table' lc-a] (reify-term st table (nth args 0))
+                [table'' lc-b] (reify-term st table' (nth args 1))]
+            [table'' [(mk-geq (lc-sub lc-a lc-b))]])
+
           ;; Goal: Not P → assume P
           (and (= head-name not-name) (= 1 (count args)))
           (reify-prop st table (nth args 0))
@@ -821,6 +870,14 @@
                 ;; Try to build proof from known lemmas.
                 ;; Lean 4's omega has its own proof builder; we use simp + apply.
                 (or
+                 ;; Strategy A0: the goal matches a hypothesis directly. omega often
+                 ;; normalizes to a Prop that is exactly a carried fact (e.g. a
+                 ;; refinement's `.property` after a Bool→Prop bridge); `decide` can't
+                 ;; certify a non-ground goal, but `assumption` closes it.
+                 (try
+                   (let [ps' (basic/assumption ps)]
+                     (when (proof/solved? ps') ps'))
+                   (catch Exception _ nil))
                  ;; Strategy 0: try full omega proof builder (requires Lean.Omega.* constants)
                  (try
                    (let [omega-full (requiring-resolve 'ansatz.tactic.omega-proof/omega)]
@@ -829,12 +886,16 @@
                      (when (System/getProperty "omega.trace")
                        (println "[omega] Strategy 0 failed:" (.getMessage e)))
                      nil))
-                 ;; Strategy A: try simp with omega-relevant lemmas
+                 ;; Strategy A: try simp with omega-relevant lemmas.
+                 ;; Only counts if it actually CLOSES the goal — otherwise simp
+                 ;; returns a (non-nil) unsolved ps that would short-circuit the
+                 ;; `or` and starve the stronger structural strategies below.
                  (try
                    (require 'ansatz.tactic.simp)
-                   (let [simp-fn (resolve 'ansatz.tactic.simp/simp)]
-                     (simp-fn ps ["Nat.zero_le" "Nat.le_refl" "Nat.zero_add"
-                                  "Nat.add_zero" "Nat.le.refl"]))
+                   (let [simp-fn (resolve 'ansatz.tactic.simp/simp)
+                         ps' (simp-fn ps ["Nat.zero_le" "Nat.le_refl" "Nat.zero_add"
+                                          "Nat.add_zero" "Nat.le.refl"])]
+                     (when (and ps' (proof/solved? ps')) ps'))
                    (catch Exception _ nil))
                  ;; Strategy B: for LE goals, try Nat.zero_le n directly
                  (try
@@ -856,12 +917,13 @@
                  ;; For LE goals where omega found a proof, try building the term.
                  (try
                    (let [goal-type (:type goal)
-                         [head args] (e/get-app-fn-args goal-type)]
-                     (when (and (e/const? head)
-                                (= (name/->string (e/const-name head)) "LE.le")
-                                (>= (count args) 4))
-                       (let [lhs (nth args 2)
-                             rhs (nth args 3)
+                         [head args] (e/get-app-fn-args goal-type)
+                         hn (when (e/const? head) (name/->string (e/const-name head)))]
+                     (when (or (and (= hn "LE.le") (>= (count args) 4))
+                               (and (= hn "Nat.le") (= 2 (count args))))
+                       (let [le4? (= hn "LE.le")
+                             lhs (if le4? (nth args 2) (nth args 0))
+                             rhs (if le4? (nth args 3) (nth args 1))
                              le-add-right-n (name/from-string "Nat.le_add_right")
                              le-add-left-n (name/from-string "Nat.le_add_left")
                              le-trans-n (name/from-string "Nat.le_trans")
@@ -872,13 +934,17 @@
                              _ (doseq [[id decl] (:lctx goal)]
                                  (when (= :local (:tag decl))
                                    (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
-                             ;; Decompose HAdd.hAdd args
+                             ;; Decompose addition in either HAdd.hAdd (typeclass) or
+                             ;; bare Nat.add form — simp's reduceProjFn collapses the
+                             ;; instance projection `HAdd.hAdd … instHAdd → Nat.add`.
                              hadd? (fn [expr]
                                      (let [[h a] (e/get-app-fn-args expr)]
-                                       (when (and (e/const? h)
-                                                  (= (name/->string (e/const-name h)) "HAdd.hAdd")
-                                                  (= 6 (count a)))
-                                         [(nth a 4) (nth a 5)])))
+                                       (when (e/const? h)
+                                         (let [hn (name/->string (e/const-name h))]
+                                           (cond
+                                             (and (= hn "HAdd.hAdd") (= 6 (count a))) [(nth a 4) (nth a 5)]
+                                             (and (= hn "Nat.add") (= 2 (count a)))    [(nth a 0) (nth a 1)]
+                                             :else nil)))))
                              ;; Try proof and verify with Java TC
                              try-proof (fn [proof]
                                          (try

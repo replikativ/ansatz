@@ -140,6 +140,16 @@ public final class Env {
                       quotEnabled, externalLookup, externalSize, visibilityCheck);
     }
 
+    /**
+     * Like addConstant, but REPLACES an existing constant of the same name instead of throwing.
+     * For SURFACE redefinition (a/defn / a/theorem in a REPL, matching Clojure `defn` semantics).
+     * Kernel proof / install paths keep using the strict {@link #addConstant}.
+     */
+    public Env addOrReplaceConstant(ConstantInfo ci) {
+        return new Env(locals.assoc(ci.name, ci), sharedCache,
+                      quotEnabled, externalLookup, externalSize, visibilityCheck);
+    }
+
     /** Returns a NEW Env with quot enabled. */
     public Env enableQuot() {
         if (quotEnabled) return this;

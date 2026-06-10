@@ -116,7 +116,7 @@
                                       [Nat.zero 0]
                                       [(Nat.succ n) n]))
           tc (TypeChecker. env)
-          inferred (.inferType tc term)]
+          inferred (.check tc term)]   ; STRICT well-typedness check
       ;; Should type-check without error
       (is (some? inferred)))))
 

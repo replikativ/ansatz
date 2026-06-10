@@ -120,7 +120,7 @@
       (is (proof/solved? ps))
       ;; Verify with Java TypeChecker
       (let [term (extract/extract ps)
-            inferred (.inferType (TypeChecker. env) term)]
+            inferred (.check (TypeChecker. env) term)]   ; STRICT: re-checks every app arg
         (is (.isDefEq (TypeChecker. env) inferred goal-type))))))
 
 (deftest test-decide-eq-nat-nonzero
@@ -159,7 +159,7 @@
         (is (proof/solved? ps))
         (let [term (extract/extract ps)
               tc (TypeChecker. env)
-              inferred (.inferType tc term)]
+              inferred (.check tc term)]   ; STRICT
           (is (.isDefEq tc inferred goal-type)))))))
 
 (deftest test-decide-not

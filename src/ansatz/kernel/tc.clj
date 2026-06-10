@@ -25,6 +25,34 @@
    :def-neq-cache (atom #{})
    :infer-cache (java.util.IdentityHashMap.)})
 
+(defn- lctx-max-id
+  "Largest fvar id present in an lctx map (-1 if empty)."
+  [lctx]
+  (reduce-kv (fn [m id _] (if (> (long id) m) (long id) m)) -1 lctx))
+
+(defn attach-lctx
+  "Attach `lctx` to a tc-state, bumping `:next-id` above the lctx's max fvar id.
+   Without this, `fresh-id!` (which starts from 0) hands out binder fvar ids that
+   collide with existing context fvars — and when infer-type abstracts such a
+   binder it also abstracts the colliding context fvar, corrupting the term
+   (e.g. a fold step `λ acc x:K. …` losing its `K`). Lean keeps FVarIds globally
+   fresh via the MetaContext; this is the same guarantee at lctx-attach time."
+  [st lctx]
+  (let [mx (lctx-max-id lctx)]
+    (swap! (:next-id st) (fn [v] (if (> (inc mx) v) (inc mx) v)))
+    (assoc st :lctx lctx)))
+
+(defn mk-tc-state-with-locals
+  "A tc-state with `lctx-map` (a {fvar-id → {:name :type ...}} map, e.g. core's
+   *current-lctx*) registered as locals, so `infer-type` of a term mentioning those
+   fvars resolves their types."
+  [env lctx-map]
+  (let [st (mk-tc-state env)
+        lctx (reduce-kv (fn [l id {:keys [name type]}]
+                          (if type (red/lctx-add-local l id name type) l))
+                        (:lctx st) lctx-map)]
+    (attach-lctx st lctx)))
+
 (defn- fresh-id! [st]
   (swap! (:next-id st) inc)
   @(:next-id st))

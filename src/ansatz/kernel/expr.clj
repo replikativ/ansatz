@@ -235,38 +235,55 @@
 
 (defn lift
   "Lift (shift) free de Bruijn indices in e by d, starting from cutoff c.
-   Handles deeply nested apps iteratively."
+   Handles deeply nested apps iteratively. SHARING-AWARE: memoizes the recursion on
+   (sub-expr IDENTITY, cutoff) — mirroring Lean's kernel `replace_fn` cache
+   (src/kernel/replace_fn.cpp: unordered_map<(e.raw(), offset), expr>) — so a shared
+   DAG sub-expression is rewritten ONCE, not once per occurrence. Without this, a
+   maximally-shared (interned) term is copied as a tree → exponential blowup. The cache
+   only ever speeds things up: a cache miss (unshared node) yields the same result. The
+   top-level closed-term check returns before allocating the cache (common fast path)."
   [e d c]
-  (letfn [(go [e c]
-              (if (<= (bvar-range e) c)
-                e
-                (case (tag e)
-                  :bvar (if (>= (bvar-idx e) c)
-                          (bvar (+ (bvar-idx e) d))
-                          e)
-                  :sort e
-                  :const e
-                  :app (let [^java.util.ArrayList args (java.util.ArrayList.)]
-                         (loop [cur e]
-                           (if (and (app? cur) (> (bvar-range cur) c))
-                             (do (.add args (app-arg cur))
-                                 (recur (app-fn cur)))
-                             (let [head' (go cur c)
-                                   n (.size args)]
-                               (loop [i (dec n) result head']
-                                 (if (neg? i)
-                                   result
-                                   (recur (dec i) (app result (go (.get args i) c)))))))))
-                  :lam (lam (lam-name e) (go (lam-type e) c) (go (lam-body e) (inc c)) (lam-info e))
-                  :forall (forall' (forall-name e) (go (forall-type e) c) (go (forall-body e) (inc c)) (forall-info e))
-                  :let (let' (let-name e) (go (let-type e) c) (go (let-value e) c) (go (let-body e) (inc c)))
-                  :lit-nat e
-                  :lit-str e
-                  :mdata (mdata (mdata-data e) (go (mdata-expr e) c))
-                  :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) c))
-                  :fvar e
-                  :mvar e)))]
-    (go e c)))
+  (if (<= (bvar-range e) c)
+    e
+    (let [^java.util.IdentityHashMap cache (java.util.IdentityHashMap.)]
+      (letfn [(go [e c]
+                  (if (<= (bvar-range e) c)
+                    e
+                    (let [^java.util.HashMap m (.get cache e)
+                          hit (when m (.get m (int c)))]
+                      (if (some? hit)
+                        hit
+                        (let [r (case (tag e)
+                                  :bvar (if (>= (bvar-idx e) c)
+                                          (bvar (+ (bvar-idx e) d))
+                                          e)
+                                  :sort e
+                                  :const e
+                                  :app (let [^java.util.ArrayList args (java.util.ArrayList.)]
+                                         (loop [cur e]
+                                           (if (and (app? cur) (> (bvar-range cur) c))
+                                             (do (.add args (app-arg cur))
+                                                 (recur (app-fn cur)))
+                                             (let [head' (go cur c)
+                                                   n (.size args)]
+                                               (loop [i (dec n) result head']
+                                                 (if (neg? i)
+                                                   result
+                                                   (recur (dec i) (app result (go (.get args i) c)))))))))
+                                  :lam (lam (lam-name e) (go (lam-type e) c) (go (lam-body e) (inc c)) (lam-info e))
+                                  :forall (forall' (forall-name e) (go (forall-type e) c) (go (forall-body e) (inc c)) (forall-info e))
+                                  :let (let' (let-name e) (go (let-type e) c) (go (let-value e) c) (go (let-body e) (inc c)))
+                                  :lit-nat e
+                                  :lit-str e
+                                  :mdata (mdata (mdata-data e) (go (mdata-expr e) c))
+                                  :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) c))
+                                  :fvar e
+                                  :mvar e)
+                              ^java.util.HashMap m2 (if m m (let [nm (java.util.HashMap.)]
+                                                              (.put cache e nm) nm))]
+                          (.put m2 (int c) r)
+                          r)))))]
+        (go e c)))))
 
 (defn mk-arrows
   "Build a chain of non-dependent arrows (implications) with a conclusion.
@@ -293,41 +310,55 @@
 
 (defn instantiate1
   "Replace (bvar 0) with val in e, shifting remaining bvars down.
-   This is the fundamental substitution for opening binders.
-   Handles deeply nested apps iteratively."
+   This is the fundamental substitution for opening binders. Handles deeply nested apps
+   iteratively. SHARING-AWARE: memoizes the recursion on (sub-expr IDENTITY, depth),
+   mirroring Lean's kernel `replace_fn` cache (instantiate.cpp → replace_fn.cpp) — a shared
+   DAG sub-expression is substituted ONCE, not per occurrence. The cache only speeds up
+   (a miss yields the same result); the closed-term check returns before allocating it."
   [e val]
-  (letfn [(go [e depth]
-              (if (<= (bvar-range e) depth)
-                e
-                (case (tag e)
-                  :bvar (let [idx (bvar-idx e)]
-                          (cond
-                            (= idx depth) (lift val depth 0)
-                            (> idx depth) (bvar (dec idx))
-                            :else e))
-                  :sort e
-                  :const e
-                  :app (let [^java.util.ArrayList args (java.util.ArrayList.)]
-                         (loop [cur e]
-                           (if (and (app? cur) (> (bvar-range cur) depth))
-                             (do (.add args (app-arg cur))
-                                 (recur (app-fn cur)))
-                             (let [head' (go cur depth)
-                                   n (.size args)]
-                               (loop [i (dec n) result head']
-                                 (if (neg? i)
-                                   result
-                                   (recur (dec i) (app result (go (.get args i) depth)))))))))
-                  :lam (lam (lam-name e) (go (lam-type e) depth) (go (lam-body e) (inc depth)) (lam-info e))
-                  :forall (forall' (forall-name e) (go (forall-type e) depth) (go (forall-body e) (inc depth)) (forall-info e))
-                  :let (let' (let-name e) (go (let-type e) depth) (go (let-value e) depth) (go (let-body e) (inc depth)))
-                  :lit-nat e
-                  :lit-str e
-                  :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
-                  :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
-                  :fvar e
-                  :mvar e)))]
-    (go e 0)))
+  (if (<= (bvar-range e) 0)
+    e
+    (let [^java.util.IdentityHashMap cache (java.util.IdentityHashMap.)]
+      (letfn [(go [e depth]
+                  (if (<= (bvar-range e) depth)
+                    e
+                    (let [^java.util.HashMap m (.get cache e)
+                          hit (when m (.get m (int depth)))]
+                      (if (some? hit)
+                        hit
+                        (let [r (case (tag e)
+                                  :bvar (let [idx (bvar-idx e)]
+                                          (cond
+                                            (= idx depth) (lift val depth 0)
+                                            (> idx depth) (bvar (dec idx))
+                                            :else e))
+                                  :sort e
+                                  :const e
+                                  :app (let [^java.util.ArrayList args (java.util.ArrayList.)]
+                                         (loop [cur e]
+                                           (if (and (app? cur) (> (bvar-range cur) depth))
+                                             (do (.add args (app-arg cur))
+                                                 (recur (app-fn cur)))
+                                             (let [head' (go cur depth)
+                                                   n (.size args)]
+                                               (loop [i (dec n) result head']
+                                                 (if (neg? i)
+                                                   result
+                                                   (recur (dec i) (app result (go (.get args i) depth)))))))))
+                                  :lam (lam (lam-name e) (go (lam-type e) depth) (go (lam-body e) (inc depth)) (lam-info e))
+                                  :forall (forall' (forall-name e) (go (forall-type e) depth) (go (forall-body e) (inc depth)) (forall-info e))
+                                  :let (let' (let-name e) (go (let-type e) depth) (go (let-value e) depth) (go (let-body e) (inc depth)))
+                                  :lit-nat e
+                                  :lit-str e
+                                  :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
+                                  :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
+                                  :fvar e
+                                  :mvar e)
+                              ^java.util.HashMap m2 (if m m (let [nm (java.util.HashMap.)]
+                                                              (.put cache e nm) nm))]
+                          (.put m2 (int depth) r)
+                          r)))))]
+        (go e 0)))))
 
 (defn instantiate
   "Replace (bvar 0)..(bvar n-1) with vals[0]..vals[n-1]."

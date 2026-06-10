@@ -226,19 +226,23 @@
   (extract-term ps (:root-mvar ps)))
 
 (defn verify
-  "Extract the proof term and verify it with the Java TypeChecker.
-   Returns the extracted term on success, throws on failure."
+  "Extract the proof term and verify it AUTHORITATIVELY with the kernel's STRICT
+   checker `TypeChecker.check` (= Lean's `check` / infer_type_core(e, false)), which
+   re-checks every application argument against the function domain — NOT the lenient
+   `TypeChecker.inferType` (infer_type_core(e, true)), which assumes well-typed input
+   and silently accepts ill-typed proofs. `.check` is the same strictness that admits
+   mathlib declarations (checkConstant wraps it), but it does NOT add to the env, so it
+   is safe on PSS/fork environments. Returns the extracted term on success, throws on
+   failure."
   [ps]
   (let [term (extract ps)
         env (:env ps)
         root-type (get-in ps [:mctx (:root-mvar ps) :type])]
     (when (e/has-fvar-flag term)
       (throw (ex-info "Extracted term contains free variables" {:term term})))
-    (let [tc (TypeChecker. env)]
-      ;; Use generous fuel for verification — simp proofs may need deep reduction
-      (.setFuel tc 50000000)
-      (let [inferred (.inferType tc term)]
-        (when-not (.isDefEq tc inferred root-type)
-          (throw (ex-info "Extracted term type does not match goal"
-                          {:expected root-type :inferred inferred})))))
+    (let [tc (doto (TypeChecker. env) (.setFuel 50000000))
+          inferred (.check tc term)]                ; STRICT: re-checks every app arg
+      (when-not (.isDefEq tc inferred root-type)
+        (throw (ex-info "Extracted term type does not match goal"
+                        {:expected root-type :inferred inferred}))))
     term))

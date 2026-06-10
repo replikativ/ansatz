@@ -23,6 +23,9 @@
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.omega :as omega]
             [ansatz.export.storage :as storage]
+            [ansatz.export.parser :as parser]
+            [ansatz.export.replay :as replay]
+            [ansatz.tactic.instance :as instance]
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
             [ansatz.config :as config])
@@ -101,7 +104,27 @@
         (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
                  (count idx) "classes indexed")))))
 
-(clojure.core/defn env [] (or @ansatz-env (throw (ex-info "Call (ansatz/init!) first" {}))))
+(clojure.core/defn load-init!
+  "ZERO-CONFIG bootstrap for library users: load Lean `Init` from the export bundled in the jar
+   (`resources/ansatz/init-medium.ndjson.gz`, ~3000 decls — Nat/List/Eq/basics), replayed in TRUST
+   mode, plus the instance index. Enough to verify basic CIC functions and prove theorems against Init.
+   For a full Init or Mathlib store, build one (scripts/setup-*.sh) and use `init!`. Returns the Env."
+  []
+  (let [res (clojure.java.io/resource "ansatz/init-medium.ndjson.gz")]
+    (when-not res
+      (throw (ex-info "bundled Init export not on classpath (resources/ansatz/init-medium.ndjson.gz)" {})))
+    ;; Stream straight from the (jar) resource: gunzip on the fly, parse the in-memory string.
+    ;; No temp file — works on read-only / sandboxed filesystems and GraalVM native-image, and
+    ;; identically whether the bundle is a loose classpath file (dev) or inside the jar.
+    (let [ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+                   (slurp in))
+          env    (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false))]
+      (reset! ansatz-env env)
+      (reset! ansatz-instance-index (instance/build-instance-index env))
+      (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
+      @ansatz-env)))
+
+(clojure.core/defn env [] (or @ansatz-env (throw (ex-info "Call (ansatz/init!) or (ansatz/load-init!) first" {}))))
 (clojure.core/defn instance-index [] (or @ansatz-instance-index {}))
 
 (declare synth-cache)

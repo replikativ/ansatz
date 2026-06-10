@@ -593,7 +593,19 @@
                                  skip-last (and p-infos (< last-idx (count p-infos))
                                                 (= :inst-implicit (nth p-infos last-idx)))]
                              (go (e/app-fn p) (e/app-fn t) depth)
-                             (when-not skip-last
+                             (if skip-last
+                               ;; instance-implicit arg: don't structurally match (tolerate
+                               ;; a def-eq-different instance), but BIND the param to the
+                               ;; TARGET's instance so the lemma RHS can reference it. Lean 4
+                               ;; (Simp/Rewrite.lean tryTheoremCore) assigns the instance
+                               ;; metavar via `isDefEq lhs e`; skipping it without binding
+                               ;; broke lemmas whose RHS uses the instance (e.g.
+                               ;; List.lookup_cons → `BEq.beq … k a`).
+                               (let [pa (e/app-arg p)]
+                                 (when (and (e/bvar? pa) (>= (e/bvar-idx pa) depth))
+                                   (let [pidx (- (e/bvar-idx pa) depth)]
+                                     (when-not (contains? @subst pidx)
+                                       (swap! subst assoc pidx (e/app-arg t))))))
                                (go (e/app-arg p) (e/app-arg t) depth)))
                       :lam (do (go (e/lam-type p) (e/lam-type t) depth)
                                (go (e/lam-body p) (e/lam-body t) (inc depth)))
@@ -649,54 +661,88 @@
 ;; Level inference
 ;; ============================================================
 
+(defn- unify-pattern-levels!
+  "Structurally align `pattern` (the lemma LHS, carrying the lemma's level params)
+   with the concrete matched `target`; for each const-with-levels in common, bind
+   any still-unresolved level param to the target's corresponding level. This
+   recovers universes the telescope walk misses — e.g. `eq_self_iff_true.{u}`'s
+   implicit `{α : Sort u}` is starred by the discr tree, but the LHS `Eq.{u} α a a`
+   matched against `Eq.{1} (List _) …` pins u=1 directly. `levels`/`resolved` are
+   atoms; `lpset` is the set of the lemma's level-param names."
+  [levels resolved lpset pattern target]
+  (when (and pattern target)
+    (cond
+      (and (e/const? pattern) (e/const? target)
+           (= (e/const-name pattern) (e/const-name target)))
+      (doseq [[pl tl] (map vector (e/const-levels pattern) (e/const-levels target))]
+        (when (lvl/param? pl)
+          (let [nm (lvl/param-name pl)]
+            (when (and (lpset nm) (not (@resolved nm)))
+              (swap! levels assoc nm tl)
+              (swap! resolved conj nm)))))
+      (and (e/app? pattern) (e/app? target))
+      (do (unify-pattern-levels! levels resolved lpset (e/app-fn pattern) (e/app-fn target))
+          (unify-pattern-levels! levels resolved lpset (e/app-arg pattern) (e/app-arg target)))
+      (and (e/lam? pattern) (e/lam? target))
+      (do (unify-pattern-levels! levels resolved lpset (e/lam-type pattern) (e/lam-type target))
+          (unify-pattern-levels! levels resolved lpset (e/lam-body pattern) (e/lam-body target)))
+      :else nil)))
+
 (defn- infer-level-params
   "Infer universe level assignments from matched parameter values.
    Solves level equations: if param has type Sort(succ u), and value has
-   type Sort n, then u = n-1. This handles the common Sort(u+1) pattern."
-  [st lemma subst]
-  (let [lparams (:level-params lemma)]
-    (if (empty? lparams)
-      []
-      (let [levels (atom (into {} (map (fn [lp] [lp lvl/zero]) lparams)))
-            ;; Walk the forall telescope to get expected binder types
-            ^ConstantInfo ci (env/lookup (:env st) (:name lemma))
-            ctype (when ci (.type ci))]
-        (loop [i 0 ty ctype]
-          (when (and (< i (:num-params lemma)) ty (e/forall? ty))
-            (when-let [val (get subst i)]
-              (try
-                (let [;; Expected binder type (e.g., Sort(succ u))
-                      expected-sort (e/forall-type ty)
-                      ;; Actual value type (e.g., Sort 1)
-                      val-ty (tc/infer-type st val)
-                      val-tw (#'tc/cached-whnf st val-ty)]
-                  (when (and (e/sort? expected-sort) (e/sort? val-tw))
-                    (let [expected-level (e/sort-level expected-sort)
-                          actual-level (e/sort-level val-tw)]
-                      ;; Solve: expected-level = actual-level
-                      ;; If expected = succ(param u), then u = actual - 1
-                      (doseq [lp lparams]
-                        (when (= lvl/zero (get @levels lp))
-                          (let [param-lvl (lvl/param lp)]
-                            (cond
-                              ;; Sort(u) = Sort(n) → u = n
-                              (= expected-level param-lvl)
-                              (swap! levels assoc lp actual-level)
-                              ;; Sort(succ u) = Sort(n) → u = n-1
-                              (and (lvl/succ? expected-level)
-                                   (= (lvl/succ-pred expected-level) param-lvl)
-                                   (lvl/succ? actual-level))
-                              (swap! levels assoc lp (lvl/succ-pred actual-level))
-                              ;; Sort(succ(succ u)) = Sort(n) → u = n-2
-                              (and (lvl/succ? expected-level)
-                                   (lvl/succ? (lvl/succ-pred expected-level))
-                                   (= (lvl/succ-pred (lvl/succ-pred expected-level)) param-lvl))
-                              (when (and (lvl/succ? actual-level)
-                                         (lvl/succ? (lvl/succ-pred actual-level)))
-                                (swap! levels assoc lp (lvl/succ-pred (lvl/succ-pred actual-level)))))))))))
+   type Sort n, then u = n-1. This handles the common Sort(u+1) pattern.
+   When `target` (the matched expression) is given, levels the telescope walk
+   leaves unresolved are recovered by unifying the lemma LHS-pattern against the
+   target's concrete levels — needed when an implicit type param is starred by
+   the discr tree (e.g. eq_self_iff_true)."
+  ([st lemma subst] (infer-level-params st lemma subst nil))
+  ([st lemma subst target]
+   (let [lparams (:level-params lemma)]
+     (if (empty? lparams)
+       []
+       (let [levels (atom {})
+             resolved (atom #{})
+             lpset (set lparams)
+             ^ConstantInfo ci (env/lookup (:env st) (:name lemma))
+             ctype (when ci (.type ci))]
+         (loop [i 0 ty ctype]
+           (when (and (< i (:num-params lemma)) ty (e/forall? ty))
+             (when-let [val (get subst i)]
+               (try
+                 (let [expected-sort (e/forall-type ty)
+                       val-ty (tc/infer-type st val)
+                       val-tw (#'tc/cached-whnf st val-ty)]
+                   (when (and (e/sort? expected-sort) (e/sort? val-tw))
+                     (let [expected-level (e/sort-level expected-sort)
+                           actual-level (e/sort-level val-tw)]
+                       (doseq [lp lparams]
+                         (when-not (@resolved lp)
+                           (let [param-lvl (lvl/param lp)
+                                 put! (fn [v] (swap! levels assoc lp v) (swap! resolved conj lp))]
+                             (cond
+                               ;; Sort(u) = Sort(n) → u = n
+                               (= expected-level param-lvl) (put! actual-level)
+                               ;; Sort(succ u) = Sort(n) → u = n-1
+                               (and (lvl/succ? expected-level)
+                                    (= (lvl/succ-pred expected-level) param-lvl)
+                                    (lvl/succ? actual-level))
+                               (put! (lvl/succ-pred actual-level))
+                               ;; Sort(succ(succ u)) = Sort(n) → u = n-2
+                               (and (lvl/succ? expected-level)
+                                    (lvl/succ? (lvl/succ-pred expected-level))
+                                    (= (lvl/succ-pred (lvl/succ-pred expected-level)) param-lvl)
+                                    (lvl/succ? actual-level)
+                                    (lvl/succ? (lvl/succ-pred actual-level)))
+                               (put! (lvl/succ-pred (lvl/succ-pred actual-level))))))))))
+                 (catch Exception _ nil)))
+             (recur (inc i) (e/forall-body ty))))
+         ;; Fallback: recover any unresolved levels by unifying the LHS pattern
+         ;; against the concrete matched target.
+         (when (and target (:lhs-pattern lemma) (not= (count @resolved) (count lparams)))
+           (try (unify-pattern-levels! levels resolved lpset (:lhs-pattern lemma) target)
                 (catch Exception _ nil)))
-            (recur (inc i) (e/forall-body ty))))
-        (mapv (fn [lp] (get @levels lp lvl/zero)) lparams)))))
+         (mapv (fn [lp] (get @levels lp lvl/zero)) lparams))))))
 
 ;; ============================================================
 ;; Discharge — recursive simp for conditional rewrites
@@ -780,7 +826,7 @@
           ;; our use case (inductive proofs with arithmetic side conditions).
           (try
             (let [omega-check (requiring-resolve 'ansatz.tactic.omega/omega-check)
-                  omega-st (assoc (tc/mk-tc-state env) :lctx (:lctx st))]
+                  omega-st (tc/attach-lctx (tc/mk-tc-state env) (:lctx st))]
               (when (omega-check omega-st obligation-type (:lctx st))
                 ;; Omega says provable — try decide to certify the proof term
                 (let [inst-index (if-let [idx (:inst-index config)]
@@ -890,7 +936,7 @@
                       (when (every? some? param-vals)
                         (let [rhs-raw (apply-subst (:rhs lemma) full-subst num-params)
                               ;; Instantiate level params in RHS
-                              inst-levels-for-rhs (infer-level-params st lemma full-subst)
+                              inst-levels-for-rhs (infer-level-params st lemma full-subst expr)
                               level-subst (zipmap (:level-params lemma) inst-levels-for-rhs)
                               rhs (if (seq level-subst)
                                     (e/instantiate-level-params rhs-raw level-subst)
@@ -905,7 +951,7 @@
                             ;; If theorem is rfl, skip proof construction
                             (if (:rfl lemma)
                               (mk-result rhs)  ;; proof? = nil (definitional equality)
-                              (let [inst-levels (infer-level-params st lemma full-subst)
+                              (let [inst-levels (infer-level-params st lemma full-subst expr)
                                     ;; For hypothesis lemmas (from local context), use fvar as proof.
                                     ;; For named lemmas (from env), use const.
                                     base-proof (if-let [fid (:hyp-fvar-id lemma)]
@@ -938,7 +984,11 @@
                                     ;; :ne-false  → eq_false (a=b) (raw-proof : ¬(a=b)) → ((a=b) = False)
                                     proof-term (case (:kind lemma)
                                                  :iff (e/app* (e/const' propext-name [])
-                                                              (apply-subst (:lhs-pattern lemma) full-subst num-params)
+                                                              ;; level-instantiate the LHS proposition too, else a
+                                                              ;; poly lemma (e.g. eq_self_iff_true) leaks Eq.{u} here
+                                                              (let [l (apply-subst (:lhs-pattern lemma) full-subst num-params)]
+                                                                (if (seq level-subst)
+                                                                  (e/instantiate-level-params l level-subst) l))
                                                               rhs raw-proof)
                                                  :prop-true (e/app* (e/const' eq-true-name [])
                                                                     expr  ;; the instantiated proposition
@@ -1243,48 +1293,138 @@
 
           :else nil)))))
 
+(def ^:private nat-name (name/from-string "Nat"))
+(def ^:private nat-succ-name (name/from-string "Nat.succ"))
+(def ^:private nat-zero-name (name/from-string "Nat.zero"))
+(def ^:private nat-noconfusion-name (name/from-string "Nat.noConfusion"))
+
+(defn- nat-value
+  "Concrete Nat value of a term built from literals / Nat.succ / Nat.zero, else nil."
+  [st e]
+  (let [w (#'tc/cached-whnf st e)]
+    (cond
+      (e/lit-nat? w) (e/lit-nat-val w)
+      :else (let [[h a] (e/get-app-fn-args w)]
+              (cond
+                (and (e/const? h) (= (e/const-name h) nat-zero-name)) 0
+                (and (e/const? h) (= (e/const-name h) nat-succ-name) (= 1 (count a)))
+                (some-> (nat-value st (first a)) inc)
+                :else nil)))))
+
+(defn- nat-pred-term
+  "Predecessor TERM of a Nat term: Nat.succ X → X; literal k>0 → lit (k-1)."
+  [st e]
+  (let [w (#'tc/cached-whnf st e)
+        [h a] (e/get-app-fn-args w)]
+    (cond
+      (and (e/const? h) (= (e/const-name h) nat-succ-name) (= 1 (count a))) (first a)
+      (and (e/lit-nat? w) (pos? (e/lit-nat-val w))) (e/lit-nat (dec (e/lit-nat-val w)))
+      :else nil)))
+
+(defn- nat-ne-neg
+  "Term of type `¬(a = b)` for distinct concrete Nat terms a, b, via recursive
+   Nat.noConfusion: distinct outer (zero vs succ) closes directly; same outer (succ
+   vs succ) peels one level — `noConfusion h (¬(a-1 = b-1))` — and recurses on the
+   predecessors. The kernel reduces Nat.noConfusionType on literals, so this needs no
+   decide lemmas (works in a minimal Init env). Returns nil if a,b aren't concrete/distinct."
+  [st a b]
+  (let [va (nat-value st a) vb (nat-value st b)
+        natT (e/const' nat-name [])
+        eqp (e/app* (e/const' eq-name [(lvl/succ lvl/zero)]) natT a b)
+        noconf (fn [& xs] (apply e/app* (e/const' nat-noconfusion-name [lvl/zero])
+                                 (e/const' false-name []) a b xs))]
+    (cond
+      (or (nil? va) (nil? vb) (= va vb)) nil
+      (or (zero? va) (zero? vb))                 ;; distinct outer ctor → direct
+      (e/lam "h" eqp (noconf (e/bvar 0)) :default)
+      :else                                       ;; both succ → peel + recurse
+      (when-let [inner (nat-ne-neg st (nat-pred-term st a) (nat-pred-term st b))]
+        (e/lam "h" eqp (e/app (noconf (e/bvar 0)) inner) :default)))))
+
+(defn- nat-lit-ne-false-proof
+  "Result proving `(a = b) = False` for distinct concrete Nat terms (literals or
+   succ/zero forms). Faithful intent of Lean's Nat.reduceEqDiff, but proof-carrying
+   via noConfusion so it is sound in a decide-lemma-free env. nil if not applicable."
+  [st expr a b]
+  (try
+    (when-let [neg (nat-ne-neg st a b)]
+      {:expr (e/const' false-name [])
+       :proof? (e/app* (e/const' eq-false-name []) expr neg)
+       :cache true})
+    (catch Throwable _ nil)))
+
+(defn- nat-type?
+  [st alpha]
+  (let [w (#'tc/cached-whnf st alpha)]
+    (and (e/const? w) (= (e/const-name w) nat-name))))
+
+(defn- mk-ctor-ne-false-proof
+  "Build a kernel-checkable proof of `(t1 = t2) = False` for distinct constructors of
+   the same parameter-free inductive, faithful to Lean 4's reduceCtorEq:
+       eq_false (fun h : t1 = t2 => @Ind.noConfusion.{0,us} False t1 t2 h)
+   `Ind.noConfusionType False t1 t2` reduces to `False` (the kernel whnfs the discrs),
+   so the inner term inhabits False and `eq_false` lifts `¬(t1=t2)` to `(t1=t2)=False`.
+   Restricted to the SIMPLE homogeneous noConfusion telescope [P, t, t', h] (4 binders)
+   — parametrized/indexed inductives use the heterogeneous HEq form and are left to the
+   decide-based path. Returns a proof-carrying Result, or nil if not buildable."
+  [st expr alpha]
+  (try
+    (let [[ahead _] (e/get-app-fn-args alpha)]
+      (when (e/const? ahead)
+        (let [env (:env st)
+              ind-name (e/const-name ahead)
+              ind-levels (e/const-levels ahead)
+              noconf-name (name/mk-str ind-name "noConfusion")
+              noconf-ci (env/lookup env noconf-name)]
+          (when noconf-ci
+            (let [nty (.type ^ConstantInfo noconf-ci)
+                  arity (loop [t nty n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))]
+              (when (= arity 4)                       ;; simple [P t t' h] form only
+                (let [[_ args] (e/get-app-fn-args expr)
+                      t1 (nth args 1) t2 (nth args 2)
+                      neg (e/lam "h" expr
+                                 (e/app* (e/const' noconf-name (cons lvl/zero ind-levels))
+                                         (e/const' false-name []) t1 t2 (e/bvar 0))
+                                 :default)
+                      proof (e/app* (e/const' eq-false-name []) expr neg)]
+                  {:expr (e/const' false-name []) :proof? proof :cache true})))))))
+    (catch Throwable _ nil)))
+
 (defn- try-reduce-ctor-eq
-  "Reduce constructor equality to False when constructors differ.
-   Lean 4: reduceCtorEq from BuiltinSimprocs/Core.lean.
-   Also handles Nat literal disequality: 0 = 1 → False."
+  "Reduce constructor equality to False when constructors differ — Lean 4's reduceCtorEq
+   (BuiltinSimprocs/Core.lean). Builds a real `(t1=t2)=False` proof via noConfusion+eq_false.
+   `false=true → False` is PROPOSITIONAL, not definitional, so a nil/rfl proof would be
+   unsound (it desyncs the simp Result's :expr from its proof RHS in the Eq.trans chain).
+   Literal disequalities (0=1, distinct strings) are left to the decide-based path
+   (try-simp-using-decide), which certifies them via eq_false_of_decide."
   [st expr]
   (let [[head args] (e/get-app-fn-args expr)]
     (when (and (e/const? head)
                (= (e/const-name head) eq-name)
                (= 3 (count args)))
-      (let [lhs (#'tc/cached-whnf st (nth args 1))
-            rhs (#'tc/cached-whnf st (nth args 2))]
-        (cond
-          ;; Different Nat literals → False
-          (and (e/lit-nat? lhs) (e/lit-nat? rhs)
-               (not= (e/lit-nat-val lhs) (e/lit-nat-val rhs)))
-          (mk-result (e/const' false-name []))
-
-          ;; Different String literals → False
-          (and (e/lit-str? lhs) (e/lit-str? rhs)
-               (not= (e/lit-str-val lhs) (e/lit-str-val rhs)))
-          (mk-result (e/const' false-name []))
-
-          ;; Different constructors
-          :else
-          (let [[lh _] (e/get-app-fn-args lhs)
-                [rh _] (e/get-app-fn-args rhs)]
-            (when (and (e/const? lh) (e/const? rh)
-                       (not= (e/const-name lh) (e/const-name rh)))
-          ;; Check if they're constructors of the same type
-              (let [env (:env st)
-                    lci (env/lookup env (e/const-name lh))
-                    rci (env/lookup env (e/const-name rh))]
-                (when (and lci rci
-                           (.isCtor ^ConstantInfo lci)
-                           (.isCtor ^ConstantInfo rci))
-              ;; Both are constructors — check if same inductive
-              ;; Constructor name is Ind.ctorName, parent is Ind
-                  (let [lparent (name/name-prefix (e/const-name lh))
-                        rparent (name/name-prefix (e/const-name rh))]
-                    (when (and lparent rparent (= lparent rparent))
-                  ;; Different constructors of same inductive → Eq is False
-                      (mk-result (e/const' false-name [])))))))))))))
+      (let [alpha (nth args 0)]
+        (or
+          ;; Nat: distinct concrete values (literals / succ / zero), recursive noConfusion.
+         (when (nat-type? st alpha)
+           (nat-lit-ne-false-proof st expr (nth args 1) (nth args 2)))
+          ;; Distinct named constructors of the same inductive (Bool, etc.) — simple
+          ;; noConfusion. (Same-ctor and non-Nat literals fall through to decide.)
+         (let [lhs (#'tc/cached-whnf st (nth args 1))
+               rhs (#'tc/cached-whnf st (nth args 2))
+               [lh _] (e/get-app-fn-args lhs)
+               [rh _] (e/get-app-fn-args rhs)]
+           (when (and (e/const? lh) (e/const? rh)
+                      (not= (e/const-name lh) (e/const-name rh)))
+             (let [env (:env st)
+                   lci (env/lookup env (e/const-name lh))
+                   rci (env/lookup env (e/const-name rh))]
+               (when (and lci rci
+                          (.isCtor ^ConstantInfo lci)
+                          (.isCtor ^ConstantInfo rci))
+                 (let [lparent (name/name-prefix (e/const-name lh))
+                       rparent (name/name-prefix (e/const-name rh))]
+                   (when (and lparent rparent (= lparent rparent))
+                     (mk-ctor-ne-false-proof st expr alpha))))))))))))
 
 ;; ============================================================
 ;; Match/recursor reduction simproc
@@ -1441,6 +1581,100 @@
 
 (declare try-fold-bool-and)
 
+(defn- try-reduce-proj-fn
+  "Reduce a projection FUNCTION applied to a constructor: `Prod.fst α β (Prod.mk
+   α β a b)` → `a` (Lean 4: reduceProjFn?). Needed because simp matches at
+   `reducible` transparency, whose whnf does not unfold a projection function — so
+   without this, projections inside e.g. a match discriminant never reduce. A
+   projection function's value is `fun params… => structParam.idx` (body is an
+   e/proj on a bound param); we whnf the corresponding struct arg and, if it is a
+   constructor application, return the projected field. Definitional ⇒ nil proof."
+  [st expr]
+  (let [env (:env st)
+        [head args] (e/get-app-fn-args expr)]
+    (when (and (e/const? head) (seq args))
+      (when-let [ci (env/lookup env (e/const-name head))]
+        (when-let [v (and (= 0 (.hints ci)) (.getValue ci))]   ; reducible (abbrev) def
+          (loop [body v np 0]
+            (cond
+              (e/lam? body) (recur (e/lam-body body) (inc np))
+              (and (e/proj? body) (e/bvar? (e/proj-struct body)) (= (count args) np))
+              (let [j (e/bvar-idx (e/proj-struct body))
+                    struct-arg (nth args (- np 1 j))
+                    ;; whnf the struct WITHOUT delta: we reduce projections of an
+                    ;; EXPLICIT constructor (data, e.g. `Prod.mk x head`), but do NOT
+                    ;; unfold a named typeclass instance (`instLTNat`, `instAddNat`)
+                    ;; to reduce its method projection — that collapses `LT.lt→Nat.lt`,
+                    ;; `Add.add→Nat.add`, `OfNat.ofNat→lit` etc., which strips the
+                    ;; typeclass forms that downstream decision procedures (omega) match
+                    ;; on and exposes a buggy `Nat.lt` equation lemma (malformed `1`).
+                    sw (try (red/whnf-no-delta (:env st) struct-arg (:lctx st))
+                            (catch Exception _ struct-arg))
+                    [sh sargs] (e/get-app-fn-args sw)]
+                (when (e/const? sh)
+                  (when-let [cci (env/lookup env (e/const-name sh))]
+                    (when (.isCtor ^ConstantInfo cci)
+                      (let [fidx (+ (.numParams ^ConstantInfo cci) (e/proj-idx body))]
+                        (when (< fidx (count sargs))
+                          (mk-result (nth sargs fidx))))))))
+              :else nil)))))))
+
+(defn- ctor-headed?
+  "After whnf-no-delta, is `e` headed by a constructor / Nat literal? Used as a
+   cheap gate: a matcher only iota-reduces when a discriminant is concrete."
+  [st e]
+  (try
+    (let [w (red/whnf-no-delta (:env st) e (:lctx st))]
+      (or (e/lit-nat? w)
+          (let [[h _] (e/get-app-fn-args w)]
+            (and (e/const? h)
+                 (when-let [ci (env/lookup (:env st) (e/const-name h))]
+                   (.isCtor ^ConstantInfo ci))))))
+    (catch Exception _ false)))
+
+(defn- try-reduce-matcher
+  "reduceRecMatcher? (Lean 4): reduce a matcher auxiliary `T.match_N … discr …
+   (fun _:Unit => bᵢ) …` when a discriminant is a constructor, to the SELECTED
+   branch bₖ — without over-reducing bₖ. A naive full whnf would keep unfolding a
+   non-constructor-headed branch (e.g. `List.filter` → `brecOn.go`/`below` monster).
+   Technique: replace each Unit-thunk alternative's body with a fresh opaque marker
+   fvar, full-whnf the matcher (the markers block any over-reduction past the iota
+   step), and if the head reduces to exactly one marker, return that alternative's
+   real body (β-applied to `Unit.unit`, as the matcher would). Definitional ⇒ nil
+   proof. Restricted to Unit-thunk alts (the form Lean emits for matches whose cases
+   bind no discriminant fields, e.g. a `Bool`/`Nat`-comparison match) so replacing a
+   body with a closed marker never drops a captured field."
+  [st expr]
+  (let [env (:env st)
+        [head args] (e/get-app-fn-args expr)]
+    (when (and (e/const? head)
+               (>= (count args) 2)
+               (re-find #"\.match_\d+$" (name/->string (e/const-name head))))
+      (let [n (count args)
+            ;; trailing contiguous lambda args = the alternatives
+            alt-start (loop [i n] (if (and (> i 0) (e/lam? (nth args (dec i)))) (recur (dec i)) i))
+            alts (subvec (vec args) alt-start)
+            unit? (fn [a] (let [t (e/lam-type a)]
+                            (and (e/const? t) (= "Unit" (name/->string (e/const-name t))))))]
+        (when (and (seq alts) (every? unit? alts)
+                   ;; cheap gate: some discriminant (a non-alt arg) is concrete
+                   (some #(ctor-headed? st %) (subvec (vec args) 0 alt-start)))
+          (let [unit-unit (e/const' (name/from-string "Unit.unit") [])
+                marker-id (fn [i] (+ 920000 i))
+                new-alts (mapv (fn [a i]
+                                 (e/lam (e/lam-name a) (e/lam-type a)
+                                        (e/fvar (marker-id i)) (e/lam-info a)))
+                               alts (range))
+                marker->body (into {} (map-indexed
+                                       (fn [i a] [(marker-id i)
+                                                  (e/instantiate1 (e/lam-body a) unit-unit)])
+                                       alts))
+                probe (apply e/app* head (into (subvec (vec args) 0 alt-start) new-alts))
+                reduced (try (red/whnf env probe (:lctx st)) (catch Exception _ nil))]
+            (when (and reduced (e/fvar? reduced)
+                       (contains? marker->body (e/fvar-id reduced)))
+              (mk-result (get marker->body (e/fvar-id reduced))))))))))
+
 (defn- try-simproc
   "Try built-in simplification procedures, then user-registered simprocs.
    Lean 4: postDefault pipeline order:
@@ -1452,6 +1686,7 @@
   [st expr config & {:keys [env lemma-index]}]
   (or (try-nat-literal-reduce st expr)
       (try-int-literal-reduce st expr)
+      (try-reduce-proj-fn st expr)
       (try-hpow-reduce st expr)
       (try-reduce-ite st expr)
       (try-reduce-ctor-eq st expr)
@@ -1530,6 +1765,35 @@
                      proof (e/app* (e/const' (name/from-string "Bool.rec") [lvl/zero])
                                    eq-motive rfl-false rfl-true discr)]
                  (mk-result discr proof)))))))
+      ;; reduceRecMatcher? — matcher applied to a constructor discriminant reduces
+      ;; to the selected branch (one controlled iota step, no branch over-reduction).
+      (try-reduce-matcher st expr)
+      ;; General matcher auxiliary (`*.match_N`): simplify its discriminant args so
+      ;; projections / redexes inside a scrutinee reduce (Lean 4: simpMatchDiscrs?,
+      ;; Simp/Rewrite.lean). e.g. `List.filter.match_1 (p (Prod.fst (Prod.mk x h))) …`
+      ;; → `… (p x) …`. We commit only DEFINITIONAL changes (the sub-simp returned a
+      ;; nil/rfl proof), so rebuilding the matcher with the reduced discriminant is
+      ;; sound without an explicit congruence proof. Non-lambda args are the
+      ;; discriminants; motive/alternatives are lambdas and are left to congruence.
+      (when (and env lemma-index)
+        (let [[head args] (e/get-app-fn-args expr)]
+          (when (and (e/const? head) (>= (count args) 2)
+                     (re-find #"\.match_\d+$" (name/->string (e/const-name head))))
+            (let [dconf (assoc config :max-depth (min 8 (or (:max-depth config) 8))
+                               :cache (atom {}) :max-steps (atom 0))
+                  changed (volatile! false)
+                  simped (mapv (fn [arg]
+                                 (if (e/lam? arg)
+                                   arg
+                                   (let [r (try (simp-expr* st env lemma-index arg dconf)
+                                                (catch Exception _ nil))]
+                                     (if (and r (nil? (:proof? r))
+                                              (not (identical? (:expr r) arg)))
+                                       (do (vreset! changed true) (:expr r))
+                                       arg))))
+                               args)]
+              (when @changed
+                (mk-result (apply e/app* head simped)))))))
       (try-ground-eval st (:env st) expr)
       (try-simp-using-decide st expr config)
       ;; User-registered simprocs: dynamic var + persistent registry
@@ -1988,48 +2252,50 @@
                         (mk-result expr)
                         (mk-congr st f-result a-result orig-f orig-a)))))))
 
-        ;; Lambda — Lean 4: simpLambda with funext proof
-        ;; funext : {α} {β : α → Sort v} {f g : ∀ a, β a} →
-        ;;          (∀ a, f a = g a) → f = g
-        ;; When body changes with proof h(x), wrap in funext (λ x => h(x))
+        ;; Lambda — Lean 4: simpLambda (Main.lean:328) via lambdaTelescopeDSimp.
+        ;; CRITICAL: open the binder with a FRESH FVAR before simplifying the body
+        ;; (Lean: `withLocalDecl n c (← dsimp d) fun x => ... b.instantiate1 x`). Simp-ing
+        ;; the CLOSED body (loose bvar 0, no lctx binding) corrupts de-Bruijn indices in
+        ;; sub-congruence abstractions — e.g. a free type var inside the body gets
+        ;; mis-abstracted, yielding ill-typed congrArg proofs. After simp, re-abstract:
+        ;;   eNew = mkLambdaFVars [x] r.expr ;  proof = mkFunExt (mkLambdaFVars [x] h)
+        ;; (Lean: Result.addLambdas, Types.lean:916).
         :lam (let [lam-type (e/lam-type expr)
                    lam-body (e/lam-body expr)
                    lam-nm (e/lam-name expr)
                    lam-bi (e/lam-info expr)
-                   ;; dsimp the binder type (Lean 4: lambdaTelescopeDSimp)
-                   ;; Uses dsimp-expr: structural reductions only, no rewrite lemmas.
-                   ;; This prevents type annotation corruption (Bool → True).
-                   t-r (let [reduced (dsimp-expr env (:lctx st) lam-type
-                                                 (:max-depth config))]
-                         (if (= reduced lam-type)
-                           (mk-result lam-type)
-                           (mk-result reduced)))
-                   ;; simp the body
-                   b-r (simp-expr* st env lemma-index lam-body (update config :max-depth dec))]
-               (if (and (identical? (:expr t-r) lam-type)
-                        (identical? (:expr b-r) lam-body))
+                   ;; dsimp the binder type (Lean: lambdaTelescopeDSimp dsimps `d`)
+                   alpha (let [reduced (dsimp-expr env (:lctx st) lam-type (:max-depth config))]
+                           (if (= reduced lam-type) lam-type reduced))
+                   ;; OPEN the binder with a fresh fvar; simp the opened body in proper lctx
+                   xid (swap! (:next-id st) inc)
+                   xf (e/fvar xid)
+                   st' (update st :lctx assoc xid {:name (str lam-nm) :type alpha})
+                   body-x (e/instantiate1 lam-body xf)
+                   b-r (simp-expr* st' env lemma-index body-x (update config :max-depth dec))]
+               (if (and (identical? alpha lam-type)
+                        (identical? (:expr b-r) body-x))
                  (mk-result expr)
-                 ;; Something changed — build new lambda
-                 (let [new-lam (e/lam lam-nm (:expr t-r) (:expr b-r) lam-bi)]
+                 ;; Re-abstract: new lambda over the fresh fvar (mkLambdaFVars [x] expr).
+                 (let [new-body (e/abstract1 (:expr b-r) xid)
+                       new-lam (e/lam lam-nm alpha new-body lam-bi)]
                    (if (nil? (:proof? b-r))
                      ;; Body change is definitional — no proof needed
                      (mk-result new-lam)
-                     ;; Body changed with proof — need funext
-                     ;; funext (λ x => proof(x)) : (λ x => old(x)) = (λ x => new(x))
-                     ;; Lean 4: r.addLambdas xs uses foldrM mkFunExt
+                     ;; funext.{u,v} α β f g (λx. proof x) : f = g
+                     ;; β : α → Sort v is the (possibly DEPENDENT) result family,
+                     ;; f = old lambda, g = new lambda. h = mkLambdaFVars [x] (proof x).
                      (try
-                       (let [;; Build λ x => proof(x)  (proof already has bvar 0 for x)
-                             proof-lam (e/lam lam-nm (:expr t-r) (:proof? b-r) :default)
-                             ;; funext {α} {β} {f} {g} proof-lam
-                             ;; Let kernel infer implicit args
-                             alpha (:expr t-r)
-                             u (get-sort-level st alpha)
-                             ;; β is the return type family — for non-dependent, constant
-                             result-type (safe-infer st (e/app expr (e/bvar 0)))
-                             v (if result-type (get-sort-level st result-type) lvl/zero)]
+                       (let [u (get-sort-level st alpha)
+                             beta-body (safe-infer st' body-x)           ; type of (f x)
+                             v (if beta-body (get-sort-level st' beta-body) lvl/zero)
+                             beta (e/lam lam-nm alpha
+                                         (e/abstract1 (or beta-body (e/sort' v)) xid) :default)
+                             ;; h = λx:α. proof(x), proof abstracted over the fresh fvar
+                             proof-lam (e/lam lam-nm alpha (e/abstract1 (:proof? b-r) xid) :default)]
                          {:expr new-lam
                           :proof? (e/app* (e/const' funext-name [u v])
-                                          alpha expr new-lam proof-lam)
+                                          alpha beta expr new-lam proof-lam)
                           :cache true})
                        (catch Exception _
                          ;; Fallback: return without proof
@@ -2222,6 +2488,18 @@
                       {:max-depth max-depth :single-pass? false
                        :max-steps (atom 0) :cache (atom {})
                        :to-unfold to-unfold :discharge-depth 0}))))
+
+(defn simp-expr-result
+  "Like `simp-expr` but returns the full SimpResult `{:expr Expr, :proof? (Option
+   Expr)}` — `:proof?` is an equality proof `orig = result` (nil means rfl, i.e.
+   no rewrite or definitional). Used by the verified optimizer to obtain both the
+   rewritten term and its kernel-checkable proof."
+  ([st env lemma-index expr] (simp-expr-result st env lemma-index expr 20))
+  ([st env lemma-index expr max-depth]
+   (simp-expr* st env lemma-index expr
+               {:max-depth max-depth :single-pass? false
+                :max-steps (atom 0) :cache (atom {})
+                :to-unfold #{} :discharge-depth 0})))
 
 ;; ============================================================
 ;; Public API
@@ -2450,8 +2728,10 @@
          env (or (ensure-ble-eq (:env ps)) (:env ps))
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
-         st (tc/mk-tc-state env)
-         st (assoc st :lctx (:lctx goal))
+         ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
+         ;; fresh binder fvars during inference don't collide with context fvars (which
+         ;; corrupts abstraction — e.g. a fold step λacc x:K losing its K). See tc/attach-lctx.
+         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
          ;; Lean 4: user lemma names are ADDED to the default @[simp] set.
          all-names (if (seq lemma-names)
                      (distinct (concat default-simp-lemmas lemma-names))
@@ -2603,7 +2883,7 @@
        ;; need transitive CongrArgKind propagation through lambda bodies.
      (let [goal' goal
            lctx (:lctx goal')
-           st (assoc (tc/mk-tc-state env) :lctx lctx)
+           st (tc/attach-lctx (tc/mk-tc-state env) lctx)
            base-lemmas (make-simp-lemmas env all-names)
            eqn-lemmas (vec (mapcat (fn [n]
                                      (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
@@ -2788,8 +3068,9 @@
   [ps]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
-        env (:env ps) st (tc/mk-tc-state env)
-        st (assoc st :lctx (:lctx goal))
+        env (:env ps)
+        ;; attach-lctx bumps :next-id above the goal's fvars (see note at simp entry).
+        st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
         goal-type (:type goal)
         simplified (#'tc/cached-whnf st goal-type)
         [head args] (e/get-app-fn-args simplified)]
