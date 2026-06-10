@@ -2316,6 +2316,29 @@ public final class TypeChecker {
         }
     }
 
+    /**
+     * Type-check and add-or-REPLACE a constant (SURFACE redefinition: a/defn / a/theorem in a REPL).
+     * Identical type-checking to {@link #checkConstant}; only the final add replaces rather than throwing.
+     * Kernel proof / install paths keep using the strict {@link #checkConstant}.
+     */
+    public static Env checkConstantReplace(Env env, ConstantInfo ci, long fuel) {
+        if (ci.isQuot()) {
+            return env.enableQuot().addOrReplaceConstant(ci);
+        }
+        Expr.enableIntern();
+        try {
+            checkConstantPreAdd(env, ci, fuel, null, false);
+            return env.addOrReplaceConstant(ci);
+        } finally {
+            Expr.disableIntern();
+            LeanExprKey.clearThreadCache();
+        }
+    }
+
+    public static Env checkConstantReplace(Env env, ConstantInfo ci) {
+        return checkConstantReplace(env, ci, DEFAULT_FUEL);
+    }
+
     static void checkInductiveHeader(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isInduct()) throw new RuntimeException("expected inductive declaration: " + ci.name);
         Expr.enableIntern();

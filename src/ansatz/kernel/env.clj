@@ -9,6 +9,7 @@
 
    ConstantInfo variants:
      :axiom, :def, :thm, :opaque, :quot, :induct, :ctor, :recursor"
+  (:require [ansatz.kernel.name :as name])
   (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Name TypeChecker]))
 
 ;; ============================================================
@@ -110,6 +111,34 @@
    (TypeChecker/checkConstant env ci))
   (^Env [^Env env ^ConstantInfo ci fuel]
    (TypeChecker/checkConstant env ci fuel)))
+
+(defn check-constant-replace
+  "Type-check and add-or-REPLACE a constant — surface redefinition (a/defn / a/theorem in a REPL, matching
+   Clojure `defn` semantics). Identical kernel type-checking to `check-constant`; only the final add
+   replaces an existing same-named constant instead of throwing. Kernel proof / `install!` paths stay strict."
+  (^Env [^Env env ^ConstantInfo ci]
+   (TypeChecker/checkConstantReplace env ci))
+  (^Env [^Env env ^ConstantInfo ci fuel]
+   (TypeChecker/checkConstantReplace env ci fuel)))
+
+(defn verifies?
+  "AUTHORITATIVE proof check: true iff `proof` fully kernel-checks as a proof of `goal`
+   (both must be CLOSED — no free fvars). Runs the Java kernel `checkConstant` on a
+   throwaway theorem `goal := proof`. Unlike `TypeChecker.inferType` — a LENIENT inference
+   that assumes well-typed input and silently accepts ill-typed proofs — this re-checks
+   every application argument, the way mathlib declarations are verified. Use this (not an
+   `inferType`+`isDefEq` shorthand) to validate tactic-built proofs in tests.
+
+   A `nil` proof (or goal) is FALSE, never true: `mk-thm` with a nil value is an
+   axiom-shaped declaration that `check-constant` would accept WITHOUT a proof, so a
+   caller passing `(when (solved? ps) (extract …))` that yields nil on failure would
+   otherwise get a false-positive 'verified'."
+  [^Env env goal proof]
+  (boolean
+   (and (some? goal) (some? proof)
+        (try (check-constant env (mk-thm (name/from-string "__verifies_chk__") [] goal proof))
+             true
+             (catch Throwable _ false)))))
 
 (defn check-inductive-bundle
   "Type-check and add a mutual inductive bundle through the Java kernel bundle checker."

@@ -40,31 +40,40 @@
 
 (defn replay-one
   "Type-check and add one declaration to the environment.
-   Returns [env result-map]."
-  [^Env env ^ConstantInfo ci]
-  (let [tag (.tag ci)
-        name-str (.toString (.name ci))]
-    (try
-      (cond
-        ;; Quotient primitives.
-        (= 4 (int tag))
-        (let [env (.addConstant env ci)
-              env (.enableQuot env)]
-          [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
+   Returns [env result-map].
 
-        ;; Inductives, constructors, recursors must be replayed as a bundle.
-        (#{5 6 7} (int tag))
-        [env {:status :error :name name-str :tag (env/ci-tag ci)
-              :error "inductive declarations must be admitted as a bundle"}]
+   When `verify?` is false (trust mode), definitions/theorems/axioms are admitted
+   via `addConstant` WITHOUT re-typechecking — appropriate for loading an export
+   that was already verified at build time. This is much faster (the typecheck is
+   the dominant cost). Inductive bundles always go through the kernel (they need
+   recursor-rule generation), so they are unaffected."
+  ([^Env env ^ConstantInfo ci] (replay-one env ci true))
+  ([^Env env ^ConstantInfo ci verify?]
+   (let [tag (.tag ci)
+         name-str (.toString (.name ci))]
+     (try
+       (cond
+         ;; Quotient primitives.
+         (= 4 (int tag))
+         (let [env (.addConstant env ci)
+               env (.enableQuot env)]
+           [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
 
-        :else
-        (let [env (TypeChecker/checkConstant env ci default-fuel)]
-          ;; Note: do NOT strip theorem values — downstream isDefEq may need them.
-          [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))
+         ;; Inductives, constructors, recursors must be replayed as a bundle.
+         (#{5 6 7} (int tag))
+         [env {:status :error :name name-str :tag (env/ci-tag ci)
+               :error "inductive declarations must be admitted as a bundle"}]
 
-      (catch Exception ex
-        [env {:status :error :name name-str :tag (env/ci-tag ci)
-              :error (.getMessage ex)}]))))
+         :else
+         (let [env (if verify?
+                     (TypeChecker/checkConstant env ci default-fuel)
+                     (.addConstant env ci))]
+           ;; Note: do NOT strip theorem values — downstream isDefEq may need them.
+           [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))
+
+       (catch Exception ex
+         [env {:status :error :name name-str :tag (env/ci-tag ci)
+               :error (.getMessage ex)}])))))
 
 (defn- bundle-member?
   [^objects all-names ^ConstantInfo ci]
@@ -127,9 +136,14 @@
 
 (defn replay
   "Replay all declarations through the type checker.
-   Runs on a thread with a 64MB stack to handle deep recursion."
-  [decls & {:keys [verbose? stop-on-error?]
-            :or {verbose? false stop-on-error? false}}]
+   Runs on a thread with a 64MB stack to handle deep recursion.
+
+   `:verify?` (default true) re-typechecks every declaration — correct for
+   validating an export. Pass `:verify? false` to TRUST a known-good export and
+   admit definitions without re-checking (much faster; inductive bundles are
+   still admitted through the kernel)."
+  [decls & {:keys [verbose? stop-on-error? verify?]
+            :or {verbose? false stop-on-error? false verify? true}}]
   (run-with-large-stack
    (fn []
      (let [start-time (System/currentTimeMillis)
@@ -162,7 +176,7 @@
                       results'
                       (+ ok-count ok+)
                       (+ err-count err+)))
-             (let [[env' result] (replay-one env ci)]
+             (let [[env' result] (replay-one env ci verify?)]
                (when verbose?
                  (case (:status result)
                    :ok (print ".")

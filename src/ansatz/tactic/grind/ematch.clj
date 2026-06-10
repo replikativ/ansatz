@@ -60,6 +60,7 @@
        :proof proof
        :type ty
        :num-params num-params
+       :level-params (vec (.levelParams ci))
        :patterns patterns
        :symbols symbols
        :kind (if (and (e/const? head)
@@ -71,61 +72,133 @@
 ;; Following Lean 4 EMatch.lean
 ;; ============================================================
 
-(defn- match-pattern
-  "Try to match a pattern against an E-graph term.
-   Pattern has bvars (de Bruijn) as unknowns.
-   Returns an assignment map {bvar-idx → expr} or nil on failure."
-  [gs pat term assignment]
+(defn- unify-level
+  "Unify a pattern level `pl` (may mention theorem level-param Names in `unknowns`)
+   against a concrete term level `tl`, accumulating into the level subst `lv`
+   ({param-Name → Level}). Returns updated lv, or nil on conflict.
+   Handles the level shapes our laws actually use: bare param, succ, max, imax,
+   zero; anything else falls back to definitional level equality."
+  [unknowns pl tl lv]
   (cond
-    ;; Pattern is a bvar (unknown) — assign or check consistent
-    (e/bvar? pat)
-    (let [idx (e/bvar-idx pat)
-          existing (get assignment idx)]
-      (cond
-        ;; Not yet assigned — bind it
-        (nil? existing)
-        (assoc assignment idx term)
-        ;; Already assigned — check equivalence in E-graph
-        (eg/is-eqv gs existing term)
-        assignment
-        ;; Conflict — fail
-        :else nil))
-
-    ;; Pattern is a constant — must be the same constant
-    (e/const? pat)
-    (when (and (e/const? term) (= (e/const-name pat) (e/const-name term)))
-      assignment)
-
-    ;; Pattern is an application — decompose and match recursively
-    (e/app? pat)
-    (let [[pat-head pat-args] (e/get-app-fn-args pat)
-          [term-head term-args] (e/get-app-fn-args term)]
-      (when (= (count pat-args) (count term-args))
-        ;; Match head
-        (when-let [asgn (match-pattern gs pat-head term-head assignment)]
-          ;; Match each argument
-          (reduce (fn [asgn [pa ta]]
-                    (if asgn
-                      (match-pattern gs pa ta asgn)
-                      (reduced nil)))
-                  asgn
-                  (map vector pat-args term-args)))))
-
-    ;; Pattern is a literal — must be identical
-    (e/lit-nat? pat)
-    (when (and (e/lit-nat? term) (= (e/lit-nat-val pat) (e/lit-nat-val term)))
-      assignment)
-
-    ;; Pattern is anything else (sort, forall, lam) — structural match
+    ;; Pattern is an unknown param — bind or check consistency
+    (and (lvl/param? pl) (contains? unknowns (lvl/param-name pl)))
+    (let [pn (lvl/param-name pl)
+          cur (get lv pn)]
+      (cond (nil? cur) (assoc lv pn tl)
+            (lvl/level= cur tl) lv
+            :else nil))
+    ;; succ p  vs  succ t  → recurse
+    (lvl/succ? pl)
+    (when (lvl/succ? tl) (unify-level unknowns (lvl/succ-pred pl) (lvl/succ-pred tl) lv))
+    ;; max / imax → recurse both sides (term must match shape)
+    (lvl/max? pl)
+    (when (lvl/max? tl)
+      (some->> lv (unify-level unknowns (lvl/max-lhs pl) (lvl/max-lhs tl))
+               (unify-level unknowns (lvl/max-rhs pl) (lvl/max-rhs tl))))
+    (lvl/imax? pl)
+    (when (lvl/imax? tl)
+      (some->> lv (unify-level unknowns (lvl/imax-lhs pl) (lvl/imax-lhs tl))
+               (unify-level unknowns (lvl/imax-rhs pl) (lvl/imax-rhs tl))))
+    ;; No unknowns involved — require definitional level equality
     :else
-    (when (= pat term) assignment)))
+    (when (lvl/level= pl tl) lv)))
+
+(defn- unify-levels
+  "Unify two equal-length level vectors, threading the level subst `lv`."
+  [unknowns pls tls lv]
+  (when (= (count pls) (count tls))
+    (reduce (fn [lv [pl tl]]
+              (if lv (unify-level unknowns pl tl lv) (reduced nil)))
+            lv (map vector pls tls))))
+
+(defn- match-pattern
+  "Try to match a pattern against an E-graph term. Pattern has bvars (de Bruijn)
+   as term unknowns and may mention theorem level-params (in `unknowns`) as level
+   unknowns. Threads match state `m` = {:vars {bvar-idx → expr} :levels {param→lvl}}.
+   `depth` = number of pattern binders opened so far (for fresh-fvar generation under
+   binders). Returns updated `m` or nil on failure."
+  ([gs unknowns pat term m] (match-pattern gs unknowns pat term m 0))
+  ([gs unknowns pat term m depth]
+   (cond
+     ;; Pattern is a bvar (unknown) — assign or check consistent
+     (e/bvar? pat)
+     (let [idx (e/bvar-idx pat)
+           existing (get (:vars m) idx)]
+       (cond
+         ;; Not yet assigned — bind it
+         (nil? existing)
+         (assoc-in m [:vars idx] term)
+         ;; Already assigned — check equivalence in E-graph
+         (eg/is-eqv gs existing term)
+         m
+         ;; Conflict — fail
+         :else nil))
+
+     ;; Pattern is a constant — same constant + unify universe levels
+     (e/const? pat)
+     (when (and (e/const? term) (= (e/const-name pat) (e/const-name term)))
+       (when-let [lv (unify-levels unknowns (e/const-levels pat) (e/const-levels term)
+                                   (:levels m))]
+         (assoc m :levels lv)))
+
+     ;; Pattern is an application — decompose and match recursively
+     (e/app? pat)
+     (let [[pat-head pat-args] (e/get-app-fn-args pat)
+           [term-head term-args] (e/get-app-fn-args term)]
+       (when (= (count pat-args) (count term-args))
+         ;; Match head
+         (when-let [m (match-pattern gs unknowns pat-head term-head m depth)]
+           ;; Match each argument
+           (reduce (fn [m [pa ta]]
+                     (if m
+                       (match-pattern gs unknowns pa ta m depth)
+                       (reduced nil)))
+                   m
+                   (map vector pat-args term-args)))))
+
+     ;; Pattern is a literal — must be identical
+     (e/lit-nat? pat)
+     (when (and (e/lit-nat? term) (= (e/lit-nat-val pat) (e/lit-nat-val term)))
+       m)
+
+     ;; Pattern is a LAMBDA/FORALL — match UNDER the binder (enables laws whose LHS
+     ;; contains a binder with pattern vars, e.g. the semijoin section `elem · ys` =
+     ;; `fun x => List.elem x ys`). Faithful to Lean 4 `Grind/EMatch.lean` (opens the
+     ;; binder with a fresh local and matches the body): the LAMBDA binder TYPE is
+     ;; IGNORED (defeq, not syntactic — Lean's "type info in lambdas is ignored"), the
+     ;; FORALL DOMAIN is matched (semantically part of the type). Open both binders with
+     ;; the SAME fresh fvar (depth-indexed, far above any real fvar); `instantiate1`
+     ;; shifts the outer pattern-var bvars back to their telescope indices, so `:vars`
+     ;; keys stay consistent. A pattern var that CAPTURES the bound fvar yields a
+     ;; dangling-fvar instantiation the downstream kernel check rejects — so under-binder
+     ;; matching never costs soundness, only finds more (valid) rewrites.
+     (or (e/lam? pat) (e/forall? pat))
+     (let [pat-lam? (e/lam? pat)
+           term-binder? (if pat-lam? (e/lam? term) (e/forall? term))]
+       (when term-binder?
+         (let [pbody (if pat-lam? (e/lam-body pat) (e/forall-body pat))
+               tbody (if pat-lam? (e/lam-body term) (e/forall-body term))
+               ;; forall: match the domain; lambda: ignore the binder type (Lean)
+               m (if pat-lam? m
+                     (match-pattern gs unknowns (e/forall-type pat) (e/forall-type term) m depth))]
+           (when m
+             (let [fv (e/fvar (+ 900000000 depth))]
+               (match-pattern gs unknowns
+                              (e/instantiate1 pbody fv)
+                              (e/instantiate1 tbody fv)
+                              m (inc depth)))))))
+
+     ;; Anything else (sort, mdata, …) — structural match
+     :else
+     (when (= pat term) m))))
 
 (defn match-in-eqclass
   "Try to match pattern against any member of the equivalence class of term.
+   `unknowns` is the set of theorem level-param Names (level unknowns).
    Only considers members with generation 0 (original terms) to prevent
    matching against terms created by previous E-matching rounds.
-   Returns a seq of successful assignments."
-  [gs pat term]
+   Returns a seq of {:assignment {:vars .. :levels ..} :matched-term ..}."
+  [gs unknowns pat term]
   (let [root (eg/get-root gs term)
         results (atom [])]
     ;; Traverse equivalence class
@@ -133,8 +206,8 @@
       (when-let [node (eg/get-enode gs curr)]
         ;; Only match gen=0 terms (original, not E-match-created)
         (when (zero? (:gen node))
-          (when-let [asgn (match-pattern gs pat curr {})]
-            (swap! results conj {:assignment asgn :matched-term curr})))
+          (when-let [m (match-pattern gs unknowns pat curr {:vars {} :levels {}})]
+            (swap! results conj {:assignment m :matched-term curr})))
         (let [next (:next node)]
           (when-not (identical? next root)
             (recur next)))))
@@ -144,29 +217,41 @@
 ;; Theorem instantiation
 ;; ============================================================
 
-(defn- instantiate-theorem
-  "Given a successful assignment, instantiate the theorem by substituting
-   bvars with assigned terms. Returns an Expr (the instantiated proof applied
-   to its arguments)."
+(defn- level-subst
+  "Build the {param-Name → Level} subst for a matched theorem: the unified levels,
+   defaulting any level-param not constrained by the match to zero."
   [thm assignment]
-  (let [proof (:proof thm)
-        num-params (:num-params thm)
+  (let [lv (:levels assignment)]
+    (into {} (map (fn [p] [p (get lv p lvl/zero)]) (:level-params thm)))))
+
+(defn- instantiate-theorem
+  "Given a successful match (rich assignment), instantiate the theorem by applying
+   its proof const — at the UNIFIED universe levels — to the assigned term args.
+   Returns an Expr (the instantiated proof)."
+  [thm assignment]
+  (let [num-params (:num-params thm)
+        vars (:vars assignment)
+        proof (e/const' (:origin thm)
+                        (mapv (fn [p] (get (:levels assignment) p lvl/zero))
+                              (:level-params thm)))
         ;; Build argument list from assignment (bvar 0 = innermost)
-        ;; The assignment maps bvar indices to terms
-        args (mapv (fn [i] (get assignment i)) (range num-params))]
+        args (mapv (fn [i] (get vars i)) (range num-params))]
     (when (every? some? args)
       ;; Apply proof to all arguments
       (reduce e/app proof (reverse args)))))
 
 (defn- instantiate-eq-fact
-  "Given an instantiated equality theorem, extract LHS = RHS for the E-graph."
+  "Given an instantiated equality theorem, extract LHS = RHS for the E-graph,
+   with universe levels resolved to the matched concrete levels (so the LHS is
+   pointer/structure-comparable to the term that triggered the match)."
   [env thm assignment]
-  (let [ty (:type thm)
+  (let [ty (e/instantiate-level-params (:type thm) (level-subst thm assignment))
         num-params (:num-params thm)
+        vars (:vars assignment)
         ;; Substitute all forall-bound variables with assigned terms
         body (loop [t ty i 0]
                (if (and (e/forall? t) (< i num-params))
-                 (let [arg (get assignment (- num-params 1 i))]
+                 (let [arg (get vars (- num-params 1 i))]
                    (recur (e/instantiate1 (e/forall-body t) arg) (inc i)))
                  t))
         [head args] (e/get-app-fn-args body)]
@@ -241,10 +326,10 @@
                               (and node (zero? (:gen node))))]
                 ;; Try matching in the equivalence class
                 (doseq [{:keys [assignment matched-term]}
-                        (match-in-eqclass gs pat candidate)
+                        (match-in-eqclass gs (set (:level-params thm)) pat candidate)
                         :while (< (count @new-facts) limit)]
-                  ;; Check dedup
-                  (let [key (instance-key (:origin thm) assignment)]
+                  ;; Check dedup (by term-var assignment; levels are derived)
+                  (let [key (instance-key (:origin thm) (:vars assignment))]
                     (when-not (contains? @seen key)
                       (swap! seen conj key)
                       ;; Instantiate

@@ -169,6 +169,21 @@
                 results
                 (recur next results (dec fuel))))))))))
 
+(defn extract-min-cost
+  "Among the MATERIALIZED members of `expr`'s equivalence class, return the one
+   minimizing `(cost-fn member)` as {:term :cost :members n}, or nil if `expr`
+   isn't internalized. Soundness for proof reconstruction: every candidate is an
+   actual in-class node, so `proof/mk-eq-proof` can build `expr = chosen` by
+   walking the transitivity chain (no synthesized terms). This is the e-graph
+   search layer's extraction step (saturate → extract cheapest)."
+  [gs expr cost-fn]
+  (when-let [members (collect-eqc gs (get-root gs expr))]
+    (let [scored (map (fn [m] [m (cost-fn m)]) members)
+          [best-term best-cost] (reduce (fn [[bt bc :as b] [m c]]
+                                          (if (< c bc) [m c] b))
+                                        (first scored) (rest scored))]
+      {:term best-term :cost best-cost :members (count members)})))
+
 ;; ============================================================
 ;; Congruence hashing and checking
 ;; Following Lean 4 Types.lean:545

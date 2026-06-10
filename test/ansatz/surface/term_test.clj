@@ -207,7 +207,7 @@
       (is (= manual result))
       ;; Type-check: should infer a Sort (this is a well-formed type)
       (let [tc (TypeChecker. ^Env env)
-            inferred (.inferType tc result)]
+            inferred (.check tc result)]   ; STRICT
         (is (e/sort? inferred))))))
 
 (deftest test-default-level-params

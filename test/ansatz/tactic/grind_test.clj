@@ -338,7 +338,7 @@
     ;; Add all local context entries so TC can resolve fvars
     (doseq [[id decl] lctx]
       (.addLocal tc (long id) (str (:name decl)) (:type decl)))
-    (.inferType tc proof-term)))
+    (.check tc proof-term)))   ; STRICT: re-checks every app arg
 
 (deftest test-egraph-proof-single-hyp
   (testing "E-graph proof: a=b from hypothesis, kernel-verified"
@@ -479,10 +479,10 @@
           gs (eg/internalize gs f3 0)
           ;; Pattern: f(bvar0) — matches f(3) with bvar0 → 3
           pat (e/app f (e/bvar 0))
-          matches (ematch/match-in-eqclass gs pat f3)]
+          matches (ematch/match-in-eqclass gs #{} pat f3)]
       (is (seq matches) "found at least one match")
       (when (seq matches)
-        (is (= three (get (:assignment (first matches)) 0))
+        (is (= three (get-in (:assignment (first matches)) [:vars 0]))
             "bvar 0 assigned to 3")))))
 
 (deftest test-ematch-eqclass-matching
@@ -497,7 +497,7 @@
           gs (eg/assert-eq gs a b :proof-ab)
           ;; Pattern: f(bvar0) — should match both f(a) and f(b)
           pat (e/app f (e/bvar 0))
-          matches (ematch/match-in-eqclass gs pat fa)]
+          matches (ematch/match-in-eqclass gs #{} pat fa)]
       ;; Should find matches for both a and b in the eq class
       (is (seq matches) "found matches"))))
 

@@ -25,8 +25,7 @@
 (defn- mk-tc
   "Create a TC state from the proof state and a goal's local context."
   [ps lctx]
-  (let [st (tc/mk-tc-state (:env ps))]
-    (assoc st :lctx lctx)))
+  (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx))
 
 (defn- whnf-in-goal
   "WHNF reduce an expression in the context of a goal."
@@ -618,24 +617,40 @@
            ;; We need to abstract lhs from the goal type
            [ps' motive-fvar-id] (proof/alloc-id ps)
            motive-fvar (e/fvar motive-fvar-id)
-           ;; Replace occurrences of lhs in goal type with a bvar
-           ;; We do this by: replace lhs with motive-fvar, then abstract1
-           goal-type-replaced (let [replace-in
-                                    (fn replace-in [expr]
-                                      (if (tc/is-def-eq st expr lhs)
+           ;; Replace occurrences of lhs in the goal type with motive-fvar (later
+           ;; abstract1'd to the motive's bound var). Faithful to Lean's kabstract:
+           ;; descend UNDER binders — open each with a fresh fvar (so is-def-eq has the
+           ;; binder in context), replace in the opened body, then re-abstract. Without
+           ;; this, occurrences under a λ/∀ (e.g. the foldl accumulator, or a Subtype
+           ;; predicate) are missed and the resulting Eq.ndrec motive is ill-typed.
+           ;; Fresh ids come from st's :next-id, already bumped above the lctx + motive id.
+           goal-type-replaced (let [_ (swap! (:next-id st) (fn [v] (max v (inc motive-fvar-id))))
+                                    open-binder
+                                    (fn [replace-in st nm dom body mk]
+                                      (let [d (replace-in st dom)
+                                            fid (swap! (:next-id st) inc)
+                                            st' (update st :lctx red/lctx-add-local fid nm dom)
+                                            b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
+                                        (mk d (e/abstract1 b fid))))
+                                    replace-in
+                                    (fn replace-in [st expr]
+                                      (if (try (tc/is-def-eq st expr lhs) (catch Exception _ false))
                                         motive-fvar
                                         (case (e/tag expr)
-                                          :app (let [f (replace-in (e/app-fn expr))
-                                                     a (replace-in (e/app-arg expr))]
+                                          :app (let [f (replace-in st (e/app-fn expr))
+                                                     a (replace-in st (e/app-arg expr))]
                                                  (if (and (identical? f (e/app-fn expr))
                                                           (identical? a (e/app-arg expr)))
                                                    expr
                                                    (e/app f a)))
-                                          :lam expr ;; don't go under binders for now
-                                          :forall expr
-                                          :let expr
+                                          :lam (open-binder replace-in st (e/lam-name expr)
+                                                            (e/lam-type expr) (e/lam-body expr)
+                                                            (fn [d b] (e/lam (e/lam-name expr) d b (e/lam-info expr))))
+                                          :forall (open-binder replace-in st (e/forall-name expr)
+                                                               (e/forall-type expr) (e/forall-body expr)
+                                                               (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
                                           expr)))]
-                                (replace-in (:type goal)))
+                                (replace-in st (:type goal)))
            motive-body (e/abstract1 goal-type-replaced motive-fvar-id)
            motive (e/lam "x" ty motive-body :default)
            ;; Compute the motive output sort level
@@ -832,9 +847,10 @@
                                               (e/sort' lvl/zero))
                                           (e/sort' lvl/zero)))
                                       new-indices)
-                  new-major-type-abs (reduce (fn [ty fid] (e/abstract1 ty fid))
-                                             new-hyp-type
-                                             (reverse new-idx-fvar-ids))
+                  ;; abstract index fvars SIMULTANEOUSLY (sequential abstract1 collapses them — see induction)
+                  new-major-type-abs (if (seq new-idx-fvar-ids)
+                                       (e/abstract-many new-hyp-type new-idx-fvar-ids)
+                                       new-hyp-type)
                   motive-binder-types (conj new-idx-types new-major-type-abs)
                   motive (reduce (fn [body ty] (e/lam "x" ty body :default))
                                  motive-body
@@ -1012,11 +1028,17 @@
                                          :goal-id branch-id}))))
         ;; Assign the original goal
         ;; Recursor levels: motive level + inductive levels
-            (let [;; Build recursor levels: only include motive level if rec has level params
+            (let [;; Build recursor levels. A recursor's level params are the inductive's
+                  ;; universes plus — for inductives that eliminate into an arbitrary Sort —
+                  ;; the motive universe at the FRONT. Prop-eliminating recursors (e.g.
+                  ;; List.Perm.rec) have a FIXED Sort 0 motive, so NO motive universe: their
+                  ;; level-param count equals the inductive's. Prepend motive-level only when
+                  ;; the recursor actually has that extra param (count > ind-levels).
                   rec-lparams (vec (.levelParams rec-ci))
-                  rec-levels (if (seq rec-lparams)
-                               (into [motive-level] ind-levels)
-                               [])]
+                  rec-levels (cond
+                               (empty? rec-lparams) []
+                               (> (count rec-lparams) (count ind-levels)) (into [motive-level] ind-levels)
+                               :else (vec ind-levels))]
               (let [branch-ids (mapv :goal-id ctor-goals)
                     ps' (-> (proof/assign-mvar ps (:id goal)
                                                {:kind :cases
@@ -1097,14 +1119,13 @@
                               (or (:type d) (e/sort' lvl/zero)))
                             (e/sort' lvl/zero)))
                         indices)
-        ;; For indexed families, abstract index fvars from major-type
-        major-type-abs (if (seq indices)
-                         (reduce (fn [ty idx-expr]
-                                   (if (e/fvar? idx-expr)
-                                     (e/abstract1 ty (e/fvar-id idx-expr))
-                                     ty))
-                                 major-type (reverse indices))
-                         major-type)
+        ;; For indexed families, abstract the index fvars from major-type SIMULTANEOUSLY.
+        ;; (A sequential `abstract1` reduce is WRONG: abstract1 replaces fv→bvar0 without shifting
+        ;; existing loose bvars, so two indices both become bvar0 — e.g. Perm l1 l2 → Perm #0 #0,
+        ;; a degenerate motive. abstract-many uses the same outermost→innermost convention as the
+        ;; motive-body abstraction above, so the major binder's type stays Perm #1 #0 = Perm l1 l2.)
+        major-type-abs (let [idx-ids (vec (keep (fn [idx] (when (e/fvar? idx) (e/fvar-id idx))) indices))]
+                         (if (seq idx-ids) (e/abstract-many major-type idx-ids) major-type))
         motive-binder-types (conj idx-types major-type-abs)
         motive (reduce (fn [body ty] (e/lam "x" ty body :default))
                        motive-body
@@ -1146,15 +1167,23 @@
                                 :else (name/->string fname-raw))
                         lctx' (red/lctx-add-local lctx fid fname ft)
                         ft-whnf (whnf-in-goal ps lctx ft)
-                        [ft-head _] (e/get-app-fn-args ft-whnf)
+                        [ft-head ft-args] (e/get-app-fn-args ft-whnf)
+                        ;; A field is RECURSIVE only if its type IS the inductive being eliminated —
+                        ;; same head const AND the same (uniform) PARAMETERS. Checking the head alone
+                        ;; is WRONG for nested types: a field `head : List α` of `List (List α)` has
+                        ;; head `List` = ind-name but is NOT recursive (List α ≠ List (List α)), so it
+                        ;; must not get an induction hypothesis (which would be ill-typed: motive head).
                         is-recursive (and (e/const? ft-head)
-                                          (= (e/const-name ft-head) ind-name))
+                                          (= (e/const-name ft-head) ind-name)
+                                          (>= (count ft-args) num-params)
+                                          (let [stf (mk-tc ps lctx)]
+                                            (every? (fn [[fa pa]] (tc/is-def-eq stf fa pa))
+                                                    (map vector (take num-params ft-args) params))))
                         [ps'' lctx'' new-ih-fvars]
                         (if is-recursive
                           (let [[ps'' ih-id] (proof/alloc-id ps')
                                 ;; For indexed families, extract indices from the
                                 ;; recursive field's type and instantiate motive with them
-                                [_ ft-args] (e/get-app-fn-args ft-whnf)
                                 field-ret-indices (when (and (seq indices)
                                                              (>= (count ft-args) num-params))
                                                     (subvec (vec ft-args) num-params))
@@ -1192,11 +1221,14 @@
                                    :field-fvars all-fvars  ;; includes IH fvars for extraction
                                    :goal-id branch-id})))
         ;; Assign the original goal
-        (let [;; Build recursor levels: only include motive level if rec has level params
+        (let [;; Build recursor levels (see `cases`): prepend the motive universe only when the
+              ;; recursor declares more level params than the inductive has universes. Prop-
+              ;; eliminating recursors (List.Perm.rec) fix the motive at Sort 0 — no extra param.
               rec-lparams (vec (.levelParams rec-ci))
-              rec-levels (if (seq rec-lparams)
-                           (into [motive-level] ind-levels)
-                           [])]
+              rec-levels (cond
+                           (empty? rec-lparams) []
+                           (> (count rec-lparams) (count ind-levels)) (into [motive-level] ind-levels)
+                           :else (vec ind-levels))]
           (let [branch-ids (mapv :goal-id ctor-goals)
                 ps' (-> (proof/assign-mvar ps (:id goal)
                                            {:kind :cases  ;; reuse cases extraction
@@ -1871,7 +1903,11 @@
     (if (= reduced (:type goal))
       ps ;; no change
       (let [[ps' new-id] (proof/fresh-mvar-replacing ps reduced (:lctx goal) (:id goal))]
-        (-> (proof/assign-mvar ps' (:id goal) {:kind :exact :term (e/fvar new-id)})
+        ;; The reduced goal is DEF-EQ to the original (whnf preserves def-eq), so the
+        ;; subgoal's proof directly proves the original. Delegate via :simp-reduce with a
+        ;; nil eq-proof (extract returns the child proof) — NOT `:exact (fvar new-id)`,
+        ;; which would leave the subgoal mvar dangling as an unbound free variable.
+        (-> (proof/assign-mvar ps' (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id})
             (proof/record-tactic :whnf [] (:id goal)))))))
 
 (defn unfold-in-goal
@@ -1917,8 +1953,11 @@
         ;; WHNF the unfolded goal to reduce the beta-redex
         new-goal-type-reduced (#'tc/cached-whnf st new-goal-type)
         [ps' new-id] (proof/fresh-mvar-replacing ps new-goal-type-reduced (:lctx goal) (:id goal))]
-    ;; The new goal should be def-eq to the old goal (just unfolded)
-    (-> (proof/assign-mvar ps' (:id goal) {:kind :exact :term (e/fvar new-id)})
+    ;; The unfolded goal is DEF-EQ to the original (delta + whnf preserve def-eq), so the
+    ;; subgoal's proof directly proves the original. Delegate via :simp-reduce with a nil
+    ;; eq-proof (extract returns the child proof) — NOT `:exact (fvar new-id)`, which would
+    ;; leave the subgoal mvar dangling as an unbound free variable in the extracted term.
+    (-> (proof/assign-mvar ps' (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id})
         (proof/record-tactic :unfold [def-name-str] (:id goal)))))
 
 (defn exact?

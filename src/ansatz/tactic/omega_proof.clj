@@ -27,6 +27,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
+            [ansatz.kernel.env :as kenv]
             [ansatz.kernel.reduce :as red]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.decide :as decide-tac]
@@ -2745,7 +2746,7 @@
               body (e/instantiate1 (if use-original (e/forall-body ty) (e/forall-body ty-whnf))
                                    (e/fvar fv-id))
               lctx' (red/lctx-add-local lctx fv-id binder-name binder-type)
-              st' (assoc st :lctx lctx')]
+              st' (tc/attach-lctx st lctx')]
           (recur body lctx'
                  (conj fvar-infos {:id fv-id :name binder-name :type binder-type})
                  st'))
@@ -2794,10 +2795,19 @@
                                    (nth args 0) (nth args 1))]
             (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
                 (proof/record-tactic :omega [] (:id goal))))
-          ;; Strip leading forall binders (auto-intro) then run omega
-          (let [[inner-goal fvar-infos lctx-with-intros]
-                (strip-forall-binders st goal-whnf (:lctx goal))
-                st-intros (assoc st :lctx lctx-with-intros)
+          ;; The full reconstruction references Lean.Omega.* constants (Init.Omega);
+          ;; if the env lacks them (a reduced init), DECLINE so omega falls through to
+          ;; simpler strategies rather than committing a proof that fails at kernel
+          ;; check.
+          (let [_ (when-not (kenv/lookup env (name/from-string "Lean.Omega.LinearCombo.coordinate_eval"))
+                    (tactic-error! "omega: Lean.Omega.* reconstruction constants unavailable" {}))
+                ;; Pass the UN-WHNF'd goal-type: strip-forall-binders WHNFs internally
+                ;; only to find ∀ binders and deliberately returns the un-WHNF'd
+                ;; comparison, so negate-goal sees `LE.le`/`LT.lt` (handled) rather than
+                ;; the unfolded `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
+                [inner-goal fvar-infos lctx-with-intros]
+                (strip-forall-binders st goal-type (:lctx goal))
+                st-intros (tc/attach-lctx st lctx-with-intros)
                 inner-whnf (#'tc/cached-whnf st-intros inner-goal)
                 is-false-goal (and (e/const? inner-whnf)
                                    (= (e/const-name inner-whnf) (:false-name omega-names)))]
@@ -2809,7 +2819,7 @@
                   lctx' (if neg-hyp-fvar-id
                           (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
                           lctx-with-intros)
-                  st' (assoc st :lctx lctx')
+                  st' (tc/attach-lctx st lctx')
                   ;; Run omega, handling direct-false short-circuit
                   result (try
                            (omega-check st' inner-goal lctx' neg-hyp-proof)
@@ -2879,7 +2889,7 @@
         goal-whnf (#'tc/cached-whnf st goal-type)
         [inner-goal fvar-infos lctx-with-intros]
         (strip-forall-binders st goal-whnf (:lctx goal))
-        st-intros (assoc st :lctx lctx-with-intros)
+        st-intros (tc/attach-lctx st lctx-with-intros)
         inner-whnf (#'tc/cached-whnf st-intros inner-goal)
         is-false-goal (and (e/const? inner-whnf)
                            (= (e/const-name inner-whnf) (:false-name omega-names)))
@@ -2890,7 +2900,7 @@
         lctx' (if neg-hyp-fvar-id
                 (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
                 lctx-with-intros)
-        st' (assoc st :lctx lctx')
+        st' (tc/attach-lctx st lctx')
         ;; Reify: collect hypotheses, negate goal, add bounds
         table (mk-atom-table)
         problem (mk-problem)
