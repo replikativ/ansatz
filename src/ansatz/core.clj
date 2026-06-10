@@ -885,6 +885,14 @@
                                     lctx)
                "cond" (sexp->ansatz env scope depth (cond->if (rest form)))
                "do" (sexp->ansatz env scope depth (last form))
+               ;; (get m :field) → keyword projection (:field m) — a sound record/structure accessor.
+               ;; NB: this alone does NOT enable {:keys […]} destructuring: Clojure's map-destructure
+               ;; desugar injects a dynamic seq-normalization preamble (seq?/createAsIfByAssoc) that
+               ;; doesn't map to CIC. Full destructuring needs a custom typed desugar (follow-on).
+               "get" (if (keyword? (nth form 2 nil))
+                       (sexp->ansatz env scope depth (list (nth form 2) (nth form 1)) lctx)
+                       (throw (ex-info "get: only keyword field access (on records/structures) is supported"
+                                       {:form form})))
 
         ;; If-then-else (Bool condition → Bool.rec)
         ;; (if cond then-val else-val)

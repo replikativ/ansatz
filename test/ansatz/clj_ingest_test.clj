@@ -39,6 +39,13 @@
   (is (= 9 ((resolve 'ci-thread1) 6)) "-> threads in term position")
   (is (= 9 ((resolve 'ci-ho-eq) (resolve 'ci-thread1) 6)) "=> is the function-type arrow"))
 
+(deftest get-record-accessor
+  ;; (get rec :field) → keyword projection (a sound record accessor). Full {:keys […]} destructuring
+  ;; needs a custom typed desugar (Clojure's injects a dynamic seq-normalization preamble) — follow-on.
+  (eval '(ansatz.core/structure CiPoint [] (x Nat) (y Nat)))
+  (eval '(ansatz.core/defn ^Nat ci-getx [^{:- CiPoint} p] (get p :x)))
+  (is (= 3 ((resolve 'ci-getx) ((resolve '->CiPoint) 3 4))) "(get rec :field) projects"))
+
 (deftest and-or-over-bool-elaborate
   ;; expand-by-default: and/or macroexpand to let*+if, which now typecheck because the if case
   ;; infers its branch type properly (no Nat guessing). Pure structural — no special handler.
