@@ -334,6 +334,10 @@
                      (= info :strict-implicit)
                      (= info :inst-implicit))))
         (let [arg-mvar (fresh-mvar! est (e/forall-type ty))
+              ;; Mark instance-implicit mvars so they can be solved by instance
+              ;; synthesis (not just unification) before the final unsolved-check.
+              _ (when (= (e/forall-info ty) :inst-implicit)
+                  (swap! (:mctx est) assoc-in [(e/fvar-id arg-mvar) :inst-implicit] true))
               expr' (e/app expr arg-mvar)
               ty' (#'tc/cached-whnf tc (e/instantiate1 (e/forall-body ty) arg-mvar))]
           (recur expr' ty'))
@@ -497,6 +501,55 @@
     (elab-error! (str "Unsupported form: " (pr-str sexpr)) {:form sexpr})))
 
 ;; ============================================================
+;; Instance synthesis for unsolved inst-implicit metavariables
+;; ============================================================
+
+(defn- has-unsolved-mvar?
+  "True if (zonked) expr still contains an fvar that is an unsolved mvar."
+  [est expr]
+  (let [mctx @(:mctx est)]
+    (letfn [(unsolved? [id] (let [m (get mctx id)] (and m (nil? (:solution m)))))
+            (go [x]
+              (when (instance? ansatz.kernel.Expr x)
+                (case (e/tag x)
+                  :fvar (unsolved? (e/fvar-id x))
+                  :app (or (go (e/app-fn x)) (go (e/app-arg x)))
+                  :lam (or (go (e/lam-type x)) (go (e/lam-body x)))
+                  :forall (or (go (e/forall-type x)) (go (e/forall-body x)))
+                  :let (or (go (e/let-type x)) (go (e/let-value x)) (go (e/let-body x)))
+                  :proj (go (e/proj-struct x))
+                  false)))]
+      (boolean (go expr)))))
+
+(defn- solve-instance-mvars!
+  "Solve unsolved instance-implicit metavariables via the instance-synthesis
+   engine (using the elaboration's fvar context, so goals mentioning local
+   binders resolve). Loops to a fixpoint: solving one inst may determine another."
+  [est]
+  (let [synth* (requiring-resolve 'ansatz.tactic.instance/synthesize*)
+        build-idx (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
+        index (build-idx (:env est))]
+    (loop []
+      (let [pending (filterv (fn [[_ m]] (and (:inst-implicit m) (nil? (:solution m))))
+                             @(:mctx est))
+            solved-any (atom false)]
+        (doseq [[id _] pending]
+          (let [goal (zonk est (:type (get @(:mctx est) id)))]
+            ;; Only synthesize once the goal is fully determined (no unsolved mvars),
+            ;; else we'd resolve against an under-specified class.
+            (when-not (has-unsolved-mvar? est goal)
+              (when-let [sol (try (synth* (:tc est) (:env est) index goal 0)
+                                  (catch Throwable _ nil))]
+                (solve-mvar! est id sol)
+                ;; Unify the instance's concrete type with the goal so universe
+                ;; levels shared with the class head (e.g. LE.le.{?u}) get solved
+                ;; (solve-mvar! only propagates levels when both sides are Sorts).
+                (try (unify! est (tc/infer-type (:tc est) sol) goal)
+                     (catch Throwable _ nil))
+                (reset! solved-any true)))))
+        (when @solved-any (recur))))))
+
+;; ============================================================
 ;; Public API
 ;; ============================================================
 
@@ -531,6 +584,9 @@
                (when-not (unify! est inferred expected)
                  (elab-error! "Type mismatch"
                               {:expected expected :inferred inferred}))))
+         ;; Solve instance-implicit metavariables via synthesis (uses the fvar
+         ;; context so goals mentioning local binders resolve), then zonk.
+         _ (solve-instance-mvars! est)
          ;; Zonk all metavariables
          result (zonk est expr)
          ;; Check for remaining unsolved metavars
@@ -578,6 +634,7 @@
                (when-not (unify! est inferred expected)
                  (elab-error! "Type mismatch"
                               {:expected expected :inferred inferred}))))
+         _ (solve-instance-mvars! est)
          result (zonk est expr)
          unsolved (filterv (fn [[_ m]] (nil? (:solution m))) @(:mctx est))
          unsolved-levels (filterv (fn [[_ m]] (nil? (:solution m))) @(:level-mctx est))]
