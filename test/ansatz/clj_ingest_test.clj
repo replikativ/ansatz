@@ -23,6 +23,15 @@
   (eval '(ansatz.core/defn ^Nat ci-thread [^Nat n] (->> n (Nat.add 1) (Nat.add 10))))
   (is (= 17 ((resolve 'ci-thread) 6)) "->> threads as the last argument"))
 
+(deftest fn-lambda-elaborates
+  ;; (fn [^T x] …) macroexpands to fn*; metadata survives, so annotated lambdas elaborate to kernel
+  ;; lambdas — as beta-redexes and as arguments to higher-order functions.
+  (eval '(ansatz.core/defn ^Nat ci-beta [^Nat n] ((fn [^Nat x] (Nat.add x x)) n)))
+  (eval '(ansatz.core/defn ^Nat ci-apply1 [^{:- (=> Nat Nat)} f ^Nat n] (f n)))
+  (eval '(ansatz.core/defn ^Nat ci-ho [^Nat n] (ci-apply1 (fn [^Nat x] (Nat.add x x)) n)))
+  (is (= 10 ((resolve 'ci-beta) 5)) "beta-redex lambda")
+  (is (= 10 ((resolve 'ci-ho) 5)) "lambda passed to a higher-order function"))
+
 (deftest arrow-glyph-no-ambivalence
   ;; => is THE function-type arrow (any position); -> is ALWAYS Clojure threading, never the arrow.
   (eval '(ansatz.core/defn ^Nat ci-thread1 [^Nat n] (-> n (Nat.add 1) (Nat.add 2))))   ; -> threads

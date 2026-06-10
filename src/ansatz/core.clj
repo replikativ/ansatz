@@ -515,7 +515,7 @@
 ;; Sexp → Ansatz Expr compiler (the ONE compiler for everything)
 ;; ============================================================
 
-(declare sexp->ansatz)
+(declare sexp->ansatz parse-params)
 
 ;; Type context for outer-scope variables — used by match handler to
 ;; register fvars in the tc's local context. Maps symbol → Expr (type).
@@ -954,8 +954,21 @@
         ;; Binders
                "forall" (build-telescope env scope depth
                                          (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/forall')
-               ("fn" "lam") (build-telescope env scope depth
-                                             (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/lam)
+               ;; `lam` is ansatz's native lambda; `fn` (a Clojure macro) macroexpands to `fn*`.
+               ;; Both accept metadata-typed binders (parse-params handles metadata / :- / positional).
+               "lam" (build-telescope env scope depth (parse-params (nth form 1)) (nth form 2) e/lam)
+               ;; (fn* [name?] ([params] body…) …) — single-arity only (a kernel lambda has one arity);
+               ;; metadata survives the fn macroexpansion, so ^Nat / ^{:- T} on params just work.
+               "fn*" (let [cls (rest form)
+                           cls (if (symbol? (first cls)) (rest cls) cls)   ; skip optional self-name
+                           arities (filter #(and (sequential? %) (vector? (first %))) cls)]
+                       (if (= 1 (count arities))
+                         (let [[params & body] (first arities)
+                               body-form (if (> (count body) 1) (cons 'do body) (first body))]
+                           (build-telescope env scope depth (parse-params params) body-form e/lam))
+                         (throw (ex-info (str "fn: only single-arity lambdas elaborate to kernel "
+                                              "terms (multi-arity / variadic not supported)")
+                                         {:form form}))))
                ;; Function-type arrow. `=>` is THE arrow (any position); `->` is always Clojure
                ;; threading and never reaches here (it is macroexpanded).
                ("=>" "arrow") (e/arrow (sexp->ansatz env scope depth (nth form 1))
