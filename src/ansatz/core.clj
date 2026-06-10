@@ -1626,26 +1626,48 @@
 ;; Param parsing — handles :- and :inst markers
 ;; ============================================================
 
-(clojure.core/defn- parse-params
-  "Parse parameter vector into triples [name type-form binder-info].
-   Supports:
-     [n :- Nat]           → [[n Nat :default]]
-     [inst :- (Ord α) :inst] → [[inst (Ord α) :inst-implicit]]
-     [n Nat]              → [[n Nat :default]]  (legacy)"
+(clojure.core/defn binder-type
+  "A binder's declared type, read from metadata: prefer ^{:- T} (for compound types like
+   (List Nat)), else the ^Type :tag shorthand (for simple types like ^Nat). Returns the type
+   form, or nil for an untyped binder (→ the elaborator infers it)."
+  [sym]
+  (let [m (meta sym)] (or (:- m) (:tag m))))
+
+(clojure.core/defn metadata-params?
+  "Is this a METADATA parameter/binder vector (types ride as metadata on the binders),
+   vs the legacy positional/`:-`-separator form? True iff some element carries :-, :tag, or
+   :inst metadata. (A bare `[n Nat]` or `[n :- Nat]` carries none → legacy.)"
   [params]
-  (let [cleaned (remove #{:-} params)
-        result (atom [])
-        remaining (atom (vec cleaned))]
-    (while (seq @remaining)
-      (let [r @remaining
-            pname (first r)
-            ptype (second r)]
-        (if (and (> (count r) 2) (= :inst (nth r 2)))
-          (do (swap! result conj [pname ptype :inst-implicit])
-              (reset! remaining (vec (drop 3 r))))
-          (do (swap! result conj [pname ptype :default])
-              (reset! remaining (vec (drop 2 r)))))))
-    @result))
+  (boolean (some (fn [x] (let [m (meta x)] (or (:- m) (:tag m) (:inst m)))) params)))
+
+(clojure.core/defn- parse-params
+  "Parse a parameter vector into triples [name type-form binder-info]. Two surfaces, auto-detected:
+     metadata (preferred):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
+     legacy:                [n :- Nat,  xs :- (List Nat),  inst :- (Ord α) :inst]  and  [n Nat]
+   Metadata composes — types ride on the binder symbols, so the vector stays a normal Clojure
+   binding vector. An untyped metadata binder yields type-form nil (inferred); ^:inst marks an
+   instance binder."
+  [params]
+  (if (metadata-params? params)
+    ;; metadata form: each element is a binder symbol carrying its type/kind as metadata
+    (mapv (fn [sym]
+            (let [binfo (if (:inst (meta sym)) :inst-implicit :default)]
+              [(with-meta sym nil) (binder-type sym) binfo]))
+          params)
+    ;; legacy form (`:-` separator or positional `[n T]` pairs)
+    (let [cleaned (remove #{:-} params)
+          result (atom [])
+          remaining (atom (vec cleaned))]
+      (while (seq @remaining)
+        (let [r @remaining
+              pname (first r)
+              ptype (second r)]
+          (if (and (> (count r) 2) (= :inst (nth r 2)))
+            (do (swap! result conj [pname ptype :inst-implicit])
+                (reset! remaining (vec (drop 3 r))))
+            (do (swap! result conj [pname ptype :default])
+                (reset! remaining (vec (drop 2 r)))))))
+      @result)))
 
 ;; ============================================================
 ;; Well-Founded Recursion (following Lean 4's WellFounded.Nat.fix)
@@ -2552,16 +2574,26 @@
 ;; ============================================================
 
 (defmacro defn
-  "Define a verified function. Use qualified: (a/defn double [n :- Nat] Nat (+ n n))
-   Well-founded recursion: (a/defn fact [n :- Nat] Nat :termination-by n (if ...))"
-  [fn-name params ret-type & body-and-opts]
-  (let [[opts body] (if (= :termination-by (first body-and-opts))
+  "Define a verified function. Types are METADATA on the binders and the name — the binding vector
+   stays a normal Clojure vector, so typing composes (add types without reshaping the form):
+     (a/defn ^Nat double [^Nat n] (+ n n))
+     (a/defn ^{:- (List Nat)} squares [^{:- (List Nat)} xs] (map (fn [x] (* x x)) xs))
+   ^Type is the simple-type shorthand; ^{:- T} carries compound types. The legacy :- separator form
+   is still accepted (auto-detected):
+     (a/defn double [n :- Nat] Nat (+ n n))
+   Well-founded recursion: put  :termination-by <measure>  before the body."
+  [fn-name params & more]
+  (let [meta?    (metadata-params? params)
+        ret-type (if meta? (binder-type fn-name) (first more))
+        body-and-opts (if meta? more (rest more))
+        [opts body] (if (= :termination-by (first body-and-opts))
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
-                      [{} (first body-and-opts)])]
+                      [{} (first body-and-opts)])
+        nm (vary-meta fn-name dissoc :- :tag)]
     (if (:termination-by opts)
-      `(def ~fn-name (define-verified-wf '~fn-name '~params '~ret-type
-                       '~body '~(:termination-by opts)))
-      `(def ~fn-name (define-verified '~fn-name '~params '~ret-type '~body)))))
+      `(def ~nm (define-verified-wf '~nm '~params '~ret-type
+                  '~body '~(:termination-by opts)))
+      `(def ~nm (define-verified '~nm '~params '~ret-type '~body)))))
 
 (defmacro theorem
   "Prove a theorem.
