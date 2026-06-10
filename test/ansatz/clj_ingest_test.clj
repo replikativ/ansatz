@@ -23,15 +23,12 @@
   (eval '(ansatz.core/defn ^Nat ci-thread [^Nat n] (->> n (Nat.add 1) (Nat.add 10))))
   (is (= 17 ((resolve 'ci-thread) 6)) "->> threads as the last argument"))
 
-(deftest arrow-glyph-thread-vs-type
-  ;; => is the canonical function-type arrow (any position). -> threads in TERM position and is
-  ;; still accepted as the arrow in TYPE position (so existing signatures don't churn).
+(deftest arrow-glyph-no-ambivalence
+  ;; => is THE function-type arrow (any position); -> is ALWAYS Clojure threading, never the arrow.
   (eval '(ansatz.core/defn ^Nat ci-thread1 [^Nat n] (-> n (Nat.add 1) (Nat.add 2))))   ; -> threads
   (eval '(ansatz.core/defn ^Nat ci-ho-eq [^{:- (=> Nat Nat)} f ^Nat n] (f n)))          ; => arrow
-  (eval '(ansatz.core/defn ^Nat ci-ho-ar [^{:- (-> Nat Nat)} f ^Nat n] (f n)))          ; -> arrow (type pos)
   (is (= 9 ((resolve 'ci-thread1) 6)) "-> threads in term position")
-  (is (= 9 ((resolve 'ci-ho-eq) (resolve 'ci-thread1) 6)) "=> is the arrow in a higher-order type")
-  (is (= 9 ((resolve 'ci-ho-ar) (resolve 'ci-thread1) 6)) "-> still the arrow in type position"))
+  (is (= 9 ((resolve 'ci-ho-eq) (resolve 'ci-thread1) 6)) "=> is the function-type arrow"))
 
 (deftest and-or-over-bool-elaborate
   ;; expand-by-default: and/or macroexpand to let*+if, which now typecheck because the if case

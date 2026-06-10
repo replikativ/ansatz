@@ -92,7 +92,7 @@
                  (compile-type env scope (inc depth) (nth form 2) self-name self-const))
         ;; Dependent function type: (forall [a Type, b Type, ...] body)
         ;; Needed so structure/inductive fields can express categorical operations
-        ;; like (forall [a Ob b Ob c Ob] (-> (Hom a b) (-> (Hom b c) (Hom a c))))
+        ;; like (forall [a Ob b Ob c Ob] (=> (Hom a b) (=> (Hom b c) (Hom a c))))
         ;; and equation axioms like (forall [a M b M c M] (= (mul (mul a b) c) ...)).
         "forall"
         (let [[_ binder-vec & body-forms] form
