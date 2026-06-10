@@ -515,6 +515,14 @@
                  (build-telescope env new-scope (inc depth) (rest pairs) body-form ctor))]
       (ctor (str pname) ptype body binfo))))
 
+(clojure.core/defn- cond->if
+  "Desugar a flat cond clause list `(c1 e1 c2 e2 … :else en)` to nested `if`."
+  [clauses]
+  (if (empty? clauses)
+    (throw (ex-info "cond: no clause matched and no :else branch" {}))
+    (let [[c e & more] clauses]
+      (if (= c :else) e (list 'if c e (cond->if more))))))
+
 (clojure.core/defn sexp->ansatz
   "Compile Clojure s-expression to Ansatz Expr.
    Handles types, terms, operators, binders — everything in one function.
@@ -790,6 +798,11 @@
                    (e/app* (e/const' (name/from-string (str class-name "." h)) [lvl/zero])
                            type-expr inst a b)
                    (throw (ex-info (str "No " class-name " instance for " type-name) {}))))
+
+        ;; cond → nested if; do (pure) → its last form.
+        ;; (let/let* deferred: needs de-Bruijn-aware value-type inference — task #72.)
+               "cond" (sexp->ansatz env scope depth (cond->if (rest form)))
+               "do" (sexp->ansatz env scope depth (last form))
 
         ;; If-then-else (Bool condition → Bool.rec)
         ;; (if cond then-val else-val)
