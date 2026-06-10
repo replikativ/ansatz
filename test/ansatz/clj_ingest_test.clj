@@ -22,3 +22,11 @@
 (deftest thread-last-elaborates
   (eval '(ansatz.core/defn ^Nat ci-thread [^Nat n] (->> n (Nat.add 1) (Nat.add 10))))
   (is (= 17 ((resolve 'ci-thread) 6)) "->> threads as the last argument"))
+
+(deftest and-or-over-bool-elaborate
+  ;; expand-by-default: and/or macroexpand to let*+if, which now typecheck because the if case
+  ;; infers its branch type properly (no Nat guessing). Pure structural — no special handler.
+  (eval '(ansatz.core/defn ^Bool ci-and [^Bool p ^Bool q] (and p q)))
+  (eval '(ansatz.core/defn ^Bool ci-or  [^Bool p ^Bool q] (or p q)))
+  (is (= [true false] [((resolve 'ci-and) true true) ((resolve 'ci-and) true false)]) "and over Bool")
+  (is (= [true false] [((resolve 'ci-or) false true) ((resolve 'ci-or) false false)]) "or over Bool"))

@@ -91,21 +91,25 @@
 (defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
 
 ;; ── Incremental Clojure ingestion ───────────────────────────────────────────────────────────────
-;; The elaborator macroexpand-1's a whitelist of pure STRUCTURAL clojure.core macros on the way in,
-;; so the binding/threading sugar (and the destructuring it carries) reaches the kernel as
-;; let*/fn*/application without a hand-written case per macro. Deliberately EXCLUDED: `->` (it is the
-;; type arrow here) and the truthiness/nil-punning family (when/cond/and/or/if-let/some->) — their
-;; macroexpansions assume Clojure's dynamic truthy/nil and don't typecheck against the total `Bool.rec`,
-;; so they need typed handlers, not blind expansion. Extensible: conj your own pure-structural macros.
-(defonce ^{:doc "Whitelisted pure-structural clojure.core macros the elaborator macroexpands."}
-  expandable-clj-macros
-  (atom '#{let ->> as->}))
+;; The elaborator macroexpand-1's ANY clojure.core (or user) macro on the way in — so all the
+;; binding/threading/sugar reaches the kernel as core forms (let*/fn*/if/application) without a case
+;; per macro — EXCEPT a small exclusion set: forms ansatz handles with a dedicated typed elaborator
+;; that beats the macro's expansion. `->` is the type arrow (not threading); `cond` has a typed
+;; handler (cond->if) that maps :else correctly, unlike Clojure's :else-as-truthy expansion.
+;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
+;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce
+;; an unsound definition. The set only keeps OUR handlers winning and errors clean.
+(defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified name."}
+  no-expand-macros
+  (atom '#{-> cond}))
 
-(clojure.core/defn- expandable-clj-macro?
-  "Is `head` a whitelisted macro to macroexpand-1 during elaboration? Matches the unqualified name,
-   so clojure.core/let etc. count too."
+(clojure.core/defn- expand-macro?
+  "Should the elaborator macroexpand-1 this list head? True iff it resolves to a macro and is not in
+   no-expand-macros (matched by unqualified name, so clojure.core/when etc. count)."
   [head]
-  (boolean (and (symbol? head) (contains? @expandable-clj-macros (symbol (name head))))))
+  (boolean (and (symbol? head)
+                (not (contains? @no-expand-macros (symbol (name head))))
+                (try (some-> (resolve head) meta :macro) (catch Throwable _ nil)))))
 
 (clojure.core/defn init!
   "Load Ansatz environment from LMDB store and build instance index."
@@ -540,6 +544,12 @@
     (let [[c e & more] clauses]
       (if (= c :else) e (list 'if c e (cond->if more))))))
 
+(clojure.core/defn- scope-bvar-types
+  "Map {bvar-index → type} for the binders currently in `scope` (types from *scope-types*), so a
+   subterm's enclosing-binder bvars can be typed during elaboration. bvar-index = depth-1-d."
+  [scope depth]
+  (into {} (keep (fn [[sym d]] (when-let [ty (get *scope-types* sym)] [(- depth 1 d) ty])) scope)))
+
 (clojure.core/defn- infer-value-type
   "Infer the type of an elaborated expression `v-expr` that may mention the enclosing binders as
    bvars 0..depth-1 (types in `bvar-types`, a {bvar-index → type} map). The kernel can't infer a
@@ -573,10 +583,7 @@
     (sexp->ansatz env scope depth body-form lctx)
     (let [[x v-form & more] bindings
           v-expr (sexp->ansatz env scope depth v-form lctx)
-          bvar-types (into {} (keep (fn [[sym d]]
-                                      (when-let [ty (get *scope-types* sym)] [(- depth 1 d) ty]))
-                                    scope))
-          vtype (or (infer-value-type env depth bvar-types v-expr)
+          vtype (or (infer-value-type env depth (scope-bvar-types scope depth) v-expr)
                     (throw (ex-info (str "let: cannot infer the type of binding " x)
                                     {:binding x :value v-form})))
           scope' (assoc scope x depth)
@@ -663,10 +670,11 @@
                                (mapv (fn [_] default-lvl) lps)))))
              (throw (ex-info (str "Unknown: " s) {:scope (keys scope)})))))
 
-       ;; Incremental macroexpansion: expand a whitelisted pure-structural clojure.core macro
-       ;; (let/->>/as-> → let*/application) and re-elaborate. Registered elaborators still win.
+       ;; Incremental macroexpansion: expand any macro (except no-expand-macros) and re-elaborate,
+       ;; so Clojure's binding/threading/sugar reaches the kernel as core forms. Registered
+       ;; elaborators and ansatz's own typed handlers still win (checked here / below).
        (and (sequential? form) (seq form)
-            (expandable-clj-macro? (first form))
+            (expand-macro? (first form))
             (nil? (get @elaborator-registry (first form))))
        (sexp->ansatz env scope depth (macroexpand-1 form) lctx)
 
@@ -880,18 +888,12 @@
                "if" (let [cond-expr (sexp->ansatz env scope depth (nth form 1))
                           then-expr (sexp->ansatz env scope depth (nth form 2))
                           else-expr (sexp->ansatz env scope depth (nth form 3))
-                        ;; Infer return type from then-branch
-                          tc-if (ansatz.kernel.TypeChecker. env)
-                          _ (.setFuel tc-if (long config/*default-fuel*))
-                        ;; Register fvars from current lctx so TC can infer types
-                          _ (when *current-lctx*
-                              (doseq [[id {:keys [type] :as decl}] *current-lctx*]
-                                (when (and type (= :local (:tag decl)))
-                                  (.addLocal tc-if (long id) (str (:name decl)) type))))
-                          ret-type (try (.inferType tc-if then-expr)
-                                        (catch Exception _
-                                        ;; Fallback: use Nat
-                                          (e/const' (name/from-string "Nat") [])))]
+                        ;; Infer the branch type properly under the enclosing binders (open-infer-
+                        ;; close). Do NOT guess a default type on failure — that is silently unsound;
+                        ;; fail loudly so the user annotates or the code is fixed.
+                          ret-type (or (infer-value-type env depth (scope-bvar-types scope depth) then-expr)
+                                       (throw (ex-info "if: cannot infer the type of the then-branch"
+                                                       {:then (nth form 2)})))]
                     ;; Bool.rec.{u} (motive : Bool → Sort u) (false-case) (true-case) (b : Bool)
                     ;; Note: false case comes FIRST (Bool.false is ctor 0)
                       (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
