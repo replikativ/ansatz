@@ -935,19 +935,24 @@
                          ;; Build Decidable instance — try synthesizing
                            dec-type (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
                            dec-inst (or (try-synthesize-instance env dec-type)
-                                      ;; Fallback: try common patterns
-                                      ;; For (= Nat a b): use Nat.decEq a b
-                                        (let [[eq-h eq-args] (e/get-app-fn-args cond-expr)]
-                                          (when (and (e/const? eq-h)
-                                                     (= "Eq" (name/->string (e/const-name eq-h)))
-                                                     (= 3 (count eq-args)))
-                                            (let [eq-type (nth eq-args 0)
-                                                  eq-lhs (nth eq-args 1)
-                                                  eq-rhs (nth eq-args 2)]
-                                              (when (and (e/const? eq-type)
-                                                         (= "Nat" (name/->string (e/const-name eq-type))))
-                                                (e/app* (e/const' (name/from-string "Nat.decEq") [])
-                                                        eq-lhs eq-rhs))))))
+                                      ;; Fallback: the standard Nat-comparison decidables (Lean's
+                                      ;; instances literally are these), since general synthesis can
+                                      ;; miss them. Eq Nat → Nat.decEq (3 args: type lhs rhs);
+                                      ;; LE.le/LT.lt Nat → Nat.decLe/Nat.decLt (4 args: type inst lhs rhs).
+                                        (let [[ch cargs] (e/get-app-fn-args cond-expr)
+                                              chn (when (e/const? ch) (name/->string (e/const-name ch)))
+                                              nat? (fn [t] (and (e/const? t)
+                                                                (= "Nat" (name/->string (e/const-name t)))))]
+                                          (cond
+                                            (and (= chn "Eq") (= 3 (count cargs)) (nat? (nth cargs 0)))
+                                            (e/app* (e/const' (name/from-string "Nat.decEq") [])
+                                                    (nth cargs 1) (nth cargs 2))
+                                            (and (= chn "LE.le") (= 4 (count cargs)) (nat? (nth cargs 0)))
+                                            (e/app* (e/const' (name/from-string "Nat.decLe") [])
+                                                    (nth cargs 2) (nth cargs 3))
+                                            (and (= chn "LT.lt") (= 4 (count cargs)) (nat? (nth cargs 0)))
+                                            (e/app* (e/const' (name/from-string "Nat.decLt") [])
+                                                    (nth cargs 2) (nth cargs 3)))))
                            _ (when-not dec-inst
                                (throw (ex-info (str "No Decidable instance for condition") {:cond cond-form})))
                          ;; Not type: ¬ cond = cond → False
