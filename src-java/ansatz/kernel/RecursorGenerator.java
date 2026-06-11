@@ -359,11 +359,31 @@ final class RecursorGenerator {
         for (int i = 0; i < importedRec.rules.length; i++) {
             ConstantInfo.RecursorRule actual = importedRec.rules[i];
             ConstantInfo.RecursorRule expected = expectedRules[i];
-            if (!actual.ctor.equals(expected.ctor) || actual.nfields != expected.nfields ||
-                    !TypeChecker.exprDeepEquals(actual.rhs, expected.rhs)) {
+            // ctor name and field count are the rule's structural identity — must match exactly.
+            if (!actual.ctor.equals(expected.ctor) || actual.nfields != expected.nfields) {
                 throw new RuntimeException("generated recursor rule mismatch for " + importedRec.name +
                     " rule #" + (i + 1));
             }
+            // The rule RHS is only determined up to definitional equality: Lean's exported recursor
+            // and our correct-by-construction generated one differ in defeq-invisible ways (stripped
+            // optParam/autoParam field wrappers, binder info, binder names). Mirror compareGeneratedType:
+            // accept on structural equality, else fall back to isDefEq. (Validation only — the stored
+            // recursor is Lean's, already kernel-checked at export time.)
+            if (TypeChecker.exprDeepEquals(actual.rhs, expected.rhs)) {
+                continue;
+            }
+            TypeChecker tc = new TypeChecker(workingEnv, bundle.isUnsafe ? TypeChecker.DEFN_UNSAFE : TypeChecker.DEFN_SAFE, importedRec.levelParams);
+            tc.setFuel(fuel);
+            if (tc.isDefEq(actual.rhs, expected.rhs)) {
+                continue;
+            }
+            if (System.getProperty("ansatz.debugRecRules") != null) {
+                System.err.println("=== REC RULE MISMATCH " + importedRec.name + " rule #" + (i + 1) + " (not defeq) ===");
+                System.err.println("  IMPORTED rhs (Lean): " + actual.rhs);
+                System.err.println("  GENERATED rhs (ours): " + expected.rhs);
+            }
+            throw new RuntimeException("generated recursor rule mismatch for " + importedRec.name +
+                " rule #" + (i + 1));
         }
     }
 

@@ -657,18 +657,30 @@
 ;; ============================================================
 
 (defn- add-nat-nonnegativity
-  "For each Nat-typed atom, add x ≥ 0 constraint."
+  "For each Nat-typed atom, add x ≥ 0 constraint. Also validates atom types: an atom whose
+   type is a definite non-Nat/non-Int constant (e.g. Bool) means the goal isn't linear
+   arithmetic over Nat/Int — reject with a tactic-error (caught by `try`) instead of letting
+   the reconstruction crash later (`Int.ofNat` applied to a Bool)."
   [st table constraints]
-  (let [nat-name (name/from-string "Nat")]
+  (let [nat-name (name/from-string "Nat")
+        int-name (name/from-string "Int")]
     (reduce
      (fn [[table constraints] [idx expr]]
-       (try
-         (let [ty (tc/infer-type st expr)
-               ty-whnf (#'tc/cached-whnf st ty)]
-           (if (and (e/const? ty-whnf) (= (e/const-name ty-whnf) nat-name))
-             [table (conj constraints (mk-geq (lc-var idx)))]
-             [table constraints]))
-         (catch Exception _ [table constraints])))
+       (let [ty-whnf (try (#'tc/cached-whnf st (tc/infer-type st expr))
+                          (catch Exception _ nil))]
+         (cond
+           (and ty-whnf (e/const? ty-whnf) (= (e/const-name ty-whnf) nat-name))
+           [table (conj constraints (mk-geq (lc-var idx)))]
+           ;; Int atom (or any type we can't pin to a non-arithmetic const): leave as-is.
+           (or (nil? ty-whnf) (not (e/const? ty-whnf))
+               (= (e/const-name ty-whnf) int-name))
+           [table constraints]
+           ;; Definite non-arithmetic atom type (Bool, ...): reject gracefully.
+           :else
+           (throw (ex-info (str "omega: atom of non-arithmetic type "
+                                (name/->string (e/const-name ty-whnf))
+                                " — goal is not linear arithmetic over Nat/Int")
+                           {:kind :tactic-error})))))
      [table constraints]
      (:idx->expr table))))
 
