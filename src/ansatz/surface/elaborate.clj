@@ -25,6 +25,11 @@
             [ansatz.surface.match :as match])
   (:import [ansatz.kernel Env]))
 
+;; Holds ansatz.core's structure-registry atom, wired once at ansatz.core load time
+;; (keyword projection needs it; reaching across namespaces via requiring-resolve in
+;; the hot elaboration path proved unreliable).
+(defonce structure-registry-holder (atom nil))
+
 ;; ============================================================
 ;; Elaboration state
 ;; ============================================================
@@ -687,7 +692,9 @@
                 struct-type (#'tc/cached-whnf (:tc est) (infer-with-mvars est struct-expr))
                 [th _] (e/get-app-fn-args struct-type)
                 tn (when (e/const? th) (name/->string (e/const-name th)))
-                reg (deref (requiring-resolve 'ansatz.core/structure-registry))
+                reg (if-let [r @structure-registry-holder]
+                      (deref r)
+                      (deref (requiring-resolve 'ansatz.core/structure-registry)))
                 sinfo (get reg tn)
                 fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
                                                       (:fields sinfo))))]

@@ -76,6 +76,11 @@
 ;; Used by ansatz->clj to compile constructors to defrecord and projections to keyword access.
 (defonce ^{:doc "Structure field registry for defrecord compilation."} structure-registry (atom {}))
 
+;; Wire the registry into surface/elaborate's keyword projection (it needs it but
+;; reaching across namespaces via requiring-resolve in the hot path is unreliable).
+(reset! @(requiring-resolve 'ansatz.surface.elaborate/structure-registry-holder)
+        structure-registry)
+
 ;; ── Runtime seams (filled additively by wandler) ────────────────────────────────────────────────
 ;; ansatz.core is the DSL: it elaborates surface Clojure to kernel terms, kernel-checks them, and
 ;; codegens the base (Nat/Int/inductive/record) fragment. A runtime layer (wandler) plugs in a
