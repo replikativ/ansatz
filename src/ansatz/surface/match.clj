@@ -180,6 +180,15 @@
                         (= ctor-name (:ctor-name pat))))))
            alts))
 
+(defn- est-infer
+  "Infer the type of expr, using the est's mvar-aware infer-fn when present (the
+   fvar elaborator supplies one so terms still mentioning unsolved/solved mvars are
+   typed correctly); falls back to the plain kernel inferType (bvar path has no mvars)."
+  [est expr]
+  (if-let [f (:infer-fn est)]
+    (f est expr)
+    (tc/infer-type (:tc est) expr)))
+
 (defn- build-minor-premise
   "Build a minor premise lambda for one constructor.
 
@@ -326,6 +335,13 @@
                                matching-alts nfields)
           ;; Simple case: just elaborate the first alt's RHS
           (elab-fn est' (:rhs-sexpr first-alt)))
+        ;; Best-effort: unify the branch's inferred type with the expected ret-type
+        ;; (the motive). For a non-dependent motive (no loose bvar) this resolves
+        ;; under-determined branches like a bare `nil` (List ?α =?= List Nat ⇒ α := Nat)
+        ;; without affecting determined branches; failures are ignored (caught later).
+        _ (when-let [uf (:unify-fn est')]
+            (when-not (e/has-loose-bvars? ret-type)
+              (try (uf est' (est-infer est' rhs-body) ret-type) (catch Throwable _ nil))))
         ;; Replace discriminant variable with constructor application.
         ;; When the match body references the original parameter (e.g., `l` in
         ;; `(cons x l)`), the elaborated RHS has fvar_l. But the recursor's iota
@@ -417,15 +433,6 @@
              matching-alts)]
         (compile-match-term est env elab-fn fvar field-type-whnf inner-alts)))))
 
-(defn- est-infer
-  "Infer the type of expr, using the est's mvar-aware infer-fn when present (the
-   fvar elaborator supplies one so terms still mentioning unsolved/solved mvars are
-   typed correctly); falls back to the plain kernel inferType (bvar path has no mvars)."
-  [est expr]
-  (if-let [f (:infer-fn est)]
-    (f est expr)
-    (tc/infer-type (:tc est) expr)))
-
 (defn- compile-match-term
   "Compile a match on a single discriminant to a recursor application."
   [est env elab-fn discr-expr discr-type alts]
@@ -473,6 +480,11 @@
         rec-levels (into [motive-level] ind-levels)
         ;; Determine return type by finding a simple alt and elaborating its RHS
         ret-type-info
+        (if-let [drt (:declared-ret-type est)]
+          ;; The explicit (a/defn) match form carries the user-declared ret-type; use it as
+          ;; the motive rather than inferring (lets under-determined branches like a bare nil
+          ;; resolve — see the branch unify in build-minor-premise).
+          {:ret-type drt}
         (let [simple-alt (or (first (filter #(= :var (:tag (:pattern %))) alts))
                              (first (filter #(= :wildcard (:tag (:pattern %))) alts)))]
           (if simple-alt
@@ -504,7 +516,7 @@
                             field-info)
                   rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
                   rhs-type (est-infer temp-est rhs-expr)]
-              {:ret-type rhs-type})))
+              {:ret-type rhs-type}))))
         ret-type (:ret-type ret-type-info)
         ;; Build the motive: λ (x : IndType params) => ret-type
         ind-applied (reduce e/app (e/const' ind-name ind-levels) params)

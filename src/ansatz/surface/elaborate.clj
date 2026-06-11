@@ -538,11 +538,15 @@
         ;;  - explicit (a/defn):     (match scrut type ret (ctor [fields] body) …)
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
-        "match"  (let [args (vec (rest sexpr))]
+        "match"  (let [args (vec (rest sexpr))
+                       est* (assoc est :infer-fn infer-with-mvars :unify-fn unify!)]
                    (if (vector? (get args 1))
-                     (match/compile-match (assoc est :infer-fn infer-with-mvars)
-                                          elab-term (first args) (mapv vec (rest args)))
+                     (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
+                     ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the
+                     ;; declared ret-type as the motive — it's the type-directed hint that lets
+                     ;; under-determined branches (e.g. a bare `nil`) resolve their element type.
                      (let [scrut (first args)
+                           declared-ret (try (elab-term est (nth args 2)) (catch Throwable _ nil))
                            alts (mapv (fn [c]
                                         (let [ctor (first c)
                                               has-fields (and (> (count c) 2) (vector? (second c)))
@@ -550,7 +554,8 @@
                                               body (if has-fields (nth c 2) (second c))]
                                           [(if (seq fields) (cons ctor (seq fields)) ctor) body]))
                                       (drop 3 args))]
-                       (match/compile-match (assoc est :infer-fn infer-with-mvars)
+                       (match/compile-match (cond-> est* declared-ret
+                                                    (assoc :declared-ret-type declared-ret))
                                             elab-term scrut alts))))
 
         "=>" (let [[_ a b] sexpr]
