@@ -28,6 +28,8 @@
             [ansatz.tactic.instance :as instance]
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
+            [ansatz.surface.ingest :as ingest]
+            [ansatz.surface.elaborate :as elab]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -74,12 +76,9 @@
 (defonce ^{:doc "Arity registry for compiled functions."} arity-registry (atom {}))
 ;; Structure registry — maps type-name → {:fields [field-name ...], :record-sym symbol}
 ;; Used by ansatz->clj to compile constructors to defrecord and projections to keyword access.
-(defonce ^{:doc "Structure field registry for defrecord compilation."} structure-registry (atom {}))
-
-;; Wire the registry into surface/elaborate's keyword projection (it needs it but
-;; reaching across namespaces via requiring-resolve in the hot path is unreliable).
-(reset! @(requiring-resolve 'ansatz.surface.elaborate/structure-registry-holder)
-        structure-registry)
+;; Re-exported from ansatz.surface.ingest (the shared low-level ns that breaks the
+;; core↔elaborate dependency cycle). Same atom — registration and projection agree.
+(def structure-registry ingest/structure-registry)
 
 ;; ── Runtime seams (filled additively by wandler) ────────────────────────────────────────────────
 ;; ansatz.core is the DSL: it elaborates surface Clojure to kernel terms, kernel-checks them, and
@@ -104,20 +103,9 @@
 ;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
 ;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce
 ;; an unsound definition. The set only keeps OUR handlers winning and errors clean.
-(defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified name.
-   Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's :else/truthy
-   semantics differ from our typed cond->if. (`->` is NOT here — it threads in term position and is
-   the type arrow only in type position; see *type-mode*.)"}
-  no-expand-macros
-  (atom '#{cond}))
-
-(clojure.core/defn- expand-macro?
-  "Should the elaborator macroexpand-1 this list head? True iff it resolves to a macro and is not in
-   no-expand-macros (matched by unqualified name, so clojure.core/when etc. count)."
-  [head]
-  (boolean (and (symbol? head)
-                (not (contains? @no-expand-macros (symbol (name head))))
-                (try (some-> (resolve head) meta :macro) (catch Throwable _ nil)))))
+;; Re-exported from ansatz.surface.ingest (shared, breaks the core↔elaborate cycle).
+(def no-expand-macros ingest/no-expand-macros)
+(def expand-macro? ingest/expand-macro?)
 
 (clojure.core/defn init!
   "Load Ansatz environment from LMDB store and build instance index."
@@ -1766,49 +1754,10 @@
 ;; Param parsing — handles :- and :inst markers
 ;; ============================================================
 
-(clojure.core/defn binder-type
-  "A binder's declared type, read from metadata: prefer ^{:- T} (for compound types like
-   (List Nat)), else the ^Type :tag shorthand (for simple types like ^Nat). Returns the type
-   form, or nil for an untyped binder (→ the elaborator infers it)."
-  [sym]
-  (let [m (meta sym)] (or (:- m) (:tag m))))
-
-(clojure.core/defn metadata-params?
-  "Is this a METADATA parameter/binder vector (types ride as metadata on the binders),
-   vs the legacy positional/`:-`-separator form? True iff some element carries :-, :tag, or
-   :inst metadata. (A bare `[n Nat]` or `[n :- Nat]` carries none → legacy.)"
-  [params]
-  (boolean (some (fn [x] (let [m (meta x)] (or (:- m) (:tag m) (:inst m)))) params)))
-
-(clojure.core/defn- parse-params
-  "Parse a parameter vector into triples [name type-form binder-info]. Surfaces, auto-detected:
-     metadata (preferred, for a/defn):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
-     :- separator (natural for proof binders / a/theorem):  [n :- Nat,  h :- (= Nat n n)]
-     positional pairs (older):           [n Nat]
-   Metadata composes — types ride on the binder symbols, so the binding vector stays a normal
-   Clojure vector; ^:inst marks an instance binder. The :- and positional forms remain accepted
-   (the :- separator reads naturally for theorem hypotheses)."
-  [params]
-  (if (metadata-params? params)
-    ;; metadata form: each element is a binder symbol carrying its type/kind as metadata
-    (mapv (fn [sym]
-            (let [binfo (if (:inst (meta sym)) :inst-implicit :default)]
-              [(with-meta sym nil) (binder-type sym) binfo]))
-          params)
-    ;; :- separator or positional pairs: name [:-] type [ :inst ]
-    (let [cleaned (remove #{:-} params)
-          result (atom [])
-          remaining (atom (vec cleaned))]
-      (while (seq @remaining)
-        (let [r @remaining
-              pname (first r)
-              ptype (second r)]
-          (if (and (> (count r) 2) (= :inst (nth r 2)))
-            (do (swap! result conj [pname ptype :inst-implicit])
-                (reset! remaining (vec (drop 3 r))))
-            (do (swap! result conj [pname ptype :default])
-                (reset! remaining (vec (drop 2 r)))))))
-      @result)))
+;; Re-exported from ansatz.surface.ingest (shared, breaks the core↔elaborate cycle).
+(def binder-type ingest/binder-type)
+(def metadata-params? ingest/metadata-params?)
+(def parse-params ingest/parse-params)
 
 ;; ============================================================
 ;; Well-Founded Recursion (following Lean 4's WellFounded.Nat.fix)
@@ -2184,8 +2133,7 @@
         ptypes (mapv (fn [p] (sexp->ansatz env {} 0 (second p))) pairs)
         lctx (into {} (map (fn [fid p pt] [fid {:name (str (first p)) :type pt :tag :local}])
                            fids pairs ptypes))
-        elab-in-ctx (requiring-resolve 'ansatz.surface.elaborate/elaborate-in-context)
-        body-expr (elab-in-ctx env lctx body-form)
+        body-expr (elab/elaborate-in-context env lctx body-form)
         ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in
         ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
         body-bvar (e/abstract-many body-expr fids)]

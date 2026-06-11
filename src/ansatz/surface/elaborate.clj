@@ -22,13 +22,9 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
-            [ansatz.surface.match :as match])
+            [ansatz.surface.match :as match]
+            [ansatz.surface.ingest :as ingest])
   (:import [ansatz.kernel Env]))
-
-;; Holds ansatz.core's structure-registry atom, wired once at ansatz.core load time
-;; (keyword projection needs it; reaching across namespaces via requiring-resolve in
-;; the hot elaboration path proved unreliable).
-(defonce structure-registry-holder (atom nil))
 
 ;; ============================================================
 ;; Elaboration state
@@ -647,7 +643,7 @@
                   (elab-error! "fn: only single-arity lambdas elaborate to kernel terms" {:form sexpr}))
                 (let [[params & body] (first arities)
                       body-form (if (> (count body) 1) (cons 'do body) (first body))
-                      pairs ((requiring-resolve 'ansatz.core/parse-params) params)
+                      pairs (ingest/parse-params params)
                       binder-vec (vec (mapcat (fn [p] [(first p) (second p)]) pairs))]
                   (elab-lam est binder-vec body-form)))
 
@@ -692,9 +688,7 @@
                 struct-type (#'tc/cached-whnf (:tc est) (infer-with-mvars est struct-expr))
                 [th _] (e/get-app-fn-args struct-type)
                 tn (when (e/const? th) (name/->string (e/const-name th)))
-                reg (if-let [r @structure-registry-holder]
-                      (deref r)
-                      (deref (requiring-resolve 'ansatz.core/structure-registry)))
+                reg (deref ingest/structure-registry)
                 sinfo (get reg tn)
                 fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
                                                       (:fields sinfo))))]
@@ -706,7 +700,7 @@
           (= (str head) "get") (elab-term est (list (nth sexpr 2) (nth sexpr 1)))
           ;; (cons x xs) → List.cons sugar (element type inferred)
           (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
-          (and (symbol? head) ((requiring-resolve 'ansatz.core/expand-macro?) head))
+          (and (symbol? head) (ingest/expand-macro? head))
           (elab-term est (macroexpand-1 sexpr))
           :else (elab-app est (first sexpr) (rest sexpr)))))
 
