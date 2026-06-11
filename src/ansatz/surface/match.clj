@@ -189,6 +189,34 @@
     (f est expr)
     (tc/infer-type (:tc est) expr)))
 
+;; Structural-recursion auto-detection (Lean FindRecArg, restricted): the name of the
+;; function currently being elaborated, so a NATURAL recursive call (isort tl) on a bare
+;; recursive match field can stand in for the recursor's IH (ih_tail). Bound by define-verified
+;; (nil elsewhere — proofs etc.); the self-call resolves to a tmp axiom during elaboration and
+;; is rewritten to the field's IH here.
+(def ^:dynamic *self-name* nil)
+
+(defn- replace-self-ih
+  "Rewrite (self-name <bare recursive-field fvar>) → that field's IH fvar throughout expr.
+   field->ih maps recursive-field fvar-id → IH fvar-id. Single-argument self-calls only (a
+   structurally-smaller bare field); multi-arg/non-bare calls are left for check-constant to
+   reject (→ the user adds :termination-by / ^:partial)."
+  [expr self-name field->ih]
+  (let [rec (fn rec [e] (replace-self-ih e self-name field->ih))]
+    (if (and (= :app (e/tag expr))
+             (= :const (e/tag (e/app-fn expr)))
+             (= (e/const-name (e/app-fn expr)) self-name)
+             (= :fvar (e/tag (e/app-arg expr)))
+             (contains? field->ih (e/fvar-id (e/app-arg expr))))
+      (e/fvar (get field->ih (e/fvar-id (e/app-arg expr))))
+      (case (e/tag expr)
+        :app    (e/app (rec (e/app-fn expr)) (rec (e/app-arg expr)))
+        :lam    (e/lam (e/lam-name expr) (rec (e/lam-type expr)) (rec (e/lam-body expr)) (e/lam-info expr))
+        :forall (e/forall' (e/forall-name expr) (rec (e/forall-type expr)) (rec (e/forall-body expr)) (e/forall-info expr))
+        :let    (e/let' (e/let-name expr) (rec (e/let-type expr)) (rec (e/let-value expr)) (rec (e/let-body expr)))
+        :proj   (e/proj (e/proj-type-name expr) (e/proj-idx expr) (rec (e/proj-struct expr)))
+        expr))))
+
 (defn- build-minor-premise
   "Build a minor premise lambda for one constructor.
 
@@ -335,6 +363,15 @@
                                matching-alts nfields)
           ;; Simple case: just elaborate the first alt's RHS
           (elab-fn est' (:rhs-sexpr first-alt)))
+        ;; Structural-recursion auto-detect: rewrite (self <bare recursive field>) → that field's
+        ;; IH, so a natural recursive call stands in for ih_<field> (Lean's surface affordance).
+        ;; No-op unless a self-name is in scope (define-verified) and this ctor has recursive fields.
+        rhs-body (if (and *self-name* (seq early-rec-indices))
+                   (replace-self-ih rhs-body *self-name*
+                                    (into {} (map-indexed
+                                              (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
+                                              early-rec-indices)))
+                   rhs-body)
         ;; Best-effort: unify the branch's inferred type with the expected ret-type
         ;; (the motive). For a non-dependent motive (no loose bvar) this resolves
         ;; under-determined branches like a bare `nil` (List ?α =?= List Nat ⇒ α := Nat)

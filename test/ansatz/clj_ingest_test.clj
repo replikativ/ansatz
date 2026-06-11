@@ -49,6 +49,15 @@
     (is (= [0 0 0] (mapv (resolve 'ci-countdown) [0 5 100])) "free self-call recursion runs")
     (is (= [0 15 55] (mapv (resolve 'ci-sumto) [0 5 10])) "accumulating recursion runs")))
 
+(deftest structural-self-call-auto-ih
+  ;; A NATURAL recursive call (ci-suml tl) on a bare recursive match field is auto-mapped to the
+  ;; recursor's induction hypothesis — no manual ih_<field> (Lean's structural-recursion
+  ;; affordance). It's kernel-verified (not partial) and runs.
+  (eval '(ansatz.core/defn ^Nat ci-suml [^{:- (List Nat)} l]
+           (match l (List Nat) Nat (nil 0) (cons [hd tl] (+ hd (ci-suml tl))))))
+  (is (= [6 30 0] (mapv (resolve 'ci-suml) ['(1 2 3) '(10 20) '()]))
+      "natural recursive call auto-maps to the IH — verified + runs"))
+
 (deftest get-record-accessor
   ;; (get rec :field) → keyword projection (a sound record accessor). Full {:keys […]} destructuring
   ;; needs a custom typed desugar (Clojure's injects a dynamic seq-normalization preamble) — follow-on.

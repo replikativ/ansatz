@@ -2151,13 +2151,9 @@
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
-        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete). This is the sole
-        ;; path — the bvar build-telescope fallback was retired once the fvar elaborator
-        ;; covered the whole suite (recursion, nested match, positional implicits, get, bare
-        ;; nil). Elaboration failures now surface honestly instead of silently re-routing.
-        body-ansatz (build-telescope-fvar env pairs ret-type-form body-form)
-        ;; Build type: ∀ params → ret-type
         n (count pairs)
+        cname (name/from-string (str fn-name))
+        ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
         ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
         type-ansatz (loop [i (dec n) body ret-ansatz]
@@ -2166,11 +2162,19 @@
                                 s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
                                 ty (sexp->ansatz env s i pt)]
                             (recur (dec i) (e/forall' (str pn) ty body binfo)))))
-        ;; Type-check
+        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
+        ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
+        ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
+        ;; self-calls on a bare recursive field to that field's IH (Lean's affordance — no
+        ;; manual ih_<field>). Non-structural leftovers still reference the axiom → check-constant
+        ;; rejects them (the user adds :termination-by / ^:partial). Existing ih_<field> bodies
+        ;; keep working. Elaboration failures otherwise surface honestly.
+        tmp-env (env/add-constant (env/fork env) (env/mk-axiom cname [] type-ansatz))
+        body-ansatz (binding [surface-match/*self-name* cname]
+                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))
+        ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
         tc (ansatz.kernel.TypeChecker. env)
         _ (.inferType tc body-ansatz)
-        ;; Add to environment (swap! to avoid stale env race)
-        cname (name/from-string (str fn-name))
         ci (env/mk-def cname [] type-ansatz body-ansatz)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
