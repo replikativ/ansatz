@@ -466,6 +466,7 @@
   (cond
     (integer? sexpr) (e/lit-nat sexpr)
     (string? sexpr)  (e/lit-str sexpr)
+    (boolean? sexpr) (e/const' (name/from-string (if sexpr "Bool.true" "Bool.false")) [])
 
     (symbol? sexpr)
     ;; A bare symbol in term position: insert its implicit/instance arguments

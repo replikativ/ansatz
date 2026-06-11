@@ -2169,11 +2169,31 @@
 ;; Public API
 ;; ============================================================
 
+(clojure.core/defn- build-telescope-fvar
+  "fvar-first body elaboration via surface/elaborate: params become fvars in the
+   lctx, the body elaborates with full inference (instances/levels/match), then the
+   fvars are abstracted back into the lambda telescope — same shape as build-telescope."
+  [env pairs body-form]
+  (let [n (count pairs)
+        fids (mapv inc (range n))
+        ptypes (mapv (fn [p] (sexp->ansatz env {} 0 (second p))) pairs)
+        lctx (into {} (map (fn [fid p pt] [fid {:name (str (first p)) :type pt :tag :local}])
+                           fids pairs ptypes))
+        elab-in-ctx (requiring-resolve 'ansatz.surface.elaborate/elaborate-in-context)
+        body-expr (elab-in-ctx env lctx body-form)
+        body-bvar (e/abstract-many body-expr (vec (reverse fids)))]
+    (loop [i (dec n) acc body-bvar]
+      (if (< i 0) acc
+          (let [[pn _ binfo] (nth pairs i)]
+            (recur (dec i) (e/lam (str pn) (nth ptypes i) acc (or binfo :default))))))))
+
 (clojure.core/defn define-verified
   "Define a verified function. Returns compiled Clojure fn."
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
+        ;; TODO(elaborator-unification step 3): route through build-telescope-fvar
+        ;; once the last surface gaps are ported (bare cons/nil/get + fn/arrow codegen).
         body-ansatz (build-telescope env {} 0 pairs body-form e/lam)
         ;; Build type: ∀ params → ret-type
         n (count pairs)
