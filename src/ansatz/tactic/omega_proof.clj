@@ -750,11 +750,28 @@
             (and (= head-name (:int-ofnat omega-names)) (= 1 (count args)))
             (reify-term st table (nth args 0))
 
-            ;; HSub.hSub _ _ _ _ a b → a - b (pre-WHNF to avoid unfolding to Int.sub)
+            ;; HSub.hSub α _ _ _ a b → a - b. CRUCIAL: distinguish by the element type α.
+            ;; Nat subtraction is TRUNCATED (max(0,a-b)), NOT integer subtraction, so it must be
+            ;; atomized + tagged for the Int.ofNat_sub_dichotomy (same as bare Nat.sub) — linearizing
+            ;; it as `a - b` builds an unsound eval-proof (le_of_le_of_eq Int-transport mismatch).
+            ;; Only Int (or other ring) subtraction linearizes.
             (and (= head-name (:hsub omega-names)) (= 6 (count args)))
-            (let [[table' lc-a prf-a] (reify-term st table (nth args 4))
-                  [table'' lc-b prf-b] (reify-term st table' (nth args 5))]
-              [table'' (lc-sub lc-a lc-b) (mk-sub-eval-proof lc-a lc-b prf-a prf-b)])
+            (let [alpha (#'tc/cached-whnf st (nth args 0))
+                  a (nth args 4) b (nth args 5)]
+              (if (and (e/const? alpha) (= (e/const-name alpha) (:nat-name omega-names)))
+                ;; Nat subtraction: ground → max(0,a-b); else atom + dichotomy tag
+                (let [a-whnf (#'tc/cached-whnf st a)
+                      b-whnf (#'tc/cached-whnf st b)]
+                  (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
+                    (let [lc (mk-lc (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
+                      [table lc (mk-eval-rfl-proof lc)])
+                    (let [[table' idx] (intern-atom table st expr)
+                          table' (assoc-in table' [:nat-sub-atoms idx] {:a a :b b})]
+                      [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)])))
+                ;; Int subtraction: linearize
+                (let [[table' lc-a prf-a] (reify-term st table a)
+                      [table'' lc-b prf-b] (reify-term st table' b)]
+                  [table'' (lc-sub lc-a lc-b) (mk-sub-eval-proof lc-a lc-b prf-a prf-b)])))
 
             ;; HAdd.hAdd _ _ _ _ a b → a + b (pre-WHNF)
             (and (= head-name (:hadd omega-names)) (= 6 (count args)))
