@@ -2689,6 +2689,34 @@
     ((:fix callspec) ret-level Ffn)))
 
 (declare build-telescope-fvar)
+
+(clojure.core/defn- elab-signature
+  "fvar-first elaboration of an a/defn signature (P1 of the elaborator unification): each
+   parameter type elaborates via surface/elaborate with the EARLIER params in scope as fvars
+   (supporting dependent telescopes), the return type with all params in scope; the ∀-telescope
+   is rebuilt by abstraction (mkForallFVars). Returns {:param-types [closed Expr …]
+   :ret-ansatz Expr :type-ansatz Expr}. param-types/ret are fvar-free for the non-dependent
+   signatures the embedding produces (same contract the bvar path had)."
+  [env pairs ret-type-form]
+  (let [n (count pairs)
+        ids (vec (repeatedly n wf-fix-fresh))
+        [lctx ptys]
+        (loop [i 0 lctx {} acc []]
+          (if (= i n) [lctx acc]
+              (let [[pn pt _] (nth pairs i)
+                    ty (elab/elaborate-in-context env lctx pt)
+                    lctx' (assoc lctx (nth ids i) {:name (str pn) :type ty :tag :local})]
+                (recur (inc i) lctx' (conj acc ty)))))
+        ret (elab/elaborate-in-context env lctx ret-type-form)
+        type-ansatz (loop [i (dec n) body (e/abstract-many ret ids)]
+                      (if (< i 0) body
+                          (let [[pn _ binfo] (nth pairs i)]
+                            (recur (dec i)
+                                   (e/forall' (str pn)
+                                              (e/abstract-many (nth ptys i) (subvec ids 0 i))
+                                              body (or binfo :default))))))]
+    {:param-types ptys :ret-ansatz ret :type-ansatz type-ansatz}))
+
 (clojure.core/defn define-verified-wf
   "Define a verified function with well-founded recursion.
    Uses WellFounded.Nat.fix from the environment.
@@ -2719,20 +2747,9 @@
                                           ". Adjust :termination-by, or use ^:partial.")
                                      {:fn fn-name :kind :termination-decrease-failed :call c}))))))
 
-        ;; Build the function type: ∀ params → ret-type (same as define-verified)
+        ;; Build the function type: ∀ params → ret-type (fvar-first, elab-signature)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
-        type-ansatz (loop [i (dec n) body ret-ansatz]
-                      (if (< i 0) body
-                          (let [[pn pt binfo] (nth pairs i)
-                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
-                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
-
-        ;; Compile param types
-        param-types (mapv (fn [[_ pt-form]]
-                            (sexp->ansatz env {} 0 pt-form))
-                          pairs)
+        {:keys [param-types ret-ansatz type-ansatz]} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
 
         ;; Fork env and add temporary axiom for self-reference
@@ -3110,13 +3127,7 @@
         n (count pairs)
         ;; function type  ∀ params → ret  (same construction as define-verified)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
-        type-ansatz (loop [i (dec n) body ret-ansatz]
-                      (if (< i 0) body
-                          (let [[pn pt binfo] (nth pairs i)
-                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
-                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
+        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
         ;; trusted axiom at the type; also the self-reference used to elaborate the body for codegen
         ax (env/mk-axiom cname [] type-ansatz)
@@ -3156,7 +3167,7 @@
   [env pairs ret-type-form body-form]
   (let [n (count pairs)
         fids (mapv inc (range n))
-        ptypes (mapv (fn [p] (sexp->ansatz env {} 0 (second p))) pairs)
+        ptypes (mapv (fn [p] (elab/elaborate env (second p))) pairs)
         lctx (into {} (map (fn [fid p pt] [fid {:name (str (first p)) :type pt :tag :local}])
                            fids pairs ptypes))
         body-expr (elab/elaborate-in-context env lctx body-form)
@@ -3261,13 +3272,7 @@
         cname (name/from-string (str fn-name))
         ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
-        type-ansatz (loop [i (dec n) body ret-ansatz]
-                      (if (< i 0) body
-                          (let [[pn pt binfo] (nth pairs i)
-                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
-                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
+        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
         ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
         ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
         ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
