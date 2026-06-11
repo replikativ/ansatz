@@ -188,14 +188,19 @@
           [table'' lc-b] (reify-term st table' (nth args 5))]
       [table'' (lc-add lc-a lc-b)])
 
-    ;; Nat.sub a b → for ground cases evaluate, else treat as atom
+    ;; Nat.sub a b → ground: evaluate; symbolic: linear a - b, the SAME as the HSub.hSub spelling
+    ;; below (lean4's omega sees `Nat.sub` for both — HSub unfolds to it — so the two spellings
+    ;; must decide identically; compiled bodies use bare Nat.sub while the surface emits HSub).
+    ;; The honest truncation dichotomy lives in the reconstruction (omega_proof nat-sub-atoms),
+    ;; which already accepts both spellings; this decision is a linear approximation either way.
     (and (= head-name nat-sub-name) (= 2 (count args)))
     (let [a-whnf (#'tc/cached-whnf st (nth args 0))
           b-whnf (#'tc/cached-whnf st (nth args 1))]
       (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
         [table (mk-lc (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
-        (let [[table' idx] (intern-atom table st expr)]
-          [table' (lc-var idx)])))
+        (let [[table' lc-a] (reify-term st table (nth args 0))
+              [table'' lc-b] (reify-term st table' (nth args 1))]
+          [table'' (lc-sub lc-a lc-b)])))
 
     ;; HSub.hSub _ _ _ _ a b → a - b (for Int)
     (and (= head-name hsub-name) (= 6 (count args)))

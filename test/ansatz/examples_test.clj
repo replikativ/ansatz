@@ -152,6 +152,25 @@
         (is (not (env/lookup (a/env) (name/from-string "ex-eb")))
             "the rejected function is not added to the environment")))))
 
+(defn- uses-wf-fix?
+  "Does this definition's value contain WellFounded.Nat.fix (the kernel-enforced encoding,
+   as opposed to the fuel Nat.rec encoding)?"
+  [ci]
+  (let [seen (atom false)]
+    ((fn go [x] (when (and (not @seen) (instance? ansatz.kernel.Expr x))
+                  (when (and (e/const? x)
+                             (= "WellFounded.Nat.fix" (name/->string (e/const-name x))))
+                    (reset! seen true))
+                  (cond (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
+                        (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
+                        (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x))))))
+     (.value ci))
+    @seen))
+
+(defn- run-nat-fn [fname ks]
+  (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 80000000)))]
+    (mapv #(e/->string (.whnf r (e/app (e/const' (name/from-string fname) []) (e/lit-nat %)))) ks)))
+
 (deftest test-wf-fix-nonstructural-nested-match
   (testing "Stage 1b: non-structural nested-match recursion is encoded as kernel-ENFORCED
             WellFounded.Nat.fix (decrease proof in the term), and computes correctly"
@@ -166,26 +185,36 @@
                                          (succ [k] (Nat.succ (ex-div2 k)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-div2"))]
         (is (some? ci) "div2 (n-2 recursion) defined")
-        ;; the encoding is WellFounded.Nat.fix, not the fuel Nat.rec
-        (is (let [seen (atom false)]
-              ((fn go [x] (when (and (not @seen) (instance? ansatz.kernel.Expr x))
-                            (when (and (e/const? x)
-                                       (= "WellFounded.Nat.fix" (name/->string (e/const-name x))))
-                              (reset! seen true))
-                            (cond (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
-                                  (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
-                                  (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x))))))
-               (.value ci))
-              @seen)
-            "div2 is encoded with kernel-enforced WellFounded.Nat.fix")
+        (is (uses-wf-fix? ci) "div2 is encoded with kernel-enforced WellFounded.Nat.fix")
         ;; (the definition already passed check-constant in define-verified-wf — both the encoder's
         ;;  own check and the swap! check-constant — so presence in the env implies kernel-verified)
-        ;; and it computes floor(n/2)
-        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 80000000)))]
-          (is (= ["0" "0" "1" "1" "2" "2" "3"]
-                 (mapv #(e/->string (.whnf r (e/app (e/const' (name/from-string "ex-div2") []) (e/lit-nat %))))
-                       (range 7)))
-              "div2 computes floor(n/2)"))))))
+        (is (= ["0" "0" "1" "1" "2" "2" "3"] (run-nat-fn "ex-div2" (range 7)))
+            "div2 computes floor(n/2)")))))
+
+(deftest test-wf-fix-if-guarded
+  (testing "Stage 1b-A: if-guarded recursion is kernel-enforced via the dite conversion
+            (lean4: ite/dite are macro_inline, so the WF translation sees Decidable.casesOn
+            whose constructor fields CARRY the guard — we convert Bool.rec-over-comparison
+            the same way, so omega gets ¬(n=0) for the n-1 < n decrease proof)"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ex-fact-fix"))
+        (eval '(ansatz.core/defn ^Nat ex-fact-fix [^Nat n]
+                 :termination-by n
+                 (if (== n 0) 1 (* n (ex-fact-fix (- n 1)))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-fact-fix"))]
+        (is (some? ci) "if-guarded factorial defined")
+        (is (uses-wf-fix? ci) "factorial is encoded with kernel-enforced WellFounded.Nat.fix")
+        (is (= ["1" "1" "2" "6" "24" "120"] (run-nat-fn "ex-fact-fix" (range 6)))
+            "factorial computes n!"))
+      ;; ≤-guard variant (Nat.ble → LE.le + Nat.decLe)
+      (when-not (env/lookup (a/env) (name/from-string "ex-sumto"))
+        (eval '(ansatz.core/defn ^Nat ex-sumto [^Nat n]
+                 :termination-by n
+                 (if (<= n 0) 0 (+ n (ex-sumto (- n 1)))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-sumto"))]
+        (is (uses-wf-fix? ci) "≤-guarded sum is kernel-enforced")
+        (is (= ["0" "1" "3" "6" "10" "15"] (run-nat-fn "ex-sumto" (range 6)))
+            "sum-to computes triangular numbers")))))
 
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)

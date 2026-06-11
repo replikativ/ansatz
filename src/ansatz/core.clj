@@ -2025,9 +2025,16 @@
 ;; closed and true), via omega; returned applied to the scope fvars.
 (defn- wf-fix-decr-proof [env scope measure-lam arg P]
   (let [ids (mapv first scope) tys (mapv second scope)
-        prop (wf-fix-mk-lt (e/app measure-lam arg) (e/app measure-lam P))
+        ;; beta-reduce the measure application (lean4's clean_wf normalizes the goal the same
+        ;; way before decreasing_tactic; omega's reifier atomizes unreduced lambda redexes).
+        ;; The proof still matches the call site's `InvImage … arg P` obligation by defeq.
+        m-of (fn [t] (e/instantiate1 (e/lam-body measure-lam) t))
+        prop (wf-fix-mk-lt (m-of arg) (m-of P))
+        ;; mkForallFVars: binder i's type may reference earlier scope fvars (e.g. a dite guard
+        ;; `h : ¬(x = 0)` mentions x) — abstract each type over ids[0..i), like wf-fix-mk-lambdas.
         gt (loop [i (dec (count ids)) body (e/abstract-many prop ids)]
-             (if (< i 0) body (recur (dec i) (e/forall' "s" (nth tys i) body :default))))
+             (if (< i 0) body
+                 (recur (dec i) (e/forall' "s" (e/abstract-many (nth tys i) (subvec ids 0 i)) body :default))))
         [ps _] (proof/start-proof env gt)
         ps (basic/intros ps (mapv #(str "s" %) (range (count ids))))
         ps (reduce run-tactic ps '[(omega)])]
@@ -2091,6 +2098,55 @@
     (e/app refined-rec ih-fvar)))
 
 ;; descend a branch body: rewrite self-calls to (ih arg proof), refine nested recursors, open lambdas.
+;; Bool comparison head → [Prop, Decidable instance] builders (the same comparison→Prop mapping as
+;; Stage 1a's wf-guard-of, but term-level). Props match the instances' indices exactly
+;; (Nat.decEq : Decidable (Eq Nat a b), Nat.decLt : Decidable (LT.lt Nat instLTNat a b), …).
+(def ^:private wf-fix-comparisons
+  {"Nat.beq" (fn [a b] [(e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) wf-fix-NAT a b)
+                        (e/app* (e/const' (name/from-string "Nat.decEq") []) a b)])
+   "Nat.blt" (fn [a b] [(wf-fix-mk-lt a b)
+                        (e/app* (e/const' (name/from-string "Nat.decLt") []) a b)])
+   "Nat.ble" (fn [a b] [(e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) wf-fix-NAT
+                                (e/const' (name/from-string "instLENat") []) a b)
+                        (e/app* (e/const' (name/from-string "Nat.decLe") []) a b)])})
+
+;; our if-compile: Bool.rec M else-br then-br (cmp a b), with a CONSTANT motive
+(defn- wf-fix-ite? [h as]
+  (and (e/const? h)
+       (= "Bool.rec" (name/->string (e/const-name h)))
+       (= 4 (count as))
+       (let [M (nth as 0) [ch cas] (e/get-app-fn-args (nth as 3))]
+         (and (e/lam? M) (not (e/has-loose-bvars? (e/lam-body M)))
+              (e/const? ch)
+              (contains? wf-fix-comparisons (name/->string (e/const-name ch)))
+              (= 2 (count cas))))))
+
+;; lean4-faithful if-guard: in lean4, ite/dite are @[macro_inline], so the WF translation sees
+;; `Decidable.casesOn inst (fun h:¬c => else) (fun h:c => then)` — the guard is a constructor FIELD
+;; of Decidable, exposed by the same casesOn mechanism as match patterns (Fix.lean has NO ite case).
+;; Our surface compiles `if` to Bool.rec over a Bool comparison, which loses the guard; convert it
+;; here to `dite P inst (fun h:P => then') (fun h:¬P => else')` so each branch binds the hypothesis
+;; the decrease proof needs (e.g. `¬(x = 0) → x - 1 < x`). No motive refinement is needed: unlike
+;; match, the IH type does not change between if-branches — only a hypothesis is added to scope.
+(defn- wf-fix-ite->dite [env cname measure-lam ret reducer rec-head as ih-fvar P scope]
+  (let [rv (first (e/const-levels rec-head))
+        M (nth as 0) else-br (nth as 1) then-br (nth as 2)
+        [ch cas] (e/get-app-fn-args (nth as 3))
+        ;; condition operands may themselves contain rec-calls — refine first, build P from refined
+        a (wf-fix-refine env cname measure-lam ret reducer (nth cas 0) ih-fvar P scope)
+        b (wf-fix-refine env cname measure-lam ret reducer (nth cas 1) ih-fvar P scope)
+        [prop inst] ((wf-fix-comparisons (name/->string (e/const-name ch))) a b)
+        ;; constant motive: extract the codomain (instantiate the unused Bool binder away)
+        ret-here (e/instantiate1 (e/lam-body M) (e/const' (name/from-string "Bool.true") []))
+        not-prop (e/app (e/const' (name/from-string "Not") []) prop)
+        ht (wf-fix-fresh) he (wf-fix-fresh)
+        then' (wf-fix-refine env cname measure-lam ret reducer then-br ih-fvar P (conj scope [ht prop]))
+        else' (wf-fix-refine env cname measure-lam ret reducer else-br ih-fvar P (conj scope [he not-prop]))]
+    (e/app* (e/const' (name/from-string "dite") [rv])
+            ret-here prop inst
+            (wf-fix-mk-lambdas [[ht "h" prop]] then')
+            (wf-fix-mk-lambdas [[he "h" not-prop]] else'))))
+
 (defn- wf-fix-refine [env cname measure-lam ret reducer body ih-fvar P scope]
   (let [[h as] (e/get-app-fn-args body)]
     (cond
@@ -2099,6 +2155,8 @@
         (e/app* ih-fvar arg (wf-fix-decr-proof env scope measure-lam arg P)))
       (wf-fix-refinable? env h as P)
       (wf-fix-refine-rec env cname measure-lam ret reducer h as ih-fvar P scope)
+      (wf-fix-ite? h as)
+      (wf-fix-ite->dite env cname measure-lam ret reducer h as ih-fvar P scope)
       (seq as)
       (apply e/app* (wf-fix-refine env cname measure-lam ret reducer h ih-fvar P scope)
              (mapv #(wf-fix-refine env cname measure-lam ret reducer % ih-fvar P scope) as))
@@ -2109,21 +2167,21 @@
         (e/lam (e/lam-name body) bt (e/abstract-many inner [id]) (e/lam-info body)))
       :else body)))
 
-;; Build the WellFounded.Nat.fix term for single-Nat-arg recursion. raw-body = compiled
-;; (R.rec params motive minors… major). measure-lam : Nat→Nat. Throws if the shape is unsupported.
+;; Build the WellFounded.Nat.fix term for single-Nat-arg recursion. raw-body = the compiled body
+;; with the param at bvar 0 (any shape: match/casesOn, if/Bool.rec, or mixed — the general refine
+;; dispatcher routes each). measure-lam : Nat→Nat. Throws if a decrease obligation is unprovable.
 (defn- wf-fix-encode [env cname raw-body measure-lam ret param-type]
-  (let [reducer (.getReducer (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*))))
+  (let [tc (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
+        reducer (.getReducer tc)
+        ret-sort (.inferType tc ret)
+        ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
         Xid (wf-fix-fresh) Fvid (wf-fix-fresh) X (e/fvar Xid)
         Fty (wf-fix-ihtype measure-lam ret X) Fv (e/fvar Fvid)
         rawX (e/instantiate1 raw-body X)
-        [h as] (e/get-app-fn-args rawX)]
-    (when-not (and (e/const? h) (.endsWith (name/->string (e/const-name h)) ".rec")
-                   (e/fvar? (last as)) (= Xid (e/fvar-id (last as))))
-      (throw (ex-info "wf-fix: body is not a top-level case-split on the recursion variable" {})))
-    (let [casesApp (wf-fix-refine-rec env cname measure-lam ret reducer h as Fv X [[Xid param-type]])
-          Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] casesApp)]
-      (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [(lvl/succ lvl/zero) (first (e/const-levels h))])
-             [param-type (e/lam "x" param-type (e/lift ret 1 0) :default) measure-lam Ffn]))))
+        body' (wf-fix-refine env cname measure-lam ret reducer rawX Fv X [[Xid param-type]])
+        Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] body')]
+    (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [(lvl/succ lvl/zero) ret-level])
+           [param-type (e/lam "x" param-type (e/lift ret 1 0) :default) measure-lam Ffn])))
 
 (declare build-telescope-fvar)
 (clojure.core/defn define-verified-wf
@@ -2268,8 +2326,9 @@
 
         ;; Stage 1b: prefer the lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED
         ;; termination — the decrease proof lives in the term). Applies to single Nat-arg recursion
-        ;; over match/casesOn bodies; on any unsupported shape or check failure, fall back to the
-        ;; (sound, gate-checked) fuel encoding above.
+        ;; over match/casesOn and if/Bool.rec bodies (the if is converted to dite, exposing the
+        ;; guard like lean4's macro_inline ite); on any unsupported shape or check failure, fall
+        ;; back to the (sound, gate-checked) fuel encoding above.
         fix-body (when (and (= n 1)
                             (e/const? (nth param-types 0))
                             (= "Nat" (name/->string (e/const-name (nth param-types 0)))))
@@ -2279,7 +2338,11 @@
                                             ret-ansatz (nth param-types 0))]
                        (env/check-constant env (env/mk-def cname [] type-ansatz t))
                        t)
-                     (catch Throwable _ nil)))
+                     (catch Throwable t
+                       (when *verbose*
+                         (println (str "  wf-fix encoding unavailable for " fn-name " ("
+                                       (.getMessage t) ") — using fuel encoding")))
+                       nil)))
         encoding (if fix-body :wf-fix :fuel)
         chosen-body (or fix-body final-body)
 
