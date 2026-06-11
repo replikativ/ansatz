@@ -71,12 +71,18 @@
   (is (= [0 1 15 55] (mapv (resolve 'ci-lsum) [0 1 5 10]))
       "loop/recur counting accumulator → Nat.rec, verified + runs (sum 1..n)"))
 
-(deftest non-structural-recursion-rejected
-  ;; A recursive call that isn't structurally decreasing on a parameter ((- n 2), not a bare match
-  ;; field) is rejected with an actionable error pointing at :termination-by / ^:partial — the
-  ;; recursion-lane prompt (structural auto-detect → explicit WF/partial), as in Lean.
-  (is (re-find #"termination-by|partial"
-        (try (eval '(ansatz.core/defn ^Nat ci-nonstruct [^Nat n] (if (== n 0) 0 (ci-nonstruct (- n 2)))))
+(deftest non-structural-recursion-auto-measure
+  ;; A non-structural but TERMINATING recursive call ((- n 2), not a bare match field) is now
+  ;; auto-verified via WF auto-measure (lean4's GuessLex, single Nat measure): the measure `n`
+  ;; provably decreases (n ≠ 0 → n-2 < n via omega), so no :termination-by is needed.
+  (eval '(ansatz.core/defn ^Nat ci-nonstruct [^Nat n] (if (== n 0) 0 (ci-nonstruct (- n 2)))))
+  (is (= [0 0 0] (mapv (resolve 'ci-nonstruct) [0 4 7])) "non-structural (n-2) auto-verifies + runs"))
+
+(deftest nonterminating-recursion-rejected
+  ;; A genuinely non-terminating recursion (n unchanged) has NO decreasing measure, so auto-measure
+  ;; fails and the actionable recursion-lane prompt (:termination-by / ^:partial) is given.
+  (is (re-find #"termination-by|partial|auto-verify"
+        (try (eval '(ansatz.core/defn ^Nat ci-loop [^Nat n] (if (== n 0) 0 (ci-loop n))))
              "NO-THROW"
              (catch Throwable e   ; eval wraps in CompilerException — scan the whole cause chain
                (->> (iterate #(some-> ^Throwable % .getCause) e)

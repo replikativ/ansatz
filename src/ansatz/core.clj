@@ -1956,6 +1956,28 @@
         goal      (list '< 'Nat measure-at-args measure-form)]
     (prove-theorem (gensym "decr") binders goal '[(omega)])))
 
+(clojure.core/defn- wf-candidate-measures
+  "GuessLex default measures restricted to a single Nat measure (lexicographic is Stage 3):
+   each Nat parameter, then the sum of all Nat parameters."
+  [pairs]
+  (let [nat-ps (->> pairs (filter (fn [[_ t _]] (= t 'Nat))) (mapv first))]
+    (concat (vec nat-ps)
+            (when (> (count nat-ps) 1) [(cons '+ nat-ps)]))))
+
+(clojure.core/defn- wf-guess-measure
+  "Synthesize a terminating measure for an unannotated recursive function (lean4's GuessLex,
+   restricted to single Nat measures): the first candidate for which EVERY recursive call
+   provably decreases (via prove-decrease/omega). Returns the measure form, or nil. Wrong
+   guesses fail prove-decrease, so this is sound."
+  [pairs body-form fn-name n]
+  (let [calls (collect-rec-calls-with-guards body-form fn-name n)]
+    (when (seq calls)
+      (some (fn [m]
+              (when (try (doseq [c calls] (prove-decrease pairs m c)) true
+                         (catch Throwable _ false))
+                m))
+            (wf-candidate-measures pairs)))))
+
 (declare build-telescope-fvar)
 (clojure.core/defn define-verified-wf
   "Define a verified function with well-founded recursion.
@@ -2273,8 +2295,22 @@
     :proj   (mentions-const? (e/proj-struct expr) nm)
     false))
 
+(declare define-verified-impl)
 (clojure.core/defn define-verified
-  "Define a verified function. Returns compiled Clojure fn."
+  "Define a verified function. Auto-detects structural recursion; if the recursion is not
+   structural, tries lean4's GuessLex (single Nat measure) and redirects to well-founded
+   recursion when a decreasing measure is found. Returns the compiled Clojure fn."
+  [fn-name params ret-type-form body-form]
+  (try
+    (define-verified-impl fn-name params ret-type-form body-form)
+    (catch clojure.lang.ExceptionInfo e
+      (if (= ::redirect-wf (:kind (ex-data e)))
+        (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
+        (throw e)))))
+
+(clojure.core/defn- define-verified-impl
+  "Structural-recursion path. Throws {:kind ::redirect-wf :measure m} when recursion is
+   non-structural but a WF measure was synthesized (handled by define-verified)."
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
@@ -2306,12 +2342,17 @@
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
         _ (when (mentions-const? body-ansatz cname)
-            (throw (ex-info
-                    (str "Cannot auto-verify recursive function `" fn-name "`: its recursive call isn't "
-                         "structurally decreasing on a parameter (a bare sub-component of a matched argument). "
-                         "Add `:termination-by <measure>` for well-founded recursion, or `^:partial` for "
-                         "trusted (unverified) recursion.")
-                    {:fn fn-name :kind :non-structural-recursion})))
+            ;; Not structural. Try lean4's GuessLex (single Nat measure) — if a measure makes
+            ;; every recursive call provably decrease, redirect to well-founded recursion;
+            ;; otherwise give the actionable recursion-lane prompt.
+            (if-let [m (wf-guess-measure pairs body-form fn-name n)]
+              (throw (ex-info "auto-measure WF" {:kind ::redirect-wf :measure m}))
+              (throw (ex-info
+                      (str "Cannot auto-verify recursive function `" fn-name "`: its recursive call isn't "
+                           "structurally decreasing on a parameter, and no Nat measure was found to be "
+                           "decreasing. Add `:termination-by <measure>` for well-founded recursion, or "
+                           "`^:partial` for trusted (unverified) recursion.")
+                      {:fn fn-name :kind :non-structural-recursion}))))
         ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
         tc (ansatz.kernel.TypeChecker. env)
         _ (.inferType tc body-ansatz)
