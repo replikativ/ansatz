@@ -2819,6 +2819,22 @@
                 ;; the unfolded `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
                 [inner-goal fvar-infos lctx-with-intros]
                 (strip-forall-binders st goal-type (:lctx goal))
+                ;; Bare `Nat.lt a b` / `Nat.le a b` goals (e.g. from instantiating a relation
+                ;; variable with Nat.lt) → the LT.lt/LE.le instance spelling negate-goal handles.
+                ;; Defeq, so the by_contra proof still checks against the original goal type.
+                inner-goal
+                (let [[h as] (e/get-app-fn-args inner-goal)
+                      nat-c (e/const' (name/from-string "Nat") [])]
+                  (if (and (e/const? h) (= 2 (count as)))
+                    (case (name/->string (e/const-name h))
+                      "Nat.lt" (e/app* (e/const' (:lt-name omega-names) [lvl/zero]) nat-c
+                                       (e/const' (name/from-string "instLTNat") [])
+                                       (nth as 0) (nth as 1))
+                      "Nat.le" (e/app* (e/const' (:le-name omega-names) [lvl/zero]) nat-c
+                                       (e/const' (name/from-string "instLENat") [])
+                                       (nth as 0) (nth as 1))
+                      inner-goal)
+                    inner-goal))
                 st-intros (tc/attach-lctx st lctx-with-intros)
                 inner-whnf (#'tc/cached-whnf st-intros inner-goal)
                 is-false-goal (and (e/const? inner-whnf)
