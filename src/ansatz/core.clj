@@ -2046,6 +2046,84 @@
     (extract/verify ps)
     (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
 
+;; The Prod.Lex layer (Prod.Lex, Prod.lex, lexAccessible, Lex.right') panics through the standard
+;; init export path only because of unrelated wfParam machinery — exported standalone it is clean,
+;; bundled as resources/ansatz/lex-prelude.ndjson.gz. Loaded lazily (idempotent) when a
+;; lexicographic :termination-by is first used: each missing declaration is kernel-VERIFIED on
+;; admission (verify? true); declarations already in the env are skipped (the export carries its
+;; full dependency closure).
+(clojure.core/defn wf-fix-ensure-lex-prelude!
+  "Ensure the Prod.Lex prelude is loaded into the global env (idempotent)."
+  []
+  (when-not (env/lookup @ansatz-env (name/from-string "Prod.Lex.right'"))
+    (let [res (clojure.java.io/resource "ansatz/lex-prelude.ndjson.gz")
+          _ (when-not res (throw (ex-info "lex prelude not on classpath (resources/ansatz/lex-prelude.ndjson.gz)" {})))
+          ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))] (slurp in))
+          decls (:decls (parser/parse-ndjson-string ndjson))
+          env'
+          (loop [ds (seq decls) env @ansatz-env]
+            (if-let [ci (first ds)]
+              (cond
+                (env/lookup env (.name ^ansatz.kernel.ConstantInfo ci))
+                (recur (next ds) env)
+                (.isInduct ^ansatz.kernel.ConstantInfo ci)
+                (let [{:keys [members rest]} (replay/collect-inductive-bundle ds)
+                      [env2 rs] (replay/replay-inductive-bundle env members)]
+                  (when-let [err (first (filter #(= :error (:status %)) rs))]
+                    (throw (ex-info (str "lex prelude replay failed: " (:name err) " — " (:error err)) {})))
+                  (recur rest env2))
+                :else
+                (let [[env2 r] (replay/replay-one env ci true)]
+                  (when (= :error (:status r))
+                    (throw (ex-info (str "lex prelude replay failed: " (:name r) " — " (:error r)) {})))
+                  (recur (next ds) env2)))
+              env))]
+      (reset! ansatz-env env')
+      (when *verbose* (println "  ✓ Prod.Lex prelude loaded (kernel-verified)")))))
+
+;; one omega-proved arithmetic fact, ∀-closed over scope and applied back to the scope fvars
+(defn- wf-fix-omega-fact [env scope prop]
+  (let [ids (mapv first scope) tys (mapv second scope)
+        gt (loop [i (dec (count ids)) body (e/abstract-many prop ids)]
+             (if (< i 0) body
+                 (recur (dec i) (e/forall' "s" (e/abstract-many (nth tys i) (subvec ids 0 i)) body :default))))
+        [ps _] (proof/start-proof env gt)
+        ps (basic/intros ps (mapv #(str "s" %) (range (count ids))))
+        ps (run-tactic ps '(omega))]
+    (when-not (proof/solved? ps)
+      (throw (ex-info "wf-fix: omega fact not provable" {:goal (e/->string gt)})))
+    (extract/verify ps)
+    (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
+
+;; lexicographic decrease proof (lean4 decreasing_tactic peel, WFTactics.lean:59), constructed
+;; DIRECTLY: `Prod.Lex.left` when the first measure strictly drops, else `Prod.Lex.right'` (the
+;; <=-variant of Lex.right, WF.lean:324 — subsumes the equal-first-component case). The omega base
+;; facts are stated in the LT.lt/LE.le instance spelling (what omega certifies); the constructors
+;; expect Nat.lt — defeq (instLTNat unfolds to Nat.lt), check-constant arbitrates.
+(defn- wf-fix-decr-proof-lex2 [env reducer scope tup-lam arg P]
+  (let [t-of (fn [t] (.whnfCore reducer (e/app tup-lam t)))
+        natlt (e/const' (name/from-string "Nat.lt") [])
+        nat-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) wf-fix-NAT
+                                 (e/const' (name/from-string "instLENat") []) a b))
+        tup-arg (t-of arg) tup-P (t-of P)
+        unmk (fn [t] (let [[h as] (e/get-app-fn-args t)]
+                       (when (and (e/const? h) (= "Prod.mk" (name/->string (e/const-name h)))
+                                  (= 4 (count as)))
+                         [(nth as 2) (nth as 3)])))
+        [A1 A2] (or (unmk tup-arg) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))
+        [P1 P2] (or (unmk tup-P) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))]
+    (try
+      ;; first component strictly decreases
+      (let [h (wf-fix-omega-fact env scope (wf-fix-mk-lt A1 P1))]
+        (e/app* (e/const' (name/from-string "Prod.Lex.left") [lvl/zero lvl/zero])
+                wf-fix-NAT wf-fix-NAT natlt natlt A1 A2 P1 P2 h))
+      (catch Exception _
+        ;; first non-increasing, second strictly decreases
+        (let [h1 (wf-fix-omega-fact env scope (nat-le A1 P1))
+              h2 (wf-fix-omega-fact env scope (wf-fix-mk-lt A2 P2))]
+          (e/app* (e/const' (name/from-string "Prod.Lex.right'") [lvl/zero])
+                  wf-fix-NAT natlt P1 P2 A1 A2 h1 h2))))))
+
 ;; is this app a recursor whose major is a free fvar occurring in P? → refinable.
 (defn- wf-fix-refinable? [env h as P]
   (and (e/const? h)
@@ -2067,7 +2145,7 @@
 
 ;; refine recursor (R.rec params motive minors… major) to thread ih-fvar, exposing each branch's
 ;; pattern via the dependent motive. Returns the refined recursor APPLIED to ih-fvar.
-(defn- wf-fix-refine-rec [env callspec measure-lam ret reducer rec-head call-args ih-fvar P scope]
+(defn- wf-fix-refine-rec [env callspec ret reducer rec-head call-args ih-fvar P scope]
   (let [rv (first (e/const-levels rec-head)) rec-name (e/const-name rec-head)
         rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
         params (vec (take np call-args))
@@ -2077,7 +2155,7 @@
         ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
         ctor-names (vec (.ctors (env/lookup env ind-name)))
         P-abs (e/abstract-many P [v-id])
-        inner-motive (e/lam "v" T (e/forall' "_" (wf-fix-ihtype (:dom callspec) measure-lam ret P-abs) (e/lift ret 1 0) :default) :default)
+        inner-motive (e/lam "v" T (e/forall' "_" ((:ihtype callspec) P-abs) (e/lift ret 1 0) :default) :default)
         rec-applied (apply e/app* (e/const' rec-name (vec (e/const-levels rec-head))) (conj params inner-motive))
         tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
         minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))
@@ -2094,7 +2172,7 @@
                         orig (nth call-args (+ np 1 mi)) nopen (dec (count bs))
                         obody (loop [b orig i 0] (if (and (< i nopen) (e/lam? b))
                                                    (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))
-                        refined (wf-fix-refine env callspec measure-lam ret reducer obody (e/fvar fs-id) Pc scope2)]
+                        refined (wf-fix-refine env callspec ret reducer obody (e/fvar fs-id) Pc scope2)]
                     (wf-fix-mk-lambdas bs refined)))
         minors' (mapv process (range nminors))
         refined-rec (apply e/app* (e/const' rec-name (vec (e/const-levels rec-head))) (-> (into params [inner-motive]) (into minors') (conj major)))]
@@ -2131,20 +2209,20 @@
 ;; here to `dite P inst (fun h:P => then') (fun h:¬P => else')` so each branch binds the hypothesis
 ;; the decrease proof needs (e.g. `¬(x = 0) → x - 1 < x`). No motive refinement is needed: unlike
 ;; match, the IH type does not change between if-branches — only a hypothesis is added to scope.
-(defn- wf-fix-ite->dite [env callspec measure-lam ret reducer rec-head as ih-fvar P scope]
+(defn- wf-fix-ite->dite [env callspec ret reducer rec-head as ih-fvar P scope]
   (let [rv (first (e/const-levels rec-head))
         M (nth as 0) else-br (nth as 1) then-br (nth as 2)
         [ch cas] (e/get-app-fn-args (nth as 3))
         ;; condition operands may themselves contain rec-calls — refine first, build P from refined
-        a (wf-fix-refine env callspec measure-lam ret reducer (nth cas 0) ih-fvar P scope)
-        b (wf-fix-refine env callspec measure-lam ret reducer (nth cas 1) ih-fvar P scope)
+        a (wf-fix-refine env callspec ret reducer (nth cas 0) ih-fvar P scope)
+        b (wf-fix-refine env callspec ret reducer (nth cas 1) ih-fvar P scope)
         [prop inst] ((wf-fix-comparisons (name/->string (e/const-name ch))) a b)
         ;; constant motive: extract the codomain (instantiate the unused Bool binder away)
         ret-here (e/instantiate1 (e/lam-body M) (e/const' (name/from-string "Bool.true") []))
         not-prop (e/app (e/const' (name/from-string "Not") []) prop)
         ht (wf-fix-fresh) he (wf-fix-fresh)
-        then' (wf-fix-refine env callspec measure-lam ret reducer then-br ih-fvar P (conj scope [ht prop]))
-        else' (wf-fix-refine env callspec measure-lam ret reducer else-br ih-fvar P (conj scope [he not-prop]))]
+        then' (wf-fix-refine env callspec ret reducer then-br ih-fvar P (conj scope [ht prop]))
+        else' (wf-fix-refine env callspec ret reducer else-br ih-fvar P (conj scope [he not-prop]))]
     (e/app* (e/const' (name/from-string "dite") [rv])
             ret-here prop inst
             (wf-fix-mk-lambdas [[ht "h" prop]] then')
@@ -2152,23 +2230,23 @@
 
 ;; callspec: {:cname Name, :arity n, :pack (fn [refined-args] packed-arg)} — for multi-arg
 ;; functions the recursion args are packed (Prod.mk) into the single fix argument.
-(defn- wf-fix-refine [env callspec measure-lam ret reducer body ih-fvar P scope]
+(defn- wf-fix-refine [env callspec ret reducer body ih-fvar P scope]
   (let [[h as] (e/get-app-fn-args body)]
     (cond
       (and (e/const? h) (= (e/const-name h) (:cname callspec)) (= (:arity callspec) (count as)))
-      (let [args' (mapv #(wf-fix-refine env callspec measure-lam ret reducer % ih-fvar P scope) as)
+      (let [args' (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as)
             arg ((:pack callspec) args')]
-        (e/app* ih-fvar arg (wf-fix-decr-proof env reducer scope measure-lam arg P)))
+        (e/app* ih-fvar arg ((:decr callspec) env reducer scope arg P)))
       (wf-fix-refinable? env h as P)
-      (wf-fix-refine-rec env callspec measure-lam ret reducer h as ih-fvar P scope)
+      (wf-fix-refine-rec env callspec ret reducer h as ih-fvar P scope)
       (wf-fix-ite? h as)
-      (wf-fix-ite->dite env callspec measure-lam ret reducer h as ih-fvar P scope)
+      (wf-fix-ite->dite env callspec ret reducer h as ih-fvar P scope)
       (seq as)
-      (apply e/app* (wf-fix-refine env callspec measure-lam ret reducer h ih-fvar P scope)
-             (mapv #(wf-fix-refine env callspec measure-lam ret reducer % ih-fvar P scope) as))
+      (apply e/app* (wf-fix-refine env callspec ret reducer h ih-fvar P scope)
+             (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as))
       (e/lam? body)
       (let [id (wf-fix-fresh) bt (e/lam-type body)
-            inner (wf-fix-refine env callspec measure-lam ret reducer
+            inner (wf-fix-refine env callspec ret reducer
                                  (e/instantiate1 (e/lam-body body) (e/fvar id)) ih-fvar P (conj scope [id bt]))]
         (e/lam (e/lam-name body) bt (e/abstract-many inner [id]) (e/lam-info body)))
       :else body)))
@@ -2240,23 +2318,26 @@
               (range nminors))))
       [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}])))
 
-;; Build the (unapplied) WellFounded.Nat.fix term: param-type → ret. raw-body = the compiled body
-;; with the (possibly packed) recursion param at bvar 0 (any shape: match/casesOn, if/Bool.rec,
-;; or mixed — the general refine dispatcher routes each; for multi-arg the caller wraps the body
-;; in Prod.rec and the callspec packs recursive-call args). measure-lam : param-type→Nat.
+;; Build the (unapplied) fix term: param-type → ret. raw-body = the compiled body with the
+;; (possibly packed) recursion param at bvar 0 (any shape: match/casesOn, if/Bool.rec, or mixed —
+;; the general refine dispatcher routes each; for multi-arg the caller wraps the body in Prod.rec
+;; and the callspec packs recursive-call args). The callspec carries the relation specifics:
+;;   :ihtype  (fn [xref] IHType[xref])  — the IH function type over the recursion domain
+;;   :decr    (fn [env reducer scope arg P] proof) — one decrease proof
+;;   :fix     (fn [ret-level Ffn] fix-term) — wraps the refined functional in the fix combinator
+;;            (WellFounded.Nat.fix for a single Nat measure, WellFounded.fix for lexicographic)
 ;; Throws if a decrease obligation is unprovable.
-(defn- wf-fix-encode [env callspec raw-body measure-lam ret param-type]
+(defn- wf-fix-encode [env callspec raw-body ret param-type]
   (let [tc (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
         reducer (.getReducer tc)
         ret-sort (.inferType tc ret)
         ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
         Xid (wf-fix-fresh) Fvid (wf-fix-fresh) X (e/fvar Xid)
-        Fty (wf-fix-ihtype param-type measure-lam ret X) Fv (e/fvar Fvid)
+        Fty ((:ihtype callspec) X) Fv (e/fvar Fvid)
         rawX (e/instantiate1 raw-body X)
-        body' (wf-fix-refine env callspec measure-lam ret reducer rawX Fv X [[Xid param-type]])
+        body' (wf-fix-refine env callspec ret reducer rawX Fv X [[Xid param-type]])
         Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] body')]
-    (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [(lvl/succ lvl/zero) ret-level])
-           [param-type (e/lam "x" param-type (e/lift ret 1 0) :default) measure-lam Ffn])))
+    ((:fix callspec) ret-level Ffn)))
 
 (declare build-telescope-fvar)
 (clojure.core/defn define-verified-wf
@@ -2272,15 +2353,18 @@
         ;; recursive call must provably decrease the measure under its path-condition guards.
         ;; The fuel encoding below is total either way; this gate is what makes :termination-by an
         ;; honest proof — a non-terminating definition (measure that doesn't decrease) is rejected.
-        _ (doseq [c (collect-rec-calls-with-guards body-form fn-name n)]
-            (try (prove-decrease pairs measure-form c)
-                 (catch Throwable e
-                   (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"
-                                        measure-form "` is not provably decreasing on the recursive "
-                                        "call with args " (:args c)
-                                        (when (seq (:guards c)) (str " under guards " (:guards c)))
-                                        ". Adjust :termination-by, or use ^:partial.")
-                                   {:fn fn-name :kind :termination-decrease-failed :call c})))))
+        ;; A lexicographic (vector) measure skips this scalar gate: its only encoding is the
+        ;; WellFounded.fix term below, whose embedded Prod.Lex proofs ARE the termination check.
+        _ (when-not (vector? measure-form)
+            (doseq [c (collect-rec-calls-with-guards body-form fn-name n)]
+              (try (prove-decrease pairs measure-form c)
+                   (catch Throwable e
+                     (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"
+                                          measure-form "` is not provably decreasing on the recursive "
+                                          "call with args " (:args c)
+                                          (when (seq (:guards c)) (str " under guards " (:guards c)))
+                                          ". Adjust :termination-by, or use ^:partial.")
+                                     {:fn fn-name :kind :termination-decrease-failed :call c}))))))
 
         ;; Build the function type: ∀ params → ret-type (same as define-verified)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
@@ -2315,10 +2399,16 @@
 
         ;; Compile measure expression — uses all params in scope
         ;; Bind *scope-types* so auto-elaborate can infer implicit args from param types
+        ;; A vector measure form is a LEXICOGRAPHIC tuple: compile each component; the scalar
+        ;; measure-ansatz is then only fuel-path scaffolding (unused — lex never takes fuel).
         nat (e/const' (name/from-string "Nat") [])
         scope-types-map (into {} (map (fn [[p _ _] pt] [p pt]) pairs param-types))
+        lex-measures (when (vector? measure-form)
+                       (binding [*scope-types* scope-types-map]
+                         (mapv #(sexp->ansatz env scope-full n %) measure-form)))
         measure-ansatz (binding [*scope-types* scope-types-map]
-                         (sexp->ansatz env scope-full n measure-form))
+                         (sexp->ansatz env scope-full n
+                                       (if (vector? measure-form) (first measure-form) measure-form)))
 
         ;; Universe level for return type
         tc-tmp (ansatz.kernel.TypeChecker. env)
@@ -2409,14 +2499,53 @@
         all-nat? (every? (fn [pt] (and (e/const? pt) (= "Nat" (name/->string (e/const-name pt)))))
                          param-types)
         nat-c (e/const' (name/from-string "Nat") [])
+        L0 lvl/zero
+        L1 (lvl/succ lvl/zero)
+        ;; relation spec for a single Nat measure → WellFounded.Nat.fix
+        mk-measure-relspec
+        (fn [dom-ty m-lam]
+          {:ihtype (fn [xref] (wf-fix-ihtype dom-ty m-lam ret-ansatz xref))
+           :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof env2 reducer scope m-lam arg P))
+           :fix (fn [ret-level Ffn]
+                  (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [L1 ret-level])
+                         [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) m-lam Ffn]))})
+        ;; relation spec for a lexicographic 2-tuple of Nat measures → general WellFounded.fix
+        ;; with rel = fun y x => Prod.Lex Nat.lt Nat.lt (tup y) (tup x) and the wf proof projected
+        ;; from invImage tup (Prod.lex Nat.lt_wfRel Nat.lt_wfRel) — defeq to the stated relation
+        ;; (lean4 Rel.lean:57 builds exactly this invImage; we state the relation beta-expanded
+        ;; so each call-site obligation whnfs to a bare Prod.Lex goal).
+        mk-lex2-relspec
+        (fn [dom-ty tup-lam]
+          (let [natlt (e/const' (name/from-string "Nat.lt") [])
+                p2-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
+                lexr (fn [a b] (e/app* (e/const' (name/from-string "Prod.Lex") [L0 L0]) nat-c nat-c
+                                       natlt natlt a b))
+                rel-lam (e/lam "y" dom-ty
+                          (e/lam "x" (e/lift dom-ty 1 0)
+                            (lexr (e/app tup-lam (e/bvar 1)) (e/app tup-lam (e/bvar 0))) :default) :default)
+                wfRel (e/app* (e/const' (name/from-string "invImage") [L1 L1]) dom-ty p2-ty tup-lam
+                              (e/app* (e/const' (name/from-string "Prod.lex") [L0 L0]) nat-c nat-c
+                                      (e/const' (name/from-string "Nat.lt_wfRel") [])
+                                      (e/const' (name/from-string "Nat.lt_wfRel") [])))
+                hwf (e/proj (name/from-string "WellFoundedRelation") 1 wfRel)]
+            {:ihtype (fn [xref]
+                       (e/forall' "y" dom-ty
+                         (e/forall' "_"
+                           (lexr (e/app tup-lam (e/bvar 0)) (e/app tup-lam (e/lift xref 1 0)))
+                           (e/lift ret-ansatz 2 0) :default) :default))
+             :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof-lex2 env2 reducer scope tup-lam arg P))
+             :fix (fn [ret-level Ffn]
+                    (apply e/app* (e/const' (name/from-string "WellFounded.fix") [L1 ret-level])
+                           [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) rel-lam hwf Ffn]))}))
+        lex? (vector? measure-form)
         fix-info
         (cond
-          (and (= n 1) all-nat?)
+          (and (= n 1) all-nat? (not lex?))
           (try
-            (let [callspec {:cname cname :arity 1 :pack first :dom (nth param-types 0)}
-                  t (wf-fix-encode env callspec raw-body
-                                   (e/lam (str (first (nth pairs 0))) (nth param-types 0) measure-ansatz :default)
-                                   ret-ansatz (nth param-types 0))]
+            (let [m-lam (e/lam (str (first (nth pairs 0))) (nth param-types 0) measure-ansatz :default)
+                  callspec (merge {:cname cname :arity 1 :pack first :dom (nth param-types 0)}
+                                  (mk-measure-relspec (nth param-types 0) m-lam))
+                  t (wf-fix-encode env callspec raw-body ret-ansatz (nth param-types 0))]
               (env/check-constant env (env/mk-def cname [] type-ansatz t))
               {:value t :fix t :eqbody raw-body :packed-ty (nth param-types 0) :arity 1})
             (catch Throwable t
@@ -2427,11 +2556,10 @@
 
           (and (= n 2) all-nat?)
           (try
-            (let [L0 lvl/zero
-                  packed-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
+            (let [packed-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
                   tc0 (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
                   rs (.inferType tc0 ret-ansatz)
-                  rv (if (e/sort? rs) (e/sort-level rs) (lvl/succ lvl/zero))
+                  rv (if (e/sort? rs) (e/sort-level rs) L1)
                   ;; wrap the 2-param body (x=bvar 1, y=bvar 0) in Prod.rec over the packed param
                   ;; (bvar 0 of the wrapper) — the minor's two binders restore the bvar layout.
                   wrap2 (fn [body-2 motive-cod cod-lvl]
@@ -2441,22 +2569,38 @@
                                          (e/lam (str (first (nth pairs 1))) nat-c body-2 :default) :default)
                                   (e/bvar 0)))
                   wrapped (wrap2 raw-body ret-ansatz rv)
-                  m-packed (e/lam "p" packed-ty (wrap2 measure-ansatz nat-c (lvl/succ lvl/zero)) :default)
                   pack (fn [args] (e/app* (e/const' (name/from-string "Prod.mk") [L0 L0]) nat-c nat-c
                                           (nth args 0) (nth args 1)))
-                  callspec {:cname cname :arity 2 :pack pack :dom packed-ty}
-                  fix-t (wf-fix-encode env callspec wrapped m-packed ret-ansatz packed-ty)
+                  relspec (if lex?
+                            (let [_ (wf-fix-ensure-lex-prelude!)
+                                  p2-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
+                                  tup-body (e/app* (e/const' (name/from-string "Prod.mk") [L0 L0]) nat-c nat-c
+                                                   (nth lex-measures 0) (nth lex-measures 1))
+                                  tup-lam (e/lam "p" packed-ty (wrap2 tup-body p2-ty L1) :default)]
+                              (mk-lex2-relspec packed-ty tup-lam))
+                            (mk-measure-relspec packed-ty
+                                                (e/lam "p" packed-ty (wrap2 measure-ansatz nat-c L1) :default)))
+                  ;; the prelude may have extended the global env — encode against the latest
+                  env-l (if lex? @ansatz-env env)
+                  callspec (merge {:cname cname :arity 2 :pack pack :dom packed-ty} relspec)
+                  fix-t (wf-fix-encode env-l callspec wrapped ret-ansatz packed-ty)
                   ;; user-facing 2-arg value: fun x y => fix (Prod.mk x y)  (fix-t is closed)
                   v (e/lam (str (first (nth pairs 0))) nat-c
                            (e/lam (str (first (nth pairs 1))) nat-c
                                   (e/app fix-t (pack [(e/bvar 1) (e/bvar 0)])) :default) :default)]
-              (env/check-constant env (env/mk-def cname [] type-ansatz v))
+              (env/check-constant env-l (env/mk-def cname [] type-ansatz v))
               {:value v :fix fix-t :eqbody wrapped :packed-ty packed-ty :arity 2})
             (catch Throwable t
               (when *verbose*
                 (println (str "  wf-fix encoding unavailable for " fn-name " ("
                               (.getMessage t) ") — using fuel encoding")))
               nil)))
+        ;; a lexicographic measure has NO single-Nat fuel — the fuel fallback cannot encode it
+        _ (when (and lex? (nil? fix-info))
+            (throw (ex-info (str "Cannot prove `" fn-name "` terminates: lexicographic measure `"
+                                 measure-form "` did not yield a verified WellFounded.fix encoding "
+                                 "(each recursive call must decrease the tuple lexicographically).")
+                            {:fn fn-name :kind :termination-lex-failed})))
         encoding (if fix-info :wf-fix :fuel)
         chosen-body (or (:value fix-info) final-body)
 
@@ -2471,7 +2615,10 @@
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
         _ (when *verbose* (println (str "✓ " fn-name " defined (well-founded recursion, "
-                                        (if (= encoding :wf-fix) "kernel-enforced WellFounded.Nat.fix" "fuel + termination gate") ")")))
+                                        (case encoding
+                                          :wf-fix (if lex? "kernel-enforced lexicographic WellFounded.fix"
+                                                      "kernel-enforced WellFounded.Nat.fix")
+                                          "fuel + termination gate") ")")))
 
         ;; Generate equation theorem: fn(args) = body[fn → fn]
         ;; For the fuel-based Nat.rec approach, this is true by computation:
@@ -2510,7 +2657,10 @@
                         eq-type (loop [k (dec (count fields)) acc (e/abstract-many eq-core ids)]
                                   (if (< k 0) acc
                                       (recur (dec k) (e/forall' "x" (e/abstract-many (second (nth fields k)) (subvec ids 0 k)) acc :default))))
-                        pf-core (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix_eq")
+                        ;; WellFounded.Nat.fix -> Nat.fix_eq; WellFounded.fix (lex) -> fix_eq --
+                        ;; both take the fix's own args plus the scrutinee
+                        pf-core (apply e/app* (e/const' (name/from-string
+                                                         (str (name/->string (e/const-name fixh)) "_eq"))
                                                         (vec (e/const-levels fixh)))
                                        (conj (vec fixargs) pattern))
                         pf (loop [k (dec (count fields)) acc (e/abstract-many pf-core ids)]

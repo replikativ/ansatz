@@ -269,6 +269,58 @@
         (is (some? (env/lookup (a/env) (name/from-string "ex-add2.eq_1"))) "eq_1 generated")
         (is (some? (env/lookup (a/env) (name/from-string "ex-add2.eq_2"))) "eq_2 generated")))))
 
+(deftest test-wf-fix-lexicographic-ackermann
+  (testing "Stage 3-C: LEXICOGRAPHIC termination — Ackermann, the function no single Nat
+            measure can handle, is kernel-enforced via the general WellFounded.fix over
+            invImage (m, n) (Prod.lex Nat.lt_wfRel Nat.lt_wfRel), each recursive call
+            carrying a Prod.Lex.left / Prod.Lex.right' decrease proof in the term"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ex-ack"))
+        (eval '(ansatz.core/defn ^Nat ex-ack [^Nat m ^Nat n]
+                 :termination-by [m n]
+                 (match m Nat Nat
+                   (zero (+ n 1))
+                   (succ [k] (match n Nat Nat
+                               (zero (ex-ack k 1))
+                               (succ [j] (ex-ack k (ex-ack (Nat.succ k) j)))))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-ack"))]
+        (is (some? ci) "Ackermann defined with lexicographic :termination-by [m n]")
+        ;; uses the GENERAL WellFounded.fix (not the Nat fast path)
+        (is (let [seen (atom false)]
+              ((fn go [x] (when (and (not @seen) (instance? ansatz.kernel.Expr x))
+                            (when (and (e/const? x)
+                                       (= "WellFounded.fix" (name/->string (e/const-name x))))
+                              (reset! seen true))
+                            (cond (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
+                                  (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
+                                  (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x))))))
+               (.value ci))
+              @seen)
+            "Ackermann is encoded with the general WellFounded.fix (lexicographic relation)")
+        ;; computes the Ackermann values
+        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
+              ack (fn [m n] (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-ack") [])
+                                                         (e/lit-nat m) (e/lit-nat n)))))]
+          (is (= "3" (ack 1 1)) "ack 1 1 = 3")
+          (is (= "7" (ack 2 2)) "ack 2 2 = 7")
+          (is (= "61" (ack 3 3)) "ack 3 3 = 61"))
+        ;; the three textbook defining equations
+        (is (some? (env/lookup (a/env) (name/from-string "ex-ack.eq_1"))) "ack 0 n = n+1")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-ack.eq_2"))) "ack (m+1) 0 = ack m 1")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-ack.eq_3"))) "ack (m+1) (n+1) = ack m (ack (m+1) n)"))
+      ;; a non-decreasing lexicographic measure is rejected (no fuel fallback exists for lex)
+      (let [msg (try (eval '(ansatz.core/defn ^Nat ex-bad-lex [^Nat m ^Nat n]
+                              :termination-by [m n]
+                              (match m Nat Nat (zero 0) (succ [k] (ex-bad-lex (Nat.succ k) n)))))
+                     "NO-THROW"
+                     (catch Throwable e (->> (iterate #(some-> ^Throwable % .getCause) e)
+                                             (take-while some?) (map #(str (.getMessage ^Throwable %)))
+                                             (clojure.string/join " "))))]
+        (is (re-find #"terminat|lexicographic" msg)
+            "non-decreasing lexicographic measure is rejected")
+        (is (not (env/lookup (a/env) (name/from-string "ex-bad-lex")))
+            "the rejected function is not added to the environment")))))
+
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)
 ;; ============================================================
