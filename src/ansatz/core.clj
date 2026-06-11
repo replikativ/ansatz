@@ -2173,7 +2173,7 @@
   "fvar-first body elaboration via surface/elaborate: params become fvars in the
    lctx, the body elaborates with full inference (instances/levels/match), then the
    fvars are abstracted back into the lambda telescope — same shape as build-telescope."
-  [env pairs body-form]
+  [env pairs ret-type-form body-form]
   (let [n (count pairs)
         fids (mapv inc (range n))
         ptypes (mapv (fn [p] (sexp->ansatz env {} 0 (second p))) pairs)
@@ -2192,8 +2192,8 @@
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
-        ;; TODO(elaborator-unification step 3): route through build-telescope-fvar
-        ;; once the last surface gaps are ported (bare cons/nil/get + fn/arrow codegen).
+        ;; TODO(elaborator-unification step 3): flip to build-telescope-fvar once the
+        ;; tail closes (5 unsolved-mvar bodies + 3 too-many-args + get + 3 codegen diffs).
         body-ansatz (build-telescope env {} 0 pairs body-form e/lam)
         ;; Build type: ∀ params → ret-type
         n (count pairs)
