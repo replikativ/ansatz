@@ -26,6 +26,17 @@
                 (not (contains? @no-expand-macros (symbol (name head))))
                 (try (some-> (resolve head) meta :macro) (catch Throwable _ nil)))))
 
+;; ── core-lift: clojure.core ops → per-element-type kernel ops (type-directed) ────────────
+;; The elaborator infers the operand's type head and picks the matching kernel op (defaulting
+;; to Nat when the head isn't listed). This is the data half of the "lift clojure.core given
+;; the type" design; extend as Int/Float/… ops land in the env. (Float.* and Int Bool-compare
+;; ops are absent in Init today, so they're simply not listed.)
+(def arith-lift
+  "op-name → {operand-type-head → kernel constant}. Type-directed +/-/* lift."
+  {"+" {"Nat" "Nat.add", "Int" "Int.add"}
+   "-" {"Nat" "Nat.sub", "Int" "Int.sub"}
+   "*" {"Nat" "Nat.mul", "Int" "Int.mul"}})
+
 ;; ── Parameter metadata parsing ──────────────────────────────────────────────────────────
 (defn binder-type
   "A binder's declared type, read from metadata: prefer ^{:- T} (for compound types like

@@ -368,6 +368,14 @@
           (recur expr' ty'))
         [expr ty]))))
 
+(defn- type-head-name
+  "Whnf the (zonked) type and return its head constant's name as a string (e.g. \"Nat\",
+   \"Int\"), or nil if the head isn't a constant. Used for type-directed op selection."
+  [est ty]
+  (let [tw (#'tc/cached-whnf (:tc est) (zonk est ty))
+        [h _] (e/get-app-fn-args tw)]
+    (when (e/const? h) (name/->string (e/const-name h)))))
+
 (defn- elab-app
   "Elaborate a function application, inserting implicit arguments."
   [est head-sexpr arg-sexprs]
@@ -629,12 +637,18 @@
                 (e/app* (e/const' (name/from-string "dite") [u])
                         ret-type cond-expr inst then-fn else-fn))
 
-        ;; Arithmetic: bare ops default to Nat (matching sexp->ansatz); explicit-type
-        ;; forms (add/sub/mul T a b) handled separately. Nat.* avoids HAdd's output param.
-        ("+" "-" "*") (elab-app est (symbol (case (str head) "+" "Nat.add"
-                                                             "-" "Nat.sub"
-                                                             "*" "Nat.mul"))
-                                (rest sexpr))
+        ;; Type-directed arithmetic: infer the first operand's type head and pick the matching
+        ;; kernel op from the core-lift table (Nat.add / Int.add / …), defaulting to Nat when
+        ;; the head isn't listed. Picking the concrete op avoids HAdd's output-param synthesis.
+        ("+" "-" "*")
+        (let [op (str head)]
+          (if (>= (count sexpr) 3)
+            (let [a*    (elab-term est (nth sexpr 1))
+                  tn    (type-head-name est (infer-with-mvars est a*))
+                  const (or (get-in ingest/arith-lift [op tn])
+                            (get-in ingest/arith-lift [op "Nat"]))]
+              (elab-app est (symbol const) (rest sexpr)))
+            (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) (rest sexpr))))
 
         ;; do → value of the last form (pure setting: earlier forms have no effect).
         "do" (elab-term est (last sexpr))
