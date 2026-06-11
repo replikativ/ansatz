@@ -670,14 +670,46 @@
 
         ;; Bool if-then-else → Bool.rec. The motive is the then-branch's type,
         ;; inferred directly (fvar context is present — no open/close needed).
+        ;; if over a recognizable comparison lifts to its Prop + Decidable instance and emits
+        ;; dite — the shape lean4's @[macro_inline] ite/dite reduce to (Decidable.casesOn),
+        ;; whose branch binders CARRY the guard. Downstream this is what gives well-founded
+        ;; decrease proofs their hypotheses with no special-casing. A non-comparison Bool
+        ;; condition (variable, Bool-valued call) stays on Bool.rec.
         "if" (let [[_ c t e] sexpr
-                   cond-expr (elab-term est c)
-                   then-expr (elab-term est t)
-                   else-expr (elab-term est e)
-                   ret-type (tc/infer-type (:tc est) (zonk est then-expr))]
-               (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                       (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
-                       else-expr then-expr cond-expr))
+                   cmp (when (and (seq? c) (symbol? (first c)) (= 3 (count c)))
+                         (case (str (first c))
+                           "==" ["Eq" "Nat.decEq" false]
+                           "<"  ["lt" "Nat.decLt" false]
+                           ">"  ["lt" "Nat.decLt" true]
+                           ("<=" "≤") ["le" "Nat.decLe" false]
+                           (">=" "≥") ["le" "Nat.decLe" true]
+                           nil))]
+               (if cmp
+                 (let [[prop-head dec-name swap?] cmp
+                       [a b] (if swap? [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)])
+                       prop (if (= prop-head "Eq")
+                              (elab-term est (list 'Eq 'Nat a b))
+                              (elab-term est (list (symbol prop-head) 'Nat a b)))
+                       a* (elab-term est a)
+                       b* (elab-term est b)
+                       inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
+                       then-expr (elab-term est t)
+                       else-expr (elab-term est e)
+                       ret-type (tc/infer-type (:tc est) (zonk est then-expr))
+                       ret-sort (tc/infer-type (:tc est) ret-type)
+                       u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
+                       not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
+                   (e/app* (e/const' (name/from-string "dite") [u])
+                           ret-type prop inst
+                           (e/lam "h" prop (e/lift then-expr 1 0) :default)
+                           (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
+                 (let [cond-expr (elab-term est c)
+                       then-expr (elab-term est t)
+                       else-expr (elab-term est e)
+                       ret-type (tc/infer-type (:tc est) (zonk est then-expr))]
+                   (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                           (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
+                           else-expr then-expr cond-expr))))
 
         ;; Prop-valued comparisons over an explicit type: (le T a b) / (lt T a b)
         ;; → LE.le.{?u} T ?inst a b — the instance + level resolve via synthesis.

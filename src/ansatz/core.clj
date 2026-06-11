@@ -565,9 +565,12 @@
                   dec-expr (nth args 2) ;; Ansatz expr for Decidable instance
                   [dec-head dec-args] (e/get-app-fn-args dec-expr)
                   bool-cond (if (and (e/const? dec-head)
-                                     (= "Nat.decEq" (name/->string (e/const-name dec-head))))
-                              ;; Nat.decEq a b → (== a b) at runtime
-                              (list '== (ansatz->clj env (nth dec-args 0) names)
+                                     (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
+                                      (name/->string (e/const-name dec-head))))
+                              ;; Nat.decEq/decLt/decLe a b → the Clojure comparison at runtime
+                              (list (case (name/->string (e/const-name dec-head))
+                                      "Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=)
+                                    (ansatz->clj env (nth dec-args 0) names)
                                     (ansatz->clj env (nth dec-args 1) names))
                               ;; Generic: compile the decidable instance (may not work for all cases)
                               (nth ca 2))]
