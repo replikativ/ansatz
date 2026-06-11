@@ -1285,6 +1285,7 @@
             "HDiv.hDiv" (list 'quot (nth ca 4) (nth ca 5))
             "HPow.hPow" (list 'long (list 'Math/pow (nth ca 4) (nth ca 5)))
             "Nat.add" (list '+ (nth ca 0) (nth ca 1))
+            "Nat.sub" (list 'max 0 (list '- (nth ca 0) (nth ca 1)))  ; truncated Nat subtraction
             "Nat.mul" (list '* (nth ca 0) (nth ca 1))
             "Nat.div" (list 'quot (nth ca 0) (nth ca 1))
             "Nat.pow" (list 'long (list 'Math/pow (nth ca 0) (nth ca 1)))
@@ -1855,6 +1856,7 @@
     ;; Extract gives us: λ (param) => proof-term
     (extract/extract ps)))
 
+(declare build-telescope-fvar)
 (clojure.core/defn define-verified-wf
   "Define a verified function with well-founded recursion.
    Uses WellFounded.Nat.fix from the environment.
@@ -1884,13 +1886,10 @@
         tmp-ci (env/mk-axiom cname [] type-ansatz)
         tmp-env (env/add-constant (env/fork env) tmp-ci)
 
-        ;; Compile body on forked env — self-calls resolve to the axiom const.
-        ;; NOTE: still on the bvar build-telescope. Routing WF bodies through build-telescope-fvar
-        ;; works for 2/3 WF tests but breaks factorial at CODEGEN — the WellFounded.Nat.fix letfn
-        ;; lowering can't yet handle the fvar body shape. Follow-on: teach that codegen the fvar
-        ;; shape, then switch here for elaborator consistency.
+        ;; Compile body fvar-first (consistent with define-verified) on the forked env —
+        ;; self-calls resolve to the axiom const; replace-rec-calls rewrites them to the IH below.
         body-ansatz (binding [surface-match/*use-cases-on?* true]
-                      (build-telescope tmp-env {} 0 pairs body-form e/lam))
+                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))
 
         ;; Peel all outer lambdas to get the raw body
         raw-body (loop [e body-ansatz i 0]
@@ -2100,8 +2099,9 @@
         ;; trusted axiom at the type; also the self-reference used to elaborate the body for codegen
         ax (env/mk-axiom cname [] type-ansatz)
         tmp-env (env/add-constant (env/fork env) ax)
+        ;; Compile body fvar-first (consistent with define-verified/-wf), for codegen only.
         body-ansatz (binding [surface-match/*use-cases-on?* true]
-                      (build-telescope tmp-env {} 0 pairs body-form e/lam))]
+                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
     (swap! ansatz-env env/add-constant ax)
     (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
