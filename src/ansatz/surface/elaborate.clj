@@ -529,7 +529,8 @@
         ;; and dead code respectively; ctor qualification is done inside compile-match).
         "match"  (let [args (vec (rest sexpr))]
                    (if (vector? (get args 1))
-                     (match/compile-match est elab-term (first args) (mapv vec (rest args)))
+                     (match/compile-match (assoc est :infer-fn infer-with-mvars)
+                                          elab-term (first args) (mapv vec (rest args)))
                      (let [scrut (first args)
                            alts (mapv (fn [c]
                                         (let [ctor (first c)
@@ -538,7 +539,8 @@
                                               body (if has-fields (nth c 2) (second c))]
                                           [(if (seq fields) (cons ctor (seq fields)) ctor) body]))
                                       (drop 3 args))]
-                       (match/compile-match est elab-term scrut alts))))
+                       (match/compile-match (assoc est :infer-fn infer-with-mvars)
+                                            elab-term scrut alts))))
 
         "=>" (let [[_ a b] sexpr]
                (e/arrow (elab-term est a) (elab-term est b)))

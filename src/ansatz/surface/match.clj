@@ -417,6 +417,15 @@
              matching-alts)]
         (compile-match-term est env elab-fn fvar field-type-whnf inner-alts)))))
 
+(defn- est-infer
+  "Infer the type of expr, using the est's mvar-aware infer-fn when present (the
+   fvar elaborator supplies one so terms still mentioning unsolved/solved mvars are
+   typed correctly); falls back to the plain kernel inferType (bvar path has no mvars)."
+  [est expr]
+  (if-let [f (:infer-fn est)]
+    (f est expr)
+    (tc/infer-type (:tc est) expr)))
+
 (defn- compile-match-term
   "Compile a match on a single discriminant to a recursor application."
   [est env elab-fn discr-expr discr-type alts]
@@ -469,8 +478,7 @@
           (if simple-alt
             ;; Elaborate the simple alt's RHS to determine return type
             (let [rhs-expr (elab-fn est (:rhs-sexpr simple-alt))
-                  tc (:tc est)
-                  rhs-type (tc/infer-type tc rhs-expr)]
+                  rhs-type (est-infer est rhs-expr)]
               {:ret-type rhs-type :sample-rhs rhs-expr})
             ;; No simple alt — use first ctor alt, elaborate its RHS
             ;; with fields in scope
@@ -495,8 +503,7 @@
                             temp-est
                             field-info)
                   rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
-                  tc (:tc temp-est)
-                  rhs-type (tc/infer-type tc rhs-expr)]
+                  rhs-type (est-infer temp-est rhs-expr)]
               {:ret-type rhs-type})))
         ret-type (:ret-type ret-type-info)
         ;; Build the motive: λ (x : IndType params) => ret-type
@@ -549,7 +556,7 @@
   (let [env (:env est)
         discr-expr (elab-fn est discr-sexpr)
         tc (:tc est)
-        discr-type (tc/infer-type tc discr-expr)
+        discr-type (est-infer est discr-expr)
         discr-type-whnf (#'tc/cached-whnf tc discr-type)
         ;; Qualify bare constructor names against the (inferred) inductive, so e.g.
         ;; `nil`/`(cons h t)` resolve to List.nil/List.cons — lets the a/defn explicit
