@@ -231,7 +231,12 @@
                 entry (some (fn [[id m]] (when (= (:name m) n) id))
                             @(:level-mctx est))]
             (when entry
-              (solve-level-mvar! est entry l1)))))))
+              (solve-level-mvar! est entry l1))))
+        ;; succ a =?= succ b → a =?= b. Needed for Type-u constants (α : Type ?u =
+        ;; Sort (succ ?u)): unifying succ ?u with succ 0 must peel to solve ?u, since
+        ;; the param-mvar cases above only fire on a *bare* param level.
+        (when (and (lvl/succ? l1) (lvl/succ? l2))
+          (unify-levels! est (lvl/succ-pred l1) (lvl/succ-pred l2))))))
 
 (defn- unify!
   "First-order unification of two expressions, solving metavars in est.
@@ -266,6 +271,18 @@
                :bvar (= (e/bvar-idx a) (e/bvar-idx b))
                (:lit-nat :lit-str) (= a b)
                false)))))
+
+(defn- infer-with-mvars
+  "infer-type using a tc context augmented with the current elaboration mvars (as
+   locals keyed by their fvar id), so terms still mentioning mvars can be typed.
+   The kernel tc otherwise has no knowledge of elaboration mvars; Lean keeps them
+   in the metacontext that inferType consults. Falls back to plain infer-type."
+  [est expr]
+  (let [tc (reduce (fn [tc [id m]]
+                     (try (update tc :lctx red/lctx-add-local id (str "?m" id) (:type m))
+                          (catch Throwable _ tc)))
+                   (:tc est) @(:mctx est))]
+    (tc/infer-type tc expr)))
 
 ;; ============================================================
 ;; Core elaboration
@@ -353,7 +370,7 @@
           {:expr (elab-term est head-sexpr) :explicit? false})
         head-expr expr
         tc (:tc est)
-        head-type (tc/infer-type tc head-expr)
+        head-type (infer-with-mvars est head-expr)
         ;; Insert leading implicits (unless @-explicit)
         [head-expr head-type] (if explicit?
                                 [head-expr head-type]
@@ -374,7 +391,7 @@
           (if (e/forall? ty)
             (let [arg-expr (elab-term est (first args))
                   ;; Unify arg type with expected domain
-                  arg-type (tc/infer-type tc arg-expr)
+                  arg-type (infer-with-mvars est arg-expr)
                   dom-type (e/forall-type ty)]
               (unify! est arg-type dom-type)
               (let [expr' (e/app expr arg-expr)
@@ -451,7 +468,13 @@
     (string? sexpr)  (e/lit-str sexpr)
 
     (symbol? sexpr)
-    (:expr (resolve-symbol est sexpr))
+    ;; A bare symbol in term position: insert its implicit/instance arguments
+    ;; (as Lean does for any term, not only application heads) so e.g. List.nil
+    ;; becomes List.nil.{?u} ?α rather than the under-applied bare constant.
+    (let [{:keys [expr explicit?]} (resolve-symbol est sexpr)]
+      (if explicit?
+        expr
+        (first (insert-implicits est expr (infer-with-mvars est expr)))))
 
     (seq? sexpr)
     (let [head (first sexpr)]
