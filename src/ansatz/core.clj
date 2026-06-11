@@ -710,23 +710,6 @@
                                {:field field-name :type type-name-str}))))
            (let [h (str (first form))]
              (case h
-        ;; (sizeOf x) → SizeOf.sizeOf T inst x — the WF measure for data-typed params.
-        ;; T comes from the parameter's declared type (*scope-types*); the instance is
-        ;; synthesized structurally (Nat, List of sized).
-               "sizeOf"
-               (let [x-form (nth form 1)
-                     x-ty (get *scope-types* x-form)
-                     _ (when-not x-ty
-                         (throw (ex-info "sizeOf: argument must be a parameter with a known type"
-                                         {:form form})))
-                     inst (wf-sizeof-inst env x-ty)
-                     _ (when-not inst
-                         (throw (ex-info (str "sizeOf: no SizeOf instance for type " (e/->string x-ty))
-                                         {:form form})))
-                     _ (wf-fix-ensure-sizeof-prelude!)
-                     x (sexp->ansatz env scope depth x-form)]
-                 (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)])
-                         x-ty inst x))
         ;; Comparison operators — Prop-valued (LE.le / LT.lt) when 3 args,
         ;; Bool-valued (Nat.ble / Nat.blt) when 2 args.
         ;; (≤ Real a b) or (<= Real a b) → LE.le Real inst a b  (Prop)
@@ -2252,20 +2235,9 @@
 
 ;; synthesize a SizeOf instance for supported types (Nat, List of sized)
 (declare wf-fix-tele-open-plain wf-fix-mk-lambdas wf-fix-fresh)
-(defn- wf-sizeof-inst [env ty]
-  (let [[h as] (e/get-app-fn-args ty)]
-    (cond
-      (and (e/const? h) (= "Nat" (name/->string (e/const-name h))) (empty? as))
-      (e/const' (name/from-string "instSizeOfNat") [])
-      (and (e/const? h) (= "List" (name/->string (e/const-name h))) (= 1 (count as)))
-      (when-let [elt (wf-sizeof-inst env (first as))]
-        (e/app* (e/const' (name/from-string "List._sizeOf_inst") (vec (e/const-levels h)))
-                (first as) elt))
-      ;; custom inductive with a derived instance (wf-derive-sizeof!)
-      (and (e/const? h) (empty? as)
-           (env/lookup env (name/mk-str (e/const-name h) "_sizeOf_inst")))
-      (e/const' (name/mk-str (e/const-name h) "_sizeOf_inst") [])
-      :else nil)))
+(def ^:private wf-sizeof-inst
+  "SizeOf instance synthesis — canonical implementation lives with the elaborator (P2)."
+  elab/sizeof-inst)
 
 (clojure.core/defn wf-derive-sizeof!
   "Derive the SizeOf machinery for a non-parameterized, non-indexed, Type-valued inductive
@@ -2767,18 +2739,27 @@
                      (recur (e/lam-body e) (inc i))
                      e))
 
-        ;; Compile measure expression — uses all params in scope
-        ;; Bind *scope-types* so auto-elaborate can infer implicit args from param types
-        ;; A vector measure form is a LEXICOGRAPHIC tuple: compile each component; the scalar
+        ;; Compile measure expression(s) FVAR-FIRST (P2 of the elaborator unification): params
+        ;; in scope as typed fvars, abstracted back to the bvar layout the encoders expect
+        ;; (params at bvars n-1..0). A vector measure form is a LEXICOGRAPHIC tuple; the scalar
         ;; measure-ansatz is then only fuel-path scaffolding (unused — lex never takes fuel).
+        ;; A sizeOf-mentioning measure needs the SizeOf prelude loaded BEFORE elaboration.
         nat (e/const' (name/from-string "Nat") [])
-        scope-types-map (into {} (map (fn [[p _ _] pt] [p pt]) pairs param-types))
-        lex-measures (when (vector? measure-form)
-                       (binding [*scope-types* scope-types-map]
-                         (mapv #(sexp->ansatz env scope-full n %) measure-form)))
-        measure-ansatz (binding [*scope-types* scope-types-map]
-                         (sexp->ansatz env scope-full n
-                                       (if (vector? measure-form) (first measure-form) measure-form)))
+        has-sizeof? ((fn has-sz? [f] (cond (and (seq? f) (= 'sizeOf (first f))) true
+                                           (or (seq? f) (vector? f)) (boolean (some has-sz? f))
+                                           :else false))
+                     measure-form)
+        _ (when has-sizeof? (wf-fix-ensure-sizeof-prelude!))
+        measure-env (if has-sizeof? @ansatz-env env)
+        elab-measure (fn [mform]
+                       (let [ids (vec (repeatedly n wf-fix-fresh))
+                             lctx (into {} (map (fn [id [pn _ _] pt]
+                                                  [id {:name (str pn) :type pt :tag :local}])
+                                                ids pairs param-types))
+                             m* (elab/elaborate-in-context measure-env lctx mform)]
+                         (e/abstract-many m* ids)))
+        lex-measures (when (vector? measure-form) (mapv elab-measure measure-form))
+        measure-ansatz (elab-measure (if (vector? measure-form) (first measure-form) measure-form))
 
         ;; Universe level for return type
         tc-tmp (ansatz.kernel.TypeChecker. env)

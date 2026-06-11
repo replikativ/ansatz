@@ -486,6 +486,23 @@
           abs-body (e/abstract1 body-expr fvar-id)]
       (e/let' (str nam) typ-expr val-expr abs-body))))
 
+(defn sizeof-inst
+  "Synthesize a SizeOf instance term for supported types: Nat, List of sized, and custom
+   inductives with a derived `<T>._sizeOf_inst` (wf-derive-sizeof! in ansatz.core)."
+  [env ty]
+  (let [[h as] (e/get-app-fn-args ty)]
+    (cond
+      (and (e/const? h) (= "Nat" (name/->string (e/const-name h))) (empty? as))
+      (e/const' (name/from-string "instSizeOfNat") [])
+      (and (e/const? h) (= "List" (name/->string (e/const-name h))) (= 1 (count as)))
+      (when-let [elt (sizeof-inst env (first as))]
+        (e/app* (e/const' (name/from-string "List._sizeOf_inst") (vec (e/const-levels h)))
+                (first as) elt))
+      (and (e/const? h) (empty? as)
+           (env/lookup env (name/mk-str (e/const-name h) "_sizeOf_inst")))
+      (e/const' (name/mk-str (e/const-name h) "_sizeOf_inst") [])
+      :else nil)))
+
 (defn- recur-form? [x]
   (and (seq? x) (symbol? (first x)) (= "recur" (name (first x)))))
 
@@ -729,6 +746,17 @@
 
         ;; do → value of the last form (pure setting: earlier forms have no effect).
         "do" (elab-term est (last sexpr))
+
+        ;; (sizeOf x) → SizeOf.sizeOf T inst x — the WF measure for data-typed params.
+        ;; The argument's type is INFERRED (fvar scope carries it); the instance is
+        ;; synthesized structurally (Nat, List of sized, derived custom instances).
+        "sizeOf"
+        (let [x* (elab-term est (nth sexpr 1))
+              ty (zonk est (infer-with-mvars est x*))
+              inst (sizeof-inst (:env est) ty)]
+          (when-not inst
+            (elab-error! (str "sizeOf: no SizeOf instance for type " (e/->string ty)) {:form sexpr}))
+          (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)]) ty inst x*))
 
         ;; Clojure loop/recur — the common counting-loop shape compiles to Nat.rec (see elab-loop).
         "loop" (elab-loop est (second sexpr) (last sexpr))
