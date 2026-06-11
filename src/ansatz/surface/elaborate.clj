@@ -600,7 +600,12 @@
 
     (seq? sexpr)
     (let [head (first sexpr)]
-      (case (when (symbol? head) (str head))
+      ;; user-registered surface forms (lean4 macro_rules-shaped: the registered fn maps the
+      ;; argument FORMS to a replacement surface form, which re-elaborates — syntax → syntax,
+      ;; so extensions compose with every surface feature)
+      (if-let [expander (and (symbol? head) (get @ingest/elaborator-registry head))]
+        (elab-term est (expander (rest sexpr)))
+        (case (when (symbol? head) (str head))
         "forall" (let [[_ binder-vec & body-forms] sexpr]
                    (when (not= 1 (count body-forms))
                      (elab-error! "forall expects one body" {:forms body-forms}))
@@ -842,7 +847,7 @@
           (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
           (and (symbol? head) (ingest/expand-macro? head))
           (elab-term est (macroexpand-1 sexpr))
-          :else (elab-app est (first sexpr) (rest sexpr)))))
+          :else (elab-app est (first sexpr) (rest sexpr))))))
 
     (vector? sexpr)
     (elab-error! "Unexpected vector in term position" {:form sexpr})

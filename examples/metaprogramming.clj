@@ -80,16 +80,10 @@
 (println "━━━ 2. Custom Elaboration Form ━━━\n")
 
 ;; Example: (double x) elaborates to (+ x x)
+;; lean4 macro_rules-shaped: the registered fn maps argument FORMS to a replacement
+;; surface form, which the (single, fvar/metavar) elaborator then elaborates.
 (a/register-elaborator! 'double
-  (fn [env scope depth args lctx]
-    (let [x (#'ansatz.core/sexp->ansatz env scope depth (first args) lctx)]
-      ;; Build: HAdd.hAdd Nat Nat Nat inst x x
-      (let [nat (e/const' (nm/from-string "Nat") [])
-            lz ansatz.kernel.level/zero
-            hadd (e/const' (nm/from-string "HAdd.hAdd") [lz lz lz])
-            inst (e/app* (e/const' (nm/from-string "instHAdd") [lz])
-                          nat (e/const' (nm/from-string "instAddNat") []))]
-        (e/app* hadd nat nat nat inst x x)))))
+  (fn [args] (list '+ (first args) (first args))))
 
 (a/defn test-double [n :- Nat] Nat (double n))
 (println "  (test-double 21) =" ((test-double 21)))

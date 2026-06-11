@@ -11,6 +11,12 @@
 (defonce ^{:doc "Structure field registry for defrecord compilation."}
   structure-registry (atom {}))
 
+;; ── Custom elaboration forms (lean4 macro_rules-shaped) ─────────────────────────────────
+;; symbol → (fn [arg-forms] → surface-form). The elaborator expands the form and re-elaborates
+;; the result — syntax→syntax, so extensions compose with every surface feature for free.
+(defonce ^{:doc "Custom surface-form registry: symbol → (fn [args] surface-form)."}
+  elaborator-registry (atom {}))
+
 ;; ── Macroexpand-by-default policy ───────────────────────────────────────────────────────
 (defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified
    name. Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's
