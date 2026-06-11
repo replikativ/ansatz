@@ -1970,22 +1970,27 @@
         (if is-dependent
           ;; Dependent forall — not an implication, bail
           [table problem]
-          ;; Implication: P → Q  →  ¬P ∨ Q
-          (let [not-const (e/const' (:not-name omega-names) [])
-                not-p (e/app not-const p-type)
-                ;; Decidable.not_or_of_imp {P Q} [dec P] (h : P → Q) : ¬P ∨ Q
-                or-proof (when hyp-proof
-                           (e/app* (e/const' (:not-or-of-imp omega-names) [])
-                                   p-type q-type
-                                   (e/app (e/const' (:classical-prop-dec omega-names) []) p-type)
-                                   hyp-proof))
-                ;; Queue as disjunction: ¬P ∨ Q
-                left-type not-p
-                right-type q-type]
-            [table (queue-disjunction problem
-                                      {:or-proof or-proof
-                                       :left-type left-type
-                                       :right-type right-type})])))
+          (let [q-whnf (#'tc/cached-whnf st q-type)]
+            (if (and (e/const? q-whnf) (= (e/const-name q-whnf) (:false-name omega-names)))
+              ;; P → False  IS  ¬P. Route to the Not handler (negate P → lt_or_gt_of_ne / LT /
+              ;; …), mirroring lean4's pushNot — NOT the generic implication path. This is how
+              ;; ¬(a ≤ b) (negated goal) and ¬(a = b) (i.e. a ≠ b) get handled without
+              ;; Decidable.not_or_of_imp.
+              (reify-prop st table problem
+                          (e/app (e/const' (:not-name omega-names) []) p-type)
+                          hyp-proof)
+              ;; Genuine implication P → Q (Q ≠ False): ¬P ∨ Q via Decidable.not_or_of_imp.
+              (let [not-const (e/const' (:not-name omega-names) [])
+                    not-p (e/app not-const p-type)
+                    or-proof (when hyp-proof
+                               (e/app* (e/const' (:not-or-of-imp omega-names) [])
+                                       p-type q-type
+                                       (e/app (e/const' (:classical-prop-dec omega-names) []) p-type)
+                                       hyp-proof))]
+                [table (queue-disjunction problem
+                                          {:or-proof or-proof
+                                           :left-type not-p
+                                           :right-type q-type})])))))
 
       :else [table problem])))
 
