@@ -513,9 +513,23 @@
         "app"    (let [[_ f a] sexpr]
                    (e/app (elab-term est f) (elab-term est a)))
 
-        "match"  (let [[_ discr-sexpr & alt-forms] sexpr]
-                   (match/compile-match est elab-term discr-sexpr
-                                        (mapv vec alt-forms)))
+        ;; Two surface forms funnel to the one inferring compiler (compile-match):
+        ;;  - inferring (proofs):    (match discr [pat rhs] …)            — vector alts
+        ;;  - explicit (a/defn):     (match scrut type ret (ctor [fields] body) …)
+        ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
+        ;; and dead code respectively; ctor qualification is done inside compile-match).
+        "match"  (let [args (vec (rest sexpr))]
+                   (if (vector? (get args 1))
+                     (match/compile-match est elab-term (first args) (mapv vec (rest args)))
+                     (let [scrut (first args)
+                           alts (mapv (fn [c]
+                                        (let [ctor (first c)
+                                              has-fields (and (> (count c) 2) (vector? (second c)))
+                                              fields (if has-fields (second c) [])
+                                              body (if has-fields (nth c 2) (second c))]
+                                          [(if (seq fields) (cons ctor (seq fields)) ctor) body]))
+                                      (drop 3 args))]
+                       (match/compile-match est elab-term scrut alts))))
 
         "=>" (let [[_ a b] sexpr]
                (e/arrow (elab-term est a) (elab-term est b)))

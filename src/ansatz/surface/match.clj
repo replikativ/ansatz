@@ -551,8 +551,25 @@
         tc (:tc est)
         discr-type (tc/infer-type tc discr-expr)
         discr-type-whnf (#'tc/cached-whnf tc discr-type)
+        ;; Qualify bare constructor names against the (inferred) inductive, so e.g.
+        ;; `nil`/`(cons h t)` resolve to List.nil/List.cons — lets the a/defn explicit
+        ;; match form desugar to plain patterns (one inferring compiler for both).
+        [th _] (e/get-app-fn-args discr-type-whnf)
+        ind-str (when (e/const? th) (name/->string (e/const-name th)))
+        qual (fn [s] (if (and ind-str (symbol? s) (not (.contains (str s) ".")))
+                       (let [q (str ind-str "." s)]
+                         (if (resolve-as-ctor env q) (symbol q) s))
+                       s))
+        nil-sym (symbol "nil")  ;; '(quote nil) reads as the VALUE nil, not a symbol
+        qualify (fn [pat]
+                  (cond
+                    ;; Clojure reads the List.nil short name as the value nil, not a symbol.
+                    (nil? pat) (qual nil-sym)
+                    (symbol? pat) (qual pat)
+                    (and (sequential? pat) (seq pat)) (cons (qual (or (first pat) nil-sym)) (rest pat))
+                    :else pat))
         alts (mapv (fn [[pat-sexpr rhs-sexpr]]
-                     {:pattern (parse-pattern env pat-sexpr)
+                     {:pattern (parse-pattern env (qualify pat-sexpr))
                       :rhs-sexpr rhs-sexpr})
                    alt-sexprs)]
     (compile-match-term est env elab-fn discr-expr discr-type-whnf alts)))
