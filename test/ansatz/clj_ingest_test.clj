@@ -71,6 +71,18 @@
   (is (= [0 1 15 55] (mapv (resolve 'ci-lsum) [0 1 5 10]))
       "loop/recur counting accumulator → Nat.rec, verified + runs (sum 1..n)"))
 
+(deftest non-structural-recursion-rejected
+  ;; A recursive call that isn't structurally decreasing on a parameter ((- n 2), not a bare match
+  ;; field) is rejected with an actionable error pointing at :termination-by / ^:partial — the
+  ;; recursion-lane prompt (structural auto-detect → explicit WF/partial), as in Lean.
+  (is (re-find #"termination-by|partial"
+        (try (eval '(ansatz.core/defn ^Nat ci-nonstruct [^Nat n] (if (== n 0) 0 (ci-nonstruct (- n 2)))))
+             "NO-THROW"
+             (catch Throwable e   ; eval wraps in CompilerException — scan the whole cause chain
+               (->> (iterate #(some-> ^Throwable % .getCause) e)
+                    (take-while some?) (map #(str (.getMessage ^Throwable %)))
+                    (clojure.string/join " ")))))))
+
 (deftest get-record-accessor
   ;; (get rec :field) → keyword projection (a sound record accessor). Full {:keys […]} destructuring
   ;; needs a custom typed desugar (Clojure's injects a dynamic seq-normalization preamble) — follow-on.

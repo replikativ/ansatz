@@ -2146,6 +2146,19 @@
           (let [[pn _ binfo] (nth pairs i)]
             (recur (dec i) (e/lam (str pn) (nth ptypes i) acc (or binfo :default))))))))
 
+(clojure.core/defn- mentions-const?
+  "Does expr reference the constant named nm anywhere?"
+  [expr nm]
+  (case (e/tag expr)
+    :const  (= (e/const-name expr) nm)
+    :app    (or (mentions-const? (e/app-fn expr) nm) (mentions-const? (e/app-arg expr) nm))
+    :lam    (or (mentions-const? (e/lam-type expr) nm) (mentions-const? (e/lam-body expr) nm))
+    :forall (or (mentions-const? (e/forall-type expr) nm) (mentions-const? (e/forall-body expr) nm))
+    :let    (or (mentions-const? (e/let-type expr) nm) (mentions-const? (e/let-value expr) nm)
+                (mentions-const? (e/let-body expr) nm))
+    :proj   (mentions-const? (e/proj-struct expr) nm)
+    false))
+
 (clojure.core/defn define-verified
   "Define a verified function. Returns compiled Clojure fn."
   [fn-name params ret-type-form body-form]
@@ -2176,6 +2189,15 @@
         body-ansatz (binding [surface-match/*self-name* cname
                               surface-match/*self-params* (vec (range 1 (inc n)))]
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))
+        ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
+        ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
+        _ (when (mentions-const? body-ansatz cname)
+            (throw (ex-info
+                    (str "Cannot auto-verify recursive function `" fn-name "`: its recursive call isn't "
+                         "structurally decreasing on a parameter (a bare sub-component of a matched argument). "
+                         "Add `:termination-by <measure>` for well-founded recursion, or `^:partial` for "
+                         "trusted (unverified) recursion.")
+                    {:fn fn-name :kind :non-structural-recursion})))
         ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
         tc (ansatz.kernel.TypeChecker. env)
         _ (.inferType tc body-ansatz)
