@@ -58,6 +58,14 @@
   (is (= [6 30 0] (mapv (resolve 'ci-suml) ['(1 2 3) '(10 20) '()]))
       "natural recursive call auto-maps to the IH — verified + runs"))
 
+(deftest loop-recur-counts-to-nat-rec
+  ;; The common counting-loop shape (loop [i n acc 0] (if (== i 0) acc (recur (dec i) …)))
+  ;; compiles to Nat.rec on the decreasing counter — kernel-verified (not partial) and runs.
+  (eval '(ansatz.core/defn ^Nat ci-lsum [^Nat n]
+           (loop [i n acc 0] (if (== i 0) acc (recur (dec i) (+ acc i))))))
+  (is (= [0 1 15 55] (mapv (resolve 'ci-lsum) [0 1 5 10]))
+      "loop/recur counting accumulator → Nat.rec, verified + runs (sum 1..n)"))
+
 (deftest get-record-accessor
   ;; (get rec :field) → keyword projection (a sound record accessor). Full {:keys […]} destructuring
   ;; needs a custom typed desugar (Clojure's injects a dynamic seq-normalization preamble) — follow-on.

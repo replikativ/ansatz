@@ -486,6 +486,83 @@
           abs-body (e/abstract1 body-expr fvar-id)]
       (e/let' (str nam) typ-expr val-expr abs-body))))
 
+(defn- recur-form? [x]
+  (and (seq? x) (symbol? (first x)) (= "recur" (name (first x)))))
+
+(defn- elab-loop
+  "Compile the common counting-loop shape
+     (loop [i init, a0 i0, …] (if (== i 0) BASE (recur (dec i) s0 …)))
+   to Nat.rec on the decreasing counter i, into the accumulator function space:
+     ((Nat.rec (λ_:Nat. T0→…→R) (λ a0…. BASE) (λ k ih a0…. ih s0[i:=k+1] …) init) i0 …)
+   The counter must be the first binding, recur's first arg (dec counter), and the test
+   (== counter 0). Other loop shapes throw (→ use ^:partial for general loops)."
+  [est binder-vec body]
+  (let [pairs (vec (partition 2 binder-vec))
+        bad (fn [msg] (elab-error!
+                       (str "loop: " msg " — only the counting shape "
+                            "(loop [i n …] (if (== i 0) base (recur (dec i) …))) is auto-compiled; "
+                            "use ^:partial for general loops") {:body body}))
+        _ (when (empty? pairs) (bad "needs a counter binding"))
+        [ivar iinit] (first pairs)
+        accs (vec (rest pairs))
+        _ (when-not (and (seq? body) (symbol? (first body)) (= "if" (name (first body)))
+                         (= 4 (count body))) (bad "body must be an if"))
+        [_ test br-a br-b] body
+        recur-br (cond (recur-form? br-b) br-b (recur-form? br-a) br-a :else (bad "no (recur …) branch"))
+        base-br (if (identical? recur-br br-b) br-a br-b)
+        rargs (vec (rest recur-br))
+        dec-arg (first rargs)
+        _ (when-not (and (seq? dec-arg) (symbol? (first dec-arg)) (= "dec" (name (first dec-arg)))
+                         (= ivar (second dec-arg))) (bad "first recur arg must be (dec counter)"))
+        _ (when-not (= (count rargs) (inc (count accs))) (bad "recur arity must match the bindings"))
+        _ (when-not (and (seq? test) (symbol? (first test)) (= "==" (name (first test)))
+                         (let [a (second test) b (nth test 2)]
+                           (or (and (= a ivar) (= b 0)) (and (= a 0) (= b ivar)))))
+            (bad "test must be (== counter 0)"))
+        steps (vec (rest rargs))
+        nat (e/const' (name/from-string "Nat") [])
+        succ-of (fn [k] (e/app (e/const' (name/from-string "Nat.succ") []) k))
+        iinit* (elab-term est iinit)
+        acc-inits* (mapv (fn [[_ ini]] (elab-term est ini)) accs)
+        acc-types (mapv (fn [a*] (zonk est (infer-with-mvars est a*))) acc-inits*)
+        bind-accs (fn [est0]                          ; → [est' acc-fids]
+                    (reduce (fn [[e ids] [[av _] at]]
+                              (let [fid (fresh-id! e)]
+                                [(-> e (assoc-in [:scope av] {:fvar-id fid :type at})
+                                       (update :tc update :lctx red/lctx-add-local fid (str av) at))
+                                 (conj ids fid)]))
+                            [est0 []] (map vector accs acc-types)))
+        wrap-acc-lams (fn [body0]                      ; λ a0 … . body0 (accs already abstracted)
+                        (reduce (fn [b i] (e/lam (str (first (nth accs i))) (nth acc-types i) b :default))
+                                body0 (reverse (range (count accs)))))
+        ;; base : T0→…→R
+        [est-b acc-fids-b] (bind-accs est)
+        base* (elab-term est-b base-br)
+        ret-type (zonk est-b (infer-with-mvars est-b base*))
+        base-fn (wrap-acc-lams (e/abstract-many base* acc-fids-b))
+        ;; arrow type + motive + universe
+        arrow-type (reduce (fn [acc t] (e/forall' "_" t acc :default)) ret-type (reverse acc-types))
+        u (let [s (zonk est (infer-with-mvars est arrow-type))]
+            (if (e/sort? s) (e/sort-level s) (lvl/succ lvl/zero)))
+        motive (e/lam "_" nat arrow-type :default)
+        ;; step : λ k ih a0 … . ih s0[i:=succ k] …
+        k-fid (fresh-id! est)
+        ih-fid (fresh-id! est)
+        i-fid (fresh-id! est)
+        est-s0 (-> est (assoc-in [:scope ivar] {:fvar-id i-fid :type nat})
+                       (update :tc update :lctx red/lctx-add-local i-fid (str ivar) nat))
+        [est-s acc-fids-s] (bind-accs est-s0)
+        succ-k (succ-of (e/fvar k-fid))
+        steps* (mapv (fn [s] (let [s* (elab-term est-s s)]
+                               (e/instantiate1 (e/abstract1 s* i-fid) succ-k)))
+                     steps)
+        step-body (reduce e/app (e/fvar ih-fid) steps*)
+        step-abs (e/abstract-many step-body (into [k-fid ih-fid] acc-fids-s))
+        step-fn (e/lam (str ivar) nat
+                       (e/lam "ih" arrow-type (wrap-acc-lams step-abs) :default) :default)
+        nat-rec (e/const' (name/from-string "Nat.rec") [u])]
+    (reduce e/app (e/app* nat-rec motive base-fn step-fn iinit*) acc-inits*)))
+
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
@@ -652,6 +729,9 @@
 
         ;; do → value of the last form (pure setting: earlier forms have no effect).
         "do" (elab-term est (last sexpr))
+
+        ;; Clojure loop/recur — the common counting-loop shape compiles to Nat.rec (see elab-loop).
+        "loop" (elab-loop est (second sexpr) (last sexpr))
 
         ;; Clojure fn* (single arity) → lambda. parse-params reads the binders' metadata
         ;; types (^Nat / ^{:- T}); flatten to a [name type …] vec and reuse elab-lam.
