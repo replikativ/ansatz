@@ -216,6 +216,37 @@
         (is (= ["0" "1" "3" "6" "10" "15"] (run-nat-fn "ex-sumto" (range 6)))
             "sum-to computes triangular numbers")))))
 
+(deftest test-wf-fix-equations
+  (testing "Stage 1b-D: wf-fix functions get per-leaf eq_N defining equations via
+            WellFounded.fix_eq (lean4 WF/Unfold.lean rwFixEq), usable by simp both
+            symbolically and on literals"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ex-div2"))
+        (eval '(ansatz.core/defn ^Nat ex-div2 [^Nat n]
+                 :termination-by n
+                 (match n Nat Nat (zero 0)
+                        (succ [p] (match p Nat Nat (zero 0)
+                                         (succ [k] (Nat.succ (ex-div2 k)))))))))
+      ;; the three leaf equations exist (f 0 = 0, f 1 = 0, f (k+2) = (f k)+1)
+      (is (some? (env/lookup (a/env) (name/from-string "ex-div2.eq_1"))) "eq_1 generated")
+      (is (some? (env/lookup (a/env) (name/from-string "ex-div2.eq_2"))) "eq_2 generated")
+      (is (some? (env/lookup (a/env) (name/from-string "ex-div2.eq_3"))) "eq_3 generated")
+      ;; simp uses them: symbolic unfold (a wf-fix value is STUCK definitionally on a
+      ;; symbolic argument — only the fix_eq equations make this provable)
+      (is (try (a/prove-theorem (name/from-string "div2-eq-symbolic") '[k :- Nat]
+                                '(= Nat (ex-div2 (Nat.succ (Nat.succ k))) (Nat.succ (ex-div2 k)))
+                                '[(simp [ex-div2])])
+               true
+               (catch Throwable _ false))
+          "simp unfolds ex-div2 on a symbolic constructor pattern")
+      ;; and literal computation through the equations
+      (is (try (a/prove-theorem (name/from-string "div2-eq-lit") '[]
+                                '(= Nat (ex-div2 7) 3)
+                                '[(simp [ex-div2])])
+               true
+               (catch Throwable _ false))
+          "simp computes ex-div2 7 = 3 via the equations"))))
+
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)
 ;; ============================================================

@@ -2167,6 +2167,73 @@
         (e/lam (e/lam-name body) bt (e/abstract-many inner [id]) (e/lam-info body)))
       :else body)))
 
+;; ── Stage 1b-D: defining equations for wf-fix functions (lean4 WF/Unfold.lean rwFixEq) ──
+;; A wf-fix definition does NOT unfold definitionally on a symbolic argument (WellFounded.fix is
+;; stuck on the Acc proof), so simp needs explicit equations. Per lean4: one WellFounded.Nat.fix_eq
+;; instance proves `f x = Ffn x (fun y _ => f y)`; we state per-LEAF equations (fully-composed
+;; constructor patterns, e.g. `f (succ (succ k)) = succ (f k)`) so every discriminant in the
+;; refined casesOn is constructor-headed and the stated RHS is defeq to fix_eq's RHS by iota/beta
+;; alone (the decrease proofs are beta-dropped by `fun y _ => f y`). The bare fix_eq instance IS
+;; the proof; check-constant carries the defeq burden. Leaf splitting is REQUIRED, not cosmetic:
+;; a still-symbolic nested match is stuck with a refined motive on one side and the original on
+;; the other — not defeq (this is why lean4 has eq_N splitting / the matcher arg_pusher).
+
+;; rhs converter: same dite conversion as wf-fix-ite->dite but recursive calls stay as the
+;; function constant (no IH threading) — produces the equation's right-hand side.
+(defn- wf-fix-eq-rhs [env body]
+  (let [[h as] (e/get-app-fn-args body)]
+    (cond
+      (wf-fix-ite? h as)
+      (let [rv (first (e/const-levels h))
+            M (nth as 0) else-br (nth as 1) then-br (nth as 2)
+            [ch cas] (e/get-app-fn-args (nth as 3))
+            a (wf-fix-eq-rhs env (nth cas 0)) b (wf-fix-eq-rhs env (nth cas 1))
+            [prop inst] ((wf-fix-comparisons (name/->string (e/const-name ch))) a b)
+            ret-here (e/instantiate1 (e/lam-body M) (e/const' (name/from-string "Bool.true") []))
+            not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
+        (e/app* (e/const' (name/from-string "dite") [rv]) ret-here prop inst
+                (e/lam "h" prop (e/lift (wf-fix-eq-rhs env then-br) 1 0) :default)
+                (e/lam "h" not-prop (e/lift (wf-fix-eq-rhs env else-br) 1 0) :default)))
+      (seq as) (apply e/app* (wf-fix-eq-rhs env h) (mapv #(wf-fix-eq-rhs env %) as))
+      (e/lam? body) (e/lam (e/lam-name body) (wf-fix-eq-rhs env (e/lam-type body))
+                           (wf-fix-eq-rhs env (e/lam-body body)) (e/lam-info body))
+      :else body)))
+
+;; leaf enumerator: split each case-split-on-a-pattern-var per constructor, composing the
+;; pattern; stop at dites/leaves. fields = the ∀-binders of the equation ([[id type] …]);
+;; a split consumes the matched var and appends the constructor's fields.
+(defn- wf-fix-eq-leaves [env tc reducer body pattern fields]
+  (let [[h as] (e/get-app-fn-args body)]
+    (if (wf-fix-refinable? env h as pattern)
+      (let [rec-name (e/const-name h) rv (first (e/const-levels h))
+            rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
+            params (vec (take np as))
+            major (last as) v-id (e/fvar-id major)
+            ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
+            ctor-names (vec (.ctors (env/lookup env ind-name)))
+            rec-applied (apply e/app* (e/const' rec-name [rv]) (conj params (nth as np)))
+            tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
+            minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))]
+        (vec (mapcat
+              (fn [mi]
+                (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
+                      bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer)) bid (mapv first bs)
+                      field-ids (vec (take nf bid))
+                      field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
+                      ctor-pat (apply e/app* (e/const' ctor-name (vec (e/const-levels (e/const' ctor-name []))))
+                                      (into params (mapv e/fvar field-ids)))
+                      pattern' (e/instantiate1 (e/abstract-many pattern [v-id]) ctor-pat)
+                      fields' (into (vec (remove (fn [[id _]] (= id v-id)) fields))
+                                    (mapv vector field-ids field-tys))
+                      ;; open the ORIGINAL minor: nf fields + structural-ih binders (unused in
+                      ;; WF bodies — recursive calls reference the function constant)
+                      orig (nth as (+ np 1 mi))
+                      obody (loop [b orig i 0] (if (and (< i (count bs)) (e/lam? b))
+                                                 (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))]
+                  (wf-fix-eq-leaves env tc reducer obody pattern' fields')))
+              (range nminors))))
+      [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}])))
+
 ;; Build the WellFounded.Nat.fix term for single-Nat-arg recursion. raw-body = the compiled body
 ;; with the param at bvar 0 (any shape: match/casesOn, if/Bool.rec, or mixed — the general refine
 ;; dispatcher routes each). measure-lam : Nat→Nat. Throws if a decrease obligation is unprovable.
@@ -2364,55 +2431,87 @@
         ;; Nat.rec motive base step (succ k) args = step k (Nat.rec ... k) args
         ;; which is = body[ih → fn] (the original body with recursive calls intact).
         ;; The proof is just Eq.refl (fn args).
-        _ (try
-            (let [env' @ansatz-env
-                  ;; Build: ∀ params, fn(params) = body-with-fn
-                  ;; Create fvars for params
-                  fv-base 8300000
-                  param-fvids (mapv #(+ fv-base %) (range n))
-                  param-fvars (mapv e/fvar param-fvids)
-                  ;; fn(params) applied
-                  fn-applied (reduce e/app (e/const' cname []) param-fvars)
-                  ;; body with fn instead of ih — compile original body with params as fvars
-                  ;; Actually, fn-applied WHNF-reduces to the step body. So Eq.refl works.
-                  ;; Build eq type: fn(p1,...,pn) = fn(p1,...,pn) — trivially true
-                  ;; But we want a useful equation: fn(args) = user-body
-                  ;; For that, WHNF fn(args) and use the result as the RHS.
-                  tc-eq (ansatz.kernel.TypeChecker. env')
-                  _ (.setFuel tc-eq (long config/*default-fuel*))
-                  _ (doseq [i (range n)]
-                      (.addLocal tc-eq (long (nth param-fvids i))
-                                 (str (first (nth pairs i)))
-                                 (nth param-types i)))
-                  rhs (.whnf (.getReducer tc-eq) fn-applied)
-                  ;; Eq type: fn(args) = rhs
-                  eq-type (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                  ret-ansatz fn-applied rhs)
-                  ;; Wrap in foralls
-                  eq-full-type (loop [i (dec n) body eq-type]
+        ;; For the wf-fix encoding, whnf of fn(args) is STUCK on the Acc proof, so the equations
+        ;; come from WellFounded.Nat.fix_eq instead: per-leaf `<fn>.eq_N` theorems (the names simp's
+        ;; find-eqn-theorems discovers), each proven by the bare fix_eq instance + kernel defeq.
+        _ (if (= encoding :wf-fix)
+            (try
+              (let [env' @ansatz-env
+                    [fixh fixargs] (e/get-app-fn-args chosen-body)
+                    tc-eq (doto (ansatz.kernel.TypeChecker. env') (.setFuel (long config/*default-fuel*)))
+                    red-eq (.getReducer tc-eq)
+                    eq-lvl (let [s (.inferType tc-eq ret-ansatz)]
+                             (if (e/sort? s) (e/sort-level s) (lvl/succ lvl/zero)))
+                    X2id (wf-fix-fresh) X2 (e/fvar X2id)
+                    rawX2 (e/instantiate1 raw-body X2)
+                    leaves (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (nth param-types 0)]])]
+                (doseq [[i {:keys [fields pattern rhs]}] (map-indexed vector leaves)]
+                  (let [ids (mapv first fields)
+                        eq-core (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
+                                        ret-ansatz (e/app (e/const' cname []) pattern) rhs)
+                        eq-type (loop [k (dec (count fields)) acc (e/abstract-many eq-core ids)]
+                                  (if (< k 0) acc
+                                      (recur (dec k) (e/forall' "x" (e/abstract-many (second (nth fields k)) (subvec ids 0 k)) acc :default))))
+                        pf-core (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix_eq")
+                                                        (vec (e/const-levels fixh)))
+                                       (conj (vec fixargs) pattern))
+                        pf (loop [k (dec (count fields)) acc (e/abstract-many pf-core ids)]
+                             (if (< k 0) acc
+                                 (recur (dec k) (e/lam "x" (e/abstract-many (second (nth fields k)) (subvec ids 0 k)) acc :default))))
+                        eq-name (name/from-string (str fn-name ".eq_" (inc i)))]
+                    (swap! ansatz-env env/check-constant (env/mk-thm eq-name [] eq-type pf))))
+                (when *verbose*
+                  (println (str "  ✓ " fn-name ".eq_1.." (count leaves) " equations (fix_eq)"))))
+              (catch Exception e
+                (when *verbose*
+                  (println (str "  ⚠ wf-fix equation generation failed: " (.getMessage e))))))
+            (try
+              (let [env' @ansatz-env
+                    ;; Build: ∀ params, fn(params) = body-with-fn
+                    ;; Create fvars for params
+                    fv-base 8300000
+                    param-fvids (mapv #(+ fv-base %) (range n))
+                    param-fvars (mapv e/fvar param-fvids)
+                    ;; fn(params) applied
+                    fn-applied (reduce e/app (e/const' cname []) param-fvars)
+                    ;; fn-applied WHNF-reduces to the step body (fuel encoding), so Eq.refl works.
+                    tc-eq (ansatz.kernel.TypeChecker. env')
+                    _ (.setFuel tc-eq (long config/*default-fuel*))
+                    _ (doseq [i (range n)]
+                        (.addLocal tc-eq (long (nth param-fvids i))
+                                   (str (first (nth pairs i)))
+                                   (nth param-types i)))
+                    rhs (.whnf (.getReducer tc-eq) fn-applied)
+                    ;; Eq type: fn(args) = rhs — abstract the param fvars (a theorem must be
+                    ;; CLOSED; leaving them raw was the old "Unknown free variable" failure)
+                    eq-type (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                    ret-ansatz fn-applied rhs)
+                    eq-type-abs (e/abstract-many eq-type param-fvids)
+                    ;; Wrap in foralls
+                    eq-full-type (loop [i (dec n) body eq-type-abs]
+                                   (if (< i 0) body
+                                       (recur (dec i)
+                                              (e/forall' (str (first (nth pairs i)))
+                                                         (nth param-types i) body :default))))
+                    ;; Proof: Eq.refl (fn(args)) — works because fn(args) def-eq rhs
+                    proof-core (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                       ret-ansatz fn-applied)
+                    ;; Abstract fvars back to bvars
+                    proof-abs (e/abstract-many proof-core param-fvids)
+                    ;; Wrap in lambdas
+                    proof-full (loop [i (dec n) body proof-abs]
                                  (if (< i 0) body
                                      (recur (dec i)
-                                            (e/forall' (str (first (nth pairs i)))
-                                                       (nth param-types i) body :default))))
-                  ;; Proof: Eq.refl (fn(args)) — works because fn(args) def-eq rhs
-                  proof-core (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                     ret-ansatz fn-applied)
-                  ;; Abstract fvars back to bvars
-                  proof-abs (e/abstract-many proof-core param-fvids)
-                  ;; Wrap in lambdas
-                  proof-full (loop [i (dec n) body proof-abs]
-                               (if (< i 0) body
-                                   (recur (dec i)
-                                          (e/lam (str (first (nth pairs i)))
-                                                 (nth param-types i) body :default))))
-                  eq-name (name/from-string (str fn-name ".eq_unfold"))
-                  eq-ci (env/mk-thm eq-name [] eq-full-type proof-full)]
-              (swap! ansatz-env env/check-constant eq-ci)
-              (when *verbose*
-                (println (str "  ✓ " fn-name ".eq_unfold equation theorem"))))
-            (catch Exception e
-              (when *verbose*
-                (println (str "  ⚠ equation theorem generation failed: " (.getMessage e))))))
+                                            (e/lam (str (first (nth pairs i)))
+                                                   (nth param-types i) body :default))))
+                    eq-name (name/from-string (str fn-name ".eq_unfold"))
+                    eq-ci (env/mk-thm eq-name [] eq-full-type proof-full)]
+                (swap! ansatz-env env/check-constant eq-ci)
+                (when *verbose*
+                  (println (str "  ✓ " fn-name ".eq_unfold equation theorem"))))
+              (catch Exception e
+                (when *verbose*
+                  (println (str "  ⚠ equation theorem generation failed: " (.getMessage e)))))))
 
         ;; Compile to Clojure — uncurry for multi-arg
         clj-form (ansatz->clj @ansatz-env final-body [])
