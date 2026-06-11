@@ -2147,13 +2147,11 @@
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
-        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete). A small
-        ;; tail of forms isn't ported yet (get, deeply-nested match, bare nil in a
-        ;; branch) — those transitionally fall back to the bvar build-telescope.
-        ;; TODO(step 3): close the tail, then drop the fallback.
-        body-ansatz (or (try (build-telescope-fvar env pairs ret-type-form body-form)
-                             (catch Throwable _ nil))
-                        (build-telescope env {} 0 pairs body-form e/lam))
+        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete). This is the sole
+        ;; path — the bvar build-telescope fallback was retired once the fvar elaborator
+        ;; covered the whole suite (recursion, nested match, positional implicits, get, bare
+        ;; nil). Elaboration failures now surface honestly instead of silently re-routing.
+        body-ansatz (build-telescope-fvar env pairs ret-type-form body-form)
         ;; Build type: ∀ params → ret-type
         n (count pairs)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
