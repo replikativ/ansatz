@@ -321,6 +321,30 @@
         (is (not (env/lookup (a/env) (name/from-string "ex-bad-lex")))
             "the rejected function is not added to the environment")))))
 
+(deftest test-loop-recur-hoisting
+  (testing "loop/recur hoisting: general loops desugar into synthesized WF helpers routed
+            through the same verified pipeline (auto-measure, including lexicographic)"
+    (binding [a/*verbose* false]
+      ;; accumulator loop — NOT the legacy counting shape (recur args reordered)
+      (when-not (env/lookup (a/env) (name/from-string "ex-sumloop"))
+        (eval '(ansatz.core/defn ^Nat ex-sumloop [^Nat n]
+                 (loop [acc 0 i n]
+                   (if (== i 0) acc (recur (+ acc i) (- i 1)))))))
+      (is (some? (env/lookup (a/env) (name/from-string "ex-sumloop"))) "accumulator loop verified")
+      ;; two counters where the inner RESETS — termination needs a lexicographic measure,
+      ;; found automatically for the hoisted helper
+      (when-not (env/lookup (a/env) (name/from-string "ex-lexloop"))
+        (eval '(ansatz.core/defn ^Nat ex-lexloop [^Nat n]
+                 (loop [a n b n]
+                   (match a Nat Nat
+                     (zero (match b Nat Nat (zero 0) (succ [j] (+ 1 (recur a j)))))
+                     (succ [i] (+ 1 (recur i n))))))))
+      (is (some? (env/lookup (a/env) (name/from-string "ex-lexloop"))) "lex loop verified")
+      (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
+            run1 (fn [f k] (e/->string (.whnf r (e/app (e/const' (name/from-string f) []) (e/lit-nat k)))))]
+        (is (= "15" (run1 "ex-sumloop" 5)) "sum 1..5 = 15")
+        (is (= "4" (run1 "ex-lexloop" 2)) "lexloop 2 = 4 (hand-checked)")))))
+
 (deftest test-wf-fix-three-arg-three-tuple-lex
   (testing "N-ary: a 3-arg function with a 3-tuple lexicographic measure is kernel-enforced
             (right-nested Prod packing + recursive Prod.Lex.left/right' decrease proofs)"

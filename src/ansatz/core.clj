@@ -2917,17 +2917,74 @@
     false))
 
 (declare define-verified-impl)
+(declare define-verified)
+
+(clojure.core/defn- hoist-loops!
+  "Desugar general (loop [x e1 y e2 …] body) forms in an a/defn body into synthesized local
+   WF helper functions: the loop becomes (helper e1 e2 … encl…), `recur` becomes a self-call,
+   and the helper goes through the SAME verified pipeline — structural recursion, auto-measure
+   (single Nat or lexicographic GuessLex), kernel-enforced WellFounded.fix. Loop vars and the
+   loop result are assumed Nat (the WF machinery is Nat-gated); enclosing fn params referenced
+   by the body are closure-converted into extra constant helper params. Innermost loops hoist
+   first, so each `recur` belongs to its own loop. If a helper cannot be defined (non-Nat loop,
+   unprovable termination), the loop form is left intact for the legacy counting-shape
+   elaboration (elab-loop) — strictly more programs verify, none regress."
+  [fn-name param-syms body-form]
+  (letfn [(subst-recur [form helper-sym extra-args]
+            ;; rewrite (recur a …) → (helper a … extra…); inner loops were already hoisted,
+            ;; so every remaining recur belongs to the current loop
+            (cond
+              (and (seq? form) (= 'recur (first form)))
+              (list* helper-sym (concat (map #(subst-recur % helper-sym extra-args) (rest form))
+                                        extra-args))
+              (seq? form) (apply list (map #(subst-recur % helper-sym extra-args) form))
+              (vector? form) (mapv #(subst-recur % helper-sym extra-args) form)
+              :else form))
+          (occurs? [sym form]
+            (cond (= sym form) true
+                  (or (seq? form) (vector? form)) (boolean (some #(occurs? sym %) form))
+                  :else false))
+          (walk [form]
+            (cond
+              (and (seq? form) (= 'loop (first form)) (vector? (second form)))
+              (let [bindings (second form)
+                    lbody0 (nth form 2)
+                    lbody (walk lbody0)                       ; hoist inner loops first
+                    loop-vars (vec (take-nth 2 bindings))
+                    inits (mapv walk (take-nth 2 (rest bindings)))
+                    encl (vec (for [p param-syms
+                                    :when (and (not (some #{p} loop-vars)) (occurs? p lbody))]
+                                p))
+                    helper-sym (gensym (str fn-name "-loop"))
+                    helper-params (vec (mapcat (fn [v] [v :- 'Nat]) (concat loop-vars encl)))
+                    helper-body (subst-recur lbody helper-sym encl)]
+                (try
+                  (let [f (define-verified helper-sym helper-params 'Nat helper-body)]
+                    (intern *ns* helper-sym f)
+                    (list* helper-sym (concat inits encl)))
+                  (catch Throwable t
+                    (when *verbose*
+                      (println (str "  loop hoisting unavailable (" (.getMessage t)
+                                    ") — falling back to counting-shape elaboration")))
+                    form)))
+              (seq? form) (apply list (map walk form))
+              (vector? form) (mapv walk form)
+              :else form))]
+    (walk body-form)))
+
 (clojure.core/defn define-verified
   "Define a verified function. Auto-detects structural recursion; if the recursion is not
-   structural, tries lean4's GuessLex (single Nat measure) and redirects to well-founded
-   recursion when a decreasing measure is found. Returns the compiled Clojure fn."
+   structural, tries lean4's GuessLex (single Nat measure, then lexicographic pairs) and
+   redirects to well-founded recursion when a decreasing measure is found. General loop/recur
+   forms are hoisted into synthesized WF helper functions first. Returns the compiled Clojure fn."
   [fn-name params ret-type-form body-form]
-  (try
-    (define-verified-impl fn-name params ret-type-form body-form)
-    (catch clojure.lang.ExceptionInfo e
-      (if (= ::redirect-wf (:kind (ex-data e)))
-        (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
-        (throw e)))))
+  (let [body-form (hoist-loops! fn-name (mapv first (parse-params params)) body-form)]
+    (try
+      (define-verified-impl fn-name params ret-type-form body-form)
+      (catch clojure.lang.ExceptionInfo e
+        (if (= ::redirect-wf (:kind (ex-data e)))
+          (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
+          (throw e))))))
 
 (clojure.core/defn- define-verified-impl
   "Structural-recursion path. Throws {:kind ::redirect-wf :measure m} when recursion is
