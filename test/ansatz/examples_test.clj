@@ -5,6 +5,7 @@
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]))
@@ -150,6 +151,41 @@
             "non-terminating :termination-by definition is rejected with an actionable error")
         (is (not (env/lookup (a/env) (name/from-string "ex-eb")))
             "the rejected function is not added to the environment")))))
+
+(deftest test-wf-fix-nonstructural-nested-match
+  (testing "Stage 1b: non-structural nested-match recursion is encoded as kernel-ENFORCED
+            WellFounded.Nat.fix (decrease proof in the term), and computes correctly"
+    (binding [a/*verbose* false]
+      ;; div2 recurses on n-2 (nested match) — NOT structural; the fuel encoding would also work,
+      ;; but this must take the WellFounded.Nat.fix path so termination is kernel-checked, not trusted.
+      (when-not (env/lookup (a/env) (name/from-string "ex-div2"))
+        (eval '(ansatz.core/defn ^Nat ex-div2 [^Nat n]
+                 :termination-by n
+                 (match n Nat Nat (zero 0)
+                        (succ [p] (match p Nat Nat (zero 0)
+                                         (succ [k] (Nat.succ (ex-div2 k)))))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-div2"))]
+        (is (some? ci) "div2 (n-2 recursion) defined")
+        ;; the encoding is WellFounded.Nat.fix, not the fuel Nat.rec
+        (is (let [seen (atom false)]
+              ((fn go [x] (when (and (not @seen) (instance? ansatz.kernel.Expr x))
+                            (when (and (e/const? x)
+                                       (= "WellFounded.Nat.fix" (name/->string (e/const-name x))))
+                              (reset! seen true))
+                            (cond (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
+                                  (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
+                                  (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x))))))
+               (.value ci))
+              @seen)
+            "div2 is encoded with kernel-enforced WellFounded.Nat.fix")
+        ;; (the definition already passed check-constant in define-verified-wf — both the encoder's
+        ;;  own check and the swap! check-constant — so presence in the env implies kernel-verified)
+        ;; and it computes floor(n/2)
+        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 80000000)))]
+          (is (= ["0" "0" "1" "1" "2" "2" "3"]
+                 (mapv #(e/->string (.whnf r (e/app (e/const' (name/from-string "ex-div2") []) (e/lit-nat %))))
+                       (range 7)))
+              "div2 computes floor(n/2)"))))))
 
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)

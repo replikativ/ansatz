@@ -1978,6 +1978,153 @@
                 m))
             (wf-candidate-measures pairs)))))
 
+;; ── Stage 1b: lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED termination) ──
+;; Port of lean4 mkFix Nat fast path (Fix.lean) + recursive motive refinement
+;; (replaceRecApps/MatcherApp.addArg): the match discriminant reaches each decrease proof via the
+;; dependent casesOn motive, so the proof is embedded in the term (not a side gate). Single Nat-arg
+;; recursion over match/casesOn bodies; non-applicable shapes (if-guards, multi-arg) throw → caller
+;; falls back to the (sound) fuel encoding. See memory wf-fix-encoding-mechanism.
+(def ^:private wf-fix-counter (atom 9100000))
+(defn- wf-fix-fresh [] (swap! wf-fix-counter inc))
+(def ^:private wf-fix-NAT (e/const' (name/from-string "Nat") []))
+
+(defn- wf-fix-mk-lt [a b]
+  (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero]) wf-fix-NAT
+          (e/const' (name/from-string "instLTNat") []) a b))
+
+;; IHType[xref] = (y:Nat) → InvImage.{1,1} Nat Nat (·<·) measure y xref → Ret
+(defn- wf-fix-ihtype [measure-lam ret xref]
+  (let [L1 (lvl/succ lvl/zero)
+        ltfn (e/lam "n1" wf-fix-NAT (e/lam "n2" wf-fix-NAT (wf-fix-mk-lt (e/bvar 1) (e/bvar 0)) :default) :default)]
+    (e/forall' "y" wf-fix-NAT
+      (e/forall' "_"
+        (e/app* (e/const' (name/from-string "InvImage") [L1 L1]) wf-fix-NAT wf-fix-NAT ltfn measure-lam
+                (e/bvar 0) (e/lift xref 1 0))
+        (e/lift ret 2 0) :default) :default)))
+
+;; mkLambdaFVars: fvs=[[id name type] …] outer→inner; binder k's type may reference earlier ids.
+(defn- wf-fix-mk-lambdas [fvs body]
+  (let [ids (mapv first fvs) n (count fvs)]
+    (loop [k (dec n) acc (e/abstract-many body ids)]
+      (if (< k 0) acc
+          (let [[_ nm ty] (nth fvs k)]
+            (recur (dec k) (e/lam nm (e/abstract-many ty (subvec ids 0 k)) acc :default)))))))
+
+;; telescope a Pi type to fvars, WHNF at each step (minor types are beta-redexes `motive (ctor …)`).
+(defn- wf-fix-tele-open [ty reducer]
+  (loop [t (.whnf reducer ty) bs []]
+    (if (e/forall? t)
+      (let [id (wf-fix-fresh)]
+        (recur (.whnf reducer (e/instantiate1 (e/forall-body t) (e/fvar id)))
+               (conj bs [id (e/forall-name t) (e/forall-type t)])))
+      {:binders bs :body t})))
+
+(defn- wf-fix-ty-of [scope id] (some (fn [[i t]] (when (= i id) t)) scope))
+
+;; kernel-native decrease proof: ∀ scope, measure arg < measure P  (P fully pattern-substituted ⇒
+;; closed and true), via omega; returned applied to the scope fvars.
+(defn- wf-fix-decr-proof [env scope measure-lam arg P]
+  (let [ids (mapv first scope) tys (mapv second scope)
+        prop (wf-fix-mk-lt (e/app measure-lam arg) (e/app measure-lam P))
+        gt (loop [i (dec (count ids)) body (e/abstract-many prop ids)]
+             (if (< i 0) body (recur (dec i) (e/forall' "s" (nth tys i) body :default))))
+        [ps _] (proof/start-proof env gt)
+        ps (basic/intros ps (mapv #(str "s" %) (range (count ids))))
+        ps (reduce run-tactic ps '[(omega)])]
+    (when-not (proof/solved? ps)
+      (throw (ex-info "wf-fix: decrease not provable" {:goal (e/->string gt)})))
+    (extract/verify ps)
+    (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
+
+;; is this app a recursor whose major is a free fvar occurring in P? → refinable.
+(defn- wf-fix-refinable? [env h as P]
+  (and (e/const? h)
+       (.endsWith (name/->string (e/const-name h)) ".rec")
+       (env/lookup env (e/const-name h))
+       (let [rci (env/lookup env (e/const-name h))]
+         (and (= (count as) (+ (.numParams rci) 1 (.numMinors rci) (.numIndices rci) 1))
+              (e/fvar? (last as))
+              (let [vid (e/fvar-id (last as))
+                    fvids (atom #{})]
+                ((fn go [x] (cond (e/fvar? x) (swap! fvids conj (e/fvar-id x))
+                                  (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
+                                  (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
+                                  (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x)))
+                                  :else nil)) P)
+                (contains? @fvids vid))))))
+
+(declare wf-fix-refine)
+
+;; refine recursor (R.rec params motive minors… major) to thread ih-fvar, exposing each branch's
+;; pattern via the dependent motive. Returns the refined recursor APPLIED to ih-fvar.
+(defn- wf-fix-refine-rec [env cname measure-lam ret reducer rec-head call-args ih-fvar P scope]
+  (let [rv (first (e/const-levels rec-head)) rec-name (e/const-name rec-head)
+        rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
+        params (vec (take np call-args))
+        major (last call-args) v-id (e/fvar-id major)
+        T (wf-fix-ty-of scope v-id)
+        tc (ansatz.kernel.TypeChecker. env) _ (.setFuel tc (long config/*default-fuel*))
+        ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
+        ctor-names (vec (.ctors (env/lookup env ind-name)))
+        P-abs (e/abstract-many P [v-id])
+        inner-motive (e/lam "v" T (e/forall' "_" (wf-fix-ihtype measure-lam ret P-abs) (e/lift ret 1 0) :default) :default)
+        rec-applied (apply e/app* (e/const' rec-name [rv]) (conj params inner-motive))
+        tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
+        minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))
+        process (fn [mi]
+                  (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
+                        bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer)) bid (mapv first bs)
+                        field-ids (vec (take nf bid))
+                        field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
+                        fs-id (last bid)
+                        ctor-pat (apply e/app* (e/const' ctor-name (vec (e/const-levels (e/const' ctor-name []))))
+                                        (into params (mapv e/fvar field-ids)))
+                        Pc (e/instantiate1 (e/abstract-many P [v-id]) ctor-pat)
+                        scope2 (into scope (mapv vector field-ids field-tys))
+                        orig (nth call-args (+ np 1 mi)) nopen (dec (count bs))
+                        obody (loop [b orig i 0] (if (and (< i nopen) (e/lam? b))
+                                                   (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))
+                        refined (wf-fix-refine env cname measure-lam ret reducer obody (e/fvar fs-id) Pc scope2)]
+                    (wf-fix-mk-lambdas bs refined)))
+        minors' (mapv process (range nminors))
+        refined-rec (apply e/app* (e/const' rec-name [rv]) (-> (into params [inner-motive]) (into minors') (conj major)))]
+    (e/app refined-rec ih-fvar)))
+
+;; descend a branch body: rewrite self-calls to (ih arg proof), refine nested recursors, open lambdas.
+(defn- wf-fix-refine [env cname measure-lam ret reducer body ih-fvar P scope]
+  (let [[h as] (e/get-app-fn-args body)]
+    (cond
+      (and (e/const? h) (= (e/const-name h) cname) (= 1 (count as)))
+      (let [arg (wf-fix-refine env cname measure-lam ret reducer (first as) ih-fvar P scope)]
+        (e/app* ih-fvar arg (wf-fix-decr-proof env scope measure-lam arg P)))
+      (wf-fix-refinable? env h as P)
+      (wf-fix-refine-rec env cname measure-lam ret reducer h as ih-fvar P scope)
+      (seq as)
+      (apply e/app* (wf-fix-refine env cname measure-lam ret reducer h ih-fvar P scope)
+             (mapv #(wf-fix-refine env cname measure-lam ret reducer % ih-fvar P scope) as))
+      (e/lam? body)
+      (let [id (wf-fix-fresh) bt (e/lam-type body)
+            inner (wf-fix-refine env cname measure-lam ret reducer
+                                 (e/instantiate1 (e/lam-body body) (e/fvar id)) ih-fvar P (conj scope [id bt]))]
+        (e/lam (e/lam-name body) bt (e/abstract-many inner [id]) (e/lam-info body)))
+      :else body)))
+
+;; Build the WellFounded.Nat.fix term for single-Nat-arg recursion. raw-body = compiled
+;; (R.rec params motive minors… major). measure-lam : Nat→Nat. Throws if the shape is unsupported.
+(defn- wf-fix-encode [env cname raw-body measure-lam ret param-type]
+  (let [reducer (.getReducer (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*))))
+        Xid (wf-fix-fresh) Fvid (wf-fix-fresh) X (e/fvar Xid)
+        Fty (wf-fix-ihtype measure-lam ret X) Fv (e/fvar Fvid)
+        rawX (e/instantiate1 raw-body X)
+        [h as] (e/get-app-fn-args rawX)]
+    (when-not (and (e/const? h) (.endsWith (name/->string (e/const-name h)) ".rec")
+                   (e/fvar? (last as)) (= Xid (e/fvar-id (last as))))
+      (throw (ex-info "wf-fix: body is not a top-level case-split on the recursion variable" {})))
+    (let [casesApp (wf-fix-refine-rec env cname measure-lam ret reducer h as Fv X [[Xid param-type]])
+          Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] casesApp)]
+      (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [(lvl/succ lvl/zero) (first (e/const-levels h))])
+             [param-type (e/lam "x" param-type (e/lift ret 1 0) :default) measure-lam Ffn]))))
+
 (declare build-telescope-fvar)
 (clojure.core/defn define-verified-wf
   "Define a verified function with well-founded recursion.
@@ -2119,17 +2266,35 @@
                                 (e/lam (str (first (nth pairs i)))
                                        (nth param-types i) body :default))))
 
+        ;; Stage 1b: prefer the lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED
+        ;; termination — the decrease proof lives in the term). Applies to single Nat-arg recursion
+        ;; over match/casesOn bodies; on any unsupported shape or check failure, fall back to the
+        ;; (sound, gate-checked) fuel encoding above.
+        fix-body (when (and (= n 1)
+                            (e/const? (nth param-types 0))
+                            (= "Nat" (name/->string (e/const-name (nth param-types 0)))))
+                   (try
+                     (let [t (wf-fix-encode env cname raw-body
+                                            (e/lam (str (first (nth pairs 0))) (nth param-types 0) measure-ansatz :default)
+                                            ret-ansatz (nth param-types 0))]
+                       (env/check-constant env (env/mk-def cname [] type-ansatz t))
+                       t)
+                     (catch Throwable _ nil)))
+        encoding (if fix-body :wf-fix :fuel)
+        chosen-body (or fix-body final-body)
+
         ;; Type-check on the real env
         tc (ansatz.kernel.TypeChecker. env)
         _ (.setFuel tc (long config/*default-fuel*))
-        _ (.inferType tc final-body)
+        _ (.inferType tc chosen-body)
 
         ;; Add to environment (swap! to avoid stale env race)
-        ci (env/mk-def cname [] type-ansatz final-body)
+        ci (env/mk-def cname [] type-ansatz chosen-body)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
-        _ (when *verbose* (println (str "✓ " fn-name " defined (well-founded recursion)")))
+        _ (when *verbose* (println (str "✓ " fn-name " defined (well-founded recursion, "
+                                        (if (= encoding :wf-fix) "kernel-enforced WellFounded.Nat.fix" "fuel + termination gate") ")")))
 
         ;; Generate equation theorem: fn(args) = body[fn → fn]
         ;; For the fuel-based Nat.rec approach, this is true by computation:
