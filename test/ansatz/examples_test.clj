@@ -247,6 +247,28 @@
                (catch Throwable _ false))
           "simp computes ex-div2 7 = 3 via the equations"))))
 
+(deftest test-wf-fix-two-arg-packed
+  (testing "Stage 3-B: two-arg WF recursion is kernel-enforced via Prod packing
+            (lean4 packs through PSigma.casesOn — the packing wrapper is just another
+            refinable recursor for the motive-refinement machinery), with user-facing
+            2-arg eq_N equations"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ex-add2"))
+        (eval '(ansatz.core/defn ^Nat ex-add2 [^Nat x ^Nat y]
+                 :termination-by (+ x y)
+                 (match x Nat Nat (zero y) (succ [k] (+ 1 (ex-add2 k y)))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-add2"))]
+        (is (some? ci) "two-arg WF function defined")
+        (is (uses-wf-fix? ci) "two-arg function is encoded with kernel-enforced WellFounded.Nat.fix")
+        ;; computes addition
+        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 80000000)))]
+          (is (= "7" (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-add2") [])
+                                                  (e/lit-nat 3) (e/lit-nat 4)))))
+              "ex-add2 3 4 = 7"))
+        ;; per-leaf equations in the user-facing 2-arg form
+        (is (some? (env/lookup (a/env) (name/from-string "ex-add2.eq_1"))) "eq_1 generated")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-add2.eq_2"))) "eq_2 generated")))))
+
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)
 ;; ============================================================
