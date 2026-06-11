@@ -321,6 +321,27 @@
         (is (not (env/lookup (a/env) (name/from-string "ex-bad-lex")))
             "the rejected function is not added to the environment")))))
 
+(deftest test-wf-fix-three-arg-three-tuple-lex
+  (testing "N-ary: a 3-arg function with a 3-tuple lexicographic measure is kernel-enforced
+            (right-nested Prod packing + recursive Prod.Lex.left/right' decrease proofs)"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ex-lex3"))
+        (eval '(ansatz.core/defn ^Nat ex-lex3 [^Nat a ^Nat b ^Nat c]
+                 :termination-by [a b c]
+                 (match a Nat Nat
+                   (zero (match b Nat Nat
+                           (zero (match c Nat Nat (zero 0) (succ [k] (+ 1 (ex-lex3 0 0 k)))))
+                           (succ [j] (+ 1 (ex-lex3 0 j (+ c 2))))))
+                   (succ [i] (+ 1 (ex-lex3 i (+ b 2) (+ c 2))))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-lex3"))]
+        (is (some? ci) "3-arg 3-tuple lex function defined")
+        ;; lower components may INCREASE when a higher one drops — only lex can verify this
+        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))]
+          (is (= "13" (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-lex3") [])
+                                                   (e/lit-nat 1) (e/lit-nat 1) (e/lit-nat 1)))))
+              "lex3 1 1 1 = 13 (hand-checked: 4 + f(0,0,9) = 4 + 9)"))
+        (is (some? (env/lookup (a/env) (name/from-string "ex-lex3.eq_1"))) "leaf equations generated")))))
+
 (deftest test-wf-guess-lex-measure
   (testing "GuessLex tuples: Ackermann with NO :termination-by — the auto-measure finds the
             lexicographic pair [m n] and routes through the kernel-enforced lex encoder"

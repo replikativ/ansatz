@@ -2113,6 +2113,67 @@
       (reset! ansatz-env env')
       (when *verbose* (println "  ✓ Prod.Lex prelude loaded (kernel-verified)")))))
 
+;; ── N-ary packing + N-tuple lex helpers (lean4 mkProdElem right-association, GuessLex.lean:754) ──
+
+;; right-nested Prod type over k Nat components: Nat × (Nat × (… × Nat)); k=1 → Nat
+(defn- wf-fix-pack-ty [k]
+  (loop [i 1 ty wf-fix-NAT]
+    (if (>= i k) ty
+        (recur (inc i) (e/app* (e/const' (name/from-string "Prod") [lvl/zero lvl/zero]) wf-fix-NAT ty)))))
+
+;; right-nested Prod.mk over Nat-valued components: (v1, (v2, (…, vk)))
+(defn- wf-fix-pack-vals [vals]
+  (let [k (count vals)]
+    (loop [i (- k 2) acc (peek (vec vals))]
+      (if (neg? i) acc
+          (recur (dec i)
+                 (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
+                         wf-fix-NAT (wf-fix-pack-ty (- k i 1)) (nth vals i) acc))))))
+
+;; nested Prod.rec wrapper: takes body-n with the n params at bvars n-1..0 and returns a term
+;; with ONE loose bvar 0 (the packed param) that destructures it back into the n binders.
+;; cod = the motive codomain (closed), cod-lvl its sort level. n=1 → body-n unchanged.
+;; Built with fvars + wf-fix-mk-lambdas so de Bruijn bookkeeping is automatic; the nested
+;; wrappers are ordinary refinable recursors for the refinement machinery.
+(defn- wf-fix-wrap-n [n body-n cod cod-lvl]
+  (if (= n 1)
+    body-n
+    (let [L0 lvl/zero
+          xids (vec (repeatedly n wf-fix-fresh))
+          body-f (reduce (fn [b xid] (e/instantiate1 b (e/fvar xid))) body-n (rseq xids))
+          build (fn build [p-expr xs]
+                  (if (= 2 (count xs))
+                    (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) wf-fix-NAT wf-fix-NAT
+                            (e/lam "_p" (wf-fix-pack-ty 2) (e/lift cod 1 0) :default)
+                            (wf-fix-mk-lambdas [[(first xs) "a" wf-fix-NAT] [(second xs) "b" wf-fix-NAT]] body-f)
+                            p-expr)
+                    (let [rest-ty (wf-fix-pack-ty (dec (count xs)))
+                          pid (wf-fix-fresh)]
+                      (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) wf-fix-NAT rest-ty
+                              (e/lam "_p" (wf-fix-pack-ty (count xs)) (e/lift cod 1 0) :default)
+                              (wf-fix-mk-lambdas [[(first xs) "a" wf-fix-NAT] [pid "_rest" rest-ty]]
+                                                 (build (e/fvar pid) (rest xs)))
+                              p-expr))))]
+      (build (e/bvar 0) xids))))
+
+;; the lexicographic relation over a right-nested k-tuple: Nat.lt for k=1, else
+;; Prod.Lex Nat.lt (rel for k-1)
+(defn- wf-fix-lex-rel [k]
+  (if (= k 1)
+    (e/const' (name/from-string "Nat.lt") [])
+    (e/app* (e/const' (name/from-string "Prod.Lex") [lvl/zero lvl/zero])
+            wf-fix-NAT (wf-fix-pack-ty (dec k))
+            (e/const' (name/from-string "Nat.lt") []) (wf-fix-lex-rel (dec k)))))
+
+;; the WellFoundedRelation instance for the k-tuple: Nat.lt_wfRel for k=1, else
+;; Prod.lex Nat.lt_wfRel (instance for k-1)
+(defn- wf-fix-lex-wfrel [k]
+  (if (= k 1)
+    (e/const' (name/from-string "Nat.lt_wfRel") [])
+    (e/app* (e/const' (name/from-string "Prod.lex") [lvl/zero lvl/zero])
+            wf-fix-NAT (wf-fix-pack-ty (dec k))
+            (e/const' (name/from-string "Nat.lt_wfRel") []) (wf-fix-lex-wfrel (dec k)))))
+
 ;; one omega-proved arithmetic fact, ∀-closed over scope and applied back to the scope fvars
 (defn- wf-fix-omega-fact [env scope prop]
   (let [ids (mapv first scope) tys (mapv second scope)
@@ -2128,33 +2189,40 @@
     (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
 
 ;; lexicographic decrease proof (lean4 decreasing_tactic peel, WFTactics.lean:59), constructed
-;; DIRECTLY: `Prod.Lex.left` when the first measure strictly drops, else `Prod.Lex.right'` (the
-;; <=-variant of Lex.right, WF.lean:324 — subsumes the equal-first-component case). The omega base
-;; facts are stated in the LT.lt/LE.le instance spelling (what omega certifies); the constructors
-;; expect Nat.lt — defeq (instLTNat unfolds to Nat.lt), check-constant arbitrates.
-(defn- wf-fix-decr-proof-lex2 [env reducer scope tup-lam arg P]
+;; DIRECTLY and RECURSIVELY over the right-nested k-tuple: `Prod.Lex.left` when the head measure
+;; strictly drops, else `Prod.Lex.right'` (the <=-variant of Lex.right, WF.lean:324 — subsumes the
+;; equal-first-component case) wrapping the proof for the tail tuple. The omega base facts are
+;; stated in the LT.lt/LE.le instance spelling (what omega certifies); the constructors expect
+;; Nat.lt — defeq (instLTNat unfolds to Nat.lt), check-constant arbitrates.
+(defn- wf-fix-decr-proof-lexn [env reducer scope k tup-lam arg P]
   (let [t-of (fn [t] (.whnfCore reducer (e/app tup-lam t)))
-        natlt (e/const' (name/from-string "Nat.lt") [])
         nat-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) wf-fix-NAT
                                  (e/const' (name/from-string "instLENat") []) a b))
-        tup-arg (t-of arg) tup-P (t-of P)
         unmk (fn [t] (let [[h as] (e/get-app-fn-args t)]
                        (when (and (e/const? h) (= "Prod.mk" (name/->string (e/const-name h)))
                                   (= 4 (count as)))
                          [(nth as 2) (nth as 3)])))
-        [A1 A2] (or (unmk tup-arg) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))
-        [P1 P2] (or (unmk tup-P) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))]
-    (try
-      ;; first component strictly decreases
-      (let [h (wf-fix-omega-fact env scope (wf-fix-mk-lt A1 P1))]
-        (e/app* (e/const' (name/from-string "Prod.Lex.left") [lvl/zero lvl/zero])
-                wf-fix-NAT wf-fix-NAT natlt natlt A1 A2 P1 P2 h))
-      (catch Exception _
-        ;; first non-increasing, second strictly decreases
-        (let [h1 (wf-fix-omega-fact env scope (nat-le A1 P1))
-              h2 (wf-fix-omega-fact env scope (wf-fix-mk-lt A2 P2))]
-          (e/app* (e/const' (name/from-string "Prod.Lex.right'") [lvl/zero])
-                  wf-fix-NAT natlt P1 P2 A1 A2 h1 h2))))))
+        dec-lex (fn dec-lex [j A Pt]
+                  (if (= j 1)
+                    ;; base: a single Nat measure — strict decrease via omega
+                    (wf-fix-omega-fact env scope (wf-fix-mk-lt A Pt))
+                    (let [[A1 Arest] (or (unmk A) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))
+                          [P1 Prest] (or (unmk Pt) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))
+                          rest-ty (wf-fix-pack-ty (dec j))
+                          rest-rel (wf-fix-lex-rel (dec j))]
+                      (try
+                        ;; head component strictly decreases
+                        (let [h (wf-fix-omega-fact env scope (wf-fix-mk-lt A1 P1))]
+                          (e/app* (e/const' (name/from-string "Prod.Lex.left") [lvl/zero lvl/zero])
+                                  wf-fix-NAT rest-ty (e/const' (name/from-string "Nat.lt") []) rest-rel
+                                  A1 Arest P1 Prest h))
+                        (catch Exception _
+                          ;; head non-increasing, tail decreases lexicographically
+                          (let [h1 (wf-fix-omega-fact env scope (nat-le A1 P1))
+                                h2 (dec-lex (dec j) Arest Prest)]
+                            (e/app* (e/const' (name/from-string "Prod.Lex.right'") [lvl/zero])
+                                    rest-ty rest-rel P1 Prest A1 Arest h1 h2)))))))]
+    (dec-lex k (t-of arg) (t-of P))))
 
 ;; is this app a recursor whose major is a free fvar occurring in P? → refinable.
 (defn- wf-fix-refinable? [env h as P]
@@ -2541,87 +2609,71 @@
            :fix (fn [ret-level Ffn]
                   (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [L1 ret-level])
                          [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) m-lam Ffn]))})
-        ;; relation spec for a lexicographic 2-tuple of Nat measures → general WellFounded.fix
-        ;; with rel = fun y x => Prod.Lex Nat.lt Nat.lt (tup y) (tup x) and the wf proof projected
-        ;; from invImage tup (Prod.lex Nat.lt_wfRel Nat.lt_wfRel) — defeq to the stated relation
-        ;; (lean4 Rel.lean:57 builds exactly this invImage; we state the relation beta-expanded
-        ;; so each call-site obligation whnfs to a bare Prod.Lex goal).
-        mk-lex2-relspec
-        (fn [dom-ty tup-lam]
-          (let [natlt (e/const' (name/from-string "Nat.lt") [])
-                p2-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
-                lexr (fn [a b] (e/app* (e/const' (name/from-string "Prod.Lex") [L0 L0]) nat-c nat-c
-                                       natlt natlt a b))
+        ;; relation spec for a lexicographic k-tuple of Nat measures → general WellFounded.fix
+        ;; with rel = fun y x => Prod.Lex Nat.lt (…) (tup y) (tup x) (right-nested for k>2) and
+        ;; the wf proof projected from invImage tup (Prod.lex Nat.lt_wfRel (…)) — defeq to the
+        ;; stated relation (lean4 Rel.lean:57 builds exactly this invImage; we state the relation
+        ;; beta-expanded so each call-site obligation whnfs to a bare Prod.Lex goal).
+        mk-lexn-relspec
+        (fn [dom-ty tup-lam k]
+          (let [tup-ty (wf-fix-pack-ty k)
+                rel-k (wf-fix-lex-rel k)
+                lexr (fn [a b] (e/app* rel-k a b))
                 rel-lam (e/lam "y" dom-ty
                           (e/lam "x" (e/lift dom-ty 1 0)
                             (lexr (e/app tup-lam (e/bvar 1)) (e/app tup-lam (e/bvar 0))) :default) :default)
-                wfRel (e/app* (e/const' (name/from-string "invImage") [L1 L1]) dom-ty p2-ty tup-lam
-                              (e/app* (e/const' (name/from-string "Prod.lex") [L0 L0]) nat-c nat-c
-                                      (e/const' (name/from-string "Nat.lt_wfRel") [])
-                                      (e/const' (name/from-string "Nat.lt_wfRel") [])))
+                wfRel (e/app* (e/const' (name/from-string "invImage") [L1 L1]) dom-ty tup-ty tup-lam
+                              (wf-fix-lex-wfrel k))
                 hwf (e/proj (name/from-string "WellFoundedRelation") 1 wfRel)]
             {:ihtype (fn [xref]
                        (e/forall' "y" dom-ty
                          (e/forall' "_"
                            (lexr (e/app tup-lam (e/bvar 0)) (e/app tup-lam (e/lift xref 1 0)))
                            (e/lift ret-ansatz 2 0) :default) :default))
-             :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof-lex2 env2 reducer scope tup-lam arg P))
+             :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof-lexn env2 reducer scope k tup-lam arg P))
              :fix (fn [ret-level Ffn]
                     (apply e/app* (e/const' (name/from-string "WellFounded.fix") [L1 ret-level])
                            [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) rel-lam hwf Ffn]))}))
         lex? (vector? measure-form)
         fix-info
-        (cond
-          (and (= n 1) all-nat? (not lex?))
+        (when all-nat?
           (try
-            (let [m-lam (e/lam (str (first (nth pairs 0))) (nth param-types 0) measure-ansatz :default)
-                  callspec (merge {:cname cname :arity 1 :pack first :dom (nth param-types 0)}
-                                  (mk-measure-relspec (nth param-types 0) m-lam))
-                  t (wf-fix-encode env callspec raw-body ret-ansatz (nth param-types 0))]
-              (env/check-constant env (env/mk-def cname [] type-ansatz t))
-              {:value t :fix t :eqbody raw-body :packed-ty (nth param-types 0) :arity 1})
-            (catch Throwable t
-              (when *verbose*
-                (println (str "  wf-fix encoding unavailable for " fn-name " ("
-                              (.getMessage t) ") — using fuel encoding")))
-              nil))
-
-          (and (= n 2) all-nat?)
-          (try
-            (let [packed-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
+            (let [packed-ty (wf-fix-pack-ty n)
                   tc0 (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
                   rs (.inferType tc0 ret-ansatz)
                   rv (if (e/sort? rs) (e/sort-level rs) L1)
-                  ;; wrap the 2-param body (x=bvar 1, y=bvar 0) in Prod.rec over the packed param
-                  ;; (bvar 0 of the wrapper) — the minor's two binders restore the bvar layout.
-                  wrap2 (fn [body-2 motive-cod cod-lvl]
-                          (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) nat-c nat-c
-                                  (e/lam "_p" packed-ty (e/lift motive-cod 1 0) :default)
-                                  (e/lam (str (first (nth pairs 0))) nat-c
-                                         (e/lam (str (first (nth pairs 1))) nat-c body-2 :default) :default)
-                                  (e/bvar 0)))
-                  wrapped (wrap2 raw-body ret-ansatz rv)
-                  pack (fn [args] (e/app* (e/const' (name/from-string "Prod.mk") [L0 L0]) nat-c nat-c
-                                          (nth args 0) (nth args 1)))
+                  ;; n=1: the body/measure already take the single param at bvar 0.
+                  ;; n>=2: wrap in nested Prod.rec over the packed param (bvar 0 of the wrapper) —
+                  ;; the minors restore the n-param bvar layout, and each nested wrapper is an
+                  ;; ordinary refinable recursor for the refinement machinery.
+                  wrapped (wf-fix-wrap-n n raw-body ret-ansatz rv)
+                  pack (fn [args] (wf-fix-pack-vals (vec args)))
+                  m-lam-of (fn [body] (if (= n 1)
+                                        (e/lam (str (first (nth pairs 0))) (nth param-types 0) body :default)
+                                        (e/lam "p" packed-ty (wf-fix-wrap-n n body wf-fix-NAT L1) :default)))
                   relspec (if lex?
                             (let [_ (wf-fix-ensure-lex-prelude!)
-                                  p2-ty (e/app* (e/const' (name/from-string "Prod") [L0 L0]) nat-c nat-c)
-                                  tup-body (e/app* (e/const' (name/from-string "Prod.mk") [L0 L0]) nat-c nat-c
-                                                   (nth lex-measures 0) (nth lex-measures 1))
-                                  tup-lam (e/lam "p" packed-ty (wrap2 tup-body p2-ty L1) :default)]
-                              (mk-lex2-relspec packed-ty tup-lam))
-                            (mk-measure-relspec packed-ty
-                                                (e/lam "p" packed-ty (wrap2 measure-ansatz nat-c L1) :default)))
+                                  k (count lex-measures)
+                                  tup-body (wf-fix-pack-vals lex-measures)
+                                  tup-lam (if (= n 1)
+                                            (e/lam (str (first (nth pairs 0))) (nth param-types 0) tup-body :default)
+                                            (e/lam "p" packed-ty (wf-fix-wrap-n n tup-body (wf-fix-pack-ty k) L1) :default))]
+                              (mk-lexn-relspec packed-ty tup-lam k))
+                            (mk-measure-relspec packed-ty (m-lam-of measure-ansatz)))
                   ;; the prelude may have extended the global env — encode against the latest
                   env-l (if lex? @ansatz-env env)
-                  callspec (merge {:cname cname :arity 2 :pack pack :dom packed-ty} relspec)
+                  callspec (merge {:cname cname :arity n :pack (if (= n 1) first pack) :dom packed-ty}
+                                  relspec)
                   fix-t (wf-fix-encode env-l callspec wrapped ret-ansatz packed-ty)
-                  ;; user-facing 2-arg value: fun x y => fix (Prod.mk x y)  (fix-t is closed)
-                  v (e/lam (str (first (nth pairs 0))) nat-c
-                           (e/lam (str (first (nth pairs 1))) nat-c
-                                  (e/app fix-t (pack [(e/bvar 1) (e/bvar 0)])) :default) :default)]
+                  ;; user-facing n-ary value: fun x1 … xn => fix (pack x1 … xn)  (fix-t is closed)
+                  v (if (= n 1)
+                      fix-t
+                      (loop [i (dec n)
+                             body (e/app fix-t (wf-fix-pack-vals (mapv #(e/bvar (- n 1 %)) (range n))))]
+                        (if (< i 0) body
+                            (recur (dec i) (e/lam (str (first (nth pairs i))) nat-c body :default)))))]
               (env/check-constant env-l (env/mk-def cname [] type-ansatz v))
-              {:value v :fix fix-t :eqbody wrapped :packed-ty packed-ty :arity 2})
+              {:value v :fix fix-t :eqbody wrapped :packed-ty packed-ty :arity n})
             (catch Throwable t
               (when *verbose*
                 (println (str "  wf-fix encoding unavailable for " fn-name " ("
@@ -2674,13 +2726,15 @@
                     ;; Prod.mk-rooted pattern back into the argument list (defeq to the packed
                     ;; fix application by delta+beta)
                     unpack (fn [pattern]
-                             (if (= 2 (:arity fix-info))
-                               (let [[ph pas] (e/get-app-fn-args pattern)]
-                                 (if (and (e/const? ph) (= "Prod.mk" (name/->string (e/const-name ph)))
-                                          (= 4 (count pas)))
-                                   [(nth pas 2) (nth pas 3)]
-                                   (throw (ex-info "wf-fix eq: unsplit packed pattern" {}))))
-                               [pattern]))
+                             ;; right-nested (Prod.mk a (Prod.mk b …)) → the n-ary argument list
+                             (loop [t pattern acc [] left (:arity fix-info)]
+                               (if (= 1 left)
+                                 (conj acc t)
+                                 (let [[ph pas] (e/get-app-fn-args t)]
+                                   (if (and (e/const? ph) (= "Prod.mk" (name/->string (e/const-name ph)))
+                                            (= 4 (count pas)))
+                                     (recur (nth pas 3) (conj acc (nth pas 2)) (dec left))
+                                     (throw (ex-info "wf-fix eq: unsplit packed pattern" {})))))))
                     leaves (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (:packed-ty fix-info)]])]
                 (doseq [[i {:keys [fields pattern rhs]}] (map-indexed vector leaves)]
                   (let [ids (mapv first fields)
