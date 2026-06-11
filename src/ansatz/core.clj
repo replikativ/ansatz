@@ -1824,57 +1824,10 @@
     (e/app refined-rec ih-fvar)))
 
 ;; descend a branch body: rewrite self-calls to (ih arg proof), refine nested recursors, open lambdas.
-;; Bool comparison head → [Prop, Decidable instance] builders (the same comparison→Prop mapping as
-;; Stage 1a's wf-guard-of, but term-level). Props match the instances' indices exactly
-;; (Nat.decEq : Decidable (Eq Nat a b), Nat.decLt : Decidable (LT.lt Nat instLTNat a b), …).
-(def ^:private wf-fix-comparisons
-  {"Nat.beq" (fn [a b] [(e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) wf-fix-NAT a b)
-                        (e/app* (e/const' (name/from-string "Nat.decEq") []) a b)])
-   "Nat.blt" (fn [a b] [(wf-fix-mk-lt a b)
-                        (e/app* (e/const' (name/from-string "Nat.decLt") []) a b)])
-   "Nat.ble" (fn [a b] [(e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) wf-fix-NAT
-                                (e/const' (name/from-string "instLENat") []) a b)
-                        (e/app* (e/const' (name/from-string "Nat.decLe") []) a b)])})
+;; (The Bool.rec→dite WF conversion that lived here is gone: surface `if` over comparisons
+;; now emits dite directly — P5b of the elaborator unification — so branch lambdas carry the
+;; guard and the generic descent below collects it into the decrease-proof scope.)
 
-;; our if-compile: Bool.rec M else-br then-br (cmp a b), with a CONSTANT motive
-(defn- wf-fix-ite? [h as]
-  (and (e/const? h)
-       (= "Bool.rec" (name/->string (e/const-name h)))
-       (= 4 (count as))
-       (let [M (nth as 0) [ch cas] (e/get-app-fn-args (nth as 3))]
-         (and (e/lam? M) (not (e/has-loose-bvars? (e/lam-body M)))
-              (e/const? ch)
-              (contains? wf-fix-comparisons (name/->string (e/const-name ch)))
-              (= 2 (count cas))))))
-
-;; lean4-faithful if-guard: in lean4, ite/dite are @[macro_inline], so the WF translation sees
-;; `Decidable.casesOn inst (fun h:¬c => else) (fun h:c => then)` — the guard is a constructor FIELD
-;; of Decidable, exposed by the same casesOn mechanism as match patterns (Fix.lean has NO ite case).
-;; Our surface compiles `if` to Bool.rec over a Bool comparison, which loses the guard; convert it
-;; here to `dite P inst (fun h:P => then') (fun h:¬P => else')` so each branch binds the hypothesis
-;; the decrease proof needs (e.g. `¬(x = 0) → x - 1 < x`). No motive refinement is needed: unlike
-;; match, the IH type does not change between if-branches — only a hypothesis is added to scope.
-(defn- wf-fix-ite->dite [env callspec ret reducer rec-head as ih-fvar P scope]
-  (let [rv (first (e/const-levels rec-head))
-        M (nth as 0) else-br (nth as 1) then-br (nth as 2)
-        [ch cas] (e/get-app-fn-args (nth as 3))
-        ;; condition operands may themselves contain rec-calls — refine first, build P from refined
-        a (wf-fix-refine env callspec ret reducer (nth cas 0) ih-fvar P scope)
-        b (wf-fix-refine env callspec ret reducer (nth cas 1) ih-fvar P scope)
-        [prop inst] ((wf-fix-comparisons (name/->string (e/const-name ch))) a b)
-        ;; constant motive: extract the codomain (instantiate the unused Bool binder away)
-        ret-here (e/instantiate1 (e/lam-body M) (e/const' (name/from-string "Bool.true") []))
-        not-prop (e/app (e/const' (name/from-string "Not") []) prop)
-        ht (wf-fix-fresh) he (wf-fix-fresh)
-        then' (wf-fix-refine env callspec ret reducer then-br ih-fvar P (conj scope [ht prop]))
-        else' (wf-fix-refine env callspec ret reducer else-br ih-fvar P (conj scope [he not-prop]))]
-    (e/app* (e/const' (name/from-string "dite") [rv])
-            ret-here prop inst
-            (wf-fix-mk-lambdas [[ht "h" prop]] then')
-            (wf-fix-mk-lambdas [[he "h" not-prop]] else'))))
-
-;; callspec: {:cname Name, :arity n, :pack (fn [refined-args] packed-arg)} — for multi-arg
-;; functions the recursion args are packed (Prod.mk) into the single fix argument.
 (defn- wf-fix-refine [env callspec ret reducer body ih-fvar P scope]
   (let [[h as] (e/get-app-fn-args body)]
     (cond
@@ -1884,8 +1837,6 @@
         (e/app* ih-fvar arg ((:decr callspec) env reducer scope arg P)))
       (wf-fix-refinable? env h as P)
       (wf-fix-refine-rec env callspec ret reducer h as ih-fvar P scope)
-      (wf-fix-ite? h as)
-      (wf-fix-ite->dite env callspec ret reducer h as ih-fvar P scope)
       (seq as)
       (apply e/app* (wf-fix-refine env callspec ret reducer h ih-fvar P scope)
              (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as))
@@ -1907,26 +1858,10 @@
 ;; a still-symbolic nested match is stuck with a refined motive on one side and the original on
 ;; the other — not defeq (this is why lean4 has eq_N splitting / the matcher arg_pusher).
 
-;; rhs converter: same dite conversion as wf-fix-ite->dite but recursive calls stay as the
-;; function constant (no IH threading) — produces the equation's right-hand side.
-(defn- wf-fix-eq-rhs [env body]
-  (let [[h as] (e/get-app-fn-args body)]
-    (cond
-      (wf-fix-ite? h as)
-      (let [rv (first (e/const-levels h))
-            M (nth as 0) else-br (nth as 1) then-br (nth as 2)
-            [ch cas] (e/get-app-fn-args (nth as 3))
-            a (wf-fix-eq-rhs env (nth cas 0)) b (wf-fix-eq-rhs env (nth cas 1))
-            [prop inst] ((wf-fix-comparisons (name/->string (e/const-name ch))) a b)
-            ret-here (e/instantiate1 (e/lam-body M) (e/const' (name/from-string "Bool.true") []))
-            not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
-        (e/app* (e/const' (name/from-string "dite") [rv]) ret-here prop inst
-                (e/lam "h" prop (e/lift (wf-fix-eq-rhs env then-br) 1 0) :default)
-                (e/lam "h" not-prop (e/lift (wf-fix-eq-rhs env else-br) 1 0) :default)))
-      (seq as) (apply e/app* (wf-fix-eq-rhs env h) (mapv #(wf-fix-eq-rhs env %) as))
-      (e/lam? body) (e/lam (e/lam-name body) (wf-fix-eq-rhs env (e/lam-type body))
-                           (wf-fix-eq-rhs env (e/lam-body body)) (e/lam-info body))
-      :else body)))
+;; rhs builder for the per-leaf equations: the original body already carries the surface
+;; spelling (dite for comparison ifs since P5b), so this is a plain pass-through; kept as a
+;; function for future spelling normalizations.
+(defn- wf-fix-eq-rhs [_env body] body)
 
 ;; leaf enumerator: split each case-split-on-a-pattern-var per constructor, composing the
 ;; pattern; stop at dites/leaves. fields = the ∀-binders of the equation ([[id type] …]);
