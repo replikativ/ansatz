@@ -378,7 +378,17 @@
         head-expr expr
         tc (:tc est)
         head-type (infer-with-mvars est head-expr)
-        ;; Insert leading implicits (unless @-explicit)
+        ;; Positional convention (matches sexp->ansatz / the prior a/defn bodies): when
+        ;; the user supplies exactly the full binder count (implicits INCLUDED, e.g.
+        ;; (List.cons Nat x xs) or (TRBTree.node Nat color l v r)), apply positionally —
+        ;; i.e. treat like @-explicit (no implicit insertion). Fewer args ⇒ implicits are
+        ;; inferred as usual (e.g. (List.cons x xs), (Eq n n)).
+        total-binders (loop [t head-type c 0]
+                        (if (e/forall? t) (recur (e/forall-body t) (inc c)) c))
+        explicit? (or explicit?
+                      (and (e/const? head-expr) (pos? (count arg-sexprs))
+                           (= (count arg-sexprs) total-binders)))
+        ;; Insert leading implicits (unless @-explicit or positional)
         [head-expr head-type] (if explicit?
                                 [head-expr head-type]
                                 (insert-implicits est head-expr head-type))]
