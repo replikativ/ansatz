@@ -321,6 +321,24 @@
         (is (not (env/lookup (a/env) (name/from-string "ex-bad-lex")))
             "the rejected function is not added to the environment")))))
 
+(deftest test-wf-guess-lex-measure
+  (testing "GuessLex tuples: Ackermann with NO :termination-by — the auto-measure finds the
+            lexicographic pair [m n] and routes through the kernel-enforced lex encoder"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ex-ack-auto"))
+        (eval '(ansatz.core/defn ^Nat ex-ack-auto [^Nat m ^Nat n]
+                 (match m Nat Nat
+                   (zero (+ n 1))
+                   (succ [k] (match n Nat Nat
+                               (zero (ex-ack-auto k 1))
+                               (succ [j] (ex-ack-auto k (ex-ack-auto (Nat.succ k) j)))))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-ack-auto"))]
+        (is (some? ci) "unannotated Ackermann auto-verified via the guessed lex measure")
+        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))]
+          (is (= "61" (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-ack-auto") [])
+                                                   (e/lit-nat 3) (e/lit-nat 3)))))
+              "ack-auto 3 3 = 61"))))))
+
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)
 ;; ============================================================

@@ -1909,7 +1909,9 @@
     (letfn [(walk [form guards binders]
               (cond
                 (and (seq? form) (= (first form) fn-name) (= n (count (rest form))))
-                (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
+                (do (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
+                    ;; nested self-calls inside this call's arguments carry their own obligations
+                    (doseq [sub (rest form)] (walk sub guards binders)))
 
                 (and (seq? form) (= 'if (first form)))
                 (let [[_ c t e] form
@@ -1956,6 +1958,26 @@
         goal      (list '< 'Nat measure-at-args measure-form)]
     (prove-theorem (gensym "decr") binders goal '[(omega)])))
 
+(clojure.core/defn- prove-decrease-lex
+  "Discharge one rec-call's LEXICOGRAPHIC decrease obligation for measure tuple [m1 m2]:
+   m1 strictly decreases, or m1 is non-increasing and m2 strictly decreases — exactly the
+   Prod.Lex.left / Prod.Lex.right' split the lex encoder will emit. Throws when neither holds."
+  [pairs [m1 m2] {:keys [args field-binders guards]}]
+  (let [param-syms (mapv first pairs)
+        subst (zipmap param-syms args)
+        param-bs  (vec (mapcat (fn [[p t _]] [p :- t]) pairs))
+        field-bs  (vec (mapcat (fn [[f t]] [f :- t]) field-binders))
+        guard-bs  (vec (mapcat (fn [g i] [(symbol (str "hg" i)) :- g]) guards (range)))
+        binders   (vec (concat param-bs field-bs guard-bs))
+        try-goal  (fn [goal] (try (prove-theorem (gensym "decr") binders goal '[(omega)]) true
+                                  (catch Throwable _ false)))
+        m1a (wf-subst-syms m1 subst)
+        m2a (wf-subst-syms m2 subst)]
+    (or (try-goal (list '< 'Nat m1a m1))
+        (and (try-goal (list '<= 'Nat m1a m1))
+             (try-goal (list '< 'Nat m2a m2)))
+        (throw (ex-info "lexicographic measure does not decrease" {:call args :measure [m1 m2]})))))
+
 (clojure.core/defn- wf-candidate-measures
   "GuessLex default measures restricted to a single Nat measure (lexicographic is Stage 3):
    each Nat parameter, then the sum of all Nat parameters."
@@ -1964,19 +1986,29 @@
     (concat (vec nat-ps)
             (when (> (count nat-ps) 1) [(cons '+ nat-ps)]))))
 
+(clojure.core/defn- wf-candidate-lex-measures
+  "Lexicographic candidates: ordered pairs of distinct Nat parameters (lean4 GuessLex's
+   lexicographic combinations, restricted to 2-tuples)."
+  [pairs]
+  (let [nat-ps (->> pairs (filter (fn [[_ t _]] (= t 'Nat))) (mapv first))]
+    (vec (for [a nat-ps b nat-ps :when (not= a b)] [a b]))))
+
 (clojure.core/defn- wf-guess-measure
-  "Synthesize a terminating measure for an unannotated recursive function (lean4's GuessLex,
-   restricted to single Nat measures): the first candidate for which EVERY recursive call
-   provably decreases (via prove-decrease/omega). Returns the measure form, or nil. Wrong
-   guesses fail prove-decrease, so this is sound."
+  "Synthesize a terminating measure for an unannotated recursive function (lean4's GuessLex):
+   the first candidate for which EVERY recursive call provably decreases (via omega) — single
+   Nat measures first, then lexicographic pairs of parameters (e.g. Ackermann's [m n]).
+   Returns the measure form (a vector for lex), or nil. The guess is vetted call-by-call here
+   and then re-verified by the encoder's embedded kernel proofs, so a wrong guess cannot slip
+   through."
   [pairs body-form fn-name n]
-  (let [calls (collect-rec-calls-with-guards body-form fn-name n)]
+  (let [calls (collect-rec-calls-with-guards body-form fn-name n)
+        passes? (fn [check m] (try (doseq [c calls] (check pairs m c)) true
+                                   (catch Throwable _ false)))]
     (when (seq calls)
-      (some (fn [m]
-              (when (try (doseq [c calls] (prove-decrease pairs m c)) true
-                         (catch Throwable _ false))
-                m))
-            (wf-candidate-measures pairs)))))
+      (or (some (fn [m] (when (passes? prove-decrease m) m))
+                (wf-candidate-measures pairs))
+          (some (fn [mv] (when (passes? prove-decrease-lex mv) mv))
+                (wf-candidate-lex-measures pairs))))))
 
 ;; ── Stage 1b: lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED termination) ──
 ;; Port of lean4 mkFix Nat fast path (Fix.lean) + recursive motive refinement
@@ -2884,8 +2916,9 @@
               (throw (ex-info "auto-measure WF" {:kind ::redirect-wf :measure m}))
               (throw (ex-info
                       (str "Cannot auto-verify recursive function `" fn-name "`: its recursive call isn't "
-                           "structurally decreasing on a parameter, and no Nat measure was found to be "
-                           "decreasing. Add `:termination-by <measure>` for well-founded recursion, or "
+                           "structurally decreasing on a parameter, and no Nat measure (single or "
+                           "lexicographic pair) was found to be decreasing. Add `:termination-by <measure>` "
+                           "(a vector for lexicographic, e.g. [m n]) for well-founded recursion, or "
                            "`^:partial` for trusted (unverified) recursion.")
                       {:fn fn-name :kind :non-structural-recursion}))))
         ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
