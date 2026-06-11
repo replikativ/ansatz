@@ -1650,9 +1650,9 @@
                       a-val (nth goal-args 2)
                       c-val (nth goal-args 3)
                       ;; Parse args
-                      mid (sexp->ansatz (:env ps) {} 0 (first args) lctx)
-                      h1-term (sexp->ansatz (:env ps) {} 0 (second args) lctx)
-                      h2-term (sexp->ansatz (:env ps) {} 0 (nth args 2) lctx)
+                      mid (elab/elaborate-in-context (:env ps) lctx (first args))
+                      h1-term (elab/elaborate-in-context (:env ps) lctx (second args))
+                      h2-term (elab/elaborate-in-context (:env ps) lctx (nth args 2))
                       ;; Build le_trans.{0} α inst a mid c h1 h2
                       ;; le_trans : {α} [Preorder α] {a b c : α} → a ≤ b → b ≤ c → a ≤ c
                       preorder-inst (try-synthesize-instance (:env ps)
@@ -1667,7 +1667,7 @@
                 ;; Pass local context so hypothesis names resolve as fvars
                 (let [hyp-name (str (first args))
                       g (proof/current-goal ps)
-                      hyp-type (sexp->ansatz (:env ps) {} 0 (second args) (:lctx g))]
+                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
                   (basic/have-tac ps hyp-name hyp-type)))
    'simp      (fn [ps args] (if (seq args) (simp/simp ps (vec args)) (simp/simp ps)))
    'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (vec args)) (simp/simp-all ps)))
@@ -1676,8 +1676,13 @@
    'apply     (fn [ps args]
                 (let [arg (first args)
                       g (proof/current-goal ps)
-                      ;; Compile term with local context for hypothesis references
-                      term (sexp->ansatz (:env ps) {} 0 arg (:lctx g))]
+                      ;; A bare-symbol argument elaborates @-explicit (no implicit insertion):
+                      ;; apply-tac peels the foralls itself, creating ITS OWN metavars that
+                      ;; unify against the goal — saturating here would demand implicits be
+                      ;; solvable without the goal (lean4's apply elaborates the head the same
+                      ;; way: `elabTermForApply` suppresses implicit insertion for idents).
+                      arg' (if (symbol? arg) (symbol (str "@" arg)) arg)
+                      term (elab/elaborate-in-context (:env ps) (:lctx g) arg')]
                   (basic/apply-tac ps term)))
    'rewrite   (fn [ps args]
                 (let [nm (str (first args))
@@ -1709,7 +1714,7 @@
                 (basic/unfold-in-goal ps (str (first args))))
    'by_cases  (fn [ps args]
                 (let [g (proof/current-goal ps)
-                      cond-expr (sexp->ansatz (:env ps) {} 0 (first args) (:lctx g))]
+                      cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
                   (basic/by-cases ps cond-expr)))
    ;; Combinators — these receive inner tactic forms as s-expressions
    'try       (fn [ps args]
