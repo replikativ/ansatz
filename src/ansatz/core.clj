@@ -2181,7 +2181,9 @@
                            fids pairs ptypes))
         elab-in-ctx (requiring-resolve 'ansatz.surface.elaborate/elaborate-in-context)
         body-expr (elab-in-ctx env lctx body-form)
-        body-bvar (e/abstract-many body-expr (vec (reverse fids)))]
+        ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in
+        ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
+        body-bvar (e/abstract-many body-expr fids)]
     (loop [i (dec n) acc body-bvar]
       (if (< i 0) acc
           (let [[pn _ binfo] (nth pairs i)]
@@ -2192,9 +2194,13 @@
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
-        ;; TODO(elaborator-unification step 3): flip to build-telescope-fvar once the
-        ;; tail closes (5 unsolved-mvar bodies + 3 too-many-args + get + 3 codegen diffs).
-        body-ansatz (build-telescope env {} 0 pairs body-form e/lam)
+        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete). A small
+        ;; tail of forms isn't ported yet (get, deeply-nested match, bare nil in a
+        ;; branch) — those transitionally fall back to the bvar build-telescope.
+        ;; TODO(step 3): close the tail, then drop the fallback.
+        body-ansatz (or (try (build-telescope-fvar env pairs ret-type-form body-form)
+                             (catch Throwable _ nil))
+                        (build-telescope env {} 0 pairs body-form e/lam))
         ;; Build type: ∀ params → ret-type
         n (count pairs)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
