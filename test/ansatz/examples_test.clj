@@ -6,6 +6,7 @@
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]))
@@ -320,6 +321,50 @@
             "non-decreasing lexicographic measure is rejected")
         (is (not (env/lookup (a/env) (name/from-string "ex-bad-lex")))
             "the rejected function is not added to the environment")))))
+
+(deftest test-sizeof-wf-over-lists
+  (testing "sizeOf-based WF over data structures: rest∘rest recursion over List Nat is
+            kernel-enforced with measure (sizeOf xs) — explicit or auto-guessed — and,
+            critically, has the CORRECT semantics (the old structural path silently
+            mis-compiled nested-match self-calls to the inner match's IH, turning
+            pairs-counting into length-1 and div2 into n-1)"
+    (binding [a/*verbose* false]
+      ;; explicit sizeOf measure
+      (when-not (env/lookup (a/env) (name/from-string "ex-pairs"))
+        (eval '(ansatz.core/defn ^Nat ex-pairs [^{:- (List Nat)} xs]
+                 :termination-by (sizeOf xs)
+                 (match xs (List Nat) Nat
+                   (nil 0)
+                   (cons [h t] (match t (List Nat) Nat
+                                 (nil 0)
+                                 (cons [h2 t2] (+ 1 (ex-pairs t2)))))))))
+      ;; auto-guessed (no annotation) — routes through the WF path, NOT the structural
+      ;; rewrite (which is only sound when the match is the entire function body)
+      (when-not (env/lookup (a/env) (name/from-string "ex-pairs-au"))
+        (eval '(ansatz.core/defn ^Nat ex-pairs-au [^{:- (List Nat)} xs]
+                 (match xs (List Nat) Nat
+                   (nil 0)
+                   (cons [h t] (match t (List Nat) Nat
+                                 (nil 0)
+                                 (cons [h2 t2] (+ 1 (ex-pairs-au t2)))))))))
+      ;; unannotated nested-match div2 over Nat — the canonical correctness regression
+      (when-not (env/lookup (a/env) (name/from-string "ex-div2-au"))
+        (eval '(ansatz.core/defn ^Nat ex-div2-au [^Nat n]
+                 (match n Nat Nat (zero 0)
+                        (succ [p] (match p Nat Nat (zero 0)
+                                         (succ [k] (Nat.succ (ex-div2-au k)))))))))
+      (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
+            lnil (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
+                        (e/const' (name/from-string "Nat") []))
+            lcons (fn [h t] (e/app* (e/const' (name/from-string "List.cons") [lvl/zero])
+                                    (e/const' (name/from-string "Nat") []) (e/lit-nat h) t))
+            l6 (lcons 1 (lcons 2 (lcons 3 (lcons 4 (lcons 5 (lcons 6 lnil))))))
+            run (fn [f arg] (e/->string (.whnf r (e/app (e/const' (name/from-string f) []) arg))))]
+        (is (= "3" (run "ex-pairs" l6)) "explicit sizeOf: pairs of 6 elements = 3")
+        (is (= "3" (run "ex-pairs-au" l6)) "auto-guessed sizeOf: pairs of 6 elements = 3")
+        (is (= ["0" "0" "1" "1" "2" "2" "3" "3"]
+               (mapv #(run "ex-div2-au" (e/lit-nat %)) (range 8)))
+            "unannotated nested-match div2 computes floor(n/2), NOT n-1")))))
 
 (deftest test-loop-recur-hoisting
   (testing "loop/recur hoisting: general loops desugar into synthesized WF helpers routed

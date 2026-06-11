@@ -382,13 +382,20 @@
               matching-alts)
         ;; Elaborate the RHS, handling nested patterns
         rhs-body
-        (if has-nested-ctors?
-          ;; Build nested alts from ALL matching alternatives
-          (compile-match-inner est' env elab-fn
-                               field-fvar-ids field-fvars
-                               matching-alts nfields)
-          ;; Simple case: just elaborate the first alt's RHS
-          (elab-fn est' (:rhs-sexpr first-alt)))
+        ;; Branch RHSs elaborate with the structural self-rewrite DISABLED: a nested match's
+        ;; IH is the fold of that inner match, NOT the function being defined — rewriting a
+        ;; self-call to it silently changes the semantics (e.g. nested-match div2 became n-1).
+        ;; Self-calls inside branches stay as the axiom; the TOP-level match's post-pass below
+        ;; rewrites the legitimate `(self <field>)` calls, and anything else routes to the
+        ;; well-founded path (auto-measure / sizeOf), which is semantics-faithful.
+        (binding [*self-name* nil *self-params* nil]
+          (if has-nested-ctors?
+            ;; Build nested alts from ALL matching alternatives
+            (compile-match-inner est' env elab-fn
+                                 field-fvar-ids field-fvars
+                                 matching-alts nfields)
+            ;; Simple case: just elaborate the first alt's RHS
+            (elab-fn est' (:rhs-sexpr first-alt))))
         ;; Structural-recursion auto-detect: rewrite (self <bare recursive field>) → that field's
         ;; IH, so a natural recursive call stands in for ih_<field> (Lean's surface affordance).
         ;; No-op unless a self-name is in scope (define-verified) and this ctor has recursive fields.

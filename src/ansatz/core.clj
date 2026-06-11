@@ -508,7 +508,16 @@
 ;; Sexp → Ansatz Expr compiler (the ONE compiler for everything)
 ;; ============================================================
 
-(declare sexp->ansatz parse-params)
+(declare sexp->ansatz parse-params wf-sizeof-inst wf-fix-ensure-sizeof-prelude!)
+
+(clojure.core/defn rt-sizeof
+  "Runtime sizeOf mirroring the kernel sizeOf_spec equations: a Nat is its own size;
+   a (runtime, seq-encoded) list is 1 (nil) plus, per element, 1 + its size."
+  [v]
+  (cond
+    (integer? v) v
+    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+ acc 1 (rt-sizeof e))) 1 v)
+    :else 1))
 
 ;; Type context for outer-scope variables — used by match handler to
 ;; register fvars in the tc's local context. Maps symbol → Expr (type).
@@ -701,6 +710,23 @@
                                {:field field-name :type type-name-str}))))
            (let [h (str (first form))]
              (case h
+        ;; (sizeOf x) → SizeOf.sizeOf T inst x — the WF measure for data-typed params.
+        ;; T comes from the parameter's declared type (*scope-types*); the instance is
+        ;; synthesized structurally (Nat, List of sized).
+               "sizeOf"
+               (let [x-form (nth form 1)
+                     x-ty (get *scope-types* x-form)
+                     _ (when-not x-ty
+                         (throw (ex-info "sizeOf: argument must be a parameter with a known type"
+                                         {:form form})))
+                     inst (wf-sizeof-inst x-ty)
+                     _ (when-not inst
+                         (throw (ex-info (str "sizeOf: no SizeOf instance for type " (e/->string x-ty))
+                                         {:form form})))
+                     _ (wf-fix-ensure-sizeof-prelude!)
+                     x (sexp->ansatz env scope depth x-form)]
+                 (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)])
+                         x-ty inst x))
         ;; Comparison operators — Prop-valued (LE.le / LT.lt) when 3 args,
         ;; Bool-valued (Nat.ble / Nat.blt) when 2 args.
         ;; (≤ Real a b) or (<= Real a b) → LE.le Real inst a b  (Prop)
@@ -1279,6 +1305,10 @@
                       (list self-sym x-arg)))
               ;; Partial application (shouldn't happen normally)
               (list 'apply (ansatz->clj env head names) ca))
+            ;; SizeOf.sizeOf T inst x → runtime size (mirrors the sizeOf_spec equations:
+            ;; Nat is its own size; a list contributes 1 for nil plus 1 + size per element).
+            ;; Reached via the fuel scaffolding when sizeOf is the termination measure.
+            "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
             "HAdd.hAdd" (list '+ (nth ca 4) (nth ca 5))
             "HMul.hMul" (list '* (nth ca 4) (nth ca 5))
             "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
@@ -2008,7 +2038,14 @@
       (or (some (fn [m] (when (passes? prove-decrease m) m))
                 (wf-candidate-measures pairs))
           (some (fn [mv] (when (passes? prove-decrease-lex mv) mv))
-                (wf-candidate-lex-measures pairs))))))
+                (wf-candidate-lex-measures pairs))
+          ;; data-typed params: (sizeOf p), unvetted here — the surface gate cannot relate
+          ;; sizeOf-atoms through discriminant equalities; the encoder's embedded kernel
+          ;; proofs accept or reject the guess
+          (when (= 1 (count pairs))
+            (let [[p t _] (first pairs)]
+              (when (and (not= t 'Nat) (seq? t) (= 'List (first t)))
+                (list 'sizeOf p))))))))
 
 ;; ── Stage 1b: lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED termination) ──
 ;; Port of lean4 mkFix Nat fast path (Fix.lean) + recursive motive refinement
@@ -2056,6 +2093,7 @@
 
 ;; kernel-native decrease proof: ∀ scope, measure arg < measure P  (P fully pattern-substituted ⇒
 ;; closed and true), via omega; returned applied to the scope fvars.
+(declare wf-sizeof-normalize)
 (defn- wf-fix-decr-proof [env reducer scope measure-lam arg P]
   (let [ids (mapv first scope) tys (mapv second scope)
         ;; whnfCore the measure application: beta + iota, NO delta (lean4's clean_wf normalizes
@@ -2063,7 +2101,7 @@
         ;; would delta-unfold Nat.add into recursors omega cannot read). iota is needed for the
         ;; packed multi-arg measure `Prod.rec … (Prod.mk a b)`. The proof still matches the call
         ;; site's `InvImage … arg P` obligation by defeq.
-        m-of (fn [t] (.whnfCore reducer (e/app measure-lam t)))
+        m-of (fn [t] (wf-sizeof-normalize env (.whnfCore reducer (e/app measure-lam t))))
         prop (wf-fix-mk-lt (m-of arg) (m-of P))
         ;; mkForallFVars: binder i's type may reference earlier scope fvars (e.g. a dite guard
         ;; `h : ¬(x = 0)` mentions x) — abstract each type over ids[0..i), like wf-fix-mk-lambdas.
@@ -2084,12 +2122,12 @@
 ;; lexicographic :termination-by is first used: each missing declaration is kernel-VERIFIED on
 ;; admission (verify? true); declarations already in the env are skipped (the export carries its
 ;; full dependency closure).
-(clojure.core/defn wf-fix-ensure-lex-prelude!
-  "Ensure the Prod.Lex prelude is loaded into the global env (idempotent)."
-  []
-  (when-not (env/lookup @ansatz-env (name/from-string "Prod.Lex.right'"))
-    (let [res (clojure.java.io/resource "ansatz/lex-prelude.ndjson.gz")
-          _ (when-not res (throw (ex-info "lex prelude not on classpath (resources/ansatz/lex-prelude.ndjson.gz)" {})))
+(clojure.core/defn- wf-fix-ensure-prelude!
+  "Ensure a bundled prelude export is loaded into the global env (idempotent via sentinel)."
+  [sentinel resource label]
+  (when-not (env/lookup @ansatz-env (name/from-string sentinel))
+    (let [res (clojure.java.io/resource resource)
+          _ (when-not res (throw (ex-info (str label " prelude not on classpath (" resource ")") {})))
           ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))] (slurp in))
           decls (:decls (parser/parse-ndjson-string ndjson))
           env'
@@ -2111,7 +2149,19 @@
                   (recur (next ds) env2)))
               env))]
       (reset! ansatz-env env')
-      (when *verbose* (println "  ✓ Prod.Lex prelude loaded (kernel-verified)")))))
+      (when *verbose* (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))
+
+(clojure.core/defn wf-fix-ensure-lex-prelude!
+  "Ensure the Prod.Lex prelude is loaded (idempotent)."
+  []
+  (wf-fix-ensure-prelude! "Prod.Lex.right'" "ansatz/lex-prelude.ndjson.gz" "Prod.Lex"))
+
+(clojure.core/defn wf-fix-ensure-sizeof-prelude!
+  "Ensure the SizeOf prelude is loaded (idempotent): the SizeOf class, instSizeOfNat,
+   List._sizeOf_inst and the per-constructor sizeOf_spec equations (exports cleanly standalone,
+   like the lex prelude; absent from init-medium only due to unrelated export-path machinery)."
+  []
+  (wf-fix-ensure-prelude! "List._sizeOf_inst" "ansatz/sizeof-prelude.ndjson.gz" "SizeOf"))
 
 ;; ── N-ary packing + N-tuple lex helpers (lean4 mkProdElem right-association, GuessLex.lean:754) ──
 
@@ -2188,6 +2238,95 @@
     (extract/verify ps)
     (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
 
+;; ── sizeOf-based termination over data structures (lean4's default WF measure) ──
+;; The default measure for a data-typed parameter is `sizeOf p`, reducing data-structure
+;; termination to the existing Nat machinery. Decrease goals contain sizeOf-of-constructor
+;; terms that neither whnfCore (no delta) nor whnf (brecOn soup) normalize usefully; we rewrite
+;; them via the auto-generated `<ctor>.sizeOf_spec` equations (e.g. sizeOf (cons h t) =
+;; 1 + sizeOf h + sizeOf t) so omega sees linear arithmetic over sizeOf-atoms. The omega proof
+;; is then DEFEQ to the raw obligation (spec equations hold by iota/beta — validated by
+;; check-constant on the bridge), so no Eq transport is needed.
+
+;; synthesize a SizeOf instance for supported types (Nat, List of sized)
+(defn- wf-sizeof-inst [ty]
+  (let [[h as] (e/get-app-fn-args ty)]
+    (cond
+      (and (e/const? h) (= "Nat" (name/->string (e/const-name h))) (empty? as))
+      (e/const' (name/from-string "instSizeOfNat") [])
+      (and (e/const? h) (= "List" (name/->string (e/const-name h))) (= 1 (count as)))
+      (when-let [elt (wf-sizeof-inst (first as))]
+        (e/app* (e/const' (name/from-string "List._sizeOf_inst") (vec (e/const-levels h)))
+                (first as) elt))
+      :else nil)))
+
+;; plain (non-reducing) telescope opener — spec lemma types are syntactic foralls
+(defn- wf-fix-tele-open-plain [ty]
+  (loop [t ty bs []]
+    (if (e/forall? t)
+      (let [id (wf-fix-fresh)]
+        (recur (e/instantiate1 (e/forall-body t) (e/fvar id)) (conj bs [id (e/forall-type t)])))
+      {:binders bs :body t})))
+
+;; first-order match of a pattern (holes = fvar ids) against a term; Expr equality is structural
+(defn- wf-fo-match [pat term holes subst]
+  (cond
+    (and (e/fvar? pat) (contains? holes (e/fvar-id pat)))
+    (let [id (e/fvar-id pat)]
+      (if-let [prev (get subst id)]
+        (when (= prev term) subst)
+        (assoc subst id term)))
+    (e/app? pat) (when (e/app? term)
+                   (when-let [s (wf-fo-match (e/app-fn pat) (e/app-fn term) holes subst)]
+                     (wf-fo-match (e/app-arg pat) (e/app-arg term) holes s)))
+    :else (when (= pat term) subst)))
+
+;; rewrite sizeOf-of-constructor subterms via the constructors' sizeOf_spec equations, and
+;; collapse sizeOf over instSizeOfNat to its argument (defeq). Fixpoint over nesting.
+(defn- wf-sizeof-normalize [env t]
+  (letfn [(norm [t]
+            (let [[h as] (e/get-app-fn-args t)]
+              (or
+               (when (and (e/const? h) (= "SizeOf.sizeOf" (name/->string (e/const-name h)))
+                          (= 3 (count as)))
+                 (let [[_T inst X] as
+                       [xh _] (e/get-app-fn-args X)]
+                   (cond
+                     ;; sizeOf over the Nat instance is the identity (defeq)
+                     (and (e/const? inst) (= "instSizeOfNat" (name/->string (e/const-name inst))))
+                     (norm X)
+                     ;; constructor-applied scrutinee: rewrite via <ctor>.sizeOf_spec
+                     (e/const? xh)
+                     (when-let [spec (env/lookup env (name/mk-str (e/const-name xh) "sizeOf_spec"))]
+                       ;; instantiate the spec's universe params at level 0 (our data preludes are
+                       ;; monomorphic at Sort 1) so first-order matching sees concrete levels
+                       (let [lp (vec (.levelParams spec))
+                             spec-ty (e/instantiate-level-params (.type spec)
+                                                                 (zipmap lp (repeat lvl/zero)))
+                             {bs :binders body :body} (wf-fix-tele-open-plain spec-ty)
+                             holes (set (map first bs))
+                             [eqh eqargs] (e/get-app-fn-args body)]
+                         (when (and (e/const? eqh) (= "Eq" (name/->string (e/const-name eqh)))
+                                    (= 3 (count eqargs)))
+                           (when-let [subst (wf-fo-match (nth eqargs 1) t holes {})]
+                             (when (= (count subst) (count bs))
+                               (norm (reduce (fn [r [id v]] (e/instantiate1 (e/abstract1 r id) v))
+                                             (nth eqargs 2) subst)))))))
+                     :else nil)))
+               ;; OfNat.ofNat Nat n inst → the literal (defeq) — the spec RHS spells its
+               ;; constants this way and omega must see them as numerals, not atoms
+               (when (and (e/const? h) (= "OfNat.ofNat" (name/->string (e/const-name h)))
+                          (= 3 (count as))
+                          (e/lit-nat? (nth as 1))
+                          (let [[th _] (e/get-app-fn-args (nth as 0))]
+                            (and (e/const? th) (= "Nat" (name/->string (e/const-name th))))))
+                 (nth as 1))
+               ;; default: rebuild with normalized subterms
+               (cond
+                 (seq as) (apply e/app* (norm h) (mapv norm as))
+                 (e/lam? t) (e/lam (e/lam-name t) (norm (e/lam-type t)) (norm (e/lam-body t)) (e/lam-info t))
+                 :else t))))]
+    (norm t)))
+
 ;; lexicographic decrease proof (lean4 decreasing_tactic peel, WFTactics.lean:59), constructed
 ;; DIRECTLY and RECURSIVELY over the right-nested k-tuple: `Prod.Lex.left` when the head measure
 ;; strictly drops, else `Prod.Lex.right'` (the <=-variant of Lex.right, WF.lean:324 — subsumes the
@@ -2195,7 +2334,7 @@
 ;; stated in the LT.lt/LE.le instance spelling (what omega certifies); the constructors expect
 ;; Nat.lt — defeq (instLTNat unfolds to Nat.lt), check-constant arbitrates.
 (defn- wf-fix-decr-proof-lexn [env reducer scope k tup-lam arg P]
-  (let [t-of (fn [t] (.whnfCore reducer (e/app tup-lam t)))
+  (let [t-of (fn [t] (wf-sizeof-normalize env (.whnfCore reducer (e/app tup-lam t))))
         nat-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) wf-fix-NAT
                                  (e/const' (name/from-string "instLENat") []) a b))
         unmk (fn [t] (let [[h as] (e/get-app-fn-args t)]
@@ -2455,7 +2594,11 @@
         ;; honest proof — a non-terminating definition (measure that doesn't decrease) is rejected.
         ;; A lexicographic (vector) measure skips this scalar gate: its only encoding is the
         ;; WellFounded.fix term below, whose embedded Prod.Lex proofs ARE the termination check.
-        _ (when-not (vector? measure-form)
+        _ (when-not (or (vector? measure-form)
+                        ((fn has-sz? [f] (cond (and (seq? f) (= 'sizeOf (first f))) true
+                                               (or (seq? f) (vector? f)) (boolean (some has-sz? f))
+                                               :else false))
+                         measure-form))
             (doseq [c (collect-rec-calls-with-guards body-form fn-name n)]
               (try (prove-decrease pairs measure-form c)
                    (catch Throwable e
@@ -2635,10 +2778,19 @@
                     (apply e/app* (e/const' (name/from-string "WellFounded.fix") [L1 ret-level])
                            [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) rel-lam hwf Ffn]))}))
         lex? (vector? measure-form)
+        ;; a sizeOf measure cannot be vetted by the surface gate (omega cannot relate
+        ;; sizeOf-atoms through a discriminant equality) — like lex, the encoder's embedded
+        ;; proofs ARE the termination check, and there is no honest fuel fallback.
+        sizeof-measure? (boolean
+                         ((fn has-sz? [f] (cond (and (seq? f) (= 'sizeOf (first f))) true
+                                                (or (seq? f) (vector? f)) (boolean (some has-sz? f))
+                                                :else false))
+                          measure-form))
+        sized1? (and (= n 1) (some? (wf-sizeof-inst (nth param-types 0))))
         fix-info
-        (when all-nat?
+        (when (or all-nat? sized1?)
           (try
-            (let [packed-ty (wf-fix-pack-ty n)
+            (let [packed-ty (if (= n 1) (nth param-types 0) (wf-fix-pack-ty n))
                   tc0 (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
                   rs (.inferType tc0 ret-ansatz)
                   rv (if (e/sort? rs) (e/sort-level rs) L1)
@@ -2660,8 +2812,9 @@
                                             (e/lam "p" packed-ty (wf-fix-wrap-n n tup-body (wf-fix-pack-ty k) L1) :default))]
                               (mk-lexn-relspec packed-ty tup-lam k))
                             (mk-measure-relspec packed-ty (m-lam-of measure-ansatz)))
-                  ;; the prelude may have extended the global env — encode against the latest
-                  env-l (if lex? @ansatz-env env)
+                  ;; a prelude load (lex / sizeOf) may have extended the global env during
+                  ;; measure compilation — encode against the latest
+                  env-l (if (or lex? sizeof-measure?) @ansatz-env env)
                   callspec (merge {:cname cname :arity n :pack (if (= n 1) first pack) :dom packed-ty}
                                   relspec)
                   fix-t (wf-fix-encode env-l callspec wrapped ret-ansatz packed-ty)
@@ -2679,12 +2832,14 @@
                 (println (str "  wf-fix encoding unavailable for " fn-name " ("
                               (.getMessage t) ") — using fuel encoding")))
               nil)))
-        ;; a lexicographic measure has NO single-Nat fuel — the fuel fallback cannot encode it
-        _ (when (and lex? (nil? fix-info))
-            (throw (ex-info (str "Cannot prove `" fn-name "` terminates: lexicographic measure `"
+        ;; a lexicographic measure has NO single-Nat fuel, and a sizeOf measure has no honest
+        ;; gate-checked fuel — the encoder is the only sound path for either
+        _ (when (and (or lex? sizeof-measure?) (nil? fix-info))
+            (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"
                                  measure-form "` did not yield a verified WellFounded.fix encoding "
-                                 "(each recursive call must decrease the tuple lexicographically).")
-                            {:fn fn-name :kind :termination-lex-failed})))
+                                 "(each recursive call must decrease the measure"
+                                 (when lex? " lexicographically") ").")
+                            {:fn fn-name :kind :termination-wf-encode-failed})))
         encoding (if fix-info :wf-fix :fuel)
         chosen-body (or (:value fix-info) final-body)
 
@@ -3014,8 +3169,13 @@
         ;; *self-params* = the param fvar-ids build-telescope-fvar uses (1..n), so multi-arg
         ;; self-calls (add k n) are recognised: recursive field at the matched position, the
         ;; other args the unchanged params.
-        body-ansatz (binding [surface-match/*self-name* cname
-                              surface-match/*self-params* (vec (range 1 (inc n)))]
+        ;; The structural self-call→IH rewrite is only SOUND when the match is the entire
+        ;; function body (then the recursor's IH is literally `f field`). For any other shape
+        ;; (if-wrapped, let-wrapped, nested) the IH is a different fold — those self-calls stay
+        ;; as the axiom and route to the well-founded path below.
+        top-match? (and (seq? body-form) (= 'match (first body-form)))
+        body-ansatz (binding [surface-match/*self-name* (when top-match? cname)
+                              surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))]
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
