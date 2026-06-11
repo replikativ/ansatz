@@ -1569,8 +1569,19 @@
 
         ;; Elimination level
         prop-only? (and (= result-level lvl/zero) (> n-ctors 1))
-        elim-level-param (when-not prop-only? (name/from-string "u_1"))
-        elim-level (if prop-only? lvl/zero (lvl/param (name/from-string "u_1")))
+        ;; The elim-level param name MUST match the kernel's recursor-rule generator
+        ;; (InductiveChecker.initElimLevel: "u", suffixed "u_<i>" only on collision with the
+        ;; inductive's own level params). The Clojure side previously hardcoded "u_1" while the
+        ;; kernel-generated rules (define-inductive replaces ours with
+        ;; generateExpectedRecursorRules) used "u" — so iota left the rules' levels
+        ;; UNSUBSTITUTED, silently breaking symbolic defeq for every custom inductive
+        ;; (closed evaluation still terminated, masking it).
+        elim-level-param (when-not prop-only?
+                           (loop [nm (name/from-string "u") i 1]
+                             (if (some #(= % nm) ind-levels)
+                               (recur (name/from-string (str "u_" i)) (inc i))
+                               nm)))
+        elim-level (if prop-only? lvl/zero (lvl/param elim-level-param))
         ;; rec-level-params: Name[] for ConstantInfo factory (elim + inductive levels)
         ;; rec-level-levels: Level[] for e/const' references
         rec-level-params (into (if elim-level-param [elim-level-param] [])

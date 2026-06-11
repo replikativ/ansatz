@@ -366,6 +366,34 @@
                (mapv #(run "ex-div2-au" (e/lit-nat %)) (range 8)))
             "unannotated nested-match div2 computes floor(n/2), NOT n-1")))))
 
+(deftest test-sizeof-custom-inductive
+  (testing "Custom inductives auto-derive SizeOf (instance + rfl spec equations), so
+            non-structural recursion over user-defined types auto-verifies; also covers
+            the recursor-rule level-param fix (rules used `u`, recursor declared `u_1` —
+            iota left levels unsubstituted, breaking all symbolic defeq on custom types)"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "ExL"))
+        (eval '(ansatz.core/inductive ExL [] (enil) (econs [h Nat] [t ExL]))))
+      ;; the derived machinery exists and is kernel-checked
+      (is (some? (env/lookup (a/env) (name/from-string "ExL._sizeOf_inst"))) "SizeOf instance derived")
+      (is (some? (env/lookup (a/env) (name/from-string "ExL.econs.sizeOf_spec"))) "cons spec equation derived")
+      ;; rest∘rest over the custom type, NO annotation — auto-guessed (sizeOf xs)
+      (when-not (env/lookup (a/env) (name/from-string "ex-cpairs"))
+        (eval '(ansatz.core/defn ^Nat ex-cpairs [^ExL xs]
+                 (match xs ExL Nat
+                   (enil 0)
+                   (econs [h t] (match t ExL Nat
+                                  (enil 0)
+                                  (econs [h2 t2] (+ 1 (ex-cpairs t2)))))))))
+      (let [ci (env/lookup (a/env) (name/from-string "ex-cpairs"))]
+        (is (some? ci) "non-structural recursion over the custom type auto-verified")
+        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
+              enil (e/const' (name/from-string "ExL.enil") [])
+              econs (fn [h t] (e/app* (e/const' (name/from-string "ExL.econs") []) (e/lit-nat h) t))
+              m6 (econs 1 (econs 2 (econs 3 (econs 4 (econs 5 (econs 6 enil))))))]
+          (is (= "3" (e/->string (.whnf r (e/app (e/const' (name/from-string "ex-cpairs") []) m6))))
+              "pairs over 6 custom-list elements = 3"))))))
+
 (deftest test-loop-recur-hoisting
   (testing "loop/recur hoisting: general loops desugar into synthesized WF helpers routed
             through the same verified pipeline (auto-measure, including lexicographic)"

@@ -719,7 +719,7 @@
                      _ (when-not x-ty
                          (throw (ex-info "sizeOf: argument must be a parameter with a known type"
                                          {:form form})))
-                     inst (wf-sizeof-inst x-ty)
+                     inst (wf-sizeof-inst env x-ty)
                      _ (when-not inst
                          (throw (ex-info (str "sizeOf: no SizeOf instance for type " (e/->string x-ty))
                                          {:form form})))
@@ -2044,7 +2044,10 @@
           ;; proofs accept or reject the guess
           (when (= 1 (count pairs))
             (let [[p t _] (first pairs)]
-              (when (and (not= t 'Nat) (seq? t) (= 'List (first t)))
+              (when (and (not= t 'Nat)
+                         (or (and (seq? t) (= 'List (first t)))
+                             (and (symbol? t)
+                                  (env/lookup @ansatz-env (name/mk-str (name/from-string (str t)) "_sizeOf_inst")))))
                 (list 'sizeOf p))))))))
 
 ;; ── Stage 1b: lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED termination) ──
@@ -2248,16 +2251,123 @@
 ;; check-constant on the bridge), so no Eq transport is needed.
 
 ;; synthesize a SizeOf instance for supported types (Nat, List of sized)
-(defn- wf-sizeof-inst [ty]
+(declare wf-fix-tele-open-plain wf-fix-mk-lambdas wf-fix-fresh)
+(defn- wf-sizeof-inst [env ty]
   (let [[h as] (e/get-app-fn-args ty)]
     (cond
       (and (e/const? h) (= "Nat" (name/->string (e/const-name h))) (empty? as))
       (e/const' (name/from-string "instSizeOfNat") [])
       (and (e/const? h) (= "List" (name/->string (e/const-name h))) (= 1 (count as)))
-      (when-let [elt (wf-sizeof-inst (first as))]
+      (when-let [elt (wf-sizeof-inst env (first as))]
         (e/app* (e/const' (name/from-string "List._sizeOf_inst") (vec (e/const-levels h)))
                 (first as) elt))
+      ;; custom inductive with a derived instance (wf-derive-sizeof!)
+      (and (e/const? h) (empty? as)
+           (env/lookup env (name/mk-str (e/const-name h) "_sizeOf_inst")))
+      (e/const' (name/mk-str (e/const-name h) "_sizeOf_inst") [])
       :else nil)))
+
+(clojure.core/defn wf-derive-sizeof!
+  "Derive the SizeOf machinery for a non-parameterized, non-indexed, Type-valued inductive
+   (lean4 auto-derives this for every inductive): `<T>._sizeOf_1` (recursor-based size),
+   `<T>._sizeOf_inst : SizeOf T`, and per-constructor `<ctor>.sizeOf_spec` rfl equations —
+   the names the sizeOf measure machinery (wf-sizeof-inst / wf-sizeof-normalize) looks up.
+   Field contributions: a recursive field uses the recursor's IH; a Nat field is its own
+   size; other sized fields contribute SizeOf.sizeOf; unsized fields contribute nothing.
+   Best-effort: silently a no-op for unsupported shapes."
+  [ind-name-str]
+  (try
+    (let [ind-name (name/from-string ind-name-str)
+          env0 @ansatz-env
+          ind-ci (env/lookup env0 ind-name)]
+      (when (and ind-ci (.isInduct ind-ci)
+                 (zero? (.numParams ind-ci))
+                 (let [t (.type ind-ci)]
+                   (and (e/sort? t) (= (e/sort-level t) (lvl/succ lvl/zero))))
+                 (not (env/lookup env0 (name/mk-str ind-name "_sizeOf_inst"))))
+        (wf-fix-ensure-sizeof-prelude!)
+        (let [env @ansatz-env
+              L1 (lvl/succ lvl/zero)
+              T (e/const' ind-name [])
+              nat-c wf-fix-NAT
+              ctor-names (vec (.ctors (env/lookup env ind-name)))
+              rec? (fn [ty] (let [[h2 _] (e/get-app-fn-args ty)]
+                              (and (e/const? h2) (= (e/const-name h2) ind-name))))
+              nadd (fn [a b] (e/app* (e/const' (name/from-string "Nat.add") []) a b))
+              ;; minor for one ctor: λ fields… ihs… => 1 + Σ contributions
+              minor-of
+              (fn [cn]
+                (let [{bs :binders} (wf-fix-tele-open-plain (.type (env/lookup env cn)))
+                      ftys (mapv second bs)
+                      fids (mapv first bs)
+                      rec-idx (vec (keep-indexed (fn [i ty] (when (rec? ty) i)) ftys))
+                      ih-ids (mapv (fn [_] (wf-fix-fresh)) rec-idx)
+                      contrib (fn [i]
+                                (cond
+                                  (rec? (nth ftys i))
+                                  (e/fvar (nth ih-ids (.indexOf rec-idx i)))
+                                  (let [[h2 a2] (e/get-app-fn-args (nth ftys i))]
+                                    (and (e/const? h2) (empty? a2)
+                                         (= "Nat" (name/->string (e/const-name h2)))))
+                                  (e/fvar (nth fids i))
+                                  :else
+                                  (when-let [inst (wf-sizeof-inst env (nth ftys i))]
+                                    (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1])
+                                            (nth ftys i) inst (e/fvar (nth fids i))))))
+                      body (reduce nadd (e/lit-nat 1)
+                                   (keep contrib (range (count ftys))))
+                      tele (into (mapv (fn [[id ty]] [id "f" ty]) bs)
+                                 (mapv (fn [iid] [iid "ih" nat-c]) ih-ids))]
+                  (wf-fix-mk-lambdas tele body)))
+              motive (e/lam "_t" T nat-c :default)
+              sz1-val (apply e/app* (e/const' (name/mk-str ind-name "rec") [L1])
+                             (into [motive] (mapv minor-of ctor-names)))
+              sz1-name (name/mk-str ind-name "_sizeOf_1")
+              sz1-ty (e/forall' "t" T nat-c :default)
+              _ (swap! ansatz-env env/check-constant (env/mk-def sz1-name [] sz1-ty sz1-val))
+              inst-name (name/mk-str ind-name "_sizeOf_inst")
+              inst-ty (e/app (e/const' (name/from-string "SizeOf") [L1]) T)
+              inst-val (e/app* (e/const' (name/from-string "SizeOf.mk") [L1]) T
+                               (e/const' sz1-name []))
+              _ (swap! ansatz-env env/check-constant (env/mk-def inst-name [] inst-ty inst-val))
+              inst-c (e/const' inst-name [])
+              szof (fn [x] (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1]) T inst-c x))]
+          ;; per-constructor rfl spec equations: sizeOf (ctor f…) = 1 + Σ contributions,
+          ;; with recursive contributions spelled sizeOf (so the normalizer recurses)
+          (doseq [cn ctor-names]
+            (let [{bs :binders} (wf-fix-tele-open-plain (.type (env/lookup @ansatz-env cn)))
+                  ftys (mapv second bs)
+                  fids (mapv first bs)
+                  contrib (fn [i]
+                            (cond
+                              (rec? (nth ftys i)) (szof (e/fvar (nth fids i)))
+                              (let [[h2 a2] (e/get-app-fn-args (nth ftys i))]
+                                (and (e/const? h2) (empty? a2)
+                                     (= "Nat" (name/->string (e/const-name h2)))))
+                              (e/fvar (nth fids i))
+                              :else
+                              (when-let [inst (wf-sizeof-inst @ansatz-env (nth ftys i))]
+                                (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1])
+                                        (nth ftys i) inst (e/fvar (nth fids i))))))
+                  rhs (reduce nadd (e/lit-nat 1) (keep contrib (range (count ftys))))
+                  lhs (szof (apply e/app* (e/const' cn []) (mapv e/fvar fids)))
+                  eq-core (e/app* (e/const' (name/from-string "Eq") [L1]) nat-c lhs rhs)
+                  pf-core (e/app* (e/const' (name/from-string "Eq.refl") [L1]) nat-c lhs)
+                  ids fids
+                  wrap (fn [mk core]
+                         (loop [k (dec (count bs)) acc (e/abstract-many core ids)]
+                           (if (< k 0) acc
+                               (recur (dec k) (mk (e/abstract-many (second (nth bs k)) (subvec ids 0 k)) acc)))))
+                  eq-ty (wrap (fn [ty b] (e/forall' "f" ty b :default)) eq-core)
+                  pf (wrap (fn [ty b] (e/lam "f" ty b :default)) pf-core)]
+              (swap! ansatz-env env/check-constant
+                     (env/mk-thm (name/mk-str cn "sizeOf_spec") [] eq-ty pf))))
+          (when *verbose*
+            (println (str "  ✓ " ind-name-str " SizeOf derived (instance + "
+                          (count ctor-names) " spec equations)"))))))
+    (catch Throwable t
+      (when *verbose*
+        (println (str "  sizeOf derivation skipped for " ind-name-str ": " (.getMessage t)))))))
 
 ;; plain (non-reducing) telescope opener — spec lemma types are syntactic foralls
 (defn- wf-fix-tele-open-plain [ty]
@@ -2786,7 +2896,7 @@
                                                 (or (seq? f) (vector? f)) (boolean (some has-sz? f))
                                                 :else false))
                           measure-form))
-        sized1? (and (= n 1) (some? (wf-sizeof-inst (nth param-types 0))))
+        sized1? (and (= n 1) (some? (wf-sizeof-inst env (nth param-types 0))))
         fix-info
         (when (or all-nat? sized1?)
           (try
@@ -3850,6 +3960,8 @@
                      env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
                             env# ~(str type-name) '~ctor-specs '~deriving-classes)]
                  (reset! ansatz-env env'#))])
+         ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
+         (wf-derive-sizeof! ~(str type-name))
          nil)))
 
 ;; ============================================================
