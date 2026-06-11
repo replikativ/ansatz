@@ -467,6 +467,7 @@
     (integer? sexpr) (e/lit-nat sexpr)
     (string? sexpr)  (e/lit-str sexpr)
     (boolean? sexpr) (e/const' (name/from-string (if sexpr "Bool.true" "Bool.false")) [])
+    (nil? sexpr)     (elab-term est (symbol "List.nil"))  ;; bare nil = empty List
 
     (symbol? sexpr)
     ;; A bare symbol in term position: insert its implicit/instance arguments
@@ -657,12 +658,31 @@
                                (e/let' (str nm) vtype vexpr (e/abstract1 body-expr fid)))))]
                    (build (partition 2 bindings) est)))
 
-        ;; Default: macroexpand any clojure macro (cond/->/and/or/…) and re-elaborate;
-        ;; otherwise application with implicit insertion.
-        (if (and (symbol? head)
-                 ((requiring-resolve 'ansatz.core/expand-macro?) head))
+        ;; Default: keyword projection / get / cons sugar, then macroexpand any
+        ;; clojure macro (cond/->/and/or/…), otherwise application.
+        (cond
+          ;; (:field struct) → structure projection
+          (keyword? head)
+          (let [field-name (name head)
+                struct-expr (elab-term est (second sexpr))
+                struct-type (#'tc/cached-whnf (:tc est) (infer-with-mvars est struct-expr))
+                [th _] (e/get-app-fn-args struct-type)
+                tn (when (e/const? th) (name/->string (e/const-name th)))
+                reg (deref (requiring-resolve 'ansatz.core/structure-registry))
+                sinfo (get reg tn)
+                fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
+                                                      (:fields sinfo))))]
+            (if fidx
+              (e/proj (name/from-string tn) fidx struct-expr)
+              (elab-error! (str "Unknown structure field: :" field-name)
+                           {:field field-name :type tn})))
+          ;; (get struct :field) → (:field struct)
+          (= (str head) "get") (elab-term est (list (nth sexpr 2) (nth sexpr 1)))
+          ;; (cons x xs) → List.cons sugar (element type inferred)
+          (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
+          (and (symbol? head) ((requiring-resolve 'ansatz.core/expand-macro?) head))
           (elab-term est (macroexpand-1 sexpr))
-          (elab-app est (first sexpr) (rest sexpr)))))
+          :else (elab-app est (first sexpr) (rest sexpr)))))
 
     (vector? sexpr)
     (elab-error! "Unexpected vector in term position" {:form sexpr})
