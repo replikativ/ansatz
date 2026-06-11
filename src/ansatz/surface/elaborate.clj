@@ -682,10 +682,23 @@
                           T'  (elab-term est T)
                           a'  (elab-term est a)
                           b'  (elab-term est b)
-                          u   (fresh-level-mvar! est)
+                          ;; EAGER level: a mid-elaboration infer (e.g. as the argument of Not)
+                          ;; cannot apply a const carrying an unsolved level-mvar. T's sort is
+                          ;; concrete in practice (Nat/Int/custom : Sort 1 → u = 0); fall back
+                          ;; to a level mvar only when it isn't.
+                          Ts  (try (zonk est (infer-with-mvars est T')) (catch Exception _ nil))
+                          u   (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
+                                (lvl/succ-pred (e/sort-level Ts))
+                                (fresh-level-mvar! est))
                           inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T'))
                           _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)]
                       (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
+
+        ;; (= T a b) → Eq T a b (the theorem-statement equality form)
+        "="
+        (if (= 4 (count sexpr))
+          (elab-term est (list 'Eq (nth sexpr 1) (nth sexpr 2) (nth sexpr 3)))
+          (elab-error! "= expects (= Type lhs rhs)" {:form sexpr}))
 
         ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool (Nat.b*).
         ("<" "==" "<=" ">" ">=" "≤" "≥")

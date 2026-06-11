@@ -3818,23 +3818,12 @@
   ([thm-name params prop-form tactic-forms ctx]
    (let [env (if ctx (:env ctx) (env))
          pairs (parse-params params)
-         n (count pairs)
-         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-         ;; Bind *scope-types* so that auto-elaborate can infer implicit args
-         ;; from parameter types (Lean 4: elaborator has full context)
-         scope-types-map (into {} (map-indexed
-                                   (fn [i [pn pt-form]]
-                                     (let [s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))]
-                                       [pn (sexp->ansatz env s i pt-form)]))
-                                   pairs))
-         prop-ansatz (binding [*scope-types* scope-types-map]
-                       (sexp->ansatz env scope-full n prop-form))
-         goal-type (loop [i (dec n) body prop-ansatz]
-                     (if (< i 0) body
-                         (let [[pn pt binfo] (nth pairs i)
-                               s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                               ty (sexp->ansatz env s i pt)]
-                           (recur (dec i) (e/forall' (str pn) ty body binfo)))))
+         ;; P3 of the elaborator unification: the goal telescope (binders may depend on
+         ;; earlier binders — hypothesis Props routinely do — and the prop on all of them)
+         ;; elaborates fvar-first via elab-signature; binder types and the statement go
+         ;; through the SAME elaborator as function bodies (lean4: one elaborator for
+         ;; terms and tactic goals).
+         goal-type (:type-ansatz (elab-signature env pairs prop-form))
          [ps _] (proof/start-proof env goal-type)
          ps (if (seq pairs) (basic/intros ps (mapv (comp str first) pairs)) ps)
          ps (reduce run-tactic ps tactic-forms)]
