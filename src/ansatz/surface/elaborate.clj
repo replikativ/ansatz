@@ -278,9 +278,16 @@
    The kernel tc otherwise has no knowledge of elaboration mvars; Lean keeps them
    in the metacontext that inferType consults. Falls back to plain infer-type."
   [est expr]
-  (let [tc (reduce (fn [tc [id m]]
-                     (try (update tc :lctx red/lctx-add-local id (str "?m" id) (:type m))
-                          (catch Throwable _ tc)))
+  ;; Zonk first so SOLVED mvars are substituted (otherwise the kernel sees an
+  ;; opaque local where a concrete type belongs, e.g. List.cons ?α n with ?α
+  ;; solved=Nat → spurious mismatch). Only the remaining UNSOLVED mvars are added
+  ;; to the lctx as typed locals.
+  (let [expr (zonk est expr)
+        tc (reduce (fn [tc [id m]]
+                     (if (:solution m)
+                       tc
+                       (try (update tc :lctx red/lctx-add-local id (str "?m" id) (zonk est (:type m)))
+                            (catch Throwable _ tc))))
                    (:tc est) @(:mctx est))]
     (tc/infer-type tc expr)))
 
