@@ -1884,7 +1884,11 @@
         tmp-ci (env/mk-axiom cname [] type-ansatz)
         tmp-env (env/add-constant (env/fork env) tmp-ci)
 
-        ;; Compile body on forked env — self-calls resolve to the axiom const
+        ;; Compile body on forked env — self-calls resolve to the axiom const.
+        ;; NOTE: still on the bvar build-telescope. Routing WF bodies through build-telescope-fvar
+        ;; works for 2/3 WF tests but breaks factorial at CODEGEN — the WellFounded.Nat.fix letfn
+        ;; lowering can't yet handle the fvar body shape. Follow-on: teach that codegen the fvar
+        ;; shape, then switch here for elaborator consistency.
         body-ansatz (binding [surface-match/*use-cases-on?* true]
                       (build-telescope tmp-env {} 0 pairs body-form e/lam))
 
