@@ -132,6 +132,25 @@
         (is (.isDefEq tc (.inferType tc (.value ci)) (.type ci))
             "multi-arg WF function kernel-verified")))))
 
+(deftest test-wf-termination-is-checked
+  (testing "`:termination-by` is an honest proof: a measure that does not decrease is rejected"
+    (binding [a/*verbose* false]
+      ;; eb n = eb n with measure n: the recursive arg does NOT decrease → must be rejected
+      ;; (guard-aware decrease obligation `n ≠ 0 → n < n` is discharged by omega and fails).
+      (let [msg (try
+                  (eval '(ansatz.core/defn ^Nat ex-eb [^Nat n]
+                           :termination-by n
+                           (if (== n 0) 0 (ex-eb n))))
+                  "NO-THROW"
+                  (catch Throwable e
+                    (->> (iterate #(some-> ^Throwable % .getCause) e)
+                         (take-while some?) (map #(str (.getMessage ^Throwable %)))
+                         (clojure.string/join " "))))]
+        (is (re-find #"not provably decreasing|terminates|termination" msg)
+            "non-terminating :termination-by definition is rejected with an actionable error")
+        (is (not (env/lookup (a/env) (name/from-string "ex-eb")))
+            "the rejected function is not added to the environment")))))
+
 ;; ============================================================
 ;; Red-Black Tree examples (init-medium sufficient)
 ;; ============================================================

@@ -1856,6 +1856,106 @@
     ;; Extract gives us: λ (param) => proof-term
     (extract/extract ps)))
 
+;; ============================================================
+;; Guard-aware decrease checking (port of lean4's decreasing-goal generation)
+;; ============================================================
+
+(declare prove-theorem)
+
+(clojure.core/defn- wf-subst-syms
+  "Replace symbols (and any form that is a key) in `form` per map `m`."
+  [form m]
+  (cond
+    (contains? m form) (get m form)
+    (seq? form)        (map #(wf-subst-syms % m) form)
+    (vector? form)     (mapv #(wf-subst-syms % m) form)
+    :else              form))
+
+(clojure.core/defn- wf-guard-of
+  "Map a surface boolean condition + polarity to a Prop guard usable by omega, or nil if the
+   condition isn't an arithmetic comparison. Assumes Nat operands (WF measures are Nat).
+   (== a b) → (= Nat a b);  (<= a b) → (<= Nat a b);  (< a b) → (< Nat a b);
+   (>= a b) → (<= Nat b a);  (> a b) → (< Nat b a).  Negative polarity wraps in (Not …)."
+  [cond-form pos?]
+  (when (and (seq? cond-form) (= 3 (count cond-form)))
+    (let [[op a b] cond-form
+          prop (case op
+                 == (list '= 'Nat a b)
+                 <= (list '<= 'Nat a b)
+                 <  (list '< 'Nat a b)
+                 >= (list '<= 'Nat b a)
+                 >  (list '< 'Nat b a)
+                 nil)]
+      (when prop (if pos? prop (list 'Not prop))))))
+
+(clojure.core/defn- wf-ctor-pattern
+  "Build the `(T.ctor typeargs… fields…)` discriminant pattern for a match branch guard.
+   discr-type e.g. Nat or (List Nat); ctor-short e.g. succ; fields e.g. [pred]."
+  [discr-type ctor-short fields]
+  (let [[thead & targs] (if (seq? discr-type) discr-type [discr-type])
+        ctor-full (symbol (str thead "." ctor-short))]
+    (if (and (empty? targs) (empty? fields))
+      ctor-full
+      (cons ctor-full (concat targs fields)))))
+
+(clojure.core/defn- collect-rec-calls-with-guards
+  "Walk the surface body, collecting each self-call `(fn-name a0 … a_{n-1})` together with the
+   path-condition guards (if/match) and match-bound field binders in scope at that call — the
+   ansatz analogue of lean4's recursive-call context (Fix.lean). Returns a vector of
+   {:args [arg-forms], :field-binders [[sym type-form] …], :guards [guard-form …]}.
+   Match field types currently default to Nat (Stage-1 WF is over Nat measures)."
+  [body fn-name n]
+  (let [acc (atom [])]
+    (letfn [(walk [form guards binders]
+              (cond
+                (and (seq? form) (= (first form) fn-name) (= n (count (rest form))))
+                (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
+
+                (and (seq? form) (= 'if (first form)))
+                (let [[_ c t e] form
+                      gt (wf-guard-of c true)
+                      ge (wf-guard-of c false)]
+                  (walk t (if gt (conj guards gt) guards) binders)
+                  (walk e (if ge (conj guards ge) guards) binders))
+
+                (and (seq? form) (= 'match (first form)))
+                (let [[_ discr discr-type _result & branches] form]
+                  (doseq [br branches]
+                    (let [[ctor-short x & more] br
+                          [fields bbody] (if (vector? x) [x (first more)] [[] x])
+                          field-bs (mapv (fn [f] [f 'Nat]) fields)
+                          guard (list '= discr-type discr
+                                      (wf-ctor-pattern discr-type ctor-short fields))]
+                      (walk bbody (conj guards guard) (into binders field-bs)))))
+
+                (and (seq? form) (= 'let (first form)))
+                (let [[_ bnds bbody] form]
+                  (doseq [v (take-nth 2 (rest bnds))] (walk v guards binders))
+                  (walk bbody guards binders))
+
+                (seq? form)
+                (doseq [sub (rest form)] (walk sub guards binders))
+
+                :else nil))]
+      (walk body [] [])
+      @acc)))
+
+(clojure.core/defn- prove-decrease
+  "Discharge one rec-call's decrease obligation:
+     ∀ params field-binders, guards → measure[params := args] < measure[params]
+   via omega (the goal that lean4's decreasing_tactic produces after `clean_wf`). Returns the
+   proved theorem name on success; throws (omega) when the measure does not provably decrease."
+  [pairs measure-form {:keys [args field-binders guards]}]
+  (let [param-syms (mapv first pairs)
+        subst (zipmap param-syms args)
+        measure-at-args (wf-subst-syms measure-form subst)
+        param-bs  (vec (mapcat (fn [[p t _]] [p :- t]) pairs))
+        field-bs  (vec (mapcat (fn [[f t]] [f :- t]) field-binders))
+        guard-bs  (vec (mapcat (fn [g i] [(symbol (str "hg" i)) :- g]) guards (range)))
+        binders   (vec (concat param-bs field-bs guard-bs))
+        goal      (list '< 'Nat measure-at-args measure-form)]
+    (prove-theorem (gensym "decr") binders goal '[(omega)])))
+
 (declare build-telescope-fvar)
 (clojure.core/defn define-verified-wf
   "Define a verified function with well-founded recursion.
@@ -1865,6 +1965,20 @@
   (let [env (env)
         pairs (parse-params params)
         n (count pairs)
+
+        ;; Guard-aware termination check (lean4's decreasing goals; replaces fuel-trust): every
+        ;; recursive call must provably decrease the measure under its path-condition guards.
+        ;; The fuel encoding below is total either way; this gate is what makes :termination-by an
+        ;; honest proof — a non-terminating definition (measure that doesn't decrease) is rejected.
+        _ (doseq [c (collect-rec-calls-with-guards body-form fn-name n)]
+            (try (prove-decrease pairs measure-form c)
+                 (catch Throwable e
+                   (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"
+                                        measure-form "` is not provably decreasing on the recursive "
+                                        "call with args " (:args c)
+                                        (when (seq (:guards c)) (str " under guards " (:guards c)))
+                                        ". Adjust :termination-by, or use ^:partial.")
+                                   {:fn fn-name :kind :termination-decrease-failed :call c})))))
 
         ;; Build the function type: ∀ params → ret-type (same as define-verified)
         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
