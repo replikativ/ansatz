@@ -56,7 +56,12 @@
   (eval '(ansatz.core/defn ^Nat ci-suml [^{:- (List Nat)} l]
            (match l (List Nat) Nat (nil 0) (cons [hd tl] (+ hd (ci-suml tl))))))
   (is (= [6 30 0] (mapv (resolve 'ci-suml) ['(1 2 3) '(10 20) '()]))
-      "natural recursive call auto-maps to the IH — verified + runs"))
+      "natural recursive call auto-maps to the IH — verified + runs")
+  ;; multi-parameter: (ci-add2 k n) — recursive field k at the matched position, n carried unchanged.
+  (eval '(ansatz.core/defn ^Nat ci-add2 [^Nat m ^Nat n]
+           (match m Nat Nat (zero n) (succ [k] (Nat.succ (ci-add2 k n))))))
+  (is (= [5 5 7] (mapv (fn [[a b]] ((resolve 'ci-add2) a b)) [[2 3] [0 5] [4 3]]))
+      "multi-arg structural self-call (other params unchanged) auto-maps to the IH"))
 
 (deftest loop-recur-counts-to-nat-rec
   ;; The common counting-loop shape (loop [i n acc 0] (if (== i 0) acc (recur (dec i) …)))

@@ -189,28 +189,54 @@
     (f est expr)
     (tc/infer-type (:tc est) expr)))
 
-;; Structural-recursion auto-detection (Lean FindRecArg, restricted): the name of the
-;; function currently being elaborated, so a NATURAL recursive call (isort tl) on a bare
-;; recursive match field can stand in for the recursor's IH (ih_tail). Bound by define-verified
-;; (nil elsewhere — proofs etc.); the self-call resolves to a tmp axiom during elaboration and
-;; is rewritten to the field's IH here.
+;; Structural-recursion auto-detection (Lean FindRecArg, restricted): the name of the function
+;; currently being elaborated + its parameter fvar-ids (positional), so a NATURAL recursive call
+;; (isort tl) / (add k n) can stand in for the recursor's IH. Bound by define-verified (nil
+;; elsewhere — proofs etc.); the self-call resolves to a tmp axiom during elaboration and is
+;; rewritten to the field's IH here.
 (def ^:dynamic *self-name* nil)
+(def ^:dynamic *self-params* nil)   ;; vector of the function's parameter fvar-ids, in order
+
+(defn- collect-spine
+  "Decompose an application into [head [arg0 arg1 …]]."
+  [expr]
+  (loop [e expr args ()]
+    (if (= :app (e/tag e))
+      (recur (e/app-fn e) (cons (e/app-arg e) args))
+      [e (vec args)])))
 
 (defn- replace-self-ih
-  "Rewrite (self-name <bare recursive-field fvar>) → that field's IH fvar throughout expr.
-   field->ih maps recursive-field fvar-id → IH fvar-id. Single-argument self-calls only (a
-   structurally-smaller bare field); multi-arg/non-bare calls are left for check-constant to
-   reject (→ the user adds :termination-by / ^:partial)."
-  [expr self-name field->ih]
-  (let [rec (fn rec [e] (replace-self-ih e self-name field->ih))]
-    (if (and (= :app (e/tag expr))
-             (= :const (e/tag (e/app-fn expr)))
-             (= (e/const-name (e/app-fn expr)) self-name)
-             (= :fvar (e/tag (e/app-arg expr)))
-             (contains? field->ih (e/fvar-id (e/app-arg expr))))
-      (e/fvar (get field->ih (e/fvar-id (e/app-arg expr))))
+  "Rewrite a structural self-call to the recursor's IH throughout expr. A self-call qualifies when
+   it is the FULLY-applied self-name with exactly one argument a bare recursive-field fvar (the
+   structurally-smaller arg) and every OTHER argument the corresponding unchanged parameter fvar —
+   i.e. (add k n) with k the recursive field of m and n the second parameter → the field's IH (which
+   the motive carries the other params through). Single- and multi-parameter; partial applications and
+   calls that change another argument are left as the axiom → check-constant rejects (→ the user adds
+   :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids is the
+   positional parameter fvar-ids."
+  [expr self-name field->ih param-ids]
+  (let [rec (fn rec [e] (replace-self-ih e self-name field->ih param-ids))
+        self-call-ih
+        (fn [args]   ;; → IH fvar when args form a clean structural self-call, else nil
+          (when (and param-ids (= (count args) (count param-ids)))
+            (let [rec-pos (keep-indexed (fn [j a] (when (and (= :fvar (e/tag a))
+                                                             (contains? field->ih (e/fvar-id a))) j))
+                                        args)]
+              (when (= 1 (count rec-pos))
+                (let [jr (first rec-pos)]
+                  (when (every? (fn [j] (or (= j jr)
+                                            (and (= :fvar (e/tag (nth args j)))
+                                                 (= (e/fvar-id (nth args j)) (nth param-ids j)))))
+                                (range (count args)))
+                    (e/fvar (get field->ih (e/fvar-id (nth args jr))))))))))]
+    (if (= :app (e/tag expr))
+      (let [[head args] (collect-spine expr)]
+        (if (and (= :const (e/tag head)) (= (e/const-name head) self-name))
+          (or (self-call-ih args)
+              ;; not a clean structural self-call — recurse into the args (leaves head as axiom)
+              (reduce e/app head (map rec args)))
+          (e/app (rec (e/app-fn expr)) (rec (e/app-arg expr)))))
       (case (e/tag expr)
-        :app    (e/app (rec (e/app-fn expr)) (rec (e/app-arg expr)))
         :lam    (e/lam (e/lam-name expr) (rec (e/lam-type expr)) (rec (e/lam-body expr)) (e/lam-info expr))
         :forall (e/forall' (e/forall-name expr) (rec (e/forall-type expr)) (rec (e/forall-body expr)) (e/forall-info expr))
         :let    (e/let' (e/let-name expr) (rec (e/let-type expr)) (rec (e/let-value expr)) (rec (e/let-body expr)))
@@ -370,7 +396,8 @@
                    (replace-self-ih rhs-body *self-name*
                                     (into {} (map-indexed
                                               (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
-                                              early-rec-indices)))
+                                              early-rec-indices))
+                                    *self-params*)
                    rhs-body)
         ;; Best-effort: unify the branch's inferred type with the expected ret-type
         ;; (the motive). For a non-dependent motive (no loose bvar) this resolves

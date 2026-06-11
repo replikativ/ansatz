@@ -2170,7 +2170,11 @@
         ;; rejects them (the user adds :termination-by / ^:partial). Existing ih_<field> bodies
         ;; keep working. Elaboration failures otherwise surface honestly.
         tmp-env (env/add-constant (env/fork env) (env/mk-axiom cname [] type-ansatz))
-        body-ansatz (binding [surface-match/*self-name* cname]
+        ;; *self-params* = the param fvar-ids build-telescope-fvar uses (1..n), so multi-arg
+        ;; self-calls (add k n) are recognised: recursive field at the matched position, the
+        ;; other args the unchanged params.
+        body-ansatz (binding [surface-match/*self-name* cname
+                              surface-match/*self-params* (vec (range 1 (inc n)))]
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))
         ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
         tc (ansatz.kernel.TypeChecker. env)
