@@ -596,6 +596,25 @@
     ;; splice Exprs into surface forms they hand back to elab (quotation with term holes)
     (instance? ansatz.kernel.Expr sexpr) sexpr
     (integer? sexpr) (e/lit-nat sexpr)
+    ;; FLOAT literal: a Clojure double → OfScientific.ofScientific Float inst m s e
+    ;; (m × 10^±e; BigDecimal's shortest round-trip repr). Float is the computable
+    ;; carrier (native double); Real is for proofs, so a bare double means Float.
+    (double? sexpr)
+    (let [neg? (neg? sexpr)
+          bd (java.math.BigDecimal. (Double/toString (Math/abs (double sexpr))))
+          scale (.scale bd)
+          mant (.unscaledValue bd)
+          [sign expn] (if (>= scale 0) [true scale] [false (- scale)])
+          FloatT (e/const' (name/from-string "Float") [])
+          lit (e/app* (e/const' (name/from-string "OfScientific.ofScientific") [lvl/zero])
+                      FloatT (e/const' (name/from-string "instOfScientificFloat") [])
+                      (e/lit-nat mant)
+                      (e/const' (name/from-string (if sign "Bool.true" "Bool.false")) [])
+                      (e/lit-nat expn))]
+      (if neg?
+        (elab-error! "negative Float literals not yet supported (wrap as (sub Float 0.0 x))"
+                     {:form sexpr})
+        lit))
     (string? sexpr)  (e/lit-str sexpr)
     (boolean? sexpr) (e/const' (name/from-string (if sexpr "Bool.true" "Bool.false")) [])
     (nil? sexpr)     (elab-term est (symbol "List.nil"))  ;; bare nil = empty List
@@ -763,13 +782,49 @@
                     (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
                           rel (case hs ("<" ">") "lt" "le")]
                       (elab-term est (list (symbol rel) T a* b*)))))
-                (let [[op a b] (case hs
-                                 "<"  ["Nat.blt" (nth sexpr 1) (nth sexpr 2)]
-                                 "==" ["Nat.beq" (nth sexpr 1) (nth sexpr 2)]
-                                 ("<=" "≤") ["Nat.ble" (nth sexpr 1) (nth sexpr 2)]
-                                 (">") ["Nat.blt" (nth sexpr 2) (nth sexpr 1)]
-                                 (">=" "≥") ["Nat.ble" (nth sexpr 2) (nth sexpr 1)])]
-                  (e/app* (e/const' (name/from-string op) []) (elab-term est a) (elab-term est b)))))
+                ;; 2-arg Bool comparison, TYPE-DIRECTED on the operands (a non-literal
+                ;; operand's type head picks the ops; literals coerce to that type):
+                ;; Nat → Nat.b* · Int/Float → Decidable.decide over the order Props ·
+                ;; String → decide over String.decEq (== only).
+                (let [[rel a-form b-form] (case hs
+                                            "<"  [:lt (nth sexpr 1) (nth sexpr 2)]
+                                            "==" [:eq (nth sexpr 1) (nth sexpr 2)]
+                                            ("<=" "≤") [:le (nth sexpr 1) (nth sexpr 2)]
+                                            (">") [:lt (nth sexpr 2) (nth sexpr 1)]
+                                            (">=" "≥") [:le (nth sexpr 2) (nth sexpr 1)])
+                      a0 (elab-term est a-form)
+                      b0 (elab-term est b-form)
+                      tn (or (some (fn [x]
+                                     (when-not (e/lit-nat? x)
+                                       (let [t (zonk est (infer-with-mvars est x))
+                                             [th _] (when t (e/get-app-fn-args t))]
+                                         (when (and th (e/const? th))
+                                           (name/->string (e/const-name th))))))
+                                   [a0 b0])
+                             "Nat")
+                      coerce (fn [x] (if (e/lit-nat? x)
+                                       (case tn
+                                         "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
+                                         "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
+                                         x)
+                                       x))
+                      a (coerce a0) b (coerce b0)
+                      Tc (e/const' (name/from-string tn) [])
+                      bool-op (fn [op] (e/app* (e/const' (name/from-string op) []) a b))
+                      decide (fn [propc decc]
+                               (e/app* (e/const' (name/from-string "Decidable.decide") [])
+                                       (e/app* (e/const' (name/from-string propc) []) a b)
+                                       (e/app* (e/const' (name/from-string decc) []) a b)))
+                      decide-eq (fn []
+                                  (e/app* (e/const' (name/from-string "Decidable.decide") [])
+                                          (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) Tc a b)
+                                          (e/app* (e/const' (name/from-string (str tn ".decEq")) []) a b)))]
+                  (case tn
+                    "Int"   (case rel :lt (decide "Int.lt" "Int.decLt") :le (decide "Int.le" "Int.decLe") :eq (decide-eq))
+                    "Float" (case rel :lt (decide "Float.lt" "Float.decLt") :le (decide "Float.le" "Float.decLe") :eq (bool-op "Float.beq"))
+                    "String" (case rel :eq (decide-eq)
+                                   (elab-error! "String comparison: only == is supported" {:rel rel}))
+                    (bool-op (case rel :lt "Nat.blt" :le "Nat.ble" :eq "Nat.beq"))))))
 
         ;; Dependent if over a Prop condition → dite. The Decidable instance is an
         ;; inst-implicit mvar solved by synthesis (no comparison fallback needed); the

@@ -652,13 +652,36 @@
             ;; Nat is its own size; a list contributes 1 for nil plus 1 + size per element).
             ;; Reached via the fuel scaffolding when sizeOf is the termination measure.
             "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
-            ;; refinement erasure: a Subtype value IS its carrier at runtime
-            "Subtype.val" (nth ca 2)
-            "HAdd.hAdd" (list '+ (nth ca 4) (nth ca 5))
-            "HMul.hMul" (list '* (nth ca 4) (nth ca 5))
-            "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
-            "HDiv.hDiv" (list 'quot (nth ca 4) (nth ca 5))
-            "HPow.hPow" (list 'long (list 'Math/pow (nth ca 4) (nth ca 5)))
+            ;; refinement erasure: a Subtype value IS its carrier at runtime.
+            ;; Arity-tolerant: an eta-reduced partial (e.g. `Subtype.val α P` as a
+            ;; function value) erases to identity-shaped fns.
+            "Subtype.val" (case (count ca)
+                            3 (nth ca 2)
+                            2 'clojure.core/identity
+                            1 (list 'fn '[_] 'clojure.core/identity)
+                            (list 'fn '[_] (list 'fn '[_] 'clojure.core/identity)))
+            ;; Subtype.mk α P v proof → the value (refinement + proof erase)
+            "Subtype.mk" (case (count ca)
+                           4 (nth ca 2)
+                           3 (list 'fn '[_] (nth ca 2))
+                           2 (list 'fn '[v#] (list 'fn '[_] 'v#))
+                           (list 'fn '[_] (list 'fn '[v#] (list 'fn '[_] 'v#))))
+            "HAdd.hAdd" (nary-op2 (fn [x y] (list '+ x y)) (vec (drop 4 ca)))
+            "HMul.hMul" (nary-op2 (fn [x y] (list '* x y)) (vec (drop 4 ca)))
+            "HSub.hSub" (nary-op2 (fn [x y] (list 'max 0 (list '- x y))) (vec (drop 4 ca)))
+            "HDiv.hDiv" (nary-op2 (fn [x y] (list 'quot x y)) (vec (drop 4 ca)))
+            "HPow.hPow" (nary-op2 (fn [x y] (list 'long (list 'Math/pow x y))) (vec (drop 4 ca)))
+            ;; Float literal: OfScientific.ofScientific Float inst m s e → m × 10^±e
+            ;; (args: α inst mantissa exponentSign decimalExponent — type/inst erase)
+            "OfScientific.ofScientific"
+            (let [m (nth ca 2) sn (nth ca 3) ex (nth ca 4)]
+              (if (and (number? m) (number? ex) (boolean? sn))
+                (* (double m) (Math/pow 10.0 (double (if sn (- ex) ex))))
+                (list '* (list 'double m) (list 'Math/pow 10.0 (list 'if sn (list '- ex) ex)))))
+            "Float.add" (nary-op '+ ca)
+            "Float.sub" (nary-op '- ca)
+            "Float.mul" (nary-op '* ca)
+            "Float.div" (nary-op '/ ca)
             "Nat.add" (nary-op '+ ca)
             "Nat.sub" (nary-op2 (fn [x y] (list 'max 0 (list '- x y))) ca)  ; truncated Nat subtraction
             "Nat.mul" (nary-op '* ca)
@@ -2037,6 +2060,22 @@
   (let [env (env)
         pairs (parse-params params)
         n (count pairs)
+        ;; lean4's termination_by interprets a measure through its TYPE's
+        ;; WellFoundedRelation — for a data-typed parameter that is sizeOf. So
+        ;; `:termination-by m` with `m : Value` means `(sizeOf m)`; rewrite the
+        ;; measure form (scalar or inside a lex vector) before the gate/encoder.
+        sized-param? (fn [msym]
+                       (some (fn [[p t _]]
+                               (and (= p msym) (not= t 'Nat)
+                                    (or (and (seq? t) (= 'List (first t)))
+                                        (and (symbol? t)
+                                             (env/lookup env (name/mk-str (name/from-string (str t))
+                                                                          "_sizeOf_inst"))))))
+                             pairs))
+        lift-measure (fn [mf] (if (and (symbol? mf) (sized-param? mf)) (list 'sizeOf mf) mf))
+        measure-form (if (vector? measure-form)
+                       (mapv lift-measure measure-form)
+                       (lift-measure measure-form))
 
         ;; Guard-aware termination check (lean4's decreasing goals; replaces fuel-trust): every
         ;; recursive call must provably decrease the measure under its path-condition guards.
@@ -2611,7 +2650,26 @@
         n (count pairs)
         cname (name/from-string (str fn-name))
         ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
-        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+        ;; `_` return type = INFER it from the body (non-recursive fns only — e.g. a
+        ;; select-keys terminal whose synthesized projection-record type is unnameable):
+        ;; elaborate the body once without a self-axiom and read its type.
+        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz}
+        (if (= '_ ret-type-form)
+          ;; a surface elaborator may SYNTHESIZE constants into the global env mid-flight
+          ;; (select-keys' projection record) — the snapshot the elaboration started with
+          ;; can't see them, so retry once against the refreshed env (synthesis is idempotent)
+          (let [build (fn [e] (build-telescope-fvar e pairs nil body-form))
+                body-lam (try (build env) (catch Exception _ (build @ansatz-env)))
+                tc0 (doto (ansatz.kernel.TypeChecker. ^ansatz.kernel.Env @ansatz-env)
+                      (.setFuel (long config/*default-fuel*)))
+                ft (.inferType tc0 body-lam)
+                ret (loop [t ft, k n]
+                      (if (zero? k) t (recur (e/forall-body t) (dec k))))]
+            {:ret-ansatz ret :type-ansatz ft})
+          (elab-signature env pairs ret-type-form))
+        ;; the inference pass may have EXTENDED the global env (e.g. select-keys
+        ;; synthesizing its projection record) — re-read it for the real elaboration
+        env (if (= '_ ret-type-form) @ansatz-env env)
         ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
         ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
         ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
@@ -3205,6 +3263,13 @@
 ;; Public macros — clean names (preferred) and legacy c-prefixed
 ;; ============================================================
 
+(clojure.core/defn tag-kernel-name
+  "Attach the kernel constant name to a compiled fn (no-op for non-IObj values)."
+  [f fn-name]
+  (if (instance? clojure.lang.IObj f)
+    (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
+    f))
+
 (defmacro defn
   "Define a verified function. Types are METADATA on the binders and the name — the binding vector
    stays a normal Clojure vector, so typing composes (add types without reshaping the form):
@@ -3240,13 +3305,15 @@
                       [{} (first body-and-opts)])
         partial? (:partial (meta fn-name))
         nm (vary-meta fn-name dissoc :- :tag :partial)]
+    ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
+    ;; to find the definition from the VALUE (e.g. generative checkers)
     (cond
       partial?
-      `(def ~nm (define-partial '~nm '~params '~ret-type '~body))
+      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm))
       (:termination-by opts)
-      `(def ~nm (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)))
+      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm))
       :else
-      `(def ~nm (define-verified '~nm '~params '~ret-type '~body)))))
+      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm)))))
 
 (defmacro theorem
   "Prove a theorem.
