@@ -159,7 +159,7 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 - **Verified functions** — define functions with CIC types, prove properties, run at JVM speed
 - **Grind tactic** — automated reasoning via persistent E-graph with congruence closure, propositional propagators (And/Or/Not/Eq/ite), E-matching for lemma instantiation, constructor injection/discrimination, and theory solver integration
 - **Kernel-enforced termination** — every recursive definition carries its termination proof in the kernel term: structural recursion, `:termination-by` measures (scalar, **lexicographic** `[m n]` — Ackermann verifies, `(sizeOf xs)` over data structures), automatic measure guessing, and `loop`/`recur`; non-terminating definitions are rejected with actionable errors (`^:partial` is the explicit trusted escape)
-- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature (collections→`List`, `[:map …]`→records, `[:int {:min k}]`→`Subtype` refinements with the bound as a Prop in the type). malli loads lazily; core has no hard dependency
+- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature. Collections→`List`; `[:map [:x :int] …]`→a synthesized named-field record (keyword access `(:x p)` elaborates to kernel projections, runtime values stay plain Clojure maps); `[:int {:min k}]`→`Subtype` refinements whose params are still usable directly as numbers (references auto-coerce to `.val`, the refinement stays in the binder for proofs). `ansatz.malli/check-verified!` adds a generative differential check — schema-generated inputs run through both the compiled runtime and the kernel evaluator and must agree, guarding the well-typed-but-unfaithful elaboration bug class the kernel can't see. malli loads lazily; core has no hard dependency
 - **One lean4-shaped elaborator** — fvar/metavar elaboration with implicit + universe inference for bodies, signatures, measures, theorem statements, and tactic arguments; Clojure macros (`->`, `when`, `and`/`or`, yours) expand by default and compose
 - **Structures** — `a/structure` compiles to `defrecord` with keyword access and pretty-printing
 - **Generic types** — implicit type parameter inference via auto-elaborate (polymorphic constructors work without explicit type annotations)
@@ -348,6 +348,12 @@ Type                         ;; types
 (m/=> add2 [:=> [:cat :int :int] :int])
 (a/defn add2 [x y]
   (match x Nat Nat (zero y) (succ [k] (+ 1 (add2 k y)))))
+;; [:map …] schemas become named-field records: keyword access verifies, runtime = plain maps
+(m/=> dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
+(a/defn dot [p] (+ (:x p) (:y p)))                       ; (dot {:x 2 :y 3}) => 5
+;; refined params are used directly as their carrier ([:int {:min 1}] → Subtype, auto-.val)
+;; differential check: compiled runtime ≡ kernel evaluation on generated inputs
+(ansatz.malli/check-verified! 'my.ns 'add2 :runs 25)     ; => {:runs 25 :ok 25}
 
 ;; loop/recur — hoisted to a verified helper, termination auto-proved
 (a/defn ^Nat sum-to [^Nat n]
