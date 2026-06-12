@@ -6,8 +6,11 @@
      - codegen-registry : Name-string → (fn [env expr names] → clj-form), consulted by ansatz->clj
                           for application heads it doesn't lower natively
    Also checks the metadata + :- type-annotation surfaces."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
-            [ansatz.core :as a]))
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [ansatz.core :as a]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr]
+            [ansatz.kernel.name :as name]))
 
 (defn- with-init [f]
   (a/load-init!)                       ; bundled Init — enough for Nat / +
@@ -50,3 +53,35 @@
   (is (= 5 (((resolve 'md-add) 2) 3))  "metadata ^Type")
   (is (= 5 (((resolve 'md-add2) 2) 3)) "metadata ^{:- T}")
   (is (= 5 (((resolve 'sep-add) 2) 3)) ":- separator"))
+
+(deftest term-elaborator-registry-type-directed
+  (testing "lean4 elab_rules seam: a term elaborator sees the live est and dispatches on the
+            INFERRED type of its argument — inexpressible with the form→form macro registry"
+    (binding [ansatz.core/*verbose* false]
+      ((requiring-resolve 'ansatz.surface.api/register-term-elaborator!)
+       'tcount
+       (fn [est args]
+         (let [api-elab (requiring-resolve 'ansatz.surface.api/elab)
+               api-type (requiring-resolve 'ansatz.surface.api/arg-type)
+               e (requiring-resolve 'ansatz.kernel.expr/app)
+               coll (api-elab est (first args))
+               ty ((requiring-resolve 'ansatz.surface.api/arg-type) est coll)
+               [th targs] (ansatz.kernel.expr/get-app-fn-args ty)
+               tnm (when (ansatz.kernel.expr/const? th)
+                     (ansatz.kernel.name/->string (ansatz.kernel.expr/const-name th)))]
+           (case tnm
+             "List" (ansatz.kernel.expr/app*
+                     (ansatz.kernel.expr/const' (ansatz.kernel.name/from-string "List.length")
+                                                (vec (ansatz.kernel.expr/const-levels th)))
+                     (first targs) coll)
+             ;; anything else: its sizeOf-free fallback — just 0 (enough for the seam test)
+             (ansatz.kernel.expr/lit-nat 0)))))
+      (try
+        (eval '(ansatz.core/defn seam-tcount [xs :- (List Nat)] Nat (tcount xs)))
+        (is (some? (env/lookup (a/env) (name/from-string "seam-tcount")))
+            "type-directed term elaborator verified through the seam")
+        (is (= 3 (clojure.core/long ((deref (resolve 'seam-tcount)) '(7 8 9))))
+            "and the lowered fn runs")
+        (finally
+          (swap! @(requiring-resolve 'ansatz.surface.ingest/term-elaborator-registry)
+                 dissoc 'tcount))))))
