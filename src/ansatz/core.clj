@@ -654,6 +654,8 @@
             "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
             ;; refinement erasure: a Subtype value IS its carrier at runtime
             "Subtype.val" (nth ca 2)
+            ;; Subtype.mk α P v proof → the value (refinement + proof erase at runtime)
+            "Subtype.mk" (nth ca 2)
             "HAdd.hAdd" (list '+ (nth ca 4) (nth ca 5))
             "HMul.hMul" (list '* (nth ca 4) (nth ca 5))
             "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
@@ -2611,7 +2613,26 @@
         n (count pairs)
         cname (name/from-string (str fn-name))
         ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
-        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+        ;; `_` return type = INFER it from the body (non-recursive fns only — e.g. a
+        ;; select-keys terminal whose synthesized projection-record type is unnameable):
+        ;; elaborate the body once without a self-axiom and read its type.
+        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz}
+        (if (= '_ ret-type-form)
+          ;; a surface elaborator may SYNTHESIZE constants into the global env mid-flight
+          ;; (select-keys' projection record) — the snapshot the elaboration started with
+          ;; can't see them, so retry once against the refreshed env (synthesis is idempotent)
+          (let [build (fn [e] (build-telescope-fvar e pairs nil body-form))
+                body-lam (try (build env) (catch Exception _ (build @ansatz-env)))
+                tc0 (doto (ansatz.kernel.TypeChecker. ^ansatz.kernel.Env @ansatz-env)
+                      (.setFuel (long config/*default-fuel*)))
+                ft (.inferType tc0 body-lam)
+                ret (loop [t ft, k n]
+                      (if (zero? k) t (recur (e/forall-body t) (dec k))))]
+            {:ret-ansatz ret :type-ansatz ft})
+          (elab-signature env pairs ret-type-form))
+        ;; the inference pass may have EXTENDED the global env (e.g. select-keys
+        ;; synthesizing its projection record) — re-read it for the real elaboration
+        env (if (= '_ ret-type-form) @ansatz-env env)
         ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
         ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
         ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
@@ -3205,6 +3226,13 @@
 ;; Public macros — clean names (preferred) and legacy c-prefixed
 ;; ============================================================
 
+(clojure.core/defn tag-kernel-name
+  "Attach the kernel constant name to a compiled fn (no-op for non-IObj values)."
+  [f fn-name]
+  (if (instance? clojure.lang.IObj f)
+    (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
+    f))
+
 (defmacro defn
   "Define a verified function. Types are METADATA on the binders and the name — the binding vector
    stays a normal Clojure vector, so typing composes (add types without reshaping the form):
@@ -3240,13 +3268,15 @@
                       [{} (first body-and-opts)])
         partial? (:partial (meta fn-name))
         nm (vary-meta fn-name dissoc :- :tag :partial)]
+    ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
+    ;; to find the definition from the VALUE (e.g. generative checkers)
     (cond
       partial?
-      `(def ~nm (define-partial '~nm '~params '~ret-type '~body))
+      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm))
       (:termination-by opts)
-      `(def ~nm (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)))
+      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm))
       :else
-      `(def ~nm (define-verified '~nm '~params '~ret-type '~body)))))
+      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm)))))
 
 (defmacro theorem
   "Prove a theorem.
