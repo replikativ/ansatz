@@ -2,7 +2,7 @@
   "The runtime SEAMS ansatz.core exposes so an additive runtime layer (wandler) can plug in a
    certified optimizer and collection/relational codegen WITHOUT ansatz depending on it, and with
    ansatz-alone a/defn staying fully runnable:
-     - optimize-hook    : (fn [env term] → term') run on the elaborated body just before codegen
+     - optimize-hook    : (fn [env name term] → term') run on the elaborated body just before codegen
      - codegen-registry : Name-string → (fn [env expr names] → clj-form), consulted by ansatz->clj
                           for application heads it doesn't lower natively
    Also checks the metadata + :- type-annotation surfaces."
@@ -19,7 +19,7 @@
 
 (deftest optimize-hook-fires-and-base-still-runs
   (let [called (atom 0)]
-    (reset! a/optimize-hook (fn [_env term] (swap! called inc) term))
+    (reset! a/optimize-hook (fn [_env _name term] (swap! called inc) term))
     (try
       (eval '(ansatz.core/defn ^Nat sh-dbl [^Nat n] (+ n n)))
       (is (pos? @called) "define-verified ran the optimize hook on the elaborated body")
