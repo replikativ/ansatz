@@ -89,7 +89,7 @@
                             all-names rec-all))))
       false)))
 
-(defn- collect-inductive-bundle
+(defn collect-inductive-bundle
   "Collect one contiguous inductive bundle starting at decls/head.
    Returns {:bundle ... :members [...] :rest remaining-decls}."
   [decls]
@@ -117,7 +117,7 @@
      ctors
      recursors)))
 
-(defn- replay-inductive-bundle
+(defn replay-inductive-bundle
   [^Env env members]
   (let [bundle (build-inductive-bundle members)]
     (try

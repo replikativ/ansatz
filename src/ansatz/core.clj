@@ -28,6 +28,8 @@
             [ansatz.tactic.instance :as instance]
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
+            [ansatz.surface.ingest :as ingest]
+            [ansatz.surface.elaborate :as elab]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -63,18 +65,19 @@
 (defonce ansatz-env (atom nil))
 (defonce ansatz-instance-index (atom nil))
 
-;; Extensible registries — declared early so sexp->ansatz can reference them.
+;; Extensible registries — declared early so the elaboration/codegen layers can reference them.
 ;; Lean 4 equivalents: @[tactic], @[simproc], elab_rules
 (defonce ^{:doc "Open tactic registry. Maps symbol → (fn [ps args] → ps')."} tactic-registry (atom {}))
-(defonce ^{:doc "Custom elaborator registry. Maps symbol → (fn [env scope depth args lctx] → Expr)."} elaborator-registry (atom {}))
 (defonce ^{:doc "Persistent simproc registry. Vector of (fn [st expr] → result|nil)."} simproc-registry (atom []))
 ;; Arity registry for Clojure compilation — following Lean 4's LCNF arity analysis.
 ;; Maps Name-string → {:arity n :erased k} where n = explicit params, k = erased prefix.
 ;; Used by ansatz->clj to emit flat multi-arg calls (FAP) instead of curried calls.
 (defonce ^{:doc "Arity registry for compiled functions."} arity-registry (atom {}))
-;; Structure registry — maps type-name → {:fields [field-name ...], :record-sym symbol}
+;; Structure registry — maps type-name → {:fields [field-name ...], :ctor-sym symbol}
 ;; Used by ansatz->clj to compile constructors to defrecord and projections to keyword access.
-(defonce ^{:doc "Structure field registry for defrecord compilation."} structure-registry (atom {}))
+;; Re-exported from ansatz.surface.ingest (the shared low-level ns that breaks the
+;; core↔elaborate dependency cycle). Same atom — registration and projection agree.
+(def structure-registry ingest/structure-registry)
 
 ;; ── Runtime seams (filled additively by wandler) ────────────────────────────────────────────────
 ;; ansatz.core is the DSL: it elaborates surface Clojure to kernel terms, kernel-checks them, and
@@ -89,6 +92,20 @@
 ;; it for application heads it does not lower natively (e.g. List.map → wandler's amapl). Base kernel
 ;; codegen stays in ansatz; the runtime adds collection/relational lowering additively.
 (defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
+
+;; ── Incremental Clojure ingestion ───────────────────────────────────────────────────────────────
+;; The elaborator macroexpand-1's ANY clojure.core (or user) macro on the way in — so all the
+;; binding/threading/sugar reaches the kernel as core forms (let*/fn*/if/application) without a case
+;; per macro — EXCEPT a small exclusion set: forms ansatz handles with a dedicated typed elaborator
+;; that beats the macro's expansion. Today that set is just `cond`: the elaborator's typed cond
+;; handler maps :else correctly, unlike Clojure's :else-as-truthy expansion. (`=>` is the type
+;; arrow; `->` threads as in Clojure.)
+;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
+;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce
+;; an unsound definition. The set only keeps OUR handlers winning and errors clean.
+;; Re-exported from ansatz.surface.ingest (shared, breaks the core↔elaborate cycle).
+(def no-expand-macros ingest/no-expand-macros)
+(def expand-macro? ingest/expand-macro?)
 
 (clojure.core/defn init!
   "Load Ansatz environment from LMDB store and build instance index."
@@ -144,7 +161,6 @@
 (declare synth-cache)
 
 ;; Dynamic vars for elaboration context threading
-(def ^:dynamic *scope-types* {})
 (def ^:dynamic *current-lctx* nil)
 
 (clojure.core/defn- compute-arity
@@ -488,618 +504,28 @@
       (throw (ex-info (str "No " basic-class " instance for " type-name-str) {})))))
 
 ;; ============================================================
-;; Sexp → Ansatz Expr compiler (the ONE compiler for everything)
+;; Runtime helpers (the legacy bvar compiler that lived here was retired in P5)
 ;; ============================================================
 
-(declare sexp->ansatz)
+(declare parse-params wf-sizeof-inst wf-fix-ensure-sizeof-prelude!)
+
+(clojure.core/defn rt-sizeof
+  "Runtime sizeOf mirroring the kernel sizeOf_spec equations: a Nat is its own size;
+   a (runtime, seq-encoded) list is 1 (nil) plus, per element, 1 + its size."
+  [v]
+  (cond
+    (integer? v) v
+    (or (nil? v) (sequential? v)) (reduce (fn [acc e] (+ acc 1 (rt-sizeof e))) 1 v)
+    :else 1))
 
 ;; Type context for outer-scope variables — used by match handler to
 ;; register fvars in the tc's local context. Maps symbol → Expr (type).
-;; Set by build-telescope when compiling function bodies.
 ;; *scope-types* and *current-lctx* are defined at the top of the file.
 
-(clojure.core/defn- build-telescope
-  "Build nested foralls or lambdas from param pairs.
-   ctor: e/forall' or e/lam.
-   Each pair is [name type-form] or [name type-form binder-info]."
-  [env scope depth pairs body-form ctor]
-  (if (empty? pairs)
-    (sexp->ansatz env scope depth body-form)
-    (let [pair (first pairs)
-          pname (first pair)
-          ptype-form (second pair)
-          binfo (if (>= (count pair) 3) (nth pair 2) :default)
-          ptype (sexp->ansatz env scope depth ptype-form)
-          new-scope (assoc scope pname depth)
-          body (binding [*scope-types* (assoc *scope-types* pname ptype)]
-                 (build-telescope env new-scope (inc depth) (rest pairs) body-form ctor))]
-      (ctor (str pname) ptype body binfo))))
-
-(clojure.core/defn- cond->if
-  "Desugar a flat cond clause list `(c1 e1 c2 e2 … :else en)` to nested `if`."
-  [clauses]
-  (if (empty? clauses)
-    (throw (ex-info "cond: no clause matched and no :else branch" {}))
-    (let [[c e & more] clauses]
-      (if (= c :else) e (list 'if c e (cond->if more))))))
-
-(clojure.core/defn sexp->ansatz
-  "Compile Clojure s-expression to Ansatz Expr.
-   Handles types, terms, operators, binders — everything in one function.
-   Optional lctx: local context map {fvar-id → {:name str :type Expr ...}}
-   for resolving hypothesis names as fvars."
-  ([env scope depth form] (sexp->ansatz env scope depth form nil))
-  ([env scope depth form lctx]
-   ;; Rebind sexp->ansatz to thread lctx through all recursive calls
-   (let [sexp->ansatz (if lctx
-                        (fn
-                          ([env scope depth form] (sexp->ansatz env scope depth form lctx))
-                          ([env scope depth form lctx'] (sexp->ansatz env scope depth form lctx')))
-                        sexp->ansatz)]
-     (cond
-    ;; Handle Clojure nil → Ansatz empty list
-       ;; Try to infer element type from return type context, default to Nat
-       (nil? form) (let [list-elem-type
-                         (or (when *scope-types*
-                               (some (fn [[_ ty]]
-                                       (let [[h a] (e/get-app-fn-args ty)]
-                                         (when (and (e/const? h)
-                                                    (= "List" (name/->string (e/const-name h)))
-                                                    (seq a))
-                                           (first a))))
-                                     *scope-types*))
-                             (e/const' (name/from-string "Nat") []))]
-                     (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                            list-elem-type))
-       (integer? form) (e/lit-nat form)
-       (string? form) (e/lit-str form)
-       (true? form) (e/const' (name/from-string "Bool.true") [])
-       (false? form) (e/const' (name/from-string "Bool.false") [])
-
-       (symbol? form)
-       (let [s (str form)]
-         (cond
-        ;; 1. Bound variables (from forall/lambda binders)
-           (contains? scope form) (e/bvar (- depth (get scope form) 1))
-        ;; 2. Local context (hypothesis fvars) — checked before global env
-           (and lctx (some (fn [[id d]] (when (= s (:name d)) id)) lctx))
-           (e/fvar (some (fn [[id d]] (when (= s (:name d)) id)) lctx))
-        ;; 3. Built-in types and global constants
-           (= s "Prop")  (e/sort' lvl/zero)
-           (= s "Type")  (e/sort' (lvl/succ lvl/zero))
-           (= s "Nat")   (e/const' (name/from-string "Nat") [])
-           (= s "Int")   (e/const' (name/from-string "Int") [])
-           (= s "Real")  (e/const' (name/from-string "Real") [])
-           (= s "Bool")  (e/const' (name/from-string "Bool") [])
-           (= s "True")  (e/const' (name/from-string "True") [])
-           (= s "False") (e/const' (name/from-string "False") [])
-        ;; Collection types (need level 0 for Nat elements)
-           (= s "List")  (e/const' (name/from-string "List") [lvl/zero])
-        ;; Constructors with Clojure-safe names
-           (= s "nil")   (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                                (or (when *scope-types*
-                                      (some (fn [[_ ty]]
-                                              (let [[h a] (e/get-app-fn-args ty)]
-                                                (when (and (e/const? h)
-                                                           (= "List" (name/->string (e/const-name h)))
-                                                           (seq a))
-                                                  (first a))))
-                                            *scope-types*))
-                                    (e/const' (name/from-string "Nat") [])))
-           (= s "cons")  (e/const' (name/from-string "List.cons") [lvl/zero])
-           :else
-           (if-let [ci (env/lookup env (name/from-string s))]
-             (let [lps (vec (.levelParams ^ConstantInfo ci))]
-               (e/const' (name/from-string s)
-                         (if (empty? lps) []
-                        ;; Default level: zero for most things, succ zero for Eq/Iff
-                        ;; Heuristic: if the constant's result type is Sort 0 (Prop),
-                        ;; use succ zero. Otherwise use zero.
-                             (let [default-lvl (if (or (.endsWith s "Eq") (.endsWith s "Iff")
-                                                       (.endsWith s "HEq"))
-                                                 (lvl/succ lvl/zero)
-                                                 lvl/zero)]
-                               (mapv (fn [_] default-lvl) lps)))))
-             (throw (ex-info (str "Unknown: " s) {:scope (keys scope)})))))
-
-       (and (sequential? form) (seq form))
-    ;; Check custom elaborator registry first
-       (if-let [elab-fn (get @elaborator-registry (first form))]
-         (elab-fn env scope depth (vec (rest form)) lctx)
-         ;; Keyword projection: (:field-name struct) → structure projection
-         (if (keyword? (first form))
-           (let [field-name (name (first form))
-                 struct-expr (sexp->ansatz env scope depth (second form) lctx)
-                 struct-type (get-arg-type env
-                                           (when (seq scope)
-                                             (into {} (keep (fn [[sym d]]
-                                                              (when-let [ty (get *scope-types* sym)]
-                                                                [(- depth 1 d) ty]))
-                                                            scope)))
-                                           struct-expr)
-                 [th _] (when struct-type (e/get-app-fn-args struct-type))
-                 type-name-str (when (and th (e/const? th)) (name/->string (e/const-name th)))
-                 struct-info (when type-name-str (get @structure-registry type-name-str))
-                 field-idx (when struct-info
-                             (first (keep-indexed (fn [i f] (when (= f field-name) i))
-                                                  (:fields struct-info))))]
-             (if field-idx
-               (e/proj (name/from-string type-name-str) field-idx struct-expr)
-               (throw (ex-info (str "Unknown structure field: :" field-name)
-                               {:field field-name :type type-name-str}))))
-           (let [h (str (first form))]
-             (case h
-        ;; Comparison operators — Prop-valued (LE.le / LT.lt) when 3 args,
-        ;; Bool-valued (Nat.ble / Nat.blt) when 2 args.
-        ;; (≤ Real a b) or (<= Real a b) → LE.le Real inst a b  (Prop)
-        ;; (<= a b) → Nat.ble a b  (Bool, Nat default)
-        ;; (≥ Real a b) or (>= Real a b) → LE.le Real inst b a  (Prop)
-               ("<" "==" "<=" ">" ">=" "≤" "≥" "≤ᵣ" "≥ᵣ")
-               (if (= 4 (count form))
-          ;; 3-arg form: (op Type a b) → Prop-valued LE.le / LT.lt
-                 (let [type-form (nth form 1)
-                       [a-form b-form] (case h
-                                         (">" ">=" "≥" "≥ᵣ") [(nth form 3) (nth form 2)]
-                                         [(nth form 2) (nth form 3)])
-                       rel (case h
-                             ("<" ">") "lt"
-                             "le")]
-                   (sexp->ansatz env scope depth (list (symbol rel) type-form a-form b-form)))
-          ;; 2-arg form: (op a b) → Bool-valued Nat comparison
-                 (let [[op a-form b-form]
-                       (case h
-                         ("<"  "≤ᵣ") ["Nat.blt" (nth form 1) (nth form 2)]
-                         "==" ["Nat.beq" (nth form 1) (nth form 2)]
-                         ("<=" "≤") ["Nat.ble" (nth form 1) (nth form 2)]
-                         (">"  "≥ᵣ") ["Nat.blt" (nth form 2) (nth form 1)]
-                         (">=" "≥") ["Nat.ble" (nth form 2) (nth form 1)])
-                       a (sexp->ansatz env scope depth a-form)
-                       b (sexp->ansatz env scope depth b-form)]
-                   (e/app* (e/const' (name/from-string op) []) a b)))
-
-        ;; Arithmetic — auto-resolves instances for any type
-        ;; (+ a b)        → Nat (default)
-        ;; (add Real a b)  → explicit type for Real/Int/etc.
-               ("+" "-" "*" "/" "pow" "add" "sub" "mul" "div")
-               (let [;; Check if type-annotated: (add Real a b) / (pow Real a b) vs (+ a b)
-                     explicit-type? (#{"add" "sub" "mul" "div" "pow"} h)
-                     base-op (if explicit-type?
-                               (case h "add" "+" "sub" "-" "mul" "*" "div" "/" "pow" "pow")
-                               h)
-                     [type-name-str type-expr a-form b-form]
-                     (if explicit-type?
-                       (let [tname (str (nth form 1))]
-                         [tname (sexp->ansatz env scope depth (nth form 1))
-                          (nth form 2) (nth form 3)])
-                       ["Nat" (e/const' (name/from-string "Nat") [])
-                        (nth form 1) (nth form 2)])
-              ;; Compile operands — coerce Nat literals to target type if needed
-                     coerce-lit (fn [e]
-                                  (if (and (not= type-name-str "Nat") (e/lit-nat? e))
-                             ;; OfNat.ofNat type n inst — for non-Nat types
-                                    (let [n (e/lit-nat-val e)
-                                   ;; Build OfNat instance: Zero.toOfNat0/One.toOfNat1/natCast
-                                          ofnat-inst
-                                          (cond
-                                            (= n 0) ;; Zero.toOfNat0 type (Zero-inst)
-                                            (when-let [zero-inst (resolve-basic-instance env "Zero" type-name-str type-expr)]
-                                              (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero])
-                                                      type-expr zero-inst))
-                                            (= n 1) ;; One.toOfNat1 type (One-inst)
-                                            (when-let [one-inst (resolve-basic-instance env "One" type-name-str type-expr)]
-                                              (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero])
-                                                      type-expr one-inst))
-                                            :else nil)]
-                                      (if ofnat-inst
-                                        (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero])
-                                                type-expr (e/lit-nat n) ofnat-inst)
-                                        e))
-                                    e))
-                     a (coerce-lit (sexp->ansatz env scope depth a-form))
-                     b (if (= base-op "pow")
-                  ;; pow exponent is always Nat, don't coerce
-                         (sexp->ansatz env scope depth b-form)
-                         (coerce-lit (sexp->ansatz env scope depth b-form)))
-                     [hop-name basic-class]
-                     (case base-op
-                       "+"   ["HAdd" "Add"]
-                       "-"   ["HSub" "Sub"]
-                       "*"   ["HMul" "Mul"]
-                       "/"   ["HDiv" "Div"]
-                       "pow" ["HPow" "Pow"])]
-                 (if (= base-op "pow")
-            ;; HPow.hPow α Nat α (instHPow α Nat (Pow-inst)) base exp
-            ;; Pow instance chain:
-            ;;   Nat: instPowNat Nat instNatPowNat
-            ;;   Other (Real, etc.): Monoid.toNatPow α monoid-inst
-                   (let [nat (e/const' (name/from-string "Nat") [])
-                         pow-inst
-                         (if (= type-name-str "Nat")
-                           (e/app* (e/const' (name/from-string "instPowNat") [lvl/zero])
-                                   nat (e/const' (name/from-string "instNatPowNat") []))
-                    ;; General: Monoid.toNatPow α monoid-inst
-                           (when-let [monoid-inst (resolve-basic-instance env "Monoid" type-name-str type-expr)]
-                             (e/app* (e/const' (name/from-string "Monoid.toNatPow") [lvl/zero])
-                                     type-expr monoid-inst)))]
-                     (if pow-inst
-                       (e/app* (e/const' (name/from-string "HPow.hPow") [lvl/zero lvl/zero lvl/zero])
-                               type-expr nat type-expr
-                               (e/app* (e/const' (name/from-string "instHPow") [lvl/zero lvl/zero])
-                                       type-expr nat pow-inst)
-                               a b)
-                       (throw (ex-info (str "No Monoid instance for " type-name-str " (needed for pow)") {}))))
-            ;; General binary op with instance resolution
-                   (let [op-name (case base-op "+" "HAdd.hAdd" "-" "HSub.hSub"
-                                       "*" "HMul.hMul" "/" "HDiv.hDiv")]
-                     (build-binop env op-name hop-name basic-class
-                                  type-name-str type-expr a b))))
-
-        ;; Equality
-               ("=" "Eq")
-               (let [args (vec (rest form))
-                     [ty lhs rhs] (if (= 3 (count args))
-                                    (mapv #(sexp->ansatz env scope depth %) args)
-                                    [(e/const' (name/from-string "Nat") [])
-                                     (sexp->ansatz env scope depth (nth args 0))
-                                     (sexp->ansatz env scope depth (nth args 1))])
-              ;; Coerce Nat literals to target type if needed
-                     ty-name (when (e/const? ty) (name/->string (e/const-name ty)))
-                     coerce (fn [e]
-                              (if (and ty-name (not= ty-name "Nat") (e/lit-nat? e))
-                                (let [n (e/lit-nat-val e)
-                                      inst (cond
-                                             (= n 0) (when-let [zi (resolve-basic-instance env "Zero" ty-name ty)]
-                                                       (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero]) ty zi))
-                                             (= n 1) (when-let [oi (resolve-basic-instance env "One" ty-name ty)]
-                                                       (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero]) ty oi))
-                                             :else nil)]
-                                  (if inst
-                                    (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) ty (e/lit-nat n) inst)
-                                    e))
-                                e))
-                     lhs (coerce lhs)
-                     rhs (coerce rhs)]
-                 (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) ty lhs rhs))
-
-        ;; Propositions: (le Type a b) → LE.le a b, (lt Type a b) → LT.lt a b
-               ("le" "lt")
-               (let [type-form (nth form 1)
-                     type-expr (sexp->ansatz env scope depth type-form)
-                     type-name (when (symbol? (nth form 1)) (str (nth form 1)))
-                     a (sexp->ansatz env scope depth (nth form 2))
-                     b (sexp->ansatz env scope depth (nth form 3))
-              ;; Coerce literals to target type
-                     coerce (fn [e]
-                              (if (and type-name (not= type-name "Nat") (e/lit-nat? e))
-                                (let [n (e/lit-nat-val e)
-                                      inst (cond
-                                             (= n 0) (when-let [zi (resolve-basic-instance env "Zero" type-name type-expr)]
-                                                       (e/app* (e/const' (name/from-string "Zero.toOfNat0") [lvl/zero]) type-expr zi))
-                                             (= n 1) (when-let [oi (resolve-basic-instance env "One" type-name type-expr)]
-                                                       (e/app* (e/const' (name/from-string "One.toOfNat1") [lvl/zero]) type-expr oi))
-                                             :else nil)]
-                                  (if inst
-                                    (e/app* (e/const' (name/from-string "OfNat.ofNat") [lvl/zero]) type-expr (e/lit-nat n) inst)
-                                    e))
-                                e))
-                     a (coerce a) b (coerce b)
-              ;; Resolve LE/LT instance
-              ;; For Nat: use instLENat/instLTNat directly (Prop-valued, matching Lean 4)
-              ;; For other types: use instance synthesis
-                     class-name (if (= h "le") "LE" "LT")
-                     direct-inst-name (when (= type-name "Nat")
-                                        (name/from-string (str "inst" class-name "Nat")))
-                     inst (or (when direct-inst-name
-                                (when-let [ci (env/lookup env direct-inst-name)]
-                                  (e/const' direct-inst-name [])))
-                              (try-synthesize-instance env
-                                                       (e/app (e/const' (name/from-string class-name) [lvl/zero]) type-expr)))]
-                 (if inst
-                   (e/app* (e/const' (name/from-string (str class-name "." h)) [lvl/zero])
-                           type-expr inst a b)
-                   (throw (ex-info (str "No " class-name " instance for " type-name) {}))))
-
-        ;; cond → nested if; do (pure) → its last form.
-        ;; (let/let* deferred: needs de-Bruijn-aware value-type inference — task #72.)
-               "cond" (sexp->ansatz env scope depth (cond->if (rest form)))
-               "do" (sexp->ansatz env scope depth (last form))
-
-        ;; If-then-else (Bool condition → Bool.rec)
-        ;; (if cond then-val else-val)
-               "if" (let [cond-expr (sexp->ansatz env scope depth (nth form 1))
-                          then-expr (sexp->ansatz env scope depth (nth form 2))
-                          else-expr (sexp->ansatz env scope depth (nth form 3))
-                        ;; Infer return type from then-branch
-                          tc-if (ansatz.kernel.TypeChecker. env)
-                          _ (.setFuel tc-if (long config/*default-fuel*))
-                        ;; Register fvars from current lctx so TC can infer types
-                          _ (when *current-lctx*
-                              (doseq [[id {:keys [type] :as decl}] *current-lctx*]
-                                (when (and type (= :local (:tag decl)))
-                                  (.addLocal tc-if (long id) (str (:name decl)) type))))
-                          ret-type (try (.inferType tc-if then-expr)
-                                        (catch Exception _
-                                        ;; Fallback: use Nat
-                                          (e/const' (name/from-string "Nat") [])))]
-                    ;; Bool.rec.{u} (motive : Bool → Sort u) (false-case) (true-case) (b : Bool)
-                    ;; Note: false case comes FIRST (Bool.false is ctor 0)
-                      (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                              (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
-                              else-expr then-expr cond-expr))
-
-        ;; Dependent if-then-else (Prop condition → dite)
-        ;; (dif (= Nat n 0) [h] then-val [h] else-val)
-        ;; Compiles to: dite (n = 0) (Nat.decEq n 0) (fun h => then-val) (fun h => else-val)
-        ;; The h binders give access to the condition/negation in each branch.
-               "dif" (let [cond-form (nth form 1)
-                           then-var (first (nth form 2))
-                           then-body-form (second (nth form 2))
-                           else-var (first (nth form 3))
-                           else-body-form (second (nth form 3))
-                         ;; Compile the Prop condition
-                           cond-expr (sexp->ansatz env scope depth cond-form)
-                         ;; Infer return type from then-branch (compile with h in scope)
-                           then-scope (assoc scope then-var depth)
-                           then-expr (sexp->ansatz env then-scope (inc depth) then-body-form)
-                           else-scope (assoc scope else-var depth)
-                           else-expr (sexp->ansatz env else-scope (inc depth) else-body-form)
-                         ;; Build return type
-                           tc-dif (ansatz.kernel.TypeChecker. env)
-                           _ (.setFuel tc-dif (long config/*default-fuel*))
-                           ret-type (try (.inferType tc-dif then-expr)
-                                         (catch Exception _ (e/const' (name/from-string "Nat") [])))
-                         ;; Build Decidable instance — try synthesizing
-                           dec-type (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
-                           dec-inst (or (try-synthesize-instance env dec-type)
-                                      ;; Fallback: try common patterns
-                                      ;; For (= Nat a b): use Nat.decEq a b
-                                        (let [[eq-h eq-args] (e/get-app-fn-args cond-expr)]
-                                          (when (and (e/const? eq-h)
-                                                     (= "Eq" (name/->string (e/const-name eq-h)))
-                                                     (= 3 (count eq-args)))
-                                            (let [eq-type (nth eq-args 0)
-                                                  eq-lhs (nth eq-args 1)
-                                                  eq-rhs (nth eq-args 2)]
-                                              (when (and (e/const? eq-type)
-                                                         (= "Nat" (name/->string (e/const-name eq-type))))
-                                                (e/app* (e/const' (name/from-string "Nat.decEq") [])
-                                                        eq-lhs eq-rhs))))))
-                           _ (when-not dec-inst
-                               (throw (ex-info (str "No Decidable instance for condition") {:cond cond-form})))
-                         ;; Not type: ¬ cond = cond → False
-                           not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
-                         ;; Build: dite cond dec-inst (λ h : cond => then) (λ h : ¬cond => else)
-                           l1 (lvl/succ lvl/zero)]
-                       (e/app* (e/const' (name/from-string "dite") [l1])
-                               ret-type cond-expr dec-inst
-                               (e/lam (str then-var) cond-expr then-expr :default)
-                               (e/lam (str else-var) not-cond else-expr :default)))
-
-        ;; Binders
-               "forall" (build-telescope env scope depth
-                                         (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/forall')
-               ("fn" "lam") (build-telescope env scope depth
-                                             (partition 2 (remove #{:-} (nth form 1))) (nth form 2) e/lam)
-               ("->" "arrow") (e/arrow (sexp->ansatz env scope depth (nth form 1))
-                                       (sexp->ansatz env scope (inc depth) (nth form 2)))
-
-        ;; Logic
-               "And" (e/app* (e/const' (name/from-string "And") [])
-                             (sexp->ansatz env scope depth (nth form 1))
-                             (sexp->ansatz env scope depth (nth form 2)))
-               "Or"  (e/app* (e/const' (name/from-string "Or") [])
-                             (sexp->ansatz env scope depth (nth form 1))
-                             (sexp->ansatz env scope depth (nth form 2)))
-               "Exists" (e/app* (e/const' (name/from-string "Exists") [(lvl/succ lvl/zero)])
-                                (sexp->ansatz env scope depth (nth form 1))
-                                (sexp->ansatz env scope depth (nth form 2)))
-
-        ;; cons/nil for lists — infer element type via auto-elaborate
-        ;; (Lean 4: List.cons.{u} : {α : Type u} → α → List α → List α)
-               "cons" (let [x (sexp->ansatz env scope depth (nth form 1))
-                            s-raw (sexp->ansatz env scope depth (nth form 2))
-                            head-fn (e/const' (name/from-string "List.cons") [lvl/zero])
-                            ci (env/lookup env (name/from-string "List.cons"))
-                            bvar-tys (when (and (seq scope) *scope-types*)
-                                       (into {} (keep (fn [[sym d]]
-                                                        (when-let [ty (get *scope-types* sym)]
-                                                          [(- depth 1 d) ty]))
-                                                      scope)))
-                          ;; Infer element type from x
-                            elem-type (get-arg-type env bvar-tys x)
-                          ;; Fix nil: if s-raw is List.nil with wrong type, re-create with inferred type
-                            s (if (and elem-type (e/app? s-raw))
-                                (let [[sh sa] (e/get-app-fn-args s-raw)]
-                                  (if (and (e/const? sh)
-                                           (= "List.nil" (name/->string (e/const-name sh)))
-                                           (= 1 (count sa))
-                                           (not (.equals (first sa) elem-type)))
-                                    (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) elem-type)
-                                    s-raw))
-                                s-raw)]
-                        (if (and ci elem-type)
-                        ;; Use inferred type directly (more reliable than auto-elaborate for this case)
-                          (e/app* head-fn elem-type x s)
-                          (if ci
-                            (auto-elaborate env head-fn (.type ^ansatz.kernel.ConstantInfo ci) [x s]
-                                            :bvar-types bvar-tys)
-                            (e/app* head-fn (e/const' (name/from-string "Nat") []) x s))))
-               "length" (let [nat (e/const' (name/from-string "Nat") [])]
-                          (e/app* (e/const' (name/from-string "List.length") [lvl/zero]) nat
-                                  (sexp->ansatz env scope depth (nth form 1))))
-
-        ;; Pattern matching on inductives → delegates to surface/match.clj
-        ;; Uses Lean 4's open/close pattern: convert outer bvars to fvars,
-        ;; run fvar-based match compiler, abstract fvars back to bvars.
-               "match"
-               (let [scrutinee-form (nth form 1)
-                     type-form (nth form 2)
-                     ret-type-form (nth form 3)
-                     cases (drop 4 form)
-              ;; Step 1: OPEN — create fvars for all outer-scope bvars,
-              ;; AND include any fvars from an enclosing match (via lctx).
-              ;; This mirrors Lean 4's forallTelescope.
-              ;; Base fvar ID: must not collide with any existing fvars from
-              ;; enclosing matches (via lctx). Derive from max existing ID.
-                     outer-fvar-base (if (and lctx (seq lctx))
-                                       (+ 1000 (reduce max 3000000 (keys lctx)))
-                                       3000000)
-              ;; Fvars from bvar scope (function parameters)
-                     bvar-fvars (into {} (map (fn [[sym bvar-depth]]
-                                                (let [fid (+ outer-fvar-base bvar-depth)]
-                                                  [sym {:fvar-id fid
-                                                        :bvar-depth bvar-depth
-                                                        :fvar (e/fvar fid)}]))
-                                              scope))
-              ;; Fvars from lctx (enclosing match fields, hypothesis context)
-                     lctx-fvars (when lctx
-                                  (into {} (map (fn [[fid {:keys [name type]}]]
-                                                  [(symbol name) {:fvar-id fid
-                                                                  :bvar-depth nil  ;; no bvar to abstract
-                                                                  :fvar (e/fvar fid)
-                                                                  :type type}])
-                                                lctx)))
-                     outer-fvars (merge lctx-fvars bvar-fvars)
-              ;; Build substitution: replace each bvar with its fvar
-              ;; We need to instantiate from innermost (highest depth) outward
-                     open-expr (fn [expr]
-                                 (reduce (fn [e [sym {:keys [bvar-depth fvar]}]]
-                                    ;; Replace bvar at this depth with the fvar
-                                    ;; We process from innermost to outermost
-                                           e)
-                                         expr
-                                  ;; Actually, a simpler approach: walk the expr once
-                                  ;; and replace any bvar whose index maps to an outer scope entry
-                                         (sort-by (fn [[_ v]] (- (:bvar-depth v))) outer-fvars)))
-              ;; Simpler: compile with an lctx that maps outer names to fvars,
-              ;; then the match compiler's elab-fn produces fvars for all variables.
-              ;; Build outer-lctx with TYPES for every fvar.
-              ;; Types come from: *scope-types* (function params), incoming lctx
-              ;; (enclosing match fields/IHs), or nil (if truly unknown).
-              ;; Lean 4 invariant: every fvar MUST have a type in LocalContext.
-                     outer-lctx (into {} (map (fn [[sym {:keys [fvar-id bvar-depth]}]]
-                                                (let [;; Try *scope-types* first (function params)
-                                                      ftype (or (get *scope-types* sym)
-                                                         ;; Then incoming lctx (enclosing match)
-                                                                (when lctx
-                                                                  (:type (get lctx fvar-id))))]
-                                                  [fvar-id {:name (str sym) :type ftype :tag :local}]))
-                                              outer-fvars))
-              ;; Compile scrutinee and type with outer fvars visible
-                     scrutinee (sexp->ansatz env {} 0 scrutinee-form outer-lctx)
-                     type-expr (sexp->ansatz env {} 0 type-form outer-lctx)
-                     type-whnf (try (red/whnf-no-delta env type-expr) (catch Exception _ type-expr))
-              ;; Build elaboration state — all scope entries are fvar-based.
-              ;; Register outer fvars in the tc's local context with their types.
-              ;; This is critical: the match compiler may call tc/infer-type on
-              ;; expressions containing these fvars.
-                     base-tc (tc/mk-tc-state env)
-                     tc-with-outer (reduce
-                                    (fn [tc-st [sym {:keys [fvar-id type]}]]
-                                      (let [;; Type from: entry itself, *scope-types*, or incoming lctx
-                                            ftype (or type
-                                                      (get *scope-types* sym)
-                                                      (when lctx (:type (get lctx fvar-id))))]
-                                        (if ftype
-                                          (update tc-st :lctx
-                                                  red/lctx-add-local fvar-id (str sym) ftype)
-                                          tc-st)))
-                                    base-tc outer-fvars)
-                     est {:env env
-                          :tc tc-with-outer
-                          :next-id (atom (+ outer-fvar-base (count scope) 1000))
-                          :mctx (atom {})
-                          :level-mctx (atom {})
-                          :scope (into {} (map (fn [[sym {:keys [fvar-id type]}]]
-                                                 (let [ftype (or type (get *scope-types* sym))]
-                                                   [sym {:fvar-id fvar-id :type ftype}]))
-                                               outer-fvars))
-                          :depth 0}
-              ;; Adapter: compile RHS expressions.
-              ;; Match-field fvars are in est's :scope — produce fvars for those.
-              ;; Outer-scope bvar entries use the original scope+depth (shifted
-              ;; by the number of field+IH lambdas the match compiler creates).
-              ;; We pass the match fields as lctx so sexp->ansatz produces fvars.
-                     elab-fn (fn elab-adapter [est sexpr]
-                               (let [;; Build lctx from ALL fvar entries (outer + match fields)
-                                     all-lctx (into outer-lctx
-                                                    (map (fn [[sym {:keys [fvar-id type]}]]
-                                                           [fvar-id {:name (str sym) :type type
-                                                                     :tag :local}])
-                                                         (:scope est)))]
-                                 (binding [*current-lctx* all-lctx]
-                                   (sexp->ansatz env {} 0 sexpr all-lctx))))
-              ;; Resolve the inductive type name for constructor qualification
-                     type-expr-for-name (sexp->ansatz env {} 0 type-form outer-lctx)
-                     [type-head-for-name _] (e/get-app-fn-args type-expr-for-name)
-                     ind-name-str (when (e/const? type-head-for-name)
-                                    (name/->string (e/const-name type-head-for-name)))
-              ;; Convert case forms — qualify constructor names with inductive type
-                     alt-sexprs (mapv (fn [case-form]
-                                        (let [ctor-raw (first case-form)
-                                       ;; Qualify: leaf → IndType.leaf, true → Bool.true
-                                              ctor-sym (cond
-                                                         (true? ctor-raw) 'Bool.true
-                                                         (false? ctor-raw) 'Bool.false
-                                                         (nil? ctor-raw) (symbol (str ind-name-str ".nil"))
-                                                  ;; If already qualified (has dot), keep as-is
-                                                         (and (symbol? ctor-raw)
-                                                              (.contains (str ctor-raw) "."))
-                                                         ctor-raw
-                                                  ;; Otherwise qualify with inductive name
-                                                         :else (symbol (str ind-name-str "." ctor-raw)))
-                                              has-fields (and (> (count case-form) 2)
-                                                              (vector? (second case-form)))
-                                              field-names (if has-fields (second case-form) [])
-                                              body-form (if has-fields (nth case-form 2)
-                                                            (second case-form))
-                                              pat (if (seq field-names)
-                                                    (cons ctor-sym field-names)
-                                                    ctor-sym)]
-                                          [pat body-form]))
-                                      cases)
-                     alts (mapv (fn [[pat-sexpr rhs-sexpr]]
-                                  {:pattern (surface-match/parse-pattern env pat-sexpr)
-                                   :rhs-sexpr rhs-sexpr})
-                                alt-sexprs)
-              ;; Step 2: RUN — compile match with fvar-based expressions
-                     result (#'surface-match/compile-match-term est env elab-fn scrutinee type-whnf alts)
-              ;; Step 3: CLOSE — abstract bvar-based outer fvars back to bvars.
-              ;; Uses abstract-many for correct multi-fvar abstraction
-              ;; (sequential abstract1 doesn't shift existing bvars).
-              ;; Order: outermost to innermost (matching build-telescope).
-              ;; fv-ids[0] = outermost → highest bvar index.
-              ;; Lctx fvars (from enclosing match) stay as fvars.
-                     bvar-entries (sort-by (fn [[_ v]] (or (:bvar-depth v) -1))
-                                           (filter (fn [[_ v]] (:bvar-depth v)) outer-fvars))
-                     fv-ids (mapv (fn [[_ {:keys [fvar-id]}]] fvar-id) bvar-entries)
-                     result (e/abstract-many result fv-ids)]
-                 result)
-
-        ;; Default: auto-elaborating application
-        ;; Walk the function's forall telescope, inserting implicit and
-        ;; instance-implicit arguments automatically.
-               (let [compiled (mapv #(sexp->ansatz env scope depth %) form)
-                     head-fn (first compiled)
-                     user-args (rest compiled)]
-                 (if-let [^ConstantInfo ci (when (e/const? head-fn)
-                                             (env/lookup env (e/const-name head-fn)))]
-                 ;; Build bvar-types map so auto-elaborate can infer types of bound vars
-                   (let [bvar-tys (when (and (seq scope) (seq *scope-types*))
-                                    (into {} (keep (fn [[sym d]]
-                                                     (when-let [ty (get *scope-types* sym)]
-                                                       [(- depth 1 d) ty]))
-                                                   scope)))]
-                     (auto-elaborate env head-fn (.type ci) (vec user-args)
-                                     :bvar-types bvar-tys))
-            ;; Not a known constant — just apply directly
-                   (reduce e/app compiled)))))))
-
-       :else (throw (ex-info (str "Cannot compile: " form) {:form form}))))))
-
-;; ============================================================
-;; Ansatz Expr → Clojure form compiler
-;; ============================================================
+  ;; ── The bvar-scoped legacy elaborator (sexp->ansatz, build-telescope, compile-let*,
+;; cond->if, scope-bvar-types, infer-value-type) was retired in P5 of the elaborator
+;; unification: ansatz.surface.elaborate (fvar/metavar, lean4-shaped) is the single
+;; elaborator for bodies, signatures, measures, theorem statements and tactic arguments.
 
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
@@ -1138,9 +564,12 @@
                   dec-expr (nth args 2) ;; Ansatz expr for Decidable instance
                   [dec-head dec-args] (e/get-app-fn-args dec-expr)
                   bool-cond (if (and (e/const? dec-head)
-                                     (= "Nat.decEq" (name/->string (e/const-name dec-head))))
-                              ;; Nat.decEq a b → (== a b) at runtime
-                              (list '== (ansatz->clj env (nth dec-args 0) names)
+                                     (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
+                                      (name/->string (e/const-name dec-head))))
+                              ;; Nat.decEq/decLt/decLe a b → the Clojure comparison at runtime
+                              (list (case (name/->string (e/const-name dec-head))
+                                      "Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=)
+                                    (ansatz->clj env (nth dec-args 0) names)
                                     (ansatz->clj env (nth dec-args 1) names))
                               ;; Generic: compile the decidable instance (may not work for all cases)
                               (nth ca 2))]
@@ -1182,12 +611,19 @@
                       (list self-sym x-arg)))
               ;; Partial application (shouldn't happen normally)
               (list 'apply (ansatz->clj env head names) ca))
+            ;; SizeOf.sizeOf T inst x → runtime size (mirrors the sizeOf_spec equations:
+            ;; Nat is its own size; a list contributes 1 for nil plus 1 + size per element).
+            ;; Reached via the fuel scaffolding when sizeOf is the termination measure.
+            "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
+            ;; refinement erasure: a Subtype value IS its carrier at runtime
+            "Subtype.val" (nth ca 2)
             "HAdd.hAdd" (list '+ (nth ca 4) (nth ca 5))
             "HMul.hMul" (list '* (nth ca 4) (nth ca 5))
             "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
             "HDiv.hDiv" (list 'quot (nth ca 4) (nth ca 5))
             "HPow.hPow" (list 'long (list 'Math/pow (nth ca 4) (nth ca 5)))
             "Nat.add" (list '+ (nth ca 0) (nth ca 1))
+            "Nat.sub" (list 'max 0 (list '- (nth ca 0) (nth ca 1)))  ; truncated Nat subtraction
             "Nat.mul" (list '* (nth ca 0) (nth ca 1))
             "Nat.div" (list 'quot (nth ca 0) (nth ca 1))
             "Nat.pow" (list 'long (list 'Math/pow (nth ca 0) (nth ca 1)))
@@ -1221,9 +657,13 @@
                     struct-name (when (pos? dot-idx) (subs ctor-str 0 dot-idx))
                     struct-info (when struct-name (get @structure-registry struct-name))]
                 (cond
-                  ;; Structure with defrecord: use ->RecordName constructor
+                  ;; Structure with defrecord: use ->RecordName constructor.
+                  ;; :map? structures (malli [:map] records) construct plain Clojure maps.
                   (and struct-info (= nf (count (:fields struct-info))))
-                  (apply list (:ctor-sym struct-info) fields)
+                  (if (:map? struct-info)
+                    (apply list 'clojure.core/array-map
+                           (mapcat (fn [f v] [(keyword f) v]) (:fields struct-info) fields))
+                    (apply list (:ctor-sym struct-info) fields))
                   ;; 0-field ctor: use index for enum dispatch
                   (zero? nf)
                   (let [cidx (.cidx ctor-ci)]
@@ -1489,20 +929,15 @@
   (swap! tactic-registry assoc name f))
 
 (clojure.core/defn register-elaborator!
-  "Register a custom elaboration form for sexp->ansatz.
+  "Register a custom surface form (lean4 macro_rules-shaped): f receives the argument FORMS
+   and returns a replacement surface form, which the elaborator then elaborates — syntax →
+   syntax, composing with every surface feature.
 
    Example:
-     (a/register-elaborator! 'my-form
-       (fn [env scope depth args lctx]
-         ;; args: the arguments after the form name
-         ;; Return: an Expr (kernel expression)
-         (let [a (sexp->ansatz env scope depth (first args) lctx)]
-           (e/app (e/const' (name/from-string \"MyFn\") []) a))))
-
-   Then use in definitions:
-     (a/defn ^Nat f [^Nat x] (my-form x))"
+     (a/register-elaborator! 'double (fn [args] (list '+ (first args) (first args))))
+     (a/defn ^Nat f [^Nat x] (double x))"
   [name f]
-  (swap! elaborator-registry assoc name f))
+  (swap! ingest/elaborator-registry assoc name f))
 
 (clojure.core/defn register-simproc!
   "Register a persistent simplification procedure for simp.
@@ -1539,9 +974,9 @@
                       a-val (nth goal-args 2)
                       c-val (nth goal-args 3)
                       ;; Parse args
-                      mid (sexp->ansatz (:env ps) {} 0 (first args) lctx)
-                      h1-term (sexp->ansatz (:env ps) {} 0 (second args) lctx)
-                      h2-term (sexp->ansatz (:env ps) {} 0 (nth args 2) lctx)
+                      mid (elab/elaborate-in-context (:env ps) lctx (first args))
+                      h1-term (elab/elaborate-in-context (:env ps) lctx (second args))
+                      h2-term (elab/elaborate-in-context (:env ps) lctx (nth args 2))
                       ;; Build le_trans.{0} α inst a mid c h1 h2
                       ;; le_trans : {α} [Preorder α] {a b c : α} → a ≤ b → b ≤ c → a ≤ c
                       preorder-inst (try-synthesize-instance (:env ps)
@@ -1556,7 +991,7 @@
                 ;; Pass local context so hypothesis names resolve as fvars
                 (let [hyp-name (str (first args))
                       g (proof/current-goal ps)
-                      hyp-type (sexp->ansatz (:env ps) {} 0 (second args) (:lctx g))]
+                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
                   (basic/have-tac ps hyp-name hyp-type)))
    'simp      (fn [ps args] (if (seq args) (simp/simp ps (vec args)) (simp/simp ps)))
    'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (vec args)) (simp/simp-all ps)))
@@ -1565,8 +1000,13 @@
    'apply     (fn [ps args]
                 (let [arg (first args)
                       g (proof/current-goal ps)
-                      ;; Compile term with local context for hypothesis references
-                      term (sexp->ansatz (:env ps) {} 0 arg (:lctx g))]
+                      ;; A bare-symbol argument elaborates @-explicit (no implicit insertion):
+                      ;; apply-tac peels the foralls itself, creating ITS OWN metavars that
+                      ;; unify against the goal — saturating here would demand implicits be
+                      ;; solvable without the goal (lean4's apply elaborates the head the same
+                      ;; way: `elabTermForApply` suppresses implicit insertion for idents).
+                      arg' (if (symbol? arg) (symbol (str "@" arg)) arg)
+                      term (elab/elaborate-in-context (:env ps) (:lctx g) arg')]
                   (basic/apply-tac ps term)))
    'rewrite   (fn [ps args]
                 (let [nm (str (first args))
@@ -1598,7 +1038,7 @@
                 (basic/unfold-in-goal ps (str (first args))))
    'by_cases  (fn [ps args]
                 (let [g (proof/current-goal ps)
-                      cond-expr (sexp->ansatz (:env ps) {} 0 (first args) (:lctx g))]
+                      cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
                   (basic/by-cases ps cond-expr)))
    ;; Combinators — these receive inner tactic forms as s-expressions
    'try       (fn [ps args]
@@ -1657,49 +1097,10 @@
 ;; Param parsing — handles :- and :inst markers
 ;; ============================================================
 
-(clojure.core/defn binder-type
-  "A binder's declared type, read from metadata: prefer ^{:- T} (for compound types like
-   (List Nat)), else the ^Type :tag shorthand (for simple types like ^Nat). Returns the type
-   form, or nil for an untyped binder (→ the elaborator infers it)."
-  [sym]
-  (let [m (meta sym)] (or (:- m) (:tag m))))
-
-(clojure.core/defn metadata-params?
-  "Is this a METADATA parameter/binder vector (types ride as metadata on the binders),
-   vs the legacy positional/`:-`-separator form? True iff some element carries :-, :tag, or
-   :inst metadata. (A bare `[n Nat]` or `[n :- Nat]` carries none → legacy.)"
-  [params]
-  (boolean (some (fn [x] (let [m (meta x)] (or (:- m) (:tag m) (:inst m)))) params)))
-
-(clojure.core/defn- parse-params
-  "Parse a parameter vector into triples [name type-form binder-info]. Surfaces, auto-detected:
-     metadata (preferred, for a/defn):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
-     :- separator (natural for proof binders / a/theorem):  [n :- Nat,  h :- (= Nat n n)]
-     positional pairs (older):           [n Nat]
-   Metadata composes — types ride on the binder symbols, so the binding vector stays a normal
-   Clojure vector; ^:inst marks an instance binder. The :- and positional forms remain accepted
-   (the :- separator reads naturally for theorem hypotheses)."
-  [params]
-  (if (metadata-params? params)
-    ;; metadata form: each element is a binder symbol carrying its type/kind as metadata
-    (mapv (fn [sym]
-            (let [binfo (if (:inst (meta sym)) :inst-implicit :default)]
-              [(with-meta sym nil) (binder-type sym) binfo]))
-          params)
-    ;; :- separator or positional pairs: name [:-] type [ :inst ]
-    (let [cleaned (remove #{:-} params)
-          result (atom [])
-          remaining (atom (vec cleaned))]
-      (while (seq @remaining)
-        (let [r @remaining
-              pname (first r)
-              ptype (second r)]
-          (if (and (> (count r) 2) (= :inst (nth r 2)))
-            (do (swap! result conj [pname ptype :inst-implicit])
-                (reset! remaining (vec (drop 3 r))))
-            (do (swap! result conj [pname ptype :default])
-                (reset! remaining (vec (drop 2 r)))))))
-      @result)))
+;; Re-exported from ansatz.surface.ingest (shared, breaks the core↔elaborate cycle).
+(def binder-type ingest/binder-type)
+(def metadata-params? ingest/metadata-params?)
+(def parse-params ingest/parse-params)
 
 ;; ============================================================
 ;; Well-Founded Recursion (following Lean 4's WellFounded.Nat.fix)
@@ -1797,6 +1198,761 @@
     ;; Extract gives us: λ (param) => proof-term
     (extract/extract ps)))
 
+;; ============================================================
+;; Guard-aware decrease checking (port of lean4's decreasing-goal generation)
+;; ============================================================
+
+(declare prove-theorem)
+
+(clojure.core/defn- wf-subst-syms
+  "Replace symbols (and any form that is a key) in `form` per map `m`."
+  [form m]
+  (cond
+    (contains? m form) (get m form)
+    (seq? form)        (map #(wf-subst-syms % m) form)
+    (vector? form)     (mapv #(wf-subst-syms % m) form)
+    :else              form))
+
+(clojure.core/defn- wf-guard-of
+  "Map a surface boolean condition + polarity to a Prop guard usable by omega, or nil if the
+   condition isn't an arithmetic comparison. Assumes Nat operands (WF measures are Nat).
+   (== a b) → (= Nat a b);  (<= a b) → (<= Nat a b);  (< a b) → (< Nat a b);
+   (>= a b) → (<= Nat b a);  (> a b) → (< Nat b a).  Negative polarity wraps in (Not …)."
+  [cond-form pos?]
+  (when (and (seq? cond-form) (= 3 (count cond-form)))
+    (let [[op a b] cond-form
+          prop (case op
+                 == (list '= 'Nat a b)
+                 <= (list '<= 'Nat a b)
+                 <  (list '< 'Nat a b)
+                 >= (list '<= 'Nat b a)
+                 >  (list '< 'Nat b a)
+                 nil)]
+      (when prop (if pos? prop (list 'Not prop))))))
+
+(clojure.core/defn- wf-ctor-pattern
+  "Build the `(T.ctor typeargs… fields…)` discriminant pattern for a match branch guard.
+   discr-type e.g. Nat or (List Nat); ctor-short e.g. succ; fields e.g. [pred]."
+  [discr-type ctor-short fields]
+  (let [[thead & targs] (if (seq? discr-type) discr-type [discr-type])
+        ctor-full (symbol (str thead "." ctor-short))]
+    (if (and (empty? targs) (empty? fields))
+      ctor-full
+      (cons ctor-full (concat targs fields)))))
+
+(clojure.core/defn- collect-rec-calls-with-guards
+  "Walk the surface body, collecting each self-call `(fn-name a0 … a_{n-1})` together with the
+   path-condition guards (if/match) and match-bound field binders in scope at that call — the
+   ansatz analogue of lean4's recursive-call context (Fix.lean). Returns a vector of
+   {:args [arg-forms], :field-binders [[sym type-form] …], :guards [guard-form …]}.
+   Match field types currently default to Nat (Stage-1 WF is over Nat measures)."
+  [body fn-name n]
+  (let [acc (atom [])]
+    (letfn [(walk [form guards binders]
+              (cond
+                (and (seq? form) (= (first form) fn-name) (= n (count (rest form))))
+                (do (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
+                    ;; nested self-calls inside this call's arguments carry their own obligations
+                    (doseq [sub (rest form)] (walk sub guards binders)))
+
+                (and (seq? form) (= 'if (first form)))
+                (let [[_ c t e] form
+                      gt (wf-guard-of c true)
+                      ge (wf-guard-of c false)]
+                  (walk t (if gt (conj guards gt) guards) binders)
+                  (walk e (if ge (conj guards ge) guards) binders))
+
+                (and (seq? form) (= 'match (first form)))
+                (let [[_ discr discr-type _result & branches] form]
+                  (doseq [br branches]
+                    (let [[ctor-short x & more] br
+                          [fields bbody] (if (vector? x) [x (first more)] [[] x])
+                          field-bs (mapv (fn [f] [f 'Nat]) fields)
+                          guard (list '= discr-type discr
+                                      (wf-ctor-pattern discr-type ctor-short fields))]
+                      (walk bbody (conj guards guard) (into binders field-bs)))))
+
+                (and (seq? form) (= 'let (first form)))
+                (let [[_ bnds bbody] form]
+                  (doseq [v (take-nth 2 (rest bnds))] (walk v guards binders))
+                  (walk bbody guards binders))
+
+                (seq? form)
+                (doseq [sub (rest form)] (walk sub guards binders))
+
+                :else nil))]
+      (walk body [] [])
+      @acc)))
+
+(clojure.core/defn- prove-decrease
+  "Discharge one rec-call's decrease obligation:
+     ∀ params field-binders, guards → measure[params := args] < measure[params]
+   via omega (the goal that lean4's decreasing_tactic produces after `clean_wf`). Returns the
+   proved theorem name on success; throws (omega) when the measure does not provably decrease."
+  [pairs measure-form {:keys [args field-binders guards]}]
+  (let [param-syms (mapv first pairs)
+        subst (zipmap param-syms args)
+        measure-at-args (wf-subst-syms measure-form subst)
+        param-bs  (vec (mapcat (fn [[p t _]] [p :- t]) pairs))
+        field-bs  (vec (mapcat (fn [[f t]] [f :- t]) field-binders))
+        guard-bs  (vec (mapcat (fn [g i] [(symbol (str "hg" i)) :- g]) guards (range)))
+        binders   (vec (concat param-bs field-bs guard-bs))
+        goal      (list '< 'Nat measure-at-args measure-form)]
+    (prove-theorem (gensym "decr") binders goal '[(omega)])))
+
+(clojure.core/defn- prove-decrease-lex
+  "Discharge one rec-call's LEXICOGRAPHIC decrease obligation for measure tuple [m1 m2]:
+   m1 strictly decreases, or m1 is non-increasing and m2 strictly decreases — exactly the
+   Prod.Lex.left / Prod.Lex.right' split the lex encoder will emit. Throws when neither holds."
+  [pairs [m1 m2] {:keys [args field-binders guards]}]
+  (let [param-syms (mapv first pairs)
+        subst (zipmap param-syms args)
+        param-bs  (vec (mapcat (fn [[p t _]] [p :- t]) pairs))
+        field-bs  (vec (mapcat (fn [[f t]] [f :- t]) field-binders))
+        guard-bs  (vec (mapcat (fn [g i] [(symbol (str "hg" i)) :- g]) guards (range)))
+        binders   (vec (concat param-bs field-bs guard-bs))
+        try-goal  (fn [goal] (try (prove-theorem (gensym "decr") binders goal '[(omega)]) true
+                                  (catch Throwable _ false)))
+        m1a (wf-subst-syms m1 subst)
+        m2a (wf-subst-syms m2 subst)]
+    (or (try-goal (list '< 'Nat m1a m1))
+        (and (try-goal (list '<= 'Nat m1a m1))
+             (try-goal (list '< 'Nat m2a m2)))
+        (throw (ex-info "lexicographic measure does not decrease" {:call args :measure [m1 m2]})))))
+
+(clojure.core/defn- wf-candidate-measures
+  "GuessLex default measures restricted to a single Nat measure (lexicographic is Stage 3):
+   each Nat parameter, then the sum of all Nat parameters."
+  [pairs]
+  (let [nat-ps (->> pairs (filter (fn [[_ t _]] (= t 'Nat))) (mapv first))]
+    (concat (vec nat-ps)
+            (when (> (count nat-ps) 1) [(cons '+ nat-ps)]))))
+
+(clojure.core/defn- wf-candidate-lex-measures
+  "Lexicographic candidates: ordered pairs of distinct Nat parameters (lean4 GuessLex's
+   lexicographic combinations, restricted to 2-tuples)."
+  [pairs]
+  (let [nat-ps (->> pairs (filter (fn [[_ t _]] (= t 'Nat))) (mapv first))]
+    (vec (for [a nat-ps b nat-ps :when (not= a b)] [a b]))))
+
+(clojure.core/defn- wf-guess-measure
+  "Synthesize a terminating measure for an unannotated recursive function (lean4's GuessLex):
+   the first candidate for which EVERY recursive call provably decreases (via omega) — single
+   Nat measures first, then lexicographic pairs of parameters (e.g. Ackermann's [m n]).
+   Returns the measure form (a vector for lex), or nil. The guess is vetted call-by-call here
+   and then re-verified by the encoder's embedded kernel proofs, so a wrong guess cannot slip
+   through."
+  [pairs body-form fn-name n]
+  (let [calls (collect-rec-calls-with-guards body-form fn-name n)
+        passes? (fn [check m] (try (doseq [c calls] (check pairs m c)) true
+                                   (catch Throwable _ false)))]
+    (when (seq calls)
+      (or (some (fn [m] (when (passes? prove-decrease m) m))
+                (wf-candidate-measures pairs))
+          (some (fn [mv] (when (passes? prove-decrease-lex mv) mv))
+                (wf-candidate-lex-measures pairs))
+          ;; data-typed params: (sizeOf p), unvetted here — the surface gate cannot relate
+          ;; sizeOf-atoms through discriminant equalities; the encoder's embedded kernel
+          ;; proofs accept or reject the guess
+          (when (= 1 (count pairs))
+            (let [[p t _] (first pairs)]
+              (when (and (not= t 'Nat)
+                         (or (and (seq? t) (= 'List (first t)))
+                             (and (symbol? t)
+                                  (env/lookup @ansatz-env (name/mk-str (name/from-string (str t)) "_sizeOf_inst")))))
+                (list 'sizeOf p))))))))
+
+;; ── Stage 1b: lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED termination) ──
+;; Port of lean4 mkFix Nat fast path (Fix.lean) + recursive motive refinement
+;; (replaceRecApps/MatcherApp.addArg): the match discriminant reaches each decrease proof via the
+;; dependent casesOn motive, so the proof is embedded in the term (not a side gate). Single Nat-arg
+;; recursion over match/casesOn bodies; non-applicable shapes (if-guards, multi-arg) throw → caller
+;; falls back to the (sound) fuel encoding. See memory wf-fix-encoding-mechanism.
+(def ^:private wf-fix-counter (atom 9100000))
+(defn- wf-fix-fresh [] (swap! wf-fix-counter inc))
+(def ^:private wf-fix-NAT (e/const' (name/from-string "Nat") []))
+
+(defn- wf-fix-mk-lt [a b]
+  (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero]) wf-fix-NAT
+          (e/const' (name/from-string "instLTNat") []) a b))
+
+;; IHType[xref] = (y:dom) → InvImage.{1,1} dom Nat (·<·) measure y xref → Ret
+;; dom-ty = the fix's recursion domain (Nat, or Prod Nat Nat when multi-arg packed; both Sort 1).
+(defn- wf-fix-ihtype [dom-ty measure-lam ret xref]
+  (let [L1 (lvl/succ lvl/zero)
+        ltfn (e/lam "n1" wf-fix-NAT (e/lam "n2" wf-fix-NAT (wf-fix-mk-lt (e/bvar 1) (e/bvar 0)) :default) :default)]
+    (e/forall' "y" dom-ty
+               (e/forall' "_"
+                          (e/app* (e/const' (name/from-string "InvImage") [L1 L1]) (e/lift dom-ty 1 0) wf-fix-NAT ltfn measure-lam
+                                  (e/bvar 0) (e/lift xref 1 0))
+                          (e/lift ret 2 0) :default) :default)))
+
+;; mkLambdaFVars: fvs=[[id name type] …] outer→inner; binder k's type may reference earlier ids.
+(defn- wf-fix-mk-lambdas [fvs body]
+  (let [ids (mapv first fvs) n (count fvs)]
+    (loop [k (dec n) acc (e/abstract-many body ids)]
+      (if (< k 0) acc
+          (let [[_ nm ty] (nth fvs k)]
+            (recur (dec k) (e/lam nm (e/abstract-many ty (subvec ids 0 k)) acc :default)))))))
+
+;; telescope a Pi type to fvars, WHNF at each step (minor types are beta-redexes `motive (ctor …)`).
+(defn- wf-fix-tele-open [ty reducer]
+  (loop [t (.whnf reducer ty) bs []]
+    (if (e/forall? t)
+      (let [id (wf-fix-fresh)]
+        (recur (.whnf reducer (e/instantiate1 (e/forall-body t) (e/fvar id)))
+               (conj bs [id (e/forall-name t) (e/forall-type t)])))
+      {:binders bs :body t})))
+
+(defn- wf-fix-ty-of [scope id] (some (fn [[i t]] (when (= i id) t)) scope))
+
+;; kernel-native decrease proof: ∀ scope, measure arg < measure P  (P fully pattern-substituted ⇒
+;; closed and true), via omega; returned applied to the scope fvars.
+(declare wf-sizeof-normalize)
+(defn- wf-fix-decr-proof [env reducer scope measure-lam arg P]
+  (let [ids (mapv first scope) tys (mapv second scope)
+        ;; whnfCore the measure application: beta + iota, NO delta (lean4's clean_wf normalizes
+        ;; the goal the same way; omega's reifier atomizes unreduced redexes, while full whnf
+        ;; would delta-unfold Nat.add into recursors omega cannot read). iota is needed for the
+        ;; packed multi-arg measure `Prod.rec … (Prod.mk a b)`. The proof still matches the call
+        ;; site's `InvImage … arg P` obligation by defeq.
+        m-of (fn [t] (wf-sizeof-normalize env (.whnfCore reducer (e/app measure-lam t))))
+        prop (wf-fix-mk-lt (m-of arg) (m-of P))
+        ;; mkForallFVars: binder i's type may reference earlier scope fvars (e.g. a dite guard
+        ;; `h : ¬(x = 0)` mentions x) — abstract each type over ids[0..i), like wf-fix-mk-lambdas.
+        gt (loop [i (dec (count ids)) body (e/abstract-many prop ids)]
+             (if (< i 0) body
+                 (recur (dec i) (e/forall' "s" (e/abstract-many (nth tys i) (subvec ids 0 i)) body :default))))
+        [ps _] (proof/start-proof env gt)
+        ps (basic/intros ps (mapv #(str "s" %) (range (count ids))))
+        ps (reduce run-tactic ps '[(omega)])]
+    (when-not (proof/solved? ps)
+      (throw (ex-info "wf-fix: decrease not provable" {:goal (e/->string gt)})))
+    (extract/verify ps)
+    (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
+
+;; The Prod.Lex layer (Prod.Lex, Prod.lex, lexAccessible, Lex.right') panics through the standard
+;; init export path only because of unrelated wfParam machinery — exported standalone it is clean,
+;; bundled as resources/ansatz/lex-prelude.ndjson.gz. Loaded lazily (idempotent) when a
+;; lexicographic :termination-by is first used: each missing declaration is kernel-VERIFIED on
+;; admission (verify? true); declarations already in the env are skipped (the export carries its
+;; full dependency closure).
+(clojure.core/defn- wf-fix-ensure-prelude!
+  "Ensure a bundled prelude export is loaded into the global env (idempotent via sentinel)."
+  [sentinel resource label]
+  (when-not (env/lookup @ansatz-env (name/from-string sentinel))
+    (let [res (clojure.java.io/resource resource)
+          _ (when-not res (throw (ex-info (str label " prelude not on classpath (" resource ")") {})))
+          ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))] (slurp in))
+          decls (:decls (parser/parse-ndjson-string ndjson))
+          env'
+          (loop [ds (seq decls) env @ansatz-env]
+            (if-let [ci (first ds)]
+              (cond
+                (env/lookup env (.name ^ansatz.kernel.ConstantInfo ci))
+                (recur (next ds) env)
+                (.isInduct ^ansatz.kernel.ConstantInfo ci)
+                (let [{:keys [members rest]} (replay/collect-inductive-bundle ds)
+                      [env2 rs] (replay/replay-inductive-bundle env members)]
+                  (when-let [err (first (filter #(= :error (:status %)) rs))]
+                    (throw (ex-info (str "lex prelude replay failed: " (:name err) " — " (:error err)) {})))
+                  (recur rest env2))
+                :else
+                (let [[env2 r] (replay/replay-one env ci true)]
+                  (when (= :error (:status r))
+                    (throw (ex-info (str "lex prelude replay failed: " (:name r) " — " (:error r)) {})))
+                  (recur (next ds) env2)))
+              env))]
+      (reset! ansatz-env env')
+      (when *verbose* (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))
+
+(clojure.core/defn wf-fix-ensure-lex-prelude!
+  "Ensure the Prod.Lex prelude is loaded (idempotent)."
+  []
+  (wf-fix-ensure-prelude! "Prod.Lex.right'" "ansatz/lex-prelude.ndjson.gz" "Prod.Lex"))
+
+(clojure.core/defn wf-fix-ensure-sizeof-prelude!
+  "Ensure the SizeOf prelude is loaded (idempotent): the SizeOf class, instSizeOfNat,
+   List._sizeOf_inst and the per-constructor sizeOf_spec equations (exports cleanly standalone,
+   like the lex prelude; absent from init-medium only due to unrelated export-path machinery)."
+  []
+  (wf-fix-ensure-prelude! "List._sizeOf_inst" "ansatz/sizeof-prelude.ndjson.gz" "SizeOf"))
+
+;; ── N-ary packing + N-tuple lex helpers (lean4 mkProdElem right-association, GuessLex.lean:754) ──
+
+;; right-nested Prod type over k Nat components: Nat × (Nat × (… × Nat)); k=1 → Nat
+(defn- wf-fix-pack-ty [k]
+  (loop [i 1 ty wf-fix-NAT]
+    (if (>= i k) ty
+        (recur (inc i) (e/app* (e/const' (name/from-string "Prod") [lvl/zero lvl/zero]) wf-fix-NAT ty)))))
+
+;; right-nested Prod.mk over Nat-valued components: (v1, (v2, (…, vk)))
+(defn- wf-fix-pack-vals [vals]
+  (let [k (count vals)]
+    (loop [i (- k 2) acc (peek (vec vals))]
+      (if (neg? i) acc
+          (recur (dec i)
+                 (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
+                         wf-fix-NAT (wf-fix-pack-ty (- k i 1)) (nth vals i) acc))))))
+
+;; nested Prod.rec wrapper: takes body-n with the n params at bvars n-1..0 and returns a term
+;; with ONE loose bvar 0 (the packed param) that destructures it back into the n binders.
+;; cod = the motive codomain (closed), cod-lvl its sort level. n=1 → body-n unchanged.
+;; Built with fvars + wf-fix-mk-lambdas so de Bruijn bookkeeping is automatic; the nested
+;; wrappers are ordinary refinable recursors for the refinement machinery.
+(defn- wf-fix-wrap-n [n body-n cod cod-lvl]
+  (if (= n 1)
+    body-n
+    (let [L0 lvl/zero
+          xids (vec (repeatedly n wf-fix-fresh))
+          body-f (reduce (fn [b xid] (e/instantiate1 b (e/fvar xid))) body-n (rseq xids))
+          build (fn build [p-expr xs]
+                  (if (= 2 (count xs))
+                    (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) wf-fix-NAT wf-fix-NAT
+                            (e/lam "_p" (wf-fix-pack-ty 2) (e/lift cod 1 0) :default)
+                            (wf-fix-mk-lambdas [[(first xs) "a" wf-fix-NAT] [(second xs) "b" wf-fix-NAT]] body-f)
+                            p-expr)
+                    (let [rest-ty (wf-fix-pack-ty (dec (count xs)))
+                          pid (wf-fix-fresh)]
+                      (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) wf-fix-NAT rest-ty
+                              (e/lam "_p" (wf-fix-pack-ty (count xs)) (e/lift cod 1 0) :default)
+                              (wf-fix-mk-lambdas [[(first xs) "a" wf-fix-NAT] [pid "_rest" rest-ty]]
+                                                 (build (e/fvar pid) (rest xs)))
+                              p-expr))))]
+      (build (e/bvar 0) xids))))
+
+;; the lexicographic relation over a right-nested k-tuple: Nat.lt for k=1, else
+;; Prod.Lex Nat.lt (rel for k-1)
+(defn- wf-fix-lex-rel [k]
+  (if (= k 1)
+    (e/const' (name/from-string "Nat.lt") [])
+    (e/app* (e/const' (name/from-string "Prod.Lex") [lvl/zero lvl/zero])
+            wf-fix-NAT (wf-fix-pack-ty (dec k))
+            (e/const' (name/from-string "Nat.lt") []) (wf-fix-lex-rel (dec k)))))
+
+;; the WellFoundedRelation instance for the k-tuple: Nat.lt_wfRel for k=1, else
+;; Prod.lex Nat.lt_wfRel (instance for k-1)
+(defn- wf-fix-lex-wfrel [k]
+  (if (= k 1)
+    (e/const' (name/from-string "Nat.lt_wfRel") [])
+    (e/app* (e/const' (name/from-string "Prod.lex") [lvl/zero lvl/zero])
+            wf-fix-NAT (wf-fix-pack-ty (dec k))
+            (e/const' (name/from-string "Nat.lt_wfRel") []) (wf-fix-lex-wfrel (dec k)))))
+
+;; one omega-proved arithmetic fact, ∀-closed over scope and applied back to the scope fvars
+(defn- wf-fix-omega-fact [env scope prop]
+  (let [ids (mapv first scope) tys (mapv second scope)
+        gt (loop [i (dec (count ids)) body (e/abstract-many prop ids)]
+             (if (< i 0) body
+                 (recur (dec i) (e/forall' "s" (e/abstract-many (nth tys i) (subvec ids 0 i)) body :default))))
+        [ps _] (proof/start-proof env gt)
+        ps (basic/intros ps (mapv #(str "s" %) (range (count ids))))
+        ps (run-tactic ps '(omega))]
+    (when-not (proof/solved? ps)
+      (throw (ex-info "wf-fix: omega fact not provable" {:goal (e/->string gt)})))
+    (extract/verify ps)
+    (apply e/app* (extract/extract ps) (mapv e/fvar ids))))
+
+;; ── sizeOf-based termination over data structures (lean4's default WF measure) ──
+;; The default measure for a data-typed parameter is `sizeOf p`, reducing data-structure
+;; termination to the existing Nat machinery. Decrease goals contain sizeOf-of-constructor
+;; terms that neither whnfCore (no delta) nor whnf (brecOn soup) normalize usefully; we rewrite
+;; them via the auto-generated `<ctor>.sizeOf_spec` equations (e.g. sizeOf (cons h t) =
+;; 1 + sizeOf h + sizeOf t) so omega sees linear arithmetic over sizeOf-atoms. The omega proof
+;; is then DEFEQ to the raw obligation (spec equations hold by iota/beta — validated by
+;; check-constant on the bridge), so no Eq transport is needed.
+
+;; synthesize a SizeOf instance for supported types (Nat, List of sized)
+(declare wf-fix-tele-open-plain)
+(def ^:private wf-sizeof-inst
+  "SizeOf instance synthesis — canonical implementation lives with the elaborator (P2)."
+  elab/sizeof-inst)
+
+(clojure.core/defn wf-derive-sizeof!
+  "Derive the SizeOf machinery for a non-parameterized, non-indexed, Type-valued inductive
+   (lean4 auto-derives this for every inductive): `<T>._sizeOf_1` (recursor-based size),
+   `<T>._sizeOf_inst : SizeOf T`, and per-constructor `<ctor>.sizeOf_spec` rfl equations —
+   the names the sizeOf measure machinery (wf-sizeof-inst / wf-sizeof-normalize) looks up.
+   Field contributions: a recursive field uses the recursor's IH; a Nat field is its own
+   size; other sized fields contribute SizeOf.sizeOf; unsized fields contribute nothing.
+   Best-effort: silently a no-op for unsupported shapes."
+  [ind-name-str]
+  (try
+    (let [ind-name (name/from-string ind-name-str)
+          env0 @ansatz-env
+          ind-ci (env/lookup env0 ind-name)]
+      (when (and ind-ci (.isInduct ind-ci)
+                 (zero? (.numParams ind-ci))
+                 (let [t (.type ind-ci)]
+                   (and (e/sort? t) (= (e/sort-level t) (lvl/succ lvl/zero))))
+                 (not (env/lookup env0 (name/mk-str ind-name "_sizeOf_inst"))))
+        (wf-fix-ensure-sizeof-prelude!)
+        (let [env @ansatz-env
+              L1 (lvl/succ lvl/zero)
+              T (e/const' ind-name [])
+              nat-c wf-fix-NAT
+              ctor-names (vec (.ctors (env/lookup env ind-name)))
+              rec? (fn [ty] (let [[h2 _] (e/get-app-fn-args ty)]
+                              (and (e/const? h2) (= (e/const-name h2) ind-name))))
+              nadd (fn [a b] (e/app* (e/const' (name/from-string "Nat.add") []) a b))
+              ;; minor for one ctor: λ fields… ihs… => 1 + Σ contributions
+              minor-of
+              (fn [cn]
+                (let [{bs :binders} (wf-fix-tele-open-plain (.type (env/lookup env cn)))
+                      ftys (mapv second bs)
+                      fids (mapv first bs)
+                      rec-idx (vec (keep-indexed (fn [i ty] (when (rec? ty) i)) ftys))
+                      ih-ids (mapv (fn [_] (wf-fix-fresh)) rec-idx)
+                      contrib (fn [i]
+                                (cond
+                                  (rec? (nth ftys i))
+                                  (e/fvar (nth ih-ids (.indexOf rec-idx i)))
+                                  (let [[h2 a2] (e/get-app-fn-args (nth ftys i))]
+                                    (and (e/const? h2) (empty? a2)
+                                         (= "Nat" (name/->string (e/const-name h2)))))
+                                  (e/fvar (nth fids i))
+                                  :else
+                                  (when-let [inst (wf-sizeof-inst env (nth ftys i))]
+                                    (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1])
+                                            (nth ftys i) inst (e/fvar (nth fids i))))))
+                      body (reduce nadd (e/lit-nat 1)
+                                   (keep contrib (range (count ftys))))
+                      tele (into (mapv (fn [[id ty]] [id "f" ty]) bs)
+                                 (mapv (fn [iid] [iid "ih" nat-c]) ih-ids))]
+                  (wf-fix-mk-lambdas tele body)))
+              motive (e/lam "_t" T nat-c :default)
+              sz1-val (apply e/app* (e/const' (name/mk-str ind-name "rec") [L1])
+                             (into [motive] (mapv minor-of ctor-names)))
+              sz1-name (name/mk-str ind-name "_sizeOf_1")
+              sz1-ty (e/forall' "t" T nat-c :default)
+              _ (swap! ansatz-env env/check-constant (env/mk-def sz1-name [] sz1-ty sz1-val))
+              inst-name (name/mk-str ind-name "_sizeOf_inst")
+              inst-ty (e/app (e/const' (name/from-string "SizeOf") [L1]) T)
+              inst-val (e/app* (e/const' (name/from-string "SizeOf.mk") [L1]) T
+                               (e/const' sz1-name []))
+              _ (swap! ansatz-env env/check-constant (env/mk-def inst-name [] inst-ty inst-val))
+              inst-c (e/const' inst-name [])
+              szof (fn [x] (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1]) T inst-c x))]
+          ;; per-constructor rfl spec equations: sizeOf (ctor f…) = 1 + Σ contributions,
+          ;; with recursive contributions spelled sizeOf (so the normalizer recurses)
+          (doseq [cn ctor-names]
+            (let [{bs :binders} (wf-fix-tele-open-plain (.type (env/lookup @ansatz-env cn)))
+                  ftys (mapv second bs)
+                  fids (mapv first bs)
+                  contrib (fn [i]
+                            (cond
+                              (rec? (nth ftys i)) (szof (e/fvar (nth fids i)))
+                              (let [[h2 a2] (e/get-app-fn-args (nth ftys i))]
+                                (and (e/const? h2) (empty? a2)
+                                     (= "Nat" (name/->string (e/const-name h2)))))
+                              (e/fvar (nth fids i))
+                              :else
+                              (when-let [inst (wf-sizeof-inst @ansatz-env (nth ftys i))]
+                                (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [L1])
+                                        (nth ftys i) inst (e/fvar (nth fids i))))))
+                  rhs (reduce nadd (e/lit-nat 1) (keep contrib (range (count ftys))))
+                  lhs (szof (apply e/app* (e/const' cn []) (mapv e/fvar fids)))
+                  eq-core (e/app* (e/const' (name/from-string "Eq") [L1]) nat-c lhs rhs)
+                  pf-core (e/app* (e/const' (name/from-string "Eq.refl") [L1]) nat-c lhs)
+                  ids fids
+                  wrap (fn [mk core]
+                         (loop [k (dec (count bs)) acc (e/abstract-many core ids)]
+                           (if (< k 0) acc
+                               (recur (dec k) (mk (e/abstract-many (second (nth bs k)) (subvec ids 0 k)) acc)))))
+                  eq-ty (wrap (fn [ty b] (e/forall' "f" ty b :default)) eq-core)
+                  pf (wrap (fn [ty b] (e/lam "f" ty b :default)) pf-core)]
+              (swap! ansatz-env env/check-constant
+                     (env/mk-thm (name/mk-str cn "sizeOf_spec") [] eq-ty pf))))
+          (when *verbose*
+            (println (str "  ✓ " ind-name-str " SizeOf derived (instance + "
+                          (count ctor-names) " spec equations)"))))))
+    (catch Throwable t
+      (when *verbose*
+        (println (str "  sizeOf derivation skipped for " ind-name-str ": " (.getMessage t)))))))
+
+;; plain (non-reducing) telescope opener — spec lemma types are syntactic foralls
+(defn- wf-fix-tele-open-plain [ty]
+  (loop [t ty bs []]
+    (if (e/forall? t)
+      (let [id (wf-fix-fresh)]
+        (recur (e/instantiate1 (e/forall-body t) (e/fvar id)) (conj bs [id (e/forall-type t)])))
+      {:binders bs :body t})))
+
+;; first-order match of a pattern (holes = fvar ids) against a term; Expr equality is structural
+(defn- wf-fo-match [pat term holes subst]
+  (cond
+    (and (e/fvar? pat) (contains? holes (e/fvar-id pat)))
+    (let [id (e/fvar-id pat)]
+      (if-let [prev (get subst id)]
+        (when (= prev term) subst)
+        (assoc subst id term)))
+    (e/app? pat) (when (e/app? term)
+                   (when-let [s (wf-fo-match (e/app-fn pat) (e/app-fn term) holes subst)]
+                     (wf-fo-match (e/app-arg pat) (e/app-arg term) holes s)))
+    :else (when (= pat term) subst)))
+
+;; rewrite sizeOf-of-constructor subterms via the constructors' sizeOf_spec equations, and
+;; collapse sizeOf over instSizeOfNat to its argument (defeq). Fixpoint over nesting.
+(defn- wf-sizeof-normalize [env t]
+  (letfn [(norm [t]
+            (let [[h as] (e/get-app-fn-args t)]
+              (or
+               (when (and (e/const? h) (= "SizeOf.sizeOf" (name/->string (e/const-name h)))
+                          (= 3 (count as)))
+                 (let [[_T inst X] as
+                       [xh _] (e/get-app-fn-args X)]
+                   (cond
+                     ;; sizeOf over the Nat instance is the identity (defeq)
+                     (and (e/const? inst) (= "instSizeOfNat" (name/->string (e/const-name inst))))
+                     (norm X)
+                     ;; constructor-applied scrutinee: rewrite via <ctor>.sizeOf_spec
+                     (e/const? xh)
+                     (when-let [spec (env/lookup env (name/mk-str (e/const-name xh) "sizeOf_spec"))]
+                       ;; instantiate the spec's universe params at level 0 (our data preludes are
+                       ;; monomorphic at Sort 1) so first-order matching sees concrete levels
+                       (let [lp (vec (.levelParams spec))
+                             spec-ty (e/instantiate-level-params (.type spec)
+                                                                 (zipmap lp (repeat lvl/zero)))
+                             {bs :binders body :body} (wf-fix-tele-open-plain spec-ty)
+                             holes (set (map first bs))
+                             [eqh eqargs] (e/get-app-fn-args body)]
+                         (when (and (e/const? eqh) (= "Eq" (name/->string (e/const-name eqh)))
+                                    (= 3 (count eqargs)))
+                           (when-let [subst (wf-fo-match (nth eqargs 1) t holes {})]
+                             (when (= (count subst) (count bs))
+                               (norm (reduce (fn [r [id v]] (e/instantiate1 (e/abstract1 r id) v))
+                                             (nth eqargs 2) subst)))))))
+                     :else nil)))
+               ;; OfNat.ofNat Nat n inst → the literal (defeq) — the spec RHS spells its
+               ;; constants this way and omega must see them as numerals, not atoms
+               (when (and (e/const? h) (= "OfNat.ofNat" (name/->string (e/const-name h)))
+                          (= 3 (count as))
+                          (e/lit-nat? (nth as 1))
+                          (let [[th _] (e/get-app-fn-args (nth as 0))]
+                            (and (e/const? th) (= "Nat" (name/->string (e/const-name th))))))
+                 (nth as 1))
+               ;; default: rebuild with normalized subterms
+               (cond
+                 (seq as) (apply e/app* (norm h) (mapv norm as))
+                 (e/lam? t) (e/lam (e/lam-name t) (norm (e/lam-type t)) (norm (e/lam-body t)) (e/lam-info t))
+                 :else t))))]
+    (norm t)))
+
+;; lexicographic decrease proof (lean4 decreasing_tactic peel, WFTactics.lean:59), constructed
+;; DIRECTLY and RECURSIVELY over the right-nested k-tuple: `Prod.Lex.left` when the head measure
+;; strictly drops, else `Prod.Lex.right'` (the <=-variant of Lex.right, WF.lean:324 — subsumes the
+;; equal-first-component case) wrapping the proof for the tail tuple. The omega base facts are
+;; stated in the LT.lt/LE.le instance spelling (what omega certifies); the constructors expect
+;; Nat.lt — defeq (instLTNat unfolds to Nat.lt), check-constant arbitrates.
+(defn- wf-fix-decr-proof-lexn [env reducer scope k tup-lam arg P]
+  (let [t-of (fn [t] (wf-sizeof-normalize env (.whnfCore reducer (e/app tup-lam t))))
+        nat-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) wf-fix-NAT
+                                 (e/const' (name/from-string "instLENat") []) a b))
+        unmk (fn [t] (let [[h as] (e/get-app-fn-args t)]
+                       (when (and (e/const? h) (= "Prod.mk" (name/->string (e/const-name h)))
+                                  (= 4 (count as)))
+                         [(nth as 2) (nth as 3)])))
+        dec-lex (fn dec-lex [j A Pt]
+                  (if (= j 1)
+                    ;; base: a single Nat measure — strict decrease via omega
+                    (wf-fix-omega-fact env scope (wf-fix-mk-lt A Pt))
+                    (let [[A1 Arest] (or (unmk A) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))
+                          [P1 Prest] (or (unmk Pt) (throw (ex-info "wf-fix: lex measure tuple did not reduce" {})))
+                          rest-ty (wf-fix-pack-ty (dec j))
+                          rest-rel (wf-fix-lex-rel (dec j))]
+                      (try
+                        ;; head component strictly decreases
+                        (let [h (wf-fix-omega-fact env scope (wf-fix-mk-lt A1 P1))]
+                          (e/app* (e/const' (name/from-string "Prod.Lex.left") [lvl/zero lvl/zero])
+                                  wf-fix-NAT rest-ty (e/const' (name/from-string "Nat.lt") []) rest-rel
+                                  A1 Arest P1 Prest h))
+                        (catch Exception _
+                          ;; head non-increasing, tail decreases lexicographically
+                          (let [h1 (wf-fix-omega-fact env scope (nat-le A1 P1))
+                                h2 (dec-lex (dec j) Arest Prest)]
+                            (e/app* (e/const' (name/from-string "Prod.Lex.right'") [lvl/zero])
+                                    rest-ty rest-rel P1 Prest A1 Arest h1 h2)))))))]
+    (dec-lex k (t-of arg) (t-of P))))
+
+;; is this app a recursor whose major is a free fvar occurring in P? → refinable.
+(defn- wf-fix-refinable? [env h as P]
+  (and (e/const? h)
+       (.endsWith (name/->string (e/const-name h)) ".rec")
+       (env/lookup env (e/const-name h))
+       (let [rci (env/lookup env (e/const-name h))]
+         (and (= (count as) (+ (.numParams rci) 1 (.numMinors rci) (.numIndices rci) 1))
+              (e/fvar? (last as))
+              (let [vid (e/fvar-id (last as))
+                    fvids (atom #{})]
+                ((fn go [x] (cond (e/fvar? x) (swap! fvids conj (e/fvar-id x))
+                                  (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
+                                  (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
+                                  (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x)))
+                                  :else nil)) P)
+                (contains? @fvids vid))))))
+
+(declare wf-fix-refine)
+
+;; refine recursor (R.rec params motive minors… major) to thread ih-fvar, exposing each branch's
+;; pattern via the dependent motive. Returns the refined recursor APPLIED to ih-fvar.
+(defn- wf-fix-refine-rec [env callspec ret reducer rec-head call-args ih-fvar P scope]
+  (let [rec-name (e/const-name rec-head)
+        rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
+        params (vec (take np call-args))
+        major (last call-args) v-id (e/fvar-id major)
+        T (wf-fix-ty-of scope v-id)
+        tc (ansatz.kernel.TypeChecker. env) _ (.setFuel tc (long config/*default-fuel*))
+        ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
+        ctor-names (vec (.ctors (env/lookup env ind-name)))
+        P-abs (e/abstract-many P [v-id])
+        inner-motive (e/lam "v" T (e/forall' "_" ((:ihtype callspec) P-abs) (e/lift ret 1 0) :default) :default)
+        rec-applied (apply e/app* (e/const' rec-name (vec (e/const-levels rec-head))) (conj params inner-motive))
+        tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
+        minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))
+        process (fn [mi]
+                  (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
+                        bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer)) bid (mapv first bs)
+                        field-ids (vec (take nf bid))
+                        field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
+                        fs-id (last bid)
+                        ctor-pat (apply e/app* (e/const' ctor-name (vec (rest (e/const-levels rec-head))))
+                                        (into params (mapv e/fvar field-ids)))
+                        Pc (e/instantiate1 (e/abstract-many P [v-id]) ctor-pat)
+                        scope2 (into scope (mapv vector field-ids field-tys))
+                        orig (nth call-args (+ np 1 mi)) nopen (dec (count bs))
+                        obody (loop [b orig i 0] (if (and (< i nopen) (e/lam? b))
+                                                   (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))
+                        refined (wf-fix-refine env callspec ret reducer obody (e/fvar fs-id) Pc scope2)]
+                    (wf-fix-mk-lambdas bs refined)))
+        minors' (mapv process (range nminors))
+        refined-rec (apply e/app* (e/const' rec-name (vec (e/const-levels rec-head))) (-> (into params [inner-motive]) (into minors') (conj major)))]
+    (e/app refined-rec ih-fvar)))
+
+;; descend a branch body: rewrite self-calls to (ih arg proof), refine nested recursors, open lambdas.
+;; (The Bool.rec→dite WF conversion that lived here is gone: surface `if` over comparisons
+;; now emits dite directly — P5b of the elaborator unification — so branch lambdas carry the
+;; guard and the generic descent below collects it into the decrease-proof scope.)
+
+(defn- wf-fix-refine [env callspec ret reducer body ih-fvar P scope]
+  (let [[h as] (e/get-app-fn-args body)]
+    (cond
+      (and (e/const? h) (= (e/const-name h) (:cname callspec)) (= (:arity callspec) (count as)))
+      (let [args' (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as)
+            arg ((:pack callspec) args')]
+        (e/app* ih-fvar arg ((:decr callspec) env reducer scope arg P)))
+      (wf-fix-refinable? env h as P)
+      (wf-fix-refine-rec env callspec ret reducer h as ih-fvar P scope)
+      (seq as)
+      (apply e/app* (wf-fix-refine env callspec ret reducer h ih-fvar P scope)
+             (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as))
+      (e/lam? body)
+      (let [id (wf-fix-fresh) bt (e/lam-type body)
+            inner (wf-fix-refine env callspec ret reducer
+                                 (e/instantiate1 (e/lam-body body) (e/fvar id)) ih-fvar P (conj scope [id bt]))]
+        (e/lam (e/lam-name body) bt (e/abstract-many inner [id]) (e/lam-info body)))
+      :else body)))
+
+;; ── Stage 1b-D: defining equations for wf-fix functions (lean4 WF/Unfold.lean rwFixEq) ──
+;; A wf-fix definition does NOT unfold definitionally on a symbolic argument (WellFounded.fix is
+;; stuck on the Acc proof), so simp needs explicit equations. Per lean4: one WellFounded.Nat.fix_eq
+;; instance proves `f x = Ffn x (fun y _ => f y)`; we state per-LEAF equations (fully-composed
+;; constructor patterns, e.g. `f (succ (succ k)) = succ (f k)`) so every discriminant in the
+;; refined casesOn is constructor-headed and the stated RHS is defeq to fix_eq's RHS by iota/beta
+;; alone (the decrease proofs are beta-dropped by `fun y _ => f y`). The bare fix_eq instance IS
+;; the proof; check-constant carries the defeq burden. Leaf splitting is REQUIRED, not cosmetic:
+;; a still-symbolic nested match is stuck with a refined motive on one side and the original on
+;; the other — not defeq (this is why lean4 has eq_N splitting / the matcher arg_pusher).
+
+;; rhs builder for the per-leaf equations: the original body already carries the surface
+;; spelling (dite for comparison ifs since P5b), so this is a plain pass-through; kept as a
+;; function for future spelling normalizations.
+(defn- wf-fix-eq-rhs [_env body] body)
+
+;; leaf enumerator: split each case-split-on-a-pattern-var per constructor, composing the
+;; pattern; stop at dites/leaves. fields = the ∀-binders of the equation ([[id type] …]);
+;; a split consumes the matched var and appends the constructor's fields.
+(defn- wf-fix-eq-leaves [env tc reducer body pattern fields]
+  (let [[h as] (e/get-app-fn-args body)]
+    (if (wf-fix-refinable? env h as pattern)
+      (let [rec-name (e/const-name h)
+            rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
+            params (vec (take np as))
+            major (last as) v-id (e/fvar-id major)
+            ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
+            ctor-names (vec (.ctors (env/lookup env ind-name)))
+            rec-applied (apply e/app* (e/const' rec-name (vec (e/const-levels h))) (conj params (nth as np)))
+            tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
+            minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))]
+        (vec (mapcat
+              (fn [mi]
+                (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
+                      bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer)) bid (mapv first bs)
+                      field-ids (vec (take nf bid))
+                      field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
+                      ctor-pat (apply e/app* (e/const' ctor-name (vec (rest (e/const-levels h))))
+                                      (into params (mapv e/fvar field-ids)))
+                      pattern' (e/instantiate1 (e/abstract-many pattern [v-id]) ctor-pat)
+                      fields' (into (vec (remove (fn [[id _]] (= id v-id)) fields))
+                                    (mapv vector field-ids field-tys))
+                      ;; open the ORIGINAL minor: nf fields + structural-ih binders (unused in
+                      ;; WF bodies — recursive calls reference the function constant)
+                      orig (nth as (+ np 1 mi))
+                      obody (loop [b orig i 0] (if (and (< i (count bs)) (e/lam? b))
+                                                 (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))]
+                  (wf-fix-eq-leaves env tc reducer obody pattern' fields')))
+              (range nminors))))
+      [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}])))
+
+;; Build the (unapplied) fix term: param-type → ret. raw-body = the compiled body with the
+;; (possibly packed) recursion param at bvar 0 (any shape: match/casesOn, if/Bool.rec, or mixed —
+;; the general refine dispatcher routes each; for multi-arg the caller wraps the body in Prod.rec
+;; and the callspec packs recursive-call args). The callspec carries the relation specifics:
+;;   :ihtype  (fn [xref] IHType[xref])  — the IH function type over the recursion domain
+;;   :decr    (fn [env reducer scope arg P] proof) — one decrease proof
+;;   :fix     (fn [ret-level Ffn] fix-term) — wraps the refined functional in the fix combinator
+;;            (WellFounded.Nat.fix for a single Nat measure, WellFounded.fix for lexicographic)
+;; Throws if a decrease obligation is unprovable.
+(defn- wf-fix-encode [env callspec raw-body ret param-type]
+  (let [tc (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
+        reducer (.getReducer tc)
+        ret-sort (.inferType tc ret)
+        ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
+        Xid (wf-fix-fresh) Fvid (wf-fix-fresh) X (e/fvar Xid)
+        Fty ((:ihtype callspec) X) Fv (e/fvar Fvid)
+        rawX (e/instantiate1 raw-body X)
+        body' (wf-fix-refine env callspec ret reducer rawX Fv X [[Xid param-type]])
+        Ffn (wf-fix-mk-lambdas [[Xid "x" param-type] [Fvid "F" Fty]] body')]
+    ((:fix callspec) ret-level Ffn)))
+
+(declare build-telescope-fvar)
+
+(clojure.core/defn- elab-signature
+  "fvar-first elaboration of an a/defn signature (P1 of the elaborator unification): each
+   parameter type elaborates via surface/elaborate with the EARLIER params in scope as fvars
+   (supporting dependent telescopes), the return type with all params in scope; the ∀-telescope
+   is rebuilt by abstraction (mkForallFVars). Returns {:param-types [closed Expr …]
+   :ret-ansatz Expr :type-ansatz Expr}. param-types/ret are fvar-free for the non-dependent
+   signatures the embedding produces (same contract the bvar path had)."
+  [env pairs ret-type-form]
+  (let [n (count pairs)
+        ids (vec (repeatedly n wf-fix-fresh))
+        [lctx ptys]
+        (loop [i 0 lctx {} acc []]
+          (if (= i n) [lctx acc]
+              (let [[pn pt _] (nth pairs i)
+                    ty (elab/elaborate-in-context env lctx pt)
+                    lctx' (assoc lctx (nth ids i) {:name (str pn) :type ty :tag :local})]
+                (recur (inc i) lctx' (conj acc ty)))))
+        ret (elab/elaborate-in-context env lctx ret-type-form)
+        type-ansatz (loop [i (dec n) body (e/abstract-many ret ids)]
+                      (if (< i 0) body
+                          (let [[pn _ binfo] (nth pairs i)]
+                            (recur (dec i)
+                                   (e/forall' (str pn)
+                                              (e/abstract-many (nth ptys i) (subvec ids 0 i))
+                                              body (or binfo :default))))))]
+    {:param-types ptys :ret-ansatz ret :type-ansatz type-ansatz}))
+
 (clojure.core/defn define-verified-wf
   "Define a verified function with well-founded recursion.
    Uses WellFounded.Nat.fix from the environment.
@@ -1806,29 +1962,39 @@
         pairs (parse-params params)
         n (count pairs)
 
-        ;; Build the function type: ∀ params → ret-type (same as define-verified)
-        scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
-        type-ansatz (loop [i (dec n) body ret-ansatz]
-                      (if (< i 0) body
-                          (let [[pn pt binfo] (nth pairs i)
-                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
-                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
+        ;; Guard-aware termination check (lean4's decreasing goals; replaces fuel-trust): every
+        ;; recursive call must provably decrease the measure under its path-condition guards.
+        ;; The fuel encoding below is total either way; this gate is what makes :termination-by an
+        ;; honest proof — a non-terminating definition (measure that doesn't decrease) is rejected.
+        ;; A lexicographic (vector) measure skips this scalar gate: its only encoding is the
+        ;; WellFounded.fix term below, whose embedded Prod.Lex proofs ARE the termination check.
+        _ (when-not (or (vector? measure-form)
+                        ((fn has-sz? [f] (cond (and (seq? f) (= 'sizeOf (first f))) true
+                                               (or (seq? f) (vector? f)) (boolean (some has-sz? f))
+                                               :else false))
+                         measure-form))
+            (doseq [c (collect-rec-calls-with-guards body-form fn-name n)]
+              (try (prove-decrease pairs measure-form c)
+                   (catch Throwable e
+                     (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"
+                                          measure-form "` is not provably decreasing on the recursive "
+                                          "call with args " (:args c)
+                                          (when (seq (:guards c)) (str " under guards " (:guards c)))
+                                          ". Adjust :termination-by, or use ^:partial.")
+                                     {:fn fn-name :kind :termination-decrease-failed :call c}))))))
 
-        ;; Compile param types
-        param-types (mapv (fn [[_ pt-form]]
-                            (sexp->ansatz env {} 0 pt-form))
-                          pairs)
+        ;; Build the function type: ∀ params → ret-type (fvar-first, elab-signature)
+        {:keys [param-types ret-ansatz type-ansatz]} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
 
         ;; Fork env and add temporary axiom for self-reference
         tmp-ci (env/mk-axiom cname [] type-ansatz)
         tmp-env (env/add-constant (env/fork env) tmp-ci)
 
-        ;; Compile body on forked env — self-calls resolve to the axiom const
+        ;; Compile body fvar-first (consistent with define-verified) on the forked env —
+        ;; self-calls resolve to the axiom const; replace-rec-calls rewrites them to the IH below.
         body-ansatz (binding [surface-match/*use-cases-on?* true]
-                      (build-telescope tmp-env {} 0 pairs body-form e/lam))
+                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))
 
         ;; Peel all outer lambdas to get the raw body
         raw-body (loop [e body-ansatz i 0]
@@ -1836,12 +2002,27 @@
                      (recur (e/lam-body e) (inc i))
                      e))
 
-        ;; Compile measure expression — uses all params in scope
-        ;; Bind *scope-types* so auto-elaborate can infer implicit args from param types
+        ;; Compile measure expression(s) FVAR-FIRST (P2 of the elaborator unification): params
+        ;; in scope as typed fvars, abstracted back to the bvar layout the encoders expect
+        ;; (params at bvars n-1..0). A vector measure form is a LEXICOGRAPHIC tuple; the scalar
+        ;; measure-ansatz is then only fuel-path scaffolding (unused — lex never takes fuel).
+        ;; A sizeOf-mentioning measure needs the SizeOf prelude loaded BEFORE elaboration.
         nat (e/const' (name/from-string "Nat") [])
-        scope-types-map (into {} (map (fn [[p _ _] pt] [p pt]) pairs param-types))
-        measure-ansatz (binding [*scope-types* scope-types-map]
-                         (sexp->ansatz env scope-full n measure-form))
+        has-sizeof? ((fn has-sz? [f] (cond (and (seq? f) (= 'sizeOf (first f))) true
+                                           (or (seq? f) (vector? f)) (boolean (some has-sz? f))
+                                           :else false))
+                     measure-form)
+        _ (when has-sizeof? (wf-fix-ensure-sizeof-prelude!))
+        measure-env (if has-sizeof? @ansatz-env env)
+        elab-measure (fn [mform]
+                       (let [ids (vec (repeatedly n wf-fix-fresh))
+                             lctx (into {} (map (fn [id [pn _ _] pt]
+                                                  [id {:name (str pn) :type pt :tag :local}])
+                                                ids pairs param-types))
+                             m* (elab/elaborate-in-context measure-env lctx mform)]
+                         (e/abstract-many m* ids)))
+        lex-measures (when (vector? measure-form) (mapv elab-measure measure-form))
+        measure-ansatz (elab-measure (if (vector? measure-form) (first measure-form) measure-form))
 
         ;; Universe level for return type
         tc-tmp (ansatz.kernel.TypeChecker. env)
@@ -1922,72 +2103,235 @@
                                 (e/lam (str (first (nth pairs i)))
                                        (nth param-types i) body :default))))
 
+        ;; Stage 1b: prefer the lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED
+        ;; termination — the decrease proof lives in the term). Single Nat arg directly; two Nat
+        ;; args via Prod packing (lean4 packs through PSigma.casesOn, Fix.lean:183 — the packing
+        ;; wrapper is just another refinable recursor for our refine-rec). Bodies may be
+        ;; match/casesOn, if/Bool.rec (converted to dite, exposing the guard like lean4's
+        ;; macro_inline ite), or mixed. On any unsupported shape or check failure, fall back to
+        ;; the (sound, gate-checked) fuel encoding above.
+        all-nat? (every? (fn [pt] (and (e/const? pt) (= "Nat" (name/->string (e/const-name pt)))))
+                         param-types)
+        nat-c (e/const' (name/from-string "Nat") [])
+        L0 lvl/zero
+        L1 (lvl/succ lvl/zero)
+        ;; relation spec for a single Nat measure → WellFounded.Nat.fix
+        mk-measure-relspec
+        (fn [dom-ty m-lam]
+          {:ihtype (fn [xref] (wf-fix-ihtype dom-ty m-lam ret-ansatz xref))
+           :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof env2 reducer scope m-lam arg P))
+           :fix (fn [ret-level Ffn]
+                  (apply e/app* (e/const' (name/from-string "WellFounded.Nat.fix") [L1 ret-level])
+                         [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) m-lam Ffn]))})
+        ;; relation spec for a lexicographic k-tuple of Nat measures → general WellFounded.fix
+        ;; with rel = fun y x => Prod.Lex Nat.lt (…) (tup y) (tup x) (right-nested for k>2) and
+        ;; the wf proof projected from invImage tup (Prod.lex Nat.lt_wfRel (…)) — defeq to the
+        ;; stated relation (lean4 Rel.lean:57 builds exactly this invImage; we state the relation
+        ;; beta-expanded so each call-site obligation whnfs to a bare Prod.Lex goal).
+        mk-lexn-relspec
+        (fn [dom-ty tup-lam k]
+          (let [tup-ty (wf-fix-pack-ty k)
+                rel-k (wf-fix-lex-rel k)
+                lexr (fn [a b] (e/app* rel-k a b))
+                rel-lam (e/lam "y" dom-ty
+                               (e/lam "x" (e/lift dom-ty 1 0)
+                                      (lexr (e/app tup-lam (e/bvar 1)) (e/app tup-lam (e/bvar 0))) :default) :default)
+                wfRel (e/app* (e/const' (name/from-string "invImage") [L1 L1]) dom-ty tup-ty tup-lam
+                              (wf-fix-lex-wfrel k))
+                hwf (e/proj (name/from-string "WellFoundedRelation") 1 wfRel)]
+            {:ihtype (fn [xref]
+                       (e/forall' "y" dom-ty
+                                  (e/forall' "_"
+                                             (lexr (e/app tup-lam (e/bvar 0)) (e/app tup-lam (e/lift xref 1 0)))
+                                             (e/lift ret-ansatz 2 0) :default) :default))
+             :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof-lexn env2 reducer scope k tup-lam arg P))
+             :fix (fn [ret-level Ffn]
+                    (apply e/app* (e/const' (name/from-string "WellFounded.fix") [L1 ret-level])
+                           [dom-ty (e/lam "x" dom-ty (e/lift ret-ansatz 1 0) :default) rel-lam hwf Ffn]))}))
+        lex? (vector? measure-form)
+        ;; a sizeOf measure cannot be vetted by the surface gate (omega cannot relate
+        ;; sizeOf-atoms through a discriminant equality) — like lex, the encoder's embedded
+        ;; proofs ARE the termination check, and there is no honest fuel fallback.
+        sizeof-measure? (boolean
+                         ((fn has-sz? [f] (cond (and (seq? f) (= 'sizeOf (first f))) true
+                                                (or (seq? f) (vector? f)) (boolean (some has-sz? f))
+                                                :else false))
+                          measure-form))
+        sized1? (and (= n 1) (some? (wf-sizeof-inst env (nth param-types 0))))
+        fix-info
+        (when (or all-nat? sized1?)
+          (try
+            (let [packed-ty (if (= n 1) (nth param-types 0) (wf-fix-pack-ty n))
+                  tc0 (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
+                  rs (.inferType tc0 ret-ansatz)
+                  rv (if (e/sort? rs) (e/sort-level rs) L1)
+                  ;; n=1: the body/measure already take the single param at bvar 0.
+                  ;; n>=2: wrap in nested Prod.rec over the packed param (bvar 0 of the wrapper) —
+                  ;; the minors restore the n-param bvar layout, and each nested wrapper is an
+                  ;; ordinary refinable recursor for the refinement machinery.
+                  wrapped (wf-fix-wrap-n n raw-body ret-ansatz rv)
+                  pack (fn [args] (wf-fix-pack-vals (vec args)))
+                  m-lam-of (fn [body] (if (= n 1)
+                                        (e/lam (str (first (nth pairs 0))) (nth param-types 0) body :default)
+                                        (e/lam "p" packed-ty (wf-fix-wrap-n n body wf-fix-NAT L1) :default)))
+                  relspec (if lex?
+                            (let [_ (wf-fix-ensure-lex-prelude!)
+                                  k (count lex-measures)
+                                  tup-body (wf-fix-pack-vals lex-measures)
+                                  tup-lam (if (= n 1)
+                                            (e/lam (str (first (nth pairs 0))) (nth param-types 0) tup-body :default)
+                                            (e/lam "p" packed-ty (wf-fix-wrap-n n tup-body (wf-fix-pack-ty k) L1) :default))]
+                              (mk-lexn-relspec packed-ty tup-lam k))
+                            (mk-measure-relspec packed-ty (m-lam-of measure-ansatz)))
+                  ;; a prelude load (lex / sizeOf) may have extended the global env during
+                  ;; measure compilation — encode against the latest
+                  env-l (if (or lex? sizeof-measure?) @ansatz-env env)
+                  callspec (merge {:cname cname :arity n :pack (if (= n 1) first pack) :dom packed-ty}
+                                  relspec)
+                  fix-t (wf-fix-encode env-l callspec wrapped ret-ansatz packed-ty)
+                  ;; user-facing n-ary value: fun x1 … xn => fix (pack x1 … xn)  (fix-t is closed)
+                  v (if (= n 1)
+                      fix-t
+                      (loop [i (dec n)
+                             body (e/app fix-t (wf-fix-pack-vals (mapv #(e/bvar (- n 1 %)) (range n))))]
+                        (if (< i 0) body
+                            (recur (dec i) (e/lam (str (first (nth pairs i))) nat-c body :default)))))]
+              (env/check-constant env-l (env/mk-def cname [] type-ansatz v))
+              {:value v :fix fix-t :eqbody wrapped :packed-ty packed-ty :arity n})
+            (catch Throwable t
+              (when *verbose*
+                (println (str "  wf-fix encoding unavailable for " fn-name " ("
+                              (.getMessage t) ") — using fuel encoding")))
+              nil)))
+        ;; a lexicographic measure has NO single-Nat fuel, and a sizeOf measure has no honest
+        ;; gate-checked fuel — the encoder is the only sound path for either
+        _ (when (and (or lex? sizeof-measure?) (nil? fix-info))
+            (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"
+                                 measure-form "` did not yield a verified WellFounded.fix encoding "
+                                 "(each recursive call must decrease the measure"
+                                 (when lex? " lexicographically") ").")
+                            {:fn fn-name :kind :termination-wf-encode-failed})))
+        encoding (if fix-info :wf-fix :fuel)
+        chosen-body (or (:value fix-info) final-body)
+
         ;; Type-check on the real env
         tc (ansatz.kernel.TypeChecker. env)
         _ (.setFuel tc (long config/*default-fuel*))
-        _ (.inferType tc final-body)
+        _ (.inferType tc chosen-body)
 
         ;; Add to environment (swap! to avoid stale env race)
-        ci (env/mk-def cname [] type-ansatz final-body)
+        ci (env/mk-def cname [] type-ansatz chosen-body)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
-        _ (when *verbose* (println (str "✓ " fn-name " defined (well-founded recursion)")))
+        _ (when *verbose* (println (str "✓ " fn-name " defined (well-founded recursion, "
+                                        (case encoding
+                                          :wf-fix (if lex? "kernel-enforced lexicographic WellFounded.fix"
+                                                      "kernel-enforced WellFounded.Nat.fix")
+                                          "fuel + termination gate") ")")))
 
         ;; Generate equation theorem: fn(args) = body[fn → fn]
         ;; For the fuel-based Nat.rec approach, this is true by computation:
         ;; Nat.rec motive base step (succ k) args = step k (Nat.rec ... k) args
         ;; which is = body[ih → fn] (the original body with recursive calls intact).
         ;; The proof is just Eq.refl (fn args).
-        _ (try
-            (let [env' @ansatz-env
-                  ;; Build: ∀ params, fn(params) = body-with-fn
-                  ;; Create fvars for params
-                  fv-base 8300000
-                  param-fvids (mapv #(+ fv-base %) (range n))
-                  param-fvars (mapv e/fvar param-fvids)
-                  ;; fn(params) applied
-                  fn-applied (reduce e/app (e/const' cname []) param-fvars)
-                  ;; body with fn instead of ih — compile original body with params as fvars
-                  ;; Actually, fn-applied WHNF-reduces to the step body. So Eq.refl works.
-                  ;; Build eq type: fn(p1,...,pn) = fn(p1,...,pn) — trivially true
-                  ;; But we want a useful equation: fn(args) = user-body
-                  ;; For that, WHNF fn(args) and use the result as the RHS.
-                  tc-eq (ansatz.kernel.TypeChecker. env')
-                  _ (.setFuel tc-eq (long config/*default-fuel*))
-                  _ (doseq [i (range n)]
-                      (.addLocal tc-eq (long (nth param-fvids i))
-                                 (str (first (nth pairs i)))
-                                 (nth param-types i)))
-                  rhs (.whnf (.getReducer tc-eq) fn-applied)
-                  ;; Eq type: fn(args) = rhs
-                  eq-type (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                  ret-ansatz fn-applied rhs)
-                  ;; Wrap in foralls
-                  eq-full-type (loop [i (dec n) body eq-type]
+        ;; For the wf-fix encoding, whnf of fn(args) is STUCK on the Acc proof, so the equations
+        ;; come from WellFounded.Nat.fix_eq instead: per-leaf `<fn>.eq_N` theorems (the names simp's
+        ;; find-eqn-theorems discovers), each proven by the bare fix_eq instance + kernel defeq.
+        _ (if (= encoding :wf-fix)
+            (try
+              (let [env' @ansatz-env
+                    [fixh fixargs] (e/get-app-fn-args (:fix fix-info))
+                    tc-eq (doto (ansatz.kernel.TypeChecker. env') (.setFuel (long config/*default-fuel*)))
+                    red-eq (.getReducer tc-eq)
+                    eq-lvl (let [s (.inferType tc-eq ret-ansatz)]
+                             (if (e/sort? s) (e/sort-level s) (lvl/succ lvl/zero)))
+                    X2id (wf-fix-fresh) X2 (e/fvar X2id)
+                    rawX2 (e/instantiate1 (:eqbody fix-info) X2)
+                    ;; the equation LHS uses the user-facing n-ary application: unpack a
+                    ;; Prod.mk-rooted pattern back into the argument list (defeq to the packed
+                    ;; fix application by delta+beta)
+                    unpack (fn [pattern]
+                             ;; right-nested (Prod.mk a (Prod.mk b …)) → the n-ary argument list
+                             (loop [t pattern acc [] left (:arity fix-info)]
+                               (if (= 1 left)
+                                 (conj acc t)
+                                 (let [[ph pas] (e/get-app-fn-args t)]
+                                   (if (and (e/const? ph) (= "Prod.mk" (name/->string (e/const-name ph)))
+                                            (= 4 (count pas)))
+                                     (recur (nth pas 3) (conj acc (nth pas 2)) (dec left))
+                                     (throw (ex-info "wf-fix eq: unsplit packed pattern" {})))))))
+                    leaves (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (:packed-ty fix-info)]])]
+                (doseq [[i {:keys [fields pattern rhs]}] (map-indexed vector leaves)]
+                  (let [ids (mapv first fields)
+                        eq-core (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
+                                        ret-ansatz (apply e/app* (e/const' cname []) (unpack pattern)) rhs)
+                        eq-type (loop [k (dec (count fields)) acc (e/abstract-many eq-core ids)]
+                                  (if (< k 0) acc
+                                      (recur (dec k) (e/forall' "x" (e/abstract-many (second (nth fields k)) (subvec ids 0 k)) acc :default))))
+                        ;; WellFounded.Nat.fix -> Nat.fix_eq; WellFounded.fix (lex) -> fix_eq --
+                        ;; both take the fix's own args plus the scrutinee
+                        pf-core (apply e/app* (e/const' (name/from-string
+                                                         (str (name/->string (e/const-name fixh)) "_eq"))
+                                                        (vec (e/const-levels fixh)))
+                                       (conj (vec fixargs) pattern))
+                        pf (loop [k (dec (count fields)) acc (e/abstract-many pf-core ids)]
+                             (if (< k 0) acc
+                                 (recur (dec k) (e/lam "x" (e/abstract-many (second (nth fields k)) (subvec ids 0 k)) acc :default))))
+                        eq-name (name/from-string (str fn-name ".eq_" (inc i)))]
+                    (swap! ansatz-env env/check-constant (env/mk-thm eq-name [] eq-type pf))))
+                (when *verbose*
+                  (println (str "  ✓ " fn-name ".eq_1.." (count leaves) " equations (fix_eq)"))))
+              (catch Exception e
+                (when *verbose*
+                  (println (str "  ⚠ wf-fix equation generation failed: " (.getMessage e))))))
+            (try
+              (let [env' @ansatz-env
+                    ;; Build: ∀ params, fn(params) = body-with-fn
+                    ;; Create fvars for params
+                    fv-base 8300000
+                    param-fvids (mapv #(+ fv-base %) (range n))
+                    param-fvars (mapv e/fvar param-fvids)
+                    ;; fn(params) applied
+                    fn-applied (reduce e/app (e/const' cname []) param-fvars)
+                    ;; fn-applied WHNF-reduces to the step body (fuel encoding), so Eq.refl works.
+                    tc-eq (ansatz.kernel.TypeChecker. env')
+                    _ (.setFuel tc-eq (long config/*default-fuel*))
+                    _ (doseq [i (range n)]
+                        (.addLocal tc-eq (long (nth param-fvids i))
+                                   (str (first (nth pairs i)))
+                                   (nth param-types i)))
+                    rhs (.whnf (.getReducer tc-eq) fn-applied)
+                    ;; Eq type: fn(args) = rhs — abstract the param fvars (a theorem must be
+                    ;; CLOSED; leaving them raw was the old "Unknown free variable" failure)
+                    eq-type (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                    ret-ansatz fn-applied rhs)
+                    eq-type-abs (e/abstract-many eq-type param-fvids)
+                    ;; Wrap in foralls
+                    eq-full-type (loop [i (dec n) body eq-type-abs]
+                                   (if (< i 0) body
+                                       (recur (dec i)
+                                              (e/forall' (str (first (nth pairs i)))
+                                                         (nth param-types i) body :default))))
+                    ;; Proof: Eq.refl (fn(args)) — works because fn(args) def-eq rhs
+                    proof-core (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                       ret-ansatz fn-applied)
+                    ;; Abstract fvars back to bvars
+                    proof-abs (e/abstract-many proof-core param-fvids)
+                    ;; Wrap in lambdas
+                    proof-full (loop [i (dec n) body proof-abs]
                                  (if (< i 0) body
                                      (recur (dec i)
-                                            (e/forall' (str (first (nth pairs i)))
-                                                       (nth param-types i) body :default))))
-                  ;; Proof: Eq.refl (fn(args)) — works because fn(args) def-eq rhs
-                  proof-core (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                     ret-ansatz fn-applied)
-                  ;; Abstract fvars back to bvars
-                  proof-abs (e/abstract-many proof-core param-fvids)
-                  ;; Wrap in lambdas
-                  proof-full (loop [i (dec n) body proof-abs]
-                               (if (< i 0) body
-                                   (recur (dec i)
-                                          (e/lam (str (first (nth pairs i)))
-                                                 (nth param-types i) body :default))))
-                  eq-name (name/from-string (str fn-name ".eq_unfold"))
-                  eq-ci (env/mk-thm eq-name [] eq-full-type proof-full)]
-              (swap! ansatz-env env/check-constant eq-ci)
-              (when *verbose*
-                (println (str "  ✓ " fn-name ".eq_unfold equation theorem"))))
-            (catch Exception e
-              (when *verbose*
-                (println (str "  ⚠ equation theorem generation failed: " (.getMessage e))))))
+                                            (e/lam (str (first (nth pairs i)))
+                                                   (nth param-types i) body :default))))
+                    eq-name (name/from-string (str fn-name ".eq_unfold"))
+                    eq-ci (env/mk-thm eq-name [] eq-full-type proof-full)]
+                (swap! ansatz-env env/check-constant eq-ci)
+                (when *verbose*
+                  (println (str "  ✓ " fn-name ".eq_unfold equation theorem"))))
+              (catch Exception e
+                (when *verbose*
+                  (println (str "  ⚠ equation theorem generation failed: " (.getMessage e)))))))
 
         ;; Compile to Clojure — uncurry for multi-arg
         clj-form (ansatz->clj @ansatz-env final-body [])
@@ -2016,31 +2360,211 @@
                        (~param-syms ~curried-call)))))]
     clj-fn))
 
+(clojure.core/defn define-partial
+  "Define a PARTIAL (trusted, opaque) function — the recursion ladder's lenient fallback, for recursion
+   we can't or won't prove total. The kernel gets an AXIOM at the function's type: trusted, NOT verified,
+   and never usable in proofs (data-only). The runtime is the original recursive Clojure body — self-calls
+   resolve to the def'd var at call time. Mark with ^:partial. Mirrors Lean's `partial def`."
+  [fn-name params ret-type-form body-form]
+  (let [env (env)
+        pairs (parse-params params)
+        n (count pairs)
+        ;; function type  ∀ params → ret  (same construction as define-verified)
+        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+        cname (name/from-string (str fn-name))
+        ;; trusted axiom at the type; also the self-reference used to elaborate the body for codegen
+        ax (env/mk-axiom cname [] type-ansatz)
+        tmp-env (env/add-constant (env/fork env) ax)
+        ;; Compile body fvar-first (consistent with define-verified/-wf), for codegen only.
+        body-ansatz (binding [surface-match/*use-cases-on?* true]
+                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
+    ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
+    (swap! ansatz-env env/add-constant ax)
+    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+    (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
+    ;; codegen the recursive body; self-calls compile to (fn-name …) and resolve at call time
+    (let [clj-form (ansatz->clj @ansatz-env body-ansatz [])
+          clj-fn (if (<= n 1)
+                   (eval clj-form)
+                   (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) (vec pairs))
+                         curried-call (reduce (fn [f s] (list f s))
+                                              (list clj-form (first param-syms)) (rest param-syms))]
+                     (eval
+                      `(fn
+                         (~[(first param-syms)]
+                          ~(if (= n 2)
+                             `(fn [~(second param-syms)] ~curried-call)
+                             (reduce (fn [body s] `(fn [~s] ~body))
+                                     curried-call (reverse (rest param-syms)))))
+                         (~param-syms ~curried-call)))))]
+      clj-fn)))
+
 ;; ============================================================
 ;; Public API
 ;; ============================================================
 
+(clojure.core/defn- build-telescope-fvar
+  "fvar-first body elaboration via surface/elaborate: params become fvars in the
+   lctx, the body elaborates with full inference (instances/levels/match), then the
+   fvars are abstracted back into the lambda telescope — same shape as build-telescope."
+  [env pairs ret-type-form body-form]
+  (let [n (count pairs)
+        fids (mapv inc (range n))
+        ptypes (mapv (fn [p] (elab/elaborate env (second p))) pairs)
+        ;; A Subtype-typed param (e.g. a malli [:int {:min k}] refinement) registers with an
+        ;; :as-term coercion: body references elaborate as `Subtype.val T P p`, so refined
+        ;; params are used directly as their carrier (the refinement is erased at runtime;
+        ;; the .property remains available to proof machinery from the binder type).
+        subtype-val (fn [fid pt]
+                      (let [[h as] (e/get-app-fn-args pt)]
+                        (when (and (e/const? h) (= "Subtype" (name/->string (e/const-name h)))
+                                   (= 2 (count as)))
+                          (e/app* (e/const' (name/from-string "Subtype.val")
+                                            (vec (e/const-levels h)))
+                                  (nth as 0) (nth as 1) (e/fvar fid)))))
+        lctx (into {} (map (fn [fid p pt]
+                             [fid (cond-> {:name (str (first p)) :type pt :tag :local}
+                                    (subtype-val fid pt) (assoc :as-term (subtype-val fid pt)))])
+                           fids pairs ptypes))
+        body-expr (elab/elaborate-in-context env lctx body-form)
+        ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in
+        ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
+        body-bvar (e/abstract-many body-expr fids)]
+    (loop [i (dec n) acc body-bvar]
+      (if (< i 0) acc
+          (let [[pn _ binfo] (nth pairs i)]
+            (recur (dec i) (e/lam (str pn) (nth ptypes i) acc (or binfo :default))))))))
+
+(clojure.core/defn- mentions-const?
+  "Does expr reference the constant named nm anywhere?"
+  [expr nm]
+  (case (e/tag expr)
+    :const  (= (e/const-name expr) nm)
+    :app    (or (mentions-const? (e/app-fn expr) nm) (mentions-const? (e/app-arg expr) nm))
+    :lam    (or (mentions-const? (e/lam-type expr) nm) (mentions-const? (e/lam-body expr) nm))
+    :forall (or (mentions-const? (e/forall-type expr) nm) (mentions-const? (e/forall-body expr) nm))
+    :let    (or (mentions-const? (e/let-type expr) nm) (mentions-const? (e/let-value expr) nm)
+                (mentions-const? (e/let-body expr) nm))
+    :proj   (mentions-const? (e/proj-struct expr) nm)
+    false))
+
+(declare define-verified-impl)
+(declare define-verified)
+
+(clojure.core/defn- hoist-loops!
+  "Desugar general (loop [x e1 y e2 …] body) forms in an a/defn body into synthesized local
+   WF helper functions: the loop becomes (helper e1 e2 … encl…), `recur` becomes a self-call,
+   and the helper goes through the SAME verified pipeline — structural recursion, auto-measure
+   (single Nat or lexicographic GuessLex), kernel-enforced WellFounded.fix. Loop vars and the
+   loop result are assumed Nat (the WF machinery is Nat-gated); enclosing fn params referenced
+   by the body are closure-converted into extra constant helper params. Innermost loops hoist
+   first, so each `recur` belongs to its own loop. If a helper cannot be defined (non-Nat loop,
+   unprovable termination), the loop form is left intact for the legacy counting-shape
+   elaboration (elab-loop) — strictly more programs verify, none regress."
+  [fn-name param-syms body-form]
+  (letfn [(subst-recur [form helper-sym extra-args]
+            ;; rewrite (recur a …) → (helper a … extra…); inner loops were already hoisted,
+            ;; so every remaining recur belongs to the current loop
+            (cond
+              (and (seq? form) (= 'recur (first form)))
+              (list* helper-sym (concat (map #(subst-recur % helper-sym extra-args) (rest form))
+                                        extra-args))
+              (seq? form) (apply list (map #(subst-recur % helper-sym extra-args) form))
+              (vector? form) (mapv #(subst-recur % helper-sym extra-args) form)
+              :else form))
+          (occurs? [sym form]
+            (cond (= sym form) true
+                  (or (seq? form) (vector? form)) (boolean (some #(occurs? sym %) form))
+                  :else false))
+          (walk [form]
+            (cond
+              (and (seq? form) (= 'loop (first form)) (vector? (second form)))
+              (let [bindings (second form)
+                    lbody0 (nth form 2)
+                    lbody (walk lbody0)                       ; hoist inner loops first
+                    loop-vars (vec (take-nth 2 bindings))
+                    inits (mapv walk (take-nth 2 (rest bindings)))
+                    encl (vec (for [p param-syms
+                                    :when (and (not (some #{p} loop-vars)) (occurs? p lbody))]
+                                p))
+                    helper-sym (gensym (str fn-name "-loop"))
+                    helper-params (vec (mapcat (fn [v] [v :- 'Nat]) (concat loop-vars encl)))
+                    helper-body (subst-recur lbody helper-sym encl)]
+                (try
+                  (let [f (define-verified helper-sym helper-params 'Nat helper-body)]
+                    (intern *ns* helper-sym f)
+                    (list* helper-sym (concat inits encl)))
+                  (catch Throwable t
+                    (when *verbose*
+                      (println (str "  loop hoisting unavailable (" (.getMessage t)
+                                    ") — falling back to counting-shape elaboration")))
+                    form)))
+              (seq? form) (apply list (map walk form))
+              (vector? form) (mapv walk form)
+              :else form))]
+    (walk body-form)))
+
 (clojure.core/defn define-verified
-  "Define a verified function. Returns compiled Clojure fn."
+  "Define a verified function. Auto-detects structural recursion; if the recursion is not
+   structural, tries lean4's GuessLex (single Nat measure, then lexicographic pairs) and
+   redirects to well-founded recursion when a decreasing measure is found. General loop/recur
+   forms are hoisted into synthesized WF helper functions first. Returns the compiled Clojure fn."
+  [fn-name params ret-type-form body-form]
+  (let [body-form (hoist-loops! fn-name (mapv first (parse-params params)) body-form)]
+    (try
+      (define-verified-impl fn-name params ret-type-form body-form)
+      (catch clojure.lang.ExceptionInfo e
+        (if (= ::redirect-wf (:kind (ex-data e)))
+          (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
+          (throw e))))))
+
+(clojure.core/defn- define-verified-impl
+  "Structural-recursion path. Throws {:kind ::redirect-wf :measure m} when recursion is
+   non-structural but a WF measure was synthesized (handled by define-verified)."
   [fn-name params ret-type-form body-form]
   (let [env (env)
         pairs (parse-params params)
-        body-ansatz (build-telescope env {} 0 pairs body-form e/lam)
-        ;; Build type: ∀ params → ret-type
         n (count pairs)
-        scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-        ret-ansatz (sexp->ansatz env scope-full n ret-type-form)
-        type-ansatz (loop [i (dec n) body ret-ansatz]
-                      (if (< i 0) body
-                          (let [[pn pt binfo] (nth pairs i)
-                                s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                                ty (sexp->ansatz env s i pt)]
-                            (recur (dec i) (e/forall' (str pn) ty body binfo)))))
-        ;; Type-check
+        cname (name/from-string (str fn-name))
+        ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
+        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
+        ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
+        ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
+        ;; self-calls on a bare recursive field to that field's IH (Lean's affordance — no
+        ;; manual ih_<field>). Non-structural leftovers still reference the axiom → check-constant
+        ;; rejects them (the user adds :termination-by / ^:partial). Existing ih_<field> bodies
+        ;; keep working. Elaboration failures otherwise surface honestly.
+        tmp-env (env/add-constant (env/fork env) (env/mk-axiom cname [] type-ansatz))
+        ;; *self-params* = the param fvar-ids build-telescope-fvar uses (1..n), so multi-arg
+        ;; self-calls (add k n) are recognised: recursive field at the matched position, the
+        ;; other args the unchanged params.
+        ;; The structural self-call→IH rewrite is only SOUND when the match is the entire
+        ;; function body (then the recursor's IH is literally `f field`). For any other shape
+        ;; (if-wrapped, let-wrapped, nested) the IH is a different fold — those self-calls stay
+        ;; as the axiom and route to the well-founded path below.
+        top-match? (and (seq? body-form) (= 'match (first body-form)))
+        body-ansatz (binding [surface-match/*self-name* (when top-match? cname)
+                              surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))]
+                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))
+        ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
+        ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
+        _ (when (mentions-const? body-ansatz cname)
+            ;; Not structural. Try lean4's GuessLex (single Nat measure) — if a measure makes
+            ;; every recursive call provably decrease, redirect to well-founded recursion;
+            ;; otherwise give the actionable recursion-lane prompt.
+            (if-let [m (wf-guess-measure pairs body-form fn-name n)]
+              (throw (ex-info "auto-measure WF" {:kind ::redirect-wf :measure m}))
+              (throw (ex-info
+                      (str "Cannot auto-verify recursive function `" fn-name "`: its recursive call isn't "
+                           "structurally decreasing on a parameter, and no Nat measure (single or "
+                           "lexicographic pair) was found to be decreasing. Add `:termination-by <measure>` "
+                           "(a vector for lexicographic, e.g. [m n]) for well-founded recursion, or "
+                           "`^:partial` for trusted (unverified) recursion.")
+                      {:fn fn-name :kind :non-structural-recursion}))))
+        ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
         tc (ansatz.kernel.TypeChecker. env)
         _ (.inferType tc body-ansatz)
-        ;; Add to environment (swap! to avoid stale env race)
-        cname (name/from-string (str fn-name))
         ci (env/mk-def cname [] type-ansatz body-ansatz)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
@@ -2126,9 +2650,7 @@
                             param-types (mapv (fn [j]
                                                 (let [orig-idx (nth non-discr-indices j)
                                                       [pn pt-form] (nth (vec pairs) orig-idx)]
-                                                  (sexp->ansatz env'
-                                                                (into {} (map-indexed (fn [k [p _]] [p k]) (take orig-idx (vec pairs))))
-                                                                orig-idx pt-form)))
+                                                  (elab/elaborate env' pt-form)))
                                               (range n-non-discr))
                             st' (reduce (fn [s [fid nm tp]]
                                           (update s :lctx red/lctx-add-local fid nm tp))
@@ -2366,11 +2888,11 @@
                                                                            (.setFuel tc-v (int config/*default-fuel*))
                                                                            (.inferType tc-v full-pf)
                                                                            (swap! ansatz-env env/check-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
-                                                                           (when *verbose* (println "  aux eq_" (inc ci-idx) "for" aux-name-str))))
+                                                                           (when *verbose* (println (str "  ✓ " aux-name-str ".eq_" (inc ci-idx))))))
                                                                        (catch Exception ex
                                                                          (when *verbose*
-                                                                           (println "  aux eq_" (inc ci-idx) "for" aux-name-str "FAILED:" (.getMessage ex))
-                                                                           (.printStackTrace ex *out*))))))
+                                                                           (when *verbose*
+                                                                             (println (str "  ⚠ " aux-name-str ".eq_" (inc ci-idx) " skipped: " (.getMessage ex)))))))))
                                                                  (catch Exception ex
                                                                    (when *verbose*
                                                                      (println "  aux gen for" aux-name-str "FAILED:" (.getMessage ex)))))
@@ -2522,12 +3044,11 @@
                                                                (nth param-types j) body :default))))
                                 eqn-name (name/from-string (str fn-name ".eq_" (inc i) (or suffix "")))]
                             (try
-                              (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) "type:" (e/->string full-type)))
                               (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
                                 (.setFuel tc-v (int config/*default-fuel*))
                                 (.inferType tc-v full-proof)
                                 (swap! ansatz-env env/check-constant (env/mk-thm eqn-name [] full-type full-proof))
-                                (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) ":" (e/->string full-type))))
+                                (when *verbose* (println (str "  ✓ " fn-name ".eq_" (inc i) (or suffix "")))))
                               (catch Exception e
                                 (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) "skipped:" (.getMessage e))))))))
                       (catch Exception e
@@ -2568,23 +3089,12 @@
   ([thm-name params prop-form tactic-forms ctx]
    (let [env (if ctx (:env ctx) (env))
          pairs (parse-params params)
-         n (count pairs)
-         scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
-         ;; Bind *scope-types* so that auto-elaborate can infer implicit args
-         ;; from parameter types (Lean 4: elaborator has full context)
-         scope-types-map (into {} (map-indexed
-                                   (fn [i [pn pt-form]]
-                                     (let [s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))]
-                                       [pn (sexp->ansatz env s i pt-form)]))
-                                   pairs))
-         prop-ansatz (binding [*scope-types* scope-types-map]
-                       (sexp->ansatz env scope-full n prop-form))
-         goal-type (loop [i (dec n) body prop-ansatz]
-                     (if (< i 0) body
-                         (let [[pn pt binfo] (nth pairs i)
-                               s (into {} (map-indexed (fn [j [p _]] [p j]) (take i pairs)))
-                               ty (sexp->ansatz env s i pt)]
-                           (recur (dec i) (e/forall' (str pn) ty body binfo)))))
+         ;; P3 of the elaborator unification: the goal telescope (binders may depend on
+         ;; earlier binders — hypothesis Props routinely do — and the prop on all of them)
+         ;; elaborates fvar-first via elab-signature; binder types and the statement go
+         ;; through the SAME elaborator as function bodies (lean4: one elaborator for
+         ;; terms and tactic goals).
+         goal-type (:type-ansatz (elab-signature env pairs prop-form))
          [ps _] (proof/start-proof env goal-type)
          ps (if (seq pairs) (basic/intros ps (mapv (comp str first) pairs)) ps)
          ps (reduce run-tactic ps tactic-forms)]
@@ -2621,15 +3131,36 @@
    Well-founded recursion: put  :termination-by <measure>  before the body."
   [fn-name params & more]
   (let [meta?    (metadata-params? params)
-        ret-type (if meta? (binder-type fn-name) (first more))
-        body-and-opts (if meta? more (rest more))
+        ;; Gradual-typing surface: a PLAIN parameter vector (bare symbols, no ^Type metadata,
+        ;; no :- forms, no return annotation) consults the malli function-schema registry —
+        ;; (m/=> foo [:=> [:cat …] …]) or ^{:malli/schema …} on the name — so ordinary
+        ;; instrumented Clojure ports by changing `defn` to `a/defn` with schemas unchanged.
+        ;; ansatz.malli loads lazily; without malli on the classpath this probe is a no-op
+        ;; (requiring-resolve at the optionality seam). A registered-but-untranslatable
+        ;; schema THROWS honestly rather than lifting approximately.
+        msig     (when (and (vector? params) (seq params) (every? symbol? params)
+                            (not meta?) (nil? (binder-type fn-name)))
+                   (try (when-let [f (requiring-resolve 'ansatz.malli/signature-for)]
+                          (f (ns-name *ns*) fn-name (count params)))
+                        (catch java.io.FileNotFoundException _ nil)))
+        params   (if msig
+                   (vec (mapcat (fn [p t] [p :- t]) params (:param-types msig)))
+                   params)
+        ret-type (cond meta? (binder-type fn-name)
+                       msig  (:ret-type msig)
+                       :else (first more))
+        body-and-opts (if (or meta? msig) more (rest more))
         [opts body] (if (= :termination-by (first body-and-opts))
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
                       [{} (first body-and-opts)])
-        nm (vary-meta fn-name dissoc :- :tag)]
-    (if (:termination-by opts)
-      `(def ~nm (define-verified-wf '~nm '~params '~ret-type
-                  '~body '~(:termination-by opts)))
+        partial? (:partial (meta fn-name))
+        nm (vary-meta fn-name dissoc :- :tag :partial)]
+    (cond
+      partial?
+      `(def ~nm (define-partial '~nm '~params '~ret-type '~body))
+      (:termination-by opts)
+      `(def ~nm (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)))
+      :else
       `(def ~nm (define-verified '~nm '~params '~ret-type '~body)))))
 
 (defmacro theorem
@@ -2692,6 +3223,8 @@
                      env'# ((requiring-resolve 'ansatz.deriving/run-deriving!)
                             env# ~(str type-name) '~ctor-specs '~deriving-classes)]
                  (reset! ansatz-env env'#))])
+         ;; lean4 auto-derives SizeOf for every inductive — best-effort, no-op when unsupported
+         (wf-derive-sizeof! ~(str type-name))
          nil)))
 
 ;; ============================================================

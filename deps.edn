@@ -24,7 +24,11 @@
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
                       {:git/tag "v0.5.1"
-                       :git/sha "dfb30dd"}}
+                       :git/sha "dfb30dd"}
+                      ;; malli is an OPTIONAL ansatz dependency (the gradual-typing surface,
+                      ;; ansatz.malli, loads lazily when malli is on the consumer's classpath);
+                      ;; it is a test dep here so our own suite exercises the integration.
+                      metosin/malli {:mvn/version "0.16.4"}}
          :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
          :main-opts ["-m" "cognitect.test-runner"]
          :exec-fn cognitect.test-runner.api/test}

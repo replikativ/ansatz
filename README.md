@@ -158,14 +158,16 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 
 - **Verified functions** — define functions with CIC types, prove properties, run at JVM speed
 - **Grind tactic** — automated reasoning via persistent E-graph with congruence closure, propositional propagators (And/Or/Not/Eq/ite), E-matching for lemma instantiation, constructor injection/discrimination, and theory solver integration
-- **Well-founded recursion** — `:termination-by` for non-structural patterns (merge sort, factorial)
+- **Kernel-enforced termination** — every recursive definition carries its termination proof in the kernel term: structural recursion, `:termination-by` measures (scalar, **lexicographic** `[m n]` — Ackermann verifies, `(sizeOf xs)` over data structures), automatic measure guessing, and `loop`/`recur`; non-terminating definitions are rejected with actionable errors (`^:partial` is the explicit trusted escape)
+- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature. Collections→`List`; `[:map [:x :int] …]`→a synthesized named-field record (keyword access `(:x p)` elaborates to kernel projections, runtime values stay plain Clojure maps); `[:int {:min k}]`→`Subtype` refinements whose params are still usable directly as numbers (references auto-coerce to `.val`, the refinement stays in the binder for proofs). `ansatz.malli/check-verified!` adds a generative differential check — schema-generated inputs run through both the compiled runtime and the kernel evaluator and must agree, guarding the well-typed-but-unfaithful elaboration bug class the kernel can't see. malli loads lazily; core has no hard dependency
+- **One lean4-shaped elaborator** — fvar/metavar elaboration with implicit + universe inference for bodies, signatures, measures, theorem statements, and tactic arguments; Clojure macros (`->`, `when`, `and`/`or`, yours) expand by default and compose
 - **Structures** — `a/structure` compiles to `defrecord` with keyword access and pretty-printing
 - **Generic types** — implicit type parameter inference via auto-elaborate (polymorphic constructors work without explicit type annotations)
 - **Lean 4 Mathlib + CSLib** — 648k Mathlib declarations + CSLib verified algorithms
 - **Tactic proofs** — `apply`, `simp`, `omega`, `ring`, `grind`, `assumption`, `induction`, `cases`, and more
 - **Instance synthesis** — automatic typeclass resolution with tabled backtracking
 - **Compiled output** — verified `defn` compiles to ordinary Clojure `fn` with arity-aware flat calls
-- **Extensible** — register custom tactics, elaborators, and simprocs with full kernel access
+- **Extensible** — `register-elaborator!` is lean4 `macro_rules`-shaped (your fn maps argument forms to a replacement surface form, the elaborator does the rest); plus custom tactics and simprocs with full kernel access
 - **Immutable proof state** — free backtracking via Clojure persistent data structures
 
 ## Quick Start
@@ -324,10 +326,38 @@ Type                         ;; types
 ;; Verified function (structural recursion)
 (a/defn ^ReturnType name [^{:- Type} param ...] body)   ; types are metadata, ReturnType on the name
 
-;; Well-founded recursion (non-structural, e.g. merge sort)
-(a/defn ^{:- (List Nat)} merge [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
-  :termination-by (+ (List.length xs) (List.length ys))
-  body)
+;; Well-founded recursion — the decrease proof is kernel-checked, not trusted
+(a/defn ^Nat fact [^Nat n]
+  :termination-by n
+  (if (== n 0) 1 (* n (fact (- n 1)))))
+
+;; Lexicographic measures (vector) — Ackermann verifies; the measure is also auto-guessed
+(a/defn ^Nat ack [^Nat m ^Nat n]
+  :termination-by [m n]
+  (match m Nat Nat
+    (zero (+ n 1))
+    (succ [k] (match n Nat Nat (zero (ack k 1)) (succ [j] (ack k (ack (Nat.succ k) j)))))))
+
+;; Recursion over data structures — sizeOf measures (auto-guessed for List/custom inductives)
+(a/defn ^Nat pairs [^{:- (List Nat)} xs]                ; recurses on rest-of-rest
+  (match xs (List Nat) Nat
+    (nil 0)
+    (cons [h t] (match t (List Nat) Nat (nil 0) (cons [h2 t2] (+ 1 (pairs t2)))))))
+
+;; Malli schemas as signatures (optional dep): defn → a/defn, schema unchanged
+(m/=> add2 [:=> [:cat :int :int] :int])
+(a/defn add2 [x y]
+  (match x Nat Nat (zero y) (succ [k] (+ 1 (add2 k y)))))
+;; [:map …] schemas become named-field records: keyword access verifies, runtime = plain maps
+(m/=> dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
+(a/defn dot [p] (+ (:x p) (:y p)))                       ; (dot {:x 2 :y 3}) => 5
+;; refined params are used directly as their carrier ([:int {:min 1}] → Subtype, auto-.val)
+;; differential check: compiled runtime ≡ kernel evaluation on generated inputs
+(ansatz.malli/check-verified! 'my.ns 'add2 :runs 25)     ; => {:runs 25 :ok 25}
+
+;; loop/recur — hoisted to a verified helper, termination auto-proved
+(a/defn ^Nat sum-to [^Nat n]
+  (loop [acc 0 i n] (if (== i 0) acc (recur (+ acc i) (- i 1)))))
 
 ;; Typeclass params
 (a/defn ^{:- (List α)} sort [^{:- Type} α ^:inst ^{:- (Ord α)} inst ^{:- (List α)} xs] ...)

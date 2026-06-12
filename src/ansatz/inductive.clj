@@ -32,7 +32,7 @@
   [(assoc scope sym depth) (inc depth)])
 
 ;; ============================================================
-;; Type compilation (extends ansatz.core's sexp->ansatz with self-references)
+;; Type compilation (compiles field types with self-references in scope (surface/elaborate handles user terms))
 ;; ============================================================
 
 (declare compile-type)
@@ -55,6 +55,9 @@
    Handles self-references to the inductive being defined."
   [env scope depth form self-name self-const]
   (cond
+    ;; an already-elaborated kernel Expr passes through (programmatic callers, e.g.
+    ;; ansatz.malli record synthesis, supply CLOSED Exprs as field types)
+    (instance? ansatz.kernel.Expr form) form
     ;; nil in Clojure quoted data represents List.nil Nat
     (nil? form) (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
                        (e/const' (name/from-string "Nat") []))
@@ -92,7 +95,7 @@
                  (compile-type env scope (inc depth) (nth form 2) self-name self-const))
         ;; Dependent function type: (forall [a Type, b Type, ...] body)
         ;; Needed so structure/inductive fields can express categorical operations
-        ;; like (forall [a Ob b Ob c Ob] (-> (Hom a b) (-> (Hom b c) (Hom a c))))
+        ;; like (forall [a Ob b Ob c Ob] (=> (Hom a b) (=> (Hom b c) (Hom a c))))
         ;; and equation axioms like (forall [a M b M c M] (= (mul (mul a b) c) ...)).
         "forall"
         (let [[_ binder-vec & body-forms] form
@@ -1569,8 +1572,19 @@
 
         ;; Elimination level
         prop-only? (and (= result-level lvl/zero) (> n-ctors 1))
-        elim-level-param (when-not prop-only? (name/from-string "u_1"))
-        elim-level (if prop-only? lvl/zero (lvl/param (name/from-string "u_1")))
+        ;; The elim-level param name MUST match the kernel's recursor-rule generator
+        ;; (InductiveChecker.initElimLevel: "u", suffixed "u_<i>" only on collision with the
+        ;; inductive's own level params). The Clojure side previously hardcoded "u_1" while the
+        ;; kernel-generated rules (define-inductive replaces ours with
+        ;; generateExpectedRecursorRules) used "u" — so iota left the rules' levels
+        ;; UNSUBSTITUTED, silently breaking symbolic defeq for every custom inductive
+        ;; (closed evaluation still terminated, masking it).
+        elim-level-param (when-not prop-only?
+                           (loop [nm (name/from-string "u") i 1]
+                             (if (some #(= % nm) ind-levels)
+                               (recur (name/from-string (str "u_" i)) (inc i))
+                               nm)))
+        elim-level (if prop-only? lvl/zero (lvl/param elim-level-param))
         ;; rec-level-params: Name[] for ConstantInfo factory (elim + inductive levels)
         ;; rec-level-levels: Level[] for e/const' references
         rec-level-params (into (if elim-level-param [elim-level-param] [])

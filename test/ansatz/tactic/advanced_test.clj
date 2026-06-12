@@ -112,6 +112,24 @@
       ;; 0 < 1
       (prove-and-verify env (mk-lt (n 0) (n 1)) omega/omega))))
 
+(deftest test-omega-bare-nat-lt-spelling
+  (testing "Symbolic goals in the bare Nat.lt/Nat.le spelling certify like the LT.lt/LE.le
+            instance spelling (lean4 omega is spelling-robust; arises when a relation variable
+            is instantiated with Nat.lt, e.g. Prod.Lex.right's second leg)"
+    (let [env (require-env)
+          nat (e/const' (name/from-string "Nat") [])
+          succ (fn [t] (e/app (e/const' (name/from-string "Nat.succ") []) t))
+          ;; ∀ n, Nat.lt n (succ n)
+          lt-goal (e/forall' "n" nat
+                             (e/app* (e/const' (name/from-string "Nat.lt") [])
+                                     (e/bvar 0) (succ (e/bvar 0))) :default)
+          ;; ∀ n, Nat.le n (succ n)
+          le-goal (e/forall' "n" nat
+                             (e/app* (e/const' (name/from-string "Nat.le") [])
+                                     (e/bvar 0) (succ (e/bvar 0))) :default)]
+      (prove-and-verify env lt-goal (fn [ps] (omega/omega (basic/intros ps ["n"]))))
+      (prove-and-verify env le-goal (fn [ps] (omega/omega (basic/intros ps ["n"])))))))
+
 (deftest test-omega-ground-mul
   (testing "Ground multiplication"
     (let [env (require-env)]

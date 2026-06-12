@@ -188,14 +188,19 @@
           [table'' lc-b] (reify-term st table' (nth args 5))]
       [table'' (lc-add lc-a lc-b)])
 
-    ;; Nat.sub a b → for ground cases evaluate, else treat as atom
+    ;; Nat.sub a b → ground: evaluate; symbolic: linear a - b, the SAME as the HSub.hSub spelling
+    ;; below (lean4's omega sees `Nat.sub` for both — HSub unfolds to it — so the two spellings
+    ;; must decide identically; compiled bodies use bare Nat.sub while the surface emits HSub).
+    ;; The honest truncation dichotomy lives in the reconstruction (omega_proof nat-sub-atoms),
+    ;; which already accepts both spellings; this decision is a linear approximation either way.
     (and (= head-name nat-sub-name) (= 2 (count args)))
     (let [a-whnf (#'tc/cached-whnf st (nth args 0))
           b-whnf (#'tc/cached-whnf st (nth args 1))]
       (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
         [table (mk-lc (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
-        (let [[table' idx] (intern-atom table st expr)]
-          [table' (lc-var idx)])))
+        (let [[table' lc-a] (reify-term st table (nth args 0))
+              [table'' lc-b] (reify-term st table' (nth args 1))]
+          [table'' (lc-sub lc-a lc-b)])))
 
     ;; HSub.hSub _ _ _ _ a b → a - b (for Int)
     (and (= head-name hsub-name) (= 6 (count args)))
@@ -657,18 +662,30 @@
 ;; ============================================================
 
 (defn- add-nat-nonnegativity
-  "For each Nat-typed atom, add x ≥ 0 constraint."
+  "For each Nat-typed atom, add x ≥ 0 constraint. Also validates atom types: an atom whose
+   type is a definite non-Nat/non-Int constant (e.g. Bool) means the goal isn't linear
+   arithmetic over Nat/Int — reject with a tactic-error (caught by `try`) instead of letting
+   the reconstruction crash later (`Int.ofNat` applied to a Bool)."
   [st table constraints]
-  (let [nat-name (name/from-string "Nat")]
+  (let [nat-name (name/from-string "Nat")
+        int-name (name/from-string "Int")]
     (reduce
      (fn [[table constraints] [idx expr]]
-       (try
-         (let [ty (tc/infer-type st expr)
-               ty-whnf (#'tc/cached-whnf st ty)]
-           (if (and (e/const? ty-whnf) (= (e/const-name ty-whnf) nat-name))
-             [table (conj constraints (mk-geq (lc-var idx)))]
-             [table constraints]))
-         (catch Exception _ [table constraints])))
+       (let [ty-whnf (try (#'tc/cached-whnf st (tc/infer-type st expr))
+                          (catch Exception _ nil))]
+         (cond
+           (and ty-whnf (e/const? ty-whnf) (= (e/const-name ty-whnf) nat-name))
+           [table (conj constraints (mk-geq (lc-var idx)))]
+           ;; Int atom (or any type we can't pin to a non-arithmetic const): leave as-is.
+           (or (nil? ty-whnf) (not (e/const? ty-whnf))
+               (= (e/const-name ty-whnf) int-name))
+           [table constraints]
+           ;; Definite non-arithmetic atom type (Bool, ...): reject gracefully.
+           :else
+           (throw (ex-info (str "omega: atom of non-arithmetic type "
+                                (name/->string (e/const-name ty-whnf))
+                                " — goal is not linear arithmetic over Nat/Int")
+                           {:kind :tactic-error})))))
      [table constraints]
      (:idx->expr table))))
 

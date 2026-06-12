@@ -83,6 +83,10 @@
      :coeffs                 (n "Lean.Omega.Coeffs")
      :coeffs-get             (n "Lean.Omega.Coeffs.get")
      :int-list-dot           (n "Lean.Omega.IntList.dot")
+     :constraint-neg         (n "Lean.Omega.Constraint.neg")
+     :constraint-neg-sat     (n "Lean.Omega.Constraint.neg_sat")
+     :intlist-neg            (n "Lean.Omega.IntList.neg")
+     :intlist-dot-neg-left   (n "Lean.Omega.IntList.dot_neg_left")
      ;; Arithmetic
      :nat-name               (n "Nat")
      :int-name               (n "Int")
@@ -144,10 +148,6 @@
      ;; Nat → Int for atoms
      :nat-succ-le-of-lt      (n "Nat.succ_le_of_lt")
      :nat-lt-of-succ-le      (n "Nat.lt_of_succ_le")
-     ;; IntList dot/gcd lemmas for trivial-zero proof
-     :intlist-gcd            (n "Lean.Omega.IntList.gcd")
-     :intlist-gcd-eq-zero    (n "Lean.Omega.IntList.gcd_eq_zero")
-     :intlist-dot-of-left-zero (n "Lean.Omega.IntList.dot_of_left_zero")
      ;; GE/GT conversion
      :ge-iff-le              (n "ge_iff_le")
      :gt-iff-lt              (n "gt_iff_lt")
@@ -272,8 +272,23 @@
          (if match
            [table match]
            (let [idx (:next-idx table)
-                 ;; Store Int version: if provided use it, else wrap Nat in Int.ofNat
-                 int-e (or int-expr (nat-to-int expr-whnf))
+                 ;; Store Int version: if provided use it, else derive from the atom's type.
+                 ;; A Nat atom is wrapped in Int.ofNat; an Int atom is used as-is; any other
+                 ;; (non-arithmetic, e.g. Bool) means the goal isn't linear arithmetic — reject
+                 ;; gracefully here rather than building `Int.ofNat (<Bool>)` and crashing the
+                 ;; kernel during proof verification.
+                 int-e (or int-expr
+                           (let [ty (try (#'tc/cached-whnf st (tc/infer-type st expr-whnf))
+                                         (catch Exception _ nil))
+                                 cn (when (and ty (e/const? ty)) (name/->string (e/const-name ty)))]
+                             (cond
+                               (= cn "Nat") (nat-to-int expr-whnf)
+                               (= cn "Int") expr-whnf
+                               :else
+                               (throw (ex-info (str "omega: atom of non-arithmetic type "
+                                                    (or cn "?")
+                                                    " — goal is not linear arithmetic over Nat/Int")
+                                               {:kind :tactic-error})))))
                  table' (-> table
                             (assoc-in [:expr->idx expr-whnf] idx)
                             (assoc-in [:idx->expr idx] expr-whnf)
@@ -735,11 +750,28 @@
             (and (= head-name (:int-ofnat omega-names)) (= 1 (count args)))
             (reify-term st table (nth args 0))
 
-            ;; HSub.hSub _ _ _ _ a b → a - b (pre-WHNF to avoid unfolding to Int.sub)
+            ;; HSub.hSub α _ _ _ a b → a - b. CRUCIAL: distinguish by the element type α.
+            ;; Nat subtraction is TRUNCATED (max(0,a-b)), NOT integer subtraction, so it must be
+            ;; atomized + tagged for the Int.ofNat_sub_dichotomy (same as bare Nat.sub) — linearizing
+            ;; it as `a - b` builds an unsound eval-proof (le_of_le_of_eq Int-transport mismatch).
+            ;; Only Int (or other ring) subtraction linearizes.
             (and (= head-name (:hsub omega-names)) (= 6 (count args)))
-            (let [[table' lc-a prf-a] (reify-term st table (nth args 4))
-                  [table'' lc-b prf-b] (reify-term st table' (nth args 5))]
-              [table'' (lc-sub lc-a lc-b) (mk-sub-eval-proof lc-a lc-b prf-a prf-b)])
+            (let [alpha (#'tc/cached-whnf st (nth args 0))
+                  a (nth args 4) b (nth args 5)]
+              (if (and (e/const? alpha) (= (e/const-name alpha) (:nat-name omega-names)))
+                ;; Nat subtraction: ground → max(0,a-b); else atom + dichotomy tag
+                (let [a-whnf (#'tc/cached-whnf st a)
+                      b-whnf (#'tc/cached-whnf st b)]
+                  (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
+                    (let [lc (mk-lc (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
+                      [table lc (mk-eval-rfl-proof lc)])
+                    (let [[table' idx] (intern-atom table st expr)
+                          table' (assoc-in table' [:nat-sub-atoms idx] {:a a :b b})]
+                      [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)])))
+                ;; Int subtraction: linearize
+                (let [[table' lc-a prf-a] (reify-term st table a)
+                      [table'' lc-b prf-b] (reify-term st table' b)]
+                  [table'' (lc-sub lc-a lc-b) (mk-sub-eval-proof lc-a lc-b prf-a prf-b)])))
 
             ;; HAdd.hAdd _ _ _ _ a b → a + b (pre-WHNF)
             (and (= head-name (:hadd omega-names)) (= 6 (count args)))
@@ -1170,72 +1202,6 @@
       coeffs
       (vec (concat coeffs (repeat (- n len) 0))))))
 
-(defn- extract-trivial-zero
-  "Build a proof of sat'(constraint, zeros, v) = true for a trivial-zero justification,
-   using the given `coeffs-expr` Ansatz expression for the coefficient list.
-   This is called from :combine when the right child is :trivial-zero, to ensure
-   the coefficient expression matches the left child's (avoiding length mismatches)."
-  [justification atoms-expr coeffs-expr]
-  (let [s-expr (to-lean-constraint (:constraint justification))
-        nat-type (e/const' (:nat-name omega-names) [])
-        bool-type (e/const' (:bool-name omega-names) [])
-        bool-true (e/const' (:bool-true omega-names) [])
-        intlist-type (e/app (e/const' (name/from-string "List") [lvl/zero]) int-type)
-        mem-inst (e/app (e/const' (name/from-string "List.instMembership") [lvl/zero]) int-type)
-        zero-int (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0))
-
-        ;; Step 1: Build p = ∀ (x : Int) (_ : x ∈ zeros), x = 0
-        mem-of-bvar0 (e/app* (e/const' (name/from-string "Membership.mem") [lvl/zero lvl/zero])
-                             int-type intlist-type mem-inst coeffs-expr (e/bvar 0))
-        p-prop (e/forall' "x" int-type
-                          (e/forall' "_" mem-of-bvar0
-                                     (e/app* (e/const' (:eq-name omega-names) [u1]) int-type
-                                             (e/bvar 1) zero-int)
-                                     :default)
-                          :default)
-
-        ;; Step 2: Decidable instance for p
-        eq-zero-pred (e/lam "x" int-type
-                            (e/app* (e/const' (:eq-name omega-names) [u1]) int-type
-                                    (e/bvar 0) zero-int)
-                            :default)
-        dec-pred (e/lam "x" int-type
-                        (e/app* (e/const' (name/from-string "Int.decEq") [])
-                                (e/bvar 0) zero-int)
-                        :default)
-        dec-inst (e/app* (e/const' (name/from-string "List.decidableBAll") [lvl/zero])
-                         int-type eq-zero-pred dec-pred coeffs-expr)
-
-        ;; Step 3: Prove p via of_decide_eq_true
-        decide-expr (e/app* (e/const' (name/from-string "Decidable.decide") [])
-                            p-prop dec-inst)
-        decide-refl (e/app* (e/const' (:eq-refl omega-names) [u1]) bool-type bool-true)
-        h-mem (e/app* (e/const' (name/from-string "of_decide_eq_true") [])
-                      p-prop dec-inst decide-refl)
-
-        ;; Step 4: Prove dot(zeros, atoms) = 0 via IntList.dot_of_left_zero
-        h-dot (e/app* (e/const' (:intlist-dot-of-left-zero omega-names) [])
-                      coeffs-expr atoms-expr h-mem)
-
-        ;; Step 5: congrArg (Constraint.sat s) h-dot : sat(s, dot(...)) = sat(s, 0)
-        dot-expr (e/app* (e/const' (:int-list-dot omega-names) []) coeffs-expr atoms-expr)
-        sat-fn (e/app (e/const' (:constraint-sat omega-names) []) s-expr)
-        h-congr (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
-                        int-type bool-type dot-expr zero-int sat-fn h-dot)
-
-        ;; Step 6: sat(s, 0) = true by Eq.refl (ground computation)
-        sat-of-dot (e/app sat-fn dot-expr)
-        sat-of-zero (e/app sat-fn zero-int)
-        h-sat0 (e/app* (e/const' (:eq-refl omega-names) [u1]) bool-type sat-of-zero)
-
-        ;; Step 7: Eq.trans h-congr h-sat0 : sat(s, dot(...)) = true
-        h-final (e/app* (e/const' (name/from-string "Eq.trans") [u1])
-                        bool-type sat-of-dot sat-of-zero bool-true
-                        h-congr h-sat0)]
-    {:proof h-final
-     :constraint-ansatz s-expr
-     :coeffs-ansatz coeffs-expr}))
-
 (defn- extract-proof
   "Extract a proof term from a Justification tree.
    `atoms-expr` is the Ansatz expression for the atoms list (v : List Int).
@@ -1279,13 +1245,9 @@
 
     :combine
     ;; combine_sat' : sat' s x v → sat' t x v → sat' (s.combine t) x v
-    ;; Both children must have the SAME coefficients x. If the right child is :trivial-zero,
-    ;; it needs to use the left's coefficients (they may differ in length due to zipWithAll).
+    ;; Both children have the SAME coefficients x.
     (let [left (extract-proof (:left justification) atoms-expr assumptions num-vars)
-          right (if (= :trivial-zero (:tag (:right justification)))
-                  ;; Build trivial-zero proof using left's coefficients
-                  (extract-trivial-zero (:right justification) atoms-expr (:coeffs-ansatz left))
-                  (extract-proof (:right justification) atoms-expr assumptions num-vars))
+          right (extract-proof (:right justification) atoms-expr assumptions num-vars)
           proof (e/app* (e/const' (:combine-sat' omega-names) [])
                         (:constraint-ansatz left) (:constraint-ansatz right)
                         (:coeffs-ansatz left) atoms-expr
@@ -1362,10 +1324,55 @@
        :coeffs-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Coeffs.bmod_coeffs") [])
                               m-nat i-nat x-coeffs)})
 
-    :trivial-zero
-    ;; Delegate to extract-trivial-zero with its own stored coefficients
-    (extract-trivial-zero justification atoms-expr
-                          (to-lean-coeffs (:coeffs justification)))))
+    :negate
+    ;; Positivize (mirror lean4 positivize_sat): from inner proof of `s.sat' x v = true`
+    ;; build `(neg s).sat' (neg x) v = true` via Constraint.neg_sat + IntList.dot_neg_left.
+    ;;   neg_sat s (dot x v) pi : sat (neg s) (-(dot x v)) = true
+    ;;   dot_neg_left x v       : dot (neg x) v = -(dot x v)
+    ;; rewrite the argument of `sat (neg s) ·` from `-(dot x v)` to `dot (neg x) v`.
+    (let [inner (extract-proof (:inner justification) atoms-expr assumptions num-vars)
+          s-in  (:constraint-ansatz inner)
+          x-in  (:coeffs-ansatz inner)
+          pi    (:proof inner)
+          bool-type (e/const' (:bool-name omega-names) [])
+          bool-true (e/const' (:bool-true omega-names) [])
+          dot-x   (e/app* (e/const' (:int-list-dot omega-names) []) x-in atoms-expr)
+          neg-s   (e/app (e/const' (:constraint-neg omega-names) []) s-in)
+          neg-x   (e/app (e/const' (:intlist-neg omega-names) []) x-in)
+          ;; h2 : sat (neg s) (-(dot x v)) = true
+          h2 (e/app* (e/const' (:constraint-neg-sat omega-names) []) s-in dot-x pi)
+          neg-dot  (e/app* (e/const' (:neg-name omega-names) [lvl/zero])
+                           int-type (e/const' (:int-inst-neg omega-names) []) dot-x)
+          dot-negx (e/app* (e/const' (:int-list-dot omega-names) []) neg-x atoms-expr)
+          ;; dot_neg_left x v : dot (neg x) v = -(dot x v)    (a = dot-negx, b = neg-dot)
+          dnl      (e/app* (e/const' (:intlist-dot-neg-left omega-names) []) x-in atoms-expr)
+          dnl-symm (e/app* (e/const' (:eq-symm omega-names) [u1]) int-type dot-negx neg-dot dnl)
+          sat-fn   (e/app (e/const' (:constraint-sat omega-names) []) neg-s)
+          ;; congrArg (sat (neg s)) dnl-symm : sat(neg s)(-(dot x v)) = sat(neg s)(dot (neg x) v)
+          c1 (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
+                     int-type bool-type neg-dot dot-negx sat-fn dnl-symm)
+          sat-negdot  (e/app sat-fn neg-dot)
+          sat-dotnegx (e/app sat-fn dot-negx)
+          c1-symm (e/app* (e/const' (:eq-symm omega-names) [u1]) bool-type sat-negdot sat-dotnegx c1)
+          result  (e/app* (e/const' (name/from-string "Eq.trans") [u1])
+                          bool-type sat-dotnegx sat-negdot bool-true c1-symm h2)]
+      {:proof result
+       :constraint-ansatz neg-s
+       :coeffs-ansatz neg-x})
+
+    :normalize
+    ;; gcd=0 normalization (lean4 normalize_sat): from inner `s.sat' x v = true` build
+    ;; `(normalizeConstraint s x).sat' (normalizeCoeffs s x) v = true`. For an all-zero-coeff
+    ;; constraint unsat at 0, normalizeConstraint reduces to Constraint.impossible, so the
+    ;; result is discharged by not_sat'_of_isImpossible (no dot_of_left_zero / decidableBAll).
+    (let [inner (extract-proof (:inner justification) atoms-expr assumptions num-vars)
+          s-in  (:constraint-ansatz inner)
+          x-in  (:coeffs-ansatz inner)
+          pi    (:proof inner)
+          proof (e/app* (e/const' (:normalize-sat omega-names) []) s-in x-in atoms-expr pi)]
+      {:proof proof
+       :constraint-ansatz (e/app* (e/const' (:normalize-constraint omega-names) []) s-in x-in)
+       :coeffs-ansatz (e/app* (e/const' (:normalize-coeffs omega-names) []) s-in x-in)})))
 
 (defn- build-atoms-expr
   "Build the Ansatz expression for the atoms list: [atom0, atom1, ...] : List Int.
@@ -1963,22 +1970,27 @@
         (if is-dependent
           ;; Dependent forall — not an implication, bail
           [table problem]
-          ;; Implication: P → Q  →  ¬P ∨ Q
-          (let [not-const (e/const' (:not-name omega-names) [])
-                not-p (e/app not-const p-type)
-                ;; Decidable.not_or_of_imp {P Q} [dec P] (h : P → Q) : ¬P ∨ Q
-                or-proof (when hyp-proof
-                           (e/app* (e/const' (:not-or-of-imp omega-names) [])
-                                   p-type q-type
-                                   (e/app (e/const' (:classical-prop-dec omega-names) []) p-type)
-                                   hyp-proof))
-                ;; Queue as disjunction: ¬P ∨ Q
-                left-type not-p
-                right-type q-type]
-            [table (queue-disjunction problem
-                                      {:or-proof or-proof
-                                       :left-type left-type
-                                       :right-type right-type})])))
+          (let [q-whnf (#'tc/cached-whnf st q-type)]
+            (if (and (e/const? q-whnf) (= (e/const-name q-whnf) (:false-name omega-names)))
+              ;; P → False  IS  ¬P. Route to the Not handler (negate P → lt_or_gt_of_ne / LT /
+              ;; …), mirroring lean4's pushNot — NOT the generic implication path. This is how
+              ;; ¬(a ≤ b) (negated goal) and ¬(a = b) (i.e. a ≠ b) get handled without
+              ;; Decidable.not_or_of_imp.
+              (reify-prop st table problem
+                          (e/app (e/const' (:not-name omega-names) []) p-type)
+                          hyp-proof)
+              ;; Genuine implication P → Q (Q ≠ False): ¬P ∨ Q via Decidable.not_or_of_imp.
+              (let [not-const (e/const' (:not-name omega-names) [])
+                    not-p (e/app not-const p-type)
+                    or-proof (when hyp-proof
+                               (e/app* (e/const' (:not-or-of-imp omega-names) [])
+                                       p-type q-type
+                                       (e/app (e/const' (:classical-prop-dec omega-names) []) p-type)
+                                       hyp-proof))]
+                [table (queue-disjunction problem
+                                          {:or-proof or-proof
+                                           :left-type not-p
+                                           :right-type q-type})])))))
 
       :else [table problem])))
 
@@ -2807,6 +2819,22 @@
                 ;; the unfolded `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
                 [inner-goal fvar-infos lctx-with-intros]
                 (strip-forall-binders st goal-type (:lctx goal))
+                ;; Bare `Nat.lt a b` / `Nat.le a b` goals (e.g. from instantiating a relation
+                ;; variable with Nat.lt) → the LT.lt/LE.le instance spelling negate-goal handles.
+                ;; Defeq, so the by_contra proof still checks against the original goal type.
+                inner-goal
+                (let [[h as] (e/get-app-fn-args inner-goal)
+                      nat-c (e/const' (name/from-string "Nat") [])]
+                  (if (and (e/const? h) (= 2 (count as)))
+                    (case (name/->string (e/const-name h))
+                      "Nat.lt" (e/app* (e/const' (:lt-name omega-names) [lvl/zero]) nat-c
+                                       (e/const' (name/from-string "instLTNat") [])
+                                       (nth as 0) (nth as 1))
+                      "Nat.le" (e/app* (e/const' (:le-name omega-names) [lvl/zero]) nat-c
+                                       (e/const' (name/from-string "instLENat") [])
+                                       (nth as 0) (nth as 1))
+                      inner-goal)
+                    inner-goal))
                 st-intros (tc/attach-lctx st lctx-with-intros)
                 inner-whnf (#'tc/cached-whnf st-intros inner-goal)
                 is-false-goal (and (e/const? inner-whnf)

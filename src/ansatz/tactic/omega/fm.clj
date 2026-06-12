@@ -119,17 +119,23 @@
 ;; ============================================================
 
 (defn- fm-data
-  "Prepare Fourier-Motzkin data for each variable."
+  "Prepare Fourier-Motzkin data for each variable (mirror lean4 fourierMotzkinData).
+   Classify each constraint by `(constraint.scale coeff_i)`: if the scaled constraint has a
+   lower bound it bounds var i from below; an upper bound bounds it from above. A constraint
+   can contribute to BOTH (interval/equality). Stores the SIGNED coefficient `c` so the
+   elimination combo a*f + (-b)*g cancels var i regardless of sign — this is what makes
+   positivized (mixed lower/upper) constraints classify and eliminate correctly."
   [problem]
   (let [n (:num-vars problem)]
-    (reduce (fn [data [key fact]]
+    (reduce (fn [data [_key fact]]
               (reduce (fn [d i]
                         (let [c (get (:coeffs fact) i 0)]
                           (if (zero? c)
                             (update-in d [i :irrelevant] conj fact)
-                            (if (pos? c)
-                              (update-in d [i :lower] conj [fact c])
-                              (update-in d [i :upper] conj [fact (-' c)])))))
+                            (let [scaled (p/constraint-scale c (:constraint fact))]
+                              (cond-> d
+                                (some? (:lower scaled)) (update-in [i :lower] conj [fact c])
+                                (some? (:upper scaled)) (update-in [i :upper] conj [fact c]))))))
                       data (range n)))
             (vec (for [i (range n)]
                    {:var i :irrelevant [] :lower [] :upper []}))
@@ -155,17 +161,21 @@
             base (reduce p/add-constraint
                          (assoc problem :constraints {} :equalities #{})
                          irrelevant)]
-        (reduce (fn [p [lb-fact lb-coeff]]
-                  (reduce (fn [p [ub-fact ub-coeff]]
-                            (let [new-coeffs (vec (map-indexed
+        ;; lean4 fourierMotzkin: for (f,b) in lower, (g,a) in upper: addConstraint (Fact.combo a f (-b) g).tidy
+        ;; b,a are the SIGNED coeffs of var i in f,g. The combo a*f + (-b)*g cancels var i
+        ;; (a*b + (-b)*a = 0). Constraint/justification use the same a and (-b).
+        (reduce (fn [p [lb-fact b]]
+                  (reduce (fn [p [ub-fact a]]
+                            (let [nb (-' b)
+                                  new-coeffs (vec (map-indexed
                                                    (fn [idx _]
-                                                     (+' (*' ub-coeff (get (:coeffs lb-fact) idx 0))
-                                                         (*' lb-coeff (get (:coeffs ub-fact) idx 0))))
+                                                     (+' (*' a (get (:coeffs lb-fact) idx 0))
+                                                         (*' nb (get (:coeffs ub-fact) idx 0))))
                                                    (range (:num-vars problem))))
-                                  new-s (p/constraint-combo ub-coeff (:constraint lb-fact)
-                                                            lb-coeff (:constraint ub-fact))
-                                  new-j (p/justification-combo ub-coeff (:justification lb-fact)
-                                                               lb-coeff (:justification ub-fact)
+                                  new-s (p/constraint-combo a (:constraint lb-fact)
+                                                            nb (:constraint ub-fact))
+                                  new-j (p/justification-combo a (:justification lb-fact)
+                                                               nb (:justification ub-fact)
                                                                new-s new-coeffs)
                                   combined (p/mk-fact new-coeffs new-s new-j)]
                               (p/add-constraint p (p/tidy-fact combined))))

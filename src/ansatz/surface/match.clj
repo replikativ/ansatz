@@ -180,6 +180,69 @@
                         (= ctor-name (:ctor-name pat))))))
            alts))
 
+(defn- est-infer
+  "Infer the type of expr, using the est's mvar-aware infer-fn when present (the
+   fvar elaborator supplies one so terms still mentioning unsolved/solved mvars are
+   typed correctly); falls back to the plain kernel inferType (bvar path has no mvars)."
+  [est expr]
+  (if-let [f (:infer-fn est)]
+    (f est expr)
+    (tc/infer-type (:tc est) expr)))
+
+;; Structural-recursion auto-detection (Lean FindRecArg, restricted): the name of the function
+;; currently being elaborated + its parameter fvar-ids (positional), so a NATURAL recursive call
+;; (isort tl) / (add k n) can stand in for the recursor's IH. Bound by define-verified (nil
+;; elsewhere — proofs etc.); the self-call resolves to a tmp axiom during elaboration and is
+;; rewritten to the field's IH here.
+(def ^:dynamic *self-name* nil)
+(def ^:dynamic *self-params* nil)   ;; vector of the function's parameter fvar-ids, in order
+
+(defn- collect-spine
+  "Decompose an application into [head [arg0 arg1 …]]."
+  [expr]
+  (loop [e expr args ()]
+    (if (= :app (e/tag e))
+      (recur (e/app-fn e) (cons (e/app-arg e) args))
+      [e (vec args)])))
+
+(defn- replace-self-ih
+  "Rewrite a structural self-call to the recursor's IH throughout expr. A self-call qualifies when
+   it is the FULLY-applied self-name with exactly one argument a bare recursive-field fvar (the
+   structurally-smaller arg) and every OTHER argument the corresponding unchanged parameter fvar —
+   i.e. (add k n) with k the recursive field of m and n the second parameter → the field's IH (which
+   the motive carries the other params through). Single- and multi-parameter; partial applications and
+   calls that change another argument are left as the axiom → check-constant rejects (→ the user adds
+   :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids is the
+   positional parameter fvar-ids."
+  [expr self-name field->ih param-ids]
+  (let [rec (fn rec [e] (replace-self-ih e self-name field->ih param-ids))
+        self-call-ih
+        (fn [args]   ;; → IH fvar when args form a clean structural self-call, else nil
+          (when (and param-ids (= (count args) (count param-ids)))
+            (let [rec-pos (keep-indexed (fn [j a] (when (and (= :fvar (e/tag a))
+                                                             (contains? field->ih (e/fvar-id a))) j))
+                                        args)]
+              (when (= 1 (count rec-pos))
+                (let [jr (first rec-pos)]
+                  (when (every? (fn [j] (or (= j jr)
+                                            (and (= :fvar (e/tag (nth args j)))
+                                                 (= (e/fvar-id (nth args j)) (nth param-ids j)))))
+                                (range (count args)))
+                    (e/fvar (get field->ih (e/fvar-id (nth args jr))))))))))]
+    (if (= :app (e/tag expr))
+      (let [[head args] (collect-spine expr)]
+        (if (and (= :const (e/tag head)) (= (e/const-name head) self-name))
+          (or (self-call-ih args)
+              ;; not a clean structural self-call — recurse into the args (leaves head as axiom)
+              (reduce e/app head (map rec args)))
+          (e/app (rec (e/app-fn expr)) (rec (e/app-arg expr)))))
+      (case (e/tag expr)
+        :lam    (e/lam (e/lam-name expr) (rec (e/lam-type expr)) (rec (e/lam-body expr)) (e/lam-info expr))
+        :forall (e/forall' (e/forall-name expr) (rec (e/forall-type expr)) (rec (e/forall-body expr)) (e/forall-info expr))
+        :let    (e/let' (e/let-name expr) (rec (e/let-type expr)) (rec (e/let-value expr)) (rec (e/let-body expr)))
+        :proj   (e/proj (e/proj-type-name expr) (e/proj-idx expr) (rec (e/proj-struct expr)))
+        expr))))
+
 (defn- build-minor-premise
   "Build a minor premise lambda for one constructor.
 
@@ -319,13 +382,37 @@
               matching-alts)
         ;; Elaborate the RHS, handling nested patterns
         rhs-body
-        (if has-nested-ctors?
-          ;; Build nested alts from ALL matching alternatives
-          (compile-match-inner est' env elab-fn
-                               field-fvar-ids field-fvars
-                               matching-alts nfields)
-          ;; Simple case: just elaborate the first alt's RHS
-          (elab-fn est' (:rhs-sexpr first-alt)))
+        ;; Branch RHSs elaborate with the structural self-rewrite DISABLED: a nested match's
+        ;; IH is the fold of that inner match, NOT the function being defined — rewriting a
+        ;; self-call to it silently changes the semantics (e.g. nested-match div2 became n-1).
+        ;; Self-calls inside branches stay as the axiom; the TOP-level match's post-pass below
+        ;; rewrites the legitimate `(self <field>)` calls, and anything else routes to the
+        ;; well-founded path (auto-measure / sizeOf), which is semantics-faithful.
+        (binding [*self-name* nil *self-params* nil]
+          (if has-nested-ctors?
+            ;; Build nested alts from ALL matching alternatives
+            (compile-match-inner est' env elab-fn
+                                 field-fvar-ids field-fvars
+                                 matching-alts nfields)
+            ;; Simple case: just elaborate the first alt's RHS
+            (elab-fn est' (:rhs-sexpr first-alt))))
+        ;; Structural-recursion auto-detect: rewrite (self <bare recursive field>) → that field's
+        ;; IH, so a natural recursive call stands in for ih_<field> (Lean's surface affordance).
+        ;; No-op unless a self-name is in scope (define-verified) and this ctor has recursive fields.
+        rhs-body (if (and *self-name* (seq early-rec-indices))
+                   (replace-self-ih rhs-body *self-name*
+                                    (into {} (map-indexed
+                                              (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
+                                              early-rec-indices))
+                                    *self-params*)
+                   rhs-body)
+        ;; Best-effort: unify the branch's inferred type with the expected ret-type
+        ;; (the motive). For a non-dependent motive (no loose bvar) this resolves
+        ;; under-determined branches like a bare `nil` (List ?α =?= List Nat ⇒ α := Nat)
+        ;; without affecting determined branches; failures are ignored (caught later).
+        _ (when-let [uf (:unify-fn est')]
+            (when-not (e/has-loose-bvars? ret-type)
+              (try (uf est' (est-infer est' rhs-body) ret-type) (catch Throwable _ nil))))
         ;; Replace discriminant variable with constructor application.
         ;; When the match body references the original parameter (e.g., `l` in
         ;; `(cons x l)`), the elaborated RHS has fvar_l. But the recursor's iota
@@ -464,40 +551,43 @@
         rec-levels (into [motive-level] ind-levels)
         ;; Determine return type by finding a simple alt and elaborating its RHS
         ret-type-info
-        (let [simple-alt (or (first (filter #(= :var (:tag (:pattern %))) alts))
-                             (first (filter #(= :wildcard (:tag (:pattern %))) alts)))]
-          (if simple-alt
+        (if-let [drt (:declared-ret-type est)]
+          ;; The explicit (a/defn) match form carries the user-declared ret-type; use it as
+          ;; the motive rather than inferring (lets under-determined branches like a bare nil
+          ;; resolve — see the branch unify in build-minor-premise).
+          {:ret-type drt}
+          (let [simple-alt (or (first (filter #(= :var (:tag (:pattern %))) alts))
+                               (first (filter #(= :wildcard (:tag (:pattern %))) alts)))]
+            (if simple-alt
             ;; Elaborate the simple alt's RHS to determine return type
-            (let [rhs-expr (elab-fn est (:rhs-sexpr simple-alt))
-                  tc (:tc est)
-                  rhs-type (tc/infer-type tc rhs-expr)]
-              {:ret-type rhs-type :sample-rhs rhs-expr})
+              (let [rhs-expr (elab-fn est (:rhs-sexpr simple-alt))
+                    rhs-type (est-infer est rhs-expr)]
+                {:ret-type rhs-type :sample-rhs rhs-expr})
             ;; No simple alt — use first ctor alt, elaborate its RHS
             ;; with fields in scope
-            (let [alt (first alts)
-                  pat (:pattern alt)
-                  ctor-name (:ctor-name pat)
-                  field-info (get-ctor-fields env ctor-name ind-levels params)
+              (let [alt (first alts)
+                    pat (:pattern alt)
+                    ctor-name (:ctor-name pat)
+                    field-info (get-ctor-fields env ctor-name ind-levels params)
                   ;; Create temp fvars for fields
-                  temp-est est
-                  temp-est (reduce
-                            (fn [est fi]
-                              (let [fid (swap! (:next-id est) inc)
-                                    ft (:type fi)
-                                    sub-pat (get (:args pat) (.indexOf field-info fi))]
-                                (cond-> est
-                                  (and sub-pat (= :var (:tag sub-pat)))
-                                  (assoc-in [:scope (:name sub-pat)]
-                                            {:fvar-id fid :type ft})
-                                  true
-                                  (update :tc update :lctx
-                                          red/lctx-add-local fid (:name fi) ft))))
-                            temp-est
-                            field-info)
-                  rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
-                  tc (:tc temp-est)
-                  rhs-type (tc/infer-type tc rhs-expr)]
-              {:ret-type rhs-type})))
+                    temp-est est
+                    temp-est (reduce
+                              (fn [est fi]
+                                (let [fid (swap! (:next-id est) inc)
+                                      ft (:type fi)
+                                      sub-pat (get (:args pat) (.indexOf field-info fi))]
+                                  (cond-> est
+                                    (and sub-pat (= :var (:tag sub-pat)))
+                                    (assoc-in [:scope (:name sub-pat)]
+                                              {:fvar-id fid :type ft})
+                                    true
+                                    (update :tc update :lctx
+                                            red/lctx-add-local fid (:name fi) ft))))
+                              temp-est
+                              field-info)
+                    rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
+                    rhs-type (est-infer temp-est rhs-expr)]
+                {:ret-type rhs-type}))))
         ret-type (:ret-type ret-type-info)
         ;; Build the motive: λ (x : IndType params) => ret-type
         ind-applied (reduce e/app (e/const' ind-name ind-levels) params)
@@ -549,10 +639,27 @@
   (let [env (:env est)
         discr-expr (elab-fn est discr-sexpr)
         tc (:tc est)
-        discr-type (tc/infer-type tc discr-expr)
+        discr-type (est-infer est discr-expr)
         discr-type-whnf (#'tc/cached-whnf tc discr-type)
+        ;; Qualify bare constructor names against the (inferred) inductive, so e.g.
+        ;; `nil`/`(cons h t)` resolve to List.nil/List.cons — lets the a/defn explicit
+        ;; match form desugar to plain patterns (one inferring compiler for both).
+        [th _] (e/get-app-fn-args discr-type-whnf)
+        ind-str (when (e/const? th) (name/->string (e/const-name th)))
+        qual (fn [s] (if (and ind-str (symbol? s) (not (.contains (str s) ".")))
+                       (let [q (str ind-str "." s)]
+                         (if (resolve-as-ctor env q) (symbol q) s))
+                       s))
+        nil-sym (symbol "nil")  ;; '(quote nil) reads as the VALUE nil, not a symbol
+        qualify (fn [pat]
+                  (cond
+                    ;; Clojure reads the List.nil short name as the value nil, not a symbol.
+                    (nil? pat) (qual nil-sym)
+                    (symbol? pat) (qual pat)
+                    (and (sequential? pat) (seq pat)) (cons (qual (or (first pat) nil-sym)) (rest pat))
+                    :else pat))
         alts (mapv (fn [[pat-sexpr rhs-sexpr]]
-                     {:pattern (parse-pattern env pat-sexpr)
+                     {:pattern (parse-pattern env (qualify pat-sexpr))
                       :rhs-sexpr rhs-sexpr})
                    alt-sexprs)]
     (compile-match-term est env elab-fn discr-expr discr-type-whnf alts)))

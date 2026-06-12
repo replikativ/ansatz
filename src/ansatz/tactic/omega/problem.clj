@@ -14,7 +14,7 @@
    - Problem: the full constraint system with assumptions and disjunctions
 
    The Justification tags form the contract between solver and proof extraction:
-   :assumption, :tidy, :combine, :combo, :bmod, :trivial-zero")
+   :assumption, :tidy, :negate, :normalize, :combine, :combo, :bmod")
 
 ;; ============================================================
 ;; Safe arithmetic (auto-promoting to avoid overflow)
@@ -160,17 +160,26 @@
             (nil? (:upper b)) (:upper a)
             :else (min (:upper a) (:upper b)))})
 
+(defn constraint-negate
+  "neg c (Constraint.neg = flip then negate): {lower l, upper u} -> {lower -u, upper -l}."
+  [{:keys [lower upper]}]
+  {:lower (when upper (-' upper))
+   :upper (when lower (-' lower))})
+
+(defn constraint-scale
+  "Scale a constraint by integer k (Constraint.scale). k>0 keeps bounds; k<0 flips
+   lower<->upper (and negates); k=0 collapses to the point {0,0} (or trivial if no bounds)."
+  [k {:keys [lower upper]}]
+  (let [sb (fn [b] (when b (*' k b)))]
+    (cond
+      (pos? k) {:lower (sb lower) :upper (sb upper)}
+      (neg? k) {:lower (sb upper) :upper (sb lower)}
+      :else    {:lower (when (or lower upper) 0) :upper (when (or lower upper) 0)})))
+
 (defn constraint-combo
   "Linear combination of constraints: a*s + b*t."
   [a s b t]
-  (let [scale-bound (fn [k bound]
-                      (when bound (*' k bound)))
-        scale-constraint (fn [k {:keys [lower upper]}]
-                           (if (pos? k)
-                             {:lower (scale-bound k lower)
-                              :upper (scale-bound k upper)}
-                             {:lower (scale-bound k upper)
-                              :upper (scale-bound k lower)}))]
+  (let [scale-constraint constraint-scale]
     (let [sa (scale-constraint a s)
           sb (scale-constraint b t)]
       {:lower (when (and (:lower sa) (:lower sb))
@@ -188,7 +197,8 @@
 ;;   :combine   — intersection of two same-coeffs constraints
 ;;   :combo     — linear combination of two different-coeffs constraints
 ;;   :bmod      — balanced mod for hard equality solving
-;;   :trivial-zero — zero-coefficients with impossible constraint
+;;   :negate    — positivize (negate coeffs + flip constraint, Constraint.neg_sat)
+;;   :normalize — gcd=0 all-zero-coeff → Constraint.impossible (normalize_sat)
 
 (defn justification-assumption
   "Derived from assumption i with constraint s and coeffs x."
@@ -219,6 +229,22 @@
    :left-constraint (:constraint j) :left-coeffs (:coeffs j)
    :right-constraint (:constraint k) :right-coeffs (:coeffs k)
    :constraint combined-s :coeffs combined-x})
+
+(defn justification-negate
+  "Positivize: negate coeffs (x -> -x) and flip+negate the constraint (s -> neg s).
+   j proves s.sat' x v; result proves (neg s).sat' (neg x) v.
+   Reconstructed via Constraint.neg_sat + IntList.dot_neg_left."
+  [j new-s new-x]
+  {:tag :negate :inner j :constraint new-s :coeffs new-x})
+
+(defn justification-normalize
+  "gcd=0 normalization (lean4 normalize? zero-gcd case): an all-zero-coefficient constraint
+   that is unsatisfiable at 0 maps to Constraint.impossible. j proves s.sat' x v; result
+   proves (normalizeConstraint s x).sat' (normalizeCoeffs s x) v — which reduces to
+   impossible.sat' — reconstructed via Lean.Omega.normalize_sat. Replaces the old :trivial-zero
+   (no dot_of_left_zero / decidableBAll needed: not_sat'_of_isImpossible discharges any coeffs)."
+  [j]
+  {:tag :normalize :inner j})
 
 (defn justification-bmod
   "Bmod of a justification for hard equality solving.
@@ -263,8 +289,20 @@
    Uses floor division (matching Lean's Int.div) for constraint bounds."
   [{:keys [coeffs constraint justification] :as fact}]
   (let [g (gcd-list coeffs)]
-    (if (<= g 1)
-      fact
+    (cond
+      ;; gcd=0 ⟺ all coefficients zero (lean4 normalize? zero-gcd case): the constraint is
+      ;; `lower ≤ 0 ≤ upper`. If unsatisfiable at 0 → Constraint.impossible ({1,0}); the
+      ;; :normalize justification reconstructs via normalize_sat and the impossibility is
+      ;; discharged by not_sat'_of_isImpossible (no dot_of_left_zero). If satisfiable at 0 →
+      ;; trivial (dropped by add-constraint). This replaces the :trivial-zero special case.
+      (zero? g)
+      (if (or (and (:lower constraint) (pos? (:lower constraint)))
+              (and (:upper constraint) (neg? (:upper constraint))))
+        (mk-fact coeffs {:lower 1 :upper 0} (justification-normalize justification))
+        (mk-fact coeffs (constraint-trivial) justification))
+
+      (<= g 1) fact
+      :else
       (let [new-coeffs (mapv #(quot % g) coeffs)
             floor-div (fn [a b]
                         (let [q (quot a b)
@@ -277,6 +315,23 @@
                                      (floor-div (long u) (long g)))}
             new-j (justification-tidy justification new-constraint new-coeffs)]
         (mk-fact new-coeffs new-constraint new-j)))))
+
+(defn positivize-fact
+  "Mirror lean4 positivizeConstraint: if the leading (first non-zero) coefficient is
+   negative, negate the coeffs and flip+negate the constraint so the leading coeff is
+   positive. This lets opposite-sign bounds on the SAME variable share a coeffs-key and
+   COMBINE into an isImpossible constraint (caught at insertion) — instead of being
+   Fourier-Motzkin-combo'd into a zero-coefficient one-sided constraint that would need a
+   synthetic `dot zeros v = 0` fact (`:trivial-zero` / `dot_of_left_zero`). No-op when the
+   leading coeff is already non-negative. Records a :negate justification (Constraint.neg_sat)."
+  [{:keys [coeffs constraint] :as fact}]
+  (let [lead (some (fn [c] (when-not (zero? c) c)) coeffs)]
+    (if (and lead (neg? lead))
+      (let [neg-coeffs (mapv -' coeffs)
+            neg-constraint (constraint-negate constraint)]
+        (mk-fact neg-coeffs neg-constraint
+                 (justification-negate (:justification fact) neg-constraint neg-coeffs)))
+      fact)))
 
 ;; ============================================================
 ;; Coefficients utilities
@@ -340,18 +395,9 @@
                          :constraint constraint
                          :coeffs coeffs})
 
-    ;; Zero coefficients with one-sided constraint unsatisfied at 0
-    (and (all-zero-coeffs? coeffs)
-         (constraint-unsat-at-zero? constraint))
-    (let [trivial-s (constraint-exact 0)
-          trivial-j {:tag :trivial-zero :constraint trivial-s :coeffs coeffs}
-          combined-s (constraint-combine constraint trivial-s)
-          combined-j (justification-combine justification trivial-j combined-s)]
-      (assoc problem
-             :possible false
-             :proof-false {:justification combined-j
-                           :constraint combined-s
-                           :coeffs coeffs}))
+    ;; (All-zero-coefficient unsatisfiable constraints are normalized to Constraint.impossible
+    ;; by tidy-fact's gcd=0 branch before reaching here, so they hit the case above. No
+    ;; :trivial-zero special case — matches lean4, which folds this into normalize.)
 
     :else
     (let [key (coeffs-key coeffs)]
@@ -363,11 +409,15 @@
             (update :equalities conj key))))))
 
 (defn add-constraint
-  "Add a constraint, combining with existing constraint for same coefficients."
-  [problem {:keys [coeffs constraint justification] :as fact}]
+  "Add a constraint, combining with existing constraint for same coefficients.
+   Positivizes the incoming fact first (mirror lean4) so opposite-sign bounds on the same
+   variable share a coeffs-key and COMBINE — applied here (not only at assumption time) so
+   Fourier-Motzkin-derived facts are normalized consistently too."
+  [problem fact]
   (if-not (:possible problem)
     problem
-    (let [key (coeffs-key coeffs)]
+    (let [{:keys [coeffs constraint justification] :as fact} (positivize-fact fact)
+          key (coeffs-key coeffs)]
       (if-let [existing (get-in problem [:constraints key])]
         (let [combined (constraint-combine constraint (:constraint existing))]
           (if (= combined (:constraint existing))
