@@ -280,10 +280,10 @@
         (eval '(ansatz.core/defn ^Nat ex-ack [^Nat m ^Nat n]
                  :termination-by [m n]
                  (match m Nat Nat
-                   (zero (+ n 1))
-                   (succ [k] (match n Nat Nat
-                               (zero (ex-ack k 1))
-                               (succ [j] (ex-ack k (ex-ack (Nat.succ k) j)))))))))
+                        (zero (+ n 1))
+                        (succ [k] (match n Nat Nat
+                                         (zero (ex-ack k 1))
+                                         (succ [j] (ex-ack k (ex-ack (Nat.succ k) j)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-ack"))]
         (is (some? ci) "Ackermann defined with lexicographic :termination-by [m n]")
         ;; uses the GENERAL WellFounded.fix (not the Nat fast path)
@@ -334,19 +334,19 @@
         (eval '(ansatz.core/defn ^Nat ex-pairs [^{:- (List Nat)} xs]
                  :termination-by (sizeOf xs)
                  (match xs (List Nat) Nat
-                   (nil 0)
-                   (cons [h t] (match t (List Nat) Nat
-                                 (nil 0)
-                                 (cons [h2 t2] (+ 1 (ex-pairs t2)))))))))
+                        (nil 0)
+                        (cons [h t] (match t (List Nat) Nat
+                                           (nil 0)
+                                           (cons [h2 t2] (+ 1 (ex-pairs t2)))))))))
       ;; auto-guessed (no annotation) — routes through the WF path, NOT the structural
       ;; rewrite (which is only sound when the match is the entire function body)
       (when-not (env/lookup (a/env) (name/from-string "ex-pairs-au"))
         (eval '(ansatz.core/defn ^Nat ex-pairs-au [^{:- (List Nat)} xs]
                  (match xs (List Nat) Nat
-                   (nil 0)
-                   (cons [h t] (match t (List Nat) Nat
-                                 (nil 0)
-                                 (cons [h2 t2] (+ 1 (ex-pairs-au t2)))))))))
+                        (nil 0)
+                        (cons [h t] (match t (List Nat) Nat
+                                           (nil 0)
+                                           (cons [h2 t2] (+ 1 (ex-pairs-au t2)))))))))
       ;; unannotated nested-match div2 over Nat — the canonical correctness regression
       (when-not (env/lookup (a/env) (name/from-string "ex-div2-au"))
         (eval '(ansatz.core/defn ^Nat ex-div2-au [^Nat n]
@@ -381,10 +381,10 @@
       (when-not (env/lookup (a/env) (name/from-string "ex-cpairs"))
         (eval '(ansatz.core/defn ^Nat ex-cpairs [^ExL xs]
                  (match xs ExL Nat
-                   (enil 0)
-                   (econs [h t] (match t ExL Nat
-                                  (enil 0)
-                                  (econs [h2 t2] (+ 1 (ex-cpairs t2)))))))))
+                        (enil 0)
+                        (econs [h t] (match t ExL Nat
+                                            (enil 0)
+                                            (econs [h2 t2] (+ 1 (ex-cpairs t2)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-cpairs"))]
         (is (some? ci) "non-structural recursion over the custom type auto-verified")
         (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
@@ -410,8 +410,8 @@
         (eval '(ansatz.core/defn ^Nat ex-lexloop [^Nat n]
                  (loop [a n b n]
                    (match a Nat Nat
-                     (zero (match b Nat Nat (zero 0) (succ [j] (+ 1 (recur a j)))))
-                     (succ [i] (+ 1 (recur i n))))))))
+                          (zero (match b Nat Nat (zero 0) (succ [j] (+ 1 (recur a j)))))
+                          (succ [i] (+ 1 (recur i n))))))))
       (is (some? (env/lookup (a/env) (name/from-string "ex-lexloop"))) "lex loop verified")
       (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
             run1 (fn [f k] (e/->string (.whnf r (e/app (e/const' (name/from-string f) []) (e/lit-nat k)))))]
@@ -426,10 +426,10 @@
         (eval '(ansatz.core/defn ^Nat ex-lex3 [^Nat a ^Nat b ^Nat c]
                  :termination-by [a b c]
                  (match a Nat Nat
-                   (zero (match b Nat Nat
-                           (zero (match c Nat Nat (zero 0) (succ [k] (+ 1 (ex-lex3 0 0 k)))))
-                           (succ [j] (+ 1 (ex-lex3 0 j (+ c 2))))))
-                   (succ [i] (+ 1 (ex-lex3 i (+ b 2) (+ c 2))))))))
+                        (zero (match b Nat Nat
+                                     (zero (match c Nat Nat (zero 0) (succ [k] (+ 1 (ex-lex3 0 0 k)))))
+                                     (succ [j] (+ 1 (ex-lex3 0 j (+ c 2))))))
+                        (succ [i] (+ 1 (ex-lex3 i (+ b 2) (+ c 2))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-lex3"))]
         (is (some? ci) "3-arg 3-tuple lex function defined")
         ;; lower components may INCREASE when a higher one drops — only lex can verify this
@@ -446,10 +446,10 @@
       (when-not (env/lookup (a/env) (name/from-string "ex-ack-auto"))
         (eval '(ansatz.core/defn ^Nat ex-ack-auto [^Nat m ^Nat n]
                  (match m Nat Nat
-                   (zero (+ n 1))
-                   (succ [k] (match n Nat Nat
-                               (zero (ex-ack-auto k 1))
-                               (succ [j] (ex-ack-auto k (ex-ack-auto (Nat.succ k) j)))))))))
+                        (zero (+ n 1))
+                        (succ [k] (match n Nat Nat
+                                         (zero (ex-ack-auto k 1))
+                                         (succ [j] (ex-ack-auto k (ex-ack-auto (Nat.succ k) j)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-ack-auto"))]
         (is (some? ci) "unannotated Ackermann auto-verified via the guessed lex measure")
         (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))]

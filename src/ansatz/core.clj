@@ -1377,10 +1377,10 @@
   (let [L1 (lvl/succ lvl/zero)
         ltfn (e/lam "n1" wf-fix-NAT (e/lam "n2" wf-fix-NAT (wf-fix-mk-lt (e/bvar 1) (e/bvar 0)) :default) :default)]
     (e/forall' "y" dom-ty
-      (e/forall' "_"
-        (e/app* (e/const' (name/from-string "InvImage") [L1 L1]) (e/lift dom-ty 1 0) wf-fix-NAT ltfn measure-lam
-                (e/bvar 0) (e/lift xref 1 0))
-        (e/lift ret 2 0) :default) :default)))
+               (e/forall' "_"
+                          (e/app* (e/const' (name/from-string "InvImage") [L1 L1]) (e/lift dom-ty 1 0) wf-fix-NAT ltfn measure-lam
+                                  (e/bvar 0) (e/lift xref 1 0))
+                          (e/lift ret 2 0) :default) :default)))
 
 ;; mkLambdaFVars: fvs=[[id name type] …] outer→inner; binder k's type may reference earlier ids.
 (defn- wf-fix-mk-lambdas [fvs body]
@@ -2130,16 +2130,16 @@
                 rel-k (wf-fix-lex-rel k)
                 lexr (fn [a b] (e/app* rel-k a b))
                 rel-lam (e/lam "y" dom-ty
-                          (e/lam "x" (e/lift dom-ty 1 0)
-                            (lexr (e/app tup-lam (e/bvar 1)) (e/app tup-lam (e/bvar 0))) :default) :default)
+                               (e/lam "x" (e/lift dom-ty 1 0)
+                                      (lexr (e/app tup-lam (e/bvar 1)) (e/app tup-lam (e/bvar 0))) :default) :default)
                 wfRel (e/app* (e/const' (name/from-string "invImage") [L1 L1]) dom-ty tup-ty tup-lam
                               (wf-fix-lex-wfrel k))
                 hwf (e/proj (name/from-string "WellFoundedRelation") 1 wfRel)]
             {:ihtype (fn [xref]
                        (e/forall' "y" dom-ty
-                         (e/forall' "_"
-                           (lexr (e/app tup-lam (e/bvar 0)) (e/app tup-lam (e/lift xref 1 0)))
-                           (e/lift ret-ansatz 2 0) :default) :default))
+                                  (e/forall' "_"
+                                             (lexr (e/app tup-lam (e/bvar 0)) (e/app tup-lam (e/lift xref 1 0)))
+                                             (e/lift ret-ansatz 2 0) :default) :default))
              :decr (fn [env2 reducer scope arg P] (wf-fix-decr-proof-lexn env2 reducer scope k tup-lam arg P))
              :fix (fn [ret-level Ffn]
                     (apply e/app* (e/const' (name/from-string "WellFounded.fix") [L1 ret-level])

@@ -82,12 +82,12 @@
   ;; A genuinely non-terminating recursion (n unchanged) has NO decreasing measure, so auto-measure
   ;; fails and the actionable recursion-lane prompt (:termination-by / ^:partial) is given.
   (is (re-find #"termination-by|partial|auto-verify"
-        (try (eval '(ansatz.core/defn ^Nat ci-loop [^Nat n] (if (== n 0) 0 (ci-loop n))))
-             "NO-THROW"
-             (catch Throwable e   ; eval wraps in CompilerException — scan the whole cause chain
-               (->> (iterate #(some-> ^Throwable % .getCause) e)
-                    (take-while some?) (map #(str (.getMessage ^Throwable %)))
-                    (clojure.string/join " ")))))))
+               (try (eval '(ansatz.core/defn ^Nat ci-loop [^Nat n] (if (== n 0) 0 (ci-loop n))))
+                    "NO-THROW"
+                    (catch Throwable e   ; eval wraps in CompilerException — scan the whole cause chain
+                      (->> (iterate #(some-> ^Throwable % .getCause) e)
+                           (take-while some?) (map #(str (.getMessage ^Throwable %)))
+                           (clojure.string/join " ")))))))
 
 (deftest get-record-accessor
   ;; (get rec :field) → keyword projection (a sound record accessor). Full {:keys […]} destructuring

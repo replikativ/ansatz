@@ -556,38 +556,38 @@
           ;; the motive rather than inferring (lets under-determined branches like a bare nil
           ;; resolve — see the branch unify in build-minor-premise).
           {:ret-type drt}
-        (let [simple-alt (or (first (filter #(= :var (:tag (:pattern %))) alts))
-                             (first (filter #(= :wildcard (:tag (:pattern %))) alts)))]
-          (if simple-alt
+          (let [simple-alt (or (first (filter #(= :var (:tag (:pattern %))) alts))
+                               (first (filter #(= :wildcard (:tag (:pattern %))) alts)))]
+            (if simple-alt
             ;; Elaborate the simple alt's RHS to determine return type
-            (let [rhs-expr (elab-fn est (:rhs-sexpr simple-alt))
-                  rhs-type (est-infer est rhs-expr)]
-              {:ret-type rhs-type :sample-rhs rhs-expr})
+              (let [rhs-expr (elab-fn est (:rhs-sexpr simple-alt))
+                    rhs-type (est-infer est rhs-expr)]
+                {:ret-type rhs-type :sample-rhs rhs-expr})
             ;; No simple alt — use first ctor alt, elaborate its RHS
             ;; with fields in scope
-            (let [alt (first alts)
-                  pat (:pattern alt)
-                  ctor-name (:ctor-name pat)
-                  field-info (get-ctor-fields env ctor-name ind-levels params)
+              (let [alt (first alts)
+                    pat (:pattern alt)
+                    ctor-name (:ctor-name pat)
+                    field-info (get-ctor-fields env ctor-name ind-levels params)
                   ;; Create temp fvars for fields
-                  temp-est est
-                  temp-est (reduce
-                            (fn [est fi]
-                              (let [fid (swap! (:next-id est) inc)
-                                    ft (:type fi)
-                                    sub-pat (get (:args pat) (.indexOf field-info fi))]
-                                (cond-> est
-                                  (and sub-pat (= :var (:tag sub-pat)))
-                                  (assoc-in [:scope (:name sub-pat)]
-                                            {:fvar-id fid :type ft})
-                                  true
-                                  (update :tc update :lctx
-                                          red/lctx-add-local fid (:name fi) ft))))
-                            temp-est
-                            field-info)
-                  rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
-                  rhs-type (est-infer temp-est rhs-expr)]
-              {:ret-type rhs-type}))))
+                    temp-est est
+                    temp-est (reduce
+                              (fn [est fi]
+                                (let [fid (swap! (:next-id est) inc)
+                                      ft (:type fi)
+                                      sub-pat (get (:args pat) (.indexOf field-info fi))]
+                                  (cond-> est
+                                    (and sub-pat (= :var (:tag sub-pat)))
+                                    (assoc-in [:scope (:name sub-pat)]
+                                              {:fvar-id fid :type ft})
+                                    true
+                                    (update :tc update :lctx
+                                            red/lctx-add-local fid (:name fi) ft))))
+                              temp-est
+                              field-info)
+                    rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
+                    rhs-type (est-infer temp-est rhs-expr)]
+                {:ret-type rhs-type}))))
         ret-type (:ret-type ret-type-info)
         ;; Build the motive: λ (x : IndType params) => ret-type
         ind-applied (reduce e/app (e/const' ind-name ind-levels) params)
