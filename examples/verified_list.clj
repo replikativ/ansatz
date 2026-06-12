@@ -1,5 +1,5 @@
 (require '[ansatz.core :as a])
-(a/init! "/var/tmp/ansatz-cslib" "cslib")
+(a/init! "cslib")
 
 (println "\n========================================================")
 (println "  Verified List Library — Kernel-Checked Clojure")

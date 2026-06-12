@@ -107,8 +107,23 @@
 (def no-expand-macros ingest/no-expand-macros)
 (def expand-macro? ingest/expand-macro?)
 
+(declare init!*)
+
 (clojure.core/defn init!
-  "Load Ansatz environment from LMDB store and build instance index."
+  "Load Ansatz environment from LMDB store and build instance index.
+   1-arity: a store NAME (\"cslib\", \"mathlib\") resolved via ansatz.store —
+   the durable data-root ($ANSATZ_STORE_DIR → $XDG_DATA_HOME/ansatz/stores →
+   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>."
+  ([store-name]
+   (let [path (or ((requiring-resolve 'ansatz.store/resolve-existing) store-name)
+                  (throw (ex-info (str "No store named '" store-name "' found. Run "
+                                       "./scripts/setup-" (name store-name) ".sh to build it.")
+                                  {:store store-name})))]
+     (init! path (name store-name))))
+  ([store-path branch]
+   (init!* store-path branch)))
+
+(clojure.core/defn- init!*
   [store-path branch]
   (let [sm (storage/open-store store-path)
         env (storage/load-env sm branch)]

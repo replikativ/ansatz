@@ -1,5 +1,5 @@
 (require '[ansatz.core :as a])
-(a/init! "/var/tmp/ansatz-cslib" "cslib")
+(a/init! "cslib")   ;; resolved from the durable store root (legacy /var/tmp found too)
 
 (println "\n╔═══════════════════════════════════════════════════════════╗")
 (println "║  Kernel-Verified Sorting — Merge Sort on Lists           ║")
@@ -11,12 +11,13 @@
 ;; ============================================================
 ;; Well-founded recursion with compound measure:
 ;;   termination_by length(xs) + length(ys)
-;; Each recursive call reduces at least one list, so the sum decreases.
+;; Each recursive call reduces at least one list, so the sizeOf sum decreases.
+;; (Unannotated also works: the lexicographic sizeOf measure is guessed automatically.)
 
 (println "━━━ 1. Verified Merge ━━━\n")
 
 (a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
-  :termination-by (+ (List.length xs) (List.length ys))
+  :termination-by (+ (sizeOf xs) (sizeOf ys))
   (match xs (List Nat) (List Nat)
     (nil ys)
     (cons [x xs']

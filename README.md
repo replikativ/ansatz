@@ -8,15 +8,45 @@
 
 Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to ordinary Clojure/JVM code.
 
+If you already write [malli](https://github.com/metosin/malli)-instrumented Clojure, Ansatz is the gradual next step: your `m/=>` schemas become kernel type signatures, your functions become machine-checked, and they still run as ordinary Clojure.
+
 **Same kernel, different surface.** Ansatz shares Lean 4's CIC kernel — a proof verified in Ansatz is valid in Lean 4 and vice versa. Proofs can be [exported to Lean 4](doc/lean4-for-clojurians.md) syntax. The difference is the surface language: Lean 4 uses its own syntax; Ansatz uses Clojure s-expressions and runs on the JVM. See **[Lean 4 for Clojurians](doc/lean4-for-clojurians.md)** for the full comparison, translation guide, and learning path.
 
 ```clojure
-(require '[ansatz.core :as a])
-(a/init! "/var/tmp/ansatz-cslib" "cslib")
+(require '[ansatz.core :as a] '[malli.core :as m])
+(a/load-init!)   ;; zero-config: the Lean Init environment bundled in the jar
 
-;; Verified merge sort — kernel-checked, compiles to Clojure
-(a/defn ^{:- (List Nat)} merge [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
-  :termination-by (+ (List.length xs) (List.length ys))
+;; The gradual on-ramp: keep your malli schema, change defn → a/defn.
+;; The schema becomes the kernel type; the function is machine-checked and
+;; still compiles to an ordinary Clojure fn.
+(m/=> add2 [:=> [:cat :int :int] :int])
+(a/defn add2 [x y]
+  (match x Nat Nat (zero y) (succ [k] (+ 1 (add2 k y)))))
+(add2 20 22) ;; => 42
+
+;; [:map …] schemas become named-field records: keyword access is kernel-verified,
+;; runtime values stay plain Clojure maps
+(m/=> dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
+(a/defn dot [p] (+ (:x p) (:y p)))
+(dot {:x 2 :y 3}) ;; => 5
+
+;; refinements: an [:int {:min 1}] param carries its bound as a Prop in the kernel
+;; type (a Subtype) — and is still used directly as a number in the body
+(m/=> pred [:=> [:cat [:int {:min 1}]] :int])
+(a/defn pred [n] (- n 1))
+
+;; the differential check: compiled runtime ≡ kernel evaluation on schema-generated
+;; inputs — catches elaboration bugs that are well-typed but unfaithful to the source
+(require '[ansatz.malli :as am])
+(am/check-verified! 'my.ns 'add2 :runs 25) ;; => {:runs 25 :ok 25}
+```
+
+Beyond schemas, full CIC types — here is verified merge, where the kernel *proves
+termination* (a lexicographic `sizeOf` measure, guessed automatically and embedded
+in the kernel term):
+
+```clojure
+(a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   (match xs (List Nat) (List Nat)
     (nil ys)
     (cons [x xs']
@@ -26,6 +56,8 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
           (if (<= x y)
             (cons x (merge xs' (cons y ys')))
             (cons y (merge (cons x xs') ys'))))))))
+;; explicit spellings also work:
+;;   :termination-by (+ (sizeOf xs) (sizeOf ys))   or   [(sizeOf xs) (sizeOf ys)]
 
 ;; Run it — it's a normal Clojure function
 (merge '(1 3 5) '(2 4 6)) ;; => (1 2 3 4 5 6)
@@ -47,13 +79,13 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 
 ;; Pattern matching with recursion — the kernel checks termination
 ;; ih_left and ih_right are induction hypotheses (recursive results)
-(a/defn rb-size [t (RBTree Nat)] Nat
+(a/defn rb-size [t :- (RBTree Nat)] Nat
   (match t (RBTree Nat) Nat
     (leaf 0)
     (node [color left key right] (+ 1 (+ ih_left ih_right)))))
 
 ;; Nested match for BST lookup — references outer param k
-(a/defn ^Bool rb-member [^{:- (RBTree Nat)} t ^Nat k]
+(a/defn rb-member [t :- (RBTree Nat), k :- Nat] Bool
   (match t (RBTree Nat) Bool
     (leaf false)
     (node [color left key right]
@@ -63,8 +95,15 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
                  (true true)              ;; found it
                  (false ih_right)))))))   ;; recurse into right subtree
 
+;; A verified constant (constructors are ordinary constants in term position)
+(a/defn tree [] (RBTree Nat)
+  (RBTree.node Nat RBColor.black
+    (RBTree.node Nat RBColor.red (RBTree.leaf Nat) 2 (RBTree.leaf Nat))
+    4
+    (RBTree.node Nat RBColor.red (RBTree.leaf Nat) 6 (RBTree.leaf Nat))))
+
 ;; All verified functions compile to ordinary Clojure and run on the JVM
-(rb-size tree)           ;; => 10
+(rb-size tree)           ;; => 3
 (rb-member tree 4)       ;; => true
 (rb-member tree 42)      ;; => false
 ```
@@ -84,6 +123,9 @@ Ansatz is a verified programming library for Clojure built on the [Calculus of I
 (a/theorem left-le-size [c :- RBColor, l :- (RBTree Nat), k :- Nat, r :- (RBTree Nat)]
   (<= Nat (rb-size l) (+ 1 (+ (rb-size l) (rb-size r))))
   (omega))
+
+;; The following proofs use definitions from examples/ (llen, lmap, Sorted,
+;; insertSorted, balance1, ValidRB — see verified_list.clj, sorting.clj, rbtree.clj).
 
 ;; Induction + grind: the standard pattern for list properties.
 ;; (induction l) splits into two goals:
@@ -157,9 +199,9 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 ## Features
 
 - **Verified functions** — define functions with CIC types, prove properties, run at JVM speed
+- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature. Collections→`List`; `[:map [:x :int] …]`→a synthesized named-field record (keyword access `(:x p)` elaborates to kernel projections, runtime values stay plain Clojure maps); `[:int {:min k}]`→`Subtype` refinements whose params are still usable directly as numbers (references auto-coerce to `.val`, the refinement stays in the binder for proofs). `ansatz.malli/check-verified!` adds a generative differential check — schema-generated inputs run through both the compiled runtime and the kernel evaluator and must agree, guarding the well-typed-but-unfaithful elaboration bug class the kernel can't see. malli loads lazily; core has no hard dependency
 - **Grind tactic** — automated reasoning via persistent E-graph with congruence closure, propositional propagators (And/Or/Not/Eq/ite), E-matching for lemma instantiation, constructor injection/discrimination, and theory solver integration
 - **Kernel-enforced termination** — every recursive definition carries its termination proof in the kernel term: structural recursion, `:termination-by` measures (scalar, **lexicographic** `[m n]` — Ackermann verifies, `(sizeOf xs)` over data structures), automatic measure guessing, and `loop`/`recur`; non-terminating definitions are rejected with actionable errors (`^:partial` is the explicit trusted escape)
-- **Malli schemas as signatures (optional)** — the gradual-typing on-ramp: keep your `(m/=> f [:=> [:cat :int :int] :int])` declarations and change `defn` to `a/defn`; the schema becomes the kernel signature. Collections→`List`; `[:map [:x :int] …]`→a synthesized named-field record (keyword access `(:x p)` elaborates to kernel projections, runtime values stay plain Clojure maps); `[:int {:min k}]`→`Subtype` refinements whose params are still usable directly as numbers (references auto-coerce to `.val`, the refinement stays in the binder for proofs). `ansatz.malli/check-verified!` adds a generative differential check — schema-generated inputs run through both the compiled runtime and the kernel evaluator and must agree, guarding the well-typed-but-unfaithful elaboration bug class the kernel can't see. malli loads lazily; core has no hard dependency
 - **One lean4-shaped elaborator** — fvar/metavar elaboration with implicit + universe inference for bodies, signatures, measures, theorem statements, and tactic arguments; Clojure macros (`->`, `when`, `and`/`or`, yours) expand by default and compose
 - **Structures** — `a/structure` compiles to `defrecord` with keyword access and pretty-printing
 - **Generic types** — implicit type parameter inference via auto-elaborate (polymorphic constructors work without explicit type annotations)
@@ -198,15 +240,18 @@ Ansatz needs a store of Lean 4 Mathlib declarations. There's a one-command setup
 
 This clones `lean4export` and `mathlib4` (if not present), exports Mathlib to NDJSON
 with `mdata` preserved,
-generates the instance registry, and imports into an Ansatz store at `/var/tmp/ansatz-mathlib`.
-Takes ~20 minutes on first run.
+generates the instance registry, and imports into an Ansatz store under the durable
+store root (`$ANSATZ_STORE_DIR` → `$XDG_DATA_HOME/ansatz/stores` → `~/.local/share/ansatz/stores`;
+pass an explicit directory as the first argument to override). Takes ~20 minutes on first run.
+Avoid `/tmp`/`/var/tmp` for stores — `systemd-tmpfiles` erodes them; pre-existing legacy
+stores at `/var/tmp/ansatz-<name>` are still found automatically when loading.
 
 To re-check an imported store through the kernel:
 
 ```bash
 clj -M -e '
 (require (quote [ansatz.export.storage :as s]))
-(let [store (s/open-store "/var/tmp/ansatz-mathlib")]
+(let [store (s/open-store ((requiring-resolve (quote ansatz.store/resolve-existing)) "mathlib"))]
   (try
     (prn (s/verify-from-store! store "mathlib"
                                :verbose? true
@@ -246,7 +291,7 @@ cp instances.tsv ../ansatz/resources/instances.tsv
 cd ../ansatz
 clj -M -e '
 (require (quote [ansatz.export.storage :as s]))
-(def store (s/open-store "/var/tmp/ansatz-mathlib"))
+(def store (s/open-store ((requiring-resolve (quote ansatz.store/store-dir)) "mathlib")))
 (s/import-ndjson-streaming! store "test-data/mathlib.ndjson" "mathlib" :verbose? true)
 '
 ```
@@ -259,7 +304,8 @@ clj -M -e '
 ./scripts/setup-cslib.sh
 ```
 
-This imports CSLib (including its Mathlib dependency) into a store at `/var/tmp/ansatz-cslib`.
+This imports CSLib (including its Mathlib dependency) into a store named `cslib` under the
+durable store root (see above).
 
 **Using init-medium for quick testing (no Lean needed)**
 
@@ -278,8 +324,10 @@ in the repo and sufficient for basic proofs on Nat. No Mathlib setup required:
 ```clojure
 (require '[ansatz.core :as a])
 
-;; Load Mathlib environment
-(a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+;; Load the Mathlib environment by store name — resolved from the durable store
+;; root, falling back to legacy /var/tmp/ansatz-mathlib if that is where it lives.
+;; (An explicit path still works: (a/init! "/path/to/store" "mathlib").)
+(a/init! "mathlib")
 
 ;; Define and prove
 (a/defn ^Nat double [^Nat n] (+ n n))
@@ -323,8 +371,14 @@ Type                         ;; types
 ### Definitions
 
 ```clojure
-;; Verified function (structural recursion)
-(a/defn ^ReturnType name [^{:- Type} param ...] body)   ; types are metadata, ReturnType on the name
+;; Binder syntax: ONE grammar, three spellings. parse-params reads the vector as
+;; name/type pairs; `:-` separators are optional sugar over the pairs; metadata
+;; types are the third skin and keep the vector a plain Clojure binding vector
+;; (this is what the malli on-ramp generates). Pick one and stay consistent —
+;; this README uses the `:-` spelling with the return type after the vector.
+(a/defn add [x :- Nat, y :- Nat] Nat body)   ;; recommended (matches a/theorem binders)
+(a/defn add [x Nat, y Nat] Nat body)         ;; bare pairs — same grammar, no separators
+(a/defn ^Nat add [^Nat x ^Nat y] body)       ;; metadata types, return type on the name
 
 ;; Well-founded recursion — the decrease proof is kernel-checked, not trusted
 (a/defn ^Nat fact [^Nat n]
@@ -394,7 +448,7 @@ Type                         ;; types
 
 ;; Induction hypotheses are auto-generated for recursive fields:
 ;;   ih_left, ih_right (named after fields), or ih0, ih1
-(a/defn size [t (MyList Nat)] Nat
+(a/defn size [t :- (MyList Nat)] Nat
   (match t (MyList Nat) Nat
     (nil 0)
     (cons [head tail] (+ 1 ih_tail))))
@@ -480,15 +534,14 @@ Ansatz provides three extension points, following Lean 4's metaprogramming model
 ### Custom Elaboration Forms (Lean 4's `elab_rules`)
 
 ```clojure
-;; Register a custom syntax form that elaborates to kernel Expr
+;; lean4 macro_rules-shaped: the registered fn maps the argument FORMS to a
+;; replacement surface form; the elaborator then elaborates the result — so
+;; extensions compose with every other surface feature (types, matches, macros).
 (a/register-elaborator! 'double
-  (fn [env scope depth args lctx]
-    (let [x (ansatz.core/sexp->ansatz env scope depth (first args) lctx)]
-      ;; Build: x + x
-      ...)))
+  (fn [args] (list '+ (first args) (first args))))
 
 ;; Use in definitions:
-(a/defn ^Nat f [^Nat n] (double n))
+(a/defn ^Nat f [^Nat n] (double n))   ;; (f 5) => 10
 ```
 
 ### Custom Simprocs (Lean 4's `@[simproc]`)

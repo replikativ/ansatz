@@ -17,7 +17,7 @@ By the end you'll understand:
 (a/init! "test-data/init-medium.ndjson")
 
 ;; Or with full Mathlib (648k theorems):
-;; (a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+;; (a/init! "mathlib")
 ```
 
 ## 1. Your First Verified Function
