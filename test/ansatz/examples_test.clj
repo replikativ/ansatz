@@ -1057,3 +1057,56 @@
                         (apply sub_nonneg_of_le) (assumption)
                         (apply sub_le_self) (apply mul_nonneg) (assumption) (assumption)])
      (is true))))
+
+(deftest test-wf-merge-two-list-lex
+  (testing "merge-style two-list recursion (the README headline): packed SIZED domains
+            (lean4 PackDomain over the actual param types) admit sizeOf measures for n>=2 —
+            explicit sum, explicit lex tuple, and the unannotated parameter-order GuessLex
+            tuple all kernel-verify; runtime agrees"
+    (binding [a/*verbose* false]
+      ;; unannotated: GuessLex proposes [(sizeOf xs) (sizeOf ys)]
+      (when-not (env/lookup (a/env) (name/from-string "ex-merge-au"))
+        (eval '(ansatz.core/defn ^{:- (List Nat)} ex-merge-au [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
+                 (match xs (List Nat) (List Nat)
+                        (nil ys)
+                        (cons [x xs2]
+                              (match ys (List Nat) (List Nat)
+                                     (nil (cons x xs2))
+                                     (cons [y ys2]
+                                           (if (<= x y)
+                                             (cons x (ex-merge-au xs2 (cons y ys2)))
+                                             (cons y (ex-merge-au (cons x xs2) ys2))))))))))
+      ;; explicit sizeOf sum
+      (when-not (env/lookup (a/env) (name/from-string "ex-merge-sum"))
+        (eval '(ansatz.core/defn ^{:- (List Nat)} ex-merge-sum [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
+                 :termination-by (+ (sizeOf xs) (sizeOf ys))
+                 (match xs (List Nat) (List Nat)
+                        (nil ys)
+                        (cons [x xs2]
+                              (match ys (List Nat) (List Nat)
+                                     (nil (cons x xs2))
+                                     (cons [y ys2]
+                                           (if (<= x y)
+                                             (cons x (ex-merge-sum xs2 (cons y ys2)))
+                                             (cons y (ex-merge-sum (cons x xs2) ys2))))))))))
+      ;; explicit lexicographic sizeOf tuple
+      (when-not (env/lookup (a/env) (name/from-string "ex-merge-lex"))
+        (eval '(ansatz.core/defn ^{:- (List Nat)} ex-merge-lex [^{:- (List Nat)} xs ^{:- (List Nat)} ys]
+                 :termination-by [(sizeOf xs) (sizeOf ys)]
+                 (match xs (List Nat) (List Nat)
+                        (nil ys)
+                        (cons [x xs2]
+                              (match ys (List Nat) (List Nat)
+                                     (nil (cons x xs2))
+                                     (cons [y ys2]
+                                           (if (<= x y)
+                                             (cons x (ex-merge-lex xs2 (cons y ys2)))
+                                             (cons y (ex-merge-lex (cons x xs2) ys2))))))))))
+      (doseq [f ["ex-merge-au" "ex-merge-sum" "ex-merge-lex"]]
+        (is (some? (env/lookup (a/env) (name/from-string f))) (str f " kernel-verified")))
+      (doseq [f '[ex-merge-au ex-merge-sum ex-merge-lex]]
+        (is (= '(1 2 3 4 5 6)
+               ((deref (resolve f)) '(1 4 5) '(2 3 6)))
+            (str f " runtime merges correctly"))
+        (is (= '(1 2) ((deref (resolve f)) '() '(1 2))) (str f " nil-left"))
+        (is (= '(1) ((deref (resolve f)) '(1) '())) (str f " nil-right"))))))
