@@ -3117,8 +3117,25 @@
    Well-founded recursion: put  :termination-by <measure>  before the body."
   [fn-name params & more]
   (let [meta?    (metadata-params? params)
-        ret-type (if meta? (binder-type fn-name) (first more))
-        body-and-opts (if meta? more (rest more))
+        ;; Gradual-typing surface: a PLAIN parameter vector (bare symbols, no ^Type metadata,
+        ;; no :- forms, no return annotation) consults the malli function-schema registry —
+        ;; (m/=> foo [:=> [:cat …] …]) or ^{:malli/schema …} on the name — so ordinary
+        ;; instrumented Clojure ports by changing `defn` to `a/defn` with schemas unchanged.
+        ;; ansatz.malli loads lazily; without malli on the classpath this probe is a no-op
+        ;; (requiring-resolve at the optionality seam). A registered-but-untranslatable
+        ;; schema THROWS honestly rather than lifting approximately.
+        msig     (when (and (vector? params) (seq params) (every? symbol? params)
+                            (not meta?) (nil? (binder-type fn-name)))
+                   (try (when-let [f (requiring-resolve 'ansatz.malli/signature-for)]
+                          (f (ns-name *ns*) fn-name (count params)))
+                        (catch java.io.FileNotFoundException _ nil)))
+        params   (if msig
+                   (vec (mapcat (fn [p t] [p :- t]) params (:param-types msig)))
+                   params)
+        ret-type (cond meta? (binder-type fn-name)
+                       msig  (:ret-type msig)
+                       :else (first more))
+        body-and-opts (if (or meta? msig) more (rest more))
         [opts body] (if (= :termination-by (first body-and-opts))
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
                       [{} (first body-and-opts)])
