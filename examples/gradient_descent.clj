@@ -1,5 +1,5 @@
 (require '[ansatz.core :as a])
-(a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+(a/init! "mathlib")
 
 (println "\n╔═══════════════════════════════════════════════════════════╗")
 (println "║  Gradient Descent — Verified Convergence Rate            ║")

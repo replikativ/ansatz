@@ -107,8 +107,23 @@
 (def no-expand-macros ingest/no-expand-macros)
 (def expand-macro? ingest/expand-macro?)
 
+(declare init!*)
+
 (clojure.core/defn init!
-  "Load Ansatz environment from LMDB store and build instance index."
+  "Load Ansatz environment from LMDB store and build instance index.
+   1-arity: a store NAME (\"cslib\", \"mathlib\") resolved via ansatz.store —
+   the durable data-root ($ANSATZ_STORE_DIR → $XDG_DATA_HOME/ansatz/stores →
+   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>."
+  ([store-name]
+   (let [path (or ((requiring-resolve 'ansatz.store/resolve-existing) store-name)
+                  (throw (ex-info (str "No store named '" store-name "' found. Run "
+                                       "./scripts/setup-" (name store-name) ".sh to build it.")
+                                  {:store store-name})))]
+     (init! path (name store-name))))
+  ([store-path branch]
+   (init!* store-path branch)))
+
+(clojure.core/defn- init!*
   [store-path branch]
   (let [sm (storage/open-store store-path)
         env (storage/load-env sm branch)]
@@ -1351,16 +1366,25 @@
                 (wf-candidate-measures pairs))
           (some (fn [mv] (when (passes? prove-decrease-lex mv) mv))
                 (wf-candidate-lex-measures pairs))
-          ;; data-typed params: (sizeOf p), unvetted here — the surface gate cannot relate
-          ;; sizeOf-atoms through discriminant equalities; the encoder's embedded kernel
-          ;; proofs accept or reject the guess
-          (when (= 1 (count pairs))
-            (let [[p t _] (first pairs)]
-              (when (and (not= t 'Nat)
-                         (or (and (seq? t) (= 'List (first t)))
-                             (and (symbol? t)
-                                  (env/lookup @ansatz-env (name/mk-str (name/from-string (str t)) "_sizeOf_inst")))))
-                (list 'sizeOf p))))))))
+          ;; data-typed params: sizeOf measures, unvetted here — the surface gate cannot
+          ;; relate sizeOf-atoms through discriminant equalities; the encoder's embedded
+          ;; kernel proofs accept or reject the guess. Single data param → (sizeOf p);
+          ;; multi-param with every param Nat-or-sized → the parameter-order lexicographic
+          ;; tuple (lean4 GuessLex's column order — covers merge-style two-list recursion)
+          (let [sized? (fn [t] (and (not= t 'Nat)
+                                    (or (and (seq? t) (= 'List (first t)))
+                                        (and (symbol? t)
+                                             (env/lookup @ansatz-env
+                                                         (name/mk-str (name/from-string (str t))
+                                                                      "_sizeOf_inst"))))))]
+            (cond
+              (and (= 1 (count pairs)) (sized? (second (first pairs))))
+              (list 'sizeOf (ffirst pairs))
+
+              (and (> (count pairs) 1)
+                   (some (fn [[_ t _]] (sized? t)) pairs)
+                   (every? (fn [[_ t _]] (or (= t 'Nat) (sized? t))) pairs))
+              (mapv (fn [[p t _]] (if (sized? t) (list 'sizeOf p) p)) pairs)))))))
 
 ;; ── Stage 1b: lean4-faithful WellFounded.Nat.fix encoding (kernel-ENFORCED termination) ──
 ;; Port of lean4 mkFix Nat fast path (Fix.lean) + recursive motive refinement
@@ -1481,45 +1505,58 @@
 ;; ── N-ary packing + N-tuple lex helpers (lean4 mkProdElem right-association, GuessLex.lean:754) ──
 
 ;; right-nested Prod type over k Nat components: Nat × (Nat × (… × Nat)); k=1 → Nat
-(defn- wf-fix-pack-ty [k]
-  (loop [i 1 ty wf-fix-NAT]
-    (if (>= i k) ty
-        (recur (inc i) (e/app* (e/const' (name/from-string "Prod") [lvl/zero lvl/zero]) wf-fix-NAT ty)))))
+;; right-nested Prod of component types (lean4 PackDomain packs the ACTUAL domain types,
+;; PackDomain.lean — non-dependent Type-0 telescopes here, so Prod instead of PSigma).
+;; An integer k still means the Nat^k tuple (lex measure codomains).
+(defn- wf-fix-pack-ty [tys-or-k]
+  (let [tys (if (integer? tys-or-k) (vec (repeat tys-or-k wf-fix-NAT)) (vec tys-or-k))]
+    (loop [i (- (count tys) 2) ty (peek tys)]
+      (if (neg? i) ty
+          (recur (dec i) (e/app* (e/const' (name/from-string "Prod") [lvl/zero lvl/zero])
+                                 (nth tys i) ty))))))
 
-;; right-nested Prod.mk over Nat-valued components: (v1, (v2, (…, vk)))
-(defn- wf-fix-pack-vals [vals]
-  (let [k (count vals)]
-    (loop [i (- k 2) acc (peek (vec vals))]
-      (if (neg? i) acc
-          (recur (dec i)
-                 (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
-                         wf-fix-NAT (wf-fix-pack-ty (- k i 1)) (nth vals i) acc))))))
+;; right-nested Prod.mk: (v1, (v2, (…, vk))); 1-arity = Nat-valued components
+(defn- wf-fix-pack-vals
+  ([vals] (wf-fix-pack-vals (vec (repeat (count vals) wf-fix-NAT)) vals))
+  ([tys vals]
+   (let [k (count vals) tys (vec tys)]
+     (loop [i (- k 2) acc (peek (vec vals))]
+       (if (neg? i) acc
+           (recur (dec i)
+                  (e/app* (e/const' (name/from-string "Prod.mk") [lvl/zero lvl/zero])
+                          (nth tys i) (wf-fix-pack-ty (subvec tys (inc i))) (nth vals i) acc)))))))
 
 ;; nested Prod.rec wrapper: takes body-n with the n params at bvars n-1..0 and returns a term
 ;; with ONE loose bvar 0 (the packed param) that destructures it back into the n binders.
 ;; cod = the motive codomain (closed), cod-lvl its sort level. n=1 → body-n unchanged.
 ;; Built with fvars + wf-fix-mk-lambdas so de Bruijn bookkeeping is automatic; the nested
 ;; wrappers are ordinary refinable recursors for the refinement machinery.
-(defn- wf-fix-wrap-n [n body-n cod cod-lvl]
-  (if (= n 1)
-    body-n
-    (let [L0 lvl/zero
-          xids (vec (repeatedly n wf-fix-fresh))
-          body-f (reduce (fn [b xid] (e/instantiate1 b (e/fvar xid))) body-n (rseq xids))
-          build (fn build [p-expr xs]
-                  (if (= 2 (count xs))
-                    (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) wf-fix-NAT wf-fix-NAT
-                            (e/lam "_p" (wf-fix-pack-ty 2) (e/lift cod 1 0) :default)
-                            (wf-fix-mk-lambdas [[(first xs) "a" wf-fix-NAT] [(second xs) "b" wf-fix-NAT]] body-f)
-                            p-expr)
-                    (let [rest-ty (wf-fix-pack-ty (dec (count xs)))
-                          pid (wf-fix-fresh)]
-                      (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0]) wf-fix-NAT rest-ty
-                              (e/lam "_p" (wf-fix-pack-ty (count xs)) (e/lift cod 1 0) :default)
-                              (wf-fix-mk-lambdas [[(first xs) "a" wf-fix-NAT] [pid "_rest" rest-ty]]
-                                                 (build (e/fvar pid) (rest xs)))
-                              p-expr))))]
-      (build (e/bvar 0) xids))))
+(defn- wf-fix-wrap-n
+  ([n body-n cod cod-lvl] (wf-fix-wrap-n n (vec (repeat n wf-fix-NAT)) body-n cod cod-lvl))
+  ([n tys body-n cod cod-lvl]
+   (if (= n 1)
+     body-n
+     (let [L0 lvl/zero
+           tys (vec tys)
+           xids (vec (repeatedly n wf-fix-fresh))
+           body-f (reduce (fn [b xid] (e/instantiate1 b (e/fvar xid))) body-n (rseq xids))
+           build (fn build [p-expr xs tys]
+                   (if (= 2 (count xs))
+                     (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0])
+                             (nth tys 0) (nth tys 1)
+                             (e/lam "_p" (wf-fix-pack-ty tys) (e/lift cod 1 0) :default)
+                             (wf-fix-mk-lambdas [[(first xs) "a" (nth tys 0)]
+                                                 [(second xs) "b" (nth tys 1)]] body-f)
+                             p-expr)
+                     (let [rest-ty (wf-fix-pack-ty (subvec tys 1))
+                           pid (wf-fix-fresh)]
+                       (e/app* (e/const' (name/from-string "Prod.rec") [cod-lvl L0 L0])
+                               (nth tys 0) rest-ty
+                               (e/lam "_p" (wf-fix-pack-ty tys) (e/lift cod 1 0) :default)
+                               (wf-fix-mk-lambdas [[(first xs) "a" (nth tys 0)] [pid "_rest" rest-ty]]
+                                                  (build (e/fvar pid) (rest xs) (subvec tys 1)))
+                               p-expr))))]
+       (build (e/bvar 0) xids tys)))))
 
 ;; the lexicographic relation over a right-nested k-tuple: Nat.lt for k=1, else
 ;; Prod.Lex Nat.lt (rel for k-1)
@@ -2158,10 +2195,17 @@
                                                 :else false))
                           measure-form))
         sized1? (and (= n 1) (some? (wf-sizeof-inst env (nth param-types 0))))
+        ;; n>=2 over sized (or Nat) domains: pack the ACTUAL param types (lean4 PackDomain) —
+        ;; this is what admits merge-style two-list recursion with a sizeOf sum/lex measure
+        sizedN? (and (> n 1)
+                     (every? (fn [pt] (or (and (e/const? pt)
+                                               (= "Nat" (name/->string (e/const-name pt))))
+                                          (some? (wf-sizeof-inst @ansatz-env pt))))
+                             param-types))
         fix-info
-        (when (or all-nat? sized1?)
+        (when (or all-nat? sized1? sizedN?)
           (try
-            (let [packed-ty (if (= n 1) (nth param-types 0) (wf-fix-pack-ty n))
+            (let [packed-ty (if (= n 1) (nth param-types 0) (wf-fix-pack-ty param-types))
                   tc0 (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
                   rs (.inferType tc0 ret-ansatz)
                   rv (if (e/sort? rs) (e/sort-level rs) L1)
@@ -2169,18 +2213,18 @@
                   ;; n>=2: wrap in nested Prod.rec over the packed param (bvar 0 of the wrapper) —
                   ;; the minors restore the n-param bvar layout, and each nested wrapper is an
                   ;; ordinary refinable recursor for the refinement machinery.
-                  wrapped (wf-fix-wrap-n n raw-body ret-ansatz rv)
-                  pack (fn [args] (wf-fix-pack-vals (vec args)))
+                  wrapped (wf-fix-wrap-n n param-types raw-body ret-ansatz rv)
+                  pack (fn [args] (wf-fix-pack-vals param-types (vec args)))
                   m-lam-of (fn [body] (if (= n 1)
                                         (e/lam (str (first (nth pairs 0))) (nth param-types 0) body :default)
-                                        (e/lam "p" packed-ty (wf-fix-wrap-n n body wf-fix-NAT L1) :default)))
+                                        (e/lam "p" packed-ty (wf-fix-wrap-n n param-types body wf-fix-NAT L1) :default)))
                   relspec (if lex?
                             (let [_ (wf-fix-ensure-lex-prelude!)
                                   k (count lex-measures)
                                   tup-body (wf-fix-pack-vals lex-measures)
                                   tup-lam (if (= n 1)
                                             (e/lam (str (first (nth pairs 0))) (nth param-types 0) tup-body :default)
-                                            (e/lam "p" packed-ty (wf-fix-wrap-n n tup-body (wf-fix-pack-ty k) L1) :default))]
+                                            (e/lam "p" packed-ty (wf-fix-wrap-n n param-types tup-body (wf-fix-pack-ty k) L1) :default))]
                               (mk-lexn-relspec packed-ty tup-lam k))
                             (mk-measure-relspec packed-ty (m-lam-of measure-ansatz)))
                   ;; a prelude load (lex / sizeOf) may have extended the global env during
@@ -2193,9 +2237,10 @@
                   v (if (= n 1)
                       fix-t
                       (loop [i (dec n)
-                             body (e/app fix-t (wf-fix-pack-vals (mapv #(e/bvar (- n 1 %)) (range n))))]
+                             body (e/app fix-t (wf-fix-pack-vals param-types
+                                                                 (mapv #(e/bvar (- n 1 %)) (range n))))]
                         (if (< i 0) body
-                            (recur (dec i) (e/lam (str (first (nth pairs i))) nat-c body :default)))))]
+                            (recur (dec i) (e/lam (str (first (nth pairs i))) (nth param-types i) body :default)))))]
               (env/check-constant env-l (env/mk-def cname [] type-ansatz v))
               {:value v :fix fix-t :eqbody wrapped :packed-ty packed-ty :arity n})
             (catch Throwable t

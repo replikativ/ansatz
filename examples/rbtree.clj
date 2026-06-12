@@ -1,5 +1,5 @@
 (require '[ansatz.core :as a])
-(a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+(a/init! "mathlib")
 
 (println "\n╔═══════════════════════════════════════════════════════════╗")
 (println "║  Red-Black Tree — Verified Types + Pattern Matching      ║")

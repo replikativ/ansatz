@@ -84,9 +84,15 @@
          :commit current-commit
          :file jar-file
          :content-type "application/java-archive"
-         :draft false})
-       (catch ExceptionInfo e
-         (assoc (ex-data e) :failure? true))))
+         :draft false
+         ;; vary the opts per attempt: gh-release-artifact memoizes release-for on its
+         ;; opts map, so without this a failed lookup would be replayed on every retry
+         :nonce (System/currentTimeMillis)})
+       ;; catch Exception, not just ExceptionInfo: gh-release-artifact NPEs when the
+       ;; GitHub list endpoint hasn't caught up with a just-created release (eventual
+       ;; consistency); the backoff retry finds the release and uploads the asset.
+       (catch Exception e
+         (assoc (ex-data e) :failure? true :error (ex-message e)))))
 
 (defn release [_]
   (jar nil)

@@ -19,13 +19,14 @@
 # Usage:
 #   ./scripts/setup-cslib.sh [STORE_DIR]
 #
-# Default STORE_DIR: /var/tmp/ansatz-cslib
+# Default STORE_DIR: the durable ansatz.store data-root (XDG); /var/tmp erodes (systemd-tmpfiles)
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-STORE_DIR="${1:-/var/tmp/ansatz-cslib}"
+DEFAULT_ROOT="${ANSATZ_STORE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ansatz/stores}"
+STORE_DIR="${1:-$DEFAULT_ROOT/cslib}"
 PARENT_DIR="$(dirname "$PROJECT_DIR")"
 
 echo "=== Ansatz CSLib Setup ==="

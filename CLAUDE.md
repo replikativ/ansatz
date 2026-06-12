@@ -31,12 +31,14 @@ Or manually:
 
 ## REPL Workflow (Mathlib)
 
-The full Mathlib store lives in `/var/tmp/ansatz-mathlib` (648,612 declarations).
+The full Mathlib store lives in the durable store root (`~/.local/share/ansatz/stores/mathlib`,
+648,612 declarations); `(a/init! "mathlib")` resolves it there (legacy `/var/tmp/ansatz-mathlib`
+is also found, but /var/tmp erodes — see ansatz.store).
 
 ### Setup
 ```clojure
 (require '[ansatz.core :as a] :reload)
-(a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+(a/init! "mathlib")
 ```
 
 ### Proving theorems
