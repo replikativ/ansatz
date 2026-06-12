@@ -17,6 +17,13 @@
 (defonce ^{:doc "Custom surface-form registry: symbol → (fn [args] surface-form)."}
   elaborator-registry (atom {}))
 
+;; lean4 elab_rules (syntax → TERM, with elaborator access) — for TYPE-DIRECTED forms that
+;; macro_rules (syntax → syntax, above) cannot express: the registered fn receives the live
+;; elaboration state and the argument FORMS and returns a kernel Expr. Extension authors use
+;; the stable helpers in ansatz.surface.api (elab-subterm / arg-type) — not elaborator internals.
+(defonce ^{:doc "Term-elaborator registry: symbol → (fn [est args] → kernel Expr)."}
+  term-elaborator-registry (atom {}))
+
 ;; ── Macroexpand-by-default policy ───────────────────────────────────────────────────────
 (defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified
    name. Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's

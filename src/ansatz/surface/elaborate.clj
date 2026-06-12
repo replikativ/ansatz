@@ -601,73 +601,76 @@
 
     (seq? sexpr)
     (let [head (first sexpr)]
-      ;; user-registered surface forms (lean4 macro_rules-shaped: the registered fn maps the
-      ;; argument FORMS to a replacement surface form, which re-elaborates — syntax → syntax,
-      ;; so extensions compose with every surface feature)
-      (if-let [expander (and (symbol? head) (get @ingest/elaborator-registry head))]
-        (elab-term est (expander (rest sexpr)))
-        (case (when (symbol? head) (str head))
-          "forall" (let [[_ binder-vec & body-forms] sexpr]
-                     (when (not= 1 (count body-forms))
-                       (elab-error! "forall expects one body" {:forms body-forms}))
-                     (elab-forall est binder-vec (first body-forms)))
+      ;; user-registered surface forms. Term elaborators first (lean4 elab_rules-shaped:
+      ;; syntax → kernel Expr with elaborator access, for type-directed forms), then
+      ;; macro elaborators (lean4 macro_rules-shaped: syntax → syntax, which re-elaborates) —
+      ;; both compose with every surface feature.
+      (if-let [telab (and (symbol? head) (get @ingest/term-elaborator-registry head))]
+        (telab est (vec (rest sexpr)))
+        (if-let [expander (and (symbol? head) (get @ingest/elaborator-registry head))]
+          (elab-term est (expander (rest sexpr)))
+          (case (when (symbol? head) (str head))
+            "forall" (let [[_ binder-vec & body-forms] sexpr]
+                       (when (not= 1 (count body-forms))
+                         (elab-error! "forall expects one body" {:forms body-forms}))
+                       (elab-forall est binder-vec (first body-forms)))
 
-          "lam"    (let [[_ binder-vec & body-forms] sexpr]
-                     (when (not= 1 (count body-forms))
-                       (elab-error! "lam expects one body" {:forms body-forms}))
-                     (elab-lam est binder-vec (first body-forms)))
+            "lam"    (let [[_ binder-vec & body-forms] sexpr]
+                       (when (not= 1 (count body-forms))
+                         (elab-error! "lam expects one body" {:forms body-forms}))
+                       (elab-lam est binder-vec (first body-forms)))
 
-          "arrow"  (let [[_ a b] sexpr
-                         a-expr (elab-term est a)
-                         b-expr (elab-term est b)]
-                     (e/arrow a-expr b-expr))
+            "arrow"  (let [[_ a b] sexpr
+                           a-expr (elab-term est a)
+                           b-expr (elab-term est b)]
+                       (e/arrow a-expr b-expr))
 
-          "Sort"   (let [[_ level-form] sexpr
-                         level (cond
-                                 (integer? level-form) (lvl/from-nat level-form)
-                                 (= 'zero level-form) lvl/zero
-                                 :else (elab-error! (str "Unsupported Sort level: " level-form)
-                                                    {:level level-form}))]
-                     (e/sort' level))
+            "Sort"   (let [[_ level-form] sexpr
+                           level (cond
+                                   (integer? level-form) (lvl/from-nat level-form)
+                                   (= 'zero level-form) lvl/zero
+                                   :else (elab-error! (str "Unsupported Sort level: " level-form)
+                                                      {:level level-form}))]
+                       (e/sort' level))
 
-          "let"    (let [[_ binder-vec & body-forms] sexpr
-                         toks (remove #(contains? #{":" ":-" "=" ","} (str %)) binder-vec)]
+            "let"    (let [[_ binder-vec & body-forms] sexpr
+                           toks (remove #(contains? #{":" ":-" "=" ","} (str %)) binder-vec)]
                    ;; ansatz typed surface let is a single [name type value] (3 tokens);
                    ;; Clojure's let (name/value pairs) is a macro → expand to let*.
-                     (if (and (= 3 (count toks)) (= 1 (count body-forms)))
-                       (elab-let est binder-vec (first body-forms))
-                       (elab-term est (macroexpand-1 sexpr))))
+                       (if (and (= 3 (count toks)) (= 1 (count body-forms)))
+                         (elab-let est binder-vec (first body-forms))
+                         (elab-term est (macroexpand-1 sexpr))))
 
-          "app"    (let [[_ f a] sexpr]
-                     (e/app (elab-term est f) (elab-term est a)))
+            "app"    (let [[_ f a] sexpr]
+                       (e/app (elab-term est f) (elab-term est a)))
 
         ;; Two surface forms funnel to the one inferring compiler (compile-match):
         ;;  - inferring (proofs):    (match discr [pat rhs] …)            — vector alts
         ;;  - explicit (a/defn):     (match scrut type ret (ctor [fields] body) …)
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
-          "match"  (let [args (vec (rest sexpr))
-                         est* (assoc est :infer-fn infer-with-mvars :unify-fn unify!)]
-                     (if (vector? (get args 1))
-                       (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
+            "match"  (let [args (vec (rest sexpr))
+                           est* (assoc est :infer-fn infer-with-mvars :unify-fn unify!)]
+                       (if (vector? (get args 1))
+                         (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
                      ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the
                      ;; declared ret-type as the motive — it's the type-directed hint that lets
                      ;; under-determined branches (e.g. a bare `nil`) resolve their element type.
-                       (let [scrut (first args)
-                             declared-ret (try (elab-term est (nth args 2)) (catch Throwable _ nil))
-                             alts (mapv (fn [c]
-                                          (let [ctor (first c)
-                                                has-fields (and (> (count c) 2) (vector? (second c)))
-                                                fields (if has-fields (second c) [])
-                                                body (if has-fields (nth c 2) (second c))]
-                                            [(if (seq fields) (cons ctor (seq fields)) ctor) body]))
-                                        (drop 3 args))]
-                         (match/compile-match (cond-> est* declared-ret
-                                                      (assoc :declared-ret-type declared-ret))
-                                              elab-term scrut alts))))
+                         (let [scrut (first args)
+                               declared-ret (try (elab-term est (nth args 2)) (catch Throwable _ nil))
+                               alts (mapv (fn [c]
+                                            (let [ctor (first c)
+                                                  has-fields (and (> (count c) 2) (vector? (second c)))
+                                                  fields (if has-fields (second c) [])
+                                                  body (if has-fields (nth c 2) (second c))]
+                                              [(if (seq fields) (cons ctor (seq fields)) ctor) body]))
+                                          (drop 3 args))]
+                           (match/compile-match (cond-> est* declared-ret
+                                                        (assoc :declared-ret-type declared-ret))
+                                                elab-term scrut alts))))
 
-          "=>" (let [[_ a b] sexpr]
-                 (e/arrow (elab-term est a) (elab-term est b)))
+            "=>" (let [[_ a b] sexpr]
+                   (e/arrow (elab-term est a) (elab-term est b)))
 
         ;; Bool if-then-else → Bool.rec. The motive is the then-branch's type,
         ;; inferred directly (fvar context is present — no open/close needed).
@@ -676,216 +679,216 @@
         ;; whose branch binders CARRY the guard. Downstream this is what gives well-founded
         ;; decrease proofs their hypotheses with no special-casing. A non-comparison Bool
         ;; condition (variable, Bool-valued call) stays on Bool.rec.
-          "if" (let [[_ c t e] sexpr
-                     cmp (when (and (seq? c) (symbol? (first c)) (= 3 (count c)))
-                           (case (str (first c))
-                             "==" ["Eq" "Nat.decEq" false]
-                             "<"  ["lt" "Nat.decLt" false]
-                             ">"  ["lt" "Nat.decLt" true]
-                             ("<=" "≤") ["le" "Nat.decLe" false]
-                             (">=" "≥") ["le" "Nat.decLe" true]
-                             nil))]
-                 (if cmp
-                   (let [[prop-head dec-name swap?] cmp
-                         [a b] (if swap? [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)])
-                         prop (if (= prop-head "Eq")
-                                (elab-term est (list 'Eq 'Nat a b))
-                                (elab-term est (list (symbol prop-head) 'Nat a b)))
-                         a* (elab-term est a)
-                         b* (elab-term est b)
-                         inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
-                         then-expr (elab-term est t)
-                         else-expr (elab-term est e)
-                         ret-type (tc/infer-type (:tc est) (zonk est then-expr))
-                         ret-sort (tc/infer-type (:tc est) ret-type)
-                         u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
-                         not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
-                     (e/app* (e/const' (name/from-string "dite") [u])
-                             ret-type prop inst
-                             (e/lam "h" prop (e/lift then-expr 1 0) :default)
-                             (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
-                   (let [cond-expr (elab-term est c)
-                         then-expr (elab-term est t)
-                         else-expr (elab-term est e)
-                         ret-type (tc/infer-type (:tc est) (zonk est then-expr))]
-                     (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                             (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
-                             else-expr then-expr cond-expr))))
+            "if" (let [[_ c t e] sexpr
+                       cmp (when (and (seq? c) (symbol? (first c)) (= 3 (count c)))
+                             (case (str (first c))
+                               "==" ["Eq" "Nat.decEq" false]
+                               "<"  ["lt" "Nat.decLt" false]
+                               ">"  ["lt" "Nat.decLt" true]
+                               ("<=" "≤") ["le" "Nat.decLe" false]
+                               (">=" "≥") ["le" "Nat.decLe" true]
+                               nil))]
+                   (if cmp
+                     (let [[prop-head dec-name swap?] cmp
+                           [a b] (if swap? [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)])
+                           prop (if (= prop-head "Eq")
+                                  (elab-term est (list 'Eq 'Nat a b))
+                                  (elab-term est (list (symbol prop-head) 'Nat a b)))
+                           a* (elab-term est a)
+                           b* (elab-term est b)
+                           inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
+                           then-expr (elab-term est t)
+                           else-expr (elab-term est e)
+                           ret-type (tc/infer-type (:tc est) (zonk est then-expr))
+                           ret-sort (tc/infer-type (:tc est) ret-type)
+                           u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
+                           not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
+                       (e/app* (e/const' (name/from-string "dite") [u])
+                               ret-type prop inst
+                               (e/lam "h" prop (e/lift then-expr 1 0) :default)
+                               (e/lam "h" not-prop (e/lift else-expr 1 0) :default)))
+                     (let [cond-expr (elab-term est c)
+                           then-expr (elab-term est t)
+                           else-expr (elab-term est e)
+                           ret-type (tc/infer-type (:tc est) (zonk est then-expr))]
+                       (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                               (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
+                               else-expr then-expr cond-expr))))
 
         ;; Prop-valued comparisons over an explicit type: (le T a b) / (lt T a b)
         ;; → LE.le.{?u} T ?inst a b — the instance + level resolve via synthesis.
-          ("le" "lt") (let [[_ T a b] sexpr
-                            cn  (if (= (str head) "le") "LE.le" "LT.lt")
-                            icn (if (= (str head) "le") "LE" "LT")
-                            T'  (elab-term est T)
-                            a'  (elab-term est a)
-                            b'  (elab-term est b)
+            ("le" "lt") (let [[_ T a b] sexpr
+                              cn  (if (= (str head) "le") "LE.le" "LT.lt")
+                              icn (if (= (str head) "le") "LE" "LT")
+                              T'  (elab-term est T)
+                              a'  (elab-term est a)
+                              b'  (elab-term est b)
                           ;; EAGER level: a mid-elaboration infer (e.g. as the argument of Not)
                           ;; cannot apply a const carrying an unsolved level-mvar. T's sort is
                           ;; concrete in practice (Nat/Int/custom : Sort 1 → u = 0); fall back
                           ;; to a level mvar only when it isn't.
-                            Ts  (try (zonk est (infer-with-mvars est T')) (catch Exception _ nil))
-                            u   (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
-                                  (lvl/succ-pred (e/sort-level Ts))
-                                  (fresh-level-mvar! est))
-                            inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T'))
-                            _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)]
-                        (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
+                              Ts  (try (zonk est (infer-with-mvars est T')) (catch Exception _ nil))
+                              u   (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
+                                    (lvl/succ-pred (e/sort-level Ts))
+                                    (fresh-level-mvar! est))
+                              inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T'))
+                              _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)]
+                          (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
 
         ;; (= T a b) → Eq T a b (the theorem-statement equality form)
-          "="
-          (if (= 4 (count sexpr))
-            (elab-term est (list 'Eq (nth sexpr 1) (nth sexpr 2) (nth sexpr 3)))
-            (elab-error! "= expects (= Type lhs rhs)" {:form sexpr}))
+            "="
+            (if (= 4 (count sexpr))
+              (elab-term est (list 'Eq (nth sexpr 1) (nth sexpr 2) (nth sexpr 3)))
+              (elab-error! "= expects (= Type lhs rhs)" {:form sexpr}))
 
         ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool (Nat.b*).
-          ("<" "==" "<=" ">" ">=" "≤" "≥")
-          (let [hs (str head)]
-            (if (= 4 (count sexpr))
-              (let [[_ T a b] sexpr]
-                (if (= hs "==")
-                  (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
-                  (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
-                        rel (case hs ("<" ">") "lt" "le")]
-                    (elab-term est (list (symbol rel) T a* b*)))))
-              (let [[op a b] (case hs
-                               "<"  ["Nat.blt" (nth sexpr 1) (nth sexpr 2)]
-                               "==" ["Nat.beq" (nth sexpr 1) (nth sexpr 2)]
-                               ("<=" "≤") ["Nat.ble" (nth sexpr 1) (nth sexpr 2)]
-                               (">") ["Nat.blt" (nth sexpr 2) (nth sexpr 1)]
-                               (">=" "≥") ["Nat.ble" (nth sexpr 2) (nth sexpr 1)])]
-                (e/app* (e/const' (name/from-string op) []) (elab-term est a) (elab-term est b)))))
+            ("<" "==" "<=" ">" ">=" "≤" "≥")
+            (let [hs (str head)]
+              (if (= 4 (count sexpr))
+                (let [[_ T a b] sexpr]
+                  (if (= hs "==")
+                    (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
+                    (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
+                          rel (case hs ("<" ">") "lt" "le")]
+                      (elab-term est (list (symbol rel) T a* b*)))))
+                (let [[op a b] (case hs
+                                 "<"  ["Nat.blt" (nth sexpr 1) (nth sexpr 2)]
+                                 "==" ["Nat.beq" (nth sexpr 1) (nth sexpr 2)]
+                                 ("<=" "≤") ["Nat.ble" (nth sexpr 1) (nth sexpr 2)]
+                                 (">") ["Nat.blt" (nth sexpr 2) (nth sexpr 1)]
+                                 (">=" "≥") ["Nat.ble" (nth sexpr 2) (nth sexpr 1)])]
+                  (e/app* (e/const' (name/from-string op) []) (elab-term est a) (elab-term est b)))))
 
         ;; Dependent if over a Prop condition → dite. The Decidable instance is an
         ;; inst-implicit mvar solved by synthesis (no comparison fallback needed); the
         ;; branch binders (proof of cond / ¬cond) are fvars abstracted back to lambdas.
-          "dif" (let [[_ cond-form then-clause else-clause] sexpr
-                      [tv tbody] then-clause
-                      [ev ebody] else-clause
-                      cond-expr (elab-term est cond-form)
-                      dec-ty (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
-                      inst (fresh-mvar! est dec-ty)
-                      _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)
-                      mk-branch (fn [bv bty body]
-                                  (let [fid (fresh-id! est)
-                                        est' (-> est
-                                                 (assoc-in [:scope bv] {:fvar-id fid :type bty})
-                                                 (update :tc update :lctx red/lctx-add-local fid (str bv) bty))
-                                        be (elab-term est' body)]
-                                    [(e/lam (str bv) bty (e/abstract1 be fid) :default)
-                                     (tc/infer-type (:tc est') (zonk est be))]))
-                      [then-fn ret-type] (mk-branch tv cond-expr tbody)
-                      not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
-                      [else-fn _] (mk-branch ev not-cond ebody)
-                      ret-sort (tc/infer-type (:tc est) (zonk est ret-type))
-                      u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))]
-                  (e/app* (e/const' (name/from-string "dite") [u])
-                          ret-type cond-expr inst then-fn else-fn))
+            "dif" (let [[_ cond-form then-clause else-clause] sexpr
+                        [tv tbody] then-clause
+                        [ev ebody] else-clause
+                        cond-expr (elab-term est cond-form)
+                        dec-ty (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
+                        inst (fresh-mvar! est dec-ty)
+                        _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)
+                        mk-branch (fn [bv bty body]
+                                    (let [fid (fresh-id! est)
+                                          est' (-> est
+                                                   (assoc-in [:scope bv] {:fvar-id fid :type bty})
+                                                   (update :tc update :lctx red/lctx-add-local fid (str bv) bty))
+                                          be (elab-term est' body)]
+                                      [(e/lam (str bv) bty (e/abstract1 be fid) :default)
+                                       (tc/infer-type (:tc est') (zonk est be))]))
+                        [then-fn ret-type] (mk-branch tv cond-expr tbody)
+                        not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
+                        [else-fn _] (mk-branch ev not-cond ebody)
+                        ret-sort (tc/infer-type (:tc est) (zonk est ret-type))
+                        u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))]
+                    (e/app* (e/const' (name/from-string "dite") [u])
+                            ret-type cond-expr inst then-fn else-fn))
 
         ;; Type-directed arithmetic: infer the first operand's type head and pick the matching
         ;; kernel op from the core-lift table (Nat.add / Int.add / …), defaulting to Nat when
         ;; the head isn't listed. Picking the concrete op avoids HAdd's output-param synthesis.
-          ("+" "-" "*")
-          (let [op (str head)]
-            (if (>= (count sexpr) 3)
-              (let [a*    (elab-term est (nth sexpr 1))
-                    tn    (type-head-name est (infer-with-mvars est a*))
-                    const (or (get-in ingest/arith-lift [op tn])
-                              (get-in ingest/arith-lift [op "Nat"]))]
-                (elab-app est (symbol const) (rest sexpr)))
-              (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) (rest sexpr))))
+            ("+" "-" "*")
+            (let [op (str head)]
+              (if (>= (count sexpr) 3)
+                (let [a*    (elab-term est (nth sexpr 1))
+                      tn    (type-head-name est (infer-with-mvars est a*))
+                      const (or (get-in ingest/arith-lift [op tn])
+                                (get-in ingest/arith-lift [op "Nat"]))]
+                  (elab-app est (symbol const) (rest sexpr)))
+                (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) (rest sexpr))))
 
         ;; do → value of the last form (pure setting: earlier forms have no effect).
-          "do" (elab-term est (last sexpr))
+            "do" (elab-term est (last sexpr))
 
         ;; (sizeOf x) → SizeOf.sizeOf T inst x — the WF measure for data-typed params.
         ;; The argument's type is INFERRED (fvar scope carries it); the instance is
         ;; synthesized structurally (Nat, List of sized, derived custom instances).
-          "sizeOf"
-          (let [x* (elab-term est (nth sexpr 1))
-                ty (zonk est (infer-with-mvars est x*))
-                inst (sizeof-inst (:env est) ty)]
-            (when-not inst
-              (elab-error! (str "sizeOf: no SizeOf instance for type " (e/->string ty)) {:form sexpr}))
-            (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)]) ty inst x*))
+            "sizeOf"
+            (let [x* (elab-term est (nth sexpr 1))
+                  ty (zonk est (infer-with-mvars est x*))
+                  inst (sizeof-inst (:env est) ty)]
+              (when-not inst
+                (elab-error! (str "sizeOf: no SizeOf instance for type " (e/->string ty)) {:form sexpr}))
+              (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)]) ty inst x*))
 
         ;; Clojure loop/recur — the common counting-loop shape compiles to Nat.rec (see elab-loop).
-          "loop" (elab-loop est (second sexpr) (last sexpr))
+            "loop" (elab-loop est (second sexpr) (last sexpr))
 
         ;; Clojure fn* (single arity) → lambda. parse-params reads the binders' metadata
         ;; types (^Nat / ^{:- T}); flatten to a [name type …] vec and reuse elab-lam.
-          "fn*" (let [cls (rest sexpr)
-                      cls (if (symbol? (first cls)) (rest cls) cls)  ; skip optional self-name
-                      arities (filter #(and (sequential? %) (vector? (first %))) cls)]
-                  (when (not= 1 (count arities))
-                    (elab-error! "fn: only single-arity lambdas elaborate to kernel terms" {:form sexpr}))
-                  (let [[params & body] (first arities)
-                        body-form (if (> (count body) 1) (cons 'do body) (first body))
-                        pairs (ingest/parse-params params)
-                        binder-vec (vec (mapcat (fn [p] [(first p) (second p)]) pairs))]
-                    (elab-lam est binder-vec body-form)))
+            "fn*" (let [cls (rest sexpr)
+                        cls (if (symbol? (first cls)) (rest cls) cls)  ; skip optional self-name
+                        arities (filter #(and (sequential? %) (vector? (first %))) cls)]
+                    (when (not= 1 (count arities))
+                      (elab-error! "fn: only single-arity lambdas elaborate to kernel terms" {:form sexpr}))
+                    (let [[params & body] (first arities)
+                          body-form (if (> (count body) 1) (cons 'do body) (first body))
+                          pairs (ingest/parse-params params)
+                          binder-vec (vec (mapcat (fn [p] [(first p) (second p)]) pairs))]
+                      (elab-lam est binder-vec body-form)))
 
         ;; cond is NOT macroexpanded (Clojure's :else isn't Bool); desugar natively to
         ;; nested if, with :else/:default/true as the catch-all.
-          "cond" (letfn [(build [cs]
-                           (if (empty? cs)
-                             (elab-error! "cond: no clause matched and no :else" {:form sexpr})
-                             (let [[t e & more] cs]
-                               (if (contains? #{:else :default true} t)
-                                 (elab-term est e)
-                                 (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
-                                         (e/lam "_" (e/const' (name/from-string "Bool") [])
-                                                (tc/infer-type (:tc est) (zonk est (elab-term est e))) :default)
-                                         (build more) (elab-term est e) (elab-term est t))))))]
-                   (build (rest sexpr)))
+            "cond" (letfn [(build [cs]
+                             (if (empty? cs)
+                               (elab-error! "cond: no clause matched and no :else" {:form sexpr})
+                               (let [[t e & more] cs]
+                                 (if (contains? #{:else :default true} t)
+                                   (elab-term est e)
+                                   (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
+                                           (e/lam "_" (e/const' (name/from-string "Bool") [])
+                                                  (tc/infer-type (:tc est) (zonk est (elab-term est e))) :default)
+                                           (build more) (elab-term est e) (elab-term est t))))))]
+                     (build (rest sexpr)))
 
         ;; Clojure let* : [name val name val …] with inferred types → nested let.
-          "let*" (let [[_ bindings & body] sexpr]
-                   (letfn [(build [ps est]
-                             (if (empty? ps)
-                               (elab-term est (if (= 1 (count body)) (first body) (cons 'do body)))
-                               (let [[nm vform] (first ps)
-                                     vexpr (elab-term est vform)
-                                     vtype (tc/infer-type (:tc est) (zonk est vexpr))
-                                     fid (fresh-id! est)
-                                     est' (-> est
-                                              (assoc-in [:scope nm] {:fvar-id fid :type vtype})
-                                              (update :tc update :lctx
-                                                      red/lctx-add-let fid (str nm) vtype vexpr))
-                                     body-expr (build (rest ps) est')]
-                                 (e/let' (str nm) vtype vexpr (e/abstract1 body-expr fid)))))]
-                     (build (partition 2 bindings) est)))
+            "let*" (let [[_ bindings & body] sexpr]
+                     (letfn [(build [ps est]
+                               (if (empty? ps)
+                                 (elab-term est (if (= 1 (count body)) (first body) (cons 'do body)))
+                                 (let [[nm vform] (first ps)
+                                       vexpr (elab-term est vform)
+                                       vtype (tc/infer-type (:tc est) (zonk est vexpr))
+                                       fid (fresh-id! est)
+                                       est' (-> est
+                                                (assoc-in [:scope nm] {:fvar-id fid :type vtype})
+                                                (update :tc update :lctx
+                                                        red/lctx-add-let fid (str nm) vtype vexpr))
+                                       body-expr (build (rest ps) est')]
+                                   (e/let' (str nm) vtype vexpr (e/abstract1 body-expr fid)))))]
+                       (build (partition 2 bindings) est)))
 
         ;; Default: keyword projection / get / cons sugar, then macroexpand any
         ;; clojure macro (cond/->/and/or/…), otherwise application.
-          (cond
+            (cond
           ;; (:malli/schema <form>) — a schema marker from the gradual-typing surface
           ;; (ansatz.malli signature-for): translate to the kernel type. requiring-resolve
           ;; is the optionality seam; the marker only ever appears when malli produced it.
-            (= :malli/schema head)
-            ((requiring-resolve 'ansatz.malli/schema->type-expr) (second sexpr))
+              (= :malli/schema head)
+              ((requiring-resolve 'ansatz.malli/schema->type-expr) (second sexpr))
           ;; (:field struct) → structure projection
-            (keyword? head)
-            (let [field-name (name head)
-                  struct-expr (elab-term est (second sexpr))
-                  struct-type (#'tc/cached-whnf (:tc est) (infer-with-mvars est struct-expr))
-                  [th _] (e/get-app-fn-args struct-type)
-                  tn (when (e/const? th) (name/->string (e/const-name th)))
-                  reg (deref ingest/structure-registry)
-                  sinfo (get reg tn)
-                  fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
-                                                        (:fields sinfo))))]
-              (if fidx
-                (e/proj (name/from-string tn) fidx struct-expr)
-                (elab-error! (str "Unknown structure field: :" field-name)
-                             {:field field-name :type tn})))
+              (keyword? head)
+              (let [field-name (name head)
+                    struct-expr (elab-term est (second sexpr))
+                    struct-type (#'tc/cached-whnf (:tc est) (infer-with-mvars est struct-expr))
+                    [th _] (e/get-app-fn-args struct-type)
+                    tn (when (e/const? th) (name/->string (e/const-name th)))
+                    reg (deref ingest/structure-registry)
+                    sinfo (get reg tn)
+                    fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
+                                                          (:fields sinfo))))]
+                (if fidx
+                  (e/proj (name/from-string tn) fidx struct-expr)
+                  (elab-error! (str "Unknown structure field: :" field-name)
+                               {:field field-name :type tn})))
           ;; (get struct :field) → (:field struct)
-            (= (str head) "get") (elab-term est (list (nth sexpr 2) (nth sexpr 1)))
+              (= (str head) "get") (elab-term est (list (nth sexpr 2) (nth sexpr 1)))
           ;; (cons x xs) → List.cons sugar (element type inferred)
-            (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
-            (and (symbol? head) (ingest/expand-macro? head))
-            (elab-term est (macroexpand-1 sexpr))
-            :else (elab-app est (first sexpr) (rest sexpr))))))
+              (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
+              (and (symbol? head) (ingest/expand-macro? head))
+              (elab-term est (macroexpand-1 sexpr))
+              :else (elab-app est (first sexpr) (rest sexpr)))))))
 
     (vector? sexpr)
     (elab-error! "Unexpected vector in term position" {:form sexpr})
@@ -945,6 +948,22 @@
 ;; ============================================================
 ;; Public API
 ;; ============================================================
+
+;; ── Extension-author API (the stable surface behind ansatz.surface.api) ─────────────────
+;; Term elaborators (ingest/term-elaborator-registry) receive the live elaboration state
+;; `est` and use these — never elaborator internals.
+
+(defn elab-subterm
+  "Elaborate a surface form to a kernel Expr inside a term elaborator. The result may
+   contain unsolved metavariable fvars; they resolve when the enclosing elaboration zonks."
+  [est form]
+  (elab-term est form))
+
+(defn subterm-type
+  "The (whnf'd, zonked) TYPE of an elaborated subterm — for type-directed dispatch
+   (e.g. count → vsize / Map.size / List.length depending on the collection type)."
+  [est expr]
+  (zonk est (#'tc/cached-whnf (:tc est) (infer-with-mvars est expr))))
 
 (defn elaborate
   "Elaborate an s-expression into a fully explicit Ansatz Expr.

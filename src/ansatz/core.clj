@@ -954,6 +954,13 @@
   [name f]
   (swap! ingest/elaborator-registry assoc name f))
 
+(clojure.core/defn register-term-elaborator!
+  "Register a custom TERM elaborator (lean4's elab_rules): (fn [est args] -> kernel Expr),
+   with elaborator access via ansatz.surface.api (elab / arg-type) -- for type-directed
+   forms that the form->form register-elaborator! cannot express."
+  [sym f]
+  ((requiring-resolve 'ansatz.surface.api/register-term-elaborator!) sym f))
+
 (clojure.core/defn register-simproc!
   "Register a persistent simplification procedure for simp.
 
