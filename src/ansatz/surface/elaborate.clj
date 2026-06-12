@@ -820,16 +820,20 @@
 
         ;; Clojure fn* (single arity) → lambda. parse-params reads the binders' metadata
         ;; types (^Nat / ^{:- T}); flatten to a [name type …] vec and reuse elab-lam.
-            "fn*" (let [cls (rest sexpr)
-                        cls (if (symbol? (first cls)) (rest cls) cls)  ; skip optional self-name
-                        arities (filter #(and (sequential? %) (vector? (first %))) cls)]
-                    (when (not= 1 (count arities))
-                      (elab-error! "fn: only single-arity lambdas elaborate to kernel terms" {:form sexpr}))
-                    (let [[params & body] (first arities)
-                          body-form (if (> (count body) 1) (cons 'do body) (first body))
-                          pairs (ingest/parse-params params)
-                          binder-vec (vec (mapcat (fn [p] [(first p) (second p)]) pairs))]
-                      (elab-lam est binder-vec body-form)))
+            ;; "fn" handled natively (NOT clojure-macroexpanded): typed binders
+            ;; ([x :- T] / [x T] / metadata) violate clojure.core/fn's spec
+            ("fn" "fn*") (let [cls (rest sexpr)
+                               cls (if (symbol? (first cls)) (rest cls) cls)  ; skip optional self-name
+                               arities (if (vector? (first cls))
+                                         [cls]   ; unwrapped surface (fn [params] body)
+                                         (filter #(and (sequential? %) (vector? (first %))) cls))]
+                           (when (not= 1 (count arities))
+                             (elab-error! "fn: only single-arity lambdas elaborate to kernel terms" {:form sexpr}))
+                           (let [[params & body] (first arities)
+                                 body-form (if (> (count body) 1) (cons 'do body) (first body))
+                                 pairs (ingest/parse-params params)
+                                 binder-vec (vec (mapcat (fn [p] [(first p) (second p)]) pairs))]
+                             (elab-lam est binder-vec body-form)))
 
         ;; cond is NOT macroexpanded (Clojure's :else isn't Bool); desugar natively to
         ;; nested if, with :else/:default/true as the catch-all.
