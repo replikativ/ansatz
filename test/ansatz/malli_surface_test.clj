@@ -41,11 +41,38 @@
       (is (some? (env/lookup (a/env) (name/from-string "msf-len"))) "List-typed via schema")
       (is (= 3 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-len)) (list 1 2 3)))) "runtime agrees"))))
 
+(m/=> msf-rec [:=> [:cat [:map [:a :int] [:b :boolean]]] :int])
+(m/=> msf-ref [:=> [:cat [:int {:min 2}]] :int])
+
+(deftest test-malli-comprehensive-shapes
+  (testing "[:map …] params land as right-nested Prod records"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-rec"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-rec [r] 7))))
+      (let [ty (e/->string (.type (env/lookup (a/env) (name/from-string "msf-rec"))))]
+        (is (re-find #"Prod" ty) "record schema became a Prod signature"))))
+  (testing "[:int {:min 2}] params land as Subtype refinements"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-ref"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-ref [n] 7))))
+      (let [ty (e/->string (.type (env/lookup (a/env) (name/from-string "msf-ref"))))]
+        (is (re-find #"Subtype" ty) "bounded int became a Subtype refinement")
+        (is (re-find #"LE\.le" ty) "the bound is carried as a Prop"))))
+  (testing "domain-type registry: register once, reference by keyword (ansatz-side registry)"
+    @booted
+    ((requiring-resolve 'ansatz.malli/register-type!) :msf/age [:int {:min 0}])
+    (let [t ((requiring-resolve 'ansatz.malli/schema->type-expr) :msf/age)]
+      (is (re-find #"Nat" (e/->string t)) "registered :msf/age resolves through to Nat"))))
+
 (deftest test-malli-schema-honest-errors
   (testing "a registered but untranslatable schema THROWS (no approximate lifting)"
     @booted
-    (m/=> msf-bad [:=> [:cat [:map [:a :int]]] :int])
+    (m/=> msf-bad [:=> [:cat [:or :int :string]] :int])
     (is (thrown? Exception
                  (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
                    (eval '(ansatz.core/defn msf-bad [m] 0))))
-        "[:map …] schemas are rejected until record translation lands")))
+        "[:or …] sum schemas are rejected (no kernel sum mapping yet)")))

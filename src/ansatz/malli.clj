@@ -1,76 +1,182 @@
 (ns ansatz.malli
   "The gradual dependently-typed surface for Clojurians: malli schemas as a/defn signatures.
 
-   This namespace loads ONLY when metosin/malli is on the classpath (ansatz core does not
-   depend on it; the a/defn macro probes for it via requiring-resolve — the optionality seam).
+   Loads ONLY when metosin/malli is on the classpath (ansatz core does not depend on it;
+   the a/defn macro and the elaborator probe via requiring-resolve — the optionality seam).
 
    The porting story is a one-token diff. Given ordinary instrumented Clojure:
 
      (defn add2 [x y] (+ x y))
      (m/=> add2 [:=> [:cat :int :int] :int])
 
-   change `defn` to `a/defn` and the SAME schema becomes the kernel signature:
+   change `defn` to `a/defn` and the SAME schema becomes the kernel signature.
 
-     (a/defn add2 [x y] (+ x y))     ;; params/ret read from the m/=> registry,
-                                     ;; body kernel-verified, runtime compiled
+   Pipeline: `signature-for` (macro time) returns param/ret as PURE-DATA marker forms
+   `(:malli/schema <form>)`; the elaborator translates the marker via `schema->type-expr`
+   (kernel Exprs built here, no env needed — unknown constants surface honestly at
+   elaboration). The translator is ported from wandler's ansatz.malli (the comprehensive
+   prior art) onto this contract.
 
-   Design: schemas translate to SURFACE TYPE FORMS ('Nat, '(List Nat)) — not kernel
-   exprs — so the single elaborator (elab-signature) does everything downstream.
-   Refinement bounds ([:int {:min 1}] → Subtype hypotheses for termination) and
-   [:map] → record structures are the next slices; unsupported schema shapes throw
-   honestly rather than lifting approximately."
-  (:require [malli.core :as m]))
+   Registry: domain types register once with `register-type!`; schemas referencing them
+   ([:ref :user/id] or bare :user/id) resolve and recurse — pipelines over registered
+   types just work."
+  (:require [malli.core :as m]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.name :as name]))
 
-(defn schema-form->type-form
-  "Translate one malli schema FORM (vector data / keyword) to an ansatz surface type form.
-   Throws (honest, with the offending form) on shapes not yet supported."
-  [f]
-  (let [f (if (m/schema? f) (m/form f) f)]
+(defn- nm [s] (name/from-string s))
+(defn- kconst [s] (e/const' (nm s) []))
+(def ^:private u1 (lvl/succ lvl/zero))
+
+;; ── domain-type registry (schema keyword → schema form) ─────────────────────────────────
+(defonce ^{:doc "Domain types: keyword → malli schema form. Registered once, referenced anywhere."}
+  type-registry (atom {}))
+
+(defn register-type!
+  "Register a named domain schema, e.g. (register-type! :user/age [:int {:min 0 :max 150}])."
+  [k schema-form]
+  (swap! type-registry assoc k schema-form))
+
+(defn- deref-registry [f]
+  (or (get @type-registry f)
+      (when (and (vector? f) (= :ref (first f))) (get @type-registry (second f)))))
+
+;; ── kernel-type constructors ─────────────────────────────────────────────────────────────
+(defn- klist [a] (e/app (e/const' (nm "List") [lvl/zero]) a))
+(defn- koption [a] (e/app (e/const' (nm "Option") [lvl/zero]) a))
+(defn- kprod [a b] (e/app* (e/const' (nm "Prod") [lvl/zero lvl/zero]) a b))
+(defn- kprods
+  "Right-nested Prod over component types (records/tuples as anonymous products)."
+  [ts]
+  (let [ts (vec ts)]
+    (case (count ts)
+      0 (kconst "Unit")
+      1 (first ts)
+      (reduce (fn [acc t] (kprod t acc)) (peek ts) (rseq (pop ts))))))
+
+(defn- nat-le [a b] (e/app* (e/const' (nm "LE.le") [lvl/zero]) (kconst "Nat")
+                            (kconst "instLENat") a b))
+(defn- nat-lt [a b] (e/app* (e/const' (nm "LT.lt") [lvl/zero]) (kconst "Nat")
+                            (kconst "instLTNat") a b))
+(defn- kand [a b] (e/app* (kconst "And") a b))
+
+(defn- bound-prop
+  "Prop body over (bvar 0 : Nat): ge ≤ v [∧ v < lt], or nil when unbounded."
+  [ge lt]
+  (let [lo (when ge (nat-le (e/lit-nat ge) (e/bvar 0)))
+        hi (when lt (nat-lt (e/bvar 0) (e/lit-nat lt)))]
+    (cond (and lo hi) (kand lo hi) lo lo hi hi :else nil)))
+
+(defn- ksubtype-nat
+  "`Subtype Nat (fun v => bounds)` — the refinement type for bounded ints; nil if unbounded."
+  [ge lt]
+  (when-let [body (bound-prop ge lt)]
+    (e/app* (e/const' (nm "Subtype") [u1]) (kconst "Nat")
+            (e/lam "v" (kconst "Nat") body :default))))
+
+(defn- ksubtype-string
+  "`Subtype String (fun s => min ≤ s.length [∧ s.length ≤ max])`; nil if no length bound.
+   The refinement is carried in the TYPE and erased at runtime (a plain String value)."
+  [mn mx]
+  (let [len (e/app (e/const' (nm "String.length") []) (e/bvar 0))
+        lo (when mn (nat-le (e/lit-nat mn) len))
+        hi (when mx (nat-le len (e/lit-nat mx)))
+        body (cond (and lo hi) (kand lo hi) lo lo hi hi :else nil)]
+    (when body
+      (e/app* (e/const' (nm "Subtype") [u1]) (kconst "String")
+              (e/lam "s" (kconst "String") body :default)))))
+
+;; ── schema → kernel type (ported from wandler, comprehensive) ────────────────────────────
+(defn schema->type-expr
+  "Convert a malli schema FORM to a kernel type Expr. Unknown constants (Option, Float, …)
+   surface honestly at elaboration if the env lacks them; unsupported schema SHAPES throw
+   here with the offending form."
+  [schema]
+  (let [f (if (m/schema? schema) (m/form schema) schema)]
     (cond
-      ;; scalars — v1 maps malli ints to Nat (the embedding's arithmetic default; negative
-      ;; ints are caught by malli's own runtime conformance until Int lands here)
-      (contains? #{:int 'int? 'integer? :nat-int 'nat-int? 'pos-int? :double} f)
-      (if (= f :double)
-        (throw (ex-info "ansatz.malli: :double not yet supported (Float pending)" {:form f}))
-        'Nat)
-      (contains? #{:boolean 'boolean?} f) 'Bool
-      (contains? #{:string 'string?} f) 'String
-      (keyword? f) (throw (ex-info (str "ansatz.malli: unsupported scalar schema " f) {:form f}))
-      (symbol? f) (throw (ex-info (str "ansatz.malli: unsupported predicate schema " f) {:form f}))
+      (keyword? f)
+      (case f
+        ;; v1 maps :int to Nat — this branch's embedding (arithmetic default, WF measures,
+        ;; sizeOf) is Nat-centric; negative ints are caught by malli's own runtime checks.
+        ;; Promote to Int when the int=long faithfulness story lands here (wandler has it).
+        :int (kconst "Nat")
+        (:nat-int :nat) (kconst "Nat")
+        :boolean (kconst "Bool")
+        :string (kconst "String")
+        :double (kconst "Float")
+        :nil (kconst "Unit")
+        (if-let [r (deref-registry f)]
+          (schema->type-expr r)
+          (throw (ex-info (str "ansatz.malli: unsupported scalar schema " f) {:form f}))))
+
+      (symbol? f)
+      (case f
+        (int? integer?) (kconst "Nat")   ;; see :int note above
+        (nat-int? pos-int?) (kconst "Nat")
+        boolean? (kconst "Bool")
+        string? (kconst "String")
+        (throw (ex-info (str "ansatz.malli: unsupported predicate schema " f) {:form f})))
 
       (vector? f)
-      (let [[h & args] f
-            ;; strip an optional props map
-            [props args] (if (map? (first args)) [(first args) (rest args)] [nil args])]
-        (case h
-          (:sequential :vector :set) (list 'List (schema-form->type-form (first args)))
-          :maybe (list 'Option (schema-form->type-form (first args)))
-          :int (if (or (nil? props) (= props {:min 0}))
-                 'Nat
-                 (throw (ex-info "ansatz.malli: refinement bounds land with Subtype support"
-                                 {:form f :props props})))
-          :map (throw (ex-info "ansatz.malli: [:map …] → record structures land next" {:form f}))
-          (throw (ex-info (str "ansatz.malli: unsupported schema " h) {:form f}))))
+      (let [[tag & more] f
+            [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
+        (case tag
+          (:sequential :vector :set) (klist (schema->type-expr (first more)))
+          :maybe (koption (schema->type-expr (first more)))
+          :tuple (kprods (map schema->type-expr more))
+          ;; [:map [:k T] …] → right-nested Prod of the entry types (anonymous record;
+          ;; named-field structures land with the record slice)
+          :map (kprods (map (fn [entry]
+                              (schema->type-expr (if (= 3 (count entry)) (nth entry 2) (nth entry 1))))
+                            more))
+          ;; [:int {:min n :max m}] — {:min 0} is definitionally Nat; positive lower /
+          ;; any upper bound becomes a Subtype refinement (max m ⇒ v < m+1)
+          :int (let [mn (:min props) mx (:max props)
+                     ge (when (and mn (pos? mn)) mn)
+                     lt (when mx (inc mx))]
+                 (cond (or ge lt) (ksubtype-nat ge lt)
+                       :else (kconst "Nat")))   ;; see :int note above
+          ;; [:and :int [:>= k] [:< m]] — the predicate-combinator spelling of bounds
+          :and (let [base (first more)
+                     ge (some (fn [s] (when (and (vector? s) (= :>= (first s))) (second s))) more)
+                     lt (some (fn [s] (when (and (vector? s) (= :< (first s))) (second s))) more)
+                     ge* (when (and ge (pos? ge)) ge)]
+                 (cond
+                   (and (= :int base) (or ge* lt)) (ksubtype-nat ge* lt)
+                   (and (= :int base) ge (zero? ge)) (kconst "Nat")
+                   :else (schema->type-expr base)))
+          :string (or (ksubtype-string (:min props) (:max props)) (kconst "String"))
+          :double (kconst "Float")
+          :ref (if-let [r (deref-registry f)]
+                 (schema->type-expr r)
+                 (throw (ex-info "ansatz.malli: unregistered [:ref …]" {:form f})))
+          (if-let [r (deref-registry f)]
+            (schema->type-expr r)
+            (throw (ex-info (str "ansatz.malli: unsupported schema " tag) {:form f})))))
 
       :else (throw (ex-info "ansatz.malli: unsupported schema form" {:form f})))))
 
+;; ── a/defn integration (macro-time lookup → pure-data marker forms) ─────────────────────
+(defn- marker [schema-form] (list :malli/schema schema-form))
+
 (defn fn-schema->signature
-  "[:=> [:cat A B …] R] → {:param-types [formA formB …] :ret-type formR}."
+  "[:=> [:cat A B …] R] → {:param-types [(:malli/schema A) …] :ret-type (:malli/schema R)}.
+   Marker forms are pure data (embeddable in macroexpansion); the elaborator translates
+   them via schema->type-expr."
   [schema]
   (let [f (if (m/schema? schema) (m/form schema) schema)]
     (when (and (vector? f) (= :=> (first f)) (vector? (second f)) (= :cat (first (second f))))
-      {:param-types (mapv schema-form->type-form (rest (second f)))
-       :ret-type (schema-form->type-form (nth f 2))})))
+      {:param-types (mapv marker (rest (second f)))
+       :ret-type (marker (nth f 2))})))
 
 (defn signature-for
   "Look up the malli function schema for `fn-name` in `ns-sym` (the m/=> registry, then
-   :malli/schema metadata on the name symbol) and translate it. Returns
-   {:param-types […] :ret-type …} or nil; nil means 'no schema registered' (the caller
-   falls through), a THROW means 'schema present but untranslatable' (honest error)."
+   :malli/schema metadata on the name symbol). nil = no schema (caller falls through);
+   THROW = schema present but untranslatable (honest error)."
   [ns-sym fn-name arity]
-  (let [from-meta (:malli/schema (meta fn-name))
-        from-reg (get-in (m/function-schemas) [ns-sym (symbol (name fn-name)) :schema])
-        schema (or from-meta from-reg)]
+  (let [schema (or (:malli/schema (meta fn-name))
+                   (get-in (m/function-schemas) [ns-sym (symbol (name fn-name)) :schema]))]
     (when schema
       (let [sig (fn-schema->signature schema)]
         (when-not sig

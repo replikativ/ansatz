@@ -858,6 +858,11 @@
         ;; Default: keyword projection / get / cons sugar, then macroexpand any
         ;; clojure macro (cond/->/and/or/…), otherwise application.
         (cond
+          ;; (:malli/schema <form>) — a schema marker from the gradual-typing surface
+          ;; (ansatz.malli signature-for): translate to the kernel type. requiring-resolve
+          ;; is the optionality seam; the marker only ever appears when malli produced it.
+          (= :malli/schema head)
+          ((requiring-resolve 'ansatz.malli/schema->type-expr) (second sexpr))
           ;; (:field struct) → structure projection
           (keyword? head)
           (let [field-name (name head)
