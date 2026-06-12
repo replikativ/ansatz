@@ -983,6 +983,18 @@
   (binding [*bypass-registries-once* true]
     (elab-term est form)))
 
+(defn with-local
+  "Run `(f est' fvar-id)` with `sym` bound to a FRESH local of kernel type `ty` in the
+   elaboration scope (and the typechecker lctx) — the primitive for NARROWING elaborators
+   that rebind a variable at a refined type for one branch (e.g. Option unwrapping).
+   Shadows any existing binding of `sym` for the dynamic extent of `f`."
+  [est sym ty f]
+  (let [fid (fresh-id! est)
+        est' (-> est
+                 (assoc-in [:scope (symbol sym)] {:fvar-id fid :type ty})
+                 (update :tc update :lctx red/lctx-add-local fid (str sym) ty))]
+    (f est' fid)))
+
 (defn subterm-type
   "The (whnf'd, zonked) TYPE of an elaborated subterm — for type-directed dispatch
    (e.g. count → vsize / Map.size / List.length depending on the collection type)."
