@@ -23,6 +23,11 @@
   [est expr]
   (elab/subterm-type est expr))
 
+(defn whnf
+  "whnf a kernel expr (typically a type) in the elaboration context."
+  [est expr]
+  (elab/subterm-whnf est expr))
+
 (defn register-term-elaborator!
   "Register a lean4 elab_rules-shaped term elaborator: (fn [est args] → kernel Expr)."
   [sym f]
