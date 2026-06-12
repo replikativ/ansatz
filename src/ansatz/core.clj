@@ -346,7 +346,7 @@
          (swap! cache assoc goal-type (or result ::miss))
          result)))))
 
-(clojure.core/defn- get-arg-type
+(clojure.core/defn get-arg-type
   "Get the type of a user argument. Handles bvars (via bvar-types),
    fvars (via *current-lctx*), and general expressions (via TC)."
   [env bvar-types arg]
