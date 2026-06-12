@@ -661,6 +661,17 @@
             "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
             "HDiv.hDiv" (list 'quot (nth ca 4) (nth ca 5))
             "HPow.hPow" (list 'long (list 'Math/pow (nth ca 4) (nth ca 5)))
+            ;; Float literal: OfScientific.ofScientific Float inst m s e → m × 10^±e
+            ;; (args: α inst mantissa exponentSign decimalExponent — type/inst erase)
+            "OfScientific.ofScientific"
+            (let [m (nth ca 2) sn (nth ca 3) ex (nth ca 4)]
+              (if (and (number? m) (number? ex) (boolean? sn))
+                (* (double m) (Math/pow 10.0 (double (if sn (- ex) ex))))
+                (list '* (list 'double m) (list 'Math/pow 10.0 (list 'if sn (list '- ex) ex)))))
+            "Float.add" (nary-op '+ ca)
+            "Float.sub" (nary-op '- ca)
+            "Float.mul" (nary-op '* ca)
+            "Float.div" (nary-op '/ ca)
             "Nat.add" (nary-op '+ ca)
             "Nat.sub" (nary-op2 (fn [x y] (list 'max 0 (list '- x y))) ca)  ; truncated Nat subtraction
             "Nat.mul" (nary-op '* ca)
@@ -2039,6 +2050,22 @@
   (let [env (env)
         pairs (parse-params params)
         n (count pairs)
+        ;; lean4's termination_by interprets a measure through its TYPE's
+        ;; WellFoundedRelation — for a data-typed parameter that is sizeOf. So
+        ;; `:termination-by m` with `m : Value` means `(sizeOf m)`; rewrite the
+        ;; measure form (scalar or inside a lex vector) before the gate/encoder.
+        sized-param? (fn [msym]
+                       (some (fn [[p t _]]
+                               (and (= p msym) (not= t 'Nat)
+                                    (or (and (seq? t) (= 'List (first t)))
+                                        (and (symbol? t)
+                                             (env/lookup env (name/mk-str (name/from-string (str t))
+                                                                          "_sizeOf_inst"))))))
+                             pairs))
+        lift-measure (fn [mf] (if (and (symbol? mf) (sized-param? mf)) (list 'sizeOf mf) mf))
+        measure-form (if (vector? measure-form)
+                       (mapv lift-measure measure-form)
+                       (lift-measure measure-form))
 
         ;; Guard-aware termination check (lean4's decreasing goals; replaces fuel-trust): every
         ;; recursive call must provably decrease the measure under its path-condition guards.
