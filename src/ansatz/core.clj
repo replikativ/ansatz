@@ -652,15 +652,25 @@
             ;; Nat is its own size; a list contributes 1 for nil plus 1 + size per element).
             ;; Reached via the fuel scaffolding when sizeOf is the termination measure.
             "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
-            ;; refinement erasure: a Subtype value IS its carrier at runtime
-            "Subtype.val" (nth ca 2)
-            ;; Subtype.mk α P v proof → the value (refinement + proof erase at runtime)
-            "Subtype.mk" (nth ca 2)
-            "HAdd.hAdd" (list '+ (nth ca 4) (nth ca 5))
-            "HMul.hMul" (list '* (nth ca 4) (nth ca 5))
-            "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
-            "HDiv.hDiv" (list 'quot (nth ca 4) (nth ca 5))
-            "HPow.hPow" (list 'long (list 'Math/pow (nth ca 4) (nth ca 5)))
+            ;; refinement erasure: a Subtype value IS its carrier at runtime.
+            ;; Arity-tolerant: an eta-reduced partial (e.g. `Subtype.val α P` as a
+            ;; function value) erases to identity-shaped fns.
+            "Subtype.val" (case (count ca)
+                            3 (nth ca 2)
+                            2 'clojure.core/identity
+                            1 (list 'fn '[_] 'clojure.core/identity)
+                            (list 'fn '[_] (list 'fn '[_] 'clojure.core/identity)))
+            ;; Subtype.mk α P v proof → the value (refinement + proof erase)
+            "Subtype.mk" (case (count ca)
+                           4 (nth ca 2)
+                           3 (list 'fn '[_] (nth ca 2))
+                           2 (list 'fn '[v#] (list 'fn '[_] 'v#))
+                           (list 'fn '[_] (list 'fn '[v#] (list 'fn '[_] 'v#))))
+            "HAdd.hAdd" (nary-op2 (fn [x y] (list '+ x y)) (vec (drop 4 ca)))
+            "HMul.hMul" (nary-op2 (fn [x y] (list '* x y)) (vec (drop 4 ca)))
+            "HSub.hSub" (nary-op2 (fn [x y] (list 'max 0 (list '- x y))) (vec (drop 4 ca)))
+            "HDiv.hDiv" (nary-op2 (fn [x y] (list 'quot x y)) (vec (drop 4 ca)))
+            "HPow.hPow" (nary-op2 (fn [x y] (list 'long (list 'Math/pow x y))) (vec (drop 4 ca)))
             ;; Float literal: OfScientific.ofScientific Float inst m s e → m × 10^±e
             ;; (args: α inst mantissa exponentSign decimalExponent — type/inst erase)
             "OfScientific.ofScientific"
