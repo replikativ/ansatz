@@ -85,3 +85,20 @@
         (finally
           (swap! @(requiring-resolve 'ansatz.surface.ingest/term-elaborator-registry)
                  dissoc 'tcount))))))
+
+(deftest elab-base-delegation
+  (testing "elab-base: a wrapping term elaborator delegates the non-special case to the
+            BUILT-IN form without re-entering itself (one-shot registry bypass)"
+    (binding [ansatz.core/*verbose* false]
+      ((requiring-resolve 'ansatz.surface.api/register-term-elaborator!)
+       'if
+       (fn [est args]
+         ;; a do-nothing wrapper: always delegate the whole if back to the built-in
+         ((requiring-resolve 'ansatz.surface.api/elab-base) est (cons 'if args))))
+      (try
+        (eval '(ansatz.core/defn seam-ifwrap [n :- Nat] Nat (if (== n 0) 1 2)))
+        (is (= 1 (clojure.core/long ((deref (resolve 'seam-ifwrap)) 0))) "delegated if runs (zero)")
+        (is (= 2 (clojure.core/long ((deref (resolve 'seam-ifwrap)) 5))) "delegated if runs (nonzero)")
+        (finally
+          (swap! @(requiring-resolve 'ansatz.surface.ingest/term-elaborator-registry)
+                 dissoc 'if))))))

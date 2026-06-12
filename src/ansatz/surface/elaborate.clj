@@ -581,6 +581,13 @@
         nat-rec (e/const' (name/from-string "Nat.rec") [u])]
     (reduce e/app (e/app* nat-rec motive base-fn step-fn iinit*) acc-inits*)))
 
+(def ^:dynamic *bypass-registries-once*
+  "When true, the NEXT elab-term seq dispatch skips the user registries (term + macro)
+   and falls through to the built-in forms — then resets. The delegation primitive for
+   extension authors (api/elab-base): a registered elaborator wrapping a built-in verb
+   hands the non-special case back without re-entering itself."
+  false)
+
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
@@ -603,14 +610,16 @@
         (first (insert-implicits est expr (infer-with-mvars est expr)))))
 
     (seq? sexpr)
-    (let [head (first sexpr)]
+    (let [head (first sexpr)
+          bypass? *bypass-registries-once*
+          _ (when bypass? (set! *bypass-registries-once* false))]
       ;; user-registered surface forms. Term elaborators first (lean4 elab_rules-shaped:
       ;; syntax → kernel Expr with elaborator access, for type-directed forms), then
       ;; macro elaborators (lean4 macro_rules-shaped: syntax → syntax, which re-elaborates) —
       ;; both compose with every surface feature.
-      (if-let [telab (and (symbol? head) (get @ingest/term-elaborator-registry head))]
+      (if-let [telab (and (symbol? head) (not bypass?) (get @ingest/term-elaborator-registry head))]
         (telab est (vec (rest sexpr)))
-        (if-let [expander (and (symbol? head) (get @ingest/elaborator-registry head))]
+        (if-let [expander (and (symbol? head) (not bypass?) (get @ingest/elaborator-registry head))]
           (elab-term est (expander (rest sexpr)))
           (case (when (symbol? head) (str head))
             "forall" (let [[_ binder-vec & body-forms] sexpr]
@@ -965,6 +974,14 @@
    contain unsolved metavariable fvars; they resolve when the enclosing elaboration zonks."
   [est form]
   (elab-term est form))
+
+(defn elab-base
+  "Elaborate `form` with the user registries bypassed for ITS OWN head dispatch only
+   (sub-forms dispatch normally) — the delegation primitive for elaborators that WRAP a
+   built-in form (e.g. a narrowing `if`)."
+  [est form]
+  (binding [*bypass-registries-once* true]
+    (elab-term est form)))
 
 (defn subterm-type
   "The (whnf'd, zonked) TYPE of an elaborated subterm — for type-directed dispatch

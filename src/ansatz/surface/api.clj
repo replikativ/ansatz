@@ -28,6 +28,12 @@
   [est expr]
   (elab/subterm-whnf est expr))
 
+(defn elab-base
+  "Elaborate a form through the BUILT-IN forms (user registries bypassed for its own
+   head dispatch; sub-forms dispatch normally) — delegation for wrapping elaborators."
+  [est form]
+  (elab/elab-base est form))
+
 (defn register-term-elaborator!
   "Register a lean4 elab_rules-shaped term elaborator: (fn [est args] → kernel Expr)."
   [sym f]
