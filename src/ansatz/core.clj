@@ -2869,11 +2869,11 @@
                                                                            (.setFuel tc-v (int config/*default-fuel*))
                                                                            (.inferType tc-v full-pf)
                                                                            (swap! ansatz-env env/check-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
-                                                                           (when *verbose* (println "  aux eq_" (inc ci-idx) "for" aux-name-str))))
+                                                                           (when *verbose* (println (str "  ✓ " aux-name-str ".eq_" (inc ci-idx))))))
                                                                        (catch Exception ex
                                                                          (when *verbose*
-                                                                           (println "  aux eq_" (inc ci-idx) "for" aux-name-str "FAILED:" (.getMessage ex))
-                                                                           (.printStackTrace ex *out*))))))
+                                                                           (when *verbose*
+                                                                             (println (str "  ⚠ " aux-name-str ".eq_" (inc ci-idx) " skipped: " (.getMessage ex)))))))))
                                                                  (catch Exception ex
                                                                    (when *verbose*
                                                                      (println "  aux gen for" aux-name-str "FAILED:" (.getMessage ex)))))
@@ -3025,12 +3025,11 @@
                                                                (nth param-types j) body :default))))
                                 eqn-name (name/from-string (str fn-name ".eq_" (inc i) (or suffix "")))]
                             (try
-                              (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) "type:" (e/->string full-type)))
                               (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
                                 (.setFuel tc-v (int config/*default-fuel*))
                                 (.inferType tc-v full-proof)
                                 (swap! ansatz-env env/check-constant (env/mk-thm eqn-name [] full-type full-proof))
-                                (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) ":" (e/->string full-type))))
+                                (when *verbose* (println (str "  ✓ " fn-name ".eq_" (inc i) (or suffix "")))))
                               (catch Exception e
                                 (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) "skipped:" (.getMessage e))))))))
                       (catch Exception e
