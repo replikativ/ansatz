@@ -45,14 +45,14 @@
 (m/=> msf-ref [:=> [:cat [:int {:min 2}]] :int])
 
 (deftest test-malli-comprehensive-shapes
-  (testing "[:map …] params land as right-nested Prod records"
+  (testing "[:map …] params land as synthesized named-field records"
     @booted
     (binding [a/*verbose* false]
       (when-not (env/lookup (a/env) (name/from-string "msf-rec"))
         (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
           (eval '(ansatz.core/defn msf-rec [r] 7))))
       (let [ty (e/->string (.type (env/lookup (a/env) (name/from-string "msf-rec"))))]
-        (is (re-find #"Prod" ty) "record schema became a Prod signature"))))
+        (is (re-find #"MalliRec_a_b" ty) "record schema became a named record signature"))))
   (testing "[:int {:min 2}] params land as Subtype refinements"
     @booted
     (binding [a/*verbose* false]
@@ -105,3 +105,21 @@
         (is (re-find #"Subtype" (e/->string (.type ci))) "the binder keeps the refinement")
         (is (= 6 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-bump)) 5)))
             "runtime takes the raw carrier value")))))
+
+(m/=> msf-dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
+
+(deftest test-named-field-records
+  (testing "[:map [:x :int] [:y :int]] synthesizes a named-field structure: keyword access
+            elaborates to kernel projections, runtime values are plain Clojure maps"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-dot"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-dot [p] (+ (:x p) (:y p))))))
+      (let [ci (env/lookup (a/env) (name/from-string "msf-dot"))]
+        (is (some? ci) "keyword access over the schema'd record param verifies")
+        (is (re-find #"MalliRec_x_y" (e/->string (.type ci)))
+            "the binder is the synthesized named record type")
+        (is (= 5 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-dot))
+                                     {:x 2 :y 3})))
+            "runtime takes a plain Clojure map")))))

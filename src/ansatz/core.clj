@@ -657,9 +657,13 @@
                     struct-name (when (pos? dot-idx) (subs ctor-str 0 dot-idx))
                     struct-info (when struct-name (get @structure-registry struct-name))]
                 (cond
-                  ;; Structure with defrecord: use ->RecordName constructor
+                  ;; Structure with defrecord: use ->RecordName constructor.
+                  ;; :map? structures (malli [:map] records) construct plain Clojure maps.
                   (and struct-info (= nf (count (:fields struct-info))))
-                  (apply list (:ctor-sym struct-info) fields)
+                  (if (:map? struct-info)
+                    (apply list 'clojure.core/array-map
+                           (mapcat (fn [f v] [(keyword f) v]) (:fields struct-info) fields))
+                    (apply list (:ctor-sym struct-info) fields))
                   ;; 0-field ctor: use index for enum dispatch
                   (zero? nf)
                   (let [cidx (.cidx ctor-ci)]

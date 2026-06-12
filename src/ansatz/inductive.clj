@@ -55,6 +55,9 @@
    Handles self-references to the inductive being defined."
   [env scope depth form self-name self-const]
   (cond
+    ;; an already-elaborated kernel Expr passes through (programmatic callers, e.g.
+    ;; ansatz.malli record synthesis, supply CLOSED Exprs as field types)
+    (instance? ansatz.kernel.Expr form) form
     ;; nil in Clojure quoted data represents List.nil Nat
     (nil? form) (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
                        (e/const' (name/from-string "Nat") []))

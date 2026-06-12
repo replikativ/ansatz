@@ -22,9 +22,13 @@
    types just work."
   (:require [malli.core :as m]
             [malli.generator :as mg]
+            [clojure.string :as str]
+            [ansatz.inductive :as inductive]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.name :as name]))
+            [ansatz.kernel.name :as name]
+            [ansatz.kernel.tc :as tc]))
 
 (defn- nm [s] (name/from-string s))
 (defn- kconst [s] (e/const' (nm s) []))
@@ -47,6 +51,42 @@
 (defn- klist [a] (e/app (e/const' (nm "List") [lvl/zero]) a))
 (defn- koption [a] (e/app (e/const' (nm "Option") [lvl/zero]) a))
 (defn- kprod [a b] (e/app* (e/const' (nm "Prod") [lvl/zero lvl/zero]) a b))
+(defn- record-type-name
+  "Deterministic structure name for [:map …] entries [[field-name type-Expr] …]: field
+   names for readability + a short hash of the field types for collision safety, so the
+   same schema always names the same kernel type (idempotent synthesis)."
+  [entries]
+  (str "MalliRec_" (str/join "_" (map first entries))
+       "_" (format "%x" (bit-and (hash (mapv (fn [[f t]] [f (e/->string t)]) entries))
+                                 0xffffff))))
+
+(defn ensure-record!
+  "Synthesize (idempotently) a named single-constructor structure for [:map …] entries
+   into the global env — inductive + mk + per-field projections — and register it in the
+   structure registry with :map? true: the runtime representation is a PLAIN Clojure map
+   (what the [:map] schema validates), keyword access elaborates to kernel projections.
+   Runs eagerly at signature-for (macro) time so the env snapshot taken by define-verified
+   already contains the record. Returns the type's const Expr."
+  [entries]
+  (let [tname (record-type-name entries)
+        kname (nm tname)
+        env0 ((requiring-resolve 'ansatz.core/env))]
+    (when-not (env/lookup env0 kname)
+      (let [flat (vec (mapcat (fn [[f t]] [(symbol f) t]) entries))
+            env1 (inductive/define-inductive env0 tname [] [['mk flat]])
+            ind (kconst tname)
+            env2 (reduce (fn [acc-env [idx [f _]]]
+                           (let [proj-name (nm (str tname "." f))
+                                 pv (e/lam "self" ind (e/proj kname idx (e/bvar 0)) :default)
+                                 pt (tc/infer-type (tc/mk-tc-state acc-env) pv)]
+                             (env/check-constant acc-env
+                                                 (env/mk-def proj-name [] pt pv :hints :abbrev))))
+                         env1 (map-indexed vector entries))]
+        (reset! (deref (requiring-resolve 'ansatz.core/ansatz-env)) env2)
+        (swap! (deref (requiring-resolve 'ansatz.core/structure-registry))
+               assoc tname {:fields (mapv first entries) :map? true})))
+    (kconst tname)))
+
 (defn- kprods
   "Right-nested Prod over component types (records/tuples as anonymous products)."
   [ts]
@@ -126,11 +166,15 @@
           (:sequential :vector :set) (klist (schema->type-expr (first more)))
           :maybe (koption (schema->type-expr (first more)))
           :tuple (kprods (map schema->type-expr more))
-          ;; [:map [:k T] …] → right-nested Prod of the entry types (anonymous record;
-          ;; named-field structures land with the record slice)
-          :map (kprods (map (fn [entry]
-                              (schema->type-expr (if (= 3 (count entry)) (nth entry 2) (nth entry 1))))
-                            more))
+          ;; [:map [:k T] …] → a synthesized named-field structure: keyword access in
+          ;; bodies elaborates to kernel projections, runtime values are plain maps.
+          ;; (:optional entry props are accepted; the field type is the entry schema —
+          ;; optionality is not yet modeled as Option.)
+          :map (ensure-record!
+                (mapv (fn [entry]
+                        [(name (first entry))
+                         (schema->type-expr (if (= 3 (count entry)) (nth entry 2) (nth entry 1)))])
+                      more))
           ;; [:int {:min n :max m}] — {:min 0} is definitionally Nat; positive lower /
           ;; any upper bound becomes a Subtype refinement (max m ⇒ v < m+1)
           :int (let [mn (:min props) mx (:max props)
@@ -186,6 +230,11 @@
         (when (not= arity (count (:param-types sig)))
           (throw (ex-info "ansatz.malli: schema arity does not match the parameter vector"
                           {:fn fn-name :schema-arity (count (:param-types sig)) :arity arity})))
+        ;; Eagerly translate every marker NOW (macro time): untranslatable schemas throw
+        ;; here with the schema in hand, and [:map] record synthesis lands in the global
+        ;; env BEFORE define-verified snapshots it.
+        (run! (fn [marker] (schema->type-expr (second marker)))
+              (conj (:param-types sig) (:ret-type sig)))
         sig))))
 
 ;; ── The generative differential lane ─────────────────────────────────────────────────────
