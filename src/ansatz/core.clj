@@ -615,6 +615,8 @@
             ;; Nat is its own size; a list contributes 1 for nil plus 1 + size per element).
             ;; Reached via the fuel scaffolding when sizeOf is the termination measure.
             "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
+            ;; refinement erasure: a Subtype value IS its carrier at runtime
+            "Subtype.val" (nth ca 2)
             "HAdd.hAdd" (list '+ (nth ca 4) (nth ca 5))
             "HMul.hMul" (list '* (nth ca 4) (nth ca 5))
             "HSub.hSub" (list 'max 0 (list '- (nth ca 4) (nth ca 5)))
@@ -2405,7 +2407,20 @@
   (let [n (count pairs)
         fids (mapv inc (range n))
         ptypes (mapv (fn [p] (elab/elaborate env (second p))) pairs)
-        lctx (into {} (map (fn [fid p pt] [fid {:name (str (first p)) :type pt :tag :local}])
+        ;; A Subtype-typed param (e.g. a malli [:int {:min k}] refinement) registers with an
+        ;; :as-term coercion: body references elaborate as `Subtype.val T P p`, so refined
+        ;; params are used directly as their carrier (the refinement is erased at runtime;
+        ;; the .property remains available to proof machinery from the binder type).
+        subtype-val (fn [fid pt]
+                      (let [[h as] (e/get-app-fn-args pt)]
+                        (when (and (e/const? h) (= "Subtype" (name/->string (e/const-name h)))
+                                   (= 2 (count as)))
+                          (e/app* (e/const' (name/from-string "Subtype.val")
+                                            (vec (e/const-levels h)))
+                                  (nth as 0) (nth as 1) (e/fvar fid)))))
+        lctx (into {} (map (fn [fid p pt]
+                             [fid (cond-> {:name (str (first p)) :type pt :tag :local}
+                                    (subtype-val fid pt) (assoc :as-term (subtype-val fid pt)))])
                            fids pairs ptypes))
         body-expr (elab/elaborate-in-context env lctx body-form)
         ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in

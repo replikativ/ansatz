@@ -331,9 +331,10 @@
   [est sym]
   (let [sym-str (str sym)
         [explicit? sym-str] (strip-at-prefix sym-str)]
-    ;; Bound variable?
-    (if-let [{:keys [fvar-id]} (get (:scope est) sym)]
-      {:expr (e/fvar fvar-id) :explicit? false}
+    ;; Bound variable? (:as-term carries a coercion — e.g. a Subtype-typed parameter
+    ;; whose references elaborate as its .val, so refined params are usable directly)
+    (if-let [{:keys [fvar-id as-term]} (get (:scope est) sym)]
+      {:expr (or as-term (e/fvar fvar-id)) :explicit? false}
       ;; Special shortcuts
       (case sym-str
         "Prop" {:expr (e/sort' lvl/zero) :explicit? false}
@@ -1014,7 +1015,9 @@
                        (if-let [n (:name decl)]
                          (let [sym (symbol n)]
                            (-> est
-                               (assoc-in [:scope sym] {:fvar-id id :type (:type decl)})
+                               (assoc-in [:scope sym]
+                                         (cond-> {:fvar-id id :type (:type decl)}
+                                           (:as-term decl) (assoc :as-term (:as-term decl))))
                                (update :tc update :lctx
                                        red/lctx-add-local id n (:type decl))))
                          est))

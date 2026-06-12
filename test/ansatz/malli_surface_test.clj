@@ -89,3 +89,19 @@
       (let [r ((requiring-resolve 'ansatz.malli/check-verified!)
                'ansatz.malli-surface-test 'msf-add2 :runs 15)]
         (is (= 15 (:ok r)) "15/15 generated inputs agree runtime vs kernel")))))
+
+(m/=> msf-bump [:=> [:cat [:int {:min 1}]] :int])
+
+(deftest test-subtype-param-ergonomics
+  (testing "a refined param ([:int {:min 1}] → Subtype) is used directly as its carrier:
+            body references auto-coerce to .val, the refinement erases at runtime"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-bump"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-bump [n] (+ n 1)))))
+      (let [ci (env/lookup (a/env) (name/from-string "msf-bump"))]
+        (is (some? ci) "arithmetic over the refined param verifies")
+        (is (re-find #"Subtype" (e/->string (.type ci))) "the binder keeps the refinement")
+        (is (= 6 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-bump)) 5)))
+            "runtime takes the raw carrier value")))))
