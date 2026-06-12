@@ -65,7 +65,7 @@
 (defonce ansatz-env (atom nil))
 (defonce ansatz-instance-index (atom nil))
 
-;; Extensible registries — declared early so sexp->ansatz can reference them.
+;; Extensible registries — declared early so the elaboration/codegen layers can reference them.
 ;; Lean 4 equivalents: @[tactic], @[simproc], elab_rules
 (defonce ^{:doc "Open tactic registry. Maps symbol → (fn [ps args] → ps')."} tactic-registry (atom {}))
 (defonce ^{:doc "Persistent simproc registry. Vector of (fn [st expr] → result|nil)."} simproc-registry (atom []))
@@ -73,7 +73,7 @@
 ;; Maps Name-string → {:arity n :erased k} where n = explicit params, k = erased prefix.
 ;; Used by ansatz->clj to emit flat multi-arg calls (FAP) instead of curried calls.
 (defonce ^{:doc "Arity registry for compiled functions."} arity-registry (atom {}))
-;; Structure registry — maps type-name → {:fields [field-name ...], :record-sym symbol}
+;; Structure registry — maps type-name → {:fields [field-name ...], :ctor-sym symbol}
 ;; Used by ansatz->clj to compile constructors to defrecord and projections to keyword access.
 ;; Re-exported from ansatz.surface.ingest (the shared low-level ns that breaks the
 ;; core↔elaborate dependency cycle). Same atom — registration and projection agree.
@@ -97,8 +97,9 @@
 ;; The elaborator macroexpand-1's ANY clojure.core (or user) macro on the way in — so all the
 ;; binding/threading/sugar reaches the kernel as core forms (let*/fn*/if/application) without a case
 ;; per macro — EXCEPT a small exclusion set: forms ansatz handles with a dedicated typed elaborator
-;; that beats the macro's expansion. `->` is the type arrow (not threading); `cond` has a typed
-;; handler (cond->if) that maps :else correctly, unlike Clojure's :else-as-truthy expansion.
+;; that beats the macro's expansion. Today that set is just `cond`: the elaborator's typed cond
+;; handler maps :else correctly, unlike Clojure's :else-as-truthy expansion. (`=>` is the type
+;; arrow; `->` threads as in Clojure.)
 ;; Soundness does NOT depend on this set: the kernel type-checks every resulting term, so a macro
 ;; that expands to a non-CIC form simply fails to elaborate (an honest error) — it can never produce
 ;; an unsound definition. The set only keeps OUR handlers winning and errors clean.
@@ -160,7 +161,6 @@
 (declare synth-cache)
 
 ;; Dynamic vars for elaboration context threading
-(def ^:dynamic *scope-types* {})
 (def ^:dynamic *current-lctx* nil)
 
 (clojure.core/defn- compute-arity
@@ -504,7 +504,7 @@
       (throw (ex-info (str "No " basic-class " instance for " type-name-str) {})))))
 
 ;; ============================================================
-;; Sexp → Ansatz Expr compiler (the ONE compiler for everything)
+;; Runtime helpers (the legacy bvar compiler that lived here was retired in P5)
 ;; ============================================================
 
 (declare parse-params wf-sizeof-inst wf-fix-ensure-sizeof-prelude!)
@@ -520,7 +520,6 @@
 
 ;; Type context for outer-scope variables — used by match handler to
 ;; register fvars in the tc's local context. Maps symbol → Expr (type).
-;; Set by build-telescope when compiling function bodies.
 ;; *scope-types* and *current-lctx* are defined at the top of the file.
 
   ;; ── The bvar-scoped legacy elaborator (sexp->ansatz, build-telescope, compile-let*,
@@ -1558,7 +1557,7 @@
 ;; check-constant on the bridge), so no Eq transport is needed.
 
 ;; synthesize a SizeOf instance for supported types (Nat, List of sized)
-(declare wf-fix-tele-open-plain wf-fix-mk-lambdas wf-fix-fresh)
+(declare wf-fix-tele-open-plain)
 (def ^:private wf-sizeof-inst
   "SizeOf instance synthesis — canonical implementation lives with the elaborator (P2)."
   elab/sizeof-inst)
@@ -1791,7 +1790,7 @@
 ;; refine recursor (R.rec params motive minors… major) to thread ih-fvar, exposing each branch's
 ;; pattern via the dependent motive. Returns the refined recursor APPLIED to ih-fvar.
 (defn- wf-fix-refine-rec [env callspec ret reducer rec-head call-args ih-fvar P scope]
-  (let [rv (first (e/const-levels rec-head)) rec-name (e/const-name rec-head)
+  (let [rec-name (e/const-name rec-head)
         rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
         params (vec (take np call-args))
         major (last call-args) v-id (e/fvar-id major)
@@ -1979,7 +1978,6 @@
                                      {:fn fn-name :kind :termination-decrease-failed :call c}))))))
 
         ;; Build the function type: ∀ params → ret-type (fvar-first, elab-signature)
-        scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
         {:keys [param-types ret-ansatz type-ansatz]} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
 
@@ -2366,7 +2364,6 @@
         pairs (parse-params params)
         n (count pairs)
         ;; function type  ∀ params → ret  (same construction as define-verified)
-        scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
         {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
         ;; trusted axiom at the type; also the self-reference used to elaborate the body for codegen
@@ -2511,7 +2508,6 @@
         n (count pairs)
         cname (name/from-string (str fn-name))
         ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
-        scope-full (into {} (map-indexed (fn [i [p _]] [p i]) pairs))
         {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
         ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
         ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call

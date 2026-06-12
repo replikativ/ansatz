@@ -32,7 +32,7 @@
   [(assoc scope sym depth) (inc depth)])
 
 ;; ============================================================
-;; Type compilation (extends ansatz.core's sexp->ansatz with self-references)
+;; Type compilation (compiles field types with self-references in scope (surface/elaborate handles user terms))
 ;; ============================================================
 
 (declare compile-type)

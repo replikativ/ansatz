@@ -11,8 +11,8 @@
 ;; `wf-fix-refine`/`wf-fix-refine-rec`), wired into `define-verified-wf` and covered by
 ;; test/ansatz/examples_test.clj `test-wf-fix-nonstructural-nested-match`. This file is
 ;; kept as the minimal single-level reference. The shipped version handles nested matches
-;; (div2 on n-2, fib with two rec-calls) — kernel-enforced, suite green (442 tests). Still
-;; TODO there: if-guards (Bool.rec/dite), multi-arg (PSigma), lexicographic (Prod.Lex).
+;; (div2 on n-2, fib with two rec-calls) — kernel-enforced, suite green (442 tests). All of
+;; if-guards (dite), multi-arg packing, and lexicographic measures have since shipped.
 ;;
 ;; To use: load ansatz.core + (a/load-init!), then paste these defs. Uses helpers
 ;; nm/cst/NAT/mk-lambdas/tele-open/decr-proof/mk-ihtype defined inline below.

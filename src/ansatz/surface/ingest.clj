@@ -20,7 +20,7 @@
 ;; ── Macroexpand-by-default policy ───────────────────────────────────────────────────────
 (defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified
    name. Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's
-   :else/truthy semantics differ from our typed cond->if."}
+   :else/truthy semantics differ from the elaborator's typed cond handling."}
   no-expand-macros
   (atom '#{cond}))
 
