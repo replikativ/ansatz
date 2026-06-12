@@ -14,7 +14,7 @@
  :aliases
  {:build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.6"}
                  slipset/deps-deploy {:mvn/version "0.2.2"}
-                 io.github.borkdude/gh-release-artifact {:git/sha "b946558225a7839f6a0f644834e838e190dc2262"}
+                 io.github.borkdude/gh-release-artifact {:git/sha "4a9a74f0e50e897c45df8cc70684360eb30fce80"}
                  babashka/babashka.curl {:mvn/version "0.1.2"}
                  babashka/fs {:mvn/version "0.3.17"}
                  cheshire/cheshire {:mvn/version "5.11.0"}}
