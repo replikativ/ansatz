@@ -21,6 +21,7 @@
    ([:ref :user/id] or bare :user/id) resolve and recurse — pipelines over registered
    types just work."
   (:require [malli.core :as m]
+            [malli.generator :as mg]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]))
@@ -186,3 +187,81 @@
           (throw (ex-info "ansatz.malli: schema arity does not match the parameter vector"
                           {:fn fn-name :schema-arity (count (:param-types sig)) :arity arity})))
         sig))))
+
+;; ── The generative differential lane ─────────────────────────────────────────────────────
+;; The kernel checks TYPE-correctness, not source-faithfulness: a well-typed elaboration bug
+;; ships a wrong program with a valid certificate (three such bugs were found during the
+;; 2026-06 work, all invisible to closed-value testing). The guard is differential: generate
+;; inputs from the schema, run the COMPILED runtime and the KERNEL evaluator, compare.
+
+(defn- gen-schema
+  "Clamp a schema for generation under the v1 Nat-centric mapping (small non-negative ints,
+   short lists) so kernel whnf stays cheap and values stay in Nat."
+  [f]
+  (let [f (if (m/schema? f) (m/form f) f)]
+    (cond
+      (contains? #{:int 'int? 'integer? :nat-int 'nat-int?} f) [:int {:min 0 :max 25}]
+      (contains? #{:boolean 'boolean?} f) :boolean
+      (vector? f)
+      (let [[tag & more] f
+            [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
+        (case tag
+          (:sequential :vector) [:sequential {:max 6} (gen-schema (first more))]
+          :int [:int {:min (max 0 (or (:min props) 0)) :max (min 25 (or (:max props) 25))}]
+          (throw (ex-info "differential lane: unsupported generator schema (v1: ints/bools/lists)"
+                          {:form f}))))
+      :else (throw (ex-info "differential lane: unsupported generator schema" {:form f})))))
+
+(defn- encode-val
+  "Clojure value → kernel Expr (v1: Nat / Bool / List Nat)."
+  [v]
+  (cond
+    (integer? v) (e/lit-nat (long v))
+    (boolean? v) (kconst (if v "Bool.true" "Bool.false"))
+    (or (nil? v) (sequential? v))
+    (reduce (fn [acc x] (e/app* (e/const' (nm "List.cons") [lvl/zero]) (kconst "Nat")
+                                (encode-val x) acc))
+            (e/app (e/const' (nm "List.nil") [lvl/zero]) (kconst "Nat"))
+            (reverse v))
+    :else (throw (ex-info "differential lane: unencodable value" {:value v}))))
+
+(defn- decode-val
+  "whnf'd kernel Expr → Clojure value (v1: Nat literals / Bool / List)."
+  [x]
+  (let [[h as] (e/get-app-fn-args x)]
+    (cond
+      (e/lit-nat? x) (e/lit-nat-val x)
+      (and (e/const? h) (= "Bool.true" (name/->string (e/const-name h)))) true
+      (and (e/const? h) (= "Bool.false" (name/->string (e/const-name h)))) false
+      (and (e/const? h) (= "List.nil" (name/->string (e/const-name h)))) ()
+      (and (e/const? h) (= "List.cons" (name/->string (e/const-name h))) (= 3 (count as)))
+      (cons (decode-val (nth as 1)) (decode-val (nth as 2)))
+      :else (throw (ex-info "differential lane: undecodable kernel value"
+                            {:value (e/->string x)})))))
+
+(defn check-verified!
+  "The differential check for an a/defn'd function with a malli schema: generate `runs`
+   inputs from the (clamped) schema, run the compiled runtime and the kernel evaluator,
+   compare. Returns {:runs n :ok n} or throws on the first divergence — a divergence means
+   an ELABORATION bug (well-typed but source-unfaithful), the exact class the kernel cannot
+   see. v1 scope: Nat / Bool / (List Nat) arguments and results."
+  [ns-sym fn-sym & {:keys [runs] :or {runs 25}}]
+  (let [schema (get-in (m/function-schemas) [ns-sym fn-sym :schema])
+        _ (when-not schema (throw (ex-info "check-verified!: no m/=> schema registered"
+                                           {:ns ns-sym :fn fn-sym})))
+        f (if (m/schema? schema) (m/form schema) schema)
+        arg-schemas (mapv gen-schema (rest (second f)))
+        the-fn @(ns-resolve ns-sym fn-sym)
+        env ((requiring-resolve 'ansatz.core/env))
+        cname (name/from-string (name fn-sym))
+        tc (doto (ansatz.kernel.TypeChecker. env) (.setFuel 200000000))
+        red (.getReducer tc)]
+    (dotimes [_ runs]
+      (let [args (mapv mg/generate arg-schemas)
+            rt-val (apply the-fn args)
+            k-app (reduce e/app (e/const' cname []) (mapv encode-val args))
+            k-val (decode-val (.whnf red k-app))]
+        (when (not= (long k-val) (long rt-val))
+          (throw (ex-info "DIFFERENTIAL DIVERGENCE: compiled runtime ≠ kernel evaluation"
+                          {:fn fn-sym :args args :runtime rt-val :kernel k-val})))))
+    {:runs runs :ok runs}))

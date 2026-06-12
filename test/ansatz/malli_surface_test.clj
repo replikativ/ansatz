@@ -76,3 +76,16 @@
                  (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
                    (eval '(ansatz.core/defn msf-bad [m] 0))))
         "[:or …] sum schemas are rejected (no kernel sum mapping yet)")))
+
+(deftest test-differential-lane
+  (testing "the generative differential check: compiled runtime ≡ kernel evaluation on
+            schema-generated inputs (the guard for well-typed-but-source-unfaithful bugs)"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-add2"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-add2 [x y]
+                   (match x Nat Nat (zero y) (succ [k] (+ 1 (msf-add2 k y))))))))
+      (let [r ((requiring-resolve 'ansatz.malli/check-verified!)
+               'ansatz.malli-surface-test 'msf-add2 :runs 15)]
+        (is (= 15 (:ok r)) "15/15 generated inputs agree runtime vs kernel")))))
