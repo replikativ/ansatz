@@ -824,7 +824,9 @@
             ;; ([x :- T] / [x T] / metadata) violate clojure.core/fn's spec
             ("fn" "fn*") (let [cls (rest sexpr)
                                cls (if (symbol? (first cls)) (rest cls) cls)  ; skip optional self-name
-                               arities (filter #(and (sequential? %) (vector? (first %))) cls)]
+                               arities (if (vector? (first cls))
+                                         [cls]   ; unwrapped surface (fn [params] body)
+                                         (filter #(and (sequential? %) (vector? (first %))) cls))]
                            (when (not= 1 (count arities))
                              (elab-error! "fn: only single-arity lambdas elaborate to kernel terms" {:form sexpr}))
                            (let [[params & body] (first arities)
