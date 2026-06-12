@@ -585,6 +585,9 @@
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
   (cond
+    ;; an already-elaborated kernel Expr passes through — term elaborators (elab_rules)
+    ;; splice Exprs into surface forms they hand back to elab (quotation with term holes)
+    (instance? ansatz.kernel.Expr sexpr) sexpr
     (integer? sexpr) (e/lit-nat sexpr)
     (string? sexpr)  (e/lit-str sexpr)
     (boolean? sexpr) (e/const' (name/from-string (if sexpr "Bool.true" "Bool.false")) [])
@@ -964,6 +967,11 @@
    (e.g. count → vsize / Map.size / List.length depending on the collection type)."
   [est expr]
   (zonk est (#'tc/cached-whnf (:tc est) (infer-with-mvars est expr))))
+
+(defn subterm-whnf
+  "whnf a kernel type/term in the elaboration's typechecker context."
+  [est expr]
+  (#'tc/cached-whnf (:tc est) (zonk est expr)))
 
 (defn elaborate
   "Elaborate an s-expression into a fully explicit Ansatz Expr.
