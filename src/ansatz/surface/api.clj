@@ -28,6 +28,18 @@
   [est expr]
   (elab/subterm-whnf est expr))
 
+(defn elab-base
+  "Elaborate a form through the BUILT-IN forms (user registries bypassed for its own
+   head dispatch; sub-forms dispatch normally) — delegation for wrapping elaborators."
+  [est form]
+  (elab/elab-base est form))
+
+(defn with-local
+  "Run (f est' fvar-id) with `sym` bound to a fresh local of kernel type `ty` —
+   the narrowing primitive (rebind a variable at a refined type for one branch)."
+  [est sym ty f]
+  (elab/with-local est sym ty f))
+
 (defn register-term-elaborator!
   "Register a lean4 elab_rules-shaped term elaborator: (fn [est args] → kernel Expr)."
   [sym f]
