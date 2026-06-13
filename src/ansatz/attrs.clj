@@ -15,24 +15,33 @@
             [clojure.string :as str]))
 
 (def ^:private kind->ext
-  "Attribute kind (NDJSON \"kind\") → the Env extension key its names accumulate into (a set)."
-  {"simp" :simp-lemmas, "unfold" :simp-unfold, "csimp" :csimp, "extern" :extern})
+  "Attribute kind (NDJSON \"kind\") → the Env extension key its entries accumulate into."
+  {"simp" :simp-lemmas, "unfold" :simp-unfold, "extern" :extern, "csimp" :csimp, "impl" :implemented-by})
+
+(def ^:private map-kinds
+  "Kinds that carry a \"target\" (the replacement / impl decl) — stored as a {name → target} map.
+   The rest are stored as sets of names."
+  #{"csimp" "impl"})
 
 (defn- parse-line [l]
   (when-let [[_ k n] (re-find #"\"kind\":\"([^\"]+)\"[^}]*\"name\":\"([^\"]+)\"" l)]
-    [k n]))
+    [k n (second (re-find #"\"target\":\"([^\"]+)\"" l))]))
 
 (defn import-attrs
   "Return [env' stats] where env' is `env` with the attributes from `ndjson` (a file path, or a seq
    of NDJSON lines) loaded into the matching extensions — keeping only names that are constants in
-   `env`. `stats` maps each extension key to the count loaded, plus :skipped (names absent from env)."
+   `env`. csimp/impl become {name → target} maps (the f→g replacement / impl); the rest are name
+   sets. `stats` maps each extension key to the count loaded, plus :skipped (names absent from env)."
   [env ndjson]
   (let [lines   (if (sequential? ndjson) ndjson (str/split-lines (slurp ndjson)))
         present? (fn [n] (some? (env/lookup env (name/from-string n))))]
-    (reduce (fn [[e stats] [k n]]
+    (reduce (fn [[e stats] [k n target]]
               (if-let [ext-key (kind->ext k)]
                 (if (present? n)
-                  [(env/update-extension e ext-key #{} conj n) (update stats ext-key (fnil inc 0))]
+                  [(if (map-kinds k)
+                     (env/update-extension e ext-key {} assoc n target)
+                     (env/update-extension e ext-key #{} conj n))
+                   (update stats ext-key (fnil inc 0))]
                   [e (update stats :skipped (fnil inc 0))])
                 [e stats]))
             [env {}]

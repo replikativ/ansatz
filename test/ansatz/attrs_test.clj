@@ -15,13 +15,16 @@
   (let [lines ["{\"kind\":\"simp\",\"name\":\"Nat.add_zero\"}"        ; present in Init
                "{\"kind\":\"simp\",\"name\":\"decide_true\"}"         ; present in Init
                "{\"kind\":\"simp\",\"name\":\"Totally.Bogus.Absent\"}" ; absent → skipped
-               "{\"kind\":\"csimp\",\"name\":\"Nat.add_zero\"}"]      ; routes to :csimp
+               "{\"kind\":\"csimp\",\"name\":\"Nat.succ\",\"target\":\"Nat.add\"}" ; map kind: f→g
+               "{\"kind\":\"extern\",\"name\":\"Nat.add\"}"]          ; set kind
         [e' stats] (attrs/import-attrs (a/env) lines)
         simp-set (env/get-extension e' :simp-lemmas #{})]
     (is (contains? simp-set "Nat.add_zero") "a real Lean @[simp] lemma landed in :simp-lemmas")
     (is (contains? simp-set "decide_true"))
     (is (= 2 (count simp-set)) "only the two present simp lemmas (absent one skipped)")
-    (is (contains? (env/get-extension e' :csimp #{}) "Nat.add_zero") "csimp routes to its own extension")
+    (is (= "Nat.add" (get (env/get-extension e' :csimp {}) "Nat.succ"))
+        "csimp is a {from → to} map carrying the replacement target")
+    (is (contains? (env/get-extension e' :extern #{}) "Nat.add") "extern is a name set")
     (is (pos? (:skipped stats)) "the absent name was skipped (graceful version-drift handling)")
     (is (empty? (env/get-extension (a/env) :simp-lemmas #{}))
         "the ORIGINAL env is unchanged — extensions branch with the immutable env")))
