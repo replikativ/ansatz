@@ -103,6 +103,7 @@
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
    {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc (nth ca 0)))
+    "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
     "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
     "List.length"   (fn [_ _ _ ca _] (list 'count (nth ca 1)))
