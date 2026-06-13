@@ -1024,13 +1024,20 @@
                         ;; Check if it's a constructor
                         (if-let [ci (env/lookup env (e/const-name expr))]
                           (if (.isCtor ^ConstantInfo ci)
-                            (if (zero? (.numFields ci))
-                              ;; 0-field ctor: use index for enum dispatch.
-                              ;; ctor 0 = nil (falsy), ctor 1+ = index (truthy).
-                              ;; This matches the (if v ctor1 ctor0) pattern.
-                              (let [cidx (.cidx ci)]
-                                (if (zero? cidx) nil cidx))
-                              (symbol cn))
+                            ;; A 0-field ctor of a TAGGED inductive (e.g. Value.vnil) is
+                            ;; [cidx], NOT the enum nil/index rep — must match the recursor's
+                            ;; (nth t 0) dispatch and the edn->value encoding. (A bare
+                            ;; MULTI-field tagged ctor is still a function → symbol.)
+                            (let [ind-nm (let [s cn, di (.lastIndexOf ^String s ".")]
+                                           (when (pos? di) (subs s 0 di)))]
+                              (cond
+                                (and (zero? (.numFields ci)) ind-nm (tagged-inductive? env ind-nm))
+                                [(.cidx ci)]
+                                (zero? (.numFields ci))
+                                ;; 0-field ctor: use index for enum dispatch.
+                                (let [cidx (.cidx ci)]
+                                  (if (zero? cidx) nil cidx))
+                                :else (symbol cn)))
                             (if-let [cg (get @codegen-registry cn)]
                               (cg env expr names)
                               (symbol cn)))
