@@ -2732,10 +2732,13 @@
          ;; fresh binder fvars during inference don't collide with context fvars (which
          ;; corrupts abstraction — e.g. a fold step λacc x:K losing its K). See tc/attach-lctx.
          st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
-         ;; Lean 4: user lemma names are ADDED to the default @[simp] set.
-         all-names (if (seq lemma-names)
-                     (distinct (concat default-simp-lemmas lemma-names))
-                     default-simp-lemmas)
+         ;; Lean 4: user lemma names are ADDED to the default @[simp] set. The default set is the
+         ;; hand-curated core PLUS any @[simp] lemmas inherited from Lean into the env's :simp-lemmas
+         ;; extension (ansatz.attrs) — empty unless attributes were imported, so this is a no-op for
+         ;; ansatz-alone and lets `(simp)` use Lean's real @[simp] corpus once inherited.
+         all-names (distinct (concat default-simp-lemmas
+                                     (env/get-extension env :simp-lemmas #{})
+                                     lemma-names))
          lemmas (make-simp-lemmas env all-names)
          ;; Contextual: add hypotheses as lemmas
          ;; Lean 4: SimpTheorems.lean preprocess — handles Eq, Iff, And (split),
@@ -2874,9 +2877,9 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          env (or (ensure-ble-eq (:env ps)) (:env ps))
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
-         all-names (if (seq lemma-names)
-                     (distinct (concat default-simp-lemmas lemma-names))
-                     default-simp-lemmas)]
+         all-names (distinct (concat default-simp-lemmas
+                                     (env/get-extension env :simp-lemmas #{})
+                                     lemma-names))]
      ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
        ;; corruption from full simp on hypothesis types. Non-def-eq changes
