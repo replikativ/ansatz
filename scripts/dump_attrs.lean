@@ -2,7 +2,16 @@
 -- the imported Lean modules as NDJSON (one object per line), so ansatz can inherit Lean's own
 -- attribute corpus as Env extensions. Run with the SAME toolchain that produced the kernel export:
 --   cd ../lean4export && lean --run ../ansatz/scripts/dump_attrs.lean Init > /tmp/init-attrs.ndjson
--- (Defaults to Init when no module args are given.) Lines:
+-- (Defaults to Init when no module args are given.)
+--
+-- For a store LARGER than Init (e.g. Mathlib), run the dumper where that module is importable (a
+-- lake project with its oleans built) and drop the gzipped result into the STORE DIR — ansatz.core
+-- /init! auto-loads <store>/attrs.ndjson.gz via ansatz.attrs/load-store-attrs!:
+--   cd ../mathlib4 && lake env lean --run ../ansatz/scripts/dump_attrs.lean Mathlib \
+--     | gzip -c > ~/.local/share/ansatz/stores/mathlib/attrs.ndjson.gz
+-- Then (a/init! "mathlib") inherits Mathlib's full @[simp] set (intersected with the store).
+--
+-- Lines:
 --   {"kind":"simp","name":"Nat.add_zero"}            -- a @[simp] lemma
 --   {"kind":"unfold","name":"id"}                    -- a @[simp] def to unfold
 --   {"kind":"csimp","name":"f","target":"g"}         -- @[csimp] f = g (compiler replacement)

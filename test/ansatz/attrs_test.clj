@@ -3,6 +3,7 @@
    NDJSON, bundled as resources/ansatz/init-attrs.ndjson.gz) into Env extensions. load-init!
    auto-imports them, so the inherited set is ON BY DEFAULT (intersected with the store)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
+            [clojure.java.io :as io]
             [ansatz.core :as a]
             [ansatz.codegen :as cg]
             [ansatz.kernel.env :as env]
@@ -59,3 +60,21 @@
     (is (= '+ (lower "Nat.add")) "an extern WITH a builtin still lowers to its Clojure op (builtin wins)")
     (is (pos? (count (filter #(throw? (lower %)) externs)))
         "an @[extern] primitive with NO ansatz runtime lowers to an explanatory throw, not a bare symbol")))
+
+(deftest store-local-attrs-load
+  ;; A store larger than the bundled Init (e.g. Mathlib) carries its OWN attrs.ndjson in the store
+  ;; dir; init! loads it via attrs/load-store-attrs! (additive over the bundled Init). Simulate with
+  ;; a temp dir holding a one-present + one-absent line.
+  (let [dir (doto (io/file (System/getProperty "java.io.tmpdir")
+                           (str "ansatz-store-attrs-" (System/nanoTime)))
+              (.mkdirs))]
+    (spit (io/file dir "attrs.ndjson")
+          (str "{\"kind\":\"simp\",\"name\":\"Nat.add_zero\"}\n"
+               "{\"kind\":\"simp\",\"name\":\"Totally.Bogus.Absent\"}\n"))
+    (let [stats (attrs/load-store-attrs! (.getPath dir))]
+      (is (pos? (:simp-lemmas stats)) "the store-local simp lemma is loaded")
+      (is (pos? (:skipped stats)) "the absent name is skipped (intersected with the store)")
+      (is (contains? (env/get-extension (a/env) :simp-lemmas #{}) "Nat.add_zero")
+          "the store-local lemma lands in the global env's :simp-lemmas"))
+    (is (nil? (attrs/load-store-attrs! (str (.getPath dir) "-nope")))
+        "no store-local attrs file → nil (graceful — bundled Init still applies)")))
