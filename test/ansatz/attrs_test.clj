@@ -6,6 +6,7 @@
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name]
             [ansatz.attrs :as attrs]))
 
 (use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
@@ -24,3 +25,21 @@
     (is (pos? (:skipped stats)) "the absent name was skipped (graceful version-drift handling)")
     (is (empty? (env/get-extension (a/env) :simp-lemmas #{}))
         "the ORIGINAL env is unchanged — extensions branch with the immutable env")))
+
+(deftest inherited-simp-set-drives-a-rewrite-defaults-cannot
+  ;; Option.some.injEq : (some a = some b) = (a = b) is @[simp] in Lean's Init but NOT in ansatz's
+  ;; hand-curated default-simp-lemmas. Proves (simp) consults the inherited :simp-lemmas extension:
+  ;; with free a,b the goal is unreachable by the defaults, but closes once the lemma is inherited.
+  (binding [a/*verbose* false]
+    (let [params '[a :- Nat, b :- Nat]
+          goal   '(= Prop (= (Option Nat) (Option.some a) (Option.some b)) (= Nat a b))
+          base   @a/ansatz-env]
+      (try
+        (is (thrown? Throwable (a/prove-theorem 'opt-inj-base params goal '[(simp)]))
+            "defaults alone cannot close (some a = some b) = (a = b)")
+        (reset! a/ansatz-env
+                (first (attrs/import-attrs base ["{\"kind\":\"simp\",\"name\":\"Option.some.injEq\"}"])))
+        (a/prove-theorem 'opt-inj-inherited params goal '[(simp)])
+        (is (some? (env/lookup (a/env) (name/from-string "opt-inj-inherited")))
+            "after inheriting Option.some.injEq, (simp) closes it — the inherited @[simp] set drives the rewrite")
+        (finally (reset! a/ansatz-env base))))))
