@@ -584,6 +584,141 @@
                                           (pos? (.numFields ^ConstantInfo cci))))
                                ctors)))))))
 
+(declare ansatz->clj)
+
+;; ── built-in codegen tables (the Init/kernel lowerings) ──────────────────────────────────────────
+;; head-name → lowering. `ansatz->clj` consults these BEFORE the `codegen-registry` extension seam
+;; (so a runtime's registered vocabulary augments, never shadows, the kernel built-ins), then falls
+;; through to the structural ctor / recursor / arity machinery. This mirrors Lean's compiler, which
+;; lowers Nat/Int/Float/Bool primitives by table and `ite`/`dite`/recursors by dedicated handlers.
+;;
+;;   builtin-app   : head → (fn [env head args ca names] → clj-form)  — head APPLIED to args
+;;   builtin-value : head → clj-form                                  — head in VALUE position (a
+;;                                                                       fold step `+`, a comparator)
+;; `ca` = already-compiled args; `args` = raw Ansatz Exprs (a few handlers peel lambdas).
+
+(clojure.core/defn- bi-nary
+  "App handler for a binary primitive that saturates to a bare symbol `op` (fold-step-safe via nary-op)."
+  [op] (fn [_ _ _ ca _] (nary-op op ca)))
+
+(clojure.core/defn- bi-nary2
+  "App handler for a binary primitive whose saturated form `(emit2 a b)` isn't a bare symbol.
+   `drop-prefix` (default 0) skips leading type/instance args (heterogeneous HAdd/HMul/… carry 4)."
+  ([emit2] (bi-nary2 emit2 0))
+  ([emit2 drop-prefix]
+   (fn [_ _ _ ca _] (nary-op2 emit2 (if (pos? drop-prefix) (vec (drop drop-prefix ca)) ca)))))
+
+(clojure.core/defn- bi-const "App handler for a nullary constant." [v] (fn [_ _ _ _ _] v))
+
+(def ^:private builtin-app
+  (merge
+   ;; n-ary arithmetic / comparison saturating to a bare op
+   {"Nat.add"  (bi-nary '+)  "Nat.mul"  (bi-nary '*)  "Nat.div" (bi-nary 'quot)
+    "Nat.max"  (bi-nary 'max) "Nat.min" (bi-nary 'min)
+    "Nat.blt"  (bi-nary '<)  "Nat.ble"  (bi-nary '<=) "Nat.beq" (bi-nary '==)
+    "Float.add" (bi-nary '+) "Float.sub" (bi-nary '-) "Float.mul" (bi-nary '*) "Float.div" (bi-nary '/)}
+   ;; n-ary ops whose saturated form is a composite expr
+   {"Nat.sub"  (bi-nary2 (fn [x y] (list 'max 0 (list '- x y))))   ; truncated Nat subtraction
+    "Nat.pow"  (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))))
+    ;; Lean Nat.mod n 0 = n (total); Clojure (mod n 0) throws — guard faithfully.
+    "Nat.mod"  (bi-nary2 (fn [x y] (list 'if (list 'zero? y) x (list 'mod x y))))
+    "Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
+    "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
+    ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
+    "HAdd.hAdd" (bi-nary2 (fn [x y] (list '+ x y)) 4)
+    "HMul.hMul" (bi-nary2 (fn [x y] (list '* x y)) 4)
+    "HSub.hSub" (bi-nary2 (fn [x y] (list 'max 0 (list '- x y))) 4)
+    "HDiv.hDiv" (bi-nary2 (fn [x y] (list 'quot x y)) 4)
+    "HPow.hPow" (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))) 4)}
+   ;; nullary constants
+   {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
+    "List.nil"  (bi-const nil)}
+   ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
+   {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc (nth ca 0)))
+    "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
+    "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
+    "List.length"   (fn [_ _ _ ca _] (list 'count (nth ca 1)))
+    ;; SizeOf.sizeOf T inst x → runtime size (mirrors sizeOf_spec; reached via the fuel scaffolding).
+    "SizeOf.sizeOf" (fn [_ _ _ ca _] (list 'ansatz.core/rt-sizeof (nth ca 2)))
+    ;; refinement erasure: a Subtype value IS its carrier at runtime (arity-tolerant for eta-reduced partials)
+    "Subtype.val" (fn [_ _ _ ca _]
+                    (case (count ca)
+                      3 (nth ca 2)
+                      2 'clojure.core/identity
+                      1 (list 'fn '[_] 'clojure.core/identity)
+                      (list 'fn '[_] (list 'fn '[_] 'clojure.core/identity))))
+    "Subtype.mk" (fn [_ _ _ ca _]
+                   (case (count ca)
+                     4 (nth ca 2)
+                     3 (list 'fn '[_] (nth ca 2))
+                     2 (list 'fn '[v#] (list 'fn '[_] 'v#))
+                     (list 'fn '[_] (list 'fn '[v#] (list 'fn '[_] 'v#)))))
+    ;; Float literal: OfScientific.ofScientific Float inst m s e → m × 10^±e (type/inst erase)
+    "OfScientific.ofScientific"
+    (fn [_ _ _ ca _]
+      (let [m (nth ca 2) sn (nth ca 3) ex (nth ca 4)]
+        (if (and (number? m) (number? ex) (boolean? sn))
+          (* (double m) (Math/pow 10.0 (double (if sn (- ex) ex))))
+          (list '* (list 'double m) (list 'Math/pow 10.0 (list 'if sn (list '- ex) ex))))))
+    ;; dite α cond dec then-fn else-fn → (if bool-cond then else); then/else peel their erased proof binder
+    "dite"
+    (fn [env _ args ca names]
+      (let [then-fn (nth args 3)
+            else-fn (nth args 4)
+            then-body (if (e/lam? then-fn)
+                        (ansatz->clj env (e/lam-body then-fn) (conj names "_h"))
+                        (nth ca 3))
+            else-body (if (e/lam? else-fn)
+                        (ansatz->clj env (e/lam-body else-fn) (conj names "_h"))
+                        (nth ca 4))
+            dec-expr (nth args 2)
+            [dec-head dec-args] (e/get-app-fn-args dec-expr)
+            bool-cond (if (and (e/const? dec-head)
+                               (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
+                                (name/->string (e/const-name dec-head))))
+                        (list (case (name/->string (e/const-name dec-head))
+                                "Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=)
+                              (ansatz->clj env (nth dec-args 0) names)
+                              (ansatz->clj env (nth dec-args 1) names))
+                        (nth ca 2))]
+        (list 'if bool-cond then-body else-body)))
+    ;; WellFounded.Nat.fix α motive measure F x → letfn self-recursion; F = λ x. λ IH. body, IH calls drop the proof
+    "WellFounded.Nat.fix"
+    (fn [env head args ca names]
+      (if (= 5 (count ca))
+        (let [f-expr (nth args 3)
+              x-arg (nth ca 4)
+              self-sym (gensym "wf_")
+              f-body-1 (when (e/lam? f-expr) (e/lam-body f-expr))
+              f-body-2 (when (and f-body-1 (e/lam? f-body-1)) (e/lam-body f-body-1))
+              x-name (when (e/lam? f-expr) (or (e/lam-name f-expr) "x"))
+              ih-name (when (and f-body-1 (e/lam? f-body-1)) (or (e/lam-name f-body-1) "IH"))
+              compiled-body (when f-body-2
+                              (ansatz->clj env f-body-2 (conj names x-name ih-name)))
+              ih-sym (symbol ih-name)
+              replace-ih (fn replace-ih [form]
+                           (cond
+                             ;; ((IH y) proof) → (self y)
+                             (and (seq? form) (= 2 (count form))
+                                  (seq? (first form)) (= 2 (count (first form)))
+                                  (= ih-sym (ffirst form)))
+                             (list self-sym (second (first form)))
+                             (seq? form) (apply list (map replace-ih form))
+                             (vector? form) (mapv replace-ih form)
+                             :else form))
+              final-body (replace-ih compiled-body)]
+          (list 'letfn [(list self-sym [(symbol x-name)] final-body)]
+                (list self-sym x-arg)))
+        ;; Partial application (shouldn't happen normally)
+        (list 'apply (ansatz->clj env head names) ca)))}))
+
+(def ^:private builtin-value
+  "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
+  {"Nat.zero" 0 "Bool.true" true "Bool.false" false
+   "Nat.add" '+ "Nat.mul" '* "Nat.succ" 'inc "Nat.div" 'quot
+   "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
+   "Nat.sub" '(fn [a b] (max 0 (- a b)))})
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -605,130 +740,8 @@
       (if (e/const? head)
         (let [h (name/->string (e/const-name head))
               ca (mapv #(ansatz->clj env % names) args)]
-          (case h
-            ;; dite α cond dec then-fn else-fn → (if bool-cond then else)
-            ;; then-fn = λ h => body, else-fn = λ h => body (h is proof, erased at runtime)
-            "dite"
-            (let [;; args: [α, cond, dec-inst, then-fn, else-fn]
-                  then-fn (nth args 3)   ;; Ansatz lambda: λ h => then-body
-                  else-fn (nth args 4)   ;; Ansatz lambda: λ h => else-body
-                  ;; Peel lambda, compile body (the h arg is a proof — not used at runtime)
-                  then-body (if (e/lam? then-fn)
-                              (ansatz->clj env (e/lam-body then-fn) (conj names "_h"))
-                              (nth ca 3))
-                  else-body (if (e/lam? else-fn)
-                              (ansatz->clj env (e/lam-body else-fn) (conj names "_h"))
-                              (nth ca 4))
-                  ;; Build runtime condition from the Decidable instance.
-                  ;; Decidable.decide returns Bool; or for Nat.decEq a b, use ==
-                  dec-expr (nth args 2) ;; Ansatz expr for Decidable instance
-                  [dec-head dec-args] (e/get-app-fn-args dec-expr)
-                  bool-cond (if (and (e/const? dec-head)
-                                     (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
-                                      (name/->string (e/const-name dec-head))))
-                              ;; Nat.decEq/decLt/decLe a b → the Clojure comparison at runtime
-                              (list (case (name/->string (e/const-name dec-head))
-                                      "Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=)
-                                    (ansatz->clj env (nth dec-args 0) names)
-                                    (ansatz->clj env (nth dec-args 1) names))
-                              ;; Generic: compile the decidable instance (may not work for all cases)
-                              (nth ca 2))]
-              (list 'if bool-cond then-body else-body))
-            ;; WellFounded.Nat.fix α motive measure F x → letfn recursive call
-            ;; F = λ x (λ IH body) — compile body with IH→self-call, dropping proof args
-            "WellFounded.Nat.fix"
-            (if (= 5 (count ca))
-              ;; Full application: WF.Nat.fix α motive measure F x
-              (let [f-expr (nth args 3) ;; F as Ansatz Expr
-                    x-arg (nth ca 4)    ;; compiled x
-                    self-sym (gensym "wf_")
-                    ;; F = λ x. λ IH. body
-                    ;; Peel two lambdas
-                    f-body-1 (when (e/lam? f-expr) (e/lam-body f-expr))
-                    f-body-2 (when (and f-body-1 (e/lam? f-body-1)) (e/lam-body f-body-1))
-                    x-name (when (e/lam? f-expr) (or (e/lam-name f-expr) "x"))
-                    ih-name (when (and f-body-1 (e/lam? f-body-1))
-                              (or (e/lam-name f-body-1) "IH"))
-                    compiled-body (when f-body-2
-                                    (ansatz->clj env f-body-2
-                                                 (conj names x-name ih-name)))
-                    ;; Replace IH calls: (IH arg proof) → (self arg)
-                    ;; In compiled form, IH is a symbol. Calls look like ((IH arg) proof).
-                    ;; We need to replace (IH-sym arg proof) patterns with (self arg).
-                    ih-sym (symbol ih-name)
-                    replace-ih (fn replace-ih [form]
-                                 (cond
-                                   ;; ((IH y) proof) → (self y)
-                                   (and (seq? form) (= 2 (count form))
-                                        (seq? (first form)) (= 2 (count (first form)))
-                                        (= ih-sym (ffirst form)))
-                                   (list self-sym (second (first form)))
-                                   (seq? form) (apply list (map replace-ih form))
-                                   (vector? form) (mapv replace-ih form)
-                                   :else form))
-                    final-body (replace-ih compiled-body)]
-                (list 'letfn [(list self-sym [(symbol x-name)] final-body)]
-                      (list self-sym x-arg)))
-              ;; Partial application (shouldn't happen normally)
-              (list 'apply (ansatz->clj env head names) ca))
-            ;; SizeOf.sizeOf T inst x → runtime size (mirrors the sizeOf_spec equations:
-            ;; Nat is its own size; a list contributes 1 for nil plus 1 + size per element).
-            ;; Reached via the fuel scaffolding when sizeOf is the termination measure.
-            "SizeOf.sizeOf" (list 'ansatz.core/rt-sizeof (nth ca 2))
-            ;; refinement erasure: a Subtype value IS its carrier at runtime.
-            ;; Arity-tolerant: an eta-reduced partial (e.g. `Subtype.val α P` as a
-            ;; function value) erases to identity-shaped fns.
-            "Subtype.val" (case (count ca)
-                            3 (nth ca 2)
-                            2 'clojure.core/identity
-                            1 (list 'fn '[_] 'clojure.core/identity)
-                            (list 'fn '[_] (list 'fn '[_] 'clojure.core/identity)))
-            ;; Subtype.mk α P v proof → the value (refinement + proof erase)
-            "Subtype.mk" (case (count ca)
-                           4 (nth ca 2)
-                           3 (list 'fn '[_] (nth ca 2))
-                           2 (list 'fn '[v#] (list 'fn '[_] 'v#))
-                           (list 'fn '[_] (list 'fn '[v#] (list 'fn '[_] 'v#))))
-            "HAdd.hAdd" (nary-op2 (fn [x y] (list '+ x y)) (vec (drop 4 ca)))
-            "HMul.hMul" (nary-op2 (fn [x y] (list '* x y)) (vec (drop 4 ca)))
-            "HSub.hSub" (nary-op2 (fn [x y] (list 'max 0 (list '- x y))) (vec (drop 4 ca)))
-            "HDiv.hDiv" (nary-op2 (fn [x y] (list 'quot x y)) (vec (drop 4 ca)))
-            "HPow.hPow" (nary-op2 (fn [x y] (list 'long (list 'Math/pow x y))) (vec (drop 4 ca)))
-            ;; Float literal: OfScientific.ofScientific Float inst m s e → m × 10^±e
-            ;; (args: α inst mantissa exponentSign decimalExponent — type/inst erase)
-            "OfScientific.ofScientific"
-            (let [m (nth ca 2) sn (nth ca 3) ex (nth ca 4)]
-              (if (and (number? m) (number? ex) (boolean? sn))
-                (* (double m) (Math/pow 10.0 (double (if sn (- ex) ex))))
-                (list '* (list 'double m) (list 'Math/pow 10.0 (list 'if sn (list '- ex) ex)))))
-            "Float.add" (nary-op '+ ca)
-            "Float.sub" (nary-op '- ca)
-            "Float.mul" (nary-op '* ca)
-            "Float.div" (nary-op '/ ca)
-            "Nat.add" (nary-op '+ ca)
-            "Nat.sub" (nary-op2 (fn [x y] (list 'max 0 (list '- x y))) ca)  ; truncated Nat subtraction
-            "Nat.mul" (nary-op '* ca)
-            "Nat.div" (nary-op 'quot ca)
-            "Nat.pow" (nary-op2 (fn [x y] (list 'long (list 'Math/pow x y))) ca)
-            ;; Lean Nat.mod n 0 = n (total); Clojure (mod n 0) throws — guard faithfully.
-            "Nat.mod" (nary-op2 (fn [x y] (list 'if (list 'zero? y) x (list 'mod x y))) ca)
-            "Bool.or" (nary-op2 (fn [x y] (list 'or x y)) ca)
-            "Nat.max" (nary-op 'max ca)
-            "Nat.min" (nary-op 'min ca)
-            "Bool.and" (nary-op2 (fn [x y] (list 'and x y)) ca)
-            "Nat.succ" (list 'inc (nth ca 0))
-            "Bool.true" true
-            "Bool.false" false
-            "Nat.zero" 0
-            "ite" (list 'if (nth ca 1) (nth ca 3) (nth ca 4))
-            ;; Nat comparison → Clojure primitives
-            "Nat.blt" (nary-op '< ca)
-            "Nat.ble" (nary-op '<= ca)
-            "Nat.beq" (nary-op '== ca)
-            ;; List operations → Clojure persistent list
-            "List.cons" (list 'clojure.core/cons (nth ca 1) (nth ca 2))
-            "List.nil" nil
-            "List.length" (list 'count (nth ca 1))
+          (if-let [bi (builtin-app h)]
+            (bi env head args ca names)
             ;; Constructor application
             ;; For structures (defrecord): use ->RecordName constructor
             ;; For other inductives: tagged vector [field1 field2 ...]
@@ -1014,13 +1027,11 @@
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
           (reduce (fn [f a] (list f a)) compiled))))
     (e/const? expr) (let [cn (name/->string (e/const-name expr))]
-                      (case cn
-                        "Nat.zero" 0 "Bool.true" true "Bool.false" false
-                        ;; ops in VALUE position (a fold step, a passed comparator) lower to
-                        ;; the runnable Clojure op, not a bare (unresolvable) symbol
-                        "Nat.add" '+ "Nat.mul" '* "Nat.succ" 'inc "Nat.div" 'quot
-                        "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
-                        "Nat.sub" '(fn [a b] (max 0 (- a b)))
+                      ;; ops in VALUE position (a fold step, a passed comparator) lower to the
+                      ;; runnable Clojure op, not a bare (unresolvable) symbol — `find` so a
+                      ;; false/0 lowering isn't mistaken for "absent".
+                      (if-let [e (find builtin-value cn)]
+                        (val e)
                         ;; Check if it's a constructor
                         (if-let [ci (env/lookup env (e/const-name expr))]
                           (if (.isCtor ^ConstantInfo ci)
