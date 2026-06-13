@@ -45,6 +45,13 @@
   [sym f]
   (swap! ingest/term-elaborator-registry assoc sym f))
 
+(defn register-keyword-access!
+  "Register type-directed keyword projection for a NON-structure receiver type:
+   `(:k x)` where x's type head is `type-name` calls (f est kw receiver-expr) → Expr.
+   The kw arrives in full (namespace included)."
+  [type-name f]
+  (swap! ingest/keyword-access-registry assoc (str type-name) f))
+
 (defn register-elaborator!
   "Register a lean4 macro_rules-shaped surface form: (fn [args] → surface form)."
   [sym f]

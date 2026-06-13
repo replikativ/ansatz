@@ -722,11 +722,22 @@
                    (if cmp
                      (let [[prop-head dec-name swap?] cmp
                            [a b] (if swap? [(nth c 2) (nth c 1)] [(nth c 1) (nth c 2)])
-                           prop (if (= prop-head "Eq")
-                                  (elab-term est (list 'Eq 'Nat a b))
-                                  (elab-term est (list (symbol prop-head) 'Nat a b)))
                            a* (elab-term est a)
                            b* (elab-term est b)
+                           ;; Build the Prop with the CONCRETE canonical Nat instance
+                           ;; (instLTNat/instLENat), not via (lt Nat a b) — that path
+                           ;; leaves an instance MVAR which the paired Nat.decLt/decLe
+                           ;; (whose type mentions the canonical instance) cannot match
+                           ;; under a strict mid-elaboration infer (e.g. as an argument
+                           ;; of List.map, before the synthesis pass runs).
+                           prop (case prop-head
+                                  "Eq" (elab-term est (list 'Eq 'Nat a b))
+                                  "lt" (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
+                                               (e/const' (name/from-string "Nat") [])
+                                               (e/const' (name/from-string "instLTNat") []) a* b*)
+                                  "le" (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                                               (e/const' (name/from-string "Nat") [])
+                                               (e/const' (name/from-string "instLENat") []) a* b*))
                            inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
                            then-expr (elab-term est t)
                            else-expr (elab-term est e)
@@ -949,14 +960,36 @@
                     sinfo (get reg tn)
                     fidx (when sinfo (first (keep-indexed (fn [i f] (when (= f field-name) i))
                                                           (:fields sinfo))))]
-                (if fidx
-                  (e/proj (name/from-string tn) fidx struct-expr)
-                  (elab-error! (str "Unknown structure field: :" field-name)
-                               {:field field-name :type tn})))
+                (cond
+                  fidx (e/proj (name/from-string tn) fidx struct-expr)
+                  ;; non-structure receiver: type-directed keyword access via the
+                  ;; extension registry (e.g. dynamic-EDN Value → vget)
+                  (get @ingest/keyword-access-registry tn)
+                  ((get @ingest/keyword-access-registry tn) est head struct-expr)
+                  :else (elab-error! (str "Unknown structure field: :" field-name
+                                          (when tn (str " (receiver type " tn
+                                                        " is not a registered structure and has"
+                                                        " no keyword-access handler)")))
+                                     {:field field-name :type tn})))
           ;; (get struct :field) → (:field struct)
               (= (str head) "get") (elab-term est (list (nth sexpr 2) (nth sexpr 1)))
           ;; (cons x xs) → List.cons sugar (element type inferred)
               (= (str head) "cons") (elab-app est (symbol "List.cons") (rest sexpr))
+          ;; (case x k1 v1 … default) → a bound scrutinee + nested type-directed ==
+          ;; chain. Intercepted BEFORE clojure's macroexpansion: case* is a jump-table
+          ;; encoding we never want to elaborate. A default is REQUIRED (totality).
+              (= (str head) "case")
+              (let [[_ scrut & clauses] sexpr]
+                (when (even? (count clauses))
+                  (elab-error! "case in a verified body requires a default branch (odd clause count)"
+                               {:form sexpr}))
+                (let [g (gensym "case")
+                      default (last clauses)
+                      pairs (partition 2 (butlast clauses))]
+                  (elab-term est
+                             (list 'let [g scrut]
+                                   (reduce (fn [acc [k v]] (list 'if (list '== g k) v acc))
+                                           default (reverse pairs))))))
               (and (symbol? head) (ingest/expand-macro? head))
               (elab-term est (macroexpand-1 sexpr))
               :else (elab-app est (first sexpr) (rest sexpr)))))))

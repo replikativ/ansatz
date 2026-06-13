@@ -690,6 +690,8 @@
             ;; Lean Nat.mod n 0 = n (total); Clojure (mod n 0) throws — guard faithfully.
             "Nat.mod" (nary-op2 (fn [x y] (list 'if (list 'zero? y) x (list 'mod x y))) ca)
             "Bool.or" (nary-op2 (fn [x y] (list 'or x y)) ca)
+            "Nat.max" (nary-op 'max ca)
+            "Nat.min" (nary-op 'min ca)
             "Bool.and" (nary-op2 (fn [x y] (list 'and x y)) ca)
             "Nat.succ" (list 'inc (nth ca 0))
             "Bool.true" true
