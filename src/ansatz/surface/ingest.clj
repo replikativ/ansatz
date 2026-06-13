@@ -11,6 +11,14 @@
 (defonce ^{:doc "Structure field registry for defrecord compilation."}
   structure-registry (atom {}))
 
+;; ── Codegen seams (shared leaf, break the core↔codegen cycle) ────────────────────────────
+;; Arity registry — Lean 4's LCNF arity analysis. Name-string → {:arity n :erased k}; used by
+;; ansatz.codegen's ansatz->clj to emit flat multi-arg (FAP) instead of curried calls.
+(defonce ^{:doc "Arity registry for compiled functions."} arity-registry (atom {}))
+;; Codegen registry — the runtime (wandler) extension seam: head Name-string → (fn [env expr names]
+;; → clj-form). ansatz->clj consults it for application heads it does not lower natively.
+(defonce ^{:doc "Codegen registry: Name-string → (fn [env expr names] → clj-form)."} codegen-registry (atom {}))
+
 ;; ── Custom elaboration forms (lean4 macro_rules-shaped) ─────────────────────────────────
 ;; symbol → (fn [arg-forms] → surface-form). The elaborator expands the form and re-elaborates
 ;; the result — syntax→syntax, so extensions compose with every surface feature for free.
