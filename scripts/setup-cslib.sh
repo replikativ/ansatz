@@ -132,6 +132,26 @@ clj -M -e "
 (println \"Done.\")
 "
 
+# ============================================================
+# Step 6: Dump Lean attributes ALONGSIDE the store (co-generated)
+# ============================================================
+# @[simp]/@[csimp]/@[extern] are NOT in the kernel export — dump them from the SAME cslib +
+# toolchain that produced $NDJSON, into the store dir. ansatz.core/init! auto-loads
+# <store>/attrs.ndjson.gz (ansatz.attrs/load-store-attrs!). Co-generating here means the attrs can
+# never drift from the store across a toolchain bump.
+
+ATTRS_GZ="$STORE_DIR/attrs.ndjson.gz"
+if [ -f "$ATTRS_GZ" ]; then
+    echo ""
+    echo ">>> attrs.ndjson.gz already present ($(zcat "$ATTRS_GZ" | wc -l) lines). Delete it to re-dump."
+else
+    echo ""
+    echo ">>> Dumping CSLib @[simp]/@[csimp]/@[extern] into $ATTRS_GZ ..."
+    cd "$PARENT_DIR/cslib"
+    lake env lean --run "$PROJECT_DIR/scripts/dump_attrs.lean" Cslib | gzip -c > "$ATTRS_GZ"
+    echo "    Wrote $(zcat "$ATTRS_GZ" | wc -l) attribute lines (toolchain $(cat "$PARENT_DIR/cslib/lean-toolchain"))"
+fi
+
 echo ""
 echo "=== CSLib Setup Complete ==="
 echo ""

@@ -138,7 +138,8 @@
   (let [sm (storage/open-store store-path)
         env (storage/load-env sm branch)]
     (reset! ansatz-env env)
-    (attrs/load-bundled-attrs!)   ;; inherit Lean's @[simp]/@[csimp]/@[extern] into env extensions
+    (attrs/load-bundled-attrs!)            ;; inherit Lean's Init @[simp]/@[csimp]/@[extern]
+    (attrs/load-store-attrs! store-path)   ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside
     ;; Build instance index:
     ;; 1. Try loading from TSV (Lean 4 export, complete)
     ;; 2. Fall back to name-based discovery (~200ms, partial)

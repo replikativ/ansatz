@@ -67,3 +67,20 @@
     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
                   (str/split-lines (slurp in)))]
       (import-attrs! lines))))
+
+(defn load-store-attrs!
+  "Import a STORE-LOCAL Lean attribute corpus — `<store-path>/attrs.ndjson.gz` (or plain
+   `.ndjson`), if present — into the GLOBAL env's extensions, intersected with the loaded store.
+   This is how a store LARGER than the bundled Init (e.g. Mathlib, with ~100k+ @[simp]) inherits
+   its OWN attributes: dump it once with `scripts/dump_attrs.lean <Module>` into the store dir.
+   Additive over load-bundled-attrs! (union — import is set/map merge). Returns the load stats, or
+   nil if no store-local file exists. Called by ansatz.core/init! after load-bundled-attrs!."
+  [store-path]
+  (when store-path
+    (let [gz  (io/file store-path "attrs.ndjson.gz")
+          raw (io/file store-path "attrs.ndjson")]
+      (cond
+        (.exists gz)  (let [lines (with-open [in (java.util.zip.GZIPInputStream. (io/input-stream gz))]
+                                    (str/split-lines (slurp in)))]
+                        (import-attrs! lines))
+        (.exists raw) (import-attrs! (.getPath raw))))))
