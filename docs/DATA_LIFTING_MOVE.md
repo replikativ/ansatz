@@ -38,9 +38,12 @@ Decision (Option 2 + 3, no backwards compat): unify the schema bridge AND struct
 
 0. [this doc] design + gaps tracker (`docs/PROGRAMMING_MODEL_GAPS.md`). DONE.
 1. **Value universe** → `ansatz.surface.data`; resolve `head-name` + `Bool` codegen; add regex seam. Gate.
-2. **Conformance compiler** → `ansatz.surface.schema`. Gate.
-3. **#8 `schema->value-type`** + unify precise/conforms/value-subtype + reverse export into
-   `ansatz.surface.schema`; relocate the #8 test into ansatz. Gate.
-4. **Fix recursive-conforms WF** in ansatz, WITH a real test (revives the untested path). Gate.
-5. wandler re-points to `ansatz.surface.{data,schema}`, drops moved code, `install!` delegates,
-   keeps `malli-record` + regex seam fill. Gate both repos.
+2. **Conformance compiler** → `ansatz.surface.schema`. DONE (ansatz PR #33).
+3. **#8 `schema->value-type`** → `ansatz.surface.schema`. DONE. NOTE: the precise lane (`ansatz.malli`)
+   is NOT merged in — it hard-requires malli.core (optional library: registry, a/defn signatures), while
+   `ansatz.surface.schema` works on schema-DATA + Value with no library dep. Merging would force the
+   optional dep onto the conformance lane → kept as a two-layer bridge by design.
+4. **Recursive-conforms WF** — FIXED as a side effect of stage 1 (surface `and`→`Bool.and` keeps the
+   recursive call visible to the WF/structural analyzer). Now total over recursive schemas, with a test.
+5. wandler re-pointed to `ansatz.surface.{data,schema}`, dropped moved code. DONE.
+   Residual cleanup: 2 stale comments; native-Clojure-over-Value coverage audit (see GAPS).

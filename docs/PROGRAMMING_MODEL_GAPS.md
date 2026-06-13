@@ -6,18 +6,26 @@ matters, where, status.
 
 ## EDN / Value / Clojure-data lifting
 
-- **Recursive conformance WF** — `install-conforms!` for `[:vector …]`/nested maps generates a recursive
-  `all p (cons-chain)` whose auto-WF measure `(sizeOf c)` "did not yield a verified WellFounded.fix
-  encoding". The recursion is over a `Value` cons-tail (a constructor arg) and *should* be STRUCTURAL
-  (→ `Value.rec`, no WF), so it's likely mis-routed to WF rather than a deep WF gap. **Untested** in the
-  suite. STATUS: open — slated for stage 4 of the data-lifting move (fix in ansatz, with a real test).
-- **Conformance recursive path is untested** — no current test calls `install-conforms!`/`compile-schema`
-  despite #57 claiming "breadth + recursion + depth". Likely bit-rotted. STATUS: open (revive in stage 4).
+- **Recursive conformance WF** — FIXED (data-lifting move). The recursive `all p (cons-chain)` recurses on
+  the `Value` cons-tail (a constructor arg) = structural. It was failing at WF `(sizeOf c)` because the
+  generator emitted surface `and`, which expands to an `ite`/`Bool.rec` that BURIED the recursive call in a
+  branch where the WF/structural analyzer couldn't see the decreasing argument. Emitting `Bool.and`
+  directly (the data-lifting move's and/or/not→Bool.* rewrite) keeps the recursion visible → it now
+  compiles structurally. Now total: `:vector`, nested maps, vector-of-maps, recursive registry trees all
+  verify (test/wandler/value_functor_test.clj). STATUS: closed.
+- **Conformance recursive path now tested** — value_functor_test exercises recursive schemas through the
+  #8 functor (each kernel-verifies). STATUS: closed.
+- **Schema bridge is two-layer (by optionality, not a gap)** — `ansatz.malli` (hard-requires malli.core:
+  live registry + a/defn signatures + precise schema→type) and `ansatz.surface.schema` (schema-DATA →
+  Value conformance + #8, NO malli-library dep). Merging would wrongly force the optional malli dep onto
+  the no-dep conformance lane, so they stay separate. STATUS: by design.
 - **Differential lane is narrow** — `check-verified!` generates only Nat/Bool/List Nat inputs; `:or`/`:enum`/
   strings/maps aren't differential-tested against `m/validate`. STATUS: open.
-- **Native-Clojure-over-Value coverage** — which Clojure verbs lift over dynamic `Value` (`:k`/`get`/`int?`/
-  `==`/`count`/`assoc` done; what about `update`/`merge`/`contains?`/`keys`/`vals`/nested `get-in`/
-  destructuring?). Needs an audit + completion. STATUS: open (audit during the move).
+- **Native-Clojure-over-Value coverage** (audited). COVERED: type predicates (int?/string?/boolean?/
+  keyword?/nil?/map?/vector?/set?/double?/some?/any? → v*?), `:k`/`get` (vget), `assoc` (vassoc), `count`
+  (vcount), `==`/numeric compare. MISSING: `update`, `merge`, `dissoc`, `contains?`, `keys`, `vals`,
+  `get-in`/`assoc-in`, `conj`/`into`, map/filter-with-destructuring over Value entries. STATUS: open
+  (extend ansatz.surface.data's native surface — these are the high-value next verbs for dynamic EDN).
 
 ## Schema → type functor (#8)
 
