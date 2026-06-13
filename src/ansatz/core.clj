@@ -2613,6 +2613,25 @@
                          (~param-syms ~curried-call)))))]
       clj-fn)))
 
+(clojure.core/defn define-foreign
+  "Declare a TRUSTED FOREIGN function: an arbitrary Clojure fn asserted at the given
+   kernel type (installed as an AXIOM — trusted, not verified, never usable in proofs).
+   Unlike `define-partial`, the body is NOT elaborated — the raw Clojure fn IS the runtime.
+   In a verified body the foreign name resolves as a constant of its asserted type, so the
+   optimizer reasons PARAMETRICALLY around it (fusion/relational laws hold for ANY function),
+   and codegen lowers it like any user fn (FAP via the arity registry → calls the def'd var).
+   The asserted type is the entire trust boundary — the gradual escape hatch / typed FFI hole."
+  [fn-name params ret-type-form]
+  (let [env (env)
+        pairs (parse-params params)
+        {type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+        cname (name/from-string (str fn-name))
+        ax (env/mk-axiom cname [] type-ansatz)]
+    (swap! ansatz-env env/add-constant ax)
+    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+    (println "⚠ foreign:" fn-name "— trusted Clojure fn asserted at its type, NOT verified")
+    :foreign))
+
 ;; ============================================================
 ;; Public API
 ;; ============================================================
@@ -3405,6 +3424,21 @@
       `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm))
       :else
       `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm)))))
+
+(defmacro foreign
+  "Declare a TRUSTED FOREIGN function — an arbitrary Clojure fn asserted at a kernel type,
+   the gradual escape hatch / typed FFI hole. The body is NOT elaborated or verified: the
+   type is admitted as an axiom (trusted) and `impl` is the runtime. Usable in verified
+   bodies — the optimizer fuses/rewrites PARAMETRICALLY around it (the laws hold for any
+   function), and codegen calls `impl`. The asserted type is the entire trust boundary.
+     (a/foreign sqrt [x :- Float] Float (fn [x] (Math/sqrt x)))
+     (a/foreign upper [s :- String] String clojure.string/upper-case)
+   Then `(map (fn [x] (sqrt x)) xs)` in an a/defn body verifies + optimizes the pipeline
+   structure while `sqrt` stays a trusted hole."
+  [fn-name params ret-type impl]
+  (let [nm (vary-meta fn-name dissoc :- :tag)]
+    `(def ~nm (do (define-foreign '~nm '~params '~ret-type)
+                  (tag-kernel-name ~impl '~nm)))))
 
 (defmacro theorem
   "Prove a theorem.
