@@ -24,6 +24,13 @@
 (defonce ^{:doc "Term-elaborator registry: symbol → (fn [est args] → kernel Expr)."}
   term-elaborator-registry (atom {}))
 
+;; Keyword projection over NON-structure receivers: the elaborator's `(:k x)` case handles
+;; registered structures natively; for any other receiver it consults this registry by the
+;; receiver's TYPE-HEAD name (e.g. "Value" → the dynamic-EDN vget builder). The handler
+;; receives the FULL keyword (namespace included) and the elaborated receiver Expr.
+(defonce ^{:doc "Keyword-access registry: type-head name (string) → (fn [est kw receiver-expr] → Expr)."}
+  keyword-access-registry (atom {}))
+
 ;; ── Macroexpand-by-default policy ───────────────────────────────────────────────────────
 (defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified
    name. Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's
