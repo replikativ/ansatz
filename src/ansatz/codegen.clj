@@ -502,13 +502,13 @@
                   (or (extern-unhandled-form env h)
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
-                   (let [{:keys [arity erased]} (get @arity-registry h)]
-                    (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
+                      (let [{:keys [arity erased]} (get @arity-registry h)]
+                        (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
                     ;; FAP (full application): flat multi-arg call, skip erased prefix
-                      (let [rt-args (subvec ca erased (+ erased arity))]
-                        (apply list (symbol h) rt-args))
+                          (let [rt-args (subvec ca erased (+ erased arity))]
+                            (apply list (symbol h) rt-args))
                     ;; Curried (unknown arity, single-arg, or partial application)
-                      (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))
+                          (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
           (reduce (fn [f a] (list f a)) compiled))))
     (e/const? expr) (let [cn (name/->string (e/const-name expr))]
