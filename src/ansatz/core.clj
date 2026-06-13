@@ -778,7 +778,15 @@
                           nmin (.numMinors rec-ci)
                           minor-start (+ np nm)
                           major-idx (+ minor-start nmin)
-                          major (nth ca major-idx)
+                          ;; Arity tolerance: a recursor used as a FUNCTION VALUE (e.g. an
+                          ;; eta-reduced `R.rec motive minors` the optimizer passes to
+                          ;; map/filterMap) lacks the major premise. Bind it to a fresh param
+                          ;; and wrap the lowering in a fn supplying it (mirrors the
+                          ;; Subtype.val / nary-op arity tolerance). Only the major may be
+                          ;; missing (minors precede it and are present).
+                          eta-major? (<= (count ca) major-idx)
+                          eta-major-sym (gensym "etamaj_")
+                          major (if eta-major? eta-major-sym (nth ca major-idx))
                           rules (.rules rec-ci)
                       ;; Determine which fields are recursive per constructor
                           ind-name-str (subs h 0 (- (count h) 4)) ;; remove ".rec"
@@ -990,8 +998,10 @@
                               ;; Non-recursive: just apply directly
                                 (list 'let [t-sym major] body))
                             ;; Extra args beyond major? Apply them (fuel-based WF pattern).
-                              extra-args (subvec ca (inc major-idx))]
-                          (reduce (fn [f a] (list f a)) rec-result extra-args)))))
+                              extra-args (if eta-major? [] (subvec ca (inc major-idx)))
+                              applied (reduce (fn [f a] (list f a)) rec-result extra-args)]
+                          ;; eta-wrap when the recursor was a bare function value
+                          (if eta-major? (list 'fn [eta-major-sym] applied) applied)))))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
                   (let [{:keys [arity erased]} (get @arity-registry h)]
