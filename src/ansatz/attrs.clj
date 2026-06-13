@@ -12,7 +12,8 @@
   (:require [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.state :as state]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [clojure.java.io :as io]))
 
 (def ^:private kind->ext
   "Attribute kind (NDJSON \"kind\") → the Env extension key its entries accumulate into."
@@ -53,3 +54,16 @@
   (let [stats (atom nil)]
     (swap! state/ansatz-env (fn [e] (let [[e' s] (import-attrs e ndjson)] (reset! stats s) e')))
     @stats))
+
+(def ^:private bundled-attrs-resource "ansatz/init-attrs.ndjson.gz")
+
+(defn load-bundled-attrs!
+  "Import the bundled Lean attribute corpus (the gzipped NDJSON dumped from Init by
+   scripts/dump_attrs.lean) into the GLOBAL env's extensions, intersected with the loaded store.
+   Called by ansatz.core/init! + load-init! so Lean's @[simp]/@[csimp]/@[extern] are inherited by
+   default. No-op (returns nil) if the resource isn't on the classpath. Returns the load stats."
+  []
+  (when-let [res (io/resource bundled-attrs-resource)]
+    (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+                  (str/split-lines (slurp in)))]
+      (import-attrs! lines))))

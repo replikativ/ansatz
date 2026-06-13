@@ -32,6 +32,7 @@
             [ansatz.surface.elaborate :as elab]
             [ansatz.codegen :as codegen]
             [ansatz.wf :as wf]
+            [ansatz.attrs :as attrs]
             [ansatz.state :as state]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
@@ -137,6 +138,7 @@
   (let [sm (storage/open-store store-path)
         env (storage/load-env sm branch)]
     (reset! ansatz-env env)
+    (attrs/load-bundled-attrs!)   ;; inherit Lean's @[simp]/@[csimp]/@[extern] into env extensions
     ;; Build instance index:
     ;; 1. Try loading from TSV (Lean 4 export, complete)
     ;; 2. Fall back to name-based discovery (~200ms, partial)
@@ -176,6 +178,7 @@
           env    (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false))]
       (reset! ansatz-env env)
       (reset! ansatz-instance-index (instance/build-instance-index env))
+      (attrs/load-bundled-attrs!)   ;; inherit Lean's @[simp]/@[csimp]/@[extern] into env extensions
       (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
       @ansatz-env)))
 
