@@ -187,6 +187,20 @@
    "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
    "Nat.sub" '(fn [a b] (max 0 (- a b)))})
 
+(clojure.core/defn- extern-unhandled-form
+  "Lean's @[extern] decls (inherited into the env's :extern extension by ansatz.attrs) are native
+   primitives implemented in C — ansatz has no Lean body to lower. The common ones have builtins
+   (Nat.add → +, Nat.mod → mod); the rest, on reaching the codegen fall-through with no
+   builtin/registry/ctor lowering, would emit a bare symbol → an opaque ClassNotFoundException only
+   if eval'd. Instead emit a form that THROWS a clear message when run, keeping codegen total (a
+   dead-code occurrence never executes). Returns nil when `cn` is not an unhandled extern primitive."
+  [env cn]
+  (when (contains? (env/get-extension env :extern #{}) cn)
+    (list 'throw (list 'ex-info
+                       (str "ansatz: @[extern] native primitive '" cn "' has no Clojure runtime "
+                            "lowering — register one via the codegen-registry to run it")
+                       {:extern cn}))))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -483,15 +497,18 @@
                               applied (reduce (fn [f a] (list f a)) rec-result extra-args)]
                           ;; eta-wrap when the recursor was a bare function value
                           (if eta-major? (list 'fn [eta-major-sym] applied) applied)))))
+            ;; @[extern] native primitive with no builtin/registry lowering: emit a clear throw
+            ;; rather than a bare symbol applied to args (opaque ClassNotFoundException).
+                  (or (extern-unhandled-form env h)
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
-                  (let [{:keys [arity erased]} (get @arity-registry h)]
+                   (let [{:keys [arity erased]} (get @arity-registry h)]
                     (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
                     ;; FAP (full application): flat multi-arg call, skip erased prefix
                       (let [rt-args (subvec ca erased (+ erased arity))]
                         (apply list (symbol h) rt-args))
                     ;; Curried (unknown arity, single-arg, or partial application)
-                      (reduce (fn [f a] (list f a)) (symbol h) ca))))))))
+                      (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
           (reduce (fn [f a] (list f a)) compiled))))
     (e/const? expr) (let [cn (name/->string (e/const-name expr))]
@@ -519,10 +536,10 @@
                                 :else (symbol cn)))
                             (if-let [cg (get @codegen-registry cn)]
                               (cg env expr names)
-                              (symbol cn)))
+                              (or (extern-unhandled-form env cn) (symbol cn))))
                           (if-let [cg (get @codegen-registry cn)]
                             (cg env expr names)
-                            (symbol cn)))))
+                            (or (extern-unhandled-form env cn) (symbol cn))))))
     ;; Projection: Expr.proj type-name idx struct
     ;; For structures with defrecord: keyword access (:field-name struct)
     ;; For others: (nth struct idx)
