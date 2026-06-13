@@ -210,3 +210,24 @@
    The new Env has its own constants map so additions don't affect the original."
   ^Env [^Env env]
   (.fork env))
+
+;; ── Environment extensions (Lean 4's EnvironmentExtension) ───────────────────────────────────────
+;; Extensions are state carried with the immutable env (so they branch/fork with it): the simp
+;; lemma set, codegen lowerings, the optimizer hook, inherited @[simp]/@[csimp]/@[extern] data.
+;; Keyed by an interned keyword. `with-extension` returns a NEW Env; `update-extension` is the
+;; modify-in-place-of-a-value convenience (read-modify-write the extension's state).
+
+(defn get-extension
+  "The state of extension `key` in `env` (default if unset)."
+  ([^Env env key] (.getExtension env key))
+  ([^Env env key default] (.getExtension env key default)))
+
+(defn with-extension
+  "A NEW Env with extension `key` set to `val` (the env is immutable; the extension branches with it)."
+  ^Env [^Env env key val]
+  (.withExtension env key val))
+
+(defn update-extension
+  "A NEW Env with extension `key`'s state replaced by `(f current default-when-unset & args)`."
+  ^Env [^Env env key default f & args]
+  (.withExtension env key (apply f (.getExtension env key default) args)))

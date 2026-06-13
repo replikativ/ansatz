@@ -38,33 +38,45 @@ public final class Env {
     private final int externalSize;
     private final clojure.lang.IFn visibilityCheck;
 
+    /**
+     * Environment extensions (Lean 4's EnvironmentExtension): a persistent map keyword → state,
+     * carried with the immutable env so extensions branch/fork with it via structural sharing.
+     * Holds the data that augments the kernel — simp lemma set, codegen lowerings, the optimizer
+     * hook, inherited @[simp]/@[csimp]/@[extern] attributes — without a separate global atom that
+     * could desync from the env it describes. Preserved by every wither (addConstant, etc.).
+     */
+    private final clojure.lang.IPersistentMap extensions;
+
     // Private constructor — use factory methods
     private Env(clojure.lang.IPersistentMap locals,
                 ConcurrentHashMap<Name, SoftReference<ConstantInfo>> sharedCache,
                 boolean quotEnabled,
                 clojure.lang.IFn externalLookup,
                 int externalSize,
-                clojure.lang.IFn visibilityCheck) {
+                clojure.lang.IFn visibilityCheck,
+                clojure.lang.IPersistentMap extensions) {
         this.locals = locals;
         this.sharedCache = sharedCache;
         this.quotEnabled = quotEnabled;
         this.externalLookup = externalLookup;
         this.externalSize = externalSize;
         this.visibilityCheck = visibilityCheck;
+        this.extensions = extensions;
     }
 
     /** Create an empty environment (no external lookup). */
     public Env() {
         this(clojure.lang.PersistentHashMap.EMPTY,
              new ConcurrentHashMap<>(),
-             false, null, 0, null);
+             false, null, 0, null,
+             clojure.lang.PersistentHashMap.EMPTY);
     }
 
     /**
      * Set external lookup. Returns a NEW Env (immutable).
      */
     public Env withExternalLookup(clojure.lang.IFn lookupFn, int size) {
-        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, null);
+        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, null, extensions);
     }
 
     /**
@@ -78,14 +90,14 @@ public final class Env {
     public Env withExternalLookupFiltered(clojure.lang.IFn lookupFn,
                                           int size,
                                           clojure.lang.IFn visibilityCheck) {
-        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, visibilityCheck);
+        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, visibilityCheck, extensions);
     }
 
     /**
      * Set external lookup without the shared ConstantInfo cache.
      */
     public Env withExternalLookupUncached(clojure.lang.IFn lookupFn, int size) {
-        return new Env(locals, null, quotEnabled, lookupFn, size, null);
+        return new Env(locals, null, quotEnabled, lookupFn, size, null, extensions);
     }
 
     public ConstantInfo lookup(Name name) {
@@ -137,7 +149,7 @@ public final class Env {
             throw new RuntimeException("Constant already declared: " + ci.name);
         }
         return new Env(locals.assoc(ci.name, ci), sharedCache,
-                      quotEnabled, externalLookup, externalSize, visibilityCheck);
+                      quotEnabled, externalLookup, externalSize, visibilityCheck, extensions);
     }
 
     /**
@@ -147,13 +159,31 @@ public final class Env {
      */
     public Env addOrReplaceConstant(ConstantInfo ci) {
         return new Env(locals.assoc(ci.name, ci), sharedCache,
-                      quotEnabled, externalLookup, externalSize, visibilityCheck);
+                      quotEnabled, externalLookup, externalSize, visibilityCheck, extensions);
     }
 
     /** Returns a NEW Env with quot enabled. */
     public Env enableQuot() {
         if (quotEnabled) return this;
-        return new Env(locals, sharedCache, true, externalLookup, externalSize, visibilityCheck);
+        return new Env(locals, sharedCache, true, externalLookup, externalSize, visibilityCheck, extensions);
+    }
+
+    /**
+     * Environment extension access (Lean 4's getState/modifyState). withExtension returns a NEW Env
+     * with extension {@code key} set to {@code val} (the env is immutable; the extension branches
+     * with it). getExtension reads the current state (null if unset). Keys are interned keywords.
+     */
+    public Env withExtension(Object key, Object val) {
+        return new Env(locals, sharedCache, quotEnabled, externalLookup, externalSize,
+                       visibilityCheck, extensions.assoc(key, val));
+    }
+
+    public Object getExtension(Object key) {
+        return extensions.valAt(key);
+    }
+
+    public Object getExtension(Object key, Object notFound) {
+        return extensions.valAt(key, notFound);
     }
 
     public boolean isQuotEnabled() {
