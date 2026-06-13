@@ -52,6 +52,14 @@
   [type-name f]
   (swap! ingest/keyword-access-registry assoc (str type-name) f))
 
+(defn register-comparison!
+  "Register type-directed 2-arg comparison for a custom scalar-carrying type: when an
+   operand of `(< a b)` / `(<= a b)` / `(== a b)` has type head `type-name`, the elaborator
+   calls (f est rel a-expr b-expr) → Bool Expr (rel ∈ {:lt :le :eq}) instead of the
+   Nat/Int/Float/String path."
+  [type-name f]
+  (swap! ingest/comparison-registry assoc (str type-name) f))
+
 (defn register-elaborator!
   "Register a lean4 macro_rules-shaped surface form: (fn [args] → surface form)."
   [sym f]

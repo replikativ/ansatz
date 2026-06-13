@@ -830,12 +830,16 @@
                                   (e/app* (e/const' (name/from-string "Decidable.decide") [])
                                           (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) Tc a b)
                                           (e/app* (e/const' (name/from-string (str tn ".decEq")) []) a b)))]
+                  (if-let [cmp-handler (get @ingest/comparison-registry tn)]
+                    ;; type-directed comparison for a registered custom type (e.g. dynamic-EDN
+                    ;; Value); pass the PRE-coercion operands — the handler owns unwrapping.
+                    (cmp-handler est rel a0 b0)
                   (case tn
                     "Int"   (case rel :lt (decide "Int.lt" "Int.decLt") :le (decide "Int.le" "Int.decLe") :eq (decide-eq))
                     "Float" (case rel :lt (decide "Float.lt" "Float.decLt") :le (decide "Float.le" "Float.decLe") :eq (bool-op "Float.beq"))
                     "String" (case rel :eq (decide-eq)
                                    (elab-error! "String comparison: only == is supported" {:rel rel}))
-                    (bool-op (case rel :lt "Nat.blt" :le "Nat.ble" :eq "Nat.beq"))))))
+                    (bool-op (case rel :lt "Nat.blt" :le "Nat.ble" :eq "Nat.beq")))))))
 
         ;; Dependent if over a Prop condition → dite. The Decidable instance is an
         ;; inst-implicit mvar solved by synthesis (no comparison fallback needed); the
