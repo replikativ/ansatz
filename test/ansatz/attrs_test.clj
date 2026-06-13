@@ -4,7 +4,9 @@
    auto-imports them, so the inherited set is ON BY DEFAULT (intersected with the store)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.codegen :as cg]
             [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as expr]
             [ansatz.kernel.name :as name]
             [ansatz.attrs :as attrs]))
 
@@ -44,3 +46,16 @@
                      '(= Prop (= (Option Nat) (Option.some a) (Option.some b)) (= Nat a b)) '[(simp)])
     (is (some? (env/lookup (a/env) (name/from-string "opt-inj-default")))
         "(simp) closed it using the auto-inherited Option.some.injEq — Lean's @[simp] set is on by default")))
+
+(deftest unhandled-extern-lowers-to-clear-throw
+  ;; The inherited :extern set (Lean's @[extern] native primitives) lets codegen distinguish a
+  ;; native primitive it can't run from an ordinary symbol. The common ones have builtins; the rest
+  ;; lower to an explanatory throw instead of a bare symbol → opaque ClassNotFoundException at eval.
+  (let [e       (a/env)
+        externs (env/get-extension e :extern #{})
+        lower   (fn [nm] (cg/ansatz->clj e (expr/const' (name/from-string nm) []) []))
+        throw?  (fn [form] (and (seq? form) (= 'throw (first form))))]
+    (is (seq externs) "the inherited @[extern] set is populated")
+    (is (= '+ (lower "Nat.add")) "an extern WITH a builtin still lowers to its Clojure op (builtin wins)")
+    (is (pos? (count (filter #(throw? (lower %)) externs)))
+        "an @[extern] primitive with NO ansatz runtime lowers to an explanatory throw, not a bare symbol")))
