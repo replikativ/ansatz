@@ -31,6 +31,13 @@
 (defonce ^{:doc "Keyword-access registry: type-head name (string) → (fn [est kw receiver-expr] → Expr)."}
   keyword-access-registry (atom {}))
 
+;; Type-directed 2-arg comparison for receivers whose type-head names a registered handler
+;; (e.g. dynamic-EDN "Value"): the elaborator's `(< a b)` / `(<= a b)` / `(== a b)` consults this
+;; by the type-head of a non-literal operand before falling back to the Nat/Int/Float/String path.
+;; Handler: (fn [est rel a-expr b-expr] → Bool-Expr) where rel ∈ {:lt :le :eq}.
+(defonce ^{:doc "Comparison registry: type-head name (string) → (fn [est rel a b] → Bool Expr)."}
+  comparison-registry (atom {}))
+
 ;; ── Macroexpand-by-default policy ───────────────────────────────────────────────────────
 (defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified
    name. Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's

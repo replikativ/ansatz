@@ -561,6 +561,29 @@
     (= (count ca) 1)  (let [g (gensym "b")] (list 'clojure.core/fn [g] (emit2 (nth ca 0) g)))
     :else (let [g1 (gensym "a") g2 (gensym "b")] (list 'clojure.core/fn [g1 g2] (emit2 g1 g2)))))
 
+(clojure.core/defn- tagged-inductive?
+  "True when an inductive's runtime representation is the GENERAL tagged vector
+   `[cidx field…]` (so both constructors and the recursor dispatch on the cidx in
+   slot 0). Excludes the inductives that keep a NATIVE representation: List (cons
+   seq), Nat (long), registered structures (defrecord/map), and all-zero enums
+   (a bare index). The remaining shape — a multi-constructor inductive where at
+   least one constructor carries fields (e.g. the EDN `Value` universe) — needs
+   the tag to discriminate ctors that would otherwise collide (`vint i`/`vbool b`
+   both being one-field). Mirrors `wandler.surface.edn/edn->value`'s encoding."
+  [env ind-name-str]
+  (and (not (#{"List" "Nat"} ind-name-str))
+       (not (get @structure-registry ind-name-str))
+       (when-let [ind-ci (env/lookup env (name/from-string ind-name-str))]
+         (let [ctors (.ctors ^ConstantInfo ind-ci)]
+           ;; >2 ctors with fields: needs the cidx tag to discriminate (e.g. Value's 11
+           ;; ctors). Strictly ≤2-ctor shapes keep their NATIVE reps — Bool-like enums
+           ;; (index) and leaf+node (nil / (vec fields), nil-dispatched by the leaf+node
+           ;; recursor branch) — so a 2-ctor tree's hand-built [color l k r] rep is unchanged.
+           (and ctors (> (alength ctors) 2)
+                (boolean (some (fn [cn] (when-let [cci (env/lookup env cn)]
+                                          (pos? (.numFields ^ConstantInfo cci))))
+                               ctors)))))))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -735,6 +758,11 @@
                       (apply list 'clojure.core/array-map
                              (mapcat (fn [f v] [(keyword f) v]) (:fields struct-info) fields))
                       (apply list (:ctor-sym struct-info) fields))
+                  ;; General tagged inductive (e.g. Value): [cidx field…] — the tag in
+                  ;; slot 0 lets the recursor dispatch and disambiguates same-arity ctors.
+                  ;; 0-field tagged ctor → [cidx] (NOT nil — that's the enum rep).
+                    (tagged-inductive? env struct-name)
+                    (into [(.cidx ctor-ci)] fields)
                   ;; 0-field ctor: use index for enum dispatch
                     (zero? nf)
                     (let [cidx (.cidx ctor-ci)]
@@ -783,7 +811,8 @@
                                                       (if is-rec (conj acc j) acc))))))))
                                    field-syms (mapv #(symbol (str field-prefix %)) (range nf))
                                    ih-syms (mapv #(symbol (str "ih" (gensym "") "_" %)) (or rec-indices []))]
-                               {:idx i :nfields nf :minor minor :minor-ansatz minor-ansatz-expr
+                               {:idx i :cidx (.cidx ^ConstantInfo ctor-ci)
+                                :nfields nf :minor minor :minor-ansatz minor-ansatz-expr
                                 :field-syms field-syms
                                 :rec-indices (or rec-indices []) :ih-syms ih-syms}))
                            rules)]
@@ -796,6 +825,45 @@
                                                   (:minor clause) args))
                             body
                             (cond
+                          ;; General tagged inductive (e.g. Value, 11 ctors mixed arity):
+                          ;; dispatch on the cidx tag in slot 0; each branch binds its
+                          ;; fields from (nth t (inc i)) and inlines IH as (self (nth t (inc ri))).
+                          ;; The recursion (if any) rides the surrounding letfn self-sym.
+                              (tagged-inductive? env ind-name-str)
+                              (let [branches
+                                    (mapcat
+                                     (fn [{:keys [cidx nfields field-syms rec-indices ih-syms minor-ansatz]}]
+                                       (let [bindings (vec (mapcat (fn [i] [(nth field-syms i)
+                                                                            (list 'nth t-sym (inc i))])
+                                                                   (range nfields)))
+                                             n-ih (count rec-indices)
+                                             all-names (into (mapv str field-syms) (mapv str ih-syms))
+                                             minor-body (loop [e minor-ansatz n (+ nfields n-ih)]
+                                                          (if (and (pos? n) (e/lam? e))
+                                                            (recur (e/lam-body e) (dec n)) e))
+                                             compiled-body (ansatz->clj env minor-body (into names all-names))
+                                             ih-replacements
+                                             (into {} (map (fn [j ri]
+                                                             [(nth ih-syms j)
+                                                              (list self-sym (list 'nth t-sym (inc ri)))])
+                                                           (range n-ih) rec-indices))
+                                             major-sym (when (symbol? major) major)
+                                             inline-all (fn inline-all [form]
+                                                          (cond
+                                                            (and (symbol? form) (contains? ih-replacements form))
+                                                            (get ih-replacements form)
+                                                            (and major-sym (symbol? form) (= form major-sym)) t-sym
+                                                            (seq? form) (apply list (map inline-all form))
+                                                            (vector? form) (mapv inline-all form)
+                                                            :else form))
+                                             node-body (inline-all compiled-body)]
+                                         [cidx (if (seq bindings) (list 'let bindings node-body) node-body)]))
+                                     clauses)]
+                                (list* 'case (list 'nth t-sym 0)
+                                       (concat branches
+                                               [(list 'throw (list 'ex-info "no matching ctor (tagged rep)"
+                                                                   (list 'array-map :tag (list 'nth t-sym 0))))])))
+
                           ;; Enum: all ctors have 0 fields (Bool, Color, etc.)
                               (and all-zero (= 2 (count clauses)))
                           ;; Bool-like: (if value minor_1 minor_0)
