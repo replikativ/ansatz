@@ -31,6 +31,7 @@
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
             [ansatz.codegen :as codegen]
+            [ansatz.state :as state]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -62,9 +63,12 @@
                   (:instance-index ctx)
                   (atom {})))
 
-;; Global atoms — REPL convenience wrappers around ProofContext
-(defonce ansatz-env (atom nil))
-(defonce ansatz-instance-index (atom nil))
+;; Global atoms — REPL convenience wrappers around ProofContext. The atoms live in the
+;; dependency-free ansatz.state leaf (so extracted namespaces — codegen, wf — read/mutate the
+;; live env without a core↔X cycle); re-exported here as the SAME atoms (a/ansatz-env is the
+;; wandler-facing handle, swapped/reset by the runtime).
+(def ansatz-env state/ansatz-env)
+(def ansatz-instance-index state/ansatz-instance-index)
 
 ;; Extensible registries — declared early so the elaboration/codegen layers can reference them.
 ;; Lean 4 equivalents: @[tactic], @[simproc], elab_rules
