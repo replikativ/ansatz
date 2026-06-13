@@ -1588,6 +1588,30 @@
     (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
     f))
 
+(clojure.core/defn- csimp-head
+  "The const-name head of one side of a csimp equation: a bare symbol `f`, or the head of an
+   application `(f …)`. Used to read the f→g of a proven `f = g`."
+  [term]
+  (cond
+    (symbol? term) (str term)
+    (seq? term)    (recur (first term))
+    :else          nil))
+
+(clojure.core/defn define-csimp
+  "Register a kernel-VERIFIED compiler replacement — ansatz's @[csimp]. Proves `f = g` via
+   prove-theorem (which kernel-checks it via env/check-constant, throwing if invalid), then records
+   f→g in the :csimp Env extension. Codegen (ansatz.codegen/csimp-target) then emits g wherever f
+   appears, GUARDED by lowerability — exactly Lean's @[csimp]: the proof is the licence, the swap
+   happens in COMPILED code only. f and g are the const heads of the equation's two sides. Returns [f g]."
+  [eq-name params prop-form tactic-forms]
+  (prove-theorem eq-name params prop-form tactic-forms)
+  (let [f (csimp-head (nth prop-form 2 nil))
+        g (csimp-head (nth prop-form 3 nil))]
+    (when (and f g)
+      (swap! ansatz-env env/update-extension :csimp {} assoc f g)
+      (when *verbose* (println "✓ csimp:" f "→" g "(verified replacement)")))
+    [f g]))
+
 (defmacro defn
   "Define a verified function. Types are METADATA on the binders and the name — the binding vector
    stays a normal Clojure vector, so typing composes (add types without reshaping the form):
@@ -1647,6 +1671,23 @@
   (let [nm (vary-meta fn-name dissoc :- :tag)]
     `(def ~nm (do (define-foreign '~nm '~params '~ret-type)
                   (tag-kernel-name ~impl '~nm)))))
+
+(defmacro implemented_by
+  "Lean's @[implemented_by] / @[extern] correspondence, named to match — an alias of `a/foreign`:
+   assert a Clojure `impl` at a kernel type as a trusted hole. The type is the entire trust boundary;
+   `impl` is the runtime. Verified bodies reason parametrically around it; codegen calls `impl`.
+     (a/implemented_by sqrt [x :- Float] Float (fn [x] (Math/sqrt x)))"
+  [fn-name params ret-type impl]
+  `(foreign ~fn-name ~params ~ret-type ~impl))
+
+(defmacro csimp
+  "Register a kernel-VERIFIED compiler replacement — ansatz's @[csimp]. Prove `f = g`; codegen then
+   emits g wherever f appears (g the faster/runnable form, justified by the proof). Like Lean's
+   @[csimp]: the proof is the licence, and the swap is in COMPILED code only (never in proofs).
+     (a/csimp len-eq [] (= (-> (List Nat) Nat) List.length List.lengthTR) (rfl))
+   The replacement only fires when g is lowerable, so inherited compiler-internal targets are skipped."
+  [eq-name params prop & tactics]
+  `(define-csimp '~eq-name '~params '~prop '~(vec tactics)))
 
 (defmacro theorem
   "Prove a theorem.

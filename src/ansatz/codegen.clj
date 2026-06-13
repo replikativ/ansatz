@@ -201,6 +201,19 @@
                             "lowering — register one via the codegen-registry to run it")
                        {:extern cn}))))
 
+(clojure.core/defn- csimp-target
+  "Lean @[csimp]: a kernel-proven `f = g` registered as f→g in the :csimp env extension (by a/csimp,
+   or inherited from Lean via ansatz.attrs) licenses the COMPILER to emit g wherever f appears — g is
+   the faster/runnable equivalent, justified by the proof. Return g when head `h` has such a
+   replacement AND g is lowerable here; else nil (fall back to f unchanged). The lowerability guard is
+   essential: inherited compiler-internal targets (Nat.rec→Nat.recCompiled, List.length→List.lengthTR)
+   are NOT in the store and must not replace a working head with an unrunnable one."
+  [env h]
+  (when-let [g (get (env/get-extension env :csimp {}) h)]
+    (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
+              (some? (env/lookup env (name/from-string g))))
+      g)))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -220,7 +233,12 @@
     (e/app? expr)
     (let [[head args] (e/get-app-fn-args expr)]
       (if (e/const? head)
-        (let [h (name/->string (e/const-name head))
+        (let [h0 (name/->string (e/const-name head))
+              ;; @[csimp]: rewrite the head to its verified replacement g before any lowering, so
+              ;; everything downstream (builtin/registry/ctor/recursor) dispatches on g.
+              g (csimp-target env h0)
+              head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
+              h (or g h0)
               ca (mapv #(ansatz->clj env % names) args)]
           (if-let [bi (builtin-app h)]
             (bi env head args ca names)
@@ -511,7 +529,11 @@
                           (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
           (reduce (fn [f a] (list f a)) compiled))))
-    (e/const? expr) (let [cn (name/->string (e/const-name expr))]
+    (e/const? expr) (let [cn0 (name/->string (e/const-name expr))
+                          ;; @[csimp] also redirects an op in VALUE position to its verified replacement.
+                          g (csimp-target env cn0)
+                          expr (if g (e/const' (name/from-string g) (e/const-levels expr)) expr)
+                          cn (or g cn0)]
                       ;; ops in VALUE position (a fold step, a passed comparator) lower to the
                       ;; runnable Clojure op, not a bare (unresolvable) symbol — `find` so a
                       ;; false/0 lowering isn't mistaken for "absent".
