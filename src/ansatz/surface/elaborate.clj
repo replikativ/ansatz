@@ -961,8 +961,11 @@
               (elab-term est (macroexpand-1 sexpr))
               :else (elab-app est (first sexpr) (rest sexpr)))))))
 
+    ;; vector literal = List literal: [a b c] → (cons a (cons b (cons c nil))).
+    ;; Generalizes the bare-nil = List.nil rule above; the element type is
+    ;; inferred through List.cons as usual ([] elaborates as List.nil ?α).
     (vector? sexpr)
-    (elab-error! "Unexpected vector in term position" {:form sexpr})
+    (elab-term est (reduce (fn [acc x] (list 'cons x acc)) nil (rseq sexpr)))
 
     :else
     (elab-error! (str "Unsupported form: " (pr-str sexpr)) {:form sexpr})))
