@@ -186,7 +186,9 @@
   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
    "Nat.add" '+ "Nat.mul" '* "Nat.succ" 'inc "Nat.div" 'quot
    "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
-   "Nat.sub" '(fn [a b] (max 0 (- a b)))})
+   "Nat.sub" '(fn [a b] (max 0 (- a b)))
+   ;; Unit/PUnit's single value → nil (the unit thunks an unfolded match auxiliary applies its branches to).
+   "Unit.unit" nil "PUnit.unit" nil})
 
 (clojure.core/defn- extern-unhandled-form
   "Lean's @[extern] decls (inherited into the env's :extern extension by ansatz.attrs) are native
@@ -214,6 +216,25 @@
     (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
               (some? (env/lookup env (name/from-string g))))
       g)))
+
+(def ^:private match-aux-re #"\.match_\d+$")
+(clojure.core/defn- match-aux?
+  "A NON-recursive pattern-match auxiliary (`T.f.match_N`) or a `T.casesOn` — both are plain
+   definitions whose body delegates to the inductive's `.rec`. The optimizer/simp can surface one
+   when it reduces e.g. `List.filter p (a :: as)` a step; codegen unfolds them (below) so it bottoms
+   out at the `.rec` path it already compiles, instead of emitting an unresolvable symbol."
+  [^String h]
+  (boolean (or (re-find match-aux-re h) (.endsWith h ".casesOn"))))
+
+(clojure.core/defn- beta-apply
+  "Apply lambda-telescope `value` to `args`, instantiating each leading binder (so a saturated
+   match-aux call reduces to the `casesOn`/`rec` application its body denotes). Leftover args (over-
+   application) are re-applied; a partial application returns the residual lambda."
+  [value args]
+  (loop [v value, as (seq args)]
+    (if (and as (e/lam? v))
+      (recur (e/instantiate1 (e/lam-body v) (first as)) (next as))
+      (if as (e/app* v (vec as)) v))))
 
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
@@ -519,6 +540,12 @@
             ;; @[extern] native primitive with no builtin/registry lowering: emit a clear throw
             ;; rather than a bare symbol applied to args (opaque ClassNotFoundException).
                   (or (extern-unhandled-form env h)
+            ;; Unfold a match auxiliary / casesOn: beta-apply its definition to args and recurse,
+            ;; so it lands on the `.rec` path codegen already compiles (instead of a bare symbol).
+                      (when (match-aux? h)
+                        (when-let [ci (env/lookup env (e/const-name head))]
+                          (when-let [v (.value ^ConstantInfo ci)]
+                            (ansatz->clj env (beta-apply v args) names))))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
                       (let [{:keys [arity erased]} (get @arity-registry h)]
