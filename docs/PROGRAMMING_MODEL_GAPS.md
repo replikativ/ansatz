@@ -41,9 +41,13 @@ matters, where, status.
 
 - **#5** unify the 8 `exec/*` files under one `StreamOp` — flagged lowest-value (composition laws are
   heterogeneous); the bounded win is carrier-generic algebra (extend `dbsp_group`'s pattern). STATUS: open.
-- **#9** real transducer output — emit `(map f)`/`(comp …)`/`into`/`sequence` so verified pipelines compose
-  with native Clojure transducers (rides on `register-lowering!`). The fusion laws ARE certified
-  transducer-comp. User wants to plan the array/eager-vs-transducer tradeoff carefully first. STATUS: open.
+- **#9** real transducer output — PARTIAL. The physical-planner seam is in: `wandler.exec.physical/
+  physical-route` selects a batch realization over the plan lens (`:eager` default unchanged · `:transduce`
+  · future `:array`), wired into `mode/execute` (`:physical` opt-in). `plan->transducer` emits
+  `(into [] (comp (map f)(filter p)) src)` for linear producing pipelines (map/filter/filterMap/flatMap);
+  the fusion proofs are the certificate (test/wandler/physical_test.clj). REMAINING: foldl→transduce,
+  `sequence`/lazy terminal, and the BOUNDEDNESS analysis that makes :transduce-vs-:array automatic (vs
+  opt-in). This is the physical-planner spine for raster (#76) too. STATUS: seam + transducer backend done.
 - **#10** env-branching as first-class hypothetical worlds (`Env` O(1) fork at the surface). STATUS: open.
 
 ## Other latent items (from memory / task backlog)
