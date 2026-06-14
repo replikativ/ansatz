@@ -190,7 +190,47 @@
     ;; vgetD — `get` with a DEFAULT: the value at key `k`, or `d` when absent (vnil).
     ;; nil = vnil over the dynamic Value universe — no Option needed; vnil IS the absence.
     (ansatz.core/defn vgetD [k :- Value, m :- Value, d :- Value] Value
-      (let [g (vget k m)] (if (vsome? g) g d)))])
+      (let [g (vget k m)] (if (vsome? g) g d)))
+
+    ;; ── more native-over-Value map verbs (contains?/keys/vals/dissoc/merge) ──
+    ;; contains? — does key k exist in map m? Bool recursion over the entry-chain.
+    (ansatz.core/defn vcontains? [k :- Value, m :- Value] Bool
+      (match m Value Bool (vnil false) (vbool [b] false) (vint [i] false) (vstr [s] false) (vkw [s] false)
+        (vcons [h t] false) (vvec [it] false) (vmap [en] (vcontains? k en))
+        (ventry [ek ev rest] (if (vkeq k ek) true (vcontains? k rest))) (vfloat [f] false) (vset [it] false)))
+
+    ;; map-chain extract (entry-chain of a vmap, vnil otherwise).
+    (ansatz.core/defn vmap-chain [m :- Value] Value
+      (match m Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+        (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] e)
+        (ventry [k v r] (Value.vnil)) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
+
+    ;; keys/vals — collect the entry-chain's keys/values into a vcons chain, wrapped as a vvec.
+    (ansatz.core/defn vkeys-chain [c :- Value] Value
+      (match c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+        (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] (Value.vnil))
+        (ventry [k v rest] (Value.vcons k (vkeys-chain rest))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
+    (ansatz.core/defn vkeys [m :- Value] Value (Value.vvec (vkeys-chain (vmap-chain m))))
+    (ansatz.core/defn vvals-chain [c :- Value] Value
+      (match c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+        (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] (Value.vnil))
+        (ventry [k v rest] (Value.vcons v (vvals-chain rest))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
+    (ansatz.core/defn vvals [m :- Value] Value (Value.vvec (vvals-chain (vmap-chain m))))
+
+    ;; dissoc — drop key k (rebuild the entry-chain without it). Value-returning recursion.
+    (ansatz.core/defn vdissoc-chain [k :- Value, c :- Value] Value
+      (match c Value Value (vnil (Value.vnil)) (vbool [b] (Value.vnil)) (vint [i] (Value.vnil)) (vstr [s] (Value.vnil)) (vkw [s] (Value.vnil))
+        (vcons [h t] (Value.vnil)) (vvec [it] (Value.vnil)) (vmap [e] (Value.vnil))
+        (ventry [ek ev rest] (if (vkeq k ek) (vdissoc-chain k rest) (Value.ventry ek ev (vdissoc-chain k rest)))) (vfloat [f] (Value.vnil)) (vset [it] (Value.vnil))))
+    (ansatz.core/defn vdissoc [k :- Value, m :- Value] Value (Value.vmap (vdissoc-chain k (vmap-chain m))))
+
+    ;; merge — b's entries shadow a's (prepend b's chain onto a's, matching Clojure merge).
+    (ansatz.core/defn vmerge-chain [src :- Value, dst :- Value] Value
+      (match src Value Value (vnil dst) (vbool [b] dst) (vint [i] dst) (vstr [s] dst) (vkw [s] dst)
+        (vcons [h t] dst) (vvec [it] dst) (vmap [e] dst)
+        (ventry [k v rest] (Value.ventry k v (vmerge-chain rest dst))) (vfloat [f] dst) (vset [it] dst)))
+    (ansatz.core/defn vmerge [a :- Value, b :- Value] Value
+      (Value.vmap (vmerge-chain (vmap-chain b) (vmap-chain a))))])
 
 (defn install-core!
   "Define the `Value` type and core ops/laws on the current `ansatz.core` env.
@@ -397,6 +437,32 @@
   (a/register-term-elaborator! 'keep
     (fn [est args]
       (api/elab est (list 'filterv '(fn [v] (vsome? v)) (list 'mapv (first args) (second args))))))
+  ;; map verbs over a dynamic EDN Value: contains?/keys/vals/dissoc/merge lower to the v* ops;
+  ;; update/get-in compose existing ops at the surface (no new kernel op).
+  (letfn [(value-verb! [sym f]
+            (a/register-term-elaborator! sym
+              (fn [est args]
+                (let [m (api/elab est (first args))]
+                  (if (value-typed? est m)
+                    (f est m args)
+                    (throw (ex-info (str "`" sym "` in a verified body is supported over a dynamic EDN Value")
+                                    {:verb sym})))))))]
+    (value-verb! 'contains? (fn [est m args] (e/app* (const0 "vcontains?") (vkey-expr est (second args)) m)))
+    (value-verb! 'keys      (fn [_est m _args] (e/app (const0 "vkeys") m)))
+    (value-verb! 'vals      (fn [_est m _args] (e/app (const0 "vvals") m)))
+    (value-verb! 'dissoc    (fn [est m args] (e/app* (const0 "vdissoc") (vkey-expr est (second args)) m)))
+    (value-verb! 'merge     (fn [est m args] (e/app* (const0 "vmerge") m (api/elab est (second args)))))
+    ;; (update m k f) → (vput m k (f (vget k m)))
+    (value-verb! 'update    (fn [est m args]
+                              (let [kexpr (vkey-expr est (second args))]
+                                (e/app* (const0 "vput") m kexpr
+                                        (e/app (api/elab est (nth args 2)) (e/app* (const0 "vget") kexpr m))))))
+    ;; (get-in m [k1 k2 …]) → nested vget over a literal key path
+    (value-verb! 'get-in    (fn [est m args]
+                              (let [path (second args)]
+                                (if (vector? path)
+                                  (reduce (fn [acc k] (e/app* (const0 "vget") (vkey-expr est k) acc)) m path)
+                                  (throw (ex-info "get-in needs a literal key vector over a Value" {:verb 'get-in})))))))
   (doseq [[sym vpred] surface-preds]
     (a/register-term-elaborator! sym (vpred-elaborator sym vpred)))
   :installed)

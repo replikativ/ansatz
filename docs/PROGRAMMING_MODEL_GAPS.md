@@ -21,11 +21,13 @@ matters, where, status.
   the no-dep conformance lane, so they stay separate. STATUS: by design.
 - **Differential lane is narrow** — `check-verified!` generates only Nat/Bool/List Nat inputs; `:or`/`:enum`/
   strings/maps aren't differential-tested against `m/validate`. STATUS: open.
-- **Native-Clojure-over-Value coverage** (audited). COVERED: type predicates (int?/string?/boolean?/
+- **Native-Clojure-over-Value coverage** — EXTENDED. COVERED: type predicates (int?/string?/boolean?/
   keyword?/nil?/map?/vector?/set?/double?/some?/any? → v*?), `:k`/`get` (vget), `assoc` (vassoc), `count`
-  (vcount), `==`/numeric compare. MISSING: `update`, `merge`, `dissoc`, `contains?`, `keys`, `vals`,
-  `get-in`/`assoc-in`, `conj`/`into`, map/filter-with-destructuring over Value entries. STATUS: open
-  (extend ansatz.surface.data's native surface — these are the high-value next verbs for dynamic EDN).
+  (vcount), `==`/numeric compare, AND (new) `contains?`/`keys`/`vals`/`dissoc`/`merge`/`update`/`get-in`
+  (verified v* ops vcontains?/vkeys/vvals/vdissoc/vmerge + surface composition for update/get-in;
+  test/wandler/value_verbs_test.clj runs each on real EDN). MISSING (next): `assoc-in`, `conj`/`into`,
+  `select-keys`, map/filter-with-destructuring over Value entries, `count` over a Value list element-wise.
+  STATUS: largely closed; remaining verbs are a smaller follow-up.
 
 ## Schema → type functor (#8)
 
