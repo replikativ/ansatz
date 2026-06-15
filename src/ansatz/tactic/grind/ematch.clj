@@ -141,20 +141,40 @@
                                    (:levels m))]
          (assoc m :levels lv)))
 
-     ;; Pattern is an application — decompose and match recursively
+     ;; Pattern is an application — first try a HIGHER-ORDER (Miller) pattern, else decompose.
      (e/app? pat)
-     (let [[pat-head pat-args] (e/get-app-fn-args pat)
-           [term-head term-args] (e/get-app-fn-args term)]
-       (when (= (count pat-args) (count term-args))
-         ;; Match head
-         (when-let [m (match-pattern gs unknowns pat-head term-head m depth)]
-           ;; Match each argument
-           (reduce (fn [m [pa ta]]
-                     (if m
-                       (match-pattern gs unknowns pa ta m depth)
-                       (reduced nil)))
-                   m
-                   (map vector pat-args term-args)))))
+     (let [[pat-head pat-args] (e/get-app-fn-args pat)]
+       (or
+         ;; MILLER HIGHER-ORDER PATTERN: `?f x1 … xn` where `?f` is an UNASSIGNED metavar (bvar) and
+         ;; x1…xn are DISTINCT opened-binder LOCALS (the fresh fvars introduced under λ/∀, tracked in
+         ;; `:ftypes`). Unify by SYNTHESIZING the function: `?f := λ x1…xn. term[x1…xn abstracted]`.
+         ;; This is what laws like `List.sum_map_mul_const` need — `map (λx. f x * c) xs` binds `f` to a
+         ;; function applied to the bound `x`, which first-order matching cannot do (it would bind `f`
+         ;; to a head symbol). Restricted to distinct bound locals (the Miller pattern fragment) so the
+         ;; abstraction is well-defined and unique; the e-matcher is an untrusted oracle, so even a too-
+         ;; liberal synthesis only yields a candidate that the downstream kernel proof check rejects.
+         (when (and (e/bvar? pat-head)
+                    (nil? (get (:vars m) (e/bvar-idx pat-head)))      ; ?f not yet assigned
+                    (seq pat-args)
+                    (every? e/fvar? pat-args)
+                    (every? #(contains? (:ftypes m) (e/fvar-id %)) pat-args)  ; all are opened locals
+                    (apply distinct? (map e/fvar-id pat-args)))
+           (let [pairs (map (fn [a] [(e/fvar-id a) (get (:ftypes m) (e/fvar-id a))]) pat-args)
+                 ;; abstract innermost-first so arg i becomes the (n-1-i)th binder (λ x1 … xn. body)
+                 fexpr (reduce (fn [body [fvid ftype]]
+                                 (e/lam "x" ftype (e/abstract1 body fvid) :default))
+                               term (reverse pairs))]
+             (assoc-in m [:vars (e/bvar-idx pat-head)] fexpr)))
+         ;; FIRST-ORDER: structural decomposition (equal arity, head + args matched recursively).
+         (let [[term-head term-args] (e/get-app-fn-args term)]
+           (when (= (count pat-args) (count term-args))
+             (when-let [m (match-pattern gs unknowns pat-head term-head m depth)]
+               (reduce (fn [m [pa ta]]
+                         (if m
+                           (match-pattern gs unknowns pa ta m depth)
+                           (reduced nil)))
+                       m
+                       (map vector pat-args term-args)))))))
 
      ;; Pattern is a literal — must be identical
      (e/lit-nat? pat)
@@ -182,7 +202,12 @@
                m (if pat-lam? m
                      (match-pattern gs unknowns (e/forall-type pat) (e/forall-type term) m depth))]
            (when m
-             (let [fv (e/fvar (+ 900000000 depth))]
+             (let [fvid (+ 900000000 depth)
+                   fv (e/fvar fvid)
+                   ;; record the opened local's TYPE (from the concrete term side) so a HIGHER-ORDER
+                   ;; (Miller) match in the body can synthesize a well-typed `λ (x : T). …`.
+                   fvtype (if pat-lam? (e/lam-type term) (e/forall-type term))
+                   m (assoc-in m [:ftypes fvid] fvtype)]
                (match-pattern gs unknowns
                               (e/instantiate1 pbody fv)
                               (e/instantiate1 tbody fv)
@@ -206,7 +231,7 @@
       (when-let [node (eg/get-enode gs curr)]
         ;; Only match gen=0 terms (original, not E-match-created)
         (when (zero? (:gen node))
-          (when-let [m (match-pattern gs unknowns pat curr {:vars {} :levels {}})]
+          (when-let [m (match-pattern gs unknowns pat curr {:vars {} :levels {} :ftypes {}})]
             (swap! results conj {:assignment m :matched-term curr})))
         (let [next (:next node)]
           (when-not (identical? next root)
