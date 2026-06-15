@@ -291,10 +291,16 @@
 ;; ============================================================
 
 (defn- instance-key
-  "Create a deduplication key for a theorem instance.
-   Uses System/identityHashCode for Expr identity (pointer-based)."
+  "Create a deduplication key for a theorem instance — STRUCTURAL, so dedup is DETERMINISTIC and
+   identifies instances by what they ARE, not which Expr object happens to carry them. The previous
+   key used `System/identityHashCode`, which is non-deterministic across runs and treats two
+   structurally-equal assignments at different Expr identities as DISTINCT — so the set of instances
+   processed within the per-round budget varied run-to-run, and a law could fire in one calling
+   context but not another. `e/->string` is a deterministic structural rendering; over-aggressive
+   dedup from its depth bound only ever DROPS a duplicate instance, never causes an unsound rewrite
+   (every rewrite is kernel-gated downstream)."
   [thm-name assignment]
-  [thm-name (mapv (fn [[k v]] [k (System/identityHashCode v)]) (sort assignment))])
+  [thm-name (mapv (fn [[k v]] [k (e/->string v)]) (sort assignment))])
 
 ;; ============================================================
 ;; E-matching round
