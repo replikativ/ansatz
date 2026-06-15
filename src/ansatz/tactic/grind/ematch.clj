@@ -283,7 +283,8 @@
     (when (and (e/const? head)
                (= (name/from-string "Eq") (e/const-name head))
                (= 3 (count args)))
-      {:lhs (nth args 1) :rhs (nth args 2) :type (nth args 0)})))
+      {:lhs (nth args 1) :rhs (nth args 2) :type (nth args 0)
+       :level (first (e/const-levels head))})))   ; Eq.{u} — for the refl/trans bridge below
 
 ;; ============================================================
 ;; Instance deduplication
@@ -361,11 +362,31 @@
                       (when-let [proof (instantiate-theorem thm assignment)]
                         (when-let [eq-info (instantiate-eq-fact
                                             (:env gs) thm assignment)]
-                          (swap! new-facts conj
-                                 {:lhs (:lhs eq-info)
-                                  :rhs (:rhs eq-info)
-                                  :proof proof
-                                  :heq false}))))))))))))
+                          ;; Assert `matched-term = rhs`, NOT `inst-LHS = rhs`. For a HIGHER-ORDER
+                          ;; match the instantiated LHS carries β-redexes (`(λx.x) x` from the
+                          ;; synthesized function metavar), so it is DEF-EQ to `matched-term` but not
+                          ;; SYNTACTICALLY equal — internalizing it would create a node DISCONNECTED
+                          ;; from the term that triggered the match. We connect `matched-term` (already
+                          ;; in the e-graph) directly, with a proof that genuinely has that type:
+                          ;;   Eq.trans (Eq.refl matched-term : matched-term = inst-LHS) (proof : inst-LHS = rhs)
+                          ;; The refl bridges `matched-term ≡ inst-LHS` by DEF-EQ (the kernel accepts
+                          ;; `Eq.refl matched-term` where `matched-term = inst-LHS` is expected). For a
+                          ;; first-order match the refl is just an identity step. This keeps the e-graph
+                          ;; edge's recorded endpoints CONSISTENT with its proof's type, so the grind
+                          ;; proof reconstruction composes a well-typed proof.
+                          (let [mt (or matched-term (:lhs eq-info))
+                                u  (or (:level eq-info) lvl/zero)
+                                T  (:type eq-info)
+                                refl (e/app* (e/const' (name/from-string "Eq.refl") [u]) T mt)
+                                bridged (if (.equals ^Object mt (:lhs eq-info))
+                                          proof   ; first-order: matched-term IS inst-LHS, no bridge needed
+                                          (e/app* (e/const' (name/from-string "Eq.trans") [u])
+                                                  T mt (:lhs eq-info) (:rhs eq-info) refl proof))]
+                            (swap! new-facts conj
+                                   {:lhs mt
+                                    :rhs (:rhs eq-info)
+                                    :proof bridged
+                                    :heq false})))))))))))))
     {:new-facts @new-facts
      :seen @seen}))
 
