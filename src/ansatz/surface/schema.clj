@@ -318,7 +318,7 @@
                     (swap! modes assoc m
                            (vmatch 'v false {'vnil   (list true)
                                              'ventry (list [k val r] (list 'Bool.and (gen (first args) k)
-                                                                          (list 'Bool.and (gen (second args) val) (call m r))))}))
+                                                                           (list 'Bool.and (gen (second args) val) (call m r))))}))
                     (vmatch target false {'vmap (list ['ee] (call m 'ee))}))
 
                   (= type :map)
