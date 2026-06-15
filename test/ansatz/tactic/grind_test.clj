@@ -560,3 +560,38 @@
           {:keys [gs registry]} (solver/propagate-all registry gs)]
       (is (some? gs) "propagation returns state")
       (is (solver/check-all registry gs) "still consistent"))))
+
+(deftest test-ematch-higher-order-pattern
+  ;; Miller higher-order pattern matching: a pattern `map (λx. mul (f x) c) xs` where `f` is a
+  ;; function metavar applied to the bound `x` must bind `f` to a SYNTHESIZED lambda (not a head
+  ;; symbol). This is what laws like List.sum_map_mul_const need. (#34 follow-up: HO patterns.)
+  (let [env (env/empty-env)
+        gs (eg/mk-grind-state env)
+        z lvl/zero
+        cst (fn [s] (e/const' (name/from-string s) []))
+        N (cst "Nat")
+        mul (fn [x y] (e/app* (cst "Nat.mul") x y))
+        mapE (fn [f l] (e/app* (e/const' (name/from-string "List.map") [z z]) N N f l))
+        ;; pattern (telescope ∀f∀c∀xs): f=bvar2, c=bvar1, xs=bvar0; inside the λ they shift +1
+        pat (mapE (e/lam "x" N (mul (e/app (e/bvar 3) (e/bvar 0)) (e/bvar 2)) :default) (e/bvar 0))
+        K  (e/fvar 5001)
+        ys (e/fvar 5000)
+        trm (mapE (e/lam "a" N (mul (e/bvar 0) K) :default) ys)
+        res (#'ematch/match-pattern gs #{} pat trm {:vars {} :levels {} :ftypes {}} 0)]
+    (is (some? res) "HO pattern matches (f applied to the bound var)")
+    (when res
+      (let [vars (:vars res)]
+        (is (= "(fun : Nat => #0)" (e/->string (get vars 2))) "f synthesized as the identity λ")
+        (is (= K (get vars 1)) "c bound to the concrete K")
+        (is (= ys (get vars 0)) "xs bound to the concrete list"))))
+  ;; NEGATIVE: a non-Miller arg (f applied to a non-local) must NOT HO-match (falls to first-order).
+  (let [env (env/empty-env)
+        gs (eg/mk-grind-state env)
+        cst (fn [s] (e/const' (name/from-string s) []))
+        N (cst "Nat")
+        ;; pattern `f y` where y is bvar0 but NEVER opened under a binder (not in :ftypes)
+        pat (e/app (e/bvar 1) (e/bvar 0))
+        trm (e/app* (cst "Nat.succ") (e/fvar 7))
+        res (#'ematch/match-pattern gs #{} pat trm {:vars {} :levels {} :ftypes {}} 0)]
+    ;; first-order path binds f:=Nat.succ, y:=fvar7 (no HO synthesis since args aren't opened locals)
+    (is (= (cst "Nat.succ") (get (:vars res) 1)) "non-Miller arg → first-order head binding, not HO synth")))
