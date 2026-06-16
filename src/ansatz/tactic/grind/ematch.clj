@@ -217,11 +217,21 @@
      :else
      (when (= pat term) m))))
 
+(def ^:dynamic *max-ematch-generation*
+  "Generation gate for E-matching candidates: a term is matchable iff its generation is
+   `< *max-ematch-generation*`. Original (internalized) terms are gen 0; a term created by an
+   E-match instance in round r gets gen r+1. With the value 1, only gen-0 terms match — the
+   conservative loop guard (a law never fires on another law's output within ONE saturation; cascades
+   only happen across the outer fixpoint). Raising it to N enables N-1 levels of in-saturation cascade
+   (faithful to Lean grind, whose limit is higher) — bounded against runaway by `*max-ematch-instances*`
+   and the deterministic instance dedup. Kept SMALL by default; multi-gen is opted into per call."
+  1)
+
 (defn match-in-eqclass
   "Try to match pattern against any member of the equivalence class of term.
    `unknowns` is the set of theorem level-param Names (level unknowns).
-   Only considers members with generation 0 (original terms) to prevent
-   matching against terms created by previous E-matching rounds.
+   Only considers members with generation < `*max-ematch-generation*` (default: gen 0 only),
+   to bound matching against terms created by previous E-matching rounds.
    Returns a seq of {:assignment {:vars .. :levels ..} :matched-term ..}."
   [gs unknowns pat term]
   (let [root (eg/get-root gs term)
@@ -229,8 +239,8 @@
     ;; Traverse equivalence class
     (loop [curr root]
       (when-let [node (eg/get-enode gs curr)]
-        ;; Only match gen=0 terms (original, not E-match-created)
-        (when (zero? (:gen node))
+        ;; Generation gate (see *max-ematch-generation*)
+        (when (< (:gen node) *max-ematch-generation*)
           (when-let [m (match-pattern gs unknowns pat curr {:vars {} :levels {} :ftypes {}})]
             (swap! results conj {:assignment m :matched-term curr})))
         (let [next (:next node)]
@@ -311,12 +321,6 @@
   "Maximum total theorem instances. Lean 4 default: 1000."
   1000)
 
-(def ^:dynamic *max-ematch-generation*
-  "Maximum generation depth for E-matching candidates. Lean 4 default: 8.
-   Terms created by E-matching get generation > 0 and are pruned when
-   their generation exceeds this limit."
-  8)
-
 (def ^:dynamic *max-ematch-rounds*
   "Maximum E-matching rounds per grind call. Lean 4 default: 5."
   5)
@@ -355,7 +359,7 @@
                       ;; Generation gate: only match original terms (gen=0),
                       ;; not terms created by previous E-matching rounds
                       :when (let [node (eg/get-enode gs candidate)]
-                              (and node (zero? (:gen node))))]
+                              (and node (< (:gen node) *max-ematch-generation*)))]
                 ;; Try matching in the equivalence class
                 (doseq [{:keys [assignment matched-term]}
                         (match-in-eqclass gs (set (:level-params thm)) pat candidate)
