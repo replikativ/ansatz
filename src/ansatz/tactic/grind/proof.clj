@@ -23,6 +23,7 @@
 (def ^:private congr-arg-name (name/from-string "congrArg"))
 (def ^:private congr-fun-name (name/from-string "congrFun"))
 (def ^:private congr-name (name/from-string "congr"))
+(def ^:private funext-name (name/from-string "funext"))
 (def ^:private eq-name (name/from-string "Eq"))
 
 ;; ============================================================
@@ -292,6 +293,26 @@
 ;; Recursive (egg-style) extraction proof — #35
 ;; ============================================================
 
+(defn- mk-lam-congr
+  "Lift an under-binder body proof to a LAMBDA equality via `funext` (#C): given `body-proof : body[fv] =
+   body'[fv]` (fv the opened fresh fvar) and the two lambdas, build
+     funext.{u,v} α β (λx.body) (λx.body') (λx. body-proof) : (λx.body) = (λx.body').
+   β : α → Sort v is the (possibly dependent) result family, reconstructed by abstracting the body type
+   over fv. Mirrors simp's lambda-congruence (Tactic/Simp Main.lean) — the same proven construction."
+  [st alpha name fv old-lam new-lam body-proof]
+  (let [u (get-sort-level st alpha)
+        ;; Infer the body type with `fv : alpha` ADDED to the local context — otherwise infer-type sees
+        ;; the opened fvar `fv` as unbound and returns nil, so β falls back to the wrong `λa. Sort v`
+        ;; (this mirrors simp's funext construction, which infers in the opened lctx `st'`).
+        nm-str (if (string? name) name (str name))
+        st' (update st :lctx assoc fv {:name nm-str :type alpha})
+        body-fv (e/instantiate1 (e/lam-body old-lam) (e/fvar fv))
+        beta-body (try (infer-type st' body-fv) (catch Throwable _ nil))
+        v (if beta-body (get-sort-level st' beta-body) lvl/zero)
+        beta (e/lam name alpha (e/abstract1 (or beta-body (e/sort' v)) fv) :default)
+        proof-lam (e/lam name alpha (e/abstract1 body-proof fv) :default)]
+    (e/app* (e/const' funext-name [u v]) alpha beta old-lam new-lam proof-lam)))
+
 (defn- congr-chain
   "Build a proof `h c₁..cₖ = h t₁..tₖ` from per-argument proofs `triples` = [[cᵢ tᵢ pᵢ]…] (pᵢ : cᵢ = tᵢ).
    Folds along the spine: a maximal UNCHANGED prefix (cᵢ ≡ tᵢ — typically the type/instance args, which
@@ -311,7 +332,10 @@
             step  (cond
                     (and (nil? acc) unchanged) nil                                   ;; shared prefix → refl
                     (nil? acc) (mk-congr-arg st alpha beta ci ti fL pi)              ;; first divergence
-                    unchanged  (mk-congr-fun st alpha beta fL fR acc ci)             ;; common arg after
+                    ;; common arg AFTER divergence: `congr acc (refl ci)` — NOT congrFun (whose β must be
+                    ;; the dependent FAMILY α→Sort, which we don't have here); `congr`'s β is the plain
+                    ;; result Sort, which `beta` is. Same result `(fL ci) = (fR ci)`, well-typed strictly.
+                    unchanged  (mk-congr st alpha beta fL fR ci ci acc (mk-eq-refl st ci))
                     :else      (mk-congr st alpha beta fL fR ci ti acc pi))]         ;; both differ
         (recur step (e/app fL ci) (e/app fR ti) (rest ts))))))
 
@@ -336,7 +360,15 @@
                       within                                       ;; node not rebuilt → orig = extracted
                       (let [[h cargs] (e/get-app-fn-args node)
                             tterms (:child-terms m)
-                            triples (mapv (fn [ci ti] [ci ti (prove ci)]) cargs tterms)
+                            ;; per-arg proof cᵢ = tᵢ. For an OPENED SOAC step-λ that was rebuilt (#C),
+                            ;; the proof is a `funext` over the body proof — not a within-class mk-eq-proof.
+                            arg-proof (fn [ci ti]
+                                        (let [ol (get (:opened-lams gs) ci)]
+                                          (if (and ol (not (.equals ^Object ci ti)))
+                                            (mk-lam-congr st (:alpha ol) (:name ol) (:fv ol)
+                                                          ci ti (prove (:body ol)))
+                                            (prove ci))))
+                            triples (mapv (fn [ci ti] [ci ti (arg-proof ci ti)]) cargs tterms)
                             congr (congr-chain st h triples)       ;; node = extracted
                             ty (infer-type st orig)]
                         (mk-eq-trans st ty orig node extracted within congr)))))))]

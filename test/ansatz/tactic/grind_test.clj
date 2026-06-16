@@ -235,6 +235,32 @@
       (is (.equals succ-c (:term rec)) "recursive extraction rebuilds Nat.succ with the cheaper c")
       (is (< (:cost rec) (:cost flat)) "the rebuilt term is strictly cheaper"))))
 
+(deftest test-egraph-under-binder-extract-rebuilds-lambda
+  (testing "internalize-binders opens a SOAC step-λ; a rewrite UNDER the binder is reachable, and
+            extract-rec rebuilds the λ from it (#C — under-binder cost search)"
+    (let [env (require-env)
+          cst (fn [s] (e/const' (name/from-string s) []))
+          z lvl/zero
+          xs (fv 1)
+          ;; map (λx. Nat.add x 0) xs  — the rewrite Nat.add x 0 → x is UNDER the λx binder
+          lam (e/lam "x" (cst "Nat")
+                     (e/app* (cst "Nat.add") (e/bvar 0) (cst "Nat.zero")) :default)
+          term (e/app* (e/const' (name/from-string "List.map") [z z]) (cst "Nat") (cst "Nat") lam xs)
+          soac? (fn [nm] (= "List.map" (name/->string nm)))
+          gs (eg/internalize-binders (eg/mk-grind-state env) term 0 soac? 0 3)
+          ol (get (:opened-lams gs) lam)
+          fve (e/fvar (:fv ol))                 ;; the fresh fvar the binder was opened with
+          ob (:body ol)                         ;; the opened body: Nat.add fve Nat.zero
+          ;; assert the under-binder rewrite `Nat.add x 0 = x` (here on the OPENED body)
+          gs (-> gs (eg/internalize fve 0) (eg/assert-eq ob fve :addzero))
+          size (fn [t] (count (e/->string t)))
+          rec (eg/extract-rec gs term size)
+          new-lam (e/lam "x" (cst "Nat") (e/bvar 0) :default)   ;; λx. x
+          expected (e/app* (e/const' (name/from-string "List.map") [z z]) (cst "Nat") (cst "Nat") new-lam xs)]
+      (is (= 1 (count (:opened-lams gs))) "the map step-λ was opened by internalize-binders")
+      (is (.equals expected (:term rec))
+          "extract-rec rebuilt map (λx. x) xs from the under-binder rewrite — flat extraction couldn't"))))
+
 (deftest test-egraph-true-false-inconsistency
   (testing "Merging True=False marks inconsistent"
     (let [env (require-env)

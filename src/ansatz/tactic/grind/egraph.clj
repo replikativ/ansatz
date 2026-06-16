@@ -75,6 +75,8 @@
             :inconsistent false
             :next-idx    0
             :gmt         0      ;; global modification time
+            :opened-lams {}     ;; λ-Expr -> {:fv :body :alpha :name} (under-binder descent, #C)
+            :next-binder-fv 950000000  ;; fresh-fvar counter for opened binders (far above real fvars)
             :true-expr   true-expr
             :false-expr  false-expr
             :env         env}]
@@ -207,7 +209,17 @@
   [gs expr cost-fn]
   (let [choices (atom {})
         in-progress (atom #{})]
-    (letfn [(go [r]
+    (letfn [(go-arg [a]
+              ;; An OPENED SOAC step-λ (recorded by `internalize-binders`): extract its opened BODY and
+              ;; re-abstract — so an under-binder rewrite (nested-SOAC hoist, #C) is rebuilt into the λ.
+              (if-let [{:keys [fv body name alpha]} (get (:opened-lams gs) a)]
+                (let [br (go (get-root gs body))]
+                  (if (:term br)
+                    {:term (e/lam name alpha (e/abstract1 (:term br) fv) (e/lam-info a))
+                     :cost (:cost br)}
+                    {:term nil :cost ##Inf}))
+                (go a)))
+            (go [r]
                 (let [r (get-root gs r)]
                   (cond
                     (contains? @choices r) (@choices r)
@@ -220,7 +232,7 @@
                                    (fn [n]
                                      (if (e/app? n)
                                        (let [[h args] (e/get-app-fn-args n)
-                                             ch (mapv (fn [a] (go a)) args)]
+                                             ch (mapv go-arg args)]
                                          (when (every? #(some? (:term %)) ch)
                                            (let [term (apply e/app* h (map :term ch))]
                                              {:node n :term term :cost (cost-fn term)
@@ -401,6 +413,39 @@
           gs)
         ;; Non-application: just return
         gs))))
+
+(defn internalize-binders
+  "Like `internalize`, but ALSO descends into the step-λ arguments of applications whose head name
+   satisfies `soac-head?`, OPENING each λ with a fresh fvar and internalizing the opened body. This is
+   what lets the e-matcher fire laws on subterms UNDER a binder — the nested-SOAC cost search (#C): e.g.
+   the inner `foldl+0 (map (λy. x·y) ys)` inside an outer `map (λx. …) xs` becomes ordinary e-graph nodes
+   (with x a fresh fvar), so the inner hoist law matches it as any other candidate.
+
+   Each opened λ is recorded in `gs[:opened-lams][λ-Expr] = {:fv :body :alpha :name}` so extraction
+   (`extract-rec`/`extract-and-prove`) reproduces the SAME opening (no fvar regeneration). `depth` bounds
+   the descent (cost guard). The CORE `internalize` is untouched (app-spine only), so the grind tactic and
+   simp's grind calls are unaffected — this lives only on the optimizer's saturate path."
+  [gs expr gen soac-head? depth max-depth]
+  (let [gs (internalize gs expr gen)]
+    (if (and (e/app? expr) (< depth max-depth))
+      (let [[h args] (e/get-app-fn-args expr)
+            soac? (and (e/const? h) (soac-head? (e/const-name h)))]
+        (reduce
+         (fn [gs arg]
+           (if (and soac? (e/lam? arg) (not (contains? (:opened-lams gs) arg)))
+             ;; SOAC step-λ: open with a fresh fvar, record it, internalize the opened body
+             (let [fvid (:next-binder-fv gs)
+                   fv (e/fvar fvid)
+                   body (e/instantiate1 (e/lam-body arg) fv)]
+               (-> gs
+                   (assoc :next-binder-fv (inc fvid))
+                   (assoc-in [:opened-lams arg]
+                             {:fv fvid :body body :alpha (e/lam-type arg) :name (e/lam-name arg)})
+                   (internalize-binders body gen soac-head? (inc depth) max-depth)))
+             ;; non-λ arg (or non-SOAC head): recurse to reach deeper SOACs, same depth
+             (internalize-binders gs arg gen soac-head? depth max-depth)))
+         gs args))
+      gs)))
 
 ;; ============================================================
 ;; Invert transitivity chain
