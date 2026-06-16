@@ -212,6 +212,29 @@
           gs (eg/assert-eq gs a b :proof-ab)]
       (is (eg/is-eqv gs gfa gfb) "g(f(a))=g(f(b)) by deep congruence"))))
 
+(deftest test-egraph-extract-rec-rebuilds-parent
+  (testing "recursive extraction rebuilds an enclosing app from a rewritten SUBTERM —
+            the case flat extract-min-cost provably can't reach (#35)"
+    (let [env (require-env)
+          cst (fn [s] (e/const' (name/from-string s) []))
+          n (fv 1)
+          add-nn (e/app* (cst "Nat.add") n n)        ;; the rewritable subterm
+          c (fv 2)                                   ;; its cheaper equivalent
+          term (e/app (cst "Nat.succ") add-nn)       ;; Nat.succ (Nat.add n n) — add is BURIED under succ
+          gs (-> (eg/mk-grind-state env) (eg/internalize term 0) (eg/internalize c 0))
+          gs (eg/assert-eq gs add-nn c :rewrite)     ;; (Nat.add n n) = c, so its class = {add-nn, c}
+          ;; cost = rendered size; the fvar c is strictly smaller than the application Nat.add n n.
+          size (fn [t] (count (e/->string t)))
+          flat (eg/extract-min-cost gs term size)
+          rec  (eg/extract-rec gs term size)
+          succ-c (e/app (cst "Nat.succ") c)]
+      ;; FLAT: Nat.succ-c is not a materialized member of term's class, so flat extraction
+      ;; can only return term itself (congruence closure never rebuilt the parent).
+      (is (.equals term (:term flat)) "flat extraction leaves the enclosing succ untouched")
+      ;; REC: descends into the succ's argument class, picks c, and reassembles Nat.succ c.
+      (is (.equals succ-c (:term rec)) "recursive extraction rebuilds Nat.succ with the cheaper c")
+      (is (< (:cost rec) (:cost flat)) "the rebuilt term is strictly cheaper"))))
+
 (deftest test-egraph-true-false-inconsistency
   (testing "Merging True=False marks inconsistent"
     (let [env (require-env)
