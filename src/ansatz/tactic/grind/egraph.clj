@@ -184,6 +184,59 @@
                                         (first scored) (rest scored))]
       {:term best-term :cost best-cost :members (count members)})))
 
+(defn extract-rec
+  "RECURSIVE (egg-style) extraction over the application spine. For each e-class, choose the node that
+   minimizes the cost of the bottom-up-ASSEMBLED term `f(t₁..tₖ)` — where each `tᵢ` is itself the
+   recursively-extracted cheapest term of arg `aᵢ`'s class. This is strictly more powerful than the flat
+   `extract-min-cost`: it can build a cheapest term that was NEVER materialized as a single node (e.g. an
+   enclosing `g (foldl …)` where only the `foldl` subterm was rewritten), because congruence closure
+   merges subterms but never rebuilds their parents.
+
+   Returns {:term :cost :choices}, where `:choices` maps each visited class-root to
+   {:node <chosen ENode> :child-roots [root…] :child-terms [term…] :term <assembled> :cost}. The
+   `:choices` map records the SAME structure the proof reconstruction must follow (see
+   `proof/extract-and-prove`) — extraction and proof agree on which node each class contributed.
+
+   Cycles (classes mutually reachable through children, e.g. after `map_id`) are broken by DFS:
+   a class already on the stack contributes cost ∞, so a node depending on it is skipped. Granularity
+   is the app spine only — `lam`/`let`/`forall` are opaque e-graph nodes (internalize doesn't descend
+   binders), so a rewrite buried inside a λ body isn't reachable here (that needs under-binder
+   internalization, a separate extension). `cost-fn` scores assembled terms; only RELATIVE order within
+   a class matters for the choice, so a context-free scoring of sub-assemblies is sound for a
+   depth-monotone cost. Soundness overall still rests on the kernel re-checking the composed proof."
+  [gs expr cost-fn]
+  (let [choices (atom {})
+        in-progress (atom #{})]
+    (letfn [(go [r]
+                (let [r (get-root gs r)]
+                  (cond
+                    (contains? @choices r) (@choices r)
+                    (contains? @in-progress r) {:term nil :cost ##Inf}   ;; cycle: unusable
+                    :else
+                    (do
+                      (swap! in-progress conj r)
+                      (let [members (or (collect-eqc gs r) [])
+                            cands (keep
+                                   (fn [n]
+                                     (if (e/app? n)
+                                       (let [[h args] (e/get-app-fn-args n)
+                                             ch (mapv (fn [a] (go a)) args)]
+                                         (when (every? #(some? (:term %)) ch)
+                                           (let [term (apply e/app* h (map :term ch))]
+                                             {:node n :term term :cost (cost-fn term)
+                                              :child-roots (mapv #(get-root gs %) args)
+                                              :child-terms (mapv :term ch)})))
+                                       {:node n :term n :cost (cost-fn n)
+                                        :child-roots [] :child-terms []}))
+                                   members)
+                            best (when (seq cands) (apply min-key :cost cands))]
+                        (swap! in-progress disj r)
+                        (when best (swap! choices assoc r best))
+                        (or best {:term nil :cost ##Inf}))))))]
+      (let [res (go (get-root gs expr))]
+        (when (:term res)
+          (assoc res :choices @choices))))))
+
 ;; ============================================================
 ;; Congruence hashing and checking
 ;; Following Lean 4 Types.lean:545

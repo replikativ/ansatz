@@ -288,6 +288,60 @@
 ;; Following Lean 4 Proof.lean:311
 ;; ============================================================
 
+;; ============================================================
+;; Recursive (egg-style) extraction proof — #35
+;; ============================================================
+
+(defn- congr-chain
+  "Build a proof `h c₁..cₖ = h t₁..tₖ` from per-argument proofs `triples` = [[cᵢ tᵢ pᵢ]…] (pᵢ : cᵢ = tᵢ).
+   Folds along the spine: a maximal UNCHANGED prefix (cᵢ ≡ tᵢ — typically the type/instance args, which
+   sit at dependent positions) is absorbed into the shared head with NO proof step (the two sides stay
+   syntactically equal, so the running proof is still refl). The FIRST changed arg uses `congrArg`
+   (head identical on both sides); any later unchanged arg uses `congrFun` (apply a common arg to a
+   function equality — dependent-safe); any later changed arg uses `congr`. This ordering keeps every
+   congruence step at a NON-dependent value position, so the proofs are well-typed without HEq."
+  [st h triples]
+  (loop [acc nil, fL h, fR h, ts triples]
+    (if (empty? ts)
+      (or acc (mk-eq-refl st fL))
+      (let [[ci ti pi] (first ts)
+            unchanged (.equals ^Object ci ti)
+            alpha (infer-type st ci)
+            beta  (infer-type st (e/app fL ci))
+            step  (cond
+                    (and (nil? acc) unchanged) nil                                   ;; shared prefix → refl
+                    (nil? acc) (mk-congr-arg st alpha beta ci ti fL pi)              ;; first divergence
+                    unchanged  (mk-congr-fun st alpha beta fL fR acc ci)             ;; common arg after
+                    :else      (mk-congr st alpha beta fL fR ci ti acc pi))]         ;; both differ
+        (recur step (e/app fL ci) (e/app fR ti) (rest ts))))))
+
+(defn extract-and-prove
+  "Recursive egg-style extraction (`egraph/extract-rec`) PLUS a kernel proof `term = extracted`.
+   Walks the per-class `:choices` the extractor recorded and, at each class, composes the WITHIN-class
+   equality `orig = chosen-node` (`mk-eq-proof`; both nodes are materialized, so the existing flat
+   transitivity machinery applies) with CONGRUENCE over the recursively-proved children (`congr-chain`).
+   Returns {:term :cost :proof} or nil. The composed proof is independently kernel-checkable — the
+   e-graph and extractor remain untrusted oracles; only this proof is trusted."
+  [gs st term cost-fn]
+  (when-let [{:keys [choices] :as top} (eg/extract-rec gs term cost-fn)]
+    (letfn [(prove [orig]
+              (let [r (eg/get-root gs orig)
+                    m (get choices r)]
+                (if (nil? m)
+                  (mk-eq-refl st orig)
+                  (let [node (:node m)
+                        extracted (:term m)
+                        within (mk-eq-proof gs st orig node)]      ;; orig = node (within class)
+                    (if (.equals ^Object node extracted)
+                      within                                       ;; node not rebuilt → orig = extracted
+                      (let [[h cargs] (e/get-app-fn-args node)
+                            tterms (:child-terms m)
+                            triples (mapv (fn [ci ti] [ci ti (prove ci)]) cargs tterms)
+                            congr (congr-chain st h triples)       ;; node = extracted
+                            ty (infer-type st orig)]
+                        (mk-eq-trans st ty orig node extracted within congr)))))))]
+      (assoc (select-keys top [:term :cost]) :proof (prove term)))))
+
 (defn mk-eq-proof
   "Build a kernel-verifiable CIC proof term for lhs = rhs from E-graph paths.
    Requires that lhs and rhs are in the same equivalence class."
