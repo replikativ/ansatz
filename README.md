@@ -261,9 +261,7 @@ clj -M -e '
 '
 ```
 
-The authoritative full-corpus check currently uses the PSS-backed store. The
-FlatStore path is a performance-oriented mmap store experiment with targeted
-kernel tests, not the normal Mathlib validation gate yet. The imported-store
+The authoritative full-corpus check uses the PSS-backed store. The imported-store
 verifier uses a higher fuel default than interactive tactic calls because full
 Mathlib contains legitimate declarations above 20M kernel steps. For trace-level
 comparison against a patched Lean 4 build, see
@@ -604,7 +602,6 @@ The CIC kernel is implemented in Java for performance:
 - `Reducer` — WHNF reduction (beta, delta, iota, zeta, projection)
 - `InductiveBundleChecker` — Lean-shaped bundled inductive admission, including nested-inductive lowering/restoration
 - `RecursorGenerator` — Lean-shaped recursor type and iota-rule generation for imported and frontend-authored inductive bundles
-- `FlatStore` — experimental memory-mapped store for faster imported-kernel lookup
 - `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
 For a deeper architectural walkthrough of the kernel, see [doc/kernel.md](doc/kernel.md).
