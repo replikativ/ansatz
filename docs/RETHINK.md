@@ -146,3 +146,34 @@ syntax frictions and fixes:
 So the path holds: the levers make authoring feel like Lean for *concrete* laws today; generic laws
 additionally need `WSemiring` (L4/Item 3); and proofs stay somewhat longer than Lean until the
 simp-lemma library grows.
+
+### Elaborator unification — the root cause, quantified
+
+Every dev-experience friction (arrow glyph, `exact`, the structure elaborator) traced to **incomplete
+elaborator unification**. An audit quantified it: there were **3** surface→`Expr` paths —
+`surface/elaborate.clj` (fvar-first, 1224 LOC, **THE** elaborator, metavars + instance synthesis,
+~85–90% of the surface already on it), `surface/term.clj` (254 LOC, bvar-only, **0 production callers**),
+and `inductive.clj` `compile-type` (~140 LOC, bvar, the inductive/structure field/param/index lane).
+The P1–P5 unification (#102–106) moved types/proofs/WF-measures onto the fvar path but left the
+inductive lane divergent.
+
+DONE (commits e674c09, a6917d8): glyph-unified the inductive lane (`=>`/`→`/`arrow` + `:-` binders +
+currying), **retired `term.clj`** (deleted, 0 callers), and **removed the `->`-as-arrow inversion**
+(`->` is now threading everywhere, an arrow nowhere). Two of three elaborators reconciled.
+
+REMAINING = the real merge (ordered, suite-gated):
+- **A ✅** retire term.clj.
+- **B** build `elaborate-type-in-telescope` over the fvar elaborator (install ordered binders as lctx
+  fvars, elaborate, return fvar-open for `abstract-many`). Bridge pattern already exists in
+  `core.clj:853` (`build-telescope-fvar`); model on `elaborate-in-context` (elaborate.clj:1159).
+  Must preserve inductive self-reference (`self-const`, inductive.clj:70).
+- **C** route ctor field types (`compile-fields`, inductive.clj:265) through the bridge → **fixes the
+  dependent-field de-Bruijn bug AND unblocks WSemiring** (the typeclass with dependent axiom fields).
+- **D** route param + index types through the bridge (mechanical).
+- **E** migrate recursor-construction field/index recompiles (inductive.clj:298/335), retiring the
+  remaining `e/lift`/manual-depth code — highest-risk, do last.
+
+Also pending quick patches: collapse the 3 `parse-binders` + 2 `parse-levels` copies into
+`surface/ingest.clj`; add `fun`/`λ` aliases for `lam`; teach `parse-binders` the `:inst` binder.
+Full unification deletes ~254 (term.clj) + ~60 (dup helpers) + a slice of `compile-type`'s de-Bruijn
+machinery, and leaves ONE elaborator — the foundation for "author wandler like lean-wandler".
