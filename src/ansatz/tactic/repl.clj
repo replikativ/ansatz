@@ -335,6 +335,34 @@
                 {:tactic t :error (.getMessage e)})))
           tactics)))
 
+;; ============================================================
+;; Term quotation — concrete surface syntax instead of e/app*/e/forall' construction
+;; ============================================================
+;; `(t <sexpr>)` elaborates a surface term to a kernel Expr in the global env; `(t-in ps <sexpr>)`
+;; elaborates in the local context of ps's current goal (hypotheses available as symbols). The
+;; fn forms (`t*`/`t-in*`) take an already-built/computed sexpr — what the law library uses to
+;; replace hand-assembled `e/app*` trees with surface s-expressions.
+
+(defn t*
+  "Elaborate a surface s-expr to a kernel Expr. `env` defaults to the global env."
+  ([sexpr] (t* ((core-fn 'env)) sexpr))
+  ([env sexpr] (elab/elaborate env sexpr)))
+
+(defn t-in*
+  "Elaborate a surface s-expr in the local context of ps's current goal (hypothesis names are in
+   scope as symbols). For building `exact`/`have` terms that mention the goal's fvars."
+  [ps sexpr]
+  (elab/elaborate-in-context (:env ps) (:lctx (first (proof/goals ps))) sexpr))
+
+(defmacro t
+  "Quote + elaborate a surface term to a kernel Expr in the global env — the concrete-syntax
+   alternative to `(e/app* (e/const' …) …)`.   e.g.  (t (List.map f xs))"
+  [sexpr] `(t* (quote ~sexpr)))
+
+(defmacro t-in
+  "Quote + elaborate a surface term in ps's current-goal context.   e.g.  (t-in ps (Eq a a))"
+  [ps sexpr] `(t-in* ~ps (quote ~sexpr)))
+
 (defn define
   "Define a term constant and add it to the environment.
    Returns the updated env.
