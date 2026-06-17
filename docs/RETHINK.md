@@ -167,8 +167,15 @@ REMAINING = the real merge (ordered, suite-gated):
   fvars, elaborate, return fvar-open for `abstract-many`). Bridge pattern already exists in
   `core.clj:853` (`build-telescope-fvar`); model on `elaborate-in-context` (elaborate.clj:1159).
   Must preserve inductive self-reference (`self-const`, inductive.clj:70).
-- **C** route ctor field types (`compile-fields`, inductive.clj:265) through the bridge → **fixes the
-  dependent-field de-Bruijn bug AND unblocks WSemiring** (the typeclass with dependent axiom fields).
+- **C** route ctor field types (`compile-fields`, inductive.clj:265) through the bridge. NOTE: the
+  earlier "dependent-field de-Bruijn bug blocks WSemiring" diagnosis was WRONG (corrected 2026-06-17).
+  Bisection showed BOTH kernels (Clojure `tc` + Java `TypeChecker`) admit the constructor type for a
+  field that applies an earlier field (e.g. `add_assoc : ∀ a b c, add (add a b) c = …`), and the
+  recursor/casesOn/recOn all build. The ONLY failure was the auxiliary `build-no-confusion-type`
+  (inductive.clj:1675), now made defensive (warn+skip) — so **WSemiring is already unblocked** (commit
+  1fa41d1). Step C is therefore a *cleanliness* merge (kill the `compile-type` mini-elaborator's
+  hardcodes — `Eq` defaulting its type to `Nat`, arithmetic ops to `Nat`), no longer a WSemiring blocker.
+  The deeper noConfusion-builder de-Bruijn fix is a separate, low-priority follow-up.
 - **D** route param + index types through the bridge (mechanical).
 - **E** migrate recursor-construction field/index recompiles (inductive.clj:298/335), retiring the
   remaining `e/lift`/manual-depth code — highest-risk, do last.
