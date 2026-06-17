@@ -89,11 +89,12 @@
     (and (sequential? form) (seq form))
     (let [h (if (nil? (first form)) "nil" (str (first form)))]
       (case h
-        ;; Non-dependent function type. The SAME glyphs as the fvar elaborator (elaborate.clj):
-        ;; `=>` (the canonical arrow), `→`, and `arrow`. `->` is NOT an arrow anywhere — it is always
-        ;; Clojure threading (design #54) — so it is excluded here too, removing the cross-path
-        ;; inversion. N-ary currying: (=> A B C) = A → B → C, B at depth+1, C at depth+2.
-        ("arrow" "=>" "→")
+        ;; Non-dependent function type. Glyphs: `=>` (the canonical arrow), `→`, `arrow`, AND `->`.
+        ;; NOTE: design #54's "`->` is Clojure threading, never an arrow" applies to TERM position
+        ;; (the fvar elaborator, elaborate.clj) where the ambivalence is real. compile-type handles
+        ;; only TYPES, where `->` is unambiguously a function arrow (as in Lean) — threading is
+        ;; meaningless in a type. So `->` IS an arrow here. N-ary currying: (=> A B C) = A → B → C.
+        ("arrow" "=>" "→" "->")
         (let [parts (vec (rest form))]
           (when (< (count parts) 2)
             (throw (ex-info "arrow / => expects at least two types" {:form form})))
