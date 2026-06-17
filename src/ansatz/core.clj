@@ -1778,32 +1778,131 @@
 ;;   - Pair.fst : ∀ {α β}, Pair α β → α  (projection using Expr.proj)
 ;;   - Pair.snd : ∀ {α β}, Pair α β → β
 
+(clojure.core/defn add-inherited-accessors!
+  "For a structure CHILD that `:extends` PARENT (embedded as the packed subobject field
+   `to{PARENT}`), generate the inherited field accessors — following Lean 4's subobject model
+   (../lean4 Structure.lean: `fromSubobject` fields have no own projection; access is the parent
+   projection composed with the subobject projection). Lean inlines this at elaboration; we have
+   no subobject-aware dot-notation, so we materialize each as an `:abbrev` def
+     CHILD.f := λ {params} (s : CHILD params) => PARENT.f params (CHILD.to{PARENT} params s)
+   which unfolds to exactly that composition. Parent field names come from the structure-registry
+   (the parent was defined via `a/structure`). Skips any field the child overrides (its own
+   projection wins) and the already-generated `to{PARENT}` projection. `n-params` = carrier arity."
+  [child-str parent-str to-field n-params]
+  (let [env0 (env)
+        child-name (name/from-string child-str)
+        parent-fields (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
+                               [parent-str :fields])
+        ci (env/lookup env0 child-name)
+        lvl-params (vec (.levelParams ^ConstantInfo ci))
+        lvl-levels (mapv lvl/param lvl-params)
+        ind-type (.type ^ConstantInfo ci)
+        param-types (loop [t ind-type i 0 acc []]
+                      (if (and (< i n-params) (e/forall? t))
+                        (recur (e/forall-body t) (inc i) (conj acc (e/forall-type t)))
+                        acc))
+        ;; Self's type: CHILD p…, at depth n-params (self not yet bound) → param i = bvar(n-params-i-1)
+        ind-applied (reduce (fn [a i] (e/app a (e/bvar (- n-params i 1))))
+                            (e/const' child-name lvl-levels) (range n-params))
+        ;; Inside (λ {params} (self) => BODY): self = bvar 0, param i = bvar(n-params - i)
+        param-bvar (fn [i] (e/bvar (- n-params i)))
+        ;; CHILD.to{PARENT} params self  : PARENT p…
+        to-app (e/app (reduce (fn [a i] (e/app a (param-bvar i)))
+                              (e/const' (name/from-string (str child-str "." to-field)) lvl-levels)
+                              (range n-params))
+                      (e/bvar 0))]
+    (doseq [f parent-fields
+            :let [child-f (name/from-string (str child-str "." f))]
+            :when (not (env/lookup (env) child-f))]
+      (let [parent-f (reduce (fn [a i] (e/app a (param-bvar i)))
+                             (e/const' (name/from-string (str parent-str "." f)) lvl-levels)
+                             (range n-params))
+            body (e/app parent-f to-app)
+            val  (e/lam "self" ind-applied body :default)
+            val  (loop [i (dec n-params) b val]
+                   (if (< i 0) b (recur (dec i) (e/lam "p" (nth param-types i) b :implicit))))
+            ty   (tc/infer-type (tc/mk-tc-state (env)) val)
+            cidef (env/mk-def child-f lvl-params ty val :hints :abbrev)]
+        (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
+                (env/check-constant (env) cidef))))))
+
+(clojure.core/defn rewrite-inherited-field-refs
+  "Rewrite bare references to a parent's field names inside a child structure field-type form
+   into explicit subobject projections — mirroring Lean's `fromSubobject` resolution (../lean4
+   Structure.lean: parent fields are opened into scope as projections of the subobject while
+   elaborating child fields). A reference to parent field `f` becomes `(Parent.f carrier… toField)`:
+   the parent projection applied (carrier args explicit) to the embedded subobject. This keeps the
+   child's axiom fields (e.g. `mul_add : mul a (add b c) = …`) admissible by the existing field
+   compiler with no changes to it. `field-set` = parent field-name strings; `carrier-args` = the
+   carrier s-exprs from `:extends (Parent carrier…)`; `to-field` = the subobject field symbol.
+   Assumes no local binder shadows a parent field name (parent fields are ops/axioms like add/zero;
+   child binders are a/b/c — no collision)."
+  [form field-set parent-sym carrier-args to-field]
+  (cond
+    (and (symbol? form) (contains? field-set (str form)))
+    (apply list (symbol (str parent-sym "." form)) (concat carrier-args [to-field]))
+    (seq? form)
+    (apply list (map #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form))
+    (vector? form)
+    (mapv #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form)
+    :else form))
+
 (defmacro structure
   "Define a structure (single-constructor inductive with projections).
 
    (a/structure Pair [α Type β Type] (fst α) (snd β))
 
    Fields are specified as (name type) pairs. The constructor is always 'mk'.
-   Projection functions are automatically generated."
+   Projection functions are automatically generated.
+
+   Inheritance (Lean-4 subobject model):
+     (a/structure WSemiring [S Type] :extends (WAddMonoid S)
+       (mul (=> S S S)) (mul_add ...) ...)
+   The parent is embedded as a packed `to{Parent}` field (field 0); `Child.to{Parent}` is its
+   projection and inherited accessors `Child.<parentField>` are generated (see EXTENDS_DESIGN.md).
+   Single inheritance only for now — multiple `:extends` parents are rejected."
   [type-name params & fields]
-  (let [;; Split :in option
-        [opts fields] (if (= :in (first fields))
-                        [{:in (second fields)} (drop 2 fields)]
-                        [{} fields])
+  (let [;; Consume leading option pairs (:in, :extends) in any order
+        [opts fields] (loop [o {} fs fields]
+                        (if (and (keyword? (first fs)) (#{:in :extends} (first fs)))
+                          (recur (assoc o (first fs) (second fs)) (drop 2 fs))
+                          [o fs]))
+        extends-form (:extends opts)
+        _ (when (and extends-form (not (and (sequential? extends-form) (symbol? (first extends-form)))))
+            (throw (ex-info "structure :extends expects a single (Parent carrier…) form; multiple inheritance not yet implemented"
+                            {:extends extends-form})))
+        parent-sym (when extends-form (first extends-form))
+        to-field   (when parent-sym (symbol (str "to" parent-sym)))
         ;; Parse fields: (name type) pairs
-        field-specs (mapv (fn [f]
-                            (if (sequential? f)
-                              [(first f) (second f)]
-                              (throw (ex-info "structure field must be (name type)" {:field f}))))
-                          fields)
+        base-field-specs (mapv (fn [f]
+                                 (if (sequential? f)
+                                   [(first f) (second f)]
+                                   (throw (ex-info "structure field must be (name type)" {:field f}))))
+                               fields)
+        ;; Prepend the packed subobject field (Lean's `subobject` kind) when extending
+        field-specs (if extends-form
+                      (into [[to-field extends-form]] base-field-specs)
+                      base-field-specs)
         ;; Build the flat field vector for the constructor: [name1 type1 name2 type2 ...]
         flat-fields (vec (mapcat identity field-specs))
         ;; Single constructor named 'mk'
         ctor-spec ['mk flat-fields]]
     `(do
-       ;; Define the inductive with single constructor
-       (inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
-         ~@(when (:in opts) [:in `'~(:in opts)]))
+       ;; Define the inductive with single constructor. When extending, rewrite inherited-field
+       ;; references in the new fields' types to subobject projections at runtime (parent field
+       ;; names come from the registry, available once the parent is defined).
+       ~(if extends-form
+          `(let [pfields# (set (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
+                                       [~(str parent-sym) :fields]))
+                 new-specs# (mapv (fn [[fn# ft#]]
+                                    [fn# (rewrite-inherited-field-refs
+                                          ft# pfields# '~parent-sym '~(vec (rest extends-form)) '~to-field)])
+                                  '~base-field-specs)
+                 flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
+             (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
+               ~@(when (:in opts) [:in `'~(:in opts)])))
+          `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
+             ~@(when (:in opts) [:in `'~(:in opts)])))
 
        ;; Generate projection functions
        ;; Each projection is: λ {params...} (x : T params) => proj T.name idx x
@@ -1847,6 +1946,12 @@
                             (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
                                     (env/check-constant env# proj-ci#))))])))
           field-specs)
+
+       ;; Inherited accessors for the embedded parent (Lean subobject `fromSubobject` access).
+       ;; Runs after the projection loop so Child.to{Parent} exists.
+       ~@(when extends-form
+           [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
+                                       ~(str to-field) ~(/ (count params) 2))])
 
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
