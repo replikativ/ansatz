@@ -1665,16 +1665,29 @@
                 env)
           ;; Build noConfusion for non-indexed, non-Prop types — caller can
           ;; opt out via :no-confusion? false (see docstring re: Bug C).
+          ;; noConfusion is an AUXILIARY (like casesOn/recOn): the core inductive +
+          ;; constructors + recursor are already kernel-checked above, so a failure to
+          ;; build noConfusion is a builder limitation, NOT a soundness issue. The
+          ;; current builder's de-Bruijn handling chokes on dependent fields (a field
+          ;; type that applies an earlier field — e.g. a typeclass axiom
+          ;; `add_assoc : ∀ a b c, add (add a b) c = …`). Rather than abort the whole
+          ;; declaration, warn and skip: the type stays usable (projections, recursor,
+          ;; instance resolution all work; only noConfusion is absent).
           env (if (and no-confusion? (zero? n-indices) (not is-prop))
-                (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
-                                                      level-param-names rec-name rec-level-params
-                                                      result-level is-rec ind-name-str)
-                      nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
-                                                level-param-names rec-name rec-level-params
-                                                result-level is-rec ind-name-str)
-                      env (env/check-constant env nct-ci)
-                      env (env/check-constant env nc-ci)]
-                  env)
+                (try
+                  (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
+                                                        level-param-names rec-name rec-level-params
+                                                        result-level is-rec ind-name-str)
+                        nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
+                                                  level-param-names rec-name rec-level-params
+                                                  result-level is-rec ind-name-str)
+                        env (env/check-constant env nct-ci)
+                        env (env/check-constant env nc-ci)]
+                    env)
+                  (catch Exception e
+                    (println "⚠ noConfusion skipped for" ind-name-str "—" (.getMessage e)
+                             "(auxiliary only; the inductive + recursor are kernel-checked)")
+                    env))
                 env)]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
