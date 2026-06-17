@@ -660,8 +660,11 @@ public final class TypeChecker {
 
     /**
      * Infer type in infer-only mode (Lean's infer_type → infer_type_core(e, true)).
-     * This is intentionally weaker than full checking and should not be used for
-     * declaration admission.
+     * LENIENT BY DESIGN: assumes the input is well-formed and does NOT re-typecheck it — a fast
+     * type COMPUTATION for elaboration/tactics, exactly like Lean's Meta.inferType. It is NOT a
+     * verifier: it can return a type for an ill-typed term. NEVER gate validity / declaration
+     * admission on this. The sole admission door is full checking — {@link #checkConstant}
+     * (Clojure: env/check-constant, env/verifies?). Kept named inferType for fidelity to Lean.
      */
     public Expr inferType(Expr e) {
         return inferTypeCore(e, true);
