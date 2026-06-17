@@ -626,6 +626,12 @@
    'left      (fn [ps _] (basic/left ps))
    'right     (fn [ps _] (basic/right ps))
    'exact?    (fn [ps _] (basic/exact? ps))
+   'exact     (fn [ps args]
+                ;; (exact <term>) — close the goal with an explicit proof term, elaborated in the
+                ;; goal's local context (hypotheses in scope). The companion to exact? (auto-search).
+                (let [g (proof/current-goal ps)
+                      term (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
+                  (basic/exact ps term)))
    'omega     (fn [ps _] (omega/omega ps))
    'trans     (fn [ps args]
                 ;; (trans mid h1 h2) — transitivity: a ≤ mid, mid ≤ c → a ≤ c

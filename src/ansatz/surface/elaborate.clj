@@ -651,10 +651,17 @@
                          (elab-error! "lam expects one body" {:forms body-forms}))
                        (elab-lam est binder-vec (first body-forms)))
 
-            "arrow"  (let [[_ a b] sexpr
-                           a-expr (elab-term est a)
-                           b-expr (elab-term est b)]
-                       (e/arrow a-expr b-expr))
+            ;; Non-dependent function type. `arrow` plus the idiomatic `=>` (THE function-type arrow
+            ;; per clj-ingest; `->` is ALWAYS Clojure threading, never the arrow) and `→`, with N-ary
+            ;; currying: (=> A B C) = A → B → C (right-associated). Each part elaborates in the same
+            ;; scope (fvar-based — no de-Bruijn depth shift); `e/arrow` wraps `_ : A`. This brings the
+            ;; a/theorem fvar elaborator in line with a/defn, which already accepts `=>` binders.
+            ("arrow" "=>" "→")
+            (let [parts (rest sexpr)]
+              (when (< (count parts) 2)
+                (elab-error! "arrow / => expects at least two types" {:form sexpr}))
+              (let [exprs (mapv #(elab-term est %) parts)]
+                (reduce (fn [b a] (e/arrow a b)) (last exprs) (reverse (butlast exprs)))))
 
             "Sort"   (let [[_ level-form] sexpr
                            level (cond
@@ -700,8 +707,7 @@
                                                         (assoc :declared-ret-type declared-ret))
                                                 elab-term scrut alts))))
 
-            "=>" (let [[_ a b] sexpr]
-                   (e/arrow (elab-term est a) (elab-term est b)))
+        ;; (=> A B) is handled by the unified arrow clause above (with currying + the → glyph).
 
         ;; Bool if-then-else → Bool.rec. The motive is the then-branch's type,
         ;; inferred directly (fvar context is present — no open/close needed).

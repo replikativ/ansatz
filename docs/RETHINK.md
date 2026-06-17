@@ -123,3 +123,26 @@ most clean patterns; (b) surfacing the **defunctionalization** trick (the one ne
 simplification); (c) providing a **checked oracle** (exact `simp only [...]` lemma sets) that
 de-risks Item 2; (d) the **honest trust map** (what is L0-provable vs irreducibly trusted, and that
 even a real-Lean build stops at the same denotation boundary).
+
+### Dogfood findings (authoring a real law via L1–L3)
+
+Authoring `List.map_append` through the new loop (goal-at → attempt → assemble) surfaced concrete
+syntax frictions and fixes:
+
+- **`a/theorem` is already Lean-shaped.** `(a/theorem foo [f :- (=> Nat Nat), n :- Nat] (= Nat (f n)
+  (f n)) (exact (Eq.refl Nat (f n))))` reads like a Lean `by`-block. The streamlined surface mostly
+  *exists* — the law library just doesn't use it.
+- **Function-type arrow = `=>`, not `->`.** By deliberate design (#54, `arrow-glyph-no-ambivalence`)
+  `=>` is THE function arrow; `->` is ALWAYS Clojure threading. My first instinct (`->`) was wrong and
+  broke threading. Fix landed: the fvar elaborator's `=>` now supports **N-ary currying** `(=> A B C)`
+  (was binary-only) and the `→` glyph, unifying with `arrow` — matching `a/defn`.
+- **`exact <term>` was missing** from the tactic registry (only `exact?` auto-search existed). Added —
+  elaborates its arg in the goal context (via the same `elaborate-in-context` L2 uses) and closes.
+- **Remaining friction is library maturity, NOT syntax.** Closing the `map_append` cons case needs
+  `simp` to fire `List.map_cons`/`List.cons_append` — which aren't conveniently simp-tagged in
+  init-medium. This is the inherent gap (Lean cites Mathlib); it's the lemma/instance-library
+  investment, separate from the levers.
+
+So the path holds: the levers make authoring feel like Lean for *concrete* laws today; generic laws
+additionally need `WSemiring` (L4/Item 3); and proofs stay somewhat longer than Lean until the
+simp-lemma library grows.
