@@ -41,7 +41,7 @@
   "Parse [a Type, b Type] or [a : Type, b : Type] → [[a Type] [b Type]].
    Commas and colons are syntactic sugar; both are ignored."
   [binder-vec]
-  (let [tokens (remove (fn [t] (or (= (str t) ",") (= (str t) ":"))) binder-vec)]
+  (let [tokens (remove (fn [t] (contains? #{"," ":" ":-" "="} (str t))) binder-vec)]
     (loop [ts (seq tokens) result []]
       (if (or (nil? ts) (empty? ts))
         result
@@ -89,10 +89,20 @@
     (and (sequential? form) (seq form))
     (let [h (if (nil? (first form)) "nil" (str (first form)))]
       (case h
-        ;; Arrow
-        ("->" "arrow")
-        (e/arrow (compile-type env scope depth (nth form 1) self-name self-const)
-                 (compile-type env scope (inc depth) (nth form 2) self-name self-const))
+        ;; Non-dependent function type. Accepts the SAME glyphs as the fvar elaborator
+        ;; (elaborate.clj): `=>` (the canonical arrow), `→`, and `arrow`; `->` is also kept here
+        ;; (harmless in type position — threading only matters for value terms). N-ary currying:
+        ;; (=> A B C) = A → B → C, with B at depth+1, C at depth+2 (e/arrow adds one binder each).
+        ("->" "arrow" "=>" "→")
+        (let [parts (vec (rest form))]
+          (when (< (count parts) 2)
+            (throw (ex-info "arrow / => expects at least two types" {:form form})))
+          (letfn [(build [ps d]
+                    (if (= 1 (count ps))
+                      (compile-type env scope d (first ps) self-name self-const)
+                      (e/arrow (compile-type env scope d (first ps) self-name self-const)
+                               (build (rest ps) (inc d)))))]
+            (build parts depth)))
         ;; Dependent function type: (forall [a Type, b Type, ...] body)
         ;; Needed so structure/inductive fields can express categorical operations
         ;; like (forall [a Ob b Ob c Ob] (=> (Hom a b) (=> (Hom b c) (Hom a c))))
