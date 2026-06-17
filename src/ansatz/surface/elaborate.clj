@@ -5,9 +5,9 @@
    Ansatz terms by resolving names, inserting implicit arguments, inferring
    universe levels, and type-checking.
 
-   Unlike `ansatz.surface.term` (which only does name→de Bruijn conversion),
-   elaborate is type-directed: it uses the kernel type checker to infer
-   omitted implicit arguments.
+   This is THE elaborator: type-directed, fvar-first, with metavariables + instance synthesis.
+   It backs `a/defn` bodies+signatures, `a/theorem` goals, proof terms, and tactic-arg
+   elaboration. (The legacy bvar-only `term` builder it superseded has been retired.)
 
    Usage:
      (elaborate env '(forall [a Nat] (Eq a a)))
