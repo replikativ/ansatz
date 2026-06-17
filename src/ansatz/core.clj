@@ -1549,15 +1549,21 @@
    (prove-theorem thm-name params prop-form tactic-forms nil))
   ([thm-name params prop-form tactic-forms ctx]
    (let [env (if ctx (:env ctx) (env))
-         pairs (parse-params params)
+         ;; L3: prop-form may be a PRECOMPUTED kernel Expr goal (the full Π-telescoped statement)
+         ;; rather than a surface s-expr — this lets generic/generated laws use the high-level
+         ;; tactic block instead of hand-building the whole proof TERM. In that mode `params` is a
+         ;; vector of binder NAMES to intro (or empty, letting the tactic block control intros).
+         expr-goal? (instance? ansatz.kernel.Expr prop-form)
+         pairs (when-not expr-goal? (parse-params params))
          ;; P3 of the elaborator unification: the goal telescope (binders may depend on
          ;; earlier binders — hypothesis Props routinely do — and the prop on all of them)
          ;; elaborates fvar-first via elab-signature; binder types and the statement go
          ;; through the SAME elaborator as function bodies (lean4: one elaborator for
          ;; terms and tactic goals).
-         goal-type (:type-ansatz (elab-signature env pairs prop-form))
+         goal-type (if expr-goal? prop-form (:type-ansatz (elab-signature env pairs prop-form)))
          [ps _] (proof/start-proof env goal-type)
-         ps (if (seq pairs) (basic/intros ps (mapv (comp str first) pairs)) ps)
+         intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
+         ps (if (seq intro-names) (basic/intros ps intro-names) ps)
          ps (reduce run-tactic ps tactic-forms)]
      (when-not (proof/solved? ps)
        (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
