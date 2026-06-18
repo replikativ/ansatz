@@ -34,10 +34,9 @@
                (cons [hd tl] (WAddMonoid.add m hd (wsum m tl)))))))
   ;; Loop-invariant hoist (Mathlib List.sum_map_mul_left): a constant left-multiplier factors
   ;; out of a summed map.  ∑ (b * f x) = b * ∑ f x  over a (left-distributive) WSemiring.
-  ;; NOTE: proving this thinly via `(induction xs) <;> simp [wsum …]` needs wsum's
-  ;; constructor-keyed equation lemmas; auto-generation of those for a polymorphic+instance
-  ;; def still has an fvar-leak in the eq-compiler (task #142 follow-on). Attempt it; on failure
-  ;; leave wsum installed and usable (the law is wired once the eq-gen lands).
+  ;; Authored thinly — `(induction xs) <;> simp_all [wsum.eq_1 wsum.eq_2 …]` — riding wsum's
+  ;; auto-generated constructor equations and the bundled WSemiring axioms applied to the
+  ;; instance (`(WSemiring.mul_add m)`), exactly the way Lean's `simp [m.mul_add]` does.
   (when-not (has? "wsum_map_mul_left")
     (try
       (eval '(ansatz.core/theorem wsum_map_mul_left

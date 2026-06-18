@@ -55,8 +55,9 @@
       (is (verifies? "wsum.eq_1") "nil equation lemma kernel-checks")
       (is (verifies? "wsum.eq_2") "cons equation lemma kernel-checks"))))
 
-;; The WSemiring loop-invariant-hoist law (sum_map_mul_left) is authored in install! and its
-;; equation-lemma machinery is now in place, but its thin `(induction xs) <;> simp [...]` proof
-;; is blocked on a separate simp tactic-mechanics issue: simp does not engage on the polymorphic
-;; induction subgoals (not even List.map_nil fires) — task #140 territory, distinct from eq-gen.
-;; install! attempts it (try/caught), so wsum + its equations stay usable meanwhile.
+(deftest wsum-map-mul-left-law
+  (when @full
+    (testing "the WSemiring loop-invariant-hoist law, authored thinly (induction + simp)"
+      (is (has? "wsum_map_mul_left") "∑ (b * f x) = b * ∑ f x was installed")
+      (is (verifies? "wsum_map_mul_left")
+          "the law kernel-checks (check-constant, authoritative)"))))

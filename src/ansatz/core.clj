@@ -626,7 +626,12 @@
    is what lets a bundled typeclass axiom be applied to its instance and fed to simp thinly —
    `simp [(WSemiring.mul_add m) …]` — the way Lean's `simp [m.mul_add]` does."
   [ps args]
-  (let [g (proof/current-goal ps)]
+  (let [;; Accept both `(simp a b)` (flat) and `(simp [a b])` (a single vector) — the latter is the
+        ;; common surface form; without flattening, the whole vector would be treated as one arg and
+        ;; (mis)elaborated as a term, throwing (and under all_goals that throw is swallowed → the
+        ;; tactic silently no-ops).
+        args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
+        g (proof/current-goal ps)]
     (mapv (fn [a]
             (if (symbol? a)
               a
