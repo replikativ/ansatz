@@ -330,10 +330,55 @@
    Does: beta, let expansion, fvar-let, projection, iota (recursor on ctor),
    Nat.succ folding, Nat.zero → lit 0.
    Does NOT: unfold named constants (delta).
-   This matches Lean 4's 'reducible transparency' behavior used by simp."
+   Note: this is the NO-transparency variant. For Lean 4's *reducible* transparency
+   (which unfolds reducible projection-accessor abbrevs), use `whnf-reducible`."
   ([env e] (whnf-no-delta env e nil))
   ([env e lctx] (whnf-no-delta env e lctx nil))
   ([env e lctx opts] (whnf-core env e lctx opts)))
+
+(defn- reducible-head?
+  "Is the head of `e` a reducible (`:abbrev`) constant?"
+  [^Env env e]
+  (let [head (e/get-app-fn e)]
+    (and (e/const? head)
+         (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
+           (= :abbrev (env/get-reducibility-hints ci))))))
+
+(defn- unfold-accessor-to-proj
+  "If `e` is a chain of reducible (`:abbrev`) accessor wrappers that bottoms out at a
+   projection-headed term, return that fully-unfolded term; else nil. Canonicalizes
+   class/structure projection accessors (`WSemiring.mul S inst` → `inst.1`, and inherited
+   `WSemiring.zero S inst` → `(WSemiring.toWAddMonoid …).zero` → nested `.proj`) to the
+   projection form their lemma types already carry — WITHOUT touching reducible defs that are
+   NOT projection accessors (whose unfolding would change existing discr-tree keys)."
+  [env e lctx opts]
+  (loop [e e fuel 32]
+    (cond
+      (neg? fuel) nil
+      (e/proj? (e/get-app-fn e)) e
+      (reducible-head? env e)
+      (let [[head args] (e/get-app-fn-args e)]
+        (if-let [body (try-unfold-def env head)]
+          (recur (whnf-core env (reduce e/app body args) lctx opts) (dec fuel))
+          nil))
+      :else nil)))
+
+(defn whnf-reducible
+  "Reduce to WHNF at (a projection-restricted slice of) Lean 4's *reducible* transparency:
+   `whnf-no-delta` (beta/iota/proj/let/Nat) PLUS unfolding of reducible (`:abbrev`)
+   PROJECTION-ACCESSOR wrappers to their underlying `.proj` form. Faithful analog of Lean's
+   `DiscrTree.reduce`/`withReducible` (DiscrTree/Main.lean:203) used for discrimination-tree keying,
+   so a named accessor abbrev (`WSemiring.mul S inst`) and the projection it unfolds to (`inst.1`)
+   key to the same path. DEVIATION from Lean: Lean unfolds ALL reducible defs at key time; we unfold
+   only those that bottom out at a projection, because ansatz's existing lemma corpus / grind were
+   authored against no-delta keying and unfolding general reducible defs would change their keys."
+  ([env e] (whnf-reducible env e nil nil))
+  ([env e lctx] (whnf-reducible env e lctx nil))
+  ([env e lctx opts]
+   (let [e' (whnf-core env e lctx opts)]
+     (or (when (reducible-head? env e')
+           (unfold-accessor-to-proj env e' lctx opts))
+         e'))))
 
 (defn whnf
   "Reduce expression to weak head normal form."

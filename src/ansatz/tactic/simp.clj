@@ -41,6 +41,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
+            [ansatz.tactic.unify :as u]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
@@ -878,6 +879,45 @@
 
 (declare find-eqn-theorems)
 
+(defn- forall-meta-telescope
+  "Instantiate a ∀-telescope with fresh metavariables (Lean's forallMetaTelescopeReducing).
+   Returns [xs body] where xs are the metavar fvars and body is the type with them substituted."
+  [mctx id-base type]
+  (loop [ty type xs [] i 0]
+    (if (e/forall? ty)
+      (let [m (u/fresh-mvar! mctx (+ id-base i) (e/forall-type ty))]
+        (recur (e/instantiate1 (e/forall-body ty) m) (conj xs m) (inc i)))
+      [xs ty])))
+
+(defn- try-theorem
+  "Lean 4's tryTheoremCore (Simp/Rewrite.lean:114). Instantiate the lemma's ∀-params as fresh
+   metavariables, then unify its LHS against the goal `expr` via the reduction-aware `is-def-eq!`
+   (so a named-accessor goal matches a projection-spelled lemma). Build the proof by applying the
+   lemma value to the now-assigned metavariables; REJECT (nil) if any metavariable is left
+   unassigned (Lean's `hasAssignableMVar`). Used as a fallback when the structural `match-lemma`
+   fails — it can only ADD sound matches, never corrupt an existing one. Only handles the `:eq`
+   kind with a level-concrete value (term lemmas `simp [proof-term]` and monomorphic named lemmas)."
+  [st env expr lemma]
+  (let [val (cond (:proof-term lemma) (:proof-term lemma)
+                  (and (:name lemma) (empty? (:level-params lemma)))
+                  (e/const' (:name lemma) [])
+                  :else nil)]
+    (when val
+      (let [type (try (tc/infer-type st val) (catch Exception _ nil))]
+        (when (and type (e/forall? type))
+          (let [mctx (atom {})
+                [xs body] (forall-meta-telescope mctx 9000000 type)
+                [head args] (e/get-app-fn-args body)]
+            (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+              (let [lhs (nth args 1) rhs (nth args 2)]
+                (when (try (u/is-def-eq! st mctx lhs expr) (catch Exception _ false))
+                  (let [proof (u/zonk mctx (reduce e/app val xs))
+                        rhs' (u/zonk mctx rhs)]
+                    (when (and (not (u/has-unassigned-mvars? mctx proof))
+                               (not (u/has-unassigned-mvars? mctx rhs'))
+                               (not= rhs' expr))
+                      (mk-result rhs' proof))))))))))))
+
 (defn- try-rewrite-step
   "Try to rewrite an expression using the lemma index.
    Returns a SimpResult or nil.
@@ -901,7 +941,8 @@
                             (if (seq eqn-candidates)
                               (distinct (concat dt-candidates eqn-candidates))
                               dt-candidates))]
-    (some (fn [lemma]
+    (or
+     (some (fn [lemma]
             (when-let [subst (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
               (let [num-params (:num-params lemma)
                     matched (count subst)]
@@ -1023,7 +1064,22 @@
                                                                    raw-proof)
                                                  raw-proof)]
                                 (mk-result rhs proof-term))))))))))))
-          candidates)))
+          candidates)
+        ;; Fallback: Lean's isDefEq-based tryTheoremCore. The structural match-lemma above is a
+        ;; syntactic approximation; when it fails on a candidate the disc-tree DID return (e.g. a
+        ;; goal in named-accessor spelling vs a projection-spelled typeclass lemma), retry that
+        ;; candidate via reduction-aware metavariable unification. The hasAssignableMVar guard in
+        ;; try-theorem makes this strictly sound — it only adds matches, never corrupts one.
+        (some (fn [lemma]
+                (when (and (= (:kind lemma) :eq) (not (:perm lemma))
+                           ;; Only rescue PROJECTION-spelled lemmas — the exact case the structural
+                           ;; match-lemma cannot handle (a typeclass accessor goal vs a lemma whose
+                           ;; LHS head is `.proj`). Ordinary const-headed lemmas already go through
+                           ;; match-lemma; keeping them off this path avoids perturbing rewrite
+                           ;; selection elsewhere (e.g. the optimizer's cost-based strategy choice).
+                           (e/proj? (e/get-app-fn (:lhs-pattern lemma))))
+                  (try-theorem st env expr lemma)))
+              candidates))))
 
 ;; ============================================================
 ;; Built-in simprocs — arithmetic reduction

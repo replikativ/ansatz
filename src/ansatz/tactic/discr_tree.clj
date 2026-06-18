@@ -73,11 +73,12 @@
 
 (defn- reduce-for-dt
   "Lean 4's reduceDT: reduce expression before discrimination tree keying.
-   Uses whnf-no-delta (beta/iota/proj/let, NO delta unfolding).
-   For root terms, stops if the result would be a bad key."
+   Uses whnf-reducible (beta/iota/proj/let + reducible projection-accessor abbrevs), matching
+   Lean's reducible transparency so a named accessor (`WSemiring.mul S inst`) and the projection it
+   unfolds to (`inst.1`) key to the same path. For root terms, stops if the result is a bad key."
   [env e root?]
   (try
-    (let [reduced (red/whnf-no-delta env e)]
+    (let [reduced (red/whnf-reducible env e)]
       (if (and root? (bad-key? reduced))
         e  ;; Don't reduce to a bad key at the root
         reduced))
@@ -192,6 +193,16 @@
                  (let [nargs (count args)
                        k (fvar-key (e/fvar-id head) nargs)]
                    (recur (into rest-todo (reverse args))
+                          (conj! keys k)))
+
+               ;; Projection applied to args, e.g. `(WSemiring.1 inst) u v` — the form a reduced
+               ;; typeclass accessor takes (Lean getKeyArgs .proj case: key = proj with the app-arg
+               ;; count, push the struct value then the args). Without this, a proj-headed
+               ;; application fell to `other-key` and dropped its args. Arity = struct + nargs.
+                 (e/proj? head)
+                 (let [nargs (count args)
+                       k (proj-key (e/proj-type-name head) (e/proj-idx head) (inc nargs))]
+                   (recur (into rest-todo (reverse (cons (e/proj-struct head) args)))
                           (conj! keys k)))
 
                ;; Other head (lambda application, etc.)
