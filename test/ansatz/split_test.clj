@@ -12,6 +12,7 @@
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.attrs :as attrs]
+            [ansatz.matchers :as matchers]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.proof :as proof]
@@ -25,7 +26,8 @@
 (defn- with-env [t]
   (when @full
     (reset! a/ansatz-env @full)
-    (attrs/load-bundled-attrs!))
+    (attrs/load-bundled-attrs!)
+    (matchers/load-bundled-matchers!))
   (t))
 (use-fixtures :once with-env)
 
@@ -69,3 +71,24 @@
                             (basic/all-goals (fn [p] (simp/simp-all p []))))))]
       (is solved "ite split: all goals closed")
       (is verifies "ite split: proof term kernel-verifies (Decidable.casesOn byCasesDec)"))))
+
+(deftest split-matcher-faithful
+  ;; S5-C: faithful applyMatchSplitter on a real stuck matcher (List.filter.match_1, a 2-alt Bool
+  ;; matcher with Unit-thunk alts — what `simp [List.lookup_cons]` produces). The matcher is applied
+  ;; as the (non-overlapping) splitter/eliminator; each branch gets the pattern-substituted goal +
+  ;; the discriminant equality, and the generated match equations reduce it.
+  (when @full
+    (let [bool (c' "Bool" [])
+          unit (c' "Unit" [])
+          ;; ∀ (b:Bool)(x:Nat), List.filter.match_1 (λ_.Nat) b (λ_.x) (λ_.x) = x
+          motive (e/lam "_" bool (nat) :default)
+          alt (e/lam "_" unit (e/bvar 1) :default)
+          m1 (e/app* (c' "List.filter.match_1" [L1]) motive (e/bvar 1) alt alt)
+          eqn (e/app* (c' "Eq" [L1]) (nat) m1 (e/bvar 0))
+          goal (e/forall' "b" bool (e/forall' "x" (nat) eqn :default) :default)
+          [solved verifies]
+          (prove goal (fn [ps]
+                        (-> ps (basic/intros ["b" "x"]) (basic/split-tac)
+                            (basic/all-goals (fn [p] (simp/simp-all p []))))))]
+      (is solved "matcher split: all alternative branches closed")
+      (is verifies "matcher split: proof term kernel-verifies (matcher eliminator + match equations)"))))

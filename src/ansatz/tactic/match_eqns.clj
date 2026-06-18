@@ -13,8 +13,11 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.reduce :as red]
+            [ansatz.kernel.tc :as tc]
             [ansatz.matchers :as mtch]
-            [ansatz.state :as state]))
+            [ansatz.state :as state]
+            [ansatz.tactic.proof :as proof]))
 
 (def ^:private fresh-counter (atom 70000000))
 (defn- fresh-id [] (swap! fresh-counter inc))
@@ -151,10 +154,114 @@
                          env
                          (env/add-constant env (env/mk-def (name/from-string splitter-name)
                                                            lvls mtype mconst :hints :abbrev)))]
-               (reduce (fn [env {:keys [name type value]}]
-                         (if (env/lookup env (ansatz.kernel.name/from-string name))
-                           env
-                           (env/add-constant env (env/mk-thm (ansatz.kernel.name/from-string name)
-                                                             lvls type value))))
-                       env results))))
+               (let [env (reduce (fn [env {:keys [name type value]}]
+                                   (if (env/lookup env (ansatz.kernel.name/from-string name))
+                                     env
+                                     (env/add-constant env (env/mk-thm (ansatz.kernel.name/from-string name)
+                                                                       lvls type value))))
+                                 env results)]
+                 ;; Make the equations available to simp by default (the matcher reduces in each
+                 ;; split branch via eqᵢ — Lean's simpMatchTargetCore; we route it through simp's set).
+                 (reduce (fn [env {:keys [name]}]
+                           (env/update-extension env :simp-lemmas #{} conj name))
+                         env results)))))
     {:eqn-names (mapv :name results) :splitter-name splitter-name :info info :levels lvls}))
+
+;; ── split-matcher: faithful applyMatchSplitter for non-overlapping single-discriminant matchers ──
+;; The matcher IS the eliminator (Lean's non-overlapping splitter = the matcher). We do `by-cases`
+;; (basic.clj by-cases) generalized to it: motive  λd. (Eq DiscrType discr d) → Goal  applied to the
+;; discriminant + Eq.refl, one minor premise per alternative carrying `h : discr = patternᵢ`.
+
+(defn- mk-tc [env lctx] (tc/attach-lctx (tc/mk-tc-state env) lctx))
+
+(defn replace-subterm
+  "Structurally replace every occurrence of `target` in `expr` with `repl`. `target` must have no
+   loose bvars (a goal-context term, e.g. the matcher discriminant), so no index adjustment is needed."
+  [expr target repl]
+  (if (= expr target)
+    repl
+    (case (e/tag expr)
+      :app (e/app (replace-subterm (e/app-fn expr) target repl)
+                  (replace-subterm (e/app-arg expr) target repl))
+      :lam (e/lam (e/lam-name expr) (replace-subterm (e/lam-type expr) target repl)
+                  (replace-subterm (e/lam-body expr) target repl) (e/lam-info expr))
+      :forall (e/forall' (e/forall-name expr) (replace-subterm (e/forall-type expr) target repl)
+                         (replace-subterm (e/forall-body expr) target repl) (e/forall-info expr))
+      :let (e/let' (e/let-name expr) (replace-subterm (e/let-type expr) target repl)
+                   (replace-subterm (e/let-value expr) target repl)
+                   (replace-subterm (e/let-body expr) target repl))
+      :proj (e/proj (e/proj-type-name expr) (e/proj-idx expr)
+                    (replace-subterm (e/proj-struct expr) target repl))
+      :mdata (e/mdata (e/mdata-data expr) (replace-subterm (e/mdata-expr expr) target repl))
+      expr)))
+
+(defn split-matcher
+  "Split a non-overlapping single-discriminant matcher application `tgt` ({:head :args}) found in
+   the current goal. Produces one subgoal per alternative, each with `h : discr = patternᵢ` (and the
+   alt's field hyps); the installed match equations reduce the matcher in each branch. Signals
+   {:split-retry true} for shapes not yet supported (multi-discriminant / overlapping)."
+  [ps tgt]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (throw (ex-info "split-matcher: no goal" {:split-retry true})))
+        head (:head tgt)
+        match-name (name/->string (e/const-name head))
+        args (vec (:args tgt))
+        env @state/ansatz-env
+        info (mtch/matcher-info env match-name)
+        _ (when-not (and info (mtch/non-overlapping? info))
+            (throw (ex-info "split-matcher: not a known non-overlapping matcher" {:split-retry true})))
+        d (matcher-alt-data env match-name)
+        np (:num-params d) nd (:num-discrs d)
+        _ (when (not= nd 1)
+            (throw (ex-info "split-matcher: multi-discriminant not yet supported" {:split-retry true})))
+        _ (when (< (count args) (+ np 1 nd (count (:alts d))))
+            (throw (ex-info "split-matcher: matcher application not fully applied" {:split-retry true})))
+        ;; install the match equations + splitter (idempotent) so simp can reduce each branch
+        _ (get-equations-for match-name)
+        st (mk-tc env (:lctx goal))
+        params-actual (subvec args 0 np)
+        discr (nth args (+ np 1))
+        discr-type (tc/infer-type st discr)
+        sort-level (fn [t] (let [s (try (red/whnf env (tc/infer-type st t) (:lctx goal)) (catch Throwable _ nil))]
+                             (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
+        eq-lvl (sort-level discr-type)            ; Eq over DiscrType elements (Bool → 1)
+        goal-lvl (sort-level (:type goal))         ; Goal : Prop → 0
+        head-lvls (vec (e/const-levels head))
+        u-elim-pos (:u-elim-pos info)
+        us (if (and u-elim-pos (< u-elim-pos (count head-lvls)))
+             (assoc head-lvls u-elim-pos goal-lvl) head-lvls)
+        eq-c (e/const' (name/from-string "Eq") [eq-lvl])
+        ;; one subgoal per alternative
+        [ps alt-infos]
+        (reduce
+         (fn [[ps acc] alt]
+           (let [pattern (:pattern alt)            ; param-free for filter.match_1 (TODO: instantiate w/ params)
+                 ys-types (:ys-types alt)
+                 [ps ys-ids] (reduce (fn [[ps ids] _] (let [[ps id] (proof/alloc-id ps)] [ps (conj ids id)]))
+                                     [ps []] ys-types)
+                 [ps h-id] (proof/alloc-id ps)
+                 h-type (e/app* eq-c discr-type discr pattern)
+                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "y" ty))
+                              (:lctx goal) (map vector ys-ids ys-types))
+                 lctx (red/lctx-add-local lctx h-id "h" h-type)
+                 ;; subgoal type = Goal[discr := patternᵢ]  (the matcher reduces via eqᵢ here)
+                 sg-type (replace-subterm (:type goal) discr pattern)
+                 [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
+             [ps (conj acc {:pattern pattern :ys-ids ys-ids :ys-types ys-types
+                            :h-id h-id :h-type h-type :goal sg-id})]))
+         [ps []] (:alts d))
+        ;; motive = λ d:DiscrType. (Eq DiscrType discr d) → Goal[discr := d]
+        [ps dfv-id] (proof/alloc-id ps)
+        dfv (e/fvar dfv-id)
+        motive (e/lam "d" discr-type
+                      (e/abstract1 (e/arrow (e/app* eq-c discr-type discr dfv)
+                                            (replace-subterm (:type goal) discr dfv))
+                                   dfv-id)
+                      :default)]
+    (-> (proof/assign-mvar ps (:id goal)
+                           {:kind :split-matcher
+                            :match-name match-name :us us
+                            :params params-actual :discr discr :discr-type discr-type
+                            :eq-lvl eq-lvl :motive motive
+                            :alts alt-infos})
+        (proof/record-tactic :split-matcher [discr] (:id goal)))))

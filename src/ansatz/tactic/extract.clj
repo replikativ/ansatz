@@ -189,6 +189,21 @@
                           dec-cases (e/const' (name/from-string "Decidable.casesOn") [motive-level])]
                       (e/app* dec-cases cond motive inst false-lam true-lam))
 
+      ;; split-matcher → match_N us params MOTIVE discr alt-lams (Eq.refl discr)
+      ;; MOTIVE = λ d. (Eq discr d) → Goal ; alt-lamᵢ = λ ys. λ h:(Eq discr patternᵢ). subgoalᵢ
+      :split-matcher
+      (let [{:keys [match-name us params discr discr-type eq-lvl motive alts]} assignment
+            alt-lams (mapv (fn [{:keys [pattern ys-ids ys-types h-id h-type goal]}]
+                             (let [body (extract-term ps goal)
+                                   h-lam (e/lam "h" h-type (e/abstract1 body h-id) :default)]
+                               (reduce (fn [b [yid yty]] (e/lam "y" yty (e/abstract1 b yid) :default))
+                                       h-lam (reverse (map vector ys-ids ys-types)))))
+                           alts)
+            matcher-app (apply e/app* (e/const' (name/from-string match-name) us)
+                               (concat params [motive discr] alt-lams))
+            refl (e/app* (e/const' (name/from-string "Eq.refl") [eq-lvl]) discr-type discr)]
+        (e/app matcher-app refl))
+
       ;; simp-all-hyps: hypothesis simplification wrapper.
       ;; For each replacement (h : P → h' : P'), wrap child proof:
       ;; (λ h' : P' => child[h'/bvar]) (Eq.mp eq h)

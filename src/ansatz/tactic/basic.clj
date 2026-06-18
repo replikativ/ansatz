@@ -2335,9 +2335,10 @@
                        (if (:retry res) (recur (conj bad (:app tgt))) (:ok res)))))))))
 
 (defn split-matcher
-  "S5 (in progress): split a stuck matcher (Foo.match_N application) via its
-   inherited splitter theorem, introducing per-alternative discriminant equalities.
-   Until implemented, signals :split-retry so split-tac skips this discriminant."
-  [_ps tgt]
-  (tactic-error! "split: matcher splitter not yet implemented"
-                 {:split-retry true :matcher (:head tgt)}))
+  "Split a stuck matcher (Foo.match_N application) via the faithful applyMatchSplitter port
+   (ansatz.tactic.match-eqns/split-matcher): the matcher IS the (non-overlapping) splitter, applied
+   as an eliminator with motive λd.(discr=d)→Goal, one minor premise per alternative carrying the
+   discriminant equality. Signals :split-retry for shapes not yet supported (multi-discriminant /
+   overlapping), so split-tac skips this discriminant."
+  [ps tgt]
+  ((requiring-resolve 'ansatz.tactic.match-eqns/split-matcher) ps tgt))
