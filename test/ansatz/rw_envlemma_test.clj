@@ -37,7 +37,12 @@
       (rfl))
     (is (vrf? "rw_assoc_rev") "rw [<- env-lemma] reverse + rfl")))
 
-;; NOTE: a BARE symbol whose leading type param is erased by projection reduction
-;; (e.g. `rw [WAddMonoid.add_assoc]`, where is-def-eq! reduces WAddMonoid.add S m -> (proj … m) and
-;; drops S) leaves S unresolved. The applied/instance form `(WAddMonoid.add_assoc m)` resolves it at
-;; elaboration and is what the migration uses (same as `simp [(WAddMonoid.add_assoc m)]`).
+(deftest rw-bare-symbol
+  (when @full
+    ;; bare lemma SYMBOL (no args) — ALL params (S m a b c) instantiated by matching, the leading
+    ;; TYPE param S (erased by the accessor→proj reduction) recovered via postprocessAppMVars.
+    (a/theorem rw_assoc_bare [S :- Type :implicit, m :- (WAddMonoid S), a :- S, b :- S, c :- S]
+      (= S (WAddMonoid.add m (WAddMonoid.add m a b) c) (WAddMonoid.add m a (WAddMonoid.add m b c)))
+      (rewrite WAddMonoid.add_assoc)
+      (rfl))
+    (is (vrf? "rw_assoc_bare") "rw [bare-symbol env-lemma] (postprocessAppMVars)")))
