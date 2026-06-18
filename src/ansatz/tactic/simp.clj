@@ -2948,12 +2948,24 @@
    Optionally excludes a specific hypothesis (by fvar id) to prevent self-rewrite.
    Lean 4: SimpAll.lean + SimpTheorems.lean preprocess."
   [st lctx & {:keys [exclude-id]}]
-  (vec (mapcat (fn [[id decl]]
-                 (when (and (= :local (:tag decl))
-                            (not= id exclude-id))
-                   (try (hyp-type->lemmas st (:type decl) id)
-                        (catch Exception _ nil))))
-               lctx)))
+  (let [env (:env st)]
+    (vec (mapcat (fn [[id decl]]
+                   (when (and (= :local (:tag decl))
+                              (not= id exclude-id))
+                     (try
+                       (let [ty (:type decl)]
+                         (if (and (e/forall? ty)
+                                  (not (is-prop-type? st (e/forall-type ty))))
+                           ;; QUANTIFIED-rewrite hypothesis — a `∀ (a : T), lhs = rhs` whose T is a
+                           ;; Type (not a Prop implication), e.g. an accumulator-generalized IH
+                           ;; `∀ acc, foldl f acc xs = …`. Peel the FULL ∀-telescope (the bound vars
+                           ;; become pattern vars) via the proof-TERM path, with the hyp fvar as the
+                           ;; proof — so the IH fires at any accumulator. hyp-type->lemmas only peels
+                           ;; Prop implications, so it mis-classifies this as a general prop (`→ True`).
+                           (extract-simp-lemma-term env ty 2000 (e/fvar id))
+                           (hyp-type->lemmas st ty id)))
+                       (catch Exception _ nil))))
+                 lctx))))
 
 (defn simp-all
   "Simplify goal + all hypotheses (Lean 4's SimpAll).

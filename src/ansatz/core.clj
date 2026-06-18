@@ -717,13 +717,25 @@
                                   nil (:lctx (proof/current-goal ps)))]
                   (basic/cases ps fid)))
    'induction (fn [ps args]
-                (let [nm (str (first args))
-                      fid (reduce (fn [best [id d]]
-                                    (if (and (= nm (:name d))
-                                             (or (nil? best) (> (long id) (long best))))
-                                      id best))
-                                  nil (:lctx (proof/current-goal ps)))]
-                  (basic/induction ps fid)))
+                ;; (induction x) or (induction x generalizing acc …) — Lean's `generalizing`:
+                ;; revert the named hyps INTO the goal first (so the induction motive becomes
+                ;; ∀ acc…, P x and the IH is the ∀-quantified `∀ acc…, P tail` foldl proofs need),
+                ;; do induction on x, then re-intro acc… in every resulting case.
+                (let [find-fid (fn [ps nm]
+                                 (reduce (fn [best [id d]]
+                                           (if (and (= nm (:name d))
+                                                    (or (nil? best) (> (long id) (long best))))
+                                             id best))
+                                         nil (:lctx (proof/current-goal ps))))
+                      gen? (= 'generalizing (second args))
+                      gen-syms (when gen? (vec (drop 2 args)))
+                      ;; revert innermost-last (reverse order) so re-intro restores original order
+                      ps (reduce (fn [ps g] (basic/revert ps (find-fid ps (str g))))
+                                 ps (reverse gen-syms))
+                      ps (basic/induction ps (find-fid ps (str (first args))))]
+                  (if (seq gen-syms)
+                    (basic/all-goals ps (fn [ps'] (basic/intros ps' (mapv str gen-syms))))
+                    ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))
