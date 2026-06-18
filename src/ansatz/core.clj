@@ -1110,22 +1110,19 @@
                             all-fvids (vec (concat param-fvids field-fvids))
                             param-fvars (mapv e/fvar param-fvids)
                             field-fvars (mapv e/fvar field-fvids)
-                            ;; Get actual inductive type params from recursor args. For a
-                            ;; POLYMORPHIC fn the type params (e.g. `S` in `List S`) appear in the
-                            ;; peeled body as LOOSE bvars referring to the stripped lambda binders;
-                            ;; instantiate them with this eq-gen's param fvars (bvar j ↔ original
-                            ;; param n-1-j) so field-types don't carry a loose bvar into inferType.
-                            ;; The discriminant position maps to its own field-bearing fvar (a
-                            ;; dummy here — type params never reference the discriminant).
-                            peeled-closed (e/instantiate
-                                           peeled
-                                           (mapv (fn [j]
-                                                   (let [p (- n 1 j)
-                                                         k (.indexOf ^java.util.List non-discr-indices p)]
-                                                     (if (neg? k) (e/fvar (+ fv-base 9000)) (nth param-fvars k))))
-                                                 (range n)))
-                            rec-args (vec (e/get-app-args peeled-closed))
-                            ind-type-params (vec (take np rec-args))
+                            ;; Inductive type params (e.g. `S` in `List S`) = the args applied to the
+                            ;; inductive in the DISCRIMINANT's type. Derive the discriminant's type by
+                            ;; peeling the fn type telescope, instantiating each earlier binder with
+                            ;; its eq-gen param fvar — for a polymorphic fn this resolves `S` to the S
+                            ;; param fvar (no loose bvar, no placeholder fvar leak into field-types).
+                            fn-type (.type ^ConstantInfo (env/lookup env' cname))
+                            discr-type (loop [t fn-type p 0]
+                                         (cond (not (e/forall? t)) t
+                                               (= p discr-pos) (e/forall-type t)
+                                               :else (recur (e/instantiate1 (e/forall-body t)
+                                                                            (nth param-fvars (.indexOf ^java.util.List non-discr-indices p)))
+                                                            (inc p))))
+                            ind-type-params (vec (take np (e/get-app-args discr-type)))
                             ;; Constructor levels
                             ctor-levels (let [clps (vec (.levelParams ctor-ci))
                                               rlps (vec (.levelParams rci))
@@ -1163,7 +1160,6 @@
                             ;; DEPENDENT types (e.g. m : WAddMonoid S with S the eq-gen's S fvar).
                             ;; Re-elaborating the surface form standalone fails on polymorphic /
                             ;; instance params (`(WAddMonoid S)` → "Unknown constant: S").
-                            fn-type (.type ^ConstantInfo (env/lookup env' cname))
                             reprs (mapv (fn [p]
                                           (if (= p discr-pos) ctor-app
                                               (nth param-fvars (.indexOf ^java.util.List non-discr-indices p))))
@@ -1173,6 +1169,14 @@
                                               (recur (e/instantiate1 (e/forall-body t) (nth reprs p))
                                                      (inc p)
                                                      (if (= p discr-pos) acc (conj acc (e/forall-type t))))))
+                            ;; Return type in THIS eq-gen's param fvars (peel all binders). The
+                            ;; elaborator's :ret-ansatz references elab-signature's own param fvars
+                            ;; (wf-fix-fresh ids) which are NOT abstracted — for a polymorphic fn
+                            ;; (ret = S) that fvar would leak into the equation as "Unknown free
+                            ;; variable". Reconstruct ret over param-fvars so it abstracts cleanly.
+                            ret-eq (loop [t fn-type p 0]
+                                     (if (or (>= p n) (not (e/forall? t))) t
+                                         (recur (e/instantiate1 (e/forall-body t) (nth reprs p)) (inc p))))
                             st' (reduce (fn [s [fid nm tp]]
                                           (update s :lctx red/lctx-add-local fid nm tp))
                                         (tc/mk-tc-state env')
@@ -1532,7 +1536,7 @@
                                 all-nf (count all-fvids)
                                 ;; Eq ret_type lhs rhs (all with fvars)
                                 eq-body (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                                ret-ansatz lhs rhs)
+                                                ret-eq lhs rhs)
                                 eq-body (if condition (e/arrow condition eq-body) eq-body)
                                 abstracted-type
                                 (e/abstract-many eq-body (vec (concat param-fvids all-fvids)))
@@ -1556,7 +1560,7 @@
                                                                   body :default))))
                                 ;; Proof: rfl (with fvars), then abstract
                                 rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                                  ret-ansatz lhs)
+                                                  ret-eq lhs)
                                 proof-body (if condition (e/lam "h" condition rfl-proof :default) rfl-proof)
                                 abstracted-proof (e/abstract-many proof-body
                                                                   (vec (concat param-fvids all-fvids)))

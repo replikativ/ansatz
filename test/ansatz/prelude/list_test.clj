@@ -30,6 +30,10 @@
 (use-fixtures :once with-env)
 
 (defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
+(defn- verifies? [s]
+  ;; Authoritative proof check for a theorem (Prop-typed): re-run check-constant via mk-thm.
+  (let [ci (env/lookup (a/env) (name/from-string s))]
+    (and ci (env/verifies? (a/env) (.type ci) (.value ci)))))
 (defn- def-verifies? [s]
   ;; Authoritative: re-run the Java kernel check-constant on the def (type + body) under a fresh
   ;; name. a/defn already check-constants on install (so `has?` implies a pass), this re-asserts it.
@@ -44,4 +48,15 @@
   (when @full
     (testing "polymorphic structural recursion ({S} + instance m) defines + kernel-verifies"
       (is (has? "wsum"))
-      (is (def-verifies? "wsum") "wsum kernel-checks (check-constant, authoritative)"))))
+      (is (def-verifies? "wsum") "wsum kernel-checks (check-constant, authoritative)"))
+    (testing "constructor-keyed equation lemmas auto-generate + verify (polymorphic+instance eq-gen)"
+      (is (has? "wsum.eq_1") "nil equation lemma")
+      (is (has? "wsum.eq_2") "cons equation lemma")
+      (is (verifies? "wsum.eq_1") "nil equation lemma kernel-checks")
+      (is (verifies? "wsum.eq_2") "cons equation lemma kernel-checks"))))
+
+;; The WSemiring loop-invariant-hoist law (sum_map_mul_left) is authored in install! and its
+;; equation-lemma machinery is now in place, but its thin `(induction xs) <;> simp [...]` proof
+;; is blocked on a separate simp tactic-mechanics issue: simp does not engage on the polymorphic
+;; induction subgoals (not even List.map_nil fires) — task #140 territory, distinct from eq-gen.
+;; install! attempts it (try/caught), so wsum + its equations stay usable meanwhile.
