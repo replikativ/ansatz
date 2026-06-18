@@ -380,6 +380,39 @@
            (unfold-accessor-to-proj env e' lctx opts))
          e'))))
 
+(defn- beta-head
+  "Iterated HEAD beta-reduction ONLY (no delta/iota/proj/zeta): peel `(λ.body) arg` redexes at the
+   head, leaving every argument exactly as given (un-reduced)."
+  [e]
+  (loop [e e fuel 128]
+    (let [[head args] (e/get-app-fn-args e)]
+      (if (and (pos? fuel) (e/lam? head) (seq args))
+        (recur (apply e/app* (e/instantiate1 (e/lam-body head) (first args)) (rest args)) (dec fuel))
+        e))))
+
+(defn accessor->stuck-proj
+  "Disc-tree keying canonicalization. Like `unfold-accessor-to-proj` (unfold the reducible
+   (`:abbrev`) class/structure-projection accessor chain `@WSemiring.mul S inst …` down to its
+   underlying `(proj T idx struct) …`), but BETA-ONLY: the struct (the instance) is substituted
+   WITHOUT being reduced through. So a CONCRETE-instance query (`@BEq.beq Nat instConcrete a b`) and a
+   SYMBOLIC-instance lemma pattern (`@BEq.beq α inst a b`) both bottom at the SAME `proj T idx` head —
+   their struct subtrees differ but a lemma pattern stars its symbolic struct. (`whnf-reducible` would
+   `whnf-core` the concrete struct THROUGH to a bad lambda/op key, so a symbolic-instance lemma and a
+   concrete-instance goal key differently and never match — correct for real reduction, wrong for
+   keys.) Returns the proj-headed term, or nil if the head is not a reducible-accessor chain bottoming
+   at a projection. Used ONLY for discrimination-tree keys."
+  [^Env env e]
+  (loop [e e fuel 32]
+    (cond
+      (neg? fuel) nil
+      (e/proj? (e/get-app-fn e)) e
+      (reducible-head? env e)
+      (if-let [body (try-unfold-def env (e/get-app-fn e))]
+        (let [[_ args] (e/get-app-fn-args e)]
+          (recur (beta-head (apply e/app* body args)) (dec fuel)))
+        nil)
+      :else nil)))
+
 (defn whnf
   "Reduce expression to weak head normal form."
   ([env e] (whnf env e nil))
