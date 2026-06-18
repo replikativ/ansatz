@@ -507,6 +507,25 @@
         (extract-from-conclusion env cname level-params num-params
                                  rfl-flag priority ty)))))
 
+(defn- extract-simp-lemma-term
+  "Like extract-simp-lemma, but from a proof TERM and its (already-inferred) type `ty`, rather than a
+   named constant. The resulting lemma map carries `:proof-term` (the term) instead of `:name`, so the
+   rewrite proof is the term applied to the matched params — NOT a fresh `(const name levels)`. This is
+   what lets `simp [<term>]` accept any proof term (Lean's `simp [h]`), e.g. a projected typeclass axiom
+   `WSemiring.mul_zero S inst`. The term is level-closed (its universe args are already concrete), so
+   `:level-params []` and level inference is a no-op."
+  [env ty priority proof-term]
+  (let [mk (fn [t np]
+             (mapv #(assoc % :proof-term proof-term :name nil)
+                   (extract-from-conclusion env nil [] np false priority t)))]
+    (loop [t ty np 0]
+      (if (e/forall? t)
+        (let [body (e/forall-body t)]
+          (if (and (e/const? body) (= (e/const-name body) false-name))
+            (mk t np)
+            (recur body (inc np))))
+        (mk t np)))))
+
 ;; ============================================================
 ;; Discrimination tree index — Lean 4's DiscrTree
 ;; ============================================================
@@ -954,11 +973,14 @@
                               (let [inst-levels (infer-level-params st lemma full-subst expr)
                                     ;; For hypothesis lemmas (from local context), use fvar as proof.
                                     ;; For named lemmas (from env), use const.
-                                    base-proof (if-let [fid (:hyp-fvar-id lemma)]
-                                                 (e/fvar fid)
-                                                 (reduce e/app
-                                                         (e/const' (:name lemma) inst-levels)
-                                                         (reverse param-vals)))
+                                    base-proof (cond
+                                                 ;; term lemma (`simp [<proof-term>]`): apply the term
+                                                 (:proof-term lemma)
+                                                 (reduce e/app (:proof-term lemma) (reverse param-vals))
+                                                 (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                                 :else (reduce e/app
+                                                               (e/const' (:name lemma) inst-levels)
+                                                               (reverse param-vals)))
                                     ;; And projection: if lemma came from And splitting,
                                     ;; apply the chain of And.left/And.right projections.
                                     ;; And.left : {a b : Prop} → And a b → a
@@ -2019,9 +2041,13 @@
                     (let [rhs (apply-subst (:rhs lemma) subst (:num-params lemma))
                           param-vals (mapv #(get subst %) (range (:num-params lemma)))
                           inst-levels (infer-level-params st lemma subst)
-                          proof (reduce e/app
-                                        (e/const' (:name lemma) inst-levels)
-                                        (reverse param-vals))]
+                          proof (cond
+                                  (:proof-term lemma)
+                                  (reduce e/app (:proof-term lemma) (reverse param-vals))
+                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                  :else (reduce e/app
+                                                (e/const' (:name lemma) inst-levels)
+                                                (reverse param-vals)))]
                       (mk-result rhs proof))))))))))))
 
 ;; ============================================================
@@ -2736,10 +2762,19 @@
          ;; hand-curated core PLUS any @[simp] lemmas inherited from Lean into the env's :simp-lemmas
          ;; extension (ansatz.attrs) — empty unless attributes were imported, so this is a no-op for
          ;; ansatz-alone and lets `(simp)` use Lean's real @[simp] corpus once inherited.
+         ;; Lean's `simp [h]` accepts any proof TERM, not just a lemma name. Split the user list:
+         ;; Expr entries are proof terms (e.g. a projected typeclass axiom `WSemiring.mul_zero S inst`,
+         ;; or a hypothesis fvar); everything else is a name to resolve against the env.
+         term-args (filter #(instance? ansatz.kernel.Expr %) lemma-names)
+         name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
          all-names (distinct (concat default-simp-lemmas
                                      (env/get-extension env :simp-lemmas #{})
-                                     lemma-names))
+                                     name-args))
          lemmas (make-simp-lemmas env all-names)
+         ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
+         term-lemmas (vec (mapcat (fn [t]
+                                    (extract-simp-lemma-term env (tc/infer-type st t) 1000 t))
+                                  term-args))
          ;; Contextual: add hypotheses as lemmas
          ;; Lean 4: SimpTheorems.lean preprocess — handles Eq, Iff, And (split),
          ;; implications (conditional rewrites), and general props (→ True).
@@ -2755,7 +2790,7 @@
                                                    (extract-simp-lemma env ci 50)))
                                                eqns))))
                                  all-names))
-         all-lemmas (concat lemmas hyp-lemmas eqn-lemmas)
+         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
          lemma-index (build-lemma-index st env all-lemmas)
          to-unfold (into #{} (keep (fn [n]
                                      (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
