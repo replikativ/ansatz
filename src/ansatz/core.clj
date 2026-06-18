@@ -618,6 +618,21 @@
   [_name f]
   (swap! simproc-registry conj f))
 
+(clojure.core/defn- simp-lemma-args
+  "Resolve a surface `(simp …)` argument list into simp's lemma vector. A bare symbol stays a
+   symbol (env name resolution / @[simp]-set merge). A COMPOUND form — `(WSemiring.mul_zero m)`,
+   `(h x)` — is elaborated in the current goal's context into a proof TERM (an ansatz.kernel.Expr),
+   which simp/simp accepts directly (it infers the term's type and extracts its rewrite rule). This
+   is what lets a bundled typeclass axiom be applied to its instance and fed to simp thinly —
+   `simp [(WSemiring.mul_add m) …]` — the way Lean's `simp [m.mul_add]` does."
+  [ps args]
+  (let [g (proof/current-goal ps)]
+    (mapv (fn [a]
+            (if (symbol? a)
+              a
+              (elab/elaborate-in-context (:env ps) (:lctx g) a)))
+          args)))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -664,8 +679,8 @@
                       g (proof/current-goal ps)
                       hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
                   (basic/have-tac ps hyp-name hyp-type)))
-   'simp      (fn [ps args] (if (seq args) (simp/simp ps (vec args)) (simp/simp ps)))
-   'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (vec args)) (simp/simp-all ps)))
+   'simp      (fn [ps args] (if (seq args) (simp/simp ps (simp-lemma-args ps args)) (simp/simp ps)))
+   'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (simp-lemma-args ps args)) (simp/simp-all ps)))
    'intro     (fn [ps args] (if (seq args) (basic/intros ps (mapv str args)) (basic/intro ps)))
    'intros    (fn [ps args] (basic/intros ps (mapv str args)))
    'apply     (fn [ps args]
