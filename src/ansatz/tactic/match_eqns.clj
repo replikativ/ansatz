@@ -34,6 +34,44 @@
 (defn- count-foralls [ty]
   (loop [ty ty, n 0] (if (e/forall? ty) (recur (e/forall-body ty) (inc n)) n)))
 
+(defn matcher-alt-data
+  "Telescope analysis of matcher `match-name` for the split tactic. Returns
+     {:levels [..] :params [[id fv ty]..] :motive [id fv ty] :discr-types [ty..]
+      :alts [{:pattern <discr pattern expr> :ys-types [ty..] :unit-thunk bool} ..]}
+   where each alt's :pattern is the discriminant value (from the alt's conclusion `motive pattern`),
+   :ys-types the alt's own binder types (the constructor fields; a single Unit for a unit thunk).
+   Single-discriminant matchers only for now (multi-discriminant patterns nest)."
+  [env match-name]
+  (let [info (mtch/matcher-info env match-name)
+        _ (when-not info (throw (ex-info "matcher-alt-data: no MatcherInfo" {:name match-name})))
+        ci (env/lookup! env (name/from-string match-name))
+        lvls (vec (.levelParams ci))
+        {:keys [num-params num-discrs alts]} info
+        num-alts (count alts)
+        [tele _] (open-foralls (.type ci) (+ num-params 1 num-discrs num-alts))
+        params (subvec tele 0 num-params)
+        motive (nth tele num-params)
+        discrs (subvec tele (+ num-params 1) (+ num-params 1 num-discrs))
+        altfvs (subvec tele (+ num-params 1 num-discrs) (+ num-params 1 num-discrs num-alts))
+        [_ motive-fv _] motive
+        alt-data
+        (mapv (fn [i [_ _ alt-ty]]
+                (let [{:keys [num-fields unit-thunk]} (nth alts i)
+                      n (if unit-thunk 1 num-fields)
+                      [ys alt-body] (open-foralls alt-ty n)
+                      [_ pat-args] (e/get-app-fn-args alt-body)]
+                  {:pattern (first pat-args)        ; single-discriminant: one pattern
+                   :patterns (vec pat-args)
+                   :ys-types (mapv (fn [[_ _ ty]] ty) ys)
+                   :unit-thunk unit-thunk}))
+              (range num-alts) altfvs)]
+    {:levels lvls
+     :params params
+     :motive motive
+     :discr-types (mapv (fn [[_ _ ty]] ty) discrs)
+     :num-params num-params :num-discrs num-discrs
+     :alts alt-data}))
+
 (defn get-equations-for
   "Generate (idempotently) the match equations + splitter for matcher `match-name`, add them to the
    GLOBAL env, and return the MatchEqns map. Non-overlapping only (asserts)."
