@@ -277,6 +277,45 @@
           expr))
       expr)))
 
+(clojure.core/defn collapse-instance-projections
+  "Deep, term-level instance monomorphization: everywhere in `expr`, collapse a structure OWN-field
+   projection over a concrete `{Struct}.mk` literal to the carrier op, and inline structure-prefixed
+   reducible (:abbrev) accessors (e.g. an inherited `WSemiring.add`) so they too reduce to the op.
+   Used to normalize an `[inst : WSemiring S]`-parameterized law's rhs (instantiated at a concrete
+   instance) BEFORE the optimizer's structural pattern-matching — otherwise the projection wrapper
+   shifts arg positions. Only structure projections/abbrevs reduce; regular defs (Nat.add) are left
+   intact, so it terminates and never over-reduces."
+  [env expr]
+  (let [coll (fn [e] (collapse-instance-projections env e))
+        [h args] (e/get-app-fn-args expr)]
+    (if (e/const? h)
+      (let [hn (name/->string (e/const-name h))
+            dot (.lastIndexOf ^String hn ".")
+            strukt (when (pos? dot) (subs hn 0 dot))
+            info (own-proj-info env hn)
+            ci (when (and strukt (contains? @structure-registry strukt))
+                 (env/lookup env (e/const-name h)))]
+        (cond
+          ;; own-field projection over a (resolved) mk literal → the field, then recurse
+          (and info (> (count args) (:np info))
+               (mk-args (:strukt info) (resolve-mk env (nth args (:np info)))))
+          (let [{:keys [strukt np fidx]} info
+                margs (mk-args strukt (resolve-mk env (nth args np)))]
+            (coll (reduce e/app (nth margs (+ np fidx)) (subvec (vec args) (inc np)))))
+          ;; structure-prefixed reducible accessor (inherited field): inline + recurse
+          (and ci (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci)) (.value ^ConstantInfo ci))
+          (coll (beta-apply (.value ^ConstantInfo ci) args))
+          ;; ordinary const head: recurse into the args only
+          :else (reduce e/app h (mapv coll args))))
+      ;; non-const head: structural recursion
+      (case (e/tag expr)
+        :app    (e/app (coll (e/app-fn expr)) (coll (e/app-arg expr)))
+        :lam    (e/lam (e/lam-name expr) (coll (e/lam-type expr)) (coll (e/lam-body expr)) (e/lam-info expr))
+        :forall (e/forall' (e/forall-name expr) (coll (e/forall-type expr)) (coll (e/forall-body expr)) (e/forall-info expr))
+        :let    (e/let' (e/let-name expr) (coll (e/let-type expr)) (coll (e/let-value expr)) (coll (e/let-body expr)))
+        :proj   (e/proj (e/proj-type-name expr) (e/proj-idx expr) (coll (e/proj-struct expr)))
+        expr))))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
