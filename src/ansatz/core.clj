@@ -857,7 +857,17 @@
   [env pairs ret-type-form body-form]
   (let [n (count pairs)
         fids (mapv inc (range n))
-        ptypes (mapv (fn [p] (elab/elaborate env (second p))) pairs)
+        ;; Elaborate param types in an ACCUMULATING context (a dependent telescope), so a later
+        ;; binder's type can reference an earlier binder — e.g. `[S :- Type, m :- (WAddMonoid S)]`
+        ;; resolves S. (elab-signature already does this for the ∀-type; the body-lambda must match,
+        ;; else polymorphic/dependent signatures fail with "Unknown constant: S".)
+        ptypes (loop [i 0 lctx {} acc []]
+                 (if (= i n) acc
+                     (let [p (nth pairs i)
+                           pt (elab/elaborate-in-context env lctx (second p))]
+                       (recur (inc i)
+                              (assoc lctx (nth fids i) {:name (str (first p)) :type pt :tag :local})
+                              (conj acc pt)))))
         ;; A Subtype-typed param (e.g. a malli [:int {:min k}] refinement) registers with an
         ;; :as-term coercion: body references elaborate as `Subtype.val T P p`, so refined
         ;; params are used directly as their carrier (the refinement is erased at runtime;
@@ -880,7 +890,12 @@
     (loop [i (dec n) acc body-bvar]
       (if (< i 0) acc
           (let [[pn _ binfo] (nth pairs i)]
-            (recur (dec i) (e/lam (str pn) (nth ptypes i) acc (or binfo :default))))))))
+            ;; A dependent param type may reference earlier binders' fvars; abstract those
+            ;; (fids[0..i-1]) into bvars so the lambda binding type is closed (mirrors
+            ;; elab-signature's mkForallFVars), else the type leaks "Unknown free variable".
+            (recur (dec i) (e/lam (str pn)
+                                  (e/abstract-many (nth ptypes i) (subvec fids 0 i))
+                                  acc (or binfo :default))))))))
 
 (clojure.core/defn- mentions-const?
   "Does expr reference the constant named nm anywhere?"
