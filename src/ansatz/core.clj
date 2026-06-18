@@ -33,6 +33,7 @@
             [ansatz.codegen :as codegen]
             [ansatz.wf :as wf]
             [ansatz.attrs :as attrs]
+            [ansatz.matchers :as matchers]
             [ansatz.state :as state]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
@@ -140,6 +141,7 @@
     (reset! ansatz-env env)
     (attrs/load-bundled-attrs!)            ;; inherit Lean's Init @[simp]/@[csimp]/@[extern]
     (attrs/load-store-attrs! store-path)   ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside
+    (matchers/load-bundled-matchers!)      ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
     ;; Build instance index:
     ;; 1. Try loading from TSV (Lean 4 export, complete)
     ;; 2. Fall back to name-based discovery (~200ms, partial)
@@ -180,6 +182,7 @@
       (reset! ansatz-env env)
       (reset! ansatz-instance-index (instance/build-instance-index env))
       (attrs/load-bundled-attrs!)   ;; inherit Lean's @[simp]/@[csimp]/@[extern] into env extensions
+      (matchers/load-bundled-matchers!)  ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
       (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
       @ansatz-env)))
 
