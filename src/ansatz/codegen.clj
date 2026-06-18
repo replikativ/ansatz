@@ -234,7 +234,48 @@
   (loop [v value, as (seq args)]
     (if (and as (e/lam? v))
       (recur (e/instantiate1 (e/lam-body v) (first as)) (next as))
-      (if as (e/app* v (vec as)) v))))
+      ;; leftover args (over-application): apply left-assoc. (e/app* is variadic, so reduce e/app
+      ;; over the residual args — NOT `(e/app* v (vec as))`, which would pass the vector as one arg.)
+      (if as (reduce e/app v as) v))))
+
+;; ── Instance-projection specialization (Lean-faithful monomorphization) ──────────────────────────
+;; Collapse a structure OWN-field projection applied to a concrete `{Struct}.mk` literal down to the
+;; carrier op, so optimizer-emitted `[inst : WSemiring S]`-parameterized terms stay executable.
+
+(clojure.core/defn- own-proj-info
+  "If const-name `h` is a structure OWN-field projection ({Struct}.{field}, field ∈ Struct's fields),
+   return {:strukt :np :fidx} (np = the inductive's param count, fidx = field index); else nil."
+  [env h]
+  (let [dot (.lastIndexOf ^String h ".")
+        strukt (when (pos? dot) (subs h 0 dot))
+        field  (when (pos? dot) (subs h (inc dot)))
+        sinfo  (when strukt (get @structure-registry strukt))
+        fidx   (when sinfo (first (keep-indexed (fn [i f] (when (= field f) i)) (:fields sinfo))))]
+    (when (and sinfo fidx)
+      (when-let [ci (env/lookup env (name/from-string strukt))]
+        {:strukt strukt :np (.numParams ^ConstantInfo ci) :fidx fidx}))))
+
+(clojure.core/defn- mk-args
+  "If `expr` is a `{strukt}.mk …` application, return its full arg vector; else nil."
+  [strukt expr]
+  (let [[h as] (e/get-app-fn-args expr)]
+    (when (and (e/const? h) (= (str strukt ".mk") (name/->string (e/const-name h)))) (vec as))))
+
+(clojure.core/defn- resolve-mk
+  "Structurally reduce instance OWN-field projections over `{Struct}.mk` literals to a fixpoint:
+   `WSemiring.toWAddMonoid (WSemiring.mk … parentInst …)` → parentInst → … → the carrier op term."
+  [env expr]
+  (let [[h args] (e/get-app-fn-args expr)]
+    (if-let [info (and (e/const? h) (own-proj-info env (name/->string (e/const-name h))))]
+      (let [{:keys [strukt np fidx]} info]
+        (if (> (count args) np)
+          (let [self (resolve-mk env (nth args np))
+                margs (mk-args strukt self)]
+            (if (and margs (> (count margs) (+ np fidx)))
+              (resolve-mk env (nth margs (+ np fidx)))
+              expr))
+          expr))
+      expr)))
 
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
@@ -546,6 +587,40 @@
                         (when-let [ci (env/lookup env (e/const-name head))]
                           (when-let [v (.value ^ConstantInfo ci)]
                             (ansatz->clj env (beta-apply v args) names))))
+            ;; Structure OWN-field projection {Struct}.{field}: keyword access on the self argument,
+            ;; applied FLAT to any extra args. This is the Lean-faithful instance-projection lowering
+            ;; (mirrors the e/proj? path) — a binary op field like `add` lowers to `((:add rec) x y)`
+            ;; = `(+ x y)`, NOT the broken curried `(((:add rec) x) y)`. With < self+1 args it lowers
+            ;; the op as a VALUE (`(:add rec)` → the fn), so passing `add` as a fold step also works.
+                      (when-let [{:keys [strukt np fidx]} (own-proj-info env h)]
+                        (when (> (count args) np)                       ; self argument present
+                          (let [self  (resolve-mk env (nth args np))    ; collapse projection chains
+                                margs (mk-args strukt self)
+                                op-code
+                                (if (and margs (> (count margs) (+ np fidx)))
+                                  ;; concrete instance literal: project the field DIRECTLY to the
+                                  ;; carrier op — Lean-style monomorphization. NEVER builds the record,
+                                  ;; so erased Prop/proof fields never reach the output.
+                                  (ansatz->clj env (nth margs (+ np fidx)) names)
+                                  ;; symbolic instance: keyword access on the lowered record.
+                                  (list (keyword (subs h (inc (.lastIndexOf ^String h ".")))) (nth ca np)))
+                                extra (subvec ca (inc np))]
+                            (if (seq extra) (apply list op-code extra) op-code))))
+            ;; Reducible (:abbrev) def with no runtime lowering — a structure projection or an
+            ;; inherited instance accessor (a/structure generates these `:abbrev`). INLINE it
+            ;; (Lean's compiler specializes reducible / instance-method defs): beta-apply the body
+            ;; to args and recurse. This collapses a typeclass-method projection over a concrete
+            ;; instance to the carrier op — `WAddMonoid.add S (mk … add …)` reduces to `proj … add`,
+            ;; which the e/proj? path lowers to keyword access on the defrecord — WITHOUT unfolding
+            ;; the op itself: abbrevs are height-0 (non-recursive), so recursion stops at the first
+            ;; regular def (e.g. `Nat.add`, which lowers normally). Guarded `not arity-registry` so a
+            ;; runtime-compiled fn is still CALLED, not inlined. Lets the optimizer emit
+            ;; `[inst : WSemiring S]`-parameterized laws whose rhs stays executable.
+                      (when-not (get @arity-registry h)
+                        (when-let [ci (env/lookup env (e/const-name head))]
+                          (when (and (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))
+                                     (some? (.value ^ConstantInfo ci)))
+                            (ansatz->clj env (beta-apply (.value ^ConstantInfo ci) args) names))))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
                       (let [{:keys [arity erased]} (get @arity-registry h)]
