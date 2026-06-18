@@ -959,7 +959,23 @@
                           ;; Walk forall telescope with progressive instantiation.
                           ;; Uses instantiate1 to keep bvar indices correct.
                           (let [ci (env/lookup env (:name lemma))
-                                ctype (when ci (.type ^ConstantInfo ci))
+                                ctype0 (when ci (.type ^ConstantInfo ci))
+                                ;; Resolve the lemma's universe level params from the matched subst
+                                ;; FIRST, then instantiate them into ctype — so discharge obligations
+                                ;; carry CONCRETE levels. Without this, e.g. `beq_iff_eq`'s `LawfulBEq α`
+                                ;; obligation keeps the lemma's raw level param `u_1`, while the matched
+                                ;; BEq instance arg is at the goal's concrete level (0); the resulting
+                                ;; `LawfulBEq.{u_1} K (instBEqOfDecidableEq.{0} K dec)` is level-
+                                ;; inconsistent and instance synthesis (which type-checks the candidate)
+                                ;; fails. Mirrors the RHS level instantiation done after the loop.
+                                lvl-subst (when ctype0
+                                            (let [ils (infer-level-params st lemma subst expr)]
+                                              (when (and (seq ils)
+                                                         (= (count ils) (count (:level-params lemma))))
+                                                (zipmap (:level-params lemma) ils))))
+                                ctype (if (seq lvl-subst)
+                                        (e/instantiate-level-params ctype0 lvl-subst)
+                                        ctype0)
                                 ;; Map forall-index → value from subst (body bvar to forall index)
                                 idx->val (into {} (map (fn [[bvar-idx val]]
                                                          [(- num-params bvar-idx 1) val])
