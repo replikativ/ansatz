@@ -1955,7 +1955,11 @@
 
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
-       (defrecord ~type-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs))
+       ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
+       ;; namespace, so a second definition of the same structure (e.g. an env reset then re-install)
+       ;; would throw "already refers to". Skip the defrecord if the class is already defined.
+       (when-not (instance? Class (resolve '~type-name))
+         (defrecord ~type-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
 
        ;; Register in structure-registry for ansatz->clj compilation
        (swap! @(requiring-resolve 'ansatz.core/structure-registry)

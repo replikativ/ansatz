@@ -1,0 +1,153 @@
+# Wandler clean reimplementation — staged plan
+
+Guided by `lean-wandler` (the clean native-Lean re-expression of wandler), rebuilding `wandler`
+on a clean base over the `ansatz` kernel, with ansatz co-evolving to close the affordance gaps
+just-in-time. This plan is grounded in three audits (lean-wandler blueprint, wandler coverage map,
+ansatz affordance scorecard) + the Mathlib-modularity research. Companion to `docs/RETHINK.md`.
+
+## 0. Principles (the non-negotiables)
+
+1. **Strangler, never big-bang.** Current wandler (17,358 LOC, green) stays the working **reference +
+   feature source**. We build the clean core in a fresh namespace tree *alongside* it, port one
+   lean-wandler module at a time foundation-first, and **cut over only when the new core passes a
+   differential harness against the old**. There is never a window where nothing works.
+2. **Differential testing is the safety net.** For every ported module: run the same query / law /
+   plan through BOTH old wandler and the new module and assert (a) identical optimized plan, (b)
+   identical executed result, (c) the proof still `check-constant`-verifies. This is what lets us
+   delete 17k LOC of working code without fear.
+3. **Realistic target.** "As thin as lean-wandler" (1,590 LOC) is NOT reachable — that number rides
+   Mathlib + Lean's compiler, which we self-host. Target = **clean, systematic, and as thin as a
+   self-hosted-kernel Clojure impl can be**. Honest outcome ≈ 11–12k (down from 17.4k), ~30% thinner
+   AND much cleaner, AND ansatz matured. The win is maintainability + matching lean-wandler's
+   *structure*, not its raw count.
+4. **Own a small algebraic prelude; do NOT package Mathlib.** Research verdict: the Lean community
+   keeps Mathlib monolithic *by design* (one canonical Int/Real; monorepo refactorability) and it
+   doesn't run on our kernel anyway (we consume it only as an export store). lean-wandler's whole
+   `Laws/Frame` is 115 LOC citing ~a dozen Mathlib lemmas. So we build a **small, layered,
+   self-contained `ansatz.prelude`** (the Batteries-tier between the Init store and wandler), Init-only,
+   ~a few hundred LOC. The Mathlib export store stays the breadth *oracle/fallback*, and lean-wandler's
+   `simp only [...]` sets are the checklist of what to reformalize first.
+5. **Core-first, breadth-after.** Port the lean-wandler-covered core (Reducer→…→Surface) on the clean
+   base first; re-add the extras lean-wandler lacks (records, DBSP, streams, modes, inference, engine
+   bridges) afterward, each as its own module on the clean foundation.
+6. **ansatz co-evolves just-in-time.** Each compiler gap is closed immediately before the first module
+   that needs it — the module you're authoring tells you exactly which lemma/feature the gate is
+   blocking. Each ansatz change ships with its own test + both-suites-green gate.
+
+## 1. The three pillars (interleaved, not sequential)
+
+- **Pillar A — ansatz compiler gaps** (small, M-effort, slotted where first needed):
+  - **A1. Level-polymorphic + un-gated isDefEq simp matching.** Add level-metavars to
+    `ansatz.tactic.unify/is-def-eq!` (currently only checks `lvl/level=`), let `try-theorem` handle
+    level-poly named lemmas, and widen the proj-headed gate (`simp.clj:1075`) carefully (keep the
+    optimizer's cost-based selection stable — that gate exists because un-gating perturbed
+    `tropical-frame-index`). **Needed at:** first carrier-generic typeclass law (Phase 4, Laws/Frame).
+  - **A2. Congruence-under-a-SOAC-binder** (`List.flatMap_congr` / map/filter congruence under the
+    step-λ). Gives simp the implicit `congr`/`funext` the relational laws need. **Needed at:** Phase 4,
+    Laws/Rel (~30% of relational rewrites). Also yields a user-facing `congr`/`funext`/`ext` tactic.
+  - Deferred / off-path: typeclass diamonds + C3 (only if the class hierarchy needs a diamond — the
+    Monoid⊂Semiring chain doesn't); grind theory-combination (wandler proofs use simp/omega/induction).
+- **Pillar B — the owned `ansatz.prelude`** (Batteries-tier; Phase 1, then grown per-need):
+  - `prelude.order` (relations/decidable order, only what's used)
+  - `prelude.algebra` — `WAddMonoid ⊂ WSemiring` (bundled classes via `a/structure :extends`; rebuild
+    the existing wandler `semiring_class`/`algebra` here, cleanly)
+  - `prelude.list` — the List big-operator lemmas lean-wandler cites: `sum_map_mul_left`/`_right`,
+    `map_flatMap`, `sum_append`, `sum_map_sum_comm`, the map/filter/flatMap fusion lemmas. Init-only,
+    tactic-scripted, each `check-constant`-verified. This is the ~dozen-lemma core of the "Mathlib
+    advantage" for this domain.
+- **Pillar C — the strangler reimplementation** (Phases 2–8 below).
+
+## 2. Build sequence (foundation-first; lean-wandler's order)
+
+Each phase: what to build · ansatz affordance it needs · differential gate · LOC note. Targets from
+the coverage map (covered-core ≈ 8,300 → ~5,800; cruft-in-core ≈ 2,400 → ~1,100).
+
+**Phase 0 — Scaffolding & the differential harness.**
+- New clean namespace tree (strangler) alongside current wandler; mirror lean-wandler's module layout.
+- Build the **differential harness** first (run-through-both + assert plan/result/proof parity). This
+  is the gate every later phase reports to.
+- Decide repo layout + prelude home (recommend `ansatz.prelude.*` in the ansatz repo).
+
+**Phase 1 — `ansatz.prelude` (Pillar B).** order → algebra (WAddMonoid/WSemiring) → list big-operator
+lemmas. **Slot A1 (level-poly isDefEq) here** — needed the moment we author carrier-generic class laws.
+Gate: every lemma verifies; the set covers lean-wandler's `simp only` citations. ~few hundred LOC.
+
+**Phase 2 — wandler core foundation.** (lean-wandler: Reducer, Monoid, Lower, Par/ParArray.)
+- Reducer (CPS, fusion = `rfl`) — from `reducers.clj` core, drop breadth.
+- Monoid-fold licence (`foldl_split`) — from `prelude.algebra`.
+- Lower (the `define-csimp` certify→swap seam) — HAVE.
+- Par / ParArray (monoid-proof-gated parallel fold; unboxed array path) — from `runtime.clj`.
+- Gate: differential vs old wandler on fold/sum/parallel.
+
+**Phase 3 — Data + fusion laws + certify/lower seam.**
+- Data: `kmap` (verified finite Map, NodupKeys) — keystone (45 test files); port clean, keep intact.
+- Fusion laws (map_map/filter_filter/foldl_map/filterMap) — from `prelude.list`.
+- Optimize certify+lower seam: `optimize/certify.clj` (`verified-rewrite?` kernel gate) + install seam.
+
+**Phase 4 — The relational law library (the big LOC win).**
+- **Slot A2 (congruence-under-binder) here.**
+- Laws/Frame: FAQ frame algebra over `prelude` Semiring — **tactic-scripted** (1527 → ~350).
+- Laws/Rel: defunctionalized combinators (`aggJoinSum`/`starJoinSum`/`chainJoinSum`/`mmul`) +
+  first-order frame/reorder/FAQ/matrix laws — tactic-scripted (1038 + 828 → ~900).
+- This is where WSemiring + A1 + A2 pay off and the laws become Lean-thin (the ~2,300-LOC cruft win).
+- Gate: same laws install, same proofs `check-constant`-verify, differential on certified rewrites.
+
+**Phase 5 — Optimizer.** (Optimize/Physical, Cost, EGraph, Search, Pipeline.) Port `optimize/*.clj` +
+`plan.clj` — mostly genuine logic, cleaned, structure preserved. Ensure grind tactic parity for the
+e-graph path. Gate: differential on every strategy (reorder/factor/grace-hash/pre-agg/frame/hoist) +
+cost-based selection (watch the tropical case — A1's gate-widening must not flip it).
+
+**Phase 6 — Surface core.** (Surface/Value, Query.) Collection verbs + relational verbs (the most-
+exercised surface, keep intact) + dynamic EDN `Value` front door. Gate: differential on the surface
+test corpus.
+
+**Phase 7 — Cutover.** When the new core passes the full differential harness + a green suite, swap:
+new core becomes `wandler`; old core retired to a tag/branch as the reference. One commit, reversible.
+
+**Phase 8 — Re-add breadth on the clean base** (each its own module + tests, each independently
+droppable; ~6,700 LOC, minus drops):
+- Records vertical: records + malli bridge + refine/Subtype + record-fusion.
+- DBSP/incremental: dbsp + zset + dbsp_stream/group/recursion + mode-lattice/∂ + live.
+- Streams: stream coalgebra + stream surface + fork + JIT(stream/pgo/estimate).
+- Inference/probabilistic: semiring `Rel A S` + dist/giry + WMC(+logicng) + lens.
+- Engine bridges/backends: datahike + stratum + spindel + raster + simd.
+- **Drop outright** (audit-confirmed dead/orphaned): `regex.clj` (0 deps, 0 tests), `reducers/affine`
+  (0 deps), `surface/vocabulary.clj` (docs-only metadata). ≈ ~400 LOC removed for free.
+
+## 3. Risk management
+
+- **Old wandler green throughout** = the oracle. Never deleted until Phase 7, kept as reference after.
+- **Differential harness gates every module** — plan + result + proof parity, not just "tests pass".
+- **Both suites green after every ansatz change** (A1/A2 land with their own tests first).
+- **A1 gate-widening is the one delicate spot** (optimizer rewrite selection). Treat it like the
+  tropical regression we already fixed: widen the proj-gate incrementally, full wandler suite each step.
+- **No silent feature loss** — the must-keep inventory (coverage map §2) is the checklist; anything
+  intentionally dropped is logged (regex/affine/vocabulary).
+
+## 4. Realistic outcome
+
+| | now | after |
+|---|---|---|
+| covered-core | ~8,300 | ~5,800 (clean) |
+| cruft-in-core (laws authoring noise) | ~2,400 | ~1,100 (tactic-scripted) |
+| extra breadth | ~6,700 | ~6,300 (drops: regex/affine/vocabulary) |
+| **total** | **17,358** | **~11–12k** |
+| **structure** | organic | mirrors lean-wandler, systematic |
+| ansatz | 2 simp gaps open | A1+A2 closed, matcher Lean-faithful |
+
+Not 1,590 (inherent: self-hosted kernel + own runtime + broader surface than lean-wandler), but ~30%
+thinner, far cleaner, and ansatz materially more capable as a by-product.
+
+## 5. Immediate next steps (the on-ramp)
+
+1. **A1 — level-poly isDefEq** (ansatz; ships first, has standalone value, low-risk with tests).
+2. **Phase 0 harness + Phase 1 `ansatz.prelude`** (order→algebra→list lemmas), validated against
+   lean-wandler's lemma checklist.
+3. Then Phase 2 onward, A2 slotted at Phase 4.
+
+## 6. Open decisions (confirm before Phase 0)
+
+- **Prelude home:** `ansatz.prelude.*` (recommended, Batteries-tier) vs a separate lib.
+- **Clean tree location:** new namespaces in the wandler repo (recommended, strangler) vs a fresh repo.
+- **Breadth scope:** confirm the must-keep extras (DBSP/modes/inference/bridges are substantial; some
+  may be research-only and could stay on the old branch rather than be re-added).
