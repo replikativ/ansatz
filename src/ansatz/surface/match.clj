@@ -400,11 +400,19 @@
         ;; IH, so a natural recursive call stands in for ih_<field> (Lean's surface affordance).
         ;; No-op unless a self-name is in scope (define-verified) and this ctor has recursive fields.
         rhs-body (if (and *self-name* (seq early-rec-indices))
-                   (replace-self-ih rhs-body *self-name*
-                                    (into {} (map-indexed
-                                              (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
-                                              early-rec-indices))
-                                    *self-params*)
+                   ;; Zonk first: a polymorphic self-call `(self tl)` over an IMPLICIT fixed prefix
+                   ;; (e.g. {S} in `wsum : {S} → WAddMonoid S → List S → S`) elaborates to
+                   ;; `self ?S tl` with ?S a metavar solved (via the tl : List ?S unification) to the
+                   ;; S parameter fvar. replace-self-ih checks the non-recursive args are the unchanged
+                   ;; param fvars, so the inserted implicit must be resolved to its solution first —
+                   ;; else the structural self-call is missed and routes (wrongly) to the WF path.
+                   (let [zf (:zonk-fn est')
+                         body (if zf (zf est' rhs-body) rhs-body)]
+                     (replace-self-ih body *self-name*
+                                      (into {} (map-indexed
+                                                (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
+                                                early-rec-indices))
+                                      *self-params*))
                    rhs-body)
         ;; Best-effort: unify the branch's inferred type with the expected ret-type
         ;; (the motive). For a non-dependent motive (no loose bvar) this resolves

@@ -1092,7 +1092,11 @@
                       discr-pos (if (e/bvar? major-arg)
                                   (- n 1 (e/bvar-idx major-arg))
                                   (dec n))  ;; fallback: last param
-                      n-non-discr (dec n)]
+                      n-non-discr (dec n)
+                      ;; positions of the non-discriminant params (the fixed prefix + any
+                      ;; trailing carried params), in order — used to map a loose param-bvar
+                      ;; in the peeled body back to the eq-gen's param fvar.
+                      non-discr-indices (vec (remove #{discr-pos} (range n)))]
                   (doseq [i (range (count ctor-names))]
                     (try
                       (let [ctor-name (nth ctor-names i)
@@ -1106,8 +1110,21 @@
                             all-fvids (vec (concat param-fvids field-fvids))
                             param-fvars (mapv e/fvar param-fvids)
                             field-fvars (mapv e/fvar field-fvids)
-                            ;; Get actual inductive type params from recursor args
-                            rec-args (vec (e/get-app-args peeled))
+                            ;; Get actual inductive type params from recursor args. For a
+                            ;; POLYMORPHIC fn the type params (e.g. `S` in `List S`) appear in the
+                            ;; peeled body as LOOSE bvars referring to the stripped lambda binders;
+                            ;; instantiate them with this eq-gen's param fvars (bvar j ↔ original
+                            ;; param n-1-j) so field-types don't carry a loose bvar into inferType.
+                            ;; The discriminant position maps to its own field-bearing fvar (a
+                            ;; dummy here — type params never reference the discriminant).
+                            peeled-closed (e/instantiate
+                                           peeled
+                                           (mapv (fn [j]
+                                                   (let [p (- n 1 j)
+                                                         k (.indexOf ^java.util.List non-discr-indices p)]
+                                                     (if (neg? k) (e/fvar (+ fv-base 9000)) (nth param-fvars k))))
+                                                 (range n)))
+                            rec-args (vec (e/get-app-args peeled-closed))
                             ind-type-params (vec (take np rec-args))
                             ;; Constructor levels
                             ctor-levels (let [clps (vec (.levelParams ctor-ci))
@@ -1140,14 +1157,22 @@
                                                   (recur (e/instantiate1 (e/forall-body t) sub) (dec skip) j acc))
                                                 (recur (e/instantiate1 (e/forall-body t) (nth field-fvars j))
                                                        0 (inc j) (conj acc (e/forall-type t))))))
-                            ;; Non-discriminant param indices (all except discr-pos)
-                            non-discr-indices (vec (remove #{discr-pos} (range n)))
-                            ;; Register fvars in TC's lctx for WHNF reduction
-                            param-types (mapv (fn [j]
-                                                (let [orig-idx (nth non-discr-indices j)
-                                                      [pn pt-form] (nth (vec pairs) orig-idx)]
-                                                  (elab/elaborate env' pt-form)))
-                                              (range n-non-discr))
+                            ;; Non-discriminant param types, for the WHNF lctx. Peel the FUNCTION's
+                            ;; type telescope instantiating each binder with its eq-gen repr (param
+                            ;; fvar, or the ctor-app at the discriminant) — this yields the correctly
+                            ;; DEPENDENT types (e.g. m : WAddMonoid S with S the eq-gen's S fvar).
+                            ;; Re-elaborating the surface form standalone fails on polymorphic /
+                            ;; instance params (`(WAddMonoid S)` → "Unknown constant: S").
+                            fn-type (.type ^ConstantInfo (env/lookup env' cname))
+                            reprs (mapv (fn [p]
+                                          (if (= p discr-pos) ctor-app
+                                              (nth param-fvars (.indexOf ^java.util.List non-discr-indices p))))
+                                        (range n))
+                            param-types (loop [t fn-type p 0 acc []]
+                                          (if (or (>= p n) (not (e/forall? t))) acc
+                                              (recur (e/instantiate1 (e/forall-body t) (nth reprs p))
+                                                     (inc p)
+                                                     (if (= p discr-pos) acc (conj acc (e/forall-type t))))))
                             st' (reduce (fn [s [fid nm tp]]
                                           (update s :lctx red/lctx-add-local fid nm tp))
                                         (tc/mk-tc-state env')
@@ -1511,17 +1536,24 @@
                                 eq-body (if condition (e/arrow condition eq-body) eq-body)
                                 abstracted-type
                                 (e/abstract-many eq-body (vec (concat param-fvids all-fvids)))
-                                ;; Wrap in foralls: all fields then params (right to left)
+                                ;; Wrap in foralls: all fields then params (right to left). A binder
+                                ;; TYPE may depend on earlier binders (a polymorphic field `head : S`,
+                                ;; an instance param `m : WAddMonoid S`); abstract those earlier fvars
+                                ;; out of each binder type — params are outermost, then fields — so the
+                                ;; telescope is well-scoped (else S leaks as "Unknown free variable").
                                 full-type (loop [j (dec all-nf) body abstracted-type]
                                             (if (< j 0) body
                                                 (recur (dec j)
                                                        (e/forall' (if (< j nf) (str "f" j) (str "g" (- j nf)))
-                                                                  (nth all-ftypes j) body :default))))
+                                                                  (e/abstract-many (nth all-ftypes j)
+                                                                                   (vec (concat param-fvids (subvec all-fvids 0 j))))
+                                                                  body :default))))
                                 full-type (loop [j (dec n-non-discr) body full-type]
                                             (if (< j 0) body
                                                 (recur (dec j)
                                                        (e/forall' (str (first (nth (vec pairs) (nth non-discr-indices j))))
-                                                                  (nth param-types j) body :default))))
+                                                                  (e/abstract-many (nth param-types j) (subvec (vec param-fvids) 0 j))
+                                                                  body :default))))
                                 ;; Proof: rfl (with fvars), then abstract
                                 rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
                                                   ret-ansatz lhs)
@@ -1532,12 +1564,15 @@
                                              (if (< j 0) body
                                                  (recur (dec j)
                                                         (e/lam (if (< j nf) (str "f" j) (str "g" (- j nf)))
-                                                               (nth all-ftypes j) body :default))))
+                                                               (e/abstract-many (nth all-ftypes j)
+                                                                                (vec (concat param-fvids (subvec all-fvids 0 j))))
+                                                               body :default))))
                                 full-proof (loop [j (dec n-non-discr) body full-proof]
                                              (if (< j 0) body
                                                  (recur (dec j)
                                                         (e/lam (str (first (nth (vec pairs) (nth non-discr-indices j))))
-                                                               (nth param-types j) body :default))))
+                                                               (e/abstract-many (nth param-types j) (subvec (vec param-fvids) 0 j))
+                                                               body :default))))
                                 eqn-name (name/from-string (str fn-name ".eq_" (inc i) (or suffix "")))]
                             (try
                               (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]

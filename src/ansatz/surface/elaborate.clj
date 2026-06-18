@@ -688,7 +688,7 @@
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
             "match"  (let [args (vec (rest sexpr))
-                           est* (assoc est :infer-fn infer-with-mvars :unify-fn unify!)]
+                           est* (assoc est :infer-fn infer-with-mvars :unify-fn unify! :zonk-fn zonk)]
                        (if (vector? (get args 1))
                          (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
                      ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the

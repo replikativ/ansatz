@@ -1,0 +1,47 @@
+(ns ansatz.prelude.list-test
+  "The polymorphic `wsum` (fold over a WAddMonoid) authored thinly and kernel-verified over the
+   full Init store — exercises POLYMORPHIC structural recursion (Lean-style fixed prefix {S} + an
+   instance param m), which previously failed (`(a/defn lenS [S :- Type, xs :- (List S)] …)` →
+   type-mismatch / WF-misroute). The function now verifies and runs.
+
+   The WSemiring big-operator LAW (sum_map_mul_left) is authored in ansatz.prelude.list/install!
+   but its thin `(induction xs) <;> simp [wsum.eq_1 wsum.eq_2 …]` proof needs constructor-keyed
+   equation lemmas; auto-generating those for a polymorphic+instance def still has fvar-leaks in
+   the equation compiler (task #142 follow-on), so the law is attempted-but-deferred. This test
+   pins the part that works and documents the boundary."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [ansatz.core :as a]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name]
+            [ansatz.export.parser :as parser]
+            [ansatz.export.replay :as replay]
+            [ansatz.prelude.list :as plist]))
+
+;; Full Init store — wsum's List equation lemmas (List.map_nil/_cons) live here, not in init-medium.
+(def ^:private full
+  (delay (let [f "test-data/init.ndjson"]
+           (when (.exists (java.io.File. f))
+             (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+
+(defn- with-env [t]
+  (if-let [e @full]
+    (do (reset! a/ansatz-env e) (plist/install!) (t))
+    (println "  (skipping prelude.list-test — test-data/init.ndjson not present)")))
+(use-fixtures :once with-env)
+
+(defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
+(defn- def-verifies? [s]
+  ;; Authoritative: re-run the Java kernel check-constant on the def (type + body) under a fresh
+  ;; name. a/defn already check-constants on install (so `has?` implies a pass), this re-asserts it.
+  (let [ci (env/lookup (a/env) (name/from-string s))]
+    (boolean
+     (and ci
+          (try (env/check-constant (a/env)
+                                   (env/mk-def (name/from-string "__wsum_chk__") [] (.type ci) (.value ci)))
+               true (catch Throwable _ false))))))
+
+(deftest wsum-polymorphic-recursion-verifies
+  (when @full
+    (testing "polymorphic structural recursion ({S} + instance m) defines + kernel-verifies"
+      (is (has? "wsum"))
+      (is (def-verifies? "wsum") "wsum kernel-checks (check-constant, authoritative)"))))
