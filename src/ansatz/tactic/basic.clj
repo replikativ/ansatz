@@ -2208,3 +2208,136 @@
         (if discr
           (by-cases ps discr)
           (tactic-error! "split_ifs: no stuck if-then-else found" {:goal (:type goal)}))))))
+
+;; ============================================================
+;; split — faithful port of Lean 4 Tactic/Split.lean (findSplit? + dispatch)
+;; ============================================================
+
+(defn- find-split-target
+  "Lean 4 findSplit? (Meta/Tactic/SplitIf.lean:39-120): walk the goal for the
+   first splittable discriminant. Recognizes (in Lean's priority order, innermost
+   condition first):
+     - cond α c a b      → {:kind :bool  :discr c}   (Bool eliminator; split via by-cases)
+     - Bool.rec _ _ _ c  → {:kind :bool  :discr c}
+     - ite/dite α c i …  → {:kind :dec   :cond c :inst i}  (Decidable; split via by-cases-dec)
+     - Foo.match_N …     → {:kind :matcher :app e :head h :args as}  (matcher splitter)
+   Discriminants with loose bvars (inside a binder) are skipped, matching Lean.
+   `badCases` is a set of exprs to skip (the splitMatch retry set)."
+  [ps goal-lctx expr badCases]
+  (let [result (volatile! nil)]
+    (letfn [(splittable-bool? [b]
+              (and (not (e/has-loose-bvars? b))
+                   (let [bw (try (whnf-in-goal ps goal-lctx b) (catch Exception _ b))]
+                     (not (and (e/const? bw)
+                               (contains? #{"Bool.true" "Bool.false"}
+                                          (name/->string (e/const-name bw))))))))
+            (walk [e]
+              (when (and (not @result) (not (contains? badCases e)))
+                (let [[head args] (e/get-app-fn-args e)]
+                  (when (e/const? head)
+                    (let [hn (name/->string (e/const-name head))]
+                      (cond
+                        (and (= hn "cond") (>= (count args) 2))
+                        (let [c (nth args 1)]
+                          (when (splittable-bool? c) (vreset! result {:kind :bool :discr c})))
+
+                        (and (= hn "Bool.rec") (= 4 (count args)))
+                        (let [c (nth args 3)]
+                          (when (splittable-bool? c) (vreset! result {:kind :bool :discr c})))
+
+                        (and (contains? #{"ite" "dite"} hn) (>= (count args) 3))
+                        (let [c (nth args 1) inst (nth args 2)]
+                          (when-not (e/has-loose-bvars? c)
+                            (vreset! result {:kind :dec :cond c :inst inst})))
+
+                        (re-find #"\.match_\d+$" hn)
+                        (vreset! result {:kind :matcher :app e :head head :args args})
+
+                        :else nil))))
+                (when-not @result
+                  (case (e/tag e)
+                    :app (do (walk (e/app-fn e)) (walk (e/app-arg e)))
+                    :lam (do (walk (e/lam-type e)) (walk (e/lam-body e)))
+                    :forall (do (walk (e/forall-type e)) (walk (e/forall-body e)))
+                    :let (do (walk (e/let-value e)) (walk (e/let-body e)))
+                    :mdata (walk (e/mdata-expr e))
+                    :proj (walk (e/proj-struct e))
+                    nil))))]
+      (walk expr))
+    @result))
+
+(defn by-cases-dec
+  "Decidable case-split (Lean 4 MVarId.byCasesDec, Cases.lean:371). Given a Prop
+   `c` and a `Decidable c` instance term, produces two subgoals via Decidable.casesOn
+   with a CONSTANT motive (λ _:Decidable c, Goal):
+     Goal 1 (isFalse): h : ¬c ⊢ goal
+     Goal 2 (isTrue):  h : c  ⊢ goal
+   The ite/dite stays unreduced; the following simp_all reduces it via if_pos/if_neg
+   discharged by h (faithful to `split <;> simp_all` in combination)."
+  [ps c inst]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        st (mk-tc ps (:lctx goal))
+        not-c (e/app* (e/const' (name/from-string "Not") []) c)
+        goal-sort (tc/infer-type st (:type goal))
+        goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
+        motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
+        ;; constant motive: λ (_ : Decidable c), Goal
+        dec-c (e/app* (e/const' (name/from-string "Decidable") []) c)
+        motive (e/lam "d" dec-c (:type goal) :default)
+        [ps' h-false-id] (proof/alloc-id ps)
+        lctx-false (red/lctx-add-local (:lctx goal) h-false-id "h" not-c)
+        [ps' false-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-false (:id goal))
+        [ps' h-true-id] (proof/alloc-id ps')
+        lctx-true (red/lctx-add-local (:lctx goal) h-true-id "h" c)
+        [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))]
+    (-> (proof/assign-mvar ps' (:id goal)
+                           {:kind :by-cases-dec
+                            :cond c
+                            :inst inst
+                            :motive motive
+                            :motive-level motive-level
+                            :not-c not-c
+                            :h-false-id h-false-id
+                            :h-true-id h-true-id
+                            :false-goal false-goal-id
+                            :true-goal true-goal-id})
+        (proof/record-tactic :by-cases-dec [c] (:id goal)))))
+
+(declare split-matcher)
+
+(defn split-tac
+  "Lean 4 `split` (Tactic/Split.lean:328-346): find a splittable discriminant in
+   the goal (ite/dite/cond/Bool.rec/matcher) and case-split on it.
+     - cond/Bool.rec  → by-cases on the Bool (hc : c = true / c = false)
+     - ite/dite       → by-cases-dec on the Decidable (h : c / h : ¬c)
+     - matcher        → matcher splitter (one subgoal per alternative, +discr eqs)
+   On a matcher whose splitter application fails, retry skipping it (badCases)."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        find1 (fn [bad]
+                (or (find-split-target ps (:lctx goal) (:type goal) bad)
+                    (find-split-target ps (:lctx goal)
+                                       (whnf-in-goal ps (:lctx goal) (:type goal)) bad)))]
+    (loop [bad #{}]
+      (let [tgt (find1 bad)]
+        (if (nil? tgt)
+          (tactic-error! "split: no if/match/cond discriminant found" {:goal (:type goal)})
+          (case (:kind tgt)
+            :bool (by-cases ps (:discr tgt))
+            :dec  (by-cases-dec ps (:cond tgt) (:inst tgt))
+            :matcher (let [res (try {:ok (split-matcher ps tgt)}
+                                    (catch clojure.lang.ExceptionInfo ex
+                                      (if (:split-retry (ex-data ex))
+                                        {:retry true}
+                                        (throw ex))))]
+                       (if (:retry res) (recur (conj bad (:app tgt))) (:ok res)))))))))
+
+(defn split-matcher
+  "S5 (in progress): split a stuck matcher (Foo.match_N application) via its
+   inherited splitter theorem, introducing per-alternative discriminant equalities.
+   Until implemented, signals :split-retry so split-tac skips this discriminant."
+  [_ps tgt]
+  (tactic-error! "split: matcher splitter not yet implemented"
+                 {:split-retry true :matcher (:head tgt)}))

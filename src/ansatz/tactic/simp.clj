@@ -271,14 +271,19 @@
 
     :else
     (try
-      (let [hp (or (:proof? p-result)
-                   (e/app* (e/const' eq-refl-name [lvl/zero])
-                           (e/sort' lvl/zero) orig-p))
+      ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
+      ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
+      ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
+      (let [u (get-sort-level st orig-p)
+            v (get-sort-level st orig-q)
+            hp (or (:proof? p-result)
+                   (e/app* (e/const' eq-refl-name [(lvl/succ u)])
+                           (e/sort' u) orig-p))
             hq (or (:proof? q-result)
-                   (e/app* (e/const' eq-refl-name [lvl/zero])
-                           (e/sort' lvl/zero) orig-q))]
+                   (e/app* (e/const' eq-refl-name [(lvl/succ v)])
+                           (e/sort' v) orig-q))]
         {:expr (e/arrow (:expr p-result) (:expr q-result))
-         :proof? (e/app* (e/const' implies-congr-name [])
+         :proof? (e/app* (e/const' implies-congr-name [u v])
                          orig-p (:expr p-result)
                          orig-q (:expr q-result) hp hq)
          :cache true})

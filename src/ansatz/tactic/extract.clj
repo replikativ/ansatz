@@ -175,6 +175,20 @@
                   ;; @Bool.rec motive false-lam true-lam cond rfl
                   (e/app* bool-rec motive false-lam true-lam cond rfl-proof))
 
+      ;; by-cases-dec → @Decidable.casesOn c motive inst (λ h:¬c, false) (λ h:c, true)
+      :by-cases-dec (let [{:keys [cond inst motive motive-level not-c
+                                  h-false-id h-true-id false-goal true-goal]} assignment
+                          false-term (extract-term ps false-goal)
+                          true-term (extract-term ps true-goal)
+                          false-lam (e/lam "h" not-c
+                                           (e/abstract1 false-term h-false-id) :default)
+                          true-lam (e/lam "h" cond
+                                          (e/abstract1 true-term h-true-id) :default)
+                          ;; Decidable.casesOn.{u} (p) (motive : Decidable p → Sort u)
+                          ;;   (t : Decidable p) (isFalse) (isTrue) : motive t
+                          dec-cases (e/const' (name/from-string "Decidable.casesOn") [motive-level])]
+                      (e/app* dec-cases cond motive inst false-lam true-lam))
+
       ;; simp-all-hyps: hypothesis simplification wrapper.
       ;; For each replacement (h : P → h' : P'), wrap child proof:
       ;; (λ h' : P' => child[h'/bvar]) (Eq.mp eq h)

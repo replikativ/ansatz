@@ -790,6 +790,7 @@
                   (f ps (vec (map str args)))))
    'solve_by_elim (fn [ps _args] (basic/solve-by-elim ps))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
+   'split     (fn [ps _args] (basic/split-tac ps))
    'revert    (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
                                 (:lctx (proof/current-goal ps)))]
