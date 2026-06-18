@@ -975,16 +975,14 @@
                                         binfo (e/forall-info ty)
                                         resolved
                                         (if (= binfo :inst-implicit)
-                                          (try
-                                            (let [[head args] (e/get-app-fn-args param-type)]
-                                              (when (and (e/const? head) (seq args))
-                                                (let [cn (name/->string (e/const-name head))
-                                                      ta (first args)
-                                                      [th _] (when ta (e/get-app-fn-args ta))
-                                                      tn (when (e/const? th) (name/->string (e/const-name th)))
-                                                      f (requiring-resolve 'ansatz.core/resolve-basic-instance)]
-                                                  (when tn (f env cn tn ta)))))
-                                            (catch Exception _ nil))
+                                          ;; Real recursive instance synthesis (Lean synthInstance):
+                                          ;; local instances + global index/discovery + recursive arg
+                                          ;; discharge. `st` carries the goal lctx so a polymorphic
+                                          ;; `[DecidableEq K]` hyp discharges e.g. beq_iff_eq's LawfulBEq.
+                                          (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                                                st env ((requiring-resolve 'ansatz.core/instance-index))
+                                                param-type 0)
+                                               (catch Throwable _ nil))
                                           (try-discharge st env lemma-index config
                                                          param-type
                                                          (or (:discharge-depth config) 0)))]

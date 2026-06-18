@@ -376,7 +376,19 @@
                               [h _] (e/get-app-fn-args w)]
                           (when (e/const? h) (e/const-name h))))]
       (when head-info
-        (let [;; Try pre-built index first, then on-demand discovery
+        (let [;; Local instances FIRST (Lean synthInstance checks local-context instances): an lctx
+              ;; hypothesis whose type head is this class and is def-eq to the goal (e.g. a polymorphic
+              ;; `dec : DecidableEq K` discharging a `DecidableEq K` obligation).
+              local-inst
+              (some (fn [[fid decl]]
+                      (when (and (= :local (:tag decl)) (:type decl))
+                        (let [[dh _] (e/get-app-fn-args (:type decl))]
+                          (when (and (e/const? dh) (= (e/const-name dh) head-info)
+                                     (try (tc/is-def-eq st (:type decl) goal-type)
+                                          (catch Throwable _ false)))
+                            (e/fvar fid)))))
+                    (:lctx st))
+              ;; Try pre-built index first, then on-demand discovery
               candidates (let [idx-cands (get-instances index head-info)]
                            (if (seq idx-cands)
                              idx-cands
@@ -384,10 +396,12 @@
             ;; Try candidates from index/discovery
             ;; Limit candidates to prevent combinatorial explosion
             ;; (some classes have 300+ instances in Mathlib)
-              from-candidates (some (fn [candidate]
-                                      (try-candidate st env index candidate goal-type depth))
-                                    (take config/*max-candidates* candidates))]
-          (or from-candidates
+              from-candidates (when-not local-inst
+                                (some (fn [candidate]
+                                        (try-candidate st env index candidate goal-type depth))
+                                      (take config/*max-candidates* candidates)))]
+          (or local-inst
+              from-candidates
             ;; Fallback: name-based resolution with derivation chains (from ansatz.core)
               (try
                 (let [resolve-fn (requiring-resolve 'ansatz.core/resolve-basic-instance)
