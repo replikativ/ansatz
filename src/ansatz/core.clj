@@ -1683,6 +1683,26 @@
          (swap! ansatz-env (fn [_] (env/check-constant final-env ci)))))
      (when *verbose* (println "✓" thm-name "proved")))))
 
+(clojure.core/defn prove-law
+  "Like `prove-theorem`, but RETURNS `[goal-type proof-term]` and does NOT install — for callers that
+   register the law themselves (e.g. wandler's `thm!` = `(mk-thm name [] goal proof)`). Lets a
+   hand-built `[goal proof]` proof migrate to the thin tactic surface without touching the
+   registration plumbing. `params`+`prop-form` are surface forms (or `prop-form` a precomputed Expr
+   goal with `params` = binder names); `tactic-forms` is the tactic block. Verifies before returning."
+  [params prop-form tactic-forms]
+  (let [env (env)
+        expr-goal? (instance? ansatz.kernel.Expr prop-form)
+        pairs (when-not expr-goal? (parse-params params))
+        goal-type (if expr-goal? prop-form (:type-ansatz (elab-signature env pairs prop-form)))
+        [ps _] (proof/start-proof env goal-type)
+        intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
+        ps (if (seq intro-names) (basic/intros ps intro-names) ps)
+        ps (reduce run-tactic ps tactic-forms)]
+    (when-not (proof/solved? ps)
+      (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
+    (extract/verify ps)
+    [goal-type (extract/extract ps)]))
+
 ;; ============================================================
 ;; Macros
 ;; ============================================================
