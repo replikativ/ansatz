@@ -700,14 +700,26 @@
                       term (elab/elaborate-in-context (:env ps) (:lctx g) arg')]
                   (basic/apply-tac ps term)))
    'rewrite   (fn [ps args]
-                (let [nm (str (first args))
-                      ;; When names shadow, prefer the most recently allocated fvar (highest ID)
-                      fid (reduce (fn [best [id d]]
-                                    (if (and (= nm (:name d))
-                                             (or (nil? best) (> (long id) (long best))))
-                                      id best))
-                                  nil (:lctx (proof/current-goal ps)))]
-                  (basic/rewrite ps (e/fvar fid))))
+                ;; (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — like Lean's `rw [..]`:
+                ;; a local hypothesis by name, OR an env lemma (∀-quantified, instantiated by matching),
+                ;; OR an applied (concrete) Eq term. `<-`/`←` rewrites right-to-left.
+                (let [reverse? (boolean (#{'<- '←} (first args)))
+                      spec (if reverse? (second args) (first args))
+                      g (proof/current-goal ps)
+                      hyp-fid (when (symbol? spec)
+                                (reduce (fn [best [id d]]
+                                          (if (and (= (str spec) (:name d))
+                                                   (or (nil? best) (> (long id) (long best))))
+                                            id best))
+                                        nil (:lctx g)))
+                      term (if hyp-fid
+                             (e/fvar hyp-fid)
+                             ;; env lemma: elaborate @-explicit so implicits stay ∀-bound (rewrite-lemma
+                             ;; instantiates ALL params by matching); applied form elaborates as-is.
+                             (elab/elaborate-in-context
+                              (:env ps) (:lctx g)
+                              (if (symbol? spec) (symbol (str "@" spec)) spec)))]
+                  (basic/rewrite-lemma ps term reverse?)))
    'cases     (fn [ps args]
                 (let [nm (str (first args))
                       fid (reduce (fn [best [id d]]

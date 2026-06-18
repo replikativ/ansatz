@@ -13,6 +13,7 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.unify :as u]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -675,6 +676,60 @@
                                :motive-level motive-level
                                :child new-goal-id})
            (proof/record-tactic :rewrite [eq-term reverse?] (:id goal)))))))
+
+(defn rewrite-lemma
+  "Rewrite the goal with a possibly ∀-QUANTIFIED Eq proof `term` — an env lemma (`rw [add_assoc]`)
+   or a quantified hypothesis (a generalized IH `∀ acc, lhs = rhs`). The ∀-bound parameters are
+   instantiated by matching the lemma's LHS (RHS if reverse?) against the first goal subterm via the
+   reduction-aware unifier (Lean's `rw`: forallMetaTelescope + kabstract). A concrete Eq proof falls
+   straight through to `rewrite`."
+  ([ps term] (rewrite-lemma ps term false))
+  ([ps term reverse?]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         st (mk-tc ps (:lctx goal))
+         ty (tc/infer-type st term)]
+     (if-not (e/forall? ty)
+       (rewrite ps term reverse?)
+       (let [mctx (atom {})
+             base (long (+ 50000000 (or (some-> (:next-id st) deref long) 0)))
+             [mvars body] (loop [t ty xs [] i 0]
+                            (if (e/forall? t)
+                              (let [m (u/fresh-mvar! mctx (+ base i) (e/forall-type t))]
+                                (recur (e/instantiate1 (e/forall-body t) m) (conj xs m) (inc i)))
+                              [xs t]))
+             [head args] (e/get-app-fn-args body)]
+         (when-not (and (e/const? head) (= (e/const-name head) (name/from-string "Eq")) (= 3 (count args)))
+           (tactic-error! "rewrite: lemma is not (∀ …, _ = _)" {:type ty}))
+         (let [pat (if reverse? (nth args 2) (nth args 1))   ; match the side we'll FIND in the goal
+               found (atom false)
+               scan (fn scan [e]
+                      (when-not @found
+                        (let [saved @mctx]
+                          (if (try (u/is-def-eq! st mctx pat e) (catch Exception _ false))
+                            (reset! found true)
+                            (do (reset! mctx saved)
+                                (case (e/tag e)
+                                  :app (do (scan (e/app-fn e)) (scan (e/app-arg e)))
+                                  :lam (do (scan (e/lam-type e)) (scan (e/lam-body e)))
+                                  :forall (do (scan (e/forall-type e)) (scan (e/forall-body e)))
+                                  :let (do (scan (e/let-value e)) (scan (e/let-body e)))
+                                  :proj (scan (e/proj-struct e))
+                                  nil))))))]
+           (scan (:type goal))
+           (when-not @found
+             (tactic-error! "rewrite: no subterm of the goal matches the lemma's LHS" {:lemma-type ty}))
+           (let [concrete (u/zonk mctx (reduce e/app term mvars))]
+             (when (u/has-unassigned-mvars? mctx concrete)
+               (tactic-error! "rewrite: lemma parameters unresolved after matching" {:type ty}))
+             ;; Always FORWARD-rewrite: for `<-`, flip the instantiated proof with Eq.symm so the
+             ;; matched RHS occurrence is replaced by the LHS (sidesteps basic/rewrite's reverse-motive
+             ;; Eq.ndrec path).
+             (if reverse?
+               (let [Tz (u/zonk mctx (nth args 0)) lz (u/zonk mctx (nth args 1)) rz (u/zonk mctx (nth args 2))
+                     sym (e/app* (e/const' (name/from-string "Eq.symm") (e/const-levels head)) Tz lz rz concrete)]
+                 (rewrite ps sym false))
+               (rewrite ps concrete false)))))))))
 
 ;; ============================================================
 ;; cases (case analysis on an inductive hypothesis)
