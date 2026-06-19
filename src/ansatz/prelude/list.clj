@@ -134,4 +134,38 @@
                (all_goals (simp_all [List.flatMap_cons List.flatMap_nil List.map_cons List.map_nil
                                      wsum.eq_1 wsum.eq_2 wsum_append]))))
       (catch Throwable _ nil)))
+  ;; ∑ (flatten LL) = ∑ (map ∑ LL) — sum over a list-of-lists. Needed because simp unfolds
+  ;; `map h (flatMap g)` to `flatten (map …)` rather than keeping the `flatMap` head, so the
+  ;; flatten-keyed form is what fires downstream (aggJoin_split).
+  (when-not (has? "wsum_flatten")
+    (try
+      (eval '(ansatz.core/theorem wsum_flatten
+               [S :- Type, m :- (WAddMonoid S), LL :- (List (List S))]
+               (= S (wsum m (List.flatten S LL))
+                    (wsum m (List.map (List S) S (fn [l :- (List S)] (wsum m l)) LL)))
+               (induction LL)
+               (all_goals (simp_all [List.flatten_cons List.flatten_nil List.map_cons List.map_nil
+                                     wsum.eq_1 wsum.eq_2 wsum_append]))))
+      (catch Throwable _ nil)))
+  ;; aggJoin_split — THE FAQ factorization (lean-wandler Laws/Frame.lean `aggJoin_split`): the aggregate
+  ;; of a join is the per-left-row sum over that row's matching bucket — i.e. O(|xs|·|ys|) → O(|xs|+|ys|)
+  ;; via a pre-aggregated index. Join inlined (flatMap x → map (x,·) over the filtered ys); aggregated by
+  ;; an abstract `h : (X×Y) → S`. PURE SIMP (map_flatMap → map_map → wsum_flatten → comp) — no induction,
+  ;; no case-split. The core planner win; the join-REORDER (swap sides) additionally needs a filter→guard
+  ;; lemma + Fubini. (`p : X→Y→Bool` is the match predicate; kf/lf/DecidableEq specialization later.)
+  (when-not (has? "aggJoin_split")
+    (try
+      (eval '(ansatz.core/theorem aggJoin_split
+               [X :- Type, Y :- Type, S :- Type, m :- (WAddMonoid S),
+                p :- (=> X (=> Y Bool)), h :- (=> (Prod X Y) S), xs :- (List X), ys :- (List Y)]
+               (= S
+                  (wsum m (List.map (Prod X Y) S h
+                            (List.flatMap X (Prod X Y)
+                              (fn [x :- X] (List.map Y (Prod X Y) (fn [y :- Y] (Prod.mk x y))
+                                            (List.filter Y (p x) ys))) xs)))
+                  (wsum m (List.map X S (fn [x :- X]
+                            (wsum m (List.map Y S (fn [y :- Y] (h (Prod.mk x y)))
+                                      (List.filter Y (p x) ys)))) xs)))
+               (simp [List.map_flatMap List.map_map wsum_flatten Function.comp_def])))
+      (catch Throwable _ nil)))
   :installed)
