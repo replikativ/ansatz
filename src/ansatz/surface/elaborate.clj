@@ -437,7 +437,13 @@
               (if (empty? binders)
                 (elab-term est body-sexpr)
                 (let [[nam typ-sexpr] (first binders)
-                      typ-expr (elab-term est typ-sexpr)
+                      ;; Zonk the binder type so its solved level-mvars (`?u`) are substituted before
+                      ;; it is stored into :scope / the tc :lctx. Lean instantiates mvars in binder
+                      ;; types; without this the stored type keeps raw `?u`, and a later EAGER kernel
+                      ;; infer of a sub-term in ARGUMENT position (elab-app) trips on the opaque `?u`
+                      ;; ("Type mismatch in application") — the body position survives only because it
+                      ;; reaches the final whole-term zonk. See [[elab-binder-zonk-bug]].
+                      typ-expr (zonk est (elab-term est typ-sexpr))
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
                       est' (-> est
@@ -456,7 +462,13 @@
               (if (empty? binders)
                 (elab-term est body-sexpr)
                 (let [[nam typ-sexpr] (first binders)
-                      typ-expr (elab-term est typ-sexpr)
+                      ;; Zonk the binder type so its solved level-mvars (`?u`) are substituted before
+                      ;; it is stored into :scope / the tc :lctx. Lean instantiates mvars in binder
+                      ;; types; without this the stored type keeps raw `?u`, and a later EAGER kernel
+                      ;; infer of a sub-term in ARGUMENT position (elab-app) trips on the opaque `?u`
+                      ;; ("Type mismatch in application") — the body position survives only because it
+                      ;; reaches the final whole-term zonk. See [[elab-binder-zonk-bug]].
+                      typ-expr (zonk est (elab-term est typ-sexpr))
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
                       est' (-> est
