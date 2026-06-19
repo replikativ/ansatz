@@ -209,5 +209,18 @@ First live gate `wandler.clean.diff-test` (3 tests/13 assertions): (c) all clean
 certified optimizer preserves the result (fused ≡ naive ≡ clojure.core); (a) and it actually changed the
 plan (fewer passes, kernel-certified). (a)/(b) take real old-vs-clean subjects as Phases 2+ land.
 
-**NEXT:** finish the #146 thin-surface migration (foldl + PERM clusters) on the old tree → then Phase 2
-(clean core foundation: Reducer/Monoid/Lower/Par), each gated by `wandler.clean.diff`.
+**Phase 4 (frame cluster) — REDO not migrate (decided).** The #146 "foldl cluster" is the Map-based FAQ
+frame (`Map.foldl_join_sum_factor`/`Map.foldl_join_frame`, ~400 LOC of explicit term-building). Rather
+than line-by-line migrate it, we REDO it in the aggregate (wsum) formulation — fundamentally thinner
+(lean-wandler proves the same FAQ frame in ~3 lines). `wandler.clean.laws.frame` now has the three core
+aggregate laws, all thin over the prelude + kernel-verified: `aggJoin_split` (FAQ factorization),
+`aggJoin_factor` (separable-weight frame, `rw aggJoin_split` + `simp wsum_map_mul_left`),
+`aggJoin_reorder` (join commutativity, NO Perm). DEFERRED: `aggJoin_factor_index` (the pre-agg
+`sumByKey` index) — needs the kf/lf/DecidableEq key-structured join layer (the abstract-predicate form
+deliberately omits it); fold into the clean join surface (Phase 6) + runtime (Phase 2) where the
+O(distinct-keys) materialization actually lives.
+
+**The rule going forward:** REDO where a cleaner aggregate form exists (frame/FAQ done; Perm retired);
+COPY verified-as-is only what's irreducible + lean-wandler lacks; don't line-by-line migrate (its
+validation purpose is spent). **NEXT:** Phase 2 — clean core foundation (Reducer/Monoid/Lower/Par),
+each gated by `wandler.clean.diff`.
