@@ -644,24 +644,35 @@
 
 (clojure.core/defn- elab-apply-arg
   "Resolve an `apply`/`solve_by_elim` lemma argument to a kernel term, returning [ps' term].
-   Bare symbol → `@`-explicit elaboration (no implicit insertion, like Lean's elabTermForApply);
-   compound form → elaborate in context. If a bare symbol is a universe-polymorphic const whose
-   universe is not pinned standalone (e.g. List.Perm.nil : @List.Perm.{u} α [] []), elaboration
-   throws — so we mint fresh Level.mvars for its levelParams and let apply-tac's meta-isDefEq solve
-   them against the goal (Lean's forallMetaTelescope + isDefEq). Mirrors Apply.lean."
+   A bare symbol that names a LOCAL HYPOTHESIS resolves to that fvar first (locals shadow globals,
+   as in Lean's apply/solve_by_elim) — so e.g. a quantified hypothesis `h : ∀x, f x ~ g x` can be
+   passed and applied. Otherwise: bare symbol → `@`-explicit elaboration (no implicit insertion,
+   like Lean's elabTermForApply); compound form → elaborate in context. If a bare symbol is a
+   universe-polymorphic const whose universe is not pinned standalone (e.g. List.Perm.nil :
+   @List.Perm.{u} α [] []), elaboration throws — so we mint fresh Level.mvars for its levelParams
+   and let apply-tac's meta-isDefEq solve them against the goal (Lean's forallMetaTelescope +
+   isDefEq). Mirrors Apply.lean."
   [ps lctx arg]
-  (let [arg' (if (symbol? arg) (symbol (str "@" arg)) arg)]
-    (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
-         (catch Throwable ex
-           (if (and (symbol? arg)
-                    (clojure.string/includes? (str (.getMessage ex)) "universe level"))
-             (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
-                   lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
-                   [ps' ids] (reduce (fn [[p acc] _]
-                                       (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
-                                     [ps []] lparams)]
-               [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
-             (throw ex))))))
+  (let [hyp-fid (when (symbol? arg)
+                  (reduce (fn [best [id d]]
+                            (if (and (= :local (:tag d)) (= (str arg) (:name d))
+                                     (or (nil? best) (> (long id) (long best))))
+                              id best))
+                          nil lctx))]
+    (if hyp-fid
+      [ps (e/fvar hyp-fid)]
+      (let [arg' (if (symbol? arg) (symbol (str "@" arg)) arg)]
+        (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
+             (catch Throwable ex
+               (if (and (symbol? arg)
+                        (clojure.string/includes? (str (.getMessage ex)) "universe level"))
+                 (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
+                       lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+                       [ps' ids] (reduce (fn [[p acc] _]
+                                           (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                                         [ps []] lparams)]
+                   [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
+                 (throw ex))))))))
 
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
