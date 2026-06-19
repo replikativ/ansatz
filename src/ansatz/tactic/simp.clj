@@ -1878,19 +1878,49 @@
                      (re-find #"\.match_\d+$" (name/->string (e/const-name head))))
             (let [dconf (assoc config :max-depth (min 8 (or (:max-depth config) 8))
                                :cache (atom {}) :max-steps (atom 0))
-                  changed (volatile! false)
-                  simped (mapv (fn [arg]
-                                 (if (e/lam? arg)
-                                   arg
-                                   (let [r (try (simp-expr* st env lemma-index arg dconf)
-                                                (catch Exception _ nil))]
-                                     (if (and r (nil? (:proof? r))
-                                              (not (identical? (:expr r) arg)))
-                                       (do (vreset! changed true) (:expr r))
-                                       arg))))
-                               args)]
-              (when @changed
-                (mk-result (apply e/app* head simped)))))))
+                  ;; Simp each non-lambda arg (the discriminants); motive/alternatives are lambdas → rfl.
+                  ;; Keep the FULL result (it may carry a propositional proof, e.g. a `beq … = false`
+                  ;; rewrite using a hypothesis), not just the def-eq cases.
+                  results (mapv (fn [arg]
+                                  (if (e/lam? arg)
+                                    (mk-result arg)
+                                    (or (try (simp-expr* st env lemma-index arg dconf)
+                                             (catch Exception _ nil))
+                                        (mk-result arg))))
+                                args)
+                  changed? (some (fn [[a r]] (not (identical? (:expr r) a)))
+                                 (map vector args results))]
+              (when changed?
+                ;; If every discriminant change is DEFINITIONAL (nil proof) we can rebuild the matcher
+                ;; with no proof (cheap path, also lets reduceRecMatcher? reduce when a discriminant
+                ;; became a constructor by reduction). If a change carries a PROOF, build the
+                ;; app-congruence faithfully — Lean's generic congruence over the matcher application
+                ;; simplifies the discriminants WITH a proof (our CongrArgKind marks them :fixed, so the
+                ;; normal congruence skips them, hence we do it here), after which reduceRecMatcher? iota-
+                ;; reduces on the next pass. Fold mk-congr over the args; verify the proof type-checks
+                ;; (congrArg is ill-typed for a dependent motive), else fall back to the def-eq commit.
+                ;; def-eq-only commit: keep the simplified expr ONLY for discriminants whose change was
+                ;; definitional (nil proof); revert propositional changes to the original arg (committing
+                ;; a propositional change with a nil/rfl proof would be unsound).
+                (let [deq-only (mk-result (apply e/app* head
+                                                 (mapv (fn [a r] (if (nil? (:proof? r)) (:expr r) a))
+                                                       args results)))]
+                  (if-not (some (fn [r] (some? (:proof? r))) results)
+                    deq-only
+                    (let [[folded _]
+                          (reduce (fn [[facc orig-f] [orig-arg r]]
+                                    [(mk-congr st facc r orig-f orig-arg)
+                                     (e/app orig-f orig-arg)])
+                                  [(mk-result head) head]
+                                  (map vector args results))
+                          ok (and (:proof? folded)
+                                  (let [pt (safe-infer st (:proof? folded))
+                                        ptw (when pt (safe-whnf st pt))
+                                        [h as] (when ptw (e/get-app-fn-args ptw))]
+                                    (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
+                                         (try (tc/is-def-eq st (nth as 1) expr)
+                                              (catch Exception _ false)))))]
+                      (if ok folded deq-only)))))))))
       (try-ground-eval st (:env st) expr)
       (try-simp-using-decide st expr config)
       ;; User-registered simprocs: dynamic var + persistent registry
