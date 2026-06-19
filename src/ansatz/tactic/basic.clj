@@ -46,6 +46,39 @@
                 t)))
           expr mvar-ids))
 
+(defn- collect-fvar-ids
+  "Every fvar id occurring in `e`. Used to find the proof mvars (fvar-encoded) that a goal type
+   mentions — Lean's `getMVars`."
+  [e]
+  (let [acc (java.util.HashSet.)]
+    (letfn [(go [e]
+              (when (e/has-fvar-flag e)
+                (case (e/tag e)
+                  :fvar   (.add acc (e/fvar-id e))
+                  :app    (do (go (e/app-fn e)) (go (e/app-arg e)))
+                  :lam    (do (go (e/lam-type e)) (go (e/lam-body e)))
+                  :forall (do (go (e/forall-type e)) (go (e/forall-body e)))
+                  :let    (do (go (e/let-type e)) (go (e/let-value e)) (go (e/let-body e)))
+                  :proj   (go (e/proj-struct e))
+                  :mdata  (go (e/mdata-expr e))
+                  nil)))]
+      (go e))
+    (set acc)))
+
+(defn- goal-mvar-ids
+  "The UNSOLVED proof mvars (fvar-encoded) that occur in `goal`'s type, excluding the goal itself and
+   this apply's own arg-mvars. These are the metavars SHARED with sibling goals (e.g. the middle term
+   `?m` minted by `apply List.Perm.trans`). Lean's apply/isDefEq runs in one MetavarContext where such
+   shared mvars are assignable; we make Strategy C assignable over them and persist the solutions into
+   the shared `:mctx` so sibling goals see them."
+  [ps goal arg-mvar-set]
+  (vec (filter (fn [id]
+                 (and (not= id (:id goal))
+                      (not (contains? arg-mvar-set id))
+                      (let [m (get-in ps [:mctx id])]
+                        (and m (not (:assignment m))))))
+               (collect-fvar-ids (:type goal)))))
+
 (defn- normalize-for-match
   "Recursively normalize an expression enough for tactic-side matching.
    Unlike plain WHNF, this also reduces inside the application spine so
@@ -397,6 +430,10 @@
               ;; Level-mvar solutions from the meta-isDefEq fallback (Strategy C) land here; the proof
               ;; `:head` is zonked with it so the trusted kernel never sees a Level.mvar.
               umctx (atom {})
+              ;; Sibling-shared mvars occurring in the goal (e.g. the `trans` middle term). Lean's
+              ;; apply isDefEq runs in ONE MetavarContext and may assign these; we mirror that by
+              ;; seeding Strategy C over them and persisting the solutions into the shared `:mctx`.
+              gmvars (goal-mvar-ids ps goal mvar-id-set)
               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
               resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)
               goal-norm (normalize-for-match ps (:lctx goal) (:type goal))
@@ -468,8 +505,10 @@
                         (try
                           (reset! umctx (into {} (map (fn [mid] [mid {:type (get-in ps [:mctx mid :type])
                                                                       :solution nil}])
-                                                      arg-mvars)))
+                                                      (concat arg-mvars gmvars))))
                           (when (u/is-def-eq! st umctx resolved-ty (:type goal))
+                            ;; subst returns only arg-mvar solutions (assigned below as usual); the
+                            ;; sibling-shared `gmvars` solutions are persisted to `:mctx` after.
                             (into {} (keep (fn [mid]
                                              (when-let [s (get-in @umctx [mid :solution])]
                                                [mid (u/zonk umctx s)]))
@@ -512,7 +551,28 @@
                                                   new-type)]
                                    (assoc-in ps [:mctx mvar-id :type] new-type))))
                              ps arg-mvars)
-                     ps)]
+                     ps)
+                ;; Persist sibling-shared mvar solutions (the `trans` middle term etc.) into the SHARED
+                ;; `:mctx` — Lean's apply assigns these in the one MetavarContext, and assign-mvar then
+                ;; propagates each CONCRETE value into the remaining goals (proof.clj), so a sibling like
+                ;; `?m ~ c` becomes `b ~ c` once `?m := b` is solved while closing `a ~ ?m`. Only persist
+                ;; fully-concrete solutions (no unsolved proof-mvar left), matching Lean's deferral of
+                ;; not-yet-determined mvars; the kernel check therefore never sees a metavar.
+                ps (reduce (fn [ps mid]
+                             (if (proof/mvar-assigned? ps mid)
+                               ps
+                               (if-let [s (get-in @umctx [mid :solution])]
+                                 (let [v (u/zonk umctx s)
+                                       v (if has-level-sols? (u/zonk-levels-in-expr umctx v) v)
+                                       concrete? (every? (fn [fid]
+                                                           (let [m (get-in ps [:mctx fid])]
+                                                             (or (nil? m) (:assignment m))))
+                                                         (collect-fvar-ids v))]
+                                   (if concrete?
+                                     (proof/assign-mvar ps mid {:kind :exact :term v})
+                                     ps))
+                                 ps)))
+                           ps gmvars)]
             (let [;; Zonk any level-mvars solved by Strategy C into the head (no-op when umctx has no
                   ;; level solutions) — the trusted kernel check must see a concrete-level head.
                   head-term (if (seq (get @umctx :levels)) (u/zonk-levels-in-expr umctx term) term)
