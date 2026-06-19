@@ -70,3 +70,10 @@
       (is (has? "sum_filter_map") "∑ (map h (filter p ys)) = ∑ (map (λy. if p y then h y else 0) ys)")
       (is (verifies? "sum_filter_map")
           "the law kernel-checks (check-constant, authoritative)"))))
+
+(deftest wsum-reverse-law
+  (when @full
+    (testing "∑ is order-insensitive over a commutative monoid (the Map.join bucket-reverse bridge)"
+      (is (has? "wsum_reverse") "∑ (reverse l) = ∑ l")
+      (is (verifies? "wsum_reverse")
+          "the law kernel-checks (check-constant, authoritative)"))))

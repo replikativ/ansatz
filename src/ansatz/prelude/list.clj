@@ -122,6 +122,21 @@
                                      (WAddMonoid.zero_add m)]))
                (all_goals (try (rw (WAddMonoid.add_assoc m head (wsum m tail) (wsum m l2)))))))
       (catch Throwable _ nil)))
+  ;; ∑ (reverse l) = ∑ l over a COMMUTATIVE monoid — the big-operator is order-insensitive. The bridge
+  ;; that lets the aggregate frame laws apply to a REAL `Map.join`: its group_by buckets are built by
+  ;; `foldl (· :: ·) []` (= reverse of the filtered rows, per `Map.bucket_content`), so as lists the
+  ;; join differs from the clean filter-flatMap form by that bucket reversal — but the SUM washes it out.
+  ;; cons case = reverse_cons → wsum_append → ih → one `comm` swap. (After wsum_append; needs it.)
+  (when-not (has? "wsum_reverse")
+    (try
+      (eval '(ansatz.core/theorem wsum_reverse
+               [S :- Type, m :- (WAddMonoid S), hc :- (Std.Commutative S (WAddMonoid.add m)), l :- (List S)]
+               (= S (wsum m (List.reverse S l)) (wsum m l))
+               (induction l)
+               (all_goals (simp_all [List.reverse_cons List.reverse_nil wsum.eq_1 wsum.eq_2 wsum_append
+                                     (WAddMonoid.zero_add m) (WAddMonoid.add_zero m)]))
+               (all_goals (try (rw (Std.Commutative.comm S (WAddMonoid.add m) hc head (wsum m tail)))))))
+      (catch Throwable _ nil)))
   ;; ∑ (flatMap f l) = ∑ (map (fun x => ∑ (f x)) l) — the sum distributes over flatMap (lean-wandler's
   ;; `sum_flatMap`). cons case folds via `wsum_append` on the flatMap_cons append. The bridge from a
   ;; join (a flatMap) to its per-row aggregate — the core of `aggJoin_split`.
