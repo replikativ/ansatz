@@ -13,6 +13,10 @@
 (defn level-max [^Level l1 ^Level l2] (Level/max l1 l2))
 (defn imax [^Level l1 ^Level l2] (Level/imax l1 l2))
 (defn param [name] (Level/param name))
+;; Universe-level metavariable (Lean's Level.mvar). META-layer only: assignable during tactic/
+;; elaborator isDefEq, never seen by the trusted kernel check (zonk to concrete first). Mirrors
+;; (e/mvar id) for exprs. See [[level-mvar-gap-and-fix]].
+(defn mvar [^long id] (Level/mvar id))
 
 (defn tag [^Level l]
   (case (.tag l)
@@ -20,13 +24,18 @@
     1 :succ
     2 :max
     3 :imax
-    4 :param))
+    4 :param
+    5 :mvar))
 
 (defn level-zero? [^Level l] (= Level/ZERO (.tag l)))
 (defn succ? [^Level l] (= Level/SUCC (.tag l)))
 (defn max? [^Level l] (= Level/MAX (.tag l)))
 (defn imax? [^Level l] (= Level/IMAX (.tag l)))
 (defn param? [^Level l] (= Level/PARAM (.tag l)))
+(defn mvar? [^Level l] (= Level/MVAR (.tag l)))
+(defn mvar-id ^long [^Level l] (.mvarId l))
+(defn has-mvar? [^Level l] (Level/hasMVar l))
+(defn occurs? "Does level-mvar `id` occur in `l`?" [^long id ^Level l] (Level/occurs id l))
 
 (defn succ-pred ^Level [^Level l] (.succPred l))
 (defn max-lhs ^Level [^Level l] (.maxLhs l))

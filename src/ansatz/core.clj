@@ -791,7 +791,22 @@
    'grind     (fn [ps args]
                 (let [f (requiring-resolve 'ansatz.tactic.grind/grind)]
                   (f ps (vec (map str args)))))
-   'solve_by_elim (fn [ps _args] (basic/solve-by-elim ps))
+   'solve_by_elim (fn [ps args]
+                    ;; Lean 4 `solve_by_elim [lemmas]`: backtracking apply over the hypotheses PLUS
+                    ;; the given lemma set. We resolve each lemma arg to a TERM the way `apply` does
+                    ;; (bare symbol → `@`-explicit elaboration; compound form → elaborate in context),
+                    ;; then hand the term vector to basic/solve-by-elim as extra apply-candidates.
+                    ;; Closes e.g. the `induction h` (List.Perm) cases by applying the Perm
+                    ;; constructors (nil/cons/swap/trans) + assumption on the IHs.
+                    (let [g (proof/current-goal ps)
+                          flat (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
+                          lemmas (mapv (fn [a]
+                                         (let [a' (if (symbol? a) (symbol (str "@" a)) a)]
+                                           (elab/elaborate-in-context (:env ps) (:lctx g) a')))
+                                       flat)]
+                      (if (seq lemmas)
+                        (basic/solve-by-elim ps 6 lemmas)
+                        (basic/solve-by-elim ps))))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
    'split     (fn [ps _args] (basic/split-tac ps))
    'revert    (fn [ps args]

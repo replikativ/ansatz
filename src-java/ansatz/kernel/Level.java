@@ -19,6 +19,12 @@ public final class Level {
     public static final byte MAX = 2;
     public static final byte IMAX = 3;
     public static final byte PARAM = 4;
+    /** Universe-level metavariable (Lean's Level.mvar, src/Lean/Level.lean:95). A META-layer concept:
+     *  assignable during the tactic/elaborator isDefEq, NEVER seen by the trusted kernel check (final
+     *  terms must be zonked to concrete levels first — like Lean's kernel, which rejects mvars). It is
+     *  an opaque atom for the level ALGEBRA (leq/simplify/toNat treat it like a rigid unknown ≈ PARAM);
+     *  only equality compares its id. Stored as a `long` id in o0 (mirrors Expr.mvar). */
+    public static final byte MVAR = 5;
 
     public final byte tag;
     public final int hash;
@@ -100,6 +106,12 @@ public final class Level {
         return new Level(PARAM, h, name, null);
     }
 
+    /** Fresh universe-level metavariable with the given id (mirrors Expr.mvar(long)). */
+    public static Level mvar(long id) {
+        int h = Long.hashCode(id) * 31 + MVAR;
+        return new Level(MVAR, h, Long.valueOf(id), null);
+    }
+
     // --- Accessors ---
 
     public Level succPred() { return (Level) o0; }
@@ -108,6 +120,31 @@ public final class Level {
     public Level imaxLhs() { return (Level) o0; }
     public Level imaxRhs() { return (Level) o1; }
     public Object paramName() { return o0; }
+    public long mvarId() { return ((Long) o0).longValue(); }
+    public boolean isMVar() { return tag == MVAR; }
+
+    /** Does level `l` contain ANY metavariable? (Lean's Level.hasMVar / data.hasMVar.) */
+    public static boolean hasMVar(Level l) {
+        switch (l.tag) {
+            case MVAR: return true;
+            case SUCC: return hasMVar(l.succPred());
+            case MAX:  return hasMVar(l.maxLhs()) || hasMVar(l.maxRhs());
+            case IMAX: return hasMVar(l.imaxLhs()) || hasMVar(l.imaxRhs());
+            default:   return false;  // ZERO, PARAM
+        }
+    }
+
+    /** Does the metavariable `mvarId` occur in `l`? (occurs-check for level-mvar assignment;
+     *  Lean LevelDefEq.lean:100-102.) */
+    public static boolean occurs(long mvarId, Level l) {
+        switch (l.tag) {
+            case MVAR: return ((Long) l.o0).longValue() == mvarId;
+            case SUCC: return occurs(mvarId, l.succPred());
+            case MAX:  return occurs(mvarId, l.maxLhs()) || occurs(mvarId, l.maxRhs());
+            case IMAX: return occurs(mvarId, l.imaxLhs()) || occurs(mvarId, l.imaxRhs());
+            default:   return false;
+        }
+    }
 
     // --- Predicates ---
 
@@ -555,6 +592,7 @@ public final class Level {
             case MAX: return o0.equals(o.o0) && o1.equals(o.o1);
             case IMAX: return o0.equals(o.o0) && o1.equals(o.o1);
             case PARAM: return o0.equals(o.o0);
+            case MVAR: return o0.equals(o.o0);
             default: return false;
         }
     }
@@ -575,6 +613,7 @@ public final class Level {
             case MAX: return "(max " + o0 + " " + o1 + ")";
             case IMAX: return "(imax " + o0 + " " + o1 + ")";
             case PARAM: return o0.toString();
+            case MVAR: return "?lm" + o0;
             default: return "?level";
         }
     }
