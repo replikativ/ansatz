@@ -231,9 +231,21 @@ PARALLEL-FOLD LICENCE — `foldl_hom` (`ys.foldl op a = op a (ys.foldl op e)`, i
 is the proof lean-reducers omits — the associativity proof IS the fork-join certificate. Plus
 `split_certificate` (the licence CONSUMED: fold halves at any split + combine = sequential fold; thin,
 `rw <- foldl_split` + `take_append_drop`). monoid_test green; full wandler suite 350/1588/0.
-**ANSATZ GAP FOUND:** `a/defn` structural recursion rejects a recursive call that TRANSFORMS a
-non-measured arg (`parFold m d (xs.take n)` → macroexpand error; unchanged arg works) — so
-lean-wandler's recursive depth-bounded `parFold` + `parFold_eq` + @[csimp] Task lowering are DEFERRED to
-the runtime phase + that macro fix (or a WF-recursion / term-build path). **REMAINING Phase 2:** Reducer
-(CPS fusion = rfl, from reducers.clj), Lower (`define-csimp` certify→swap — HAVE), Par/ParArray (needs
-the structural-rec gap fixed). Then Phase 3 (data + fusion laws).
+**ANSATZ GAP FIXED (e3ffaf5):** `a/defn` structural recursion now supports a recursive call that
+TRANSFORMS a carried arg — `replace-self-ih` accepts the param-prefix self-call PLUS extra trailing args
+(the extras applied to the field's IH = Lean's `brecOn` function-valued-motive encoding). The recursion
+rides the motive, not a fixed param; sound because a non-function motive makes `(IH extra)` ill-typed →
+`check-constant` rejects. Faithful at the ENCODING level (curried surface = Lean's exact term); full
+SURFACE parity (uncurried auto-generalization) is a further `compile-match-term` change, deferred.
+**Phase 2 — Par DONE.** `wandler.clean.core.par`: `parFold {S} m depth : List S → S` (curried
+divide-and-conquer, recursion transforms the carried list) + `parFold_eq` (parallel ≡ sequential, by
+proof, consuming `split_certificate`), both kernel-verified. Suite 351/1591/0. REMAINING Phase 2 =
+Reducer (CPS fusion = rfl) / Lower (HAVE) / the @[csimp] Task lowering (runtime phase).
+
+**Phase 3 — fusion satisfied; data/certify deferred-clean.** The deforestation laws (`map_map`,
+`filter_filter`, `foldl_map`, `map_flatMap`/`flatMap_map`, `filterMap_eq_map`/`filterMap_filter`) are
+FREE from Init — `wandler.clean.laws.fusion` CITES + fail-fast-GATES them (no re-proof); fusion_test
+green. The owned single-pass `map∘filter→filterMap` is an OPTIMIZER codegen rewrite (Phase 5), built from
+the two filterMap Init laws. Data (`kmap`) = copy-clean, deferred to cutover (it's already clean + the
+aggregate relational core doesn't need it as a LAW). certify/lower seam = HAVE. **NEXT substantial work:
+Phase 5 (optimizer) / Phase 6 (surface)** — port against the differential harness.
