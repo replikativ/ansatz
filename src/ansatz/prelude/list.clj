@@ -147,6 +147,28 @@
                (all_goals (simp_all [List.flatten_cons List.flatten_nil List.map_cons List.map_nil
                                      wsum.eq_1 wsum.eq_2 wsum_append]))))
       (catch Throwable _ nil)))
+  ;; sum_filter_map — filter folds into a guarded sum (lean-wandler Laws/Frame.lean `sum_filter_map`):
+  ;;   ∑ (map h (filter p ys)) = ∑ (map (fun y => if p y then h y else 0) ys).
+  ;; The bridge that lets the join's `filter` become a `guard`, so Fubini (`wsum_map_sum_comm`) can
+  ;; swap the two summation orders in `aggJoin_reorder`. Proof mirrors Lean's `cases hp : p y <;>
+  ;; simp [hp, ih]` exactly: induct, expose the `filter_cons`/`map_cons` `ite`, then the faithful
+  ;; substituting `cases hp (p head)` puts the literal `true`/`false` into the discriminant (incl. the
+  ;; Decidable instance) so simp's reduceIte collapses both the LHS filter-ite and the RHS Bool.rec guard.
+  (when-not (has? "sum_filter_map")
+    (try
+      (eval '(ansatz.core/theorem sum_filter_map
+               [Y :- Type, S :- Type, m :- (WAddMonoid S),
+                p :- (=> Y Bool), h :- (=> Y S), ys :- (List Y)]
+               (= S
+                  (wsum m (List.map Y S h (List.filter Y p ys)))
+                  (wsum m (List.map Y S (fn [y :- Y] (if (p y) (h y) (WAddMonoid.zero m))) ys)))
+               (induction ys)
+               (all_goals (simp [List.filter_cons List.filter_nil List.map_cons List.map_nil
+                                 wsum.eq_1 wsum.eq_2]))
+               (all_goals (try (cases hp (p head))))
+               (all_goals (try (simp_all [hp List.map_cons wsum.eq_1 wsum.eq_2
+                                          (WAddMonoid.zero_add m)])))))
+      (catch Throwable _ nil)))
   ;; aggJoin_split — THE FAQ factorization (lean-wandler Laws/Frame.lean `aggJoin_split`): the aggregate
   ;; of a join is the per-left-row sum over that row's matching bucket — i.e. O(|xs|·|ys|) → O(|xs|+|ys|)
   ;; via a pre-aggregated index. Join inlined (flatMap x → map (x,·) over the filtered ys); aggregated by
@@ -167,5 +189,35 @@
                             (wsum m (List.map Y S (fn [y :- Y] (f x y))
                                       (List.filter Y (p x) ys)))) xs)))
                (simp [List.map_flatMap List.map_map wsum_flatten Function.comp_def])))
+      (catch Throwable _ nil)))
+  ;; aggJoin_reorder — THE JOIN-COMMUTATIVITY CAPSTONE, aggregate form (lean-wandler Laws/Frame.lean
+  ;; `aggJoin_reorder`): the aggregate of an equi-join is invariant under swapping the two inputs, so the
+  ;; planner may build the index on whichever side is smaller. Proved ENTIRELY at the sum level — NO
+  ;; `List.Perm` — via the recipe: factor both join orders (`aggJoin_split`), turn each filter into a guard
+  ;; (`sum_filter_map`), then swap the two summation orders by Fubini (`wsum_map_sum_comm`); the swapped
+  ;; predicate `(fun y x => p x y)` makes the two guarded double-sums literally identical (no `eq_comm`
+  ;; needed in the abstract-predicate form). This is the verified Fubini that RETIRES the List.Perm cluster.
+  (when-not (has? "aggJoin_reorder")
+    (try
+      (eval '(ansatz.core/theorem aggJoin_reorder
+               [X :- Type, Y :- Type, S :- Type, m :- (WAddMonoid S),
+                hc :- (Std.Commutative S (WAddMonoid.add m)),
+                p :- (=> X (=> Y Bool)), f :- (=> X (=> Y S)),
+                xs :- (List X), ys :- (List Y)]
+               (= S
+                  (wsum m (List.map (Prod X Y) S (fn [pr :- (Prod X Y)] (f (Prod.fst pr) (Prod.snd pr)))
+                            (List.flatMap X (Prod X Y)
+                              (fn [x :- X] (List.map Y (Prod X Y) (fn [y :- Y] (Prod.mk x y))
+                                            (List.filter Y (p x) ys))) xs)))
+                  (wsum m (List.map (Prod Y X) S (fn [pr :- (Prod Y X)] (f (Prod.snd pr) (Prod.fst pr)))
+                            (List.flatMap Y (Prod Y X)
+                              (fn [y :- Y] (List.map X (Prod Y X) (fn [x :- X] (Prod.mk y x))
+                                            (List.filter X (fn [x :- X] (p x y)) xs))) ys))))
+               (rw (aggJoin_split X Y S m p f xs ys))
+               (rw (aggJoin_split Y X S m (fn [y :- Y] (fn [x :- X] (p x y)))
+                                 (fn [y :- Y] (fn [x :- X] (f x y))) ys xs))
+               (simp [sum_filter_map])
+               (rw (wsum_map_sum_comm X Y S m hc
+                     (fn [x :- X] (fn [y :- Y] (if (p x y) (f x y) (WAddMonoid.zero m)))) xs ys))))
       (catch Throwable _ nil)))
   :installed)

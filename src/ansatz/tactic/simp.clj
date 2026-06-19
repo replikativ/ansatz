@@ -81,6 +81,8 @@
 (def ^:private eq-false-of-decide-name (name/from-string "eq_false_of_decide"))
 (def ^:private decidable-decide-name (name/from-string "Decidable.decide"))
 (def ^:private decidable-name (name/from-string "Decidable"))
+(def ^:private decidable-istrue-name (name/from-string "Decidable.isTrue"))
+(def ^:private decidable-isfalse-name (name/from-string "Decidable.isFalse"))
 (def ^:private bool-name (name/from-string "Bool"))
 
 ;; ============================================================
@@ -1372,7 +1374,17 @@
               (mk-result (nth args 3))  ;; return 'a' (then-branch)
               (and (e/const? cond-whnf) (= (e/const-name cond-whnf) false-name))
               (mk-result (nth args 4))  ;; return 'b' (else-branch)
-              :else nil))
+              :else
+              ;; Faithful Lean reduceIte: the proposition need not reduce to the literal
+              ;; `True`/`False` constant (e.g. `Eq Bool true true` is propositionally, not
+              ;; definitionally, True). Lean whnfs the *Decidable instance* instead and
+              ;; matches `Decidable.isTrue`/`Decidable.isFalse`.
+              (let [[ih _] (e/get-app-fn-args (#'tc/cached-whnf st (nth args 2)))]
+                (when (e/const? ih)
+                  (condp = (e/const-name ih)
+                    decidable-istrue-name (mk-result (nth args 3))
+                    decidable-isfalse-name (mk-result (nth args 4))
+                    nil)))))
 
           ;; dite : 5 args (α, p, inst, a : p → α, b : ¬p → α)
           (and (= hname dite-name) (= 5 (count args)))
@@ -1386,7 +1398,14 @@
               ;; For False case: b takes ¬False which is True → False → something
               ;; This is complex; for now rely on WHNF
               nil
-              :else nil))
+              :else
+              ;; Whnf the Decidable instance (as for ite); isTrue h → a h, isFalse h → b h.
+              (let [[ih iargs] (e/get-app-fn-args (#'tc/cached-whnf st (nth args 2)))]
+                (when (e/const? ih)
+                  (condp = (e/const-name ih)
+                    decidable-istrue-name  (mk-result (e/app (nth args 3) (last iargs)))
+                    decidable-isfalse-name (mk-result (e/app (nth args 4) (last iargs)))
+                    nil)))))
 
           :else nil)))))
 

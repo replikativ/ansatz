@@ -763,13 +763,22 @@
                 (let [ps' (do-rewrite ps args)]
                   (try (basic/rfl ps') (catch Throwable _ ps'))))
    'cases     (fn [ps args]
-                (let [nm (str (first args))
-                      fid (reduce (fn [best [id d]]
-                                    (if (and (= nm (:name d))
-                                             (or (nil? best) (> (long id) (long best))))
-                                      id best))
-                                  nil (:lctx (proof/current-goal ps)))]
-                  (basic/cases ps fid)))
+                ;; (cases h)      — case-split on hypothesis `h` (by name)
+                ;; (cases hp e)   — faithful `cases hp : e`: substitute Bool discriminant `e`,
+                ;;                  adding `hp : e = true/false` per branch (Lean's idiom)
+                (let [rest-args (rest args)]
+                  (if (seq rest-args)
+                    (let [hname (str (first args))
+                          g (proof/current-goal ps)
+                          cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
+                      (basic/cases-eq ps cond-expr hname))
+                    (let [nm (str (first args))
+                          fid (reduce (fn [best [id d]]
+                                        (if (and (= nm (:name d))
+                                                 (or (nil? best) (> (long id) (long best))))
+                                          id best))
+                                      nil (:lctx (proof/current-goal ps)))]
+                      (basic/cases ps fid)))))
    'induction (fn [ps args]
                 ;; (induction x) or (induction x generalizing acc …) — Lean's `generalizing`:
                 ;; revert the named hyps INTO the goal first (so the induction motive becomes

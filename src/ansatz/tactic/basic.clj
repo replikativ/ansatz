@@ -2247,6 +2247,96 @@
                             :true-goal true-goal-id})
         (proof/record-tactic :by-cases [cond-expr] (:id goal)))))
 
+(defn cases-eq
+  "Faithful `cases h : e` for a Bool discriminant — Lean's substituting case split.
+
+   Unlike `by-cases` (which leaves the goal verbatim and only adds `h : e = b`),
+   this GENERALIZES the discriminant `e` out of the goal (kabstract, under binders),
+   so each branch carries the LITERAL `true`/`false` in `e`'s positions. Stuck
+   `ite`/`cond`/`Bool.rec` on `e` then iota-reduce in that branch. Matches Lean's
+   `Meta.Tactic.Generalize` + `cases` pipeline (the `cases hp : q y <;> simp [hp]` idiom).
+
+   Produces:
+     Goal 1: h : Eq Bool e true  ⊢ Goal[e := true]
+     Goal 2: h : Eq Bool e false ⊢ Goal[e := false]"
+  [ps cond-expr hname]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        st (mk-tc ps (:lctx goal))
+        cond-type (tc/infer-type st cond-expr)
+        cond-type-whnf (whnf-in-goal ps (:lctx goal) cond-type)
+        _ (when-not (and (e/const? cond-type-whnf)
+                         (= (name/->string (e/const-name cond-type-whnf)) "Bool"))
+            (tactic-error! "cases-eq: expression is not Bool"
+                           {:type cond-type :expr cond-expr}))
+        bool-type (e/const' (name/from-string "Bool") [])
+        bool-true (e/const' (name/from-string "Bool.true") [])
+        bool-false (e/const' (name/from-string "Bool.false") [])
+        eq-type (fn [val] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                  bool-type cond-expr val))
+        ;; --- kabstract: replace occurrences of cond-expr in the goal with a fresh fvar,
+        ;; descending under binders (mirrors the rewrite tactic, basic.clj ~719). ---
+        [ps' abs-fvar-id] (proof/alloc-id ps)
+        abs-fvar (e/fvar abs-fvar-id)
+        goal-replaced (let [_ (swap! (:next-id st) (fn [v] (max v (inc abs-fvar-id))))
+                            open-binder
+                            (fn [replace-in st nm dom body mk]
+                              (let [d (replace-in st dom)
+                                    fid (swap! (:next-id st) inc)
+                                    st' (update st :lctx red/lctx-add-local fid nm dom)
+                                    b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
+                                (mk d (e/abstract1 b fid))))
+                            replace-in
+                            (fn replace-in [st expr]
+                              (if (try (tc/is-def-eq st expr cond-expr) (catch Exception _ false))
+                                abs-fvar
+                                (case (e/tag expr)
+                                  :app (let [f (replace-in st (e/app-fn expr))
+                                             a (replace-in st (e/app-arg expr))]
+                                         (if (and (identical? f (e/app-fn expr))
+                                                  (identical? a (e/app-arg expr)))
+                                           expr
+                                           (e/app f a)))
+                                  :lam (open-binder replace-in st (e/lam-name expr)
+                                                    (e/lam-type expr) (e/lam-body expr)
+                                                    (fn [d b] (e/lam (e/lam-name expr) d b (e/lam-info expr))))
+                                  :forall (open-binder replace-in st (e/forall-name expr)
+                                                       (e/forall-type expr) (e/forall-body expr)
+                                                       (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
+                                  expr)))]
+                        (replace-in st (:type goal)))
+        ;; Goal[e := val] by re-substituting the abstracted fvar
+        subst (fn [val] (e/instantiate1 (e/abstract1 goal-replaced abs-fvar-id) val))
+        goal-true (subst bool-true)
+        goal-false (subst bool-false)
+        ;; Substituted branch goals + the named equality hypothesis
+        [ps' h-false-id] (proof/alloc-id ps')
+        lctx-false (red/lctx-add-local (:lctx goal) h-false-id hname (eq-type bool-false))
+        [ps' false-goal-id] (proof/fresh-mvar-replacing ps' goal-false lctx-false (:id goal))
+        [ps' h-true-id] (proof/alloc-id ps')
+        lctx-true (red/lctx-add-local (:lctx goal) h-true-id hname (eq-type bool-true))
+        [ps' true-goal-id] (proof/fresh-mvar-replacing ps' goal-true lctx-true (:id goal))
+        goal-sort (tc/infer-type st (:type goal))
+        goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
+        motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
+        ;; motive: λ (b : Bool), Eq Bool e b → Goal[e := b]  (abstracted over the fvar)
+        motive (e/lam "b" bool-type
+                      (e/abstract1 (e/arrow (eq-type abs-fvar) goal-replaced) abs-fvar-id)
+                      :default)
+        rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                          bool-type cond-expr)]
+    (-> (proof/assign-mvar ps' (:id goal)
+                           {:kind :by-cases
+                            :cond cond-expr
+                            :motive motive
+                            :motive-level motive-level
+                            :rfl-proof rfl-proof
+                            :h-false-id h-false-id
+                            :h-true-id h-true-id
+                            :false-goal false-goal-id
+                            :true-goal true-goal-id})
+        (proof/record-tactic :cases-eq [cond-expr] (:id goal)))))
+
 ;; ============================================================
 ;; split_ifs — automatic case split on stuck Bool.rec
 ;; ============================================================
