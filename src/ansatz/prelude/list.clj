@@ -122,6 +122,23 @@
                                      (WAddMonoid.zero_add m)]))
                (all_goals (try (rw (WAddMonoid.add_assoc m head (wsum m tail) (wsum m l2)))))))
       (catch Throwable _ nil)))
+  ;; foldl (· :: ·) acc l = (reverse l) ++ acc — the accumulator-generalized reverse identity. A REAL
+  ;; `Map.join` builds its group_by buckets by `foldl (· :: ·) []` (the matched rows in reverse); this
+  ;; is what exposes that bucket as a `reverse`, so `wsum_reverse` can wash the order out. Proven thin by
+  ;; `induction l generalizing acc` (the accumulator must vary in the IH) + simp [append_eq/assoc/cons].
+  ;; NOTE List.foldl is {α=acc β=elem}: f : α → β → α, so the type args are (List A) A — NOT A (List A).
+  (when-not (has? "foldl_cons_acc")
+    (try
+      (eval '(ansatz.core/theorem foldl_cons_acc
+               [A :- Type, l :- (List A), acc :- (List A)]
+               (= (List A)
+                  (List.foldl (List A) A (fn [a :- (List A) y :- A] (List.cons A y a)) acc l)
+                  (List.append A (List.reverse A l) acc))
+               (induction l generalizing acc)
+               (all_goals (simp_all [List.foldl_nil List.foldl_cons List.reverse_nil List.reverse_cons
+                                     List.append_eq List.nil_append List.append_assoc List.cons_append
+                                     List.singleton_append List.append_nil]))))
+      (catch Throwable _ nil)))
   ;; ∑ (reverse l) = ∑ l over a COMMUTATIVE monoid — the big-operator is order-insensitive. The bridge
   ;; that lets the aggregate frame laws apply to a REAL `Map.join`: its group_by buckets are built by
   ;; `foldl (· :: ·) []` (= reverse of the filtered rows, per `Map.bucket_content`), so as lists the

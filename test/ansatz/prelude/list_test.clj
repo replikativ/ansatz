@@ -77,3 +77,11 @@
       (is (has? "wsum_reverse") "∑ (reverse l) = ∑ l")
       (is (verifies? "wsum_reverse")
           "the law kernel-checks (check-constant, authoritative)"))))
+
+(deftest foldl-cons-acc-law
+  (when @full
+    (testing "foldl(· :: ·) acc l = reverse l ++ acc — exposes Map.join's foldl-built bucket as reverse"
+      ;; Accumulator-generalized (induction l generalizing acc): the IH must range over acc.
+      (is (has? "foldl_cons_acc") "foldl (· :: ·) acc l = (reverse l) ++ acc")
+      (is (verifies? "foldl_cons_acc")
+          "the law kernel-checks (check-constant, authoritative)"))))
