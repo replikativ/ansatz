@@ -169,55 +169,9 @@
                (all_goals (try (simp_all [hp List.map_cons wsum.eq_1 wsum.eq_2
                                           (WAddMonoid.zero_add m)])))))
       (catch Throwable _ nil)))
-  ;; aggJoin_split — THE FAQ factorization (lean-wandler Laws/Frame.lean `aggJoin_split`): the aggregate
-  ;; of a join is the per-left-row sum over that row's matching bucket — i.e. O(|xs|·|ys|) → O(|xs|+|ys|)
-  ;; via a pre-aggregated index. Join inlined (flatMap x → map (x,·) over the filtered ys); aggregated by
-  ;; an abstract `h : (X×Y) → S`. PURE SIMP (map_flatMap → map_map → wsum_flatten → comp) — no induction,
-  ;; no case-split. The core planner win; the join-REORDER (swap sides) additionally needs a filter→guard
-  ;; lemma + Fubini. (`p : X→Y→Bool` is the match predicate; kf/lf/DecidableEq specialization later.)
-  (when-not (has? "aggJoin_split")
-    (try
-      (eval '(ansatz.core/theorem aggJoin_split
-               [X :- Type, Y :- Type, S :- Type, m :- (WAddMonoid S),
-                p :- (=> X (=> Y Bool)), f :- (=> X (=> Y S)), xs :- (List X), ys :- (List Y)]
-               (= S
-                  (wsum m (List.map (Prod X Y) S (fn [pr :- (Prod X Y)] (f (Prod.fst pr) (Prod.snd pr)))
-                            (List.flatMap X (Prod X Y)
-                              (fn [x :- X] (List.map Y (Prod X Y) (fn [y :- Y] (Prod.mk x y))
-                                            (List.filter Y (p x) ys))) xs)))
-                  (wsum m (List.map X S (fn [x :- X]
-                            (wsum m (List.map Y S (fn [y :- Y] (f x y))
-                                      (List.filter Y (p x) ys)))) xs)))
-               (simp [List.map_flatMap List.map_map wsum_flatten Function.comp_def])))
-      (catch Throwable _ nil)))
-  ;; aggJoin_reorder — THE JOIN-COMMUTATIVITY CAPSTONE, aggregate form (lean-wandler Laws/Frame.lean
-  ;; `aggJoin_reorder`): the aggregate of an equi-join is invariant under swapping the two inputs, so the
-  ;; planner may build the index on whichever side is smaller. Proved ENTIRELY at the sum level — NO
-  ;; `List.Perm` — via the recipe: factor both join orders (`aggJoin_split`), turn each filter into a guard
-  ;; (`sum_filter_map`), then swap the two summation orders by Fubini (`wsum_map_sum_comm`); the swapped
-  ;; predicate `(fun y x => p x y)` makes the two guarded double-sums literally identical (no `eq_comm`
-  ;; needed in the abstract-predicate form). This is the verified Fubini that RETIRES the List.Perm cluster.
-  (when-not (has? "aggJoin_reorder")
-    (try
-      (eval '(ansatz.core/theorem aggJoin_reorder
-               [X :- Type, Y :- Type, S :- Type, m :- (WAddMonoid S),
-                hc :- (Std.Commutative S (WAddMonoid.add m)),
-                p :- (=> X (=> Y Bool)), f :- (=> X (=> Y S)),
-                xs :- (List X), ys :- (List Y)]
-               (= S
-                  (wsum m (List.map (Prod X Y) S (fn [pr :- (Prod X Y)] (f (Prod.fst pr) (Prod.snd pr)))
-                            (List.flatMap X (Prod X Y)
-                              (fn [x :- X] (List.map Y (Prod X Y) (fn [y :- Y] (Prod.mk x y))
-                                            (List.filter Y (p x) ys))) xs)))
-                  (wsum m (List.map (Prod Y X) S (fn [pr :- (Prod Y X)] (f (Prod.snd pr) (Prod.fst pr)))
-                            (List.flatMap Y (Prod Y X)
-                              (fn [y :- Y] (List.map X (Prod Y X) (fn [x :- X] (Prod.mk y x))
-                                            (List.filter X (fn [x :- X] (p x y)) xs))) ys))))
-               (rw (aggJoin_split X Y S m p f xs ys))
-               (rw (aggJoin_split Y X S m (fn [y :- Y] (fn [x :- X] (p x y)))
-                                 (fn [y :- Y] (fn [x :- X] (f x y))) ys xs))
-               (simp [sum_filter_map])
-               (rw (wsum_map_sum_comm X Y S m hc
-                     (fn [x :- X] (fn [y :- Y] (if (p x y) (f x y) (WAddMonoid.zero m)))) xs ys))))
-      (catch Throwable _ nil)))
+  ;; NOTE: the RELATIONAL laws built on this big-operator layer — `aggJoin_split` (the FAQ factorization)
+  ;; and `aggJoin_reorder` (the join-commutativity capstone, NO List.Perm) — live in
+  ;; `wandler.clean.laws.frame`, not here. This namespace is the domain-agnostic Batteries-tier prelude
+  ;; (generic `wsum`/big-operator/`sum_filter_map` lemmas, mirroring Mathlib's `List.sum_*`); the join
+  ;; vocabulary belongs to the wandler relational showcase. frame's `install!` calls this one first.
   :installed)

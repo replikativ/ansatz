@@ -61,3 +61,12 @@
       (is (has? "wsum_map_mul_left") "∑ (b * f x) = b * ∑ f x was installed")
       (is (verifies? "wsum_map_mul_left")
           "the law kernel-checks (check-constant, authoritative)"))))
+
+(deftest sum-filter-map-law
+  (when @full
+    (testing "filter folds into a guarded sum — the bridge for join reorder (Fubini)"
+      ;; Proof mirrors lean-wandler `cases hp : p y <;> simp [hp]`, exercising the faithful
+      ;; substituting `cases hp (p head)` (split S3) + simp's instance-whnf reduceIte.
+      (is (has? "sum_filter_map") "∑ (map h (filter p ys)) = ∑ (map (λy. if p y then h y else 0) ys)")
+      (is (verifies? "sum_filter_map")
+          "the law kernel-checks (check-constant, authoritative)"))))
