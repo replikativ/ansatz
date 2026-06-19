@@ -202,6 +202,42 @@
                (all_goals (try (simp_all [hp List.map_cons wsum.eq_1 wsum.eq_2
                                           (WAddMonoid.zero_add m)])))))
       (catch Throwable _ nil)))
+  ;; ── association-list lookup foundation (for the relational Map = AList//NodupKeys) ──────────
+  ;; `lookup k (filter (·.fst ≠ k') l) = lookup k l` when `k ≠ k'` — filtering out a DIFFERENT key
+  ;; leaves k's binding untouched. The keystone under the keyed group_by-bucket bridge (Map.join's
+  ;; buckets are `foldl(::)[] (filter (kf x == lf ·))`). Replaces a ~90-LOC term-built proof
+  ;; (old wandler.laws.relational/prove-lookup-filter-ne) with the thin surface.
+  ;;
+  ;; The proof exercises two faithful-to-lean4 capabilities added for it: `dsimp` (Lean's dsimpGoal —
+  ;; fires the iota step that a simp rewrite of a `List.lookup` match scrutinee to a Bool literal leaves
+  ;; pending) and structure-`extends` parent-projection instance synthesis (so `beq_self_eq_true`'s
+  ;; `ReflBEq` discharges via DecidableEq→LawfulBEq→ReflBEq). `cases head` destructs the Prod so
+  ;; `lookup_cons` matches; the nested `by_cases` on the two beqs gives 4 cases (the impossible
+  ;; fst=k=k' one closes by the `k ≠ k'` hypothesis); simp_all⇄dsimp run to fixpoint.
+  (when-not (has? "List.lookup_filter_ne")
+    (try
+      (eval '(ansatz.core/theorem List.lookup_filter_ne
+               [α :- Type, β :- Type, dec :- (DecidableEq α), k :- α, k' :- α, l :- (List (Prod α β)),
+                hne :- (= Bool (BEq.beq α (instBEqOfDecidableEq α dec) k k') Bool.false)]
+               (= (Option β)
+                  (List.lookup α β (instBEqOfDecidableEq α dec) k
+                    (List.filter (Prod α β)
+                      (fn [p :- (Prod α β)] (Bool.not (BEq.beq α (instBEqOfDecidableEq α dec) (Prod.fst α β p) k'))) l))
+                  (List.lookup α β (instBEqOfDecidableEq α dec) k l))
+               (induction l)
+               (all_goals (try (simp_all [List.filter_nil List.lookup_nil])))
+               (cases head)
+               (all_goals (try (dsimp)))
+               (by_cases (BEq.beq α (instBEqOfDecidableEq α dec) fst k'))
+               (all_goals (try (by_cases (BEq.beq α (instBEqOfDecidableEq α dec) fst k))))
+               (all_goals (try (simp_all [List.filter_cons_of_pos List.filter_cons_of_neg List.lookup_cons List.lookup_nil List.lookup_cons_self Bool.not_true Bool.not_false beq_iff_eq beq_eq_false_iff_ne beq_self_eq_true Prod.fst])))
+               (all_goals (try (dsimp)))
+               (all_goals (try (simp_all [List.filter_cons_of_pos List.filter_cons_of_neg List.lookup_cons List.lookup_nil List.lookup_cons_self Bool.not_true Bool.not_false beq_iff_eq beq_eq_false_iff_ne beq_self_eq_true Prod.fst])))
+               (all_goals (try (dsimp)))
+               (all_goals (try (simp_all [List.filter_cons_of_pos List.filter_cons_of_neg List.lookup_cons List.lookup_nil List.lookup_cons_self Bool.not_true Bool.not_false beq_iff_eq beq_eq_false_iff_ne beq_self_eq_true Prod.fst])))
+               (all_goals (try (dsimp)))
+               (all_goals (try (simp_all [List.filter_cons_of_pos List.filter_cons_of_neg List.lookup_cons List.lookup_nil List.lookup_cons_self Bool.not_true Bool.not_false beq_iff_eq beq_eq_false_iff_ne beq_self_eq_true Prod.fst])))))
+      (catch Throwable _ nil)))
   ;; NOTE: the RELATIONAL laws built on this big-operator layer — `aggJoin_split` (the FAQ factorization)
   ;; and `aggJoin_reorder` (the join-commutativity capstone, NO List.Perm) — live in
   ;; `wandler.clean.laws.frame`, not here. This namespace is the domain-agnostic Batteries-tier prelude

@@ -85,3 +85,12 @@
       (is (has? "foldl_cons_acc") "foldl (· :: ·) acc l = (reverse l) ++ acc")
       (is (verifies? "foldl_cons_acc")
           "the law kernel-checks (check-constant, authoritative)"))))
+
+(deftest lookup-filter-ne-law
+  (when @full
+    (testing "lookup k (filter (·.fst ≠ k') l) = lookup k l when k ≠ k' — assoc-list lookup foundation"
+      ;; Exercises faithful dsimp (iota after a scrutinee-rewrite) + structure-extends parent-projection
+      ;; instance synthesis (ReflBEq via DecidableEq→LawfulBEq→ReflBEq); replaces a ~90-LOC term proof.
+      (is (has? "List.lookup_filter_ne") "lookup-through-a-different-key-filter is identity")
+      (is (verifies? "List.lookup_filter_ne")
+          "the law kernel-checks (check-constant, authoritative)"))))
