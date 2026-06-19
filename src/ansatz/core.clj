@@ -341,8 +341,15 @@
   ([env goal-type] (try-synthesize-instance env goal-type nil nil))
   ([env goal-type instance-idx] (try-synthesize-instance env goal-type instance-idx nil))
   ([env goal-type instance-idx cache-atom]
-   (let [cache (or cache-atom synth-cache)]
-     (if-let [cached (find @cache goal-type)]
+   (let [cache (or cache-atom synth-cache)
+         ;; ENV-AWARE key: the global synth-cache is `defonce` and survives manual `(reset! ansatz-env …)`
+         ;; (only `init!` clears it). Keying by goal-type ALONE meant a `::miss` cached against a SMALLER
+         ;; env (e.g. init-medium, which couldn't synthesize an instance) was wrongly reused by a LARGER
+         ;; env (init-full, which can) — a deterministic cross-test/proof poison. Include the env identity
+         ;; (Env has no value-equality, so identity-hash is its identity; an int, so we don't retain the
+         ;; env → no leak). Within one env (one proof) the cache still memoizes.
+         ckey [(System/identityHashCode env) goal-type]]
+     (if-let [cached (find @cache ckey)]
        (let [v (val cached)] (when-not (= v ::miss) v))
        (let [result (or
       ;; Try full synthesis engine with cached index
@@ -360,7 +367,7 @@
                                type-name (when (e/const? th) (name/->string (e/const-name th)))]
                            (when type-name
                              (resolve-basic-instance env class-name type-name type-arg))))))]
-         (swap! cache assoc goal-type (or result ::miss))
+         (swap! cache assoc ckey (or result ::miss))
          result)))))
 
 (clojure.core/defn get-arg-type
