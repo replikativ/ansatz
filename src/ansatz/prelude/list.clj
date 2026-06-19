@@ -75,4 +75,35 @@
                                      (f head) (g head)
                                      (wsum m (List.map X S f tail)) (wsum m (List.map X S g tail))))))))
       (catch Throwable _ nil)))
+  ;; ∑ (fun _ => 0) = 0 — the constant-zero map sum (Fubini's nil case needs it).
+  (when-not (has? "wsum_map_const_zero")
+    (try
+      (eval '(ansatz.core/theorem wsum_map_const_zero
+               [Y :- Type, S :- Type, m :- (WAddMonoid S), ys :- (List Y)]
+               (= S (wsum m (List.map Y S (fn [y :- Y] (WAddMonoid.zero m)) ys)) (WAddMonoid.zero m))
+               (induction ys)
+               (all_goals (simp_all [List.map_cons List.map_nil wsum.eq_1 wsum.eq_2
+                                     (WAddMonoid.zero_add m)]))))
+      (catch Throwable _ nil)))
+  ;; Fubini / nested-sum interchange (lean-wandler Laws/Frame.lean `sum_map_sum_comm`):
+  ;;   ∑ₓ ∑ᵧ g x y = ∑ᵧ ∑ₓ g x y   over a commutative monoid.
+  ;; The cons case applies `wsum_map_add` (the additivity keystone) to the transposed inner sum; simp
+  ;; rewrites under the `λy` binder natively (no SOAC-congruence needed) and the nil case folds via
+  ;; `wsum_map_const_zero`. THIS is the law the aggregate-level join reorder (which retires the
+  ;; List.Perm cluster) is built on — the verified Fubini that makes join commutativity algebraic.
+  (when-not (has? "wsum_map_sum_comm")
+    (try
+      (eval '(ansatz.core/theorem wsum_map_sum_comm
+               [X :- Type, Y :- Type, S :- Type, m :- (WAddMonoid S),
+                hc :- (Std.Commutative S (WAddMonoid.add m)), g :- (=> X (=> Y S)),
+                xs :- (List X), ys :- (List Y)]
+               (= S
+                  (wsum m (List.map X S (fn [x :- X] (wsum m (List.map Y S (g x) ys))) xs))
+                  (wsum m (List.map Y S (fn [y :- Y] (wsum m (List.map X S (fn [x :- X] (g x y)) xs))) ys)))
+               (induction xs)
+               (all_goals (simp_all [List.map_cons List.map_nil wsum.eq_1 wsum.eq_2
+                                     (WAddMonoid.zero_add m) wsum_map_const_zero]))
+               (all_goals (try (rw (wsum_map_add Y S m hc (g head)
+                                     (fn [y :- Y] (wsum m (List.map X S (fn [x2 :- X] (g x2 y)) tail))) ys))))))
+      (catch Throwable _ nil)))
   :installed)
