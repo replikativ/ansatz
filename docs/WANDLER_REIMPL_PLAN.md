@@ -222,5 +222,13 @@ O(distinct-keys) materialization actually lives.
 
 **The rule going forward:** REDO where a cleaner aggregate form exists (frame/FAQ done; Perm retired);
 COPY verified-as-is only what's irreducible + lean-wandler lacks; don't line-by-line migrate (its
-validation purpose is spent). **NEXT:** Phase 2 — clean core foundation (Reducer/Monoid/Lower/Par),
-each gated by `wandler.clean.diff`.
+validation purpose is spent).
+
+**Phase 2 — STARTED.** `wandler.clean.core.monoid` (mirrors lean-wandler `Monoid.lean`): the
+PARALLEL-FOLD LICENCE — `foldl_hom` (`ys.foldl op a = op a (ys.foldl op e)`, induction generalizing a
++ controlled rw chain) and `foldl_split` (`(xs++ys).foldl = xs.foldl ⊕ ys.foldl`, one line
+`simp [List.foldl_append, foldl_hom]`), both thin over the prelude WAddMonoid + kernel-verified. This
+is the proof lean-reducers omits — the associativity proof IS the fork-join certificate. monoid_test
+green (3/3, harness proof-gate). **REMAINING Phase 2:** Reducer (CPS fusion = rfl, from reducers.clj),
+Lower (`define-csimp` certify→swap seam — HAVE), Par/ParArray (the Task-tree fold that CONSUMES
+foldl_split + the unboxed-array path, from runtime.clj). Then Phase 3 (data + fusion laws).
