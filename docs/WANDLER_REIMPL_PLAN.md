@@ -228,7 +228,12 @@ validation purpose is spent).
 PARALLEL-FOLD LICENCE — `foldl_hom` (`ys.foldl op a = op a (ys.foldl op e)`, induction generalizing a
 + controlled rw chain) and `foldl_split` (`(xs++ys).foldl = xs.foldl ⊕ ys.foldl`, one line
 `simp [List.foldl_append, foldl_hom]`), both thin over the prelude WAddMonoid + kernel-verified. This
-is the proof lean-reducers omits — the associativity proof IS the fork-join certificate. monoid_test
-green (3/3, harness proof-gate). **REMAINING Phase 2:** Reducer (CPS fusion = rfl, from reducers.clj),
-Lower (`define-csimp` certify→swap seam — HAVE), Par/ParArray (the Task-tree fold that CONSUMES
-foldl_split + the unboxed-array path, from runtime.clj). Then Phase 3 (data + fusion laws).
+is the proof lean-reducers omits — the associativity proof IS the fork-join certificate. Plus
+`split_certificate` (the licence CONSUMED: fold halves at any split + combine = sequential fold; thin,
+`rw <- foldl_split` + `take_append_drop`). monoid_test green; full wandler suite 350/1588/0.
+**ANSATZ GAP FOUND:** `a/defn` structural recursion rejects a recursive call that TRANSFORMS a
+non-measured arg (`parFold m d (xs.take n)` → macroexpand error; unchanged arg works) — so
+lean-wandler's recursive depth-bounded `parFold` + `parFold_eq` + @[csimp] Task lowering are DEFERRED to
+the runtime phase + that macro fix (or a WF-recursion / term-build path). **REMAINING Phase 2:** Reducer
+(CPS fusion = rfl, from reducers.clj), Lower (`define-csimp` certify→swap — HAVE), Par/ParArray (needs
+the structural-rec gap fixed). Then Phase 3 (data + fusion laws).
