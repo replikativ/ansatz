@@ -103,4 +103,8 @@
     (testing "lookup-after-insert (cond via bif): the head pair, else lookup-through-the-filter"
       (is (has? "List.lookup_insert") "lookup k ((k',v)::filter) = bif (k==k') (some v) (lookup k l)")
       (is (verifies? "List.lookup_insert")
-          "the law kernel-checks (check-constant, authoritative)"))))
+          "the law kernel-checks (check-constant, authoritative)"))
+    (testing "beq_comm — a == b = b == a (DecidableEq-derived beq, via decide_eq_decide + eq_comm)"
+      (is (has? "beq_comm"))
+      (is (verifies? "beq_comm")
+          "the law kernel-checks; bridges a join's key predicate to the swapped-drive form"))))

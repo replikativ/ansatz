@@ -230,6 +230,19 @@
                (all_goals (try (simp_all [hp List.map_cons wsum.eq_1 wsum.eq_2
                                           (WAddMonoid.zero_add m)])))))
       (catch Throwable _ nil)))
+  ;; a == b = b == a for the DecidableEq-derived BEq — beq is commutative because it decides a
+  ;; symmetric proposition. `instBEqOfDecidableEq`'s beq is `decide (a = b)` def-eq, so this is
+  ;; `decide_eq_decide.mpr eq_comm`. Needed to bridge a join's key predicate `kf x == lf y` to the
+  ;; swapped-drive form `lf y == kf x` (the Map-level join-reorder).
+  (when-not (has? "beq_comm")
+    (try
+      (eval '(ansatz.core/theorem beq_comm
+               [α :- Type, dec :- (DecidableEq α), a :- α, b :- α]
+               (= Bool (BEq.beq α (instBEqOfDecidableEq α dec) a b)
+                       (BEq.beq α (instBEqOfDecidableEq α dec) b a))
+               (exact (Iff.mpr (decide_eq_decide (Eq α a b) (Eq α b a) (dec a b) (dec b a))
+                               (eq_comm α a b)))))
+      (catch Throwable _ nil)))
   ;; ── association-list lookup foundation (for the relational Map = AList//NodupKeys) ──────────
   ;; `lookup k (filter (·.fst ≠ k') l) = lookup k l` when `k ≠ k'` — filtering out a DIFFERENT key
   ;; leaves k's binding untouched. The keystone under the keyed group_by-bucket bridge (Map.join's
