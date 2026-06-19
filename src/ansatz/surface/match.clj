@@ -207,28 +207,45 @@
 
 (defn- replace-self-ih
   "Rewrite a structural self-call to the recursor's IH throughout expr. A self-call qualifies when
-   it is the FULLY-applied self-name with exactly one argument a bare recursive-field fvar (the
-   structurally-smaller arg) and every OTHER argument the corresponding unchanged parameter fvar —
+   its FIRST `arity` arguments are the FULLY-applied self-name with exactly one a bare recursive-field
+   fvar (the structurally-smaller arg) and every OTHER the corresponding unchanged parameter fvar —
    i.e. (add k n) with k the recursive field of m and n the second parameter → the field's IH (which
    the motive carries the other params through). Single- and multi-parameter; partial applications and
-   calls that change another argument are left as the axiom → check-constant rejects (→ the user adds
-   :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids is the
-   positional parameter fvar-ids."
+   calls that change another *parameter* argument are left as the axiom → check-constant rejects (→ the
+   user adds :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids
+   is the positional parameter fvar-ids.
+
+   EXTRA trailing args (beyond `arity`) are an APPLICATION OF THE IH — the faithful Lean `brecOn`
+   encoding for a recursion whose result type is itself a function (the motive generalizes the
+   trailing/varying argument). E.g. `parFold {S} m depth : List S → S` recursing as
+   `(parFold m d) (xs.take n)`: the kernel flattens this to `parFold S m d (take ..)`, so after the
+   `arity`-prefix self-call resolves to the field's IH (of type `motive d = List S → S`), the extra
+   `(take ..)` is applied TO that IH. This is what lets a recursive call TRANSFORM the carried argument
+   (`drop`/`take`) — it rides the motive, not a fixed parameter. If the motive is NOT a function type
+   the `(IH extra)` is ill-typed and `check-constant` rejects it (so the non-curried form stays a
+   genuine error, as it must). Extras are recursed (they may carry nested self-calls)."
   [expr self-name field->ih param-ids]
   (let [rec (fn rec [e] (replace-self-ih e self-name field->ih param-ids))
         self-call-ih
-        (fn [args]   ;; → IH fvar when args form a clean structural self-call, else nil
-          (when (and param-ids (= (count args) (count param-ids)))
-            (let [rec-pos (keep-indexed (fn [j a] (when (and (= :fvar (e/tag a))
+        (fn [args]   ;; → IH (possibly applied to extra args) when the prefix is a clean self-call, else nil
+          (when (and param-ids (>= (count args) (count param-ids)))
+            (let [np (count param-ids)
+                  args (vec args)
+                  param-args (subvec args 0 np)
+                  extra-args (subvec args np)
+                  rec-pos (keep-indexed (fn [j a] (when (and (= :fvar (e/tag a))
                                                              (contains? field->ih (e/fvar-id a))) j))
-                                        args)]
+                                        param-args)]
               (when (= 1 (count rec-pos))
                 (let [jr (first rec-pos)]
                   (when (every? (fn [j] (or (= j jr)
-                                            (and (= :fvar (e/tag (nth args j)))
-                                                 (= (e/fvar-id (nth args j)) (nth param-ids j)))))
-                                (range (count args)))
-                    (e/fvar (get field->ih (e/fvar-id (nth args jr))))))))))]
+                                            (and (= :fvar (e/tag (nth param-args j)))
+                                                 (= (e/fvar-id (nth param-args j)) (nth param-ids j)))))
+                                (range np))
+                    ;; IH for the field; apply to any extra args (the brecOn motive-as-function case).
+                    (reduce e/app
+                            (e/fvar (get field->ih (e/fvar-id (nth param-args jr))))
+                            (map rec extra-args))))))))]
     (if (= :app (e/tag expr))
       (let [[head args] (collect-spine expr)]
         (if (and (= :const (e/tag head)) (= (e/const-name head) self-name))
