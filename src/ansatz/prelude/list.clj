@@ -139,6 +139,18 @@
                                      List.append_eq List.nil_append List.append_assoc List.cons_append
                                      List.singleton_append List.append_nil]))))
       (catch Throwable _ nil)))
+  ;; foldl (· :: ·) [] l = reverse l — the empty-accumulator corollary (foldl_cons_acc at acc = [],
+  ;; `++ []` reduces by def-eq, so the trailing rw closes outright). The clean name for "a group_by
+  ;; bucket is its matched rows reversed".
+  (when-not (has? "foldl_cons_nil")
+    (try
+      (eval '(ansatz.core/theorem foldl_cons_nil
+               [A :- Type, l :- (List A)]
+               (= (List A)
+                  (List.foldl (List A) A (fn [a :- (List A) y :- A] (List.cons A y a)) (List.nil A) l)
+                  (List.reverse A l))
+               (rw (foldl_cons_acc A l (List.nil A)))))
+      (catch Throwable _ nil)))
   ;; ∑ (reverse l) = ∑ l over a COMMUTATIVE monoid — the big-operator is order-insensitive. The bridge
   ;; that lets the aggregate frame laws apply to a REAL `Map.join`: its group_by buckets are built by
   ;; `foldl (· :: ·) []` (= reverse of the filtered rows, per `Map.bucket_content`), so as lists the
@@ -153,6 +165,22 @@
                (all_goals (simp_all [List.reverse_cons List.reverse_nil wsum.eq_1 wsum.eq_2 wsum_append
                                      (WAddMonoid.zero_add m) (WAddMonoid.add_zero m)]))
                (all_goals (try (rw (Std.Commutative.comm S (WAddMonoid.add m) hc head (wsum m tail)))))))
+      (catch Throwable _ nil)))
+  ;; ∑ (map g (foldl(· :: ·) [] l)) = ∑ (map g l) over a commutative monoid — the reverse-fold (a
+  ;; group_by bucket) washes out under the sum. Packages foldl_cons_nil → map_reverse → wsum_reverse
+  ;; into ONE rewrite, so it fires per-bucket inside a join's flatMap (the cons case of
+  ;; wsum_map_Map_join reduces each head bucket to exactly this).
+  (when-not (has? "wsum_map_foldl_cons")
+    (try
+      (eval '(ansatz.core/theorem wsum_map_foldl_cons
+               [X :- Type, S :- Type, m :- (WAddMonoid S), hc :- (Std.Commutative S (WAddMonoid.add m)),
+                g :- (=> X S), l :- (List X)]
+               (= S
+                  (wsum m (List.map X S g (List.foldl (List X) X (fn [acc :- (List X) x :- X] (List.cons X x acc)) (List.nil X) l)))
+                  (wsum m (List.map X S g l)))
+               (simp [foldl_cons_nil])
+               (rw (List.map_reverse X S g l))
+               (rw (wsum_reverse S m hc (List.map X S g l)))))
       (catch Throwable _ nil)))
   ;; ∑ (flatMap f l) = ∑ (map (fun x => ∑ (f x)) l) — the sum distributes over flatMap (lean-wandler's
   ;; `sum_flatMap`). cons case folds via `wsum_append` on the flatMap_cons append. The bridge from a

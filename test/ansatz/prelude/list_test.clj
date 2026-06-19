@@ -84,7 +84,13 @@
       ;; Accumulator-generalized (induction l generalizing acc): the IH must range over acc.
       (is (has? "foldl_cons_acc") "foldl (· :: ·) acc l = (reverse l) ++ acc")
       (is (verifies? "foldl_cons_acc")
-          "the law kernel-checks (check-constant, authoritative)"))))
+          "the law kernel-checks (check-constant, authoritative)"))
+    (testing "foldl(::)[] = reverse + ∑(map g (foldl(::)[] l)) = ∑(map g l) — the bucket-reverse wash"
+      (is (has? "foldl_cons_nil"))
+      (is (verifies? "foldl_cons_nil"))
+      (is (has? "wsum_map_foldl_cons"))
+      (is (verifies? "wsum_map_foldl_cons")
+          "the per-bucket reverse-wash helper, kernel-verified"))))
 
 (deftest lookup-filter-ne-law
   (when @full
