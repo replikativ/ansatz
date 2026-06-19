@@ -190,3 +190,24 @@ confirmed working. ansatz `src/` is clean (agent-confirmed). So ansatz is in sha
 `ansatz.prelude` (order → WAddCommMonoid/WSemiring → list big-operators incl. the keystone Fubini
 `sum_map_sum_comm` + `sum_flatMap` + `sum_filter_map`) → prove the aggregate-level `aggJoin_reorder`
 (no Perm) as the thesis-validating keystone of the clean relational core.
+
+---
+
+## 8. STATUS (live)
+
+**Phase 1 — DONE.** `ansatz.prelude` complete + kernel-checked: `ac` (op_left_comm/op_medial), `algebra`
+(WAddMonoid/WSemiring), `list` (`wsum` + `wsum_map_mul_left`/`_add`/`_const_zero`, Fubini
+`wsum_map_sum_comm`, `wsum_append`/`_flatMap`/`_flatten`, `sum_filter_map`). The thesis keystone
+`aggJoin_reorder` (aggregate-level join commutativity, **NO List.Perm**) is PROVEN + relocated to the
+clean tree `wandler.clean.laws.frame` (with `aggJoin_split`). Pillar A: A1 done; split S3 `cases-eq`,
+faithful `reduceIte`, `rw`, binder-zonk all shipped; A2 found unneeded. ansatz suite 482/0.
+
+**Phase 0 — DONE.** Clean tree `wandler.clean.*` stood up; **differential harness** `wandler.clean.diff`
+built (pure lib): the three parities (a) PLAN `plan-parity` (vs `wandler.core/explain`), (b) RESULT
+`result-parity`, (c) PROOF `proof-gate` (`check-constant` over clean laws), + the combined `differential`.
+First live gate `wandler.clean.diff-test` (3 tests/13 assertions): (c) all clean laws verify; (b) the
+certified optimizer preserves the result (fused ≡ naive ≡ clojure.core); (a) and it actually changed the
+plan (fewer passes, kernel-certified). (a)/(b) take real old-vs-clean subjects as Phases 2+ land.
+
+**NEXT:** finish the #146 thin-surface migration (foldl + PERM clusters) on the old tree → then Phase 2
+(clean core foundation: Reducer/Monoid/Lower/Par), each gated by `wandler.clean.diff`.
