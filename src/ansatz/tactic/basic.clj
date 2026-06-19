@@ -2006,35 +2006,41 @@
 ;; ============================================================
 
 (defn solve-by-elim
-  "Close goals by repeatedly trying assumption on all open goals.
-   Lean 4 Mathlib: solve_by_elim uses a backtracking search
-   applying lemmas from the context. Our version tries assumption
-   on all goals up to max-depth times.
-   Optional extra-lemmas: vector of Ansatz terms to also try via apply."
-  ([ps] (solve-by-elim ps 5 []))
+  "Close ALL open goals by backtracking depth-first search, faithful to Lean 4's `solveByElim`
+   (Lean/Meta/Tactic/SolveByElim + the `backtrack` engine in Backtrack.lean): focus the first goal,
+   try each candidate (assumption, then each extra-lemma via `apply`), and for each that succeeds,
+   recurse on the remaining goals; if the recursion dead-ends, BACKTRACK and try the next candidate.
+   Because proof states are immutable, backtracking is just trying the next branch — no undo needed,
+   and metavar assignments made down one branch stay confined to that branch's state.
+
+   This subsumes the old greedy fixpoint: it can pick a `List.Perm.trans` whose middle term is only
+   determined by a LATER sibling goal (greedy committed to a wrong middle and got stuck). `max-depth`
+   bounds the proof-tree path length; an internal node budget caps total exploration so an unbounded
+   `trans`-chain can't run away (it just fails, as before). Order the lemma list with closing lemmas
+   first and `trans` last for best pruning. Optional extra-lemmas: vector of Ansatz terms tried via
+   `apply` (a bare local-hyp term is fine)."
+  ([ps] (solve-by-elim ps 6 []))
   ([ps max-depth] (solve-by-elim ps max-depth []))
   ([ps max-depth extra-lemmas]
-   (loop [ps ps depth 0]
-     (if (or (>= depth max-depth) (proof/solved? ps))
-       (if (proof/solved? ps) ps
-           (tactic-error! "solve_by_elim: could not close all goals"
-                          {:remaining (count (:goals ps))}))
-       (let [ps' (all-goals ps
-                            (fn [ps'']
-                     ;; Try assumption first
-                              (or (try (assumption ps'') (catch Exception _ nil))
-                         ;; Try each extra lemma
-                                  (some (fn [lemma]
-                                          (try (apply-tac ps'' lemma)
-                                               (catch Exception _ nil)))
-                                        extra-lemmas)
-                                  ps'')))]
-         (if (= (:goals ps') (:goals ps))
-           ;; No progress
-           (if (proof/solved? ps') ps'
-               (tactic-error! "solve_by_elim: no progress"
-                              {:remaining (count (:goals ps'))}))
-           (recur ps' (inc depth))))))))
+   (let [budget (atom 6000)
+         ;; Candidate next-states from acting on the FIRST open goal: assumption, then each lemma.
+         step (fn [ps']
+                (let [gid (first (:goals ps'))
+                      psf (assoc ps' :goals (into [gid] (remove #{gid} (:goals ps'))))]
+                  (concat
+                   (when-let [r (try (assumption psf) (catch Exception _ nil))] [r])
+                   (keep (fn [lemma] (try (apply-tac psf lemma) (catch Exception _ nil)))
+                         extra-lemmas))))
+         search (fn search [ps' depth]
+                  (cond
+                    (proof/solved? ps') ps'
+                    (or (>= depth (max max-depth 8)) (neg? @budget)) nil
+                    :else
+                    (some (fn [nxt] (swap! budget dec) (search nxt (inc depth)))
+                          (step ps'))))]
+     (or (search ps 0)
+         (tactic-error! "solve_by_elim: could not close all goals"
+                        {:remaining (count (:goals ps))})))))
 
 ;; ============================================================
 ;; Convenience tactics — Lean 4 sugar
