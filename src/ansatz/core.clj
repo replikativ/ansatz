@@ -637,9 +637,21 @@
         args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
         g (proof/current-goal ps)]
     (mapv (fn [a]
-            (if (symbol? a)
-              a
-              (elab/elaborate-in-context (:env ps) (:lctx g) a)))
+            (cond
+              ;; A bare symbol is a lemma/def NAME (resolved by simp). This is the ONE canonical
+              ;; way to name things in the tactic DSL.
+              (symbol? a) a
+              ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
+              ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
+              ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
+              ;; reject it loudly so the mistake fails fast. Write the name as a symbol.
+              (string? a)
+              (throw (ex-info (str "simp: lemma argument must be a name (symbol) or a proof term, "
+                                   "got the string " (pr-str a) " — write it as a symbol, e.g. "
+                                   "(simp [" a "]) not (simp [" (pr-str a) "]).")
+                              {:kind :tactic-error :arg a}))
+              ;; Anything else (a compound form) elaborates to a proof term in the goal context.
+              :else (elab/elaborate-in-context (:env ps) (:lctx g) a)))
           args)))
 
 (clojure.core/defn- elab-apply-arg
