@@ -16,7 +16,8 @@
   (:require [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
-            [ansatz.prelude.algebra :as alg]))
+            [ansatz.prelude.algebra :as alg]
+            [ansatz.prelude.ac :as ac]))
 
 (defn- has? [s] (some? (env/lookup (a/env) (nm/from-string s))))
 
@@ -27,6 +28,7 @@
    Returns :installed. Assumes algebra classes are present (installs them if not)."
   []
   (alg/install-classes!)
+  (ac/install!)
   (when-not (has? "wsum")
     (eval '(ansatz.core/defn wsum [S :- Type :implicit, m :- (WAddMonoid S), xs :- (List S)] S
              (match xs (List S) S
@@ -48,5 +50,29 @@
                (induction xs)
                (all_goals (simp_all [wsum.eq_1 wsum.eq_2 List.map_nil List.map_cons
                                      (WSemiring.mul_zero m) (WSemiring.mul_add m)]))))
+      (catch Throwable _ nil)))
+  ;; Additivity of the big-operator: ∑ (f x + g x) = ∑ f x + ∑ g x, over a commutative monoid.
+  ;; Mirrors Lean core's own style for List.sum lemmas — `List.sum_append` takes `Std.Associative` /
+  ;; `Std.LawfulLeftIdentity` as instance args; here the commutative variant takes a `Std.Commutative
+  ;; (WAddMonoid.add m)` hypothesis. The cons case is exactly the medial/interchange reshuffle
+  ;; `(a+b)+(c+d) = (a+c)+(b+d)` (ac/op_medial), applied with op := the monoid add and the
+  ;; `Std.Associative` instance DERIVED from the bundled `WAddMonoid.add_assoc m`. The keystone the
+  ;; Fubini `wsum_map_sum_comm` (and thence the aggregate-level join reorder) is built on.
+  (when-not (has? "wsum_map_add")
+    (try
+      (eval '(ansatz.core/theorem wsum_map_add
+               [X :- Type, S :- Type, m :- (WAddMonoid S),
+                hc :- (Std.Commutative S (WAddMonoid.add m)),
+                f :- (=> X S), g :- (=> X S), xs :- (List X)]
+               (= S
+                  (wsum m (List.map X S (fn [x :- X] (WAddMonoid.add m (f x) (g x))) xs))
+                  (WAddMonoid.add m (wsum m (List.map X S f xs)) (wsum m (List.map X S g xs))))
+               (induction xs)
+               (all_goals (simp_all [List.map_cons List.map_nil wsum.eq_1 wsum.eq_2
+                                     (WAddMonoid.zero_add m) (WAddMonoid.add_zero m)]))
+               (all_goals (try (rw (op_medial S (WAddMonoid.add m)
+                                     (Std.Associative.mk S (WAddMonoid.add m) (WAddMonoid.add_assoc m)) hc
+                                     (f head) (g head)
+                                     (wsum m (List.map X S f tail)) (wsum m (List.map X S g tail))))))))
       (catch Throwable _ nil)))
   :installed)
