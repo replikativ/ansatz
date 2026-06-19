@@ -264,5 +264,21 @@ re-import the retired Map cluster). Stages, each a `wandler.clean.diff` differen
   that reuse minimal (per lean-wandler). Depends on the facade's cost-search → ports with 5.6.
 - **5.5 relational strategies on the AGGREGATE laws** (the real work): physical join-reorder→`aggJoin_reorder`,
   FAQ factor/frame→`aggJoin_factor` (+ the kf/lf index form). REDO targeting the List/`wsum` shape, not `Map.join`.
+  - **5.5a (in progress) — the order-washing core (DONE) + the bucket bridge (next).** A real `Map.join`'s
+    group_by bucket is built by `foldl (· :: ·) []` = the matched rows *reversed* (`Map.bucket_content`),
+    so as a list it differs from the clean `filter`-`flatMap` form by that reversal. At the AGGREGATE
+    (`wsum`) level the order washes out. The two order-washing lemmas are now PROVEN THIN + in the prelude
+    (`ansatz.prelude.list`, pinned in `list_test`, suite 484/0): `foldl_cons_acc : foldl(::) acc l =
+    reverse l ++ acc` (induction `generalizing acc`) and `wsum_reverse : ∑(reverse l) = ∑ l` (commutative
+    monoid). These REPLACE the order-handling inside the 1527-LOC term-built `Map.foldl_join_sum_factor`.
+    REMAINING bridge → the clean keyed factor law `Map_aggJoin_factor`:
+    1. **thin `Map.bucket_content`** — `(lookup (kf x)(group_by lf ys)).getD [] = foldl(::)[](filter (kf x ==
+       lf ·) ys)` — the group_by/lookup → filter-foldl relational lemma. Currently only the OLD term-built
+       proof exists (`wandler.laws.proofs`); re-prove thin (this is the genuinely hard unit — heavier than
+       5.5a's Init lemmas). NOTE `List.foldl` is `{α=acc β=elem}`, `f : α→β→α` (type args swap caught us).
+    2. **assemble** `wsum (map weight (Map.join …)) = <factored>` via `simp [Map.join.eq_unfold,
+       bucket_content]` → `foldl_cons_acc`+`List.map_reverse`+`wsum_reverse` (wash bucket order) →
+       `wsum_flatMap` + `wsum_map_mul_left` → `aggJoin_factor`. Replaces `Map.foldl_join_sum_factor`.
+    Then 5.5b wires each physical recognizer to this law (machinery copies clean, law is thin), harness-diffed vs old.
 - **5.6 the cost-search DRIVER** (`optimize-cost`/`optimize-body`) — integrates cse+egraph+physical; ported last.
 **Then Phase 6 (surface).**
