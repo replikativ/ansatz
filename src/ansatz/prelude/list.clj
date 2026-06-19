@@ -106,4 +106,32 @@
                (all_goals (try (rw (wsum_map_add Y S m hc (g head)
                                      (fn [y :- Y] (wsum m (List.map X S (fn [x2 :- X] (g x2 y)) tail))) ys))))))
       (catch Throwable _ nil)))
+  ;; ∑ (l1 ++ l2) = ∑ l1 + ∑ l2 — the monoid homomorphism on append (only associativity needed, no
+  ;; commutativity). Stated over `HAppend.hAppend` (the spelling `List.flatMap_cons` produces) so it
+  ;; fires as a simp lemma on flatMap results. cons case = one `add_assoc` rewrite.
+  (when-not (has? "wsum_append")
+    (try
+      (eval '(ansatz.core/theorem wsum_append
+               [S :- Type, m :- (WAddMonoid S), l1 :- (List S), l2 :- (List S)]
+               (= S (wsum m (HAppend.hAppend (List S) (List S) (List S)
+                                             (instHAppendOfAppend (List S) (List.instAppend S)) l1 l2))
+                    (WAddMonoid.add m (wsum m l1) (wsum m l2)))
+               (induction l1)
+               (all_goals (simp_all [List.cons_append List.nil_append wsum.eq_1 wsum.eq_2
+                                     (WAddMonoid.zero_add m)]))
+               (all_goals (try (rw (WAddMonoid.add_assoc m head (wsum m tail) (wsum m l2)))))))
+      (catch Throwable _ nil)))
+  ;; ∑ (flatMap f l) = ∑ (map (fun x => ∑ (f x)) l) — the sum distributes over flatMap (lean-wandler's
+  ;; `sum_flatMap`). cons case folds via `wsum_append` on the flatMap_cons append. The bridge from a
+  ;; join (a flatMap) to its per-row aggregate — the core of `aggJoin_split`.
+  (when-not (has? "wsum_flatMap")
+    (try
+      (eval '(ansatz.core/theorem wsum_flatMap
+               [X :- Type, S :- Type, m :- (WAddMonoid S), f :- (=> X (List S)), l :- (List X)]
+               (= S (wsum m (List.flatMap X S f l))
+                    (wsum m (List.map X S (fn [x :- X] (wsum m (f x))) l)))
+               (induction l)
+               (all_goals (simp_all [List.flatMap_cons List.flatMap_nil List.map_cons List.map_nil
+                                     wsum.eq_1 wsum.eq_2 wsum_append]))))
+      (catch Throwable _ nil)))
   :installed)
