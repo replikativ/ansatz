@@ -157,14 +157,14 @@
     (try
       (eval '(ansatz.core/theorem aggJoin_split
                [X :- Type, Y :- Type, S :- Type, m :- (WAddMonoid S),
-                p :- (=> X (=> Y Bool)), h :- (=> (Prod X Y) S), xs :- (List X), ys :- (List Y)]
+                p :- (=> X (=> Y Bool)), f :- (=> X (=> Y S)), xs :- (List X), ys :- (List Y)]
                (= S
-                  (wsum m (List.map (Prod X Y) S h
+                  (wsum m (List.map (Prod X Y) S (fn [pr :- (Prod X Y)] (f (Prod.fst pr) (Prod.snd pr)))
                             (List.flatMap X (Prod X Y)
                               (fn [x :- X] (List.map Y (Prod X Y) (fn [y :- Y] (Prod.mk x y))
                                             (List.filter Y (p x) ys))) xs)))
                   (wsum m (List.map X S (fn [x :- X]
-                            (wsum m (List.map Y S (fn [y :- Y] (h (Prod.mk x y)))
+                            (wsum m (List.map Y S (fn [y :- Y] (f x y))
                                       (List.filter Y (p x) ys)))) xs)))
                (simp [List.map_flatMap List.map_map wsum_flatten Function.comp_def])))
       (catch Throwable _ nil)))
