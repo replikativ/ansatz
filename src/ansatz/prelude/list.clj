@@ -34,19 +34,20 @@
              (match xs (List S) S
                (nil (WAddMonoid.zero m))
                (cons [hd tl] (WAddMonoid.add m hd (wsum m tl)))))))
-  ;; Loop-invariant hoist (Mathlib List.sum_map_mul_left): a constant left-multiplier factors
-  ;; out of a summed map.  ∑ (b * f x) = b * ∑ f x  over a (left-distributive) WSemiring.
-  ;; Authored thinly — `(induction xs) <;> simp_all [wsum.eq_1 wsum.eq_2 …]` — riding wsum's
-  ;; auto-generated constructor equations and the bundled WSemiring axioms applied to the
-  ;; instance (`(WSemiring.mul_add m)`), exactly the way Lean's `simp [m.mul_add]` does.
+  ;; Loop-invariant hoist (Mathlib List.sum_map_mul_left / lean-wandler `sum_map_mul_const`): a
+  ;; constant left-multiplier factors out of a summed map.  ∑ (b * f x) = b * ∑ f x  over a
+  ;; (left-distributive) WSemiring. ELEMENT-POLYMORPHIC (`f : X → S` over `List X`) — the separable
+  ;; FAQ frame `aggJoin_factor` pulls `w x` out of the inner sum over a `List Y`. Authored thinly —
+  ;; `(induction xs) <;> simp_all [wsum.eq_1 wsum.eq_2 …]` — riding wsum's auto-generated constructor
+  ;; equations and the bundled WSemiring axioms applied to the instance (`(WSemiring.mul_add m)`).
   (when-not (has? "wsum_map_mul_left")
     (try
       (eval '(ansatz.core/theorem wsum_map_mul_left
-               [S :- Type :implicit, m :- (WSemiring S), b :- S, f :- (=> S S), xs :- (List S)]
+               [X :- Type, S :- Type :implicit, m :- (WSemiring S), b :- S, f :- (=> X S), xs :- (List X)]
                (= S
                   (wsum (WSemiring.toWAddMonoid m)
-                        (List.map (fn [x :- S] (WSemiring.mul m b (f x))) xs))
-                  (WSemiring.mul m b (wsum (WSemiring.toWAddMonoid m) (List.map f xs))))
+                        (List.map X S (fn [x :- X] (WSemiring.mul m b (f x))) xs))
+                  (WSemiring.mul m b (wsum (WSemiring.toWAddMonoid m) (List.map X S f xs))))
                (induction xs)
                (all_goals (simp_all [wsum.eq_1 wsum.eq_2 List.map_nil List.map_cons
                                      (WSemiring.mul_zero m) (WSemiring.mul_add m)]))))
