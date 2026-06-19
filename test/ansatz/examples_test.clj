@@ -1058,6 +1058,24 @@
                         (apply sub_le_self) (apply mul_nonneg) (assumption) (assumption)])
      (is true))))
 
+(deftest test-perm-symm-thin
+  ;; Thin PERM-cluster proof (the #146/#157 migration payoff): no hand-built List.Perm proof term,
+  ;; just `induction` + `solve_by_elim` over the Perm constructors. Exercises the univ-poly apply
+  ;; path end-to-end — apply-tac solves the lemmas' universe-level metavars via meta-isDefEq
+  ;; (Apply.lean-faithful), and zonks them into both the head and the remaining subgoal types so the
+  ;; cons/trans cases def-eq-match their IHs. The kernel check (env/check-constant) sees concrete
+  ;; levels only. Requires Mathlib (List.Perm is not in init-medium).
+  (when-mathlib
+   (testing "List.Perm.symm proves thinly via induction + solve_by_elim and kernel-verifies"
+     (a/prove-theorem 'ex-perm-symm
+                      '[α :- Type, l1 :- (List α), l2 :- (List α), h :- (List.Perm α l1 l2)]
+                      '(List.Perm α l2 l1)
+                      '[(induction h)
+                        (all_goals (solve_by_elim [List.Perm.nil List.Perm.cons
+                                                   List.Perm.swap List.Perm.trans]))])
+     (is (env/lookup (a/env) (name/from-string "ex-perm-symm"))
+         "ex-perm-symm installed (check-constant passed)"))))
+
 (deftest test-wf-merge-two-list-lex
   (testing "merge-style two-list recursion (the README headline): packed SIZED domains
             (lean4 PackDomain over the actual param types) admit sizeOf measures for n>=2 —
