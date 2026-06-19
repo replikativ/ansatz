@@ -151,3 +151,42 @@ thinner, far cleaner, and ansatz materially more capable as a by-product.
 - **Clean tree location:** new namespaces in the wandler repo (recommended, strangler) vs a fresh repo.
 - **Breadth scope:** confirm the must-keep extras (DBSP/modes/inference/bridges are substantial; some
   may be research-only and could stay on the old branch rather than be re-added).
+
+## 7. CONFIRMED decisions + the FAQ-driven aggregate-level refinement (2026-06-18)
+
+**Decisions (confirmed):**
+1. Prelude home = **`ansatz.prelude.*`** (Batteries-tier, ships with the kernel). The aggregate-level
+   relational core makes the algebra/list big-operator lemmas the real foundation — they belong with
+   ansatz, not wandler.
+2. Clean tree = **fresh namespace tree inside the wandler repo** (strangler; old `wandler.*` stays the
+   green oracle). Working name `wandler.clean.*` mirroring lean-wandler's module layout (reducer /
+   monoid / data / laws.frame / laws.rel / optimize.* / surface.*).
+3. Showcase breadth = **core spine (surface + optimize/laws + exec) + records/malli**. DBSP / streams /
+   modes / inference / engine-bridges (datahike/stratum/spindel/raster/simd) are re-added on the clean
+   base in Phase 8 OR left on the old branch as research — NOT part of the first clean showcase.
+
+**The aggregate-level refinement (supersedes the Perm-heavy framing of Phase 4):** the FAQ investigation
+(see [[wandler-perm-prelude]], the three studies) proved the materialized join LIST is NOT load-bearing
+for the planner — every optimizer use of join-commutativity is on an AGGREGATED result (`length`/`foldl`
+over the join), and the raw bag-`Map.join_comm` law is used in ONE place (`prove-join-length-comm`)
+purely to manufacture a `length`-level `Eq` bridge. lean-wandler proves the SAME reorder with ZERO
+`List.Perm` — `aggJoin_reorder` (Wandler/Laws/Frame.lean:95) goes `aggJoin_split` both orders →
+`sum_filter_map` → `sum_map_sum_comm` (Fubini) → `eq_comm`. ⟹ **the clean relational core reasons
+AGGREGATE-LEVEL from the start; the entire `List.Perm` cluster is RETIRED, replaced by one Fubini lemma.**
+Consequences: Phase 4 shrinks further than the table in §4 (no Perm combinators to port); the
+`wandler.prelude.perm` lemmas become latent foundation (only needed for a future order-sensitive
+ROW-returning reorder the planner doesn't attempt); de-duplicating the old Perm cluster is CHURN-to-skip
+(the clean core deletes it). The join in the clean core is lean-wandler's flatMap-based `joinOn`
+(xs.flatMap (fun x => (ys.filter (lf·=kf x)).map (x,·))), aggregated by a `WAddCommMonoid` fold.
+
+**On-ramp status (the A1 step is DONE + more):** shipped faithful ansatz tactic capabilities this round
+— apply solves universe-level mvars; apply threads shared metavars across sibling goals (Lean's one
+MetavarContext); solve_by_elim is a backtracking DFS; local hypotheses shadow globals as lemma args;
+higher-order surface goals (`[f :- (=> α β)]`, `[h :- (forall [x :- α] …)]`, `(lam …)` in goals)
+confirmed working. ansatz `src/` is clean (agent-confirmed). So ansatz is in shape; remaining gap A2
+(congruence-under-SOAC-binder) stays slotted at the relational-laws phase, closed just-in-time.
+
+**Immediate execution order (refined):** Phase 0 (clean tree skeleton + differential harness) → Phase 1
+`ansatz.prelude` (order → WAddCommMonoid/WSemiring → list big-operators incl. the keystone Fubini
+`sum_map_sum_comm` + `sum_flatMap` + `sum_filter_map`) → prove the aggregate-level `aggJoin_reorder`
+(no Perm) as the thesis-validating keystone of the clean relational core.
