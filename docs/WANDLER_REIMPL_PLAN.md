@@ -247,5 +247,22 @@ Reducer (CPS fusion = rfl) / Lower (HAVE) / the @[csimp] Task lowering (runtime 
 FREE from Init — `wandler.clean.laws.fusion` CITES + fail-fast-GATES them (no re-proof); fusion_test
 green. The owned single-pass `map∘filter→filterMap` is an OPTIMIZER codegen rewrite (Phase 5), built from
 the two filterMap Init laws. Data (`kmap`) = copy-clean, deferred to cutover (it's already clean + the
-aggregate relational core doesn't need it as a LAW). certify/lower seam = HAVE. **NEXT substantial work:
-Phase 5 (optimizer) / Phase 6 (surface)** — port against the differential harness.
+aggregate relational core doesn't need it as a LAW). certify/lower seam = HAVE.
+
+**Phase 5 — the optimizer port (decided: ALL functionality, clean, staged + harness-gated).** Old
+`wandler.optimize.*` is ~2,238 LOC; lean-wandler's `Optimize.lean` is just the certify+`@[csimp]` seam
+(the rest is wandler BREADTH lean-wandler lacks). Port rule: IR-AGNOSTIC pieces copy-clean (verbatim,
+ns-only retarget); LAW-COUPLED relational strategies REDO on the aggregate `aggJoin_*` laws (so we don't
+re-import the retired Map cluster). Stages, each a `wandler.clean.diff` differential vs old = oracle:
+- **5.1 DONE** — `wandler.clean.optimize.{certify,cost}` + facade. `certify` = the rewriter + the
+  soundness gate `verified-rewrite?` (the keystone; `optimize` = fuse + self-certify = the deforestation
+  path, end-to-end). `cost` = SOAC + cardinality. certify_test: clean fuses map∘map, proof verifies, == old.
+- **5.2 DONE** — `wandler.clean.optimize.cse` (let/zeta, soundness-FREE = `Eq.refl`). cse_test: clean
+  makes the same hoist/decline decision as old (declines a streaming share; barriers hoisted, covered by
+  the old cse-test through the full optimizer).
+- **5.3 egraph** — IR-agnostic; ALREADY reuses ansatz `grind` (`tactic.grind.egraph/ematch/proof`) — keep
+  that reuse minimal (per lean-wandler). Depends on the facade's cost-search → ports with 5.6.
+- **5.5 relational strategies on the AGGREGATE laws** (the real work): physical join-reorder→`aggJoin_reorder`,
+  FAQ factor/frame→`aggJoin_factor` (+ the kf/lf index form). REDO targeting the List/`wsum` shape, not `Map.join`.
+- **5.6 the cost-search DRIVER** (`optimize-cost`/`optimize-body`) — integrates cse+egraph+physical; ported last.
+**Then Phase 6 (surface).**
