@@ -11,6 +11,7 @@
   "Verified Clojure — write proven programs using Ansatz types and tactics."
   (:refer-clojure :exclude [defn])
   (:require [clojure.java.io]
+            [clojure.string]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -700,8 +701,27 @@
                       ;; solvable without the goal (lean4's apply elaborates the head the same
                       ;; way: `elabTermForApply` suppresses implicit insertion for idents).
                       arg' (if (symbol? arg) (symbol (str "@" arg)) arg)
-                      term (elab/elaborate-in-context (:env ps) (:lctx g) arg')]
-                  (basic/apply-tac ps term)))
+                      term (try (elab/elaborate-in-context (:env ps) (:lctx g) arg')
+                                (catch Throwable ex
+                                  ;; A universe-polymorphic lemma whose universe is not pinned by an
+                                  ;; explicit arg (e.g. List.Perm.nil : @List.Perm.{u} α [] []) can't be
+                                  ;; elaborated standalone — there's no constraint to solve `u`. Lean's
+                                  ;; apply mints the universe mvars in forallMetaTelescope and solves them
+                                  ;; in the conclusion-vs-goal isDefEq. We do the same: build the const
+                                  ;; head with fresh Level.mvars; apply-tac's meta-isDefEq (Strategy C)
+                                  ;; solves them against the goal.
+                                  (if (and (symbol? arg)
+                                           (clojure.string/includes? (str (.getMessage ex)) "universe level"))
+                                    ::mint-levels
+                                    (throw ex))))]
+                  (if (= term ::mint-levels)
+                    (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
+                          lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+                          [ps' ids] (reduce (fn [[p acc] _]
+                                              (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                                            [ps []] lparams)]
+                      (basic/apply-tac ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))))
+                    (basic/apply-tac ps term))))
    'rewrite   (fn [ps args]
                 ;; (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — like Lean's `rw [..]`:
                 ;; a local hypothesis by name, OR an env lemma (∀-quantified, instantiated by matching),

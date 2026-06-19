@@ -394,6 +394,9 @@
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
         (let [resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
+              ;; Level-mvar solutions from the meta-isDefEq fallback (Strategy C) land here; the proof
+              ;; `:head` is zonked with it so the trusted kernel never sees a Level.mvar.
+              umctx (atom {})
               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
               resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)
               goal-norm (normalize-for-match ps (:lctx goal) (:type goal))
@@ -455,6 +458,23 @@
                                           (.isDefEq jtc resolved-ty (:type goal)))]
                               (when deq @deep-subst)))
                           (catch Exception _ nil))
+                        ;; Strategy C: the meta-isDefEq (Lean's PRIMARY apply mechanism, Apply.lean:207):
+                        ;; ONE isDefEq(conclusion, goal) that assigns expr- AND level-mvars in the shared
+                        ;; metavar context. We run it as the final fallback (engages exactly when the
+                        ;; structural cascade above fails — which includes every universe-polymorphic
+                        ;; lemma whose level isn't pinned by an explicit arg, e.g. List.Perm.nil, where
+                        ;; `match-expr`'s `level=` rejects `?lm` vs `0`). The same atom holds the solved
+                        ;; level-mvars (under :levels), used below to zonk the proof `:head`.
+                        (try
+                          (reset! umctx (into {} (map (fn [mid] [mid {:type (get-in ps [:mctx mid :type])
+                                                                      :solution nil}])
+                                                      arg-mvars)))
+                          (when (u/is-def-eq! st umctx resolved-ty (:type goal))
+                            (into {} (keep (fn [mid]
+                                             (when-let [s (get-in @umctx [mid :solution])]
+                                               [mid (u/zonk umctx s)]))
+                                           arg-mvars)))
+                          (catch Exception _ nil))
                         ;; Direct equality
                         (when (or (= resolved-ty (:type goal))
                                   (= resolved-ty goal-whnf)
@@ -485,9 +505,12 @@
                                    (assoc-in ps [:mctx mvar-id :type] new-type))))
                              ps arg-mvars)
                      ps)]
-            (let [ps (-> (proof/assign-mvar ps (:id goal)
-                                            {:kind :apply :head term :arg-mvars arg-mvars})
-                         (proof/record-tactic :apply [term] (:id goal)))
+            (let [;; Zonk any level-mvars solved by Strategy C into the head (no-op when umctx has no
+                  ;; level solutions) — the trusted kernel check must see a concrete-level head.
+                  head-term (if (seq (get @umctx :levels)) (u/zonk-levels-in-expr umctx term) term)
+                  ps (-> (proof/assign-mvar ps (:id goal)
+                                            {:kind :apply :head head-term :arg-mvars arg-mvars})
+                         (proof/record-tactic :apply [head-term] (:id goal)))
                   ;; Post-processing: auto-close typeclass instance subgoals.
                   ;; Lean 4's apply does this via synthAppInstances (Apply.lean).
                   ;; If a subgoal's type is a class application (not a relation/prop),

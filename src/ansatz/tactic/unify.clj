@@ -55,19 +55,32 @@
       :mdata  (e/mdata (e/mdata-data e) (zonk mctx (e/mdata-expr e)))
       e)))
 
+(declare zonk-level)
+
+(defn- level-unsolved-mvar?
+  "Does level `l` mention an unsolved level-mvar (after chasing solutions in `mctx`)?"
+  [mctx l]
+  (lvl/has-mvar? (zonk-level mctx l)))
+
 (defn- has-mvar?
-  "Does `e` (assumed zonked) contain any UNSOLVED metavariable?"
+  "Does `e` (assumed zonked) contain any UNSOLVED metavariable — EXPR-mvar (faked fvar) OR LEVEL-mvar?
+   Mirrors Lean's `Expr.hasMVar`, whose flag is set by both expr and level mvars. We can't rely on the
+   fvar flag (level-mvars in const/sort levels don't set it), so we always traverse — apply/rewrite
+   terms are small. Level-mvars are why this matters: an expr like `List.Perm.{?lm} …` carries NO
+   expr-fvar-mvar but MUST NOT be treated as concrete, else `is-def-eq!` ships it to the kernel's
+   level-blind `tc/is-def-eq` instead of recursing into `is-level-def-eq!`."
   [mctx e]
-  (and (e/has-fvar-flag e)
-       (case (e/tag e)
-         :fvar (and (contains? @mctx (e/fvar-id e)) (nil? (solution mctx (e/fvar-id e))))
-         :app    (or (has-mvar? mctx (e/app-fn e)) (has-mvar? mctx (e/app-arg e)))
-         :lam    (or (has-mvar? mctx (e/lam-type e)) (has-mvar? mctx (e/lam-body e)))
-         :forall (or (has-mvar? mctx (e/forall-type e)) (has-mvar? mctx (e/forall-body e)))
-         :let    (or (has-mvar? mctx (e/let-type e)) (has-mvar? mctx (e/let-value e)) (has-mvar? mctx (e/let-body e)))
-         :proj   (has-mvar? mctx (e/proj-struct e))
-         :mdata  (has-mvar? mctx (e/mdata-expr e))
-         false)))
+  (case (e/tag e)
+    :fvar   (and (contains? @mctx (e/fvar-id e)) (nil? (solution mctx (e/fvar-id e))))
+    :const  (boolean (some #(level-unsolved-mvar? mctx %) (e/const-levels e)))
+    :sort   (level-unsolved-mvar? mctx (e/sort-level e))
+    :app    (or (has-mvar? mctx (e/app-fn e)) (has-mvar? mctx (e/app-arg e)))
+    :lam    (or (has-mvar? mctx (e/lam-type e)) (has-mvar? mctx (e/lam-body e)))
+    :forall (or (has-mvar? mctx (e/forall-type e)) (has-mvar? mctx (e/forall-body e)))
+    :let    (or (has-mvar? mctx (e/let-type e)) (has-mvar? mctx (e/let-value e)) (has-mvar? mctx (e/let-body e)))
+    :proj   (has-mvar? mctx (e/proj-struct e))
+    :mdata  (has-mvar? mctx (e/mdata-expr e))
+    false))
 
 (defn has-unassigned-mvars?
   "Public: does `e` still mention any unsolved metavariable after zonking?
@@ -207,7 +220,12 @@
 
    `st` is a `tc/mk-tc-state` (with the goal's lctx attached); `mctx` is the metavariable atom."
   [st mctx a b]
-  (let [a (zonk mctx a) b (zonk mctx b)]
+  ;; instantiateMVars = chase BOTH expr- and level-mvar solutions. The level pass only runs when some
+  ;; level-mvar has been solved (regression-safe: zero cost when no level-mvars are in play), so a
+  ;; solved level never reaches the kernel's level-blind `tc/is-def-eq` un-substituted.
+  (let [inst (fn [e] (let [e (zonk mctx e)]
+                       (if (seq (get @mctx :levels)) (zonk-levels-in-expr mctx e) e)))
+        a (inst a) b (inst b)]
     (or (= a b)
         (assign-or-recurse st mctx a b)
         ;; structural attempt failed without reducing — reduce to whnf and retry once
