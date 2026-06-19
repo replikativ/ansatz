@@ -333,6 +333,16 @@
                   (catch Exception _ nil))))))))
     (catch Exception _ nil)))
 
+(def ^:private parent-class-sources
+  "Curated superclass → subclasses whose structure-`extends` parent projection `{Sub}.to{Super}`
+   yields an instance of the superclass (Lean auto-registers these as instances). Needed for PSS
+   envs, where `build-instance-index` can't scan the lazy store to find the `.to` projections (the
+   full-scan path only sees the locally-added constants). Same curated style as `common-classes`;
+   extend as new class hierarchies are exercised. The synthesizer fills the projection's structure
+   argument by recursive synthesis (see try-candidate's projection-arg handling)."
+  {"ReflBEq"  ["LawfulBEq" "EquivBEq"]
+   "EquivBEq" ["LawfulBEq"]})
+
 (defn- discover-candidates
   "On-demand candidate discovery for PSS environments.
    Tries naming conventions to find instances without scanning all constants.
@@ -371,9 +381,11 @@
           (when (= class-str "Decidable")
             (for [tn all-names]
               (str "instDecidableEq" tn)))
-            ;; Common coercion patterns: {Super}.to{Class}
-            ;; These are tried if the class has known superclasses
-          ))]
+            ;; Structure-`extends` parent projections {Sub}.to{Class} — an instance of Class via a
+            ;; subclass instance (e.g. ReflBEq via LawfulBEq.toReflBEq). try-candidate synthesizes the
+            ;; projection's structure argument; the goal class is the projection's RETURN type.
+          (for [sub (get parent-class-sources class-str)]
+            (str sub ".to" class-str))))]
     (keep (fn [n]
             (let [nm (name/from-string n)]
               (when (env/lookup env nm)

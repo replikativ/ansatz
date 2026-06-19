@@ -93,4 +93,8 @@
       ;; instance synthesis (ReflBEq via DecidableEq→LawfulBEq→ReflBEq); replaces a ~90-LOC term proof.
       (is (has? "List.lookup_filter_ne") "lookup-through-a-different-key-filter is identity")
       (is (verifies? "List.lookup_filter_ne")
+          "the law kernel-checks (check-constant, authoritative)"))
+    (testing "lookup-after-insert (cond via bif): the head pair, else lookup-through-the-filter"
+      (is (has? "List.lookup_insert") "lookup k ((k',v)::filter) = bif (k==k') (some v) (lookup k l)")
+      (is (verifies? "List.lookup_insert")
           "the law kernel-checks (check-constant, authoritative)"))))

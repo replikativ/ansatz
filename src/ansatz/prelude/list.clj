@@ -238,6 +238,31 @@
                (all_goals (try (dsimp)))
                (all_goals (try (simp_all [List.filter_cons_of_pos List.filter_cons_of_neg List.lookup_cons List.lookup_nil List.lookup_cons_self Bool.not_true Bool.not_false beq_iff_eq beq_eq_false_iff_ne beq_self_eq_true Prod.fst])))))
       (catch Throwable _ nil)))
+  ;; `lookup k ((k',v) :: l.filter(·.fst ≠ k')) = bif (k==k') (some v) (lookup k l)` — the assoc-list
+  ;; INSERT-then-lookup law (insert = cons the new pair, drop any old binding for k'). The `cond` head
+  ;; (spelled `bif`, the surface escape to Lean's `cond` constant) lets `cond_true`/`cond_false` fire.
+  ;; pos branch: lookup_cons + beq_self; neg branch: lookup_cons + `List.lookup_filter_ne`. The Map-level
+  ;; wrapper `Map.lookup_insert` (wandler) is then a one-line `exact` at `m.val` (def-eq through the
+  ;; opaque Subtype Map). Replaces old wandler.laws.relational/prove-lookup-insert (term-built).
+  (when-not (has? "List.lookup_insert")
+    (try
+      (eval '(ansatz.core/theorem List.lookup_insert
+               [α :- Type, β :- Type, dec :- (DecidableEq α), k :- α, k' :- α, v :- β, l :- (List (Prod α β))]
+               (= (Option β)
+                  (List.lookup α β (instBEqOfDecidableEq α dec) k
+                    (List.cons (Prod α β) (Prod.mk α β k' v)
+                      (List.filter (Prod α β) (fn [p :- (Prod α β)] (Bool.not (BEq.beq α (instBEqOfDecidableEq α dec) (Prod.fst α β p) k'))) l)))
+                  (bif (BEq.beq α (instBEqOfDecidableEq α dec) k k')
+                       (Option.some β v) (List.lookup α β (instBEqOfDecidableEq α dec) k l)))
+               (by_cases (BEq.beq α (instBEqOfDecidableEq α dec) k k'))
+               (all_goals (try (simp_all [List.lookup_cons List.lookup_nil List.lookup_cons_self List.lookup_filter_ne cond_true cond_false beq_iff_eq beq_self_eq_true beq_eq_false_iff_ne Prod.fst])))
+               (all_goals (try (dsimp)))
+               (all_goals (try (simp_all [List.lookup_cons List.lookup_nil List.lookup_cons_self List.lookup_filter_ne cond_true cond_false beq_iff_eq beq_self_eq_true beq_eq_false_iff_ne Prod.fst])))
+               (all_goals (try (dsimp)))
+               (all_goals (try (simp_all [List.lookup_cons List.lookup_nil List.lookup_cons_self List.lookup_filter_ne cond_true cond_false beq_iff_eq beq_self_eq_true beq_eq_false_iff_ne Prod.fst])))
+               (all_goals (try (dsimp)))
+               (all_goals (try (simp_all [List.lookup_cons List.lookup_nil List.lookup_cons_self List.lookup_filter_ne cond_true cond_false beq_iff_eq beq_self_eq_true beq_eq_false_iff_ne Prod.fst])))))
+      (catch Throwable _ nil)))
   ;; NOTE: the RELATIONAL laws built on this big-operator layer — `aggJoin_split` (the FAQ factorization)
   ;; and `aggJoin_reorder` (the join-commutativity capstone, NO List.Perm) — live in
   ;; `wandler.clean.laws.frame`, not here. This namespace is the domain-agnostic Batteries-tier prelude

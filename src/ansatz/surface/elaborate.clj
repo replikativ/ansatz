@@ -946,6 +946,24 @@
                                            (build more) (elab-term est e) (elab-term est t))))))]
                      (build (rest sexpr)))
 
+        ;; `bif` — Lean's boolean-`if` notation, the escape to the `cond` CONSTANT
+        ;; (cond.{u} {α : Type u} (c : Bool) (a b : α) : α). The surface `cond` is overloaded as
+        ;; Clojure-style clause-cond (above), so a lemma statement that needs the literal `cond`
+        ;; head — e.g. to state `lookup_insert : … = cond (k==k') (some v) (lookup k l)` so that
+        ;; `cond_true`/`cond_false` fire by name — spells it `(bif c a b)`. α + the level are
+        ;; inferred from `a` (mirrors Lean's `bif` elaborating the implicit motive).
+            "bif" (let [[_ c-form a-form b-form] sexpr
+                        c (elab-term est c-form)
+                        a (elab-term est a-form)
+                        b (elab-term est b-form)
+                        ;; cond.{u} : {α : Sort u} → Bool → α → α → α. α (implicit, but passed
+                        ;; positionally here) = type of `a`; the level param u = the level of α's
+                        ;; OWN type (type-of(Option Nat) = Sort 1 ⟹ u = 1), i.e. sort-level of α's type.
+                        α (tc/infer-type (:tc est) (zonk est a))
+                        αsort (#'tc/cached-whnf (:tc est) (tc/infer-type (:tc est) (zonk est α)))
+                        u (if (e/sort? αsort) (e/sort-level αsort) lvl/zero)]
+                    (e/app* (e/const' (name/from-string "cond") [u]) α c a b))
+
         ;; Clojure let* : [name val name val …] with inferred types → nested let.
             "let*" (let [[_ bindings & body] sexpr]
                      (letfn [(build [ps est]
