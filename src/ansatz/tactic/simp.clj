@@ -997,8 +997,18 @@
                                           ;; local instances + global index/discovery + recursive arg
                                           ;; discharge. `st` carries the goal lctx so a polymorphic
                                           ;; `[DecidableEq K]` hyp discharges e.g. beq_iff_eq's LawfulBEq.
+                                          ;; Use config's full-scan index (the delay built from THIS
+                                          ;; env, which includes structure-`extends` parent projections
+                                          ;; like LawfulBEq.toReflBEq); the process-global
+                                          ;; ansatz.core/instance-index is often empty for replayed/
+                                          ;; non-init! envs, which silently starved parent-projection
+                                          ;; synthesis. Fall back to the global, then a fresh scan.
                                           (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
-                                                st env ((requiring-resolve 'ansatz.core/instance-index))
+                                                st env
+                                                (or (when-let [idx (:inst-index config)]
+                                                      (if (instance? clojure.lang.Delay idx) @idx idx))
+                                                    (not-empty ((requiring-resolve 'ansatz.core/instance-index)))
+                                                    (inst/build-instance-index env))
                                                 param-type 0)
                                                (catch Throwable _ nil))
                                           (try-discharge st env lemma-index config
@@ -3238,7 +3248,26 @@
       :else {:base w :offset 0})))
 
 (defn dsimp
-  "Definitional simplification — only kernel reduction."
+  "Definitional simplification — faithful port of Lean 4's `dsimpGoal`
+   (Lean/Meta/Tactic/Simp/Main.lean:928), TARGET form (bare `dsimp`).
+
+   Reduces the goal by STRUCTURAL/definitional reductions only — beta, eta, iota
+   (incl. matcher/recursor on a constructor scrutinee), proj, let-zeta — via the
+   recursive `dsimp-expr` traversal (= Lean's `dsimpReduce`, whnf-no-delta). NO
+   propositional rewrite lemmas, NO simprocs (that is `dsimp [...]`, not yet wired).
+
+   Then mirrors `dsimpGoal`'s target handling:
+   - `targetNew.isTrue`               → close with `True.intro`
+   - `targetNew = (a = b)`, isDefEq   → close with `Eq.refl a`
+   - failIfUnchanged (target == new)  → error \"dsimp made no progress\"
+   - otherwise `replaceTargetDefEq`   → swap the goal to the def-eq reduced form and
+     leave it OPEN (the new goal carries the reduced type; soundness is the def-eq
+     of `dsimp-expr`, so no proof term is needed — `:simp-reduce` with `:eq-proof nil`,
+     the same mechanism `simp` uses for all-rfl steps).
+
+   Unlike the previous closing-only stub (single head whnf, errored when it couldn't
+   close), this is the transforming tactic: after simp rewrites a match scrutinee to a
+   literal, `dsimp` fires the iota step the rewrite pass leaves pending."
   [ps]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -3246,18 +3275,31 @@
         ;; attach-lctx bumps :next-id above the goal's fvars (see note at simp entry).
         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
         goal-type (:type goal)
-        simplified (#'tc/cached-whnf st goal-type)
-        [head args] (e/get-app-fn-args simplified)]
+        ;; dsimpReduce: recursive structural reduction of the whole target.
+        simplified (dsimp-expr env (:lctx goal) goal-type 100)
+        simplified-whnf (#'tc/cached-whnf st simplified)
+        [head args] (e/get-app-fn-args simplified-whnf)]
     (cond
+      ;; targetNew.isTrue → True.intro
       (and (e/const? head) (= (e/const-name head) true-name))
       (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term (e/const' true-intro-name [])})
           (proof/record-tactic :dsimp [] (:id goal)))
 
+      ;; targetNew is `Eq α a b` with isDefEq a b → Eq.refl
       (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args))
            (tc/is-def-eq st (nth args 1) (nth args 2)))
       (let [proof (e/app* (e/const' eq-refl-name (e/const-levels head)) (nth args 0) (nth args 1))]
         (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof})
             (proof/record-tactic :dsimp [] (:id goal))))
 
+      ;; failIfUnchanged (config default)
+      (= simplified goal-type)
+      (tactic-error! "dsimp made no progress" {:goal goal-type})
+
+      ;; replaceTargetDefEq — leave the reduced goal open (def-eq, no proof term)
       :else
-      (tactic-error! "dsimp: cannot close goal" {:goal goal-type :simplified simplified}))))
+      (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+        (-> (proof/assign-mvar ps' (:id goal)
+                               {:kind :simp-reduce :eq-proof nil :child new-id
+                                :mpr-level lvl/zero :goal-type goal-type :simplified simplified})
+            (proof/record-tactic :dsimp [] (:id goal)))))))

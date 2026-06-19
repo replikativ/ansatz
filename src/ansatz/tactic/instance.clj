@@ -255,7 +255,14 @@
                                          (reset! ok false)))))
                                  (when @ok @s))))]
         ;; Try to fill all arguments
-          (let [filled-args
+          (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
+                ;; registers these as instances whose structure argument is an instance subgoal,
+                ;; even though as a plain function that argument is EXPLICIT. We mirror that ONLY for
+                ;; projection-named candidates, so ordinary instances with genuine explicit args are
+                ;; untouched (Lean gates on class metadata; this name gate is the faithful proxy).
+                proj-candidate? (let [s (name/->string (:name candidate))]
+                                  (or (.contains s ".to") (.contains s ".toImpl")))
+                filled-args
                 (reduce
                  (fn [acc {:keys [fvar-id fvar type info]}]
                    (when acc
@@ -263,24 +270,34 @@
                      ;; Solved by structural matching
                        (conj acc val)
                      ;; Not in subst — try other strategies
-                       (case info
-                         :inst-implicit
-                       ;; Substitute known values into the type first
-                         (let [resolved-type (reduce (fn [ty [fid val]]
-                                                       (e/instantiate1 (e/abstract1 ty fid) val))
-                                                     type subst)]
+                       (let [resolved-type (reduce (fn [ty [fid val]]
+                                                     (e/instantiate1 (e/abstract1 ty fid) val))
+                                                   type subst)]
+                         (case info
+                           :inst-implicit
+                           ;; Instance-implicit: synthesize recursively.
                            (if-let [inst (synthesize* st env index resolved-type (inc depth))]
                              (conj acc inst)
-                             nil))
+                             nil)
 
-                         (:implicit :strict-implicit)
-                       ;; Implicit arg not determined by structural match.
-                       ;; This can happen if the arg appears only in other args' types.
-                       ;; Try: look at other solved args to determine this one.
-                         nil
+                           (:implicit :strict-implicit)
+                           ;; Implicit arg not determined by structural match.
+                           ;; This can happen if the arg appears only in other args' types.
+                           ;; Try: look at other solved args to determine this one.
+                           nil
 
-                       ;; :default — explicit arg, can't infer
-                         nil))))
+                           ;; :default — explicit arg. For a structure-`extends` parent projection
+                           ;; (`X.toY`), Lean treats the structure argument as an instance subgoal
+                           ;; (the projection is registered as an instance `[X …] : Y …`). We mirror
+                           ;; that here, gated to projection candidates so ordinary explicit args are
+                           ;; not synthesized. `synthesize*` self-gates further (succeeds only for real
+                           ;; class goals) and the full term is type-checked against the goal below, so
+                           ;; this never loosens soundness.
+                           (if proj-candidate?
+                             (if-let [inst (synthesize* st env index resolved-type (inc depth))]
+                               (conj acc inst)
+                               nil)
+                             nil))))))
                  []
                  @arg-info)]
             (when filled-args

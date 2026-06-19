@@ -757,6 +757,7 @@
                   (basic/have-tac ps hyp-name hyp-type)))
    'simp      (fn [ps args] (if (seq args) (simp/simp ps (simp-lemma-args ps args)) (simp/simp ps)))
    'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (simp-lemma-args ps args)) (simp/simp-all ps)))
+   'dsimp     (fn [ps _args] (simp/dsimp ps))
    'intro     (fn [ps args] (if (seq args) (basic/intros ps (mapv str args)) (basic/intro ps)))
    'intros    (fn [ps args] (basic/intros ps (mapv str args)))
    'apply     (fn [ps args]
