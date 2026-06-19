@@ -97,6 +97,66 @@
     true))
 
 ;; ============================================================
+;; Universe-level metavariables (Lean's level isDefEq, LevelDefEq.lean)
+;; ============================================================
+;; Level-mvar solutions live in the SAME mctx atom under the `:levels` sub-map {lid → Level} (like
+;; Lean's MetavarContext holding eAssignment + lAssignment together). Expr-mvar code keys mctx by int
+;; fvar-id and never touches `:levels`, so the two coexist.
+
+(defn zonk-level
+  "instantiateLevelMVars: replace solved level-mvars by their solutions (chasing chains)."
+  [mctx l]
+  (if-not (lvl/has-mvar? l)
+    l
+    (case (lvl/tag l)
+      :mvar (if-let [s (get-in @mctx [:levels (lvl/mvar-id l)])] (zonk-level mctx s) l)
+      :succ (lvl/succ (zonk-level mctx (lvl/succ-pred l)))
+      :max  (lvl/level-max (zonk-level mctx (lvl/max-lhs l)) (zonk-level mctx (lvl/max-rhs l)))
+      :imax (lvl/imax (zonk-level mctx (lvl/imax-lhs l)) (zonk-level mctx (lvl/imax-rhs l)))
+      l)))
+
+(defn is-level-def-eq!
+  "Lean's `isLevelDefEqAux` / `solve` (LevelDefEq.lean:90-159): assign level-mvars in `mctx`'s `:levels`
+   table during level unification. CONCRETE fast-path (neither side has a level-mvar) delegates to the
+   existing robust `lvl/level=`, so behavior is UNCHANGED when no level-mvars are in play (regression-
+   safe). Otherwise: structural recurse; mvar→assign with occurs check (mandatory, LevelDefEq.lean:100);
+   zero-vs-max/imax decomposition. Defers the solveSelfMax/tryApproxMaxMax approximations (:37-75) —
+   standalone univ-poly lemmas (Perm ctors etc.) never hit them."
+  [mctx a b]
+  (let [a (zonk-level mctx a) b (zonk-level mctx b)]
+    (cond
+      (and (not (lvl/has-mvar? a)) (not (lvl/has-mvar? b))) (lvl/level= a b)
+      (lvl/level= a b) true
+      (and (lvl/succ? a) (lvl/succ? b)) (is-level-def-eq! mctx (lvl/succ-pred a) (lvl/succ-pred b))
+      (lvl/mvar? a) (when-not (lvl/occurs? (lvl/mvar-id a) b)
+                      (swap! mctx assoc-in [:levels (lvl/mvar-id a)] b) true)
+      (lvl/mvar? b) (when-not (lvl/occurs? (lvl/mvar-id b) a)
+                      (swap! mctx assoc-in [:levels (lvl/mvar-id b)] a) true)
+      (and (lvl/level-zero? a) (lvl/max? b))
+      (boolean (and (is-level-def-eq! mctx a (lvl/max-lhs b)) (is-level-def-eq! mctx a (lvl/max-rhs b))))
+      (and (lvl/max? a) (lvl/level-zero? b))
+      (boolean (and (is-level-def-eq! mctx (lvl/max-lhs a) b) (is-level-def-eq! mctx (lvl/max-rhs a) b)))
+      (and (lvl/level-zero? a) (lvl/imax? b)) (is-level-def-eq! mctx a (lvl/imax-rhs b))
+      (and (lvl/imax? a) (lvl/level-zero? b)) (is-level-def-eq! mctx (lvl/imax-rhs a) b)
+      :else false)))
+
+(defn zonk-levels-in-expr
+  "Instantiate solved level-mvars in every const/sort level of `e` (a separate pass from `zonk`, which
+   only chases EXPR-mvars and short-circuits on the fvar flag). Used on a finished proof term before the
+   trusted kernel check, which must see no level-mvar."
+  [mctx e]
+  (case (e/tag e)
+    :const (e/const' (e/const-name e) (mapv #(zonk-level mctx %) (e/const-levels e)))
+    :sort  (e/sort' (zonk-level mctx (e/sort-level e)))
+    :app   (e/app (zonk-levels-in-expr mctx (e/app-fn e)) (zonk-levels-in-expr mctx (e/app-arg e)))
+    :lam   (e/lam (e/lam-name e) (zonk-levels-in-expr mctx (e/lam-type e)) (zonk-levels-in-expr mctx (e/lam-body e)) (e/lam-info e))
+    :forall (e/forall' (e/forall-name e) (zonk-levels-in-expr mctx (e/forall-type e)) (zonk-levels-in-expr mctx (e/forall-body e)) (e/forall-info e))
+    :let   (e/let' (e/let-name e) (zonk-levels-in-expr mctx (e/let-type e)) (zonk-levels-in-expr mctx (e/let-value e)) (zonk-levels-in-expr mctx (e/let-body e)))
+    :proj  (e/proj (e/proj-type-name e) (e/proj-idx e) (zonk-levels-in-expr mctx (e/proj-struct e)))
+    :mdata (e/mdata (e/mdata-data e) (zonk-levels-in-expr mctx (e/mdata-expr e)))
+    e))
+
+;; ============================================================
 ;; isDefEq with metavariable assignment + reduction
 ;; ============================================================
 
@@ -118,7 +178,7 @@
                    (is-def-eq! st mctx (e/app-arg a) (e/app-arg b)))
       :const  (and (= (e/const-name a) (e/const-name b))
                    (= (count (e/const-levels a)) (count (e/const-levels b)))
-                   (every? true? (map lvl/level= (e/const-levels a) (e/const-levels b))))
+                   (every? true? (map #(is-level-def-eq! mctx %1 %2) (e/const-levels a) (e/const-levels b))))
       :proj   (and (= (e/proj-type-name a) (e/proj-type-name b))
                    (= (e/proj-idx a) (e/proj-idx b))
                    (is-def-eq! st mctx (e/proj-struct a) (e/proj-struct b)))
@@ -126,7 +186,7 @@
                    (is-def-eq! st mctx (e/lam-body a) (e/lam-body b)))
       :forall (and (is-def-eq! st mctx (e/forall-type a) (e/forall-type b))
                    (is-def-eq! st mctx (e/forall-body a) (e/forall-body b)))
-      :sort   (lvl/level= (e/sort-level a) (e/sort-level b))
+      :sort   (is-level-def-eq! mctx (e/sort-level a) (e/sort-level b))
       :fvar   (= (e/fvar-id a) (e/fvar-id b))
       (:lit-nat :lit-str :bvar) (= a b)
       false)
