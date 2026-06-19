@@ -674,6 +674,29 @@
                    [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
                  (throw ex))))))))
 
+(clojure.core/defn- do-rewrite
+  "Lean's `rewrite` (NOT `rw`): rewrite the goal by a local hypothesis (by name), an env lemma
+   (∀-quantified, instantiated by matching), or an applied Eq term. `<-`/`←` rewrites right-to-left.
+   Does NOT attempt to close the goal — that's `rw`'s `try rfl`."
+  [ps args]
+  (let [reverse? (boolean (#{'<- '←} (first args)))
+        spec (if reverse? (second args) (first args))
+        g (proof/current-goal ps)
+        hyp-fid (when (symbol? spec)
+                  (reduce (fn [best [id d]]
+                            (if (and (= (str spec) (:name d))
+                                     (or (nil? best) (> (long id) (long best))))
+                              id best))
+                          nil (:lctx g)))
+        term (if hyp-fid
+               (e/fvar hyp-fid)
+               ;; env lemma: elaborate @-explicit so implicits stay ∀-bound (rewrite-lemma
+               ;; instantiates ALL params by matching); applied form elaborates as-is.
+               (elab/elaborate-in-context
+                (:env ps) (:lctx g)
+                (if (symbol? spec) (symbol (str "@" spec)) spec)))]
+    (basic/rewrite-lemma ps term reverse?)))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -728,27 +751,17 @@
                 (let [g (proof/current-goal ps)
                       [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
                   (basic/apply-tac ps' term)))
-   'rewrite   (fn [ps args]
-                ;; (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — like Lean's `rw [..]`:
-                ;; a local hypothesis by name, OR an env lemma (∀-quantified, instantiated by matching),
-                ;; OR an applied (concrete) Eq term. `<-`/`←` rewrites right-to-left.
-                (let [reverse? (boolean (#{'<- '←} (first args)))
-                      spec (if reverse? (second args) (first args))
-                      g (proof/current-goal ps)
-                      hyp-fid (when (symbol? spec)
-                                (reduce (fn [best [id d]]
-                                          (if (and (= (str spec) (:name d))
-                                                   (or (nil? best) (> (long id) (long best))))
-                                            id best))
-                                        nil (:lctx g)))
-                      term (if hyp-fid
-                             (e/fvar hyp-fid)
-                             ;; env lemma: elaborate @-explicit so implicits stay ∀-bound (rewrite-lemma
-                             ;; instantiates ALL params by matching); applied form elaborates as-is.
-                             (elab/elaborate-in-context
-                              (:env ps) (:lctx g)
-                              (if (symbol? spec) (symbol (str "@" spec)) spec)))]
-                  (basic/rewrite-lemma ps term reverse?)))
+   ;; Lean 4's two tactics, faithfully split (Init/Tactics.lean:606 — `rw` ≡ `rewrite; try rfl`):
+   ;;   (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — rewrite ONLY, leaves the goal.
+   ;;   (rw …)                                                   — rewrite, then `try (rfl)` to close.
+   'rewrite   (fn [ps args] (do-rewrite ps args))
+   'rw        (fn [ps args]
+                ;; `rw` = `rewrite` then a cheap reflexivity attempt (Lean appends `try (with_reducible
+                ;; rfl)`). The `try` is essential: a non-refl residual goal survives. (basic/rfl uses
+                ;; full is-def-eq vs Lean's reducible-only — a benign superset under `try`: it can only
+                ;; close MORE refl goals, never reject.)
+                (let [ps' (do-rewrite ps args)]
+                  (try (basic/rfl ps') (catch Throwable _ ps'))))
    'cases     (fn [ps args]
                 (let [nm (str (first args))
                       fid (reduce (fn [best [id d]]
