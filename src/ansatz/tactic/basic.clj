@@ -492,8 +492,13 @@
                                                   {:kind :exact :term val})
                                ps))
                            ps arg-mvars)
-                ;; Substitute solved values into remaining unsolved goal types
-                ps (if (seq subst)
+                ;; Substitute solved values into remaining unsolved goal types — both EXPR solutions
+                ;; (subst) AND LEVEL solutions (umctx :levels, from Strategy C's meta-isDefEq). The
+                ;; level zonk is the crux for univ-poly lemmas: a remaining subgoal type otherwise
+                ;; keeps the lemma's level-mvar (e.g. `List.Perm.{?lm} …`) while the hypotheses carry
+                ;; `{0}`, so a follow-up `assumption`/apply can't def-eq-match it.
+                has-level-sols? (seq (get @umctx :levels))
+                ps (if (or (seq subst) has-level-sols?)
                      (reduce (fn [ps mvar-id]
                                (if (proof/mvar-assigned? ps mvar-id)
                                  ps
@@ -501,7 +506,10 @@
                                        new-type (reduce (fn [ty [fid val]]
                                                           (e/instantiate1
                                                            (e/abstract1 ty fid) val))
-                                                        old-type subst)]
+                                                        old-type subst)
+                                       new-type (if has-level-sols?
+                                                  (u/zonk-levels-in-expr umctx new-type)
+                                                  new-type)]
                                    (assoc-in ps [:mctx mvar-id :type] new-type))))
                              ps arg-mvars)
                      ps)]

@@ -642,6 +642,27 @@
               (elab/elaborate-in-context (:env ps) (:lctx g) a)))
           args)))
 
+(clojure.core/defn- elab-apply-arg
+  "Resolve an `apply`/`solve_by_elim` lemma argument to a kernel term, returning [ps' term].
+   Bare symbol → `@`-explicit elaboration (no implicit insertion, like Lean's elabTermForApply);
+   compound form → elaborate in context. If a bare symbol is a universe-polymorphic const whose
+   universe is not pinned standalone (e.g. List.Perm.nil : @List.Perm.{u} α [] []), elaboration
+   throws — so we mint fresh Level.mvars for its levelParams and let apply-tac's meta-isDefEq solve
+   them against the goal (Lean's forallMetaTelescope + isDefEq). Mirrors Apply.lean."
+  [ps lctx arg]
+  (let [arg' (if (symbol? arg) (symbol (str "@" arg)) arg)]
+    (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
+         (catch Throwable ex
+           (if (and (symbol? arg)
+                    (clojure.string/includes? (str (.getMessage ex)) "universe level"))
+             (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
+                   lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+                   [ps' ids] (reduce (fn [[p acc] _]
+                                       (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                                     [ps []] lparams)]
+               [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
+             (throw ex))))))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -693,35 +714,9 @@
    'intro     (fn [ps args] (if (seq args) (basic/intros ps (mapv str args)) (basic/intro ps)))
    'intros    (fn [ps args] (basic/intros ps (mapv str args)))
    'apply     (fn [ps args]
-                (let [arg (first args)
-                      g (proof/current-goal ps)
-                      ;; A bare-symbol argument elaborates @-explicit (no implicit insertion):
-                      ;; apply-tac peels the foralls itself, creating ITS OWN metavars that
-                      ;; unify against the goal — saturating here would demand implicits be
-                      ;; solvable without the goal (lean4's apply elaborates the head the same
-                      ;; way: `elabTermForApply` suppresses implicit insertion for idents).
-                      arg' (if (symbol? arg) (symbol (str "@" arg)) arg)
-                      term (try (elab/elaborate-in-context (:env ps) (:lctx g) arg')
-                                (catch Throwable ex
-                                  ;; A universe-polymorphic lemma whose universe is not pinned by an
-                                  ;; explicit arg (e.g. List.Perm.nil : @List.Perm.{u} α [] []) can't be
-                                  ;; elaborated standalone — there's no constraint to solve `u`. Lean's
-                                  ;; apply mints the universe mvars in forallMetaTelescope and solves them
-                                  ;; in the conclusion-vs-goal isDefEq. We do the same: build the const
-                                  ;; head with fresh Level.mvars; apply-tac's meta-isDefEq (Strategy C)
-                                  ;; solves them against the goal.
-                                  (if (and (symbol? arg)
-                                           (clojure.string/includes? (str (.getMessage ex)) "universe level"))
-                                    ::mint-levels
-                                    (throw ex))))]
-                  (if (= term ::mint-levels)
-                    (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
-                          lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
-                          [ps' ids] (reduce (fn [[p acc] _]
-                                              (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
-                                            [ps []] lparams)]
-                      (basic/apply-tac ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))))
-                    (basic/apply-tac ps term))))
+                (let [g (proof/current-goal ps)
+                      [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
+                  (basic/apply-tac ps' term)))
    'rewrite   (fn [ps args]
                 ;; (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — like Lean's `rw [..]`:
                 ;; a local hypothesis by name, OR an env lemma (∀-quantified, instantiated by matching),
@@ -820,13 +815,13 @@
                     ;; constructors (nil/cons/swap/trans) + assumption on the IHs.
                     (let [g (proof/current-goal ps)
                           flat (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
-                          lemmas (mapv (fn [a]
-                                         (let [a' (if (symbol? a) (symbol (str "@" a)) a)]
-                                           (elab/elaborate-in-context (:env ps) (:lctx g) a')))
-                                       flat)]
+                          [ps' lemmas] (reduce (fn [[p acc] a]
+                                                 (let [[p' t] (elab-apply-arg p (:lctx g) a)]
+                                                   [p' (conj acc t)]))
+                                               [ps []] flat)]
                       (if (seq lemmas)
-                        (basic/solve-by-elim ps 6 lemmas)
-                        (basic/solve-by-elim ps))))
+                        (basic/solve-by-elim ps' 6 lemmas)
+                        (basic/solve-by-elim ps'))))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
    'split     (fn [ps _args] (basic/split-tac ps))
    'revert    (fn [ps args]
