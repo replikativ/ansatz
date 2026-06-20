@@ -647,10 +647,18 @@
       ;; user-registered surface forms. Term elaborators first (lean4 elab_rules-shaped:
       ;; syntax → kernel Expr with elaborator access, for type-directed forms), then
       ;; macro elaborators (lean4 macro_rules-shaped: syntax → syntax, which re-elaborates) —
-      ;; both compose with every surface feature.
-      (if-let [telab (and (symbol? head) (not bypass?) (get @ingest/term-elaborator-registry head))]
+      ;; both compose with every surface feature. LEXICAL SCOPING: a LOCAL BINDER shadows the global
+      ;; vocabulary — `(get (:scope est) head)` is checked first, so e.g. a binder named `dec`
+      ;; (a DecidableEq instance) applied as `(dec a b)` resolves to the binder, NOT the registered
+      ;; `dec` (clojure decrement) from the wandler collections vocabulary. (Before this, loading any
+      ;; namespace that registered `dec`/`map`/`min`/… globally silently shadowed same-named binders.)
+      (if-let [telab (and (symbol? head) (not bypass?)
+                          (not (contains? (:scope est) head))
+                          (get @ingest/term-elaborator-registry head))]
         (telab est (vec (rest sexpr)))
-        (if-let [expander (and (symbol? head) (not bypass?) (get @ingest/elaborator-registry head))]
+        (if-let [expander (and (symbol? head) (not bypass?)
+                               (not (contains? (:scope est) head))
+                               (get @ingest/elaborator-registry head))]
           (elab-term est (expander (rest sexpr)))
           (case (when (symbol? head) (str head))
             "forall" (let [[_ binder-vec & body-forms] sexpr]
