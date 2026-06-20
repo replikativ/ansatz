@@ -302,3 +302,17 @@ DEFERRED in Phase 5: `aggJoin_factor_index` (the kf/lf-keyed pre-agg `sumByKey` 
 door (collection + relational verbs + dynamic EDN `Value`), which is also what unlocks the FULL a+b
 differential parities (`wandler.clean.diff`) against old wandler on REAL subjects (today only proof-
 parity (c) runs live; (a) plan + (b) result need surface-elaborated subjects).
+
+**Phase 6 — STARTED (collection + relational front door DONE).** `wandler.clean.surface.{common,
+collections,relational,core}`: clean-tree port of the old surface (IR-agnostic copy-clean, requires
+retargeted). collections = ~30 collection verbs; relational = member/some/every?/distinct/sort/group-by/
+vals/keys/->map/frequencies/join (emits Map.group_by/Map.join/AList.*). `core` aggregates + requires
+the SHARED `wandler.runtime` codegen (auto-installs) so surface-elaborated `a/defn` bodies EXECUTE —
+self-contained (as `wandler.exec.mode` already does; clean runtime is the deferred Phase-2 remainder).
+`core_test`: mapv∘mapv + ->>/mapv/reduce elaborate → EXECUTE w/ result-parity vs clojure.core → clean
+`optimize-cost` certifies map_map fusion; group-by/->map elaborates a Map.group_by term. wandler
+363t/1655a/0. Surfaced: a/defn codegen needs the runtime lowering registered process-globally (the
+ENABLING fact for lexical-scoping — local binders now shadow that registry, fixed in Phase 5).
+**Phase 6 REMAINING:** dynamic EDN `Value` front door + records/malli (the included showcase breadth);
+wire surface-elaborated subjects into `wandler.clean.diff` so plan-parity (a) + result-parity (b) run
+live vs old wandler (the cutover gate); then Phase 7 cutover.
