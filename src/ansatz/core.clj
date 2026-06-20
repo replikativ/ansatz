@@ -693,14 +693,11 @@
                    [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
                  (throw ex))))))))
 
-(clojure.core/defn- do-rewrite
-  "Lean's `rewrite` (NOT `rw`): rewrite the goal by a local hypothesis (by name), an env lemma
-   (∀-quantified, instantiated by matching), or an applied Eq term. `<-`/`←` rewrites right-to-left.
-   Does NOT attempt to close the goal — that's `rw`'s `try rfl`."
-  [ps args]
-  (let [reverse? (boolean (#{'<- '←} (first args)))
-        spec (if reverse? (second args) (first args))
-        g (proof/current-goal ps)
+(clojure.core/defn- do-rewrite-one
+  "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
+   matching), or an applied Eq term. `reverse?` rewrites right-to-left."
+  [ps reverse? spec]
+  (let [g (proof/current-goal ps)
         hyp-fid (when (symbol? spec)
                   (reduce (fn [best [id d]]
                             (if (and (= (str spec) (:name d))
@@ -715,6 +712,28 @@
                 (:env ps) (:lctx g)
                 (if (symbol? spec) (symbol (str "@" spec)) spec)))]
     (basic/rewrite-lemma ps term reverse?)))
+
+(clojure.core/defn- do-rewrite
+  "Lean's `rewrite` (NOT `rw`): rewrite the goal by a local hypothesis (by name), an env lemma
+   (∀-quantified, instantiated by matching), or an applied Eq term. Faithful to Lean's bracketed
+   `rewrite [r1, r2, …]`: a VECTOR argument is a SEQUENCE of rewrite rules applied left-to-right, each
+   optionally prefixed `←`/`<-` for a right-to-left rewrite (Lean's `rw [← h, g]`). A bare/applied
+   form (or a leading `←`/`<-`) is a single rule. NOTE: the vector must NOT be elaborated as a term —
+   `[lemma]` is a list literal whose element-universe level mvar is never constrained, so it would
+   surface as an 'unsolved universe level' error. Does NOT close the goal — that's `rw`'s `try rfl`."
+  [ps args]
+  (if (vector? (first args))
+    ;; rw [r1, r2, …] — sequential rewrites, per-element ←/<- for reverse
+    (loop [ps ps, toks (seq (first args))]
+      (if (empty? toks)
+        ps
+        (let [rev? (boolean (#{'<- '←} (first toks)))
+              spec (if rev? (second toks) (first toks))
+              rest-toks (if rev? (drop 2 toks) (rest toks))]
+          (recur (do-rewrite-one ps rev? spec) rest-toks))))
+    (let [reverse? (boolean (#{'<- '←} (first args)))
+          spec (if reverse? (second args) (first args))]
+      (do-rewrite-one ps reverse? spec))))
 
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
