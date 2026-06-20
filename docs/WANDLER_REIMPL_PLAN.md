@@ -260,8 +260,12 @@ re-import the retired Map cluster). Stages, each a `wandler.clean.diff` differen
 - **5.2 DONE** — `wandler.clean.optimize.cse` (let/zeta, soundness-FREE = `Eq.refl`). cse_test: clean
   makes the same hoist/decline decision as old (declines a streaming share; barriers hoisted, covered by
   the old cse-test through the full optimizer).
-- **5.3 egraph** — IR-agnostic; ALREADY reuses ansatz `grind` (`tactic.grind.egraph/ematch/proof`) — keep
-  that reuse minimal (per lean-wandler). Depends on the facade's cost-search → ports with 5.6.
+- **5.3 DONE** — `wandler.clean.optimize.egraph` (equality-saturation search; clean retarget of the old
+  egraph). Requires the certify/cost LEAVES directly (no facade cycle → facade hard-requires it back);
+  clean AGGREGATE hoist-law set (`wsum_map_mul_left`/`_add`/`_const_zero` + `cost/cost-rewrites`). Wired
+  into the driver as `optimize-cost :use-egraph?` (saturation as the search fallback; structured physical
+  strategies still fire first). `saturate-and-extract` is an untrusted oracle — every extracted plan
+  carries a `check-constant`-verified Eq.trans-composed proof. egraph_test: 3 tests/12 assertions green.
 - **5.5 relational strategies on the AGGREGATE laws** (the real work): physical join-reorder→`aggJoin_reorder`,
   FAQ factor/frame→`aggJoin_factor` (+ the kf/lf index form). REDO targeting the List/`wsum` shape, not `Map.join`.
   - **5.5a (in progress) — the order-washing core (DONE) + the bucket bridge (next).** A real `Map.join`'s
@@ -280,5 +284,21 @@ re-import the retired Map cluster). Stages, each a `wandler.clean.diff` differen
        bucket_content]` → `foldl_cons_acc`+`List.map_reverse`+`wsum_reverse` (wash bucket order) →
        `wsum_flatMap` + `wsum_map_mul_left` → `aggJoin_factor`. Replaces `Map.foldl_join_sum_factor`.
     Then 5.5b wires each physical recognizer to this law (machinery copies clean, law is thin), harness-diffed vs old.
-- **5.6 the cost-search DRIVER** (`optimize-cost`/`optimize-body`) — integrates cse+egraph+physical; ported last.
-**Then Phase 6 (surface).**
+- **5.6 DONE** — the cost-search DRIVER `wandler.clean.optimize/optimize-cost`: tries the structured
+  physical strategies (factor → reorder) first, composing each adopted step's proof with the fusion
+  step via `Eq.trans`; falls back to equality saturation (`:use-egraph?`) or plain confluent fusion.
+  cse (`try-cse`) is re-exported (soundness-free let/zeta hoist), available to compose. physical_test +
+  egraph_test green.
+
+**Phase 5 — DONE.** 5.1 certify/cost · 5.2 cse · 5.3 egraph · 5.5 physical (factor/reorder on the
+aggregate `aggJoin_*` laws + the bucket bridge `Map.bucket_content`) · 5.6 driver. Full wandler suite
+361t/1649a/0; ansatz 485/0. ALSO fixed two latent ansatz bugs surfaced here: env-blind synth-cache
+(env-keyed now) and a lexical-scoping bug (local binders now shadow the surface vocabulary registry —
+a `dec :- DecidableEq` binder was being shadowed by the clojure-decrement `dec` term-elaborator).
+DEFERRED in Phase 5: `aggJoin_factor_index` (the kf/lf-keyed pre-agg `sumByKey` O(distinct-keys) index)
+— folds into the clean join surface (Phase 6) + runtime where the materialization lives.
+
+**Then Phase 6 (surface) — the cutover gate.** This is where the clean core gets a user-facing front
+door (collection + relational verbs + dynamic EDN `Value`), which is also what unlocks the FULL a+b
+differential parities (`wandler.clean.diff`) against old wandler on REAL subjects (today only proof-
+parity (c) runs live; (a) plan + (b) result need surface-elaborated subjects).
