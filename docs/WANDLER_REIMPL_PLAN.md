@@ -313,6 +313,15 @@ self-contained (as `wandler.exec.mode` already does; clean runtime is the deferr
 `optimize-cost` certifies map_map fusion; group-by/->map elaborates a Map.group_by term. wandler
 363t/1655a/0. Surfaced: a/defn codegen needs the runtime lowering registered process-globally (the
 ENABLING fact for lexical-scoping — local binders now shadow that registry, fixed in Phase 5).
-**Phase 6 REMAINING:** dynamic EDN `Value` front door + records/malli (the included showcase breadth);
-wire surface-elaborated subjects into `wandler.clean.diff` so plan-parity (a) + result-parity (b) run
-live vs old wandler (the cutover gate); then Phase 7 cutover.
+**Phase 6 — Value front door + cutover differential DONE.** (1) `install-value!` brings up the dynamic
+EDN `Value` universe (the shared `ansatz.surface.data` capability — installed, not re-ported); native
+Clojure map verbs run over kernel-verified `Value`. (2) `wandler.clean.diff/clean-plan-report` gives a
+`w/explain`-shaped report from the CLEAN optimizer, and `diff_test` now runs a REAL clean-surface subject
+(mapv∘mapv) through BOTH old wandler and clean, asserting ALL THREE parities live: (a) plan certifies +
+fuses 2→1 passes, (b) clean ≡ old ≡ clojure.core on every input, (c) the backing clean laws verify —
+the first time (a)+(b) run on genuine old-vs-clean subjects (was proof-only). Hardened
+`option_narrowing_test` (re-installs its Option surface; the Value `nil?/some?` exposed its load-order
+reliance). wandler 365t/1666a/0.
+**Phase 6 REMAINING:** records/malli vertical (the last included-showcase breadth). Then **Phase 7
+cutover**: the differential machinery is now proven on real old-vs-clean subjects, so cutover is wiring
+the remaining surface corpus through it + the swap.
