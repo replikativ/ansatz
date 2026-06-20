@@ -1090,10 +1090,16 @@
                             fv (e/fvar fid)
                             ft (e/forall-type t)
                             fname-raw (e/forall-name t)
-                            fname (cond
-                                    (nil? fname-raw) (str "h" fid)
-                                    (string? fname-raw) fname-raw
-                                    :else (name/->string fname-raw))
+                            fname0 (cond
+                                     (nil? fname-raw) (str "h" fid)
+                                     (string? fname-raw) fname-raw
+                                     :else (name/->string fname-raw))
+                            ;; Lean freshens constructor-field names on COLLISION (so `cases c` after
+                            ;; `induction l` doesn't shadow l's `head`/`tail` — which would confuse
+                            ;; simp_all/by-name lookups). Only freshen when the name is already taken,
+                            ;; so the common no-collision case keeps the readable ctor-field names.
+                            existing (into #{} (keep :name) (vals lctx))
+                            fname (if (contains? existing fname0) (str fname0 "_" fid) fname0)
                             lctx' (red/lctx-add-local lctx fid fname ft)]
                         (recur ps' (conj field-fvars fid)
                                lctx' (e/instantiate1 (e/forall-body t) fv)))
