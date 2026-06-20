@@ -342,3 +342,28 @@ verified / …) still depend on the OLD core (optimize/laws/surface/reducers). A
 sequencing, those breadth modules are re-added on the clean base in **Phase 8 FIRST**; the one-commit
 reversible swap is the Phase 8→done boundary, once nothing depends on the old core. The cutover is
 *gated and proven*, not *executed*.
+
+## 9. PHASE 8 — breadth re-add / retire the old core (live)
+
+Strategy chosen (2026): **retarget + shared engines** — point breadth's CORE imports (optimize/laws/
+surface) at the clean tree, keep genuine shared engines (runtime, reducers, plan-lens, streams).
+
+- **8.1 ✅** clean `strings` surface + drop dead `regex`.
+- **8.2 ✅** clean `option` surface → the clean surface vocabulary is COMPLETE (collections/relational/
+  records/malli/refine/Value/strings/option).
+- **8.3 ✅** clean `optimize-body` (the a/defn-integrated optimizer entry; direct port over clean
+  cert/cost/cse/phys).
+- **8.4 ✅ — the facade cutover (surface + optimizer).** Measured first (throwaway hook-flip): only 17
+  assertions diverged, all wandler-side optimizer gaps.
+  - **8.4a** retarget all 5 src + 24 test old-surface importers to clean, DELETE the 8 old surface
+    modules (~2,400 LOC retired).
+  - **8.4b** ported the greedy cost-rewrite pool (semijoin/pushdown/filterMap) + try-hoist-invariant
+    into clean optimize-cost, normalized `:rewrites` labels → flipped wandler.core's optimize-hook to
+    the clean optimizer. Full suite 370t/1707a/0 with EVERY a/defn on the clean optimizer.
+- **8.5 (next)** retarget the direct old-`wandler.optimize` importers (bridge/gradual/jit.*/exec.*/
+  inference) + core's profile-selectivity to clean; then delete old `wandler.optimize`.
+- **8.6** laws (semiring_class → clean) · **8.7** delete remaining duplicated old core · **8.8** the
+  literal clean.* → wandler.* swap.
+
+zero ansatz kernel fixes needed across all of Phase 8 so far — confirming the study: the work is
+wandler-side retargeting + optimizer feature-completion, not kernel.
