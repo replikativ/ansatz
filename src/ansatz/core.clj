@@ -23,6 +23,7 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.omega :as omega]
+            [ansatz.tactic.ac :as ac]
             [ansatz.export.storage :as storage]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
@@ -750,6 +751,7 @@
                       term (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
                   (basic/exact ps term)))
    'omega     (fn [ps _] (omega/omega ps))
+   'ac_rfl    (fn [ps _] (ac/ac-rfl ps))
    'trans     (fn [ps args]
                 ;; (trans mid h1 h2) — transitivity: a ≤ mid, mid ≤ c → a ≤ c
                 ;; Builds: @le_trans Real inst a mid c h1 h2
