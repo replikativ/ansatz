@@ -436,16 +436,44 @@
               gmvars (goal-mvar-ids ps goal mvar-id-set)
               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
               resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)
-              goal-norm (normalize-for-match ps (:lctx goal) (:type goal))
-              resolved-norm (normalize-for-match ps (:lctx goal) resolved-ty)
-              ;; Strategy A: structural matching
+              ;; LAZY: `normalize-for-match` deeply WHNF-normalizes every subnode, which DIVERGES on a
+              ;; goal carrying a stuck recursor over a symbolic arg (e.g. `Map.join`'s `group_by` foldl
+              ;; over an abstract list — the filter→join pushdown C). Lean never pre-normalizes the goal
+              ;; for `apply`; it matches via lazy `isDefEq` (Strategy C below). So defer these: they are
+              ;; only forced by the normalize-based fallbacks, which now run AFTER Strategy C.
+              goal-norm (delay (normalize-for-match ps (:lctx goal) (:type goal)))
+              resolved-norm (delay (normalize-for-match ps (:lctx goal) resolved-ty))
+              ;; Strategy C (the meta-isDefEq, Lean's PRIMARY apply mechanism, Apply.lean:207): ONE
+              ;; isDefEq(conclusion, goal) assigning expr- AND level-mvars in the shared metavar context.
+              ;; It whnf's lazily ON MISMATCH (unify.clj is-def-eq!), so it solves cases the structural
+              ;; cascade can't (univ-poly lemmas whose level isn't pinned; subterms needing one whnf step
+              ;; like `g a → map mk L`) WITHOUT the divergent deep normalize. The same atom holds the
+              ;; solved level-mvars (under :levels), used below to zonk the proof `:head`.
+              try-meta-isdefeq
+              (fn []
+                (try
+                  (reset! umctx (into {} (map (fn [mid] [mid {:type (get-in ps [:mctx mid :type])
+                                                              :solution nil}])
+                                              (concat arg-mvars gmvars))))
+                  (when (u/is-def-eq! st umctx resolved-ty (:type goal))
+                    ;; subst returns only arg-mvar solutions (assigned below as usual); the
+                    ;; sibling-shared `gmvars` solutions are persisted to `:mctx` after.
+                    (into {} (keep (fn [mid]
+                                     (when-let [s (get-in @umctx [mid :solution])]
+                                       [mid (u/zonk umctx s)]))
+                                   arg-mvars)))
+                  (catch Exception _ nil)))
+              ;; Strategy A: structural matching (cheap — no normalization)
               subst (or (match-expr resolved-ty (:type goal) mvar-id-set)
                         (match-expr resolved-ty goal-whnf mvar-id-set)
                         (match-expr resolved-whnf (:type goal) mvar-id-set)
                         (match-expr resolved-whnf goal-whnf mvar-id-set)
-                        (match-expr resolved-norm goal-norm mvar-id-set)
-                        (match-expr resolved-norm goal-whnf mvar-id-set)
-                        (match-expr resolved-whnf goal-norm mvar-id-set)
+                        ;; Strategy C runs HERE — before the deep-normalize fallbacks — so the common
+                        ;; lazy-isDefEq path never triggers the divergent normalize-for-match.
+                        (try-meta-isdefeq)
+                        (match-expr @resolved-norm @goal-norm mvar-id-set)
+                        (match-expr @resolved-norm goal-whnf mvar-id-set)
+                        (match-expr resolved-whnf @goal-norm mvar-id-set)
                         ;; Strategy B: Java TC isDefEq (Lean 4's primary mechanism).
                         ;; isDefEq on resolved-ty (with assigned mvars substituted)
                         ;; handles cases where heads differ structurally but are def-eq
@@ -481,7 +509,7 @@
                                                 (do (extract (e/app-fn r) (e/app-fn g))
                                                     (extract (e/app-arg r) (e/app-arg g)))
                                                 :else nil))]
-                                      (try (extract resolved-norm goal-norm) (catch Exception _ nil))
+                                      (try (extract @resolved-norm @goal-norm) (catch Exception _ nil))
                                       (try (extract resolved-whnf goal-whnf) (catch Exception _ nil)))
                                   ;; Substitute extracted bindings into resolved-ty
                                   resolved-ty' (reduce (fn [t [mid val]]
@@ -489,35 +517,18 @@
                                                        resolved-ty @deep-subst)
                                   resolved-ty'' (normalize-for-match ps (:lctx goal) resolved-ty')
                                   ;; Now try isDefEq with all mvars resolved
-                                  deq (or (.isDefEq jtc resolved-ty'' goal-norm)
+                                  deq (or (.isDefEq jtc resolved-ty'' @goal-norm)
                                           (.isDefEq jtc resolved-ty' (:type goal))
                                           ;; Also try with original (in case extraction was wrong)
                                           (.isDefEq jtc resolved-ty (:type goal)))]
                               (when deq @deep-subst)))
                           (catch Exception _ nil))
-                        ;; Strategy C: the meta-isDefEq (Lean's PRIMARY apply mechanism, Apply.lean:207):
-                        ;; ONE isDefEq(conclusion, goal) that assigns expr- AND level-mvars in the shared
-                        ;; metavar context. We run it as the final fallback (engages exactly when the
-                        ;; structural cascade above fails — which includes every universe-polymorphic
-                        ;; lemma whose level isn't pinned by an explicit arg, e.g. List.Perm.nil, where
-                        ;; `match-expr`'s `level=` rejects `?lm` vs `0`). The same atom holds the solved
-                        ;; level-mvars (under :levels), used below to zonk the proof `:head`.
-                        (try
-                          (reset! umctx (into {} (map (fn [mid] [mid {:type (get-in ps [:mctx mid :type])
-                                                                      :solution nil}])
-                                                      (concat arg-mvars gmvars))))
-                          (when (u/is-def-eq! st umctx resolved-ty (:type goal))
-                            ;; subst returns only arg-mvar solutions (assigned below as usual); the
-                            ;; sibling-shared `gmvars` solutions are persisted to `:mctx` after.
-                            (into {} (keep (fn [mid]
-                                             (when-let [s (get-in @umctx [mid :solution])]
-                                               [mid (u/zonk umctx s)]))
-                                           arg-mvars)))
-                          (catch Exception _ nil))
+                        ;; (Strategy C — the meta-isDefEq — now runs ABOVE, before the deep-normalize
+                        ;; fallbacks; see `try-meta-isdefeq` in the cascade above.)
                         ;; Direct equality
                         (when (or (= resolved-ty (:type goal))
                                   (= resolved-ty goal-whnf)
-                                  (= resolved-norm goal-norm)) {}))]
+                                  (= @resolved-norm @goal-norm)) {}))]
           (when-not subst
             (tactic-error! (str "apply: result type does not match goal\n"
                                 "  result: " (e/->string resolved-ty) "\n"
