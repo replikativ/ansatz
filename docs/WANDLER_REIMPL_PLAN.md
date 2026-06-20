@@ -367,3 +367,23 @@ surface) at the clean tree, keep genuine shared engines (runtime, reducers, plan
 
 zero ansatz kernel fixes needed across all of Phase 8 so far — confirming the study: the work is
 wandler-side retargeting + optimizer feature-completion, not kernel.
+
+## 10. PURIST PORT — Level 1 COMPLETE (old optimizer deleted)
+
+Strategy: **Level 1 → Level 2, staged** (strategies/law-proofs are decoupled — strategies are
+recognizers that APPLY proven laws by name).
+
+**Level 1 — DONE.** Ported every FAQ/index strategy + the optimizer DRIVER verbatim into
+`wandler.clean.optimize.faq` (clean cert/cost + shared sreg/sc); clean `optimize-cost` tries the clean
+wsum aggJoin strategies then delegates to the ported driver — identical plan selection to old. Retargeted
+all breadth (bridge/gradual/plan/jit/exec) + ~20 old optimizer test files onto the clean tree, then
+**DELETED old `wandler.optimize` + optimize/{physical,certify,cost,cse,egraph}**. The clean optimizer
+is the ONLY optimizer; a green suite (371t/1711a/0) with no old optimizer present proves clean ⊇ old.
+Kept as shared engines: `wandler.optimize.plan` (the α/γ lens), `wandler.optimize.faq` (FAQ query
+helpers), `wandler.laws.*` (the proven Map-cluster law engine the strategies ride).
+
+**Level 2 — remaining.** Re-prove the keyed Map-cluster laws (`Map.foldl_join_factor`/`frame_generic`/
+`sum_factor_generic`/… ~2,477 LOC in laws/relational + laws/proofs/frame) in clean AGGREGATE form (the
+deferred Phase-4 keyed-index keystone), swap the strategies' law-references onto them, delete
+`wandler.laws`. This is deep proof engineering (the hard part Phase 4 deferred), a substantial separate
+effort. Then the literal `clean.* → wandler.*` swap.
