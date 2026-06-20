@@ -322,6 +322,23 @@ fuses 2→1 passes, (b) clean ≡ old ≡ clojure.core on every input, (c) the b
 the first time (a)+(b) run on genuine old-vs-clean subjects (was proof-only). Hardened
 `option_narrowing_test` (re-installs its Option surface; the Value `nil?/some?` exposed its load-order
 reliance). wandler 365t/1666a/0.
-**Phase 6 REMAINING:** records/malli vertical (the last included-showcase breadth). Then **Phase 7
-cutover**: the differential machinery is now proven on real old-vs-clean subjects, so cutover is wiring
-the remaining surface corpus through it + the swap.
+**Phase 6 — COMPLETE.** The full clean surface front door: collections + relational + Value + the
+records/malli vertical (`wandler.clean.surface.{common,collections,relational,records,malli,refine,core}`),
+each end-to-end (elaborate → execute → certified-optimize), self-contained on the clean tree.
+records_test: def-record lifts a malli :map, idiomatic assoc/`:field`/update kernel-verify.
+
+**Phase 7 — cutover GATE COMPLETE; literal swap GATED ON PHASE 8.** The `cutover-differential-corpus`
+(`diff_test`) runs a representative corpus of ordinary-Clojure surface queries (map∘map / filter∘filter /
+map∘filter / filter→map→reduce / map∘map∘map) through BOTH old wandler and the clean surface+optimizer,
+asserting for each: clean ≡ old ≡ clojure.core on a battery of inputs AND a kernel-certified clean plan.
+This passing is what justifies the cutover — the clean core is a proven faithful drop-in for the old
+core across the surface it covers. SOUNDNESS FIX surfaced here: `cert/optimize` now REJECTS an
+unverifiable rewrite and keeps the original (never ships a `:verified? false` plan; map∘filter exposed a
+partial simp normalization with a non-strict congruence proof). Tagged `clean-core-validated`.
+**The literal namespace swap (clean.* → wandler.*, retire old) is NOT done — and must not be yet:** 19
+breadth modules (gradual / plan / jit.stream / exec.* / inference.* / bridge.datahike / dbsp / stream /
+verified / …) still depend on the OLD core (optimize/laws/surface/reducers). A swap now would break all
+19 → break the build, violating §0.1 ("never a window where nothing works"). Per the plan's own
+sequencing, those breadth modules are re-added on the clean base in **Phase 8 FIRST**; the one-commit
+reversible swap is the Phase 8→done boundary, once nothing depends on the old core. The cutover is
+*gated and proven*, not *executed*.
