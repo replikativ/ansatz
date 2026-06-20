@@ -16,6 +16,7 @@
 (ns ansatz.tactic.unify
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.tc :as tc]
+            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.level :as lvl]))
 
 ;; ============================================================
@@ -178,32 +179,85 @@
 
 (declare is-def-eq!)
 
-(defn- assign-or-recurse [st mctx a b]
-  ;; a, b assumed zonked. Try mvar-assignment, else structural recursion.
+(defn- mvar-app-spine
+  "If `e` is `(?m a1 … an)` with `?m` an unsolved metavariable (n ≥ 1), return [mvar-id [a1 … an]];
+   else nil. (A bare mvar with n=0 is handled by direct assignment, not the pattern path.)"
+  [mctx e]
+  (when (e/app? e)
+    (loop [h e, args ()]
+      (cond
+        (and (mvar? mctx h) (nil? (solution mctx (e/fvar-id h)))) [(e/fvar-id h) (vec args)]
+        (e/app? h) (recur (e/app-fn h) (cons (e/app-arg h) args))
+        :else nil))))
+
+(defn- fvar-decl-type [st id]
+  (when-let [d (red/lctx-lookup (:lctx st) id)] (:type d)))
+
+(defn- try-pattern!
+  "Lean's `processAssignment`/`checkAssignment` MILLER-PATTERN case (ExprDefEq.lean:1267): solve
+   `?m x1 … xn := v` where the `xi` are DISTINCT fvars LOCAL to this unification (`bound` = the
+   binder fvars opened while descending into λ/∀), by assigning `?m := λ x1 … xn. abstract(v,[xi])`
+   (`mkLambdaFVars`). Faithful pattern condition: args are distinct bound fvars; occurs-check `?m∉v`;
+   binder types must be known. Returns true on assignment, nil to fall through to the caller's
+   first-order approximation (the structural `:app` decomposition) — exactly Lean's pattern→FOApprox
+   order. SOUNDNESS rests on the kernel: a mis-typed lambda fails the final `check-constant`."
+  [st mctx bound mvar-id args v]
+  (when (and (every? (fn [a] (and (e/fvar? a) (contains? bound (e/fvar-id a)))) args)
+             (let [ids (map e/fvar-id args)] (apply distinct? ids))
+             (not (occurs? mctx mvar-id v)))
+    (let [ids (mapv e/fvar-id args)
+          types (mapv (fn [id] (fvar-decl-type st id)) ids)]
+      (when (every? some? types)
+        (let [body (e/abstract-many v ids)
+              ;; build λ (x1:T1) … (xn:Tn). body, each Ti abstracted over the preceding args (Tn may
+              ;; depend on x1…x_{n-1}). Wrap innermost-first.
+              lam (reduce (fn [acc i]
+                            (let [ti (e/abstract-many (zonk mctx (nth types i)) (subvec ids 0 i))]
+                              (e/lam "x" ti acc :default)))
+                          body
+                          (reverse (range (count ids))))]
+          (assign! mctx mvar-id lam))))))
+
+(defn- open-binder
+  "Open a λ/∀ binder for body comparison (mirrors the kernel `is-def-eq*` :lam/:forall): a fresh fvar
+   with the domain type, recursing on the instantiated bodies with the fvar added to `bound`."
+  [st mctx bound dom name body-a body-b]
+  (let [fid (long (swap! (:next-id st) inc))
+        fv (e/fvar fid)
+        st' (update st :lctx red/lctx-add-local fid name (zonk mctx dom))]
+    (is-def-eq! st' mctx (conj bound fid) (e/instantiate1 body-a fv) (e/instantiate1 body-b fv))))
+
+(defn- assign-or-recurse [st mctx bound a b]
+  ;; a, b assumed zonked. Try mvar-assignment / pattern-solve, else structural recursion.
   (cond
     (and (mvar? mctx a) (nil? (solution mctx (e/fvar-id a)))) (assign! mctx (e/fvar-id a) b)
     (and (mvar? mctx b) (nil? (solution mctx (e/fvar-id b)))) (assign! mctx (e/fvar-id b) a)
     ;; no metavariables either side → kernel's reduction-based defeq (robust)
     (and (not (has-mvar? mctx a)) (not (has-mvar? mctx b))) (tc/is-def-eq st a b)
-    (= (e/tag a) (e/tag b))
-    (case (e/tag a)
-      :app    (and (is-def-eq! st mctx (e/app-fn a) (e/app-fn b))
-                   (is-def-eq! st mctx (e/app-arg a) (e/app-arg b)))
-      :const  (and (= (e/const-name a) (e/const-name b))
-                   (= (count (e/const-levels a)) (count (e/const-levels b)))
-                   (every? true? (map #(is-level-def-eq! mctx %1 %2) (e/const-levels a) (e/const-levels b))))
-      :proj   (and (= (e/proj-type-name a) (e/proj-type-name b))
-                   (= (e/proj-idx a) (e/proj-idx b))
-                   (is-def-eq! st mctx (e/proj-struct a) (e/proj-struct b)))
-      :lam    (and (is-def-eq! st mctx (e/lam-type a) (e/lam-type b))
-                   (is-def-eq! st mctx (e/lam-body a) (e/lam-body b)))
-      :forall (and (is-def-eq! st mctx (e/forall-type a) (e/forall-type b))
-                   (is-def-eq! st mctx (e/forall-body a) (e/forall-body b)))
-      :sort   (is-level-def-eq! mctx (e/sort-level a) (e/sort-level b))
-      :fvar   (= (e/fvar-id a) (e/fvar-id b))
-      (:lit-nat :lit-str :bvar) (= a b)
-      false)
-    :else false))
+    :else
+    (or
+      ;; Miller pattern: `?m x1…xn =?= v` (both orientations), tried BEFORE first-order decomposition.
+      (when-let [[mid args] (mvar-app-spine mctx a)] (try-pattern! st mctx bound mid args b))
+      (when-let [[mid args] (mvar-app-spine mctx b)] (try-pattern! st mctx bound mid args a))
+      ;; first-order approximation / structural recursion
+      (when (= (e/tag a) (e/tag b))
+        (case (e/tag a)
+          :app    (and (is-def-eq! st mctx bound (e/app-fn a) (e/app-fn b))
+                       (is-def-eq! st mctx bound (e/app-arg a) (e/app-arg b)))
+          :const  (and (= (e/const-name a) (e/const-name b))
+                       (= (count (e/const-levels a)) (count (e/const-levels b)))
+                       (every? true? (map #(is-level-def-eq! mctx %1 %2) (e/const-levels a) (e/const-levels b))))
+          :proj   (and (= (e/proj-type-name a) (e/proj-type-name b))
+                       (= (e/proj-idx a) (e/proj-idx b))
+                       (is-def-eq! st mctx bound (e/proj-struct a) (e/proj-struct b)))
+          :lam    (and (is-def-eq! st mctx bound (e/lam-type a) (e/lam-type b))
+                       (open-binder st mctx bound (e/lam-type a) (e/lam-name a) (e/lam-body a) (e/lam-body b)))
+          :forall (and (is-def-eq! st mctx bound (e/forall-type a) (e/forall-type b))
+                       (open-binder st mctx bound (e/forall-type a) (e/forall-name a) (e/forall-body a) (e/forall-body b)))
+          :sort   (is-level-def-eq! mctx (e/sort-level a) (e/sort-level b))
+          :fvar   (= (e/fvar-id a) (e/fvar-id b))
+          (:lit-nat :lit-str :bvar) (= a b)
+          false)))))
 
 (defn is-def-eq!
   "Metavariable-aware, reduction-aware definitional equality (Lean's `Meta.isDefEq`).
@@ -215,20 +269,27 @@
    3. a bare unsolved metavariable → assign it (first-order);
    4. neither side has metavariables → delegate to the kernel's reduction-based `tc/is-def-eq`
       (handles all spelling differences via whnf, plus eta / proof-irrelevance);
-   5. otherwise reduce both sides to whnf and recurse structurally, assigning metavariables at the
+   5. the MILLER-PATTERN case `?m x1…xn =?= v` (xi distinct locally-bound fvars) → solve by
+      `?m := λ x1…xn. abstract(v)` (Lean `processAssignment`); λ/∀ bodies are compared by OPENING the
+      binder with a fresh fvar (Lean `isDefEqBinding`), so a function-metavar can never capture a
+      loose bound variable;
+   6. otherwise reduce both sides to whnf and recurse structurally, assigning metavariables at the
       positions they reach.
 
-   `st` is a `tc/mk-tc-state` (with the goal's lctx attached); `mctx` is the metavariable atom."
-  [st mctx a b]
-  ;; instantiateMVars = chase BOTH expr- and level-mvar solutions. The level pass only runs when some
-  ;; level-mvar has been solved (regression-safe: zero cost when no level-mvars are in play), so a
-  ;; solved level never reaches the kernel's level-blind `tc/is-def-eq` un-substituted.
-  (let [inst (fn [e] (let [e (zonk mctx e)]
-                       (if (seq (get @mctx :levels)) (zonk-levels-in-expr mctx e) e)))
-        a (inst a) b (inst b)]
-    (or (= a b)
-        (assign-or-recurse st mctx a b)
-        ;; structural attempt failed without reducing — reduce to whnf and retry once
-        (let [a' (whnf* st a) b' (whnf* st b)]
-          (when (or (not (identical? a' a)) (not (identical? b' b)))
-            (assign-or-recurse st mctx (zonk mctx a') (zonk mctx b')))))))
+   `st` is a `tc/mk-tc-state` (with the goal's lctx attached); `mctx` is the metavariable atom.
+   `bound` (4-arg arity defaults to ∅) is the set of fvar ids opened from binders during this run —
+   the only fvars eligible as Miller-pattern arguments."
+  ([st mctx a b] (is-def-eq! st mctx #{} a b))
+  ([st mctx bound a b]
+   ;; instantiateMVars = chase BOTH expr- and level-mvar solutions. The level pass only runs when some
+   ;; level-mvar has been solved (regression-safe: zero cost when no level-mvars are in play), so a
+   ;; solved level never reaches the kernel's level-blind `tc/is-def-eq` un-substituted.
+   (let [inst (fn [e] (let [e (zonk mctx e)]
+                        (if (seq (get @mctx :levels)) (zonk-levels-in-expr mctx e) e)))
+         a (inst a) b (inst b)]
+     (or (= a b)
+         (assign-or-recurse st mctx bound a b)
+         ;; structural attempt failed without reducing — reduce to whnf and retry once
+         (let [a' (whnf* st a) b' (whnf* st b)]
+           (when (or (not (identical? a' a)) (not (identical? b' b)))
+             (assign-or-recurse st mctx bound (zonk mctx a') (zonk mctx b'))))))))
