@@ -49,6 +49,12 @@
 
       :exact (:term assignment)
 
+      ;; generalize h : e = x — original goal proof = (?n) e (Eq.refl e), where ?n : ∀ x, e=x → G[e:=x]
+      ;; is the single subgoal (child). Splice in its extracted proof.
+      :generalize (let [{:keys [child e rfl]} assignment
+                        child-term (extract-term ps child)]
+                    (e/app* child-term e rfl))
+
       :rfl (let [eq-refl-name (name/from-string "Eq.refl")
                  levels (:levels assignment)]
              (e/app* (e/const' eq-refl-name levels)

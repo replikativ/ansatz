@@ -910,7 +910,16 @@
    'revert    (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
                                 (:lctx (proof/current-goal ps)))]
-                  (basic/revert ps fid)))})
+                  (basic/revert ps fid)))
+   'subst     (fn [ps args]
+                ;; (subst h) — Lean's `subst h`: given `h : x = e` / `e = x`, eliminate the variable.
+                (let [nm (str (first args))
+                      fid (some (fn [[id d]] (when (= nm (:name d)) id))
+                                (:lctx (proof/current-goal ps)))]
+                  (basic/subst ps fid)))
+   'subst_vars (fn [ps _args]
+                 ;; (subst_vars) — Lean's `subst_vars`: subst every variable-equality hypothesis.
+                 (basic/subst-vars ps))})
 
 ;; Initialize registry with built-in tactics
 (when (empty? @tactic-registry)

@@ -978,10 +978,9 @@
                 ;; We revert in reverse order (highest-ID first), then the explicitly listed ones
                   all-fids-to-revert
                   (let [revert-set (set revert-fids)
-                      ;; Dependents: simple const-headed hypotheses that depend on reverted fids.
-                      ;; Excludes IH types (lambda apps) and Eq types (equality leftovers).
-                      ;; Matches Lean 4's approach: only revert hypotheses with simple inductive types.
-                        eq-name (name/from-string "Eq")
+                      ;; Dependents: const-headed hypotheses (incl. Eq) that depend on reverted fids.
+                      ;; Lean's `MVarId.revert` reverts the major + ALL forward dependents with no type
+                      ;; filter; we only skip lambda-headed recursor IHs (handled by the motive).
                         deps (vec (sort (for [[fid d] (:lctx goal)
                                               :when (and (not (revert-set fid))
                                                          (= :local (:tag d))
@@ -989,10 +988,16 @@
                                                          (some (fn [rfid]
                                                                  (not= (e/abstract1 (:type d) rfid) (:type d)))
                                                                revert-fids)
-                                                      ;; Filter: only simple inductive types
+                                                      ;; Lean's `MVarId.revert` reverts the major + ALL
+                                                      ;; forward dependents (no type filter), so a
+                                                      ;; scrutinee-dependent equation like `generalize`'s
+                                                      ;; `h : e = x` IS reverted → substituted in the
+                                                      ;; branch (the RAWREC case). We only keep the
+                                                      ;; const-head guard, which skips the lambda-headed
+                                                      ;; recursor IHs (their motive-app types can't be
+                                                      ;; cleanly reverted here).
                                                          (let [[h _] (e/get-app-fn-args (:type d))]
-                                                           (and (e/const? h)
-                                                                (not= (e/const-name h) eq-name))))]
+                                                           (e/const? h)))]
                                           fid)))]
                   ;; Revert order: dependents (highest first), then hyp, then indices (highest first)
                     (vec (concat (reverse deps) [hyp-fvar-id] (reverse idx-fvar-ids))))
@@ -1639,6 +1644,36 @@
           ;; The child goal has ∀ deps, Goal; intro each dep to restore them to the lctx
           ps (reduce (fn [ps _] (intro ps)) ps (range (count dependent-fids)))]
       ps)))
+
+(defn subst-vars
+  "Lean 4 `subst_vars`: repeatedly substitute every hypothesis that is a *variable*
+   equality — `h : x = e` or `h : e = x` where `x` is a local fvar that does NOT
+   occur in `e` (occurs-check) — until no such hypothesis remains. Each substitution
+   reuses `subst`, which reverts/re-intros all dependents (Lean substCore). Robust:
+   a candidate that `subst` rejects is skipped, so the loop always terminates."
+  [ps]
+  (let [eq-name (name/from-string "Eq")
+        var-eq? (fn [d]
+                  (and (= :local (:tag d))
+                       (e/has-fvar-flag (:type d))
+                       (let [[h args] (e/get-app-fn-args (:type d))]
+                         (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count args))
+                              (let [lhs (nth args 1) rhs (nth args 2)]
+                                (or (and (e/fvar? lhs) (= (e/abstract1 rhs (e/fvar-id lhs)) rhs))
+                                    (and (e/fvar? rhs) (= (e/abstract1 lhs (e/fvar-id rhs)) lhs))))))))]
+    (loop [ps ps, skip #{}, guard 0]
+      (if (> guard 500)
+        ps
+        (let [goal (proof/current-goal ps)
+              cand (when goal
+                     (some (fn [[fid d]] (when (and (not (skip fid)) (var-eq? d)) fid))
+                           (:lctx goal)))]
+          (if (nil? cand)
+            ps
+            (let [ps' (try (subst ps cand) (catch Throwable _ nil))]
+              (if ps'
+                (recur ps' #{} (inc guard))
+                (recur ps (conj skip cand) (inc guard))))))))))
 
 ;; ============================================================
 ;; clear (remove hypothesis from context)
@@ -2404,10 +2439,11 @@
         inner (e/forall' hname eq-e-x g-x :default)                   ;; (e = x) → G[e:=x]  (h unused)
         n-type (e/forall' xname T (e/abstract1 inner xfv-id) :default)
         [ps' n-id] (proof/fresh-mvar-replacing ps' n-type (:lctx goal) (:id goal))
-        ;; original goal := ?n e (Eq.refl e)
-        rfl (e/app* (e/const' (name/from-string "Eq.refl") [Tlvl]) T e-expr)
-        term (e/app* (e/fvar n-id) e-expr rfl)]
-    (-> (proof/assign-mvar ps' (:id goal) {:kind :exact :term term})
+        ;; original goal := ?n e (Eq.refl e). Record a dedicated `:generalize` kind so extraction
+        ;; splices in the SUBGOAL's proof (`?n`): `(extract n-id) e rfl`. (A plain `:exact` term
+        ;; returns verbatim and would leave the `?n` reference dangling — free var / unknown tag.)
+        rfl (e/app* (e/const' (name/from-string "Eq.refl") [Tlvl]) T e-expr)]
+    (-> (proof/assign-mvar ps' (:id goal) {:kind :generalize :child n-id :e e-expr :rfl rfl})
         (proof/record-tactic :generalize [e-expr] (:id goal)))))
 
 ;; ============================================================
