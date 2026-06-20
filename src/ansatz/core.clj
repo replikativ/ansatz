@@ -820,6 +820,15 @@
                                           id best))
                                       nil (:lctx (proof/current-goal ps)))]
                       (basic/cases ps fid)))))
+   'generalize (fn [ps args]
+                 ;; (generalize x h e) — Lean's `generalize h : e = x`: abstract term `e` in the goal
+                 ;; as fresh var `x` (+ hyp `h : e = x`), so `cases`/`induction` can split a NESTED
+                 ;; scrutinee (the RAWREC case).
+                 (let [xname (str (first args))
+                       hname (str (second args))
+                       g (proof/current-goal ps)
+                       e-expr (elab/elaborate-in-context (:env ps) (:lctx g) (nth args 2))]
+                   (basic/generalize ps e-expr xname hname)))
    'induction (fn [ps args]
                 ;; (induction x) or (induction x generalizing acc …) — Lean's `generalizing`:
                 ;; revert the named hyps INTO the goal first (so the induction motive becomes
