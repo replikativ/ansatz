@@ -1,14 +1,16 @@
 (ns ansatz.prelude.list-test
   "The polymorphic `wsum` (fold over a WAddMonoid) authored thinly and kernel-verified over the
    full Init store — exercises POLYMORPHIC structural recursion (Lean-style fixed prefix {S} + an
-   instance param m), which previously failed (`(a/defn lenS [S :- Type, xs :- (List S)] …)` →
-   type-mismatch / WF-misroute). The function now verifies and runs.
+   INSTANCE-implicit monoid `[m : WAddMonoid S]`), which previously failed (type-mismatch /
+   WF-misroute, then a syntactic fixed-param check that rejected the instance arg). The function
+   now verifies and runs, with `m` synthesized at every call site (Lean-faithful: `wsum (map f xs)`,
+   no threaded monoid).
 
-   The WSemiring big-operator LAW (sum_map_mul_left) is authored in ansatz.prelude.list/install!
-   but its thin `(induction xs) <;> simp [wsum.eq_1 wsum.eq_2 …]` proof needs constructor-keyed
-   equation lemmas; auto-generating those for a polymorphic+instance def still has fvar-leaks in
-   the equation compiler (task #142 follow-on), so the law is attempted-but-deferred. This test
-   pins the part that works and documents the boundary."
+   The WSemiring/WAddMonoid big-operator LAWS (wsum_map_mul_left, wsum_map_add, …) are authored in
+   ansatz.prelude.list/install! and all kernel-verify: their thin `(induction xs) <;> simp [wsum.eq_1
+   wsum.eq_2 …]` proofs ride the auto-generated constructor equations, and a law over a `WSemiring S`
+   instance feeds `wsum` its `WAddMonoid` via the `WSemiring.toWAddMonoid` projection (synthesized
+   from the local instance). This test pins those proofs as the authoritative check."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
