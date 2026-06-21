@@ -1830,6 +1830,74 @@
     [goal-type (extract/extract ps)]))
 
 ;; ============================================================
+;; Law registration — idempotent + NON-SWALLOWING (the registry helper)
+;; ============================================================
+;; Runtime law libraries (e.g. wandler) install proven theorems into the global
+;; env as a side effect of loading. Lean does this at elaboration time and fails
+;; LOUDLY; we install at runtime, so callers grew an ad-hoc
+;;   (when-not (has? "X") (try (eval '(theorem …)) (catch Throwable _ nil)))
+;; around every law. The `catch _ nil` silently swallows proof failures — a broken
+;; law just never gets admitted, surfacing only as a missed optimization. This
+;; helper is the clean replacement: idempotent via `has-constant?`, and it
+;; RE-RAISES by default so a regression is seen, not hidden.
+
+(def ^:dynamic *install-ledger*
+  "When bound to an atom, `install-theorem!` conj's an entry
+   {:name s, :status :present|:admitted|:failed [, :error msg]} per call, so an
+   installer can report admitted-vs-skipped counts. nil = no ledger (default)."
+  nil)
+
+(clojure.core/defn has-constant?
+  "True if constant `s` (string or symbol) is already in the current env. The
+   idempotency predicate behind `install-theorem!` — replaces the open-coded
+   `(some? (env/lookup (env) (name/from-string s)))` each law file repeats."
+  [s]
+  (some? (env/lookup (env) (name/from-string (str s)))))
+
+(clojure.core/defn- record-install!
+  [nm status err]
+  (when *install-ledger*
+    (swap! *install-ledger* conj (cond-> {:name nm :status status}
+                                   err (assoc :error (.getMessage ^Throwable err)))))
+  (when (and *verbose* (= status :failed))
+    (println "✗" nm "failed to install:" (.getMessage ^Throwable err)))
+  status)
+
+(clojure.core/defn install-theorem!
+  "Idempotent, NON-SWALLOWING law registration — the clean replacement for the
+   `(when-not (has? \"X\") (try (eval '(theorem …)) (catch Throwable _ nil)))`
+   pattern. If `thm-name` is already present, no-op (returns :present). Otherwise
+   prove it via `prove-theorem` (verifies + installs). On proof failure: RE-RAISE
+   by default (a broken law must not silently vanish); under `:lenient? true`,
+   record the failure to `*install-ledger*` and return :failed instead of throwing.
+
+   `params`/`prop-form`/`tactic-forms` are exactly what `prove-theorem` takes
+   (surface forms, or a precomputed Expr goal with `params` = binder names). No
+   `eval` needed for literal forms — pass the quoted data directly; reserve `eval`
+   only for programmatically-assembled tactic blocks. Returns the status keyword."
+  [thm-name params prop-form tactic-forms & {:keys [lenient?]}]
+  (let [nm (str thm-name)]
+    (if (has-constant? nm)
+      (record-install! nm :present nil)
+      (if lenient?
+        (try (prove-theorem thm-name params prop-form tactic-forms)
+             (record-install! nm :admitted nil)
+             (catch Throwable e (record-install! nm :failed e)))
+        (do (prove-theorem thm-name params prop-form tactic-forms)
+            (record-install! nm :admitted nil))))))
+
+(defmacro install-guarded!
+  "Idempotent, NON-SWALLOWING guard for PROGRAMMATIC law installs that don't fit `deftheorem` —
+   raw-term `env/check-constant` admits, `admit!`s of generated equations, programmatically-assembled
+   `theorem`/`defn` forms. `(install-guarded! \"Name\" body...)` runs `body` (which must add the
+   constant `Name` to the env) only when `Name` is absent, and RE-RAISES on failure — replacing the
+   silent `(when-not (has? \"Name\") (try body (catch Throwable _ nil)))` that hid proof regressions.
+   For a genuinely-deferred install, catch + log explicitly at the call site instead of using this."
+  [name & body]
+  `(when-not (has-constant? ~name)
+     ~@body))
+
+;; ============================================================
 ;; Macros
 ;; ============================================================
 
@@ -1950,6 +2018,15 @@
    (a/theorem add-zero [n :- Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))"
   [thm-name params prop & tactics]
   `(prove-theorem '~thm-name '~params '~prop '~(vec tactics)))
+
+(defmacro deftheorem
+  "Idempotent, NON-SWALLOWING `theorem`: proves + installs `thm-name` unless it is
+   already present; RE-RAISES on failure. Sugar over `install-theorem!` for literal
+   forms — the drop-in for `(theorem …)` in runtime install paths (no eval/try/catch
+   needed). For the ledger / lenient mode, call `install-theorem!` directly.
+   (a/deftheorem add-zero [n :- Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))"
+  [thm-name params prop & tactics]
+  `(install-theorem! '~thm-name '~params '~prop '~(vec tactics)))
 
 (defmacro inductive
   "Define an inductive type with constructors.
