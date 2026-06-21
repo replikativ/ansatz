@@ -1114,12 +1114,29 @@
               ;; IH fvars are included in the minor lambdas during extraction
               ;; but are NOT shown to the user (they don't affect the branch goal).
                   [ps' all-field-fvars new-lctx]
-                  (let [rec-field-ids (filterv
+                  (let [rec-tc (mk-tc ps new-lctx)
+                        rec-field-ids (filterv
                                        (fn [fid]
                                          (let [ft (:type (red/lctx-lookup new-lctx fid))
                                                ft-whnf (whnf-in-goal ps new-lctx ft)
-                                               [fh _] (e/get-app-fn-args ft-whnf)]
-                                           (and (e/const? fh) (= (e/const-name fh) ind-name))))
+                                               [fh fargs] (e/get-app-fn-args ft-whnf)]
+                                           ;; A field is RECURSIVE only if its type is the SAME
+                                           ;; inductive applied to the SAME parameters — not merely
+                                           ;; headed by `ind-name`. Otherwise `head : List A` is
+                                           ;; misclassified as recursive when eliminating
+                                           ;; `List (List A)` (both are `List`-headed), and the IH
+                                           ;; `motive head` applies `motive : List(List A)→…` to a
+                                           ;; `List A`, producing an ill-typed (kernel-rejected)
+                                           ;; minor. Lean's recursor minors only carry IHs for
+                                           ;; genuine recursive occurrences (matching params).
+                                           (and (e/const? fh) (= (e/const-name fh) ind-name)
+                                                (>= (count fargs) num-params)
+                                                (every? identity
+                                                        (map (fn [fp p]
+                                                               (try (tc/is-def-eq rec-tc fp p)
+                                                                    (catch Exception _ false)))
+                                                             (subvec (vec fargs) 0 num-params)
+                                                             params)))))
                                        field-fvars)]
                     (if (empty? rec-field-ids)
                       [ps' field-fvars new-lctx]
