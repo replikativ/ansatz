@@ -29,9 +29,9 @@
     ;; ∀ {S}(m:WAddMonoid S)(a b:S)(xs:List S),
     ;;   foldl m.add (m.add a b) xs = m.add a (foldl m.add b xs)
     (a/theorem foldl_assoc_w [S :- Type :implicit, m :- (WAddMonoid S), a :- S, b :- S, xs :- (List S)]
-      (= S (List.foldl (WAddMonoid.add m) (WAddMonoid.add m a b) xs)
-           (WAddMonoid.add m a (List.foldl (WAddMonoid.add m) b xs)))
-      (induction xs generalizing b)
-      (all_goals (simp_all [List.foldl_nil List.foldl_cons (WAddMonoid.add_assoc m)])))
+               (= S (List.foldl (WAddMonoid.add m) (WAddMonoid.add m a b) xs)
+                  (WAddMonoid.add m a (List.foldl (WAddMonoid.add m) b xs)))
+               (induction xs generalizing b)
+               (all_goals (simp_all [List.foldl_nil List.foldl_cons (WAddMonoid.add_assoc m)])))
     (is (has? "foldl_assoc_w") "generic foldl_assoc over WAddMonoid installed")
     (is (verifies? "foldl_assoc_w") "kernel-checks (check-constant, authoritative)")))

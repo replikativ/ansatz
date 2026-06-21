@@ -36,7 +36,7 @@
     (ind/define-inductive (a/env) "WSemigT" '[S Type]
       [['mk '[add (=> S S S)
               assoc (forall [a S b S c S]
-                      (= S (add (add a b) c) (add a (add b c))))]]])
+                            (= S (add (add a b) c) (add a (add b c))))]]])
     (is (some? (lookup "WSemigT")) "inductive admitted")
     (is (some? (lookup "WSemigT.mk")) "constructor admitted")
     (is (some? (lookup "WSemigT.rec")) "recursor admitted")
@@ -47,8 +47,8 @@
 (deftest dependent-field-via-structure-macro
   (testing "the surface (a/structure …) macro handles a dependent commutativity axiom"
     (a/structure WMagmaT [S Type]
-      (op (=> S S S))
-      (comm (forall [a S b S] (= S (op a b) (op b a)))))
+                 (op (=> S S S))
+                 (comm (forall [a S b S] (= S (op a b) (op b a)))))
     (is (some? (lookup "WMagmaT")))
     (is (some? (lookup "WMagmaT.mk")))
     ;; projections still generate

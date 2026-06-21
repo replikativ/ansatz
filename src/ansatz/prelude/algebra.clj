@@ -34,15 +34,15 @@
   []
   (when-not (classes-installed?)
     (eval '(ansatz.core/structure WAddMonoid [S Type]
-             (add (=> S S S)) (zero S)
-             (add_assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c)))))
-             (zero_add (forall [a S] (= S (add zero a) a)))
-             (add_zero (forall [a S] (= S (add a zero) a)))))
+                                  (add (=> S S S)) (zero S)
+                                  (add_assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c)))))
+                                  (zero_add (forall [a S] (= S (add zero a) a)))
+                                  (add_zero (forall [a S] (= S (add a zero) a)))))
     (eval '(ansatz.core/structure WSemiring [S Type] :extends (WAddMonoid S)
-             (mul (=> S S S))
-             (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
-             (mul_zero (forall [a S] (= S (mul a zero) zero)))
-             (zero_mul (forall [a S] (= S (mul zero a) zero))))))
+                                  (mul (=> S S S))
+                                  (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
+                                  (mul_zero (forall [a S] (= S (mul a zero) zero)))
+                                  (zero_mul (forall [a S] (= S (mul zero a) zero))))))
   :installed)
 
 ;; ── Instance terms (carrier-agnostic; from an ops+proof-name row) ────────────────────────────

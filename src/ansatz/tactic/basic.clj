@@ -52,16 +52,16 @@
   [e]
   (let [acc (java.util.HashSet.)]
     (letfn [(go [e]
-              (when (e/has-fvar-flag e)
-                (case (e/tag e)
-                  :fvar   (.add acc (e/fvar-id e))
-                  :app    (do (go (e/app-fn e)) (go (e/app-arg e)))
-                  :lam    (do (go (e/lam-type e)) (go (e/lam-body e)))
-                  :forall (do (go (e/forall-type e)) (go (e/forall-body e)))
-                  :let    (do (go (e/let-type e)) (go (e/let-value e)) (go (e/let-body e)))
-                  :proj   (go (e/proj-struct e))
-                  :mdata  (go (e/mdata-expr e))
-                  nil)))]
+                (when (e/has-fvar-flag e)
+                  (case (e/tag e)
+                    :fvar   (.add acc (e/fvar-id e))
+                    :app    (do (go (e/app-fn e)) (go (e/app-arg e)))
+                    :lam    (do (go (e/lam-type e)) (go (e/lam-body e)))
+                    :forall (do (go (e/forall-type e)) (go (e/forall-body e)))
+                    :let    (do (go (e/let-type e)) (go (e/let-value e)) (go (e/let-body e)))
+                    :proj   (go (e/proj-struct e))
+                    :mdata  (go (e/mdata-expr e))
+                    nil)))]
       (go e))
     (set acc)))
 

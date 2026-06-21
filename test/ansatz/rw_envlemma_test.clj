@@ -23,18 +23,18 @@
   (when @full
     ;; rw [m.add_assoc]: instantiate ∀ a b c by matching the LHS, then rfl
     (a/theorem rw_assoc_fwd [S :- Type :implicit, m :- (WAddMonoid S), a :- S, b :- S, c :- S]
-      (= S (WAddMonoid.add m (WAddMonoid.add m a b) c) (WAddMonoid.add m a (WAddMonoid.add m b c)))
-      (rewrite (WAddMonoid.add_assoc m))
-      (rfl))
+               (= S (WAddMonoid.add m (WAddMonoid.add m a b) c) (WAddMonoid.add m a (WAddMonoid.add m b c)))
+               (rewrite (WAddMonoid.add_assoc m))
+               (rfl))
     (is (vrf? "rw_assoc_fwd") "rw [env-lemma] forward + rfl")))
 
 (deftest rw-env-lemma-reverse
   (when @full
     ;; rw [<- m.add_assoc]: rewrite right-to-left (a+(b+c)) -> ((a+b)+c)
     (a/theorem rw_assoc_rev [S :- Type :implicit, m :- (WAddMonoid S), a :- S, b :- S, c :- S]
-      (= S (WAddMonoid.add m a (WAddMonoid.add m b c)) (WAddMonoid.add m (WAddMonoid.add m a b) c))
-      (rewrite <- (WAddMonoid.add_assoc m))
-      (rfl))
+               (= S (WAddMonoid.add m a (WAddMonoid.add m b c)) (WAddMonoid.add m (WAddMonoid.add m a b) c))
+               (rewrite <- (WAddMonoid.add_assoc m))
+               (rfl))
     (is (vrf? "rw_assoc_rev") "rw [<- env-lemma] reverse + rfl")))
 
 (deftest rw-bare-symbol
@@ -42,7 +42,7 @@
     ;; bare lemma SYMBOL (no args) — ALL params (S m a b c) instantiated by matching, the leading
     ;; TYPE param S (erased by the accessor→proj reduction) recovered via postprocessAppMVars.
     (a/theorem rw_assoc_bare [S :- Type :implicit, m :- (WAddMonoid S), a :- S, b :- S, c :- S]
-      (= S (WAddMonoid.add m (WAddMonoid.add m a b) c) (WAddMonoid.add m a (WAddMonoid.add m b c)))
-      (rewrite WAddMonoid.add_assoc)
-      (rfl))
+               (= S (WAddMonoid.add m (WAddMonoid.add m a b) c) (WAddMonoid.add m a (WAddMonoid.add m b c)))
+               (rewrite WAddMonoid.add_assoc)
+               (rfl))
     (is (vrf? "rw_assoc_bare") "rw [bare-symbol env-lemma] (postprocessAppMVars)")))

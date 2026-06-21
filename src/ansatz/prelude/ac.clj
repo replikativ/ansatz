@@ -31,24 +31,24 @@
   []
   (when-not (has? "op_left_comm")
     (eval '(ansatz.core/theorem op_left_comm
-             [A :- Type, op :- (=> A (=> A A)),
-              hassoc :- (Std.Associative A op), hcomm :- (Std.Commutative A op),
-              a :- A, b :- A, c :- A]
-             (= A (op a (op b c)) (op b (op a c)))
+                                [A :- Type, op :- (=> A (=> A A)),
+                                 hassoc :- (Std.Associative A op), hcomm :- (Std.Commutative A op),
+                                 a :- A, b :- A, c :- A]
+                                (= A (op a (op b c)) (op b (op a c)))
              ;; (ab)c ← a(bc) ; swap inner a b ; (ba)c → b(ac) ; the last `rw` auto-closes by rfl
-             (rw <- (Std.Associative.assoc A op hassoc a b c))
-             (rw (Std.Commutative.comm A op hcomm a b))
-             (rw (Std.Associative.assoc A op hassoc b a c)))))
+                                (rw <- (Std.Associative.assoc A op hassoc a b c))
+                                (rw (Std.Commutative.comm A op hcomm a b))
+                                (rw (Std.Associative.assoc A op hassoc b a c)))))
   (when-not (has? "op_medial")
     (eval '(ansatz.core/theorem op_medial
-             [A :- Type, op :- (=> A (=> A A)),
-              hassoc :- (Std.Associative A op), hcomm :- (Std.Commutative A op),
-              a :- A, b :- A, c :- A, d :- A]
-             (= A (op (op a b) (op c d)) (op (op a c) (op b d)))
+                                [A :- Type, op :- (=> A (=> A A)),
+                                 hassoc :- (Std.Associative A op), hcomm :- (Std.Commutative A op),
+                                 a :- A, b :- A, c :- A, d :- A]
+                                (= A (op (op a b) (op c d)) (op (op a c) (op b d)))
              ;; (ab)(cd) → a(b(cd)) → a((bc)d) → a((cb)d) → a(c(bd)) → (ac)(bd); last `rw` auto-closes
-             (rw (Std.Associative.assoc A op hassoc a b (op c d)))
-             (rw <- (Std.Associative.assoc A op hassoc b c d))
-             (rw (Std.Commutative.comm A op hcomm b c))
-             (rw (Std.Associative.assoc A op hassoc c b d))
-             (rw <- (Std.Associative.assoc A op hassoc a c (op b d))))))
+                                (rw (Std.Associative.assoc A op hassoc a b (op c d)))
+                                (rw <- (Std.Associative.assoc A op hassoc b c d))
+                                (rw (Std.Commutative.comm A op hcomm b c))
+                                (rw (Std.Associative.assoc A op hassoc c b d))
+                                (rw <- (Std.Associative.assoc A op hassoc a c (op b d))))))
   :installed)

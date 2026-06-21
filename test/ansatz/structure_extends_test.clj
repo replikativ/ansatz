@@ -33,15 +33,15 @@
   (testing "WAddMonoid parent + WSemiring child via :extends, with verified Nat instances"
     (when @init-env
       (a/structure WAddMonoid [S Type]
-        (add (=> S S S)) (zero S)
-        (add_assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c)))))
-        (zero_add (forall [a S] (= S (add zero a) a)))
-        (add_zero (forall [a S] (= S (add a zero) a))))
+                   (add (=> S S S)) (zero S)
+                   (add_assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c)))))
+                   (zero_add (forall [a S] (= S (add zero a) a)))
+                   (add_zero (forall [a S] (= S (add a zero) a))))
       (a/structure WSemiring [S Type] :extends (WAddMonoid S)
-        (mul (=> S S S))
-        (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
-        (mul_zero (forall [a S] (= S (mul a zero) zero)))
-        (zero_mul (forall [a S] (= S (mul zero a) zero))))
+                   (mul (=> S S S))
+                   (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
+                   (mul_zero (forall [a S] (= S (mul a zero) zero)))
+                   (zero_mul (forall [a S] (= S (mul zero a) zero))))
 
       ;; subobject field + its projection
       (is (has? "WSemiring.toWAddMonoid") "packed to{Parent} projection exists")
@@ -71,5 +71,5 @@
 (deftest extends-rejects-multiple-parents
   (testing "multiple :extends parents are rejected (C3/copiedField path not yet implemented)"
     (is (thrown? Throwable
-          (eval '(a/structure Bad [S Type] :extends [(WAddMonoid S) (WOther S)]
-                   (x (=> S S S))))))))
+                 (eval '(a/structure Bad [S Type] :extends [(WAddMonoid S) (WOther S)]
+                                     (x (=> S S S))))))))

@@ -29,8 +29,8 @@
     ;; IH at acc. No arithmetic / associativity (those associative-foldl laws need controlled `rw`,
     ;; as in Lean — a separate concern from this tactic).
     (a/theorem foldl_const_step [acc :- Nat, xs :- (List Nat)]
-      (= Nat (List.foldl (fn [a :- Nat, x :- Nat] a) acc xs) acc)
-      (induction xs generalizing acc)
-      (all_goals (simp_all [List.foldl_nil List.foldl_cons])))
+               (= Nat (List.foldl (fn [a :- Nat, x :- Nat] a) acc xs) acc)
+               (induction xs generalizing acc)
+               (all_goals (simp_all [List.foldl_nil List.foldl_cons])))
     (is (has? "foldl_const_step") "the const-step foldl law installed")
     (is (verifies? "foldl_const_step") "kernel-checks (check-constant, authoritative)")))

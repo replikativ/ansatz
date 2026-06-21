@@ -2113,7 +2113,7 @@
   (let [env0 (env)
         child-name (name/from-string child-str)
         parent-fields (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
-                               [parent-str :fields])
+                              [parent-str :fields])
         ci (env/lookup env0 child-name)
         lvl-params (vec (.levelParams ^ConstantInfo ci))
         lvl-levels (mapv lvl/param lvl-params)
