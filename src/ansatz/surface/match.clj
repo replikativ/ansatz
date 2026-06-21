@@ -224,8 +224,8 @@
    (`drop`/`take`) — it rides the motive, not a fixed parameter. If the motive is NOT a function type
    the `(IH extra)` is ill-typed and `check-constant` rejects it (so the non-curried form stays a
    genuine error, as it must). Extras are recursed (they may carry nested self-calls)."
-  [expr self-name field->ih param-ids]
-  (let [rec (fn rec [e] (replace-self-ih e self-name field->ih param-ids))
+  [est expr self-name field->ih param-ids]
+  (let [rec (fn rec [e] (replace-self-ih est e self-name field->ih param-ids))
         self-call-ih
         (fn [args]   ;; → IH (possibly applied to extra args) when the prefix is a clean self-call, else nil
           (when (and param-ids (>= (count args) (count param-ids)))
@@ -237,15 +237,34 @@
                                                              (contains? field->ih (e/fvar-id a))) j))
                                         param-args)]
               (when (= 1 (count rec-pos))
-                (let [jr (first rec-pos)]
-                  (when (every? (fn [j] (or (= j jr)
-                                            (and (= :fvar (e/tag (nth param-args j)))
-                                                 (= (e/fvar-id (nth param-args j)) (nth param-ids j)))))
-                                (range np))
+                (let [jr (first rec-pos)
+                      ;; Lean `FixedParams.lean:217`: a non-recursive arg position is fixed iff
+                      ;; `isDefEq param arg`. We use the elaborator's `unify` (def-eq + mvar-solving)
+                      ;; so a synthesized implicit/inst-implicit self-call arg (`{S}`, `[m]`) resolves
+                      ;; to its param fvar — matching how Lean checks fully-elaborated calls — rather
+                      ;; than only bare-fvar syntactic equality. Snapshot/restore the mvar context so a
+                      ;; failed check (a genuinely-varying param ⇒ NOT a structural call, which must
+                      ;; route to the WF path) leaves no stray solutions.
+                      uf (:unify-fn est)
+                      m0 (when uf @(:mctx est))
+                      lm0 (when (and uf (:level-mctx est)) @(:level-mctx est))
+                      fixed? (every? (fn [j]
+                                       (or (= j jr)
+                                           (let [a (nth param-args j)
+                                                 pid (nth param-ids j)]
+                                             (if uf
+                                               (boolean (try (uf est a (e/fvar pid)) (catch Throwable _ false)))
+                                               (and (= :fvar (e/tag a)) (= (e/fvar-id a) pid))))))
+                                     (range np))]
+                  (if fixed?
                     ;; IH for the field; apply to any extra args (the brecOn motive-as-function case).
                     (reduce e/app
                             (e/fvar (get field->ih (e/fvar-id (nth param-args jr))))
-                            (map rec extra-args))))))))]
+                            (map rec extra-args))
+                    (do (when uf
+                          (reset! (:mctx est) m0)
+                          (when lm0 (reset! (:level-mctx est) lm0)))
+                        nil)))))))]
     (if (= :app (e/tag expr))
       (let [[head args] (collect-spine expr)]
         (if (and (= :const (e/tag head)) (= (e/const-name head) self-name))
@@ -425,7 +444,7 @@
                    ;; else the structural self-call is missed and routes (wrongly) to the WF path.
                    (let [zf (:zonk-fn est')
                          body (if zf (zf est' rhs-body) rhs-body)]
-                     (replace-self-ih body *self-name*
+                     (replace-self-ih est' body *self-name*
                                       (into {} (map-indexed
                                                 (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
                                                 early-rec-indices))
