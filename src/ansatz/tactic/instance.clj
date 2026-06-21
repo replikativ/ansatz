@@ -340,8 +340,12 @@
    full-scan path only sees the locally-added constants). Same curated style as `common-classes`;
    extend as new class hierarchies are exercised. The synthesizer fills the projection's structure
    argument by recursive synthesis (see try-candidate's projection-arg handling)."
-  {"ReflBEq"  ["LawfulBEq" "EquivBEq"]
-   "EquivBEq" ["LawfulBEq"]})
+  {"ReflBEq"    ["LawfulBEq" "EquivBEq"]
+   "EquivBEq"   ["LawfulBEq"]
+   ;; WSemiring extends WAddMonoid — its `WSemiring.toWAddMonoid` projection is the registered
+   ;; instance that fills a `WAddMonoid S` goal from a local `WSemiring S` instance (the
+   ;; instance-implicit `wsum` over WSemiring-parameterized laws relies on this resolution).
+   "WAddMonoid" ["WSemiring"]})
 
 (defn- discover-candidates
   "On-demand candidate discovery for PSS environments.
