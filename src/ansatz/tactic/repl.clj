@@ -276,6 +276,93 @@
         ci (ansatz.kernel.env/mk-thm cname [] type-expr term)]
     (ansatz.kernel.env/check-constant env ci)))
 
+;; ============================================================
+;; Interactive goal-state loop (the lean_goal / lean_multi_attempt analog)
+;; ============================================================
+;; Thin wrappers over the SAME machinery `a/theorem` uses (elab-signature → start-proof →
+;; intros → run-tactic). `core/run-tactic` is reached via requiring-resolve so this REPL ns has
+;; no static dependency on ansatz.core (cycle-safe). Nothing here mutates the global env.
+
+(defn- core-fn [sym] (requiring-resolve (symbol "ansatz.core" (name sym))))
+
+(defn setup-goal
+  "Build the proof state for an `a/theorem`-style signature: elaborate `(params prop-form)` through
+   the SAME elaborator a/theorem uses, start the proof, and intro the binders. Returns the `ps`
+   positioned at the body goal. `env` defaults to the global env. Pure (no env mutation)."
+  ([params prop-form] (setup-goal ((core-fn 'env)) params prop-form))
+  ([env params prop-form]
+   (let [pairs   ((core-fn 'parse-params) params)
+         goal-ty (:type-ansatz ((core-fn 'elab-signature) env pairs prop-form))
+         [ps _]  (proof/start-proof env goal-ty)]
+     (if (seq pairs) (basic/intros ps (mapv (comp str first) pairs)) ps))))
+
+(defn goal-at
+  "Interactive goal inspection — the `lean_goal` analog. Set up `(params prop-form)`, run the first
+   `n` surface tactic forms (default: all), print the resulting goal state, and RETURN the `ps` so
+   you can keep stepping. Tactics are surface forms, e.g. `['(intro x) '(simp [List.map_map]) 'rfl]`.
+
+     (goal-at '[xs :- (List Nat)] '(= ...) ['(induction xs)] 1)  ;; show state after `induction`"
+  ([params prop-form tactics] (goal-at params prop-form tactics (count tactics)))
+  ([params prop-form tactics n]
+   (let [run (core-fn 'run-tactic)
+         ps  (reduce run (setup-goal params prop-form) (take n tactics))]
+     (show-goals ps)
+     ps)))
+
+(defn step
+  "Apply ONE surface tactic to `ps`, print the resulting goals, return the new `ps`."
+  [ps tac]
+  (let [ps' ((core-fn 'run-tactic) ps tac)]
+    (show-goals ps')
+    ps'))
+
+(defn attempt
+  "Try each surface tactic form against `ps` INDEPENDENTLY — the `lean_multi_attempt` analog. Does
+   not mutate `ps`. Returns a vector of {:tactic, :closed?, :remaining, :goals | :error}, so you can
+   see which tactic closes the goal or makes progress.
+
+     (attempt ps ['(simp [foo]) 'omega 'ring '(rfl)])"
+  [ps tactics]
+  (let [run (core-fn 'run-tactic)]
+    (mapv (fn [t]
+            (try
+              (let [ps' (run ps t)]
+                {:tactic t
+                 :closed? (proof/solved? ps')
+                 :remaining (count (proof/goals ps'))
+                 :goals (proof/format-goals ps')})
+              (catch Throwable e
+                {:tactic t :error (.getMessage e)})))
+          tactics)))
+
+;; ============================================================
+;; Term quotation — concrete surface syntax instead of e/app*/e/forall' construction
+;; ============================================================
+;; `(t <sexpr>)` elaborates a surface term to a kernel Expr in the global env; `(t-in ps <sexpr>)`
+;; elaborates in the local context of ps's current goal (hypotheses available as symbols). The
+;; fn forms (`t*`/`t-in*`) take an already-built/computed sexpr — what the law library uses to
+;; replace hand-assembled `e/app*` trees with surface s-expressions.
+
+(defn t*
+  "Elaborate a surface s-expr to a kernel Expr. `env` defaults to the global env."
+  ([sexpr] (t* ((core-fn 'env)) sexpr))
+  ([env sexpr] (elab/elaborate env sexpr)))
+
+(defn t-in*
+  "Elaborate a surface s-expr in the local context of ps's current goal (hypothesis names are in
+   scope as symbols). For building `exact`/`have` terms that mention the goal's fvars."
+  [ps sexpr]
+  (elab/elaborate-in-context (:env ps) (:lctx (first (proof/goals ps))) sexpr))
+
+(defmacro t
+  "Quote + elaborate a surface term to a kernel Expr in the global env — the concrete-syntax
+   alternative to `(e/app* (e/const' …) …)`.   e.g.  (t (List.map f xs))"
+  [sexpr] `(t* (quote ~sexpr)))
+
+(defmacro t-in
+  "Quote + elaborate a surface term in ps's current-goal context.   e.g.  (t-in ps (Eq a a))"
+  [ps sexpr] `(t-in* ~ps (quote ~sexpr)))
+
 (defn define
   "Define a term constant and add it to the environment.
    Returns the updated env.

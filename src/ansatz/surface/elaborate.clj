@@ -5,9 +5,9 @@
    Ansatz terms by resolving names, inserting implicit arguments, inferring
    universe levels, and type-checking.
 
-   Unlike `ansatz.surface.term` (which only does name→de Bruijn conversion),
-   elaborate is type-directed: it uses the kernel type checker to infer
-   omitted implicit arguments.
+   This is THE elaborator: type-directed, fvar-first, with metavariables + instance synthesis.
+   It backs `a/defn` bodies+signatures, `a/theorem` goals, proof terms, and tactic-arg
+   elaboration. (The legacy bvar-only `term` builder it superseded has been retired.)
 
    Usage:
      (elaborate env '(forall [a Nat] (Eq a a)))
@@ -437,7 +437,13 @@
               (if (empty? binders)
                 (elab-term est body-sexpr)
                 (let [[nam typ-sexpr] (first binders)
-                      typ-expr (elab-term est typ-sexpr)
+                      ;; Zonk the binder type so its solved level-mvars (`?u`) are substituted before
+                      ;; it is stored into :scope / the tc :lctx. Lean instantiates mvars in binder
+                      ;; types; without this the stored type keeps raw `?u`, and a later EAGER kernel
+                      ;; infer of a sub-term in ARGUMENT position (elab-app) trips on the opaque `?u`
+                      ;; ("Type mismatch in application") — the body position survives only because it
+                      ;; reaches the final whole-term zonk. See [[elab-binder-zonk-bug]].
+                      typ-expr (zonk est (elab-term est typ-sexpr))
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
                       est' (-> est
@@ -456,7 +462,13 @@
               (if (empty? binders)
                 (elab-term est body-sexpr)
                 (let [[nam typ-sexpr] (first binders)
-                      typ-expr (elab-term est typ-sexpr)
+                      ;; Zonk the binder type so its solved level-mvars (`?u`) are substituted before
+                      ;; it is stored into :scope / the tc :lctx. Lean instantiates mvars in binder
+                      ;; types; without this the stored type keeps raw `?u`, and a later EAGER kernel
+                      ;; infer of a sub-term in ARGUMENT position (elab-app) trips on the opaque `?u`
+                      ;; ("Type mismatch in application") — the body position survives only because it
+                      ;; reaches the final whole-term zonk. See [[elab-binder-zonk-bug]].
+                      typ-expr (zonk est (elab-term est typ-sexpr))
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
                       est' (-> est
@@ -635,10 +647,18 @@
       ;; user-registered surface forms. Term elaborators first (lean4 elab_rules-shaped:
       ;; syntax → kernel Expr with elaborator access, for type-directed forms), then
       ;; macro elaborators (lean4 macro_rules-shaped: syntax → syntax, which re-elaborates) —
-      ;; both compose with every surface feature.
-      (if-let [telab (and (symbol? head) (not bypass?) (get @ingest/term-elaborator-registry head))]
+      ;; both compose with every surface feature. LEXICAL SCOPING: a LOCAL BINDER shadows the global
+      ;; vocabulary — `(get (:scope est) head)` is checked first, so e.g. a binder named `dec`
+      ;; (a DecidableEq instance) applied as `(dec a b)` resolves to the binder, NOT the registered
+      ;; `dec` (clojure decrement) from the wandler collections vocabulary. (Before this, loading any
+      ;; namespace that registered `dec`/`map`/`min`/… globally silently shadowed same-named binders.)
+      (if-let [telab (and (symbol? head) (not bypass?)
+                          (not (contains? (:scope est) head))
+                          (get @ingest/term-elaborator-registry head))]
         (telab est (vec (rest sexpr)))
-        (if-let [expander (and (symbol? head) (not bypass?) (get @ingest/elaborator-registry head))]
+        (if-let [expander (and (symbol? head) (not bypass?)
+                               (not (contains? (:scope est) head))
+                               (get @ingest/elaborator-registry head))]
           (elab-term est (expander (rest sexpr)))
           (case (when (symbol? head) (str head))
             "forall" (let [[_ binder-vec & body-forms] sexpr]
@@ -651,10 +671,17 @@
                          (elab-error! "lam expects one body" {:forms body-forms}))
                        (elab-lam est binder-vec (first body-forms)))
 
-            "arrow"  (let [[_ a b] sexpr
-                           a-expr (elab-term est a)
-                           b-expr (elab-term est b)]
-                       (e/arrow a-expr b-expr))
+            ;; Non-dependent function type. `arrow` plus the idiomatic `=>` (THE function-type arrow
+            ;; per clj-ingest; `->` is ALWAYS Clojure threading, never the arrow) and `→`, with N-ary
+            ;; currying: (=> A B C) = A → B → C (right-associated). Each part elaborates in the same
+            ;; scope (fvar-based — no de-Bruijn depth shift); `e/arrow` wraps `_ : A`. This brings the
+            ;; a/theorem fvar elaborator in line with a/defn, which already accepts `=>` binders.
+            ("arrow" "=>" "→")
+            (let [parts (rest sexpr)]
+              (when (< (count parts) 2)
+                (elab-error! "arrow / => expects at least two types" {:form sexpr}))
+              (let [exprs (mapv #(elab-term est %) parts)]
+                (reduce (fn [b a] (e/arrow a b)) (last exprs) (reverse (butlast exprs)))))
 
             "Sort"   (let [[_ level-form] sexpr
                            level (cond
@@ -681,7 +708,7 @@
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
             "match"  (let [args (vec (rest sexpr))
-                           est* (assoc est :infer-fn infer-with-mvars :unify-fn unify!)]
+                           est* (assoc est :infer-fn infer-with-mvars :unify-fn unify! :zonk-fn zonk)]
                        (if (vector? (get args 1))
                          (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
                      ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the
@@ -700,8 +727,7 @@
                                                         (assoc :declared-ret-type declared-ret))
                                                 elab-term scrut alts))))
 
-            "=>" (let [[_ a b] sexpr]
-                   (e/arrow (elab-term est a) (elab-term est b)))
+        ;; (=> A B) is handled by the unified arrow clause above (with currying + the → glyph).
 
         ;; Bool if-then-else → Bool.rec. The motive is the then-branch's type,
         ;; inferred directly (fvar context is present — no open/close needed).
@@ -927,6 +953,24 @@
                                                   (tc/infer-type (:tc est) (zonk est (elab-term est e))) :default)
                                            (build more) (elab-term est e) (elab-term est t))))))]
                      (build (rest sexpr)))
+
+        ;; `bif` — Lean's boolean-`if` notation, the escape to the `cond` CONSTANT
+        ;; (cond.{u} {α : Type u} (c : Bool) (a b : α) : α). The surface `cond` is overloaded as
+        ;; Clojure-style clause-cond (above), so a lemma statement that needs the literal `cond`
+        ;; head — e.g. to state `lookup_insert : … = cond (k==k') (some v) (lookup k l)` so that
+        ;; `cond_true`/`cond_false` fire by name — spells it `(bif c a b)`. α + the level are
+        ;; inferred from `a` (mirrors Lean's `bif` elaborating the implicit motive).
+            "bif" (let [[_ c-form a-form b-form] sexpr
+                        c (elab-term est c-form)
+                        a (elab-term est a-form)
+                        b (elab-term est b-form)
+                        ;; cond.{u} : {α : Sort u} → Bool → α → α → α. α (implicit, but passed
+                        ;; positionally here) = type of `a`; the level param u = the level of α's
+                        ;; OWN type (type-of(Option Nat) = Sort 1 ⟹ u = 1), i.e. sort-level of α's type.
+                        α (tc/infer-type (:tc est) (zonk est a))
+                        αsort (#'tc/cached-whnf (:tc est) (tc/infer-type (:tc est) (zonk est α)))
+                        u (if (e/sort? αsort) (e/sort-level αsort) lvl/zero)]
+                    (e/app* (e/const' (name/from-string "cond") [u]) α c a b))
 
         ;; Clojure let* : [name val name val …] with inferred types → nested let.
             "let*" (let [[_ bindings & body] sexpr]

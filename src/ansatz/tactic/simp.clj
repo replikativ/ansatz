@@ -41,6 +41,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
+            [ansatz.tactic.unify :as u]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
@@ -80,6 +81,8 @@
 (def ^:private eq-false-of-decide-name (name/from-string "eq_false_of_decide"))
 (def ^:private decidable-decide-name (name/from-string "Decidable.decide"))
 (def ^:private decidable-name (name/from-string "Decidable"))
+(def ^:private decidable-istrue-name (name/from-string "Decidable.isTrue"))
+(def ^:private decidable-isfalse-name (name/from-string "Decidable.isFalse"))
 (def ^:private bool-name (name/from-string "Bool"))
 
 ;; ============================================================
@@ -270,14 +273,19 @@
 
     :else
     (try
-      (let [hp (or (:proof? p-result)
-                   (e/app* (e/const' eq-refl-name [lvl/zero])
-                           (e/sort' lvl/zero) orig-p))
+      ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
+      ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
+      ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
+      (let [u (get-sort-level st orig-p)
+            v (get-sort-level st orig-q)
+            hp (or (:proof? p-result)
+                   (e/app* (e/const' eq-refl-name [(lvl/succ u)])
+                           (e/sort' u) orig-p))
             hq (or (:proof? q-result)
-                   (e/app* (e/const' eq-refl-name [lvl/zero])
-                           (e/sort' lvl/zero) orig-q))]
+                   (e/app* (e/const' eq-refl-name [(lvl/succ v)])
+                           (e/sort' v) orig-q))]
         {:expr (e/arrow (:expr p-result) (:expr q-result))
-         :proof? (e/app* (e/const' implies-congr-name [])
+         :proof? (e/app* (e/const' implies-congr-name [u v])
                          orig-p (:expr p-result)
                          orig-q (:expr q-result) hp hq)
          :cache true})
@@ -506,6 +514,25 @@
             (recur body (inc num-params))))
         (extract-from-conclusion env cname level-params num-params
                                  rfl-flag priority ty)))))
+
+(defn- extract-simp-lemma-term
+  "Like extract-simp-lemma, but from a proof TERM and its (already-inferred) type `ty`, rather than a
+   named constant. The resulting lemma map carries `:proof-term` (the term) instead of `:name`, so the
+   rewrite proof is the term applied to the matched params — NOT a fresh `(const name levels)`. This is
+   what lets `simp [<term>]` accept any proof term (Lean's `simp [h]`), e.g. a projected typeclass axiom
+   `WSemiring.mul_zero S inst`. The term is level-closed (its universe args are already concrete), so
+   `:level-params []` and level inference is a no-op."
+  [env ty priority proof-term]
+  (let [mk (fn [t np]
+             (mapv #(assoc % :proof-term proof-term :name nil)
+                   (extract-from-conclusion env nil [] np false priority t)))]
+    (loop [t ty np 0]
+      (if (e/forall? t)
+        (let [body (e/forall-body t)]
+          (if (and (e/const? body) (= (e/const-name body) false-name))
+            (mk t np)
+            (recur body (inc np))))
+        (mk t np)))))
 
 ;; ============================================================
 ;; Discrimination tree index — Lean 4's DiscrTree
@@ -859,6 +886,45 @@
 
 (declare find-eqn-theorems)
 
+(defn- forall-meta-telescope
+  "Instantiate a ∀-telescope with fresh metavariables (Lean's forallMetaTelescopeReducing).
+   Returns [xs body] where xs are the metavar fvars and body is the type with them substituted."
+  [mctx id-base type]
+  (loop [ty type xs [] i 0]
+    (if (e/forall? ty)
+      (let [m (u/fresh-mvar! mctx (+ id-base i) (e/forall-type ty))]
+        (recur (e/instantiate1 (e/forall-body ty) m) (conj xs m) (inc i)))
+      [xs ty])))
+
+(defn- try-theorem
+  "Lean 4's tryTheoremCore (Simp/Rewrite.lean:114). Instantiate the lemma's ∀-params as fresh
+   metavariables, then unify its LHS against the goal `expr` via the reduction-aware `is-def-eq!`
+   (so a named-accessor goal matches a projection-spelled lemma). Build the proof by applying the
+   lemma value to the now-assigned metavariables; REJECT (nil) if any metavariable is left
+   unassigned (Lean's `hasAssignableMVar`). Used as a fallback when the structural `match-lemma`
+   fails — it can only ADD sound matches, never corrupt an existing one. Only handles the `:eq`
+   kind with a level-concrete value (term lemmas `simp [proof-term]` and monomorphic named lemmas)."
+  [st env expr lemma]
+  (let [val (cond (:proof-term lemma) (:proof-term lemma)
+                  (and (:name lemma) (empty? (:level-params lemma)))
+                  (e/const' (:name lemma) [])
+                  :else nil)]
+    (when val
+      (let [type (try (tc/infer-type st val) (catch Exception _ nil))]
+        (when (and type (e/forall? type))
+          (let [mctx (atom {})
+                [xs body] (forall-meta-telescope mctx 9000000 type)
+                [head args] (e/get-app-fn-args body)]
+            (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+              (let [lhs (nth args 1) rhs (nth args 2)]
+                (when (try (u/is-def-eq! st mctx lhs expr) (catch Exception _ false))
+                  (let [proof (u/zonk mctx (reduce e/app val xs))
+                        rhs' (u/zonk mctx rhs)]
+                    (when (and (not (u/has-unassigned-mvars? mctx proof))
+                               (not (u/has-unassigned-mvars? mctx rhs'))
+                               (not= rhs' expr))
+                      (mk-result rhs' proof))))))))))))
+
 (defn- try-rewrite-step
   "Try to rewrite an expression using the lemma index.
    Returns a SimpResult or nil.
@@ -882,126 +948,169 @@
                             (if (seq eqn-candidates)
                               (distinct (concat dt-candidates eqn-candidates))
                               dt-candidates))]
-    (some (fn [lemma]
-            (when-let [subst (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
-              (let [num-params (:num-params lemma)
-                    matched (count subst)]
-                (when (>= matched (- num-params 3))
+    (or
+     (some (fn [lemma]
+             (when-let [subst (match-lemma st (:lhs-pattern lemma) expr (:num-params lemma))]
+               (let [num-params (:num-params lemma)
+                     matched (count subst)]
+                 (when (>= matched (- num-params 3))
                   ;; Try to fill missing params via discharge
-                  (let [full-subst
-                        (if (= matched num-params)
-                          subst
+                   (let [full-subst
+                         (if (= matched num-params)
+                           subst
                           ;; Walk forall telescope with progressive instantiation.
                           ;; Uses instantiate1 to keep bvar indices correct.
-                          (let [ci (env/lookup env (:name lemma))
-                                ctype (when ci (.type ^ConstantInfo ci))
+                           (let [ci (env/lookup env (:name lemma))
+                                 ctype0 (when ci (.type ^ConstantInfo ci))
+                                ;; Resolve the lemma's universe level params from the matched subst
+                                ;; FIRST, then instantiate them into ctype — so discharge obligations
+                                ;; carry CONCRETE levels. Without this, e.g. `beq_iff_eq`'s `LawfulBEq α`
+                                ;; obligation keeps the lemma's raw level param `u_1`, while the matched
+                                ;; BEq instance arg is at the goal's concrete level (0); the resulting
+                                ;; `LawfulBEq.{u_1} K (instBEqOfDecidableEq.{0} K dec)` is level-
+                                ;; inconsistent and instance synthesis (which type-checks the candidate)
+                                ;; fails. Mirrors the RHS level instantiation done after the loop.
+                                 lvl-subst (when ctype0
+                                             (let [ils (infer-level-params st lemma subst expr)]
+                                               (when (and (seq ils)
+                                                          (= (count ils) (count (:level-params lemma))))
+                                                 (zipmap (:level-params lemma) ils))))
+                                 ctype (if (seq lvl-subst)
+                                         (e/instantiate-level-params ctype0 lvl-subst)
+                                         ctype0)
                                 ;; Map forall-index → value from subst (body bvar to forall index)
-                                idx->val (into {} (map (fn [[bvar-idx val]]
-                                                         [(- num-params bvar-idx 1) val])
-                                                       subst))]
-                            (loop [s subst i 0 ty ctype]
-                              (if (or (>= i num-params) (nil? ty) (not (e/forall? ty)))
-                                s
-                                (if-let [val (get idx->val i)]
+                                 idx->val (into {} (map (fn [[bvar-idx val]]
+                                                          [(- num-params bvar-idx 1) val])
+                                                        subst))]
+                             (loop [s subst i 0 ty ctype]
+                               (if (or (>= i num-params) (nil? ty) (not (e/forall? ty)))
+                                 s
+                                 (if-let [val (get idx->val i)]
                                   ;; Already resolved — instantiate and advance
-                                  (recur s (inc i) (e/instantiate1 (e/forall-body ty) val))
+                                   (recur s (inc i) (e/instantiate1 (e/forall-body ty) val))
                                   ;; Missing — try instance synthesis or discharge
-                                  (let [param-type (e/forall-type ty)
-                                        binfo (e/forall-info ty)
-                                        resolved
-                                        (if (= binfo :inst-implicit)
-                                          (try
-                                            (let [[head args] (e/get-app-fn-args param-type)]
-                                              (when (and (e/const? head) (seq args))
-                                                (let [cn (name/->string (e/const-name head))
-                                                      ta (first args)
-                                                      [th _] (when ta (e/get-app-fn-args ta))
-                                                      tn (when (e/const? th) (name/->string (e/const-name th)))
-                                                      f (requiring-resolve 'ansatz.core/resolve-basic-instance)]
-                                                  (when tn (f env cn tn ta)))))
-                                            (catch Exception _ nil))
-                                          (try-discharge st env lemma-index config
-                                                         param-type
-                                                         (or (:discharge-depth config) 0)))]
-                                    (if resolved
-                                      (recur (assoc s (- num-params i 1) resolved)
-                                             (inc i) (e/instantiate1 (e/forall-body ty) resolved))
+                                   (let [param-type (e/forall-type ty)
+                                         binfo (e/forall-info ty)
+                                         resolved
+                                         (if (= binfo :inst-implicit)
+                                          ;; Real recursive instance synthesis (Lean synthInstance):
+                                          ;; local instances + global index/discovery + recursive arg
+                                          ;; discharge. `st` carries the goal lctx so a polymorphic
+                                          ;; `[DecidableEq K]` hyp discharges e.g. beq_iff_eq's LawfulBEq.
+                                          ;; Use config's full-scan index (the delay built from THIS
+                                          ;; env, which includes structure-`extends` parent projections
+                                          ;; like LawfulBEq.toReflBEq); the process-global
+                                          ;; ansatz.core/instance-index is often empty for replayed/
+                                          ;; non-init! envs, which silently starved parent-projection
+                                          ;; synthesis. Fall back to the global, then a fresh scan.
+                                           (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                                                 st env
+                                                 (or (when-let [idx (:inst-index config)]
+                                                       (if (instance? clojure.lang.Delay idx) @idx idx))
+                                                     (not-empty ((requiring-resolve 'ansatz.core/instance-index)))
+                                                     (inst/build-instance-index env))
+                                                 param-type 0)
+                                                (catch Throwable _ nil))
+                                           (try-discharge st env lemma-index config
+                                                          param-type
+                                                          (or (:discharge-depth config) 0)))]
+                                     (if resolved
+                                       (recur (assoc s (- num-params i 1) resolved)
+                                              (inc i) (e/instantiate1 (e/forall-body ty) resolved))
                                       ;; Not resolved — create a placeholder fvar
                                       ;; so later param-types are properly instantiated
                                       ;; (Lean 4 uses metavariables for this)
-                                      (let [placeholder (e/fvar (+ 7000000 i))]
-                                        (recur s (inc i)
-                                               (e/instantiate1 (e/forall-body ty) placeholder))))))))))]
-                    (let [param-vals (mapv #(get full-subst %) (range num-params))]
-                      (when (every? some? param-vals)
-                        (let [rhs-raw (apply-subst (:rhs lemma) full-subst num-params)
+                                       (let [placeholder (e/fvar (+ 7000000 i))]
+                                         (recur s (inc i)
+                                                (e/instantiate1 (e/forall-body ty) placeholder))))))))))]
+                     (let [param-vals (mapv #(get full-subst %) (range num-params))]
+                       (when (every? some? param-vals)
+                         (let [rhs-raw (apply-subst (:rhs lemma) full-subst num-params)
                               ;; Instantiate level params in RHS
-                              inst-levels-for-rhs (infer-level-params st lemma full-subst expr)
-                              level-subst (zipmap (:level-params lemma) inst-levels-for-rhs)
-                              rhs (if (seq level-subst)
-                                    (e/instantiate-level-params rhs-raw level-subst)
-                                    rhs-raw)
+                               inst-levels-for-rhs (infer-level-params st lemma full-subst expr)
+                               level-subst (zipmap (:level-params lemma) inst-levels-for-rhs)
+                               rhs (if (seq level-subst)
+                                     (e/instantiate-level-params rhs-raw level-subst)
+                                     rhs-raw)
                               ;; Perm check (Lean 4: Rewrite.lean:142-149)
                               ;; For permutative lemmas, only allow if RHS < expr
-                              perm-ok (if (:perm lemma)
-                                        (ac-lt? env rhs expr)
-                                        true)]
-                          (when perm-ok
+                               perm-ok (if (:perm lemma)
+                                         (ac-lt? env rhs expr)
+                                         true)]
+                           (when perm-ok
                             ;; RFL optimization (Lean 4: useImplicitDefEqProof)
                             ;; If theorem is rfl, skip proof construction
-                            (if (:rfl lemma)
-                              (mk-result rhs)  ;; proof? = nil (definitional equality)
-                              (let [inst-levels (infer-level-params st lemma full-subst expr)
+                             (if (:rfl lemma)
+                               (mk-result rhs)  ;; proof? = nil (definitional equality)
+                               (let [inst-levels (infer-level-params st lemma full-subst expr)
                                     ;; For hypothesis lemmas (from local context), use fvar as proof.
                                     ;; For named lemmas (from env), use const.
-                                    base-proof (if-let [fid (:hyp-fvar-id lemma)]
-                                                 (e/fvar fid)
-                                                 (reduce e/app
-                                                         (e/const' (:name lemma) inst-levels)
-                                                         (reverse param-vals)))
+                                     base-proof (cond
+                                                 ;; term lemma (`simp [<proof-term>]`): apply the term
+                                                  (:proof-term lemma)
+                                                  (reduce e/app (:proof-term lemma) (reverse param-vals))
+                                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                                  :else (reduce e/app
+                                                                (e/const' (:name lemma) inst-levels)
+                                                                (reverse param-vals)))
                                     ;; And projection: if lemma came from And splitting,
                                     ;; apply the chain of And.left/And.right projections.
                                     ;; And.left : {a b : Prop} → And a b → a
                                     ;; And.right : {a b : Prop} → And a b → b
                                     ;; :and-proj is a vec of {:side :left/:right, :args [P Q]}
                                     ;; from outermost to innermost projection.
-                                    raw-proof (if-let [proj-chain (seq (:and-proj lemma))]
-                                                (reduce (fn [proof {:keys [side args]}]
-                                                          (let [p-inst (apply-subst (nth args 0) full-subst num-params)
-                                                                q-inst (apply-subst (nth args 1) full-subst num-params)]
-                                                            (case side
-                                                              :left (e/app* (e/const' and-left-name [])
-                                                                            p-inst q-inst proof)
-                                                              :right (e/app* (e/const' and-right-name [])
-                                                                             p-inst q-inst proof))))
-                                                        base-proof proj-chain)
-                                                base-proof)
+                                     raw-proof (if-let [proj-chain (seq (:and-proj lemma))]
+                                                 (reduce (fn [proof {:keys [side args]}]
+                                                           (let [p-inst (apply-subst (nth args 0) full-subst num-params)
+                                                                 q-inst (apply-subst (nth args 1) full-subst num-params)]
+                                                             (case side
+                                                               :left (e/app* (e/const' and-left-name [])
+                                                                             p-inst q-inst proof)
+                                                               :right (e/app* (e/const' and-right-name [])
+                                                                              p-inst q-inst proof))))
+                                                         base-proof proj-chain)
+                                                 base-proof)
                                     ;; Proof wrapping depends on lemma kind:
                                     ;; :eq        → raw-proof is already P = Q
                                     ;; :iff       → propext P Q (raw-proof : P ↔ Q) → P = Q
                                     ;; :prop-true → eq_true P (raw-proof : P) → (P = True)
                                     ;; :not-false → eq_false P (raw-proof : ¬P) → (P = False)
                                     ;; :ne-false  → eq_false (a=b) (raw-proof : ¬(a=b)) → ((a=b) = False)
-                                    proof-term (case (:kind lemma)
-                                                 :iff (e/app* (e/const' propext-name [])
+                                     proof-term (case (:kind lemma)
+                                                  :iff (e/app* (e/const' propext-name [])
                                                               ;; level-instantiate the LHS proposition too, else a
                                                               ;; poly lemma (e.g. eq_self_iff_true) leaks Eq.{u} here
-                                                              (let [l (apply-subst (:lhs-pattern lemma) full-subst num-params)]
-                                                                (if (seq level-subst)
-                                                                  (e/instantiate-level-params l level-subst) l))
-                                                              rhs raw-proof)
-                                                 :prop-true (e/app* (e/const' eq-true-name [])
-                                                                    expr  ;; the instantiated proposition
+                                                               (let [l (apply-subst (:lhs-pattern lemma) full-subst num-params)]
+                                                                 (if (seq level-subst)
+                                                                   (e/instantiate-level-params l level-subst) l))
+                                                               rhs raw-proof)
+                                                  :prop-true (e/app* (e/const' eq-true-name [])
+                                                                     expr  ;; the instantiated proposition
+                                                                     raw-proof)
+                                                  :not-false (e/app* (e/const' eq-false-name [])
+                                                                     expr  ;; P (the proposition)
+                                                                     raw-proof)
+                                                  :ne-false (e/app* (e/const' eq-false-name [])
+                                                                    expr  ;; @Eq α a b
                                                                     raw-proof)
-                                                 :not-false (e/app* (e/const' eq-false-name [])
-                                                                    expr  ;; P (the proposition)
-                                                                    raw-proof)
-                                                 :ne-false (e/app* (e/const' eq-false-name [])
-                                                                   expr  ;; @Eq α a b
-                                                                   raw-proof)
-                                                 raw-proof)]
-                                (mk-result rhs proof-term))))))))))))
-          candidates)))
+                                                  raw-proof)]
+                                 (mk-result rhs proof-term))))))))))))
+           candidates)
+        ;; Fallback: Lean's isDefEq-based tryTheoremCore. The structural match-lemma above is a
+        ;; syntactic approximation; when it fails on a candidate the disc-tree DID return (e.g. a
+        ;; goal in named-accessor spelling vs a projection-spelled typeclass lemma), retry that
+        ;; candidate via reduction-aware metavariable unification. The hasAssignableMVar guard in
+        ;; try-theorem makes this strictly sound — it only adds matches, never corrupts one.
+     (some (fn [lemma]
+             (when (and (= (:kind lemma) :eq) (not (:perm lemma))
+                           ;; Only rescue PROJECTION-spelled lemmas — the exact case the structural
+                           ;; match-lemma cannot handle (a typeclass accessor goal vs a lemma whose
+                           ;; LHS head is `.proj`). Ordinary const-headed lemmas already go through
+                           ;; match-lemma; keeping them off this path avoids perturbing rewrite
+                           ;; selection elsewhere (e.g. the optimizer's cost-based strategy choice).
+                        (e/proj? (e/get-app-fn (:lhs-pattern lemma))))
+               (try-theorem st env expr lemma)))
+           candidates))))
 
 ;; ============================================================
 ;; Built-in simprocs — arithmetic reduction
@@ -1275,7 +1384,17 @@
               (mk-result (nth args 3))  ;; return 'a' (then-branch)
               (and (e/const? cond-whnf) (= (e/const-name cond-whnf) false-name))
               (mk-result (nth args 4))  ;; return 'b' (else-branch)
-              :else nil))
+              :else
+              ;; Faithful Lean reduceIte: the proposition need not reduce to the literal
+              ;; `True`/`False` constant (e.g. `Eq Bool true true` is propositionally, not
+              ;; definitionally, True). Lean whnfs the *Decidable instance* instead and
+              ;; matches `Decidable.isTrue`/`Decidable.isFalse`.
+              (let [[ih _] (e/get-app-fn-args (#'tc/cached-whnf st (nth args 2)))]
+                (when (e/const? ih)
+                  (condp = (e/const-name ih)
+                    decidable-istrue-name (mk-result (nth args 3))
+                    decidable-isfalse-name (mk-result (nth args 4))
+                    nil)))))
 
           ;; dite : 5 args (α, p, inst, a : p → α, b : ¬p → α)
           (and (= hname dite-name) (= 5 (count args)))
@@ -1289,7 +1408,14 @@
               ;; For False case: b takes ¬False which is True → False → something
               ;; This is complex; for now rely on WHNF
               nil
-              :else nil))
+              :else
+              ;; Whnf the Decidable instance (as for ite); isTrue h → a h, isFalse h → b h.
+              (let [[ih iargs] (e/get-app-fn-args (#'tc/cached-whnf st (nth args 2)))]
+                (when (e/const? ih)
+                  (condp = (e/const-name ih)
+                    decidable-istrue-name  (mk-result (e/app (nth args 3) (last iargs)))
+                    decidable-isfalse-name (mk-result (e/app (nth args 4) (last iargs)))
+                    nil)))))
 
           :else nil)))))
 
@@ -1781,19 +1907,49 @@
                      (re-find #"\.match_\d+$" (name/->string (e/const-name head))))
             (let [dconf (assoc config :max-depth (min 8 (or (:max-depth config) 8))
                                :cache (atom {}) :max-steps (atom 0))
-                  changed (volatile! false)
-                  simped (mapv (fn [arg]
-                                 (if (e/lam? arg)
-                                   arg
-                                   (let [r (try (simp-expr* st env lemma-index arg dconf)
-                                                (catch Exception _ nil))]
-                                     (if (and r (nil? (:proof? r))
-                                              (not (identical? (:expr r) arg)))
-                                       (do (vreset! changed true) (:expr r))
-                                       arg))))
-                               args)]
-              (when @changed
-                (mk-result (apply e/app* head simped)))))))
+                  ;; Simp each non-lambda arg (the discriminants); motive/alternatives are lambdas → rfl.
+                  ;; Keep the FULL result (it may carry a propositional proof, e.g. a `beq … = false`
+                  ;; rewrite using a hypothesis), not just the def-eq cases.
+                  results (mapv (fn [arg]
+                                  (if (e/lam? arg)
+                                    (mk-result arg)
+                                    (or (try (simp-expr* st env lemma-index arg dconf)
+                                             (catch Exception _ nil))
+                                        (mk-result arg))))
+                                args)
+                  changed? (some (fn [[a r]] (not (identical? (:expr r) a)))
+                                 (map vector args results))]
+              (when changed?
+                ;; If every discriminant change is DEFINITIONAL (nil proof) we can rebuild the matcher
+                ;; with no proof (cheap path, also lets reduceRecMatcher? reduce when a discriminant
+                ;; became a constructor by reduction). If a change carries a PROOF, build the
+                ;; app-congruence faithfully — Lean's generic congruence over the matcher application
+                ;; simplifies the discriminants WITH a proof (our CongrArgKind marks them :fixed, so the
+                ;; normal congruence skips them, hence we do it here), after which reduceRecMatcher? iota-
+                ;; reduces on the next pass. Fold mk-congr over the args; verify the proof type-checks
+                ;; (congrArg is ill-typed for a dependent motive), else fall back to the def-eq commit.
+                ;; def-eq-only commit: keep the simplified expr ONLY for discriminants whose change was
+                ;; definitional (nil proof); revert propositional changes to the original arg (committing
+                ;; a propositional change with a nil/rfl proof would be unsound).
+                (let [deq-only (mk-result (apply e/app* head
+                                                 (mapv (fn [a r] (if (nil? (:proof? r)) (:expr r) a))
+                                                       args results)))]
+                  (if-not (some (fn [r] (some? (:proof? r))) results)
+                    deq-only
+                    (let [[folded _]
+                          (reduce (fn [[facc orig-f] [orig-arg r]]
+                                    [(mk-congr st facc r orig-f orig-arg)
+                                     (e/app orig-f orig-arg)])
+                                  [(mk-result head) head]
+                                  (map vector args results))
+                          ok (and (:proof? folded)
+                                  (let [pt (safe-infer st (:proof? folded))
+                                        ptw (when pt (safe-whnf st pt))
+                                        [h as] (when ptw (e/get-app-fn-args ptw))]
+                                    (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
+                                         (try (tc/is-def-eq st (nth as 1) expr)
+                                              (catch Exception _ false)))))]
+                      (if ok folded deq-only)))))))))
       (try-ground-eval st (:env st) expr)
       (try-simp-using-decide st expr config)
       ;; User-registered simprocs: dynamic var + persistent registry
@@ -2019,9 +2175,13 @@
                     (let [rhs (apply-subst (:rhs lemma) subst (:num-params lemma))
                           param-vals (mapv #(get subst %) (range (:num-params lemma)))
                           inst-levels (infer-level-params st lemma subst)
-                          proof (reduce e/app
-                                        (e/const' (:name lemma) inst-levels)
-                                        (reverse param-vals))]
+                          proof (cond
+                                  (:proof-term lemma)
+                                  (reduce e/app (:proof-term lemma) (reverse param-vals))
+                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                  :else (reduce e/app
+                                                (e/const' (:name lemma) inst-levels)
+                                                (reverse param-vals)))]
                       (mk-result rhs proof))))))))))))
 
 ;; ============================================================
@@ -2736,10 +2896,19 @@
          ;; hand-curated core PLUS any @[simp] lemmas inherited from Lean into the env's :simp-lemmas
          ;; extension (ansatz.attrs) — empty unless attributes were imported, so this is a no-op for
          ;; ansatz-alone and lets `(simp)` use Lean's real @[simp] corpus once inherited.
+         ;; Lean's `simp [h]` accepts any proof TERM, not just a lemma name. Split the user list:
+         ;; Expr entries are proof terms (e.g. a projected typeclass axiom `WSemiring.mul_zero S inst`,
+         ;; or a hypothesis fvar); everything else is a name to resolve against the env.
+         term-args (filter #(instance? ansatz.kernel.Expr %) lemma-names)
+         name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
          all-names (distinct (concat default-simp-lemmas
                                      (env/get-extension env :simp-lemmas #{})
-                                     lemma-names))
+                                     name-args))
          lemmas (make-simp-lemmas env all-names)
+         ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
+         term-lemmas (vec (mapcat (fn [t]
+                                    (extract-simp-lemma-term env (tc/infer-type st t) 1000 t))
+                                  term-args))
          ;; Contextual: add hypotheses as lemmas
          ;; Lean 4: SimpTheorems.lean preprocess — handles Eq, Iff, And (split),
          ;; implications (conditional rewrites), and general props (→ True).
@@ -2755,7 +2924,7 @@
                                                    (extract-simp-lemma env ci 50)))
                                                eqns))))
                                  all-names))
-         all-lemmas (concat lemmas hyp-lemmas eqn-lemmas)
+         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
          lemma-index (build-lemma-index st env all-lemmas)
          to-unfold (into #{} (keep (fn [n]
                                      (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
@@ -2857,12 +3026,24 @@
    Optionally excludes a specific hypothesis (by fvar id) to prevent self-rewrite.
    Lean 4: SimpAll.lean + SimpTheorems.lean preprocess."
   [st lctx & {:keys [exclude-id]}]
-  (vec (mapcat (fn [[id decl]]
-                 (when (and (= :local (:tag decl))
-                            (not= id exclude-id))
-                   (try (hyp-type->lemmas st (:type decl) id)
-                        (catch Exception _ nil))))
-               lctx)))
+  (let [env (:env st)]
+    (vec (mapcat (fn [[id decl]]
+                   (when (and (= :local (:tag decl))
+                              (not= id exclude-id))
+                     (try
+                       (let [ty (:type decl)]
+                         (if (and (e/forall? ty)
+                                  (not (is-prop-type? st (e/forall-type ty))))
+                           ;; QUANTIFIED-rewrite hypothesis — a `∀ (a : T), lhs = rhs` whose T is a
+                           ;; Type (not a Prop implication), e.g. an accumulator-generalized IH
+                           ;; `∀ acc, foldl f acc xs = …`. Peel the FULL ∀-telescope (the bound vars
+                           ;; become pattern vars) via the proof-TERM path, with the hyp fvar as the
+                           ;; proof — so the IH fires at any accumulator. hyp-type->lemmas only peels
+                           ;; Prop implications, so it mis-classifies this as a general prop (`→ True`).
+                           (extract-simp-lemma-term env ty 2000 (e/fvar id))
+                           (hyp-type->lemmas st ty id)))
+                       (catch Exception _ nil))))
+                 lctx))))
 
 (defn simp-all
   "Simplify goal + all hypotheses (Lean 4's SimpAll).
@@ -3067,7 +3248,26 @@
       :else {:base w :offset 0})))
 
 (defn dsimp
-  "Definitional simplification — only kernel reduction."
+  "Definitional simplification — faithful port of Lean 4's `dsimpGoal`
+   (Lean/Meta/Tactic/Simp/Main.lean:928), TARGET form (bare `dsimp`).
+
+   Reduces the goal by STRUCTURAL/definitional reductions only — beta, eta, iota
+   (incl. matcher/recursor on a constructor scrutinee), proj, let-zeta — via the
+   recursive `dsimp-expr` traversal (= Lean's `dsimpReduce`, whnf-no-delta). NO
+   propositional rewrite lemmas, NO simprocs (that is `dsimp [...]`, not yet wired).
+
+   Then mirrors `dsimpGoal`'s target handling:
+   - `targetNew.isTrue`               → close with `True.intro`
+   - `targetNew = (a = b)`, isDefEq   → close with `Eq.refl a`
+   - failIfUnchanged (target == new)  → error \"dsimp made no progress\"
+   - otherwise `replaceTargetDefEq`   → swap the goal to the def-eq reduced form and
+     leave it OPEN (the new goal carries the reduced type; soundness is the def-eq
+     of `dsimp-expr`, so no proof term is needed — `:simp-reduce` with `:eq-proof nil`,
+     the same mechanism `simp` uses for all-rfl steps).
+
+   Unlike the previous closing-only stub (single head whnf, errored when it couldn't
+   close), this is the transforming tactic: after simp rewrites a match scrutinee to a
+   literal, `dsimp` fires the iota step the rewrite pass leaves pending."
   [ps]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -3075,18 +3275,31 @@
         ;; attach-lctx bumps :next-id above the goal's fvars (see note at simp entry).
         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
         goal-type (:type goal)
-        simplified (#'tc/cached-whnf st goal-type)
-        [head args] (e/get-app-fn-args simplified)]
+        ;; dsimpReduce: recursive structural reduction of the whole target.
+        simplified (dsimp-expr env (:lctx goal) goal-type 100)
+        simplified-whnf (#'tc/cached-whnf st simplified)
+        [head args] (e/get-app-fn-args simplified-whnf)]
     (cond
+      ;; targetNew.isTrue → True.intro
       (and (e/const? head) (= (e/const-name head) true-name))
       (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term (e/const' true-intro-name [])})
           (proof/record-tactic :dsimp [] (:id goal)))
 
+      ;; targetNew is `Eq α a b` with isDefEq a b → Eq.refl
       (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args))
            (tc/is-def-eq st (nth args 1) (nth args 2)))
       (let [proof (e/app* (e/const' eq-refl-name (e/const-levels head)) (nth args 0) (nth args 1))]
         (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof})
             (proof/record-tactic :dsimp [] (:id goal))))
 
+      ;; failIfUnchanged (config default)
+      (= simplified goal-type)
+      (tactic-error! "dsimp made no progress" {:goal goal-type})
+
+      ;; replaceTargetDefEq — leave the reduced goal open (def-eq, no proof term)
       :else
-      (tactic-error! "dsimp: cannot close goal" {:goal goal-type :simplified simplified}))))
+      (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+        (-> (proof/assign-mvar ps' (:id goal)
+                               {:kind :simp-reduce :eq-proof nil :child new-id
+                                :mpr-level lvl/zero :goal-type goal-type :simplified simplified})
+            (proof/record-tactic :dsimp [] (:id goal)))))))

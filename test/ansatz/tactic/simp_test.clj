@@ -382,6 +382,26 @@
           ps (simp/simp ps ["Nat.add_zero"])]
       (is (proof/solved? ps)))))
 
+(deftest test-add-zero-simp-proof-term
+  (testing "n + 0 = n closed by simp passed a proof TERM (Expr), not a name (Lean's simp [h])"
+    (let [env (require-env)
+          nat-e (e/const' (name/from-string "Nat") [])
+          u1 (lvl/succ lvl/zero)
+          hadd (fn [a b] (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
+                                 nat-e nat-e nat-e
+                                 (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
+                                         nat-e (e/const' (name/from-string "instAddNat") []))
+                                 a b))
+          goal (e/forall' "n" nat-e
+                          (e/app* (e/const' (name/from-string "Eq") [u1]) nat-e
+                                  (hadd (e/bvar 0) (e/lit-nat 0)) (e/bvar 0)) :default)
+          [ps _] (proof/start-proof env goal)
+          ps (basic/intro ps "n")
+          ;; Pass the Expr proof term, NOT the string "Nat.add_zero".
+          proof-term (e/const' (name/from-string "Nat.add_zero") [])
+          ps (simp/simp ps [proof-term])]
+      (is (proof/solved? ps)))))
+
 (deftest test-lambda-no-delta-in-simp
   (testing "Simp does not delta-unfold Nat.add (uses lemmas instead)"
     (let [env (require-env) st (tc/mk-tc-state env)

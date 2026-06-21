@@ -82,7 +82,7 @@
 (deftest test-theorem-simp
   (testing "Prove Nat.add_zero by simp"
     (binding [a/*verbose* false]
-      (a/prove-theorem 'add-zero-test '[^Nat n] '(= Nat (+ n 0) n) '[(simp "Nat.add_zero")])
+      (a/prove-theorem 'add-zero-test '[^Nat n] '(= Nat (+ n 0) n) '[(simp Nat.add_zero)])
       (is true "theorem proved"))))
 
 (deftest test-theorem-assumption
@@ -95,7 +95,7 @@
   (testing "Prove by induction on Nat"
     (binding [a/*verbose* false]
       (a/prove-theorem 'add-zero-ind '[^Nat n] '(= Nat (+ n 0) n)
-                       '[(induction n) (rfl) (simp "Nat.add_succ")])
+                       '[(induction n) (rfl) (simp Nat.add_succ)])
       (is true "theorem proved"))))
 
 (deftest test-theorem-with-separator

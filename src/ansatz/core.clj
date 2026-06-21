@@ -11,6 +11,7 @@
   "Verified Clojure — write proven programs using Ansatz types and tactics."
   (:refer-clojure :exclude [defn])
   (:require [clojure.java.io]
+            [clojure.string]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -22,6 +23,7 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.omega :as omega]
+            [ansatz.tactic.ac :as ac]
             [ansatz.export.storage :as storage]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
@@ -33,6 +35,7 @@
             [ansatz.codegen :as codegen]
             [ansatz.wf :as wf]
             [ansatz.attrs :as attrs]
+            [ansatz.matchers :as matchers]
             [ansatz.state :as state]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
@@ -140,6 +143,7 @@
     (reset! ansatz-env env)
     (attrs/load-bundled-attrs!)            ;; inherit Lean's Init @[simp]/@[csimp]/@[extern]
     (attrs/load-store-attrs! store-path)   ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside
+    (matchers/load-bundled-matchers!)      ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
     ;; Build instance index:
     ;; 1. Try loading from TSV (Lean 4 export, complete)
     ;; 2. Fall back to name-based discovery (~200ms, partial)
@@ -180,6 +184,7 @@
       (reset! ansatz-env env)
       (reset! ansatz-instance-index (instance/build-instance-index env))
       (attrs/load-bundled-attrs!)   ;; inherit Lean's @[simp]/@[csimp]/@[extern] into env extensions
+      (matchers/load-bundled-matchers!)  ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
       (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
       @ansatz-env)))
 
@@ -337,8 +342,15 @@
   ([env goal-type] (try-synthesize-instance env goal-type nil nil))
   ([env goal-type instance-idx] (try-synthesize-instance env goal-type instance-idx nil))
   ([env goal-type instance-idx cache-atom]
-   (let [cache (or cache-atom synth-cache)]
-     (if-let [cached (find @cache goal-type)]
+   (let [cache (or cache-atom synth-cache)
+         ;; ENV-AWARE key: the global synth-cache is `defonce` and survives manual `(reset! ansatz-env …)`
+         ;; (only `init!` clears it). Keying by goal-type ALONE meant a `::miss` cached against a SMALLER
+         ;; env (e.g. init-medium, which couldn't synthesize an instance) was wrongly reused by a LARGER
+         ;; env (init-full, which can) — a deterministic cross-test/proof poison. Include the env identity
+         ;; (Env has no value-equality, so identity-hash is its identity; an int, so we don't retain the
+         ;; env → no leak). Within one env (one proof) the cache still memoizes.
+         ckey [(System/identityHashCode env) goal-type]]
+     (if-let [cached (find @cache ckey)]
        (let [v (val cached)] (when-not (= v ::miss) v))
        (let [result (or
       ;; Try full synthesis engine with cached index
@@ -356,7 +368,7 @@
                                type-name (when (e/const? th) (name/->string (e/const-name th)))]
                            (when type-name
                              (resolve-basic-instance env class-name type-name type-arg))))))]
-         (swap! cache assoc goal-type (or result ::miss))
+         (swap! cache assoc ckey (or result ::miss))
          result)))))
 
 (clojure.core/defn get-arg-type
@@ -618,6 +630,112 @@
   [_name f]
   (swap! simproc-registry conj f))
 
+(clojure.core/defn- simp-lemma-args
+  "Resolve a surface `(simp …)` argument list into simp's lemma vector. A bare symbol stays a
+   symbol (env name resolution / @[simp]-set merge). A COMPOUND form — `(WSemiring.mul_zero m)`,
+   `(h x)` — is elaborated in the current goal's context into a proof TERM (an ansatz.kernel.Expr),
+   which simp/simp accepts directly (it infers the term's type and extracts its rewrite rule). This
+   is what lets a bundled typeclass axiom be applied to its instance and fed to simp thinly —
+   `simp [(WSemiring.mul_add m) …]` — the way Lean's `simp [m.mul_add]` does."
+  [ps args]
+  (let [;; Accept both `(simp a b)` (flat) and `(simp [a b])` (a single vector) — the latter is the
+        ;; common surface form; without flattening, the whole vector would be treated as one arg and
+        ;; (mis)elaborated as a term, throwing (and under all_goals that throw is swallowed → the
+        ;; tactic silently no-ops).
+        args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
+        g (proof/current-goal ps)]
+    (mapv (fn [a]
+            (cond
+              ;; A bare symbol is a lemma/def NAME (resolved by simp). This is the ONE canonical
+              ;; way to name things in the tactic DSL.
+              (symbol? a) a
+              ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
+              ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
+              ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
+              ;; reject it loudly so the mistake fails fast. Write the name as a symbol.
+              (string? a)
+              (throw (ex-info (str "simp: lemma argument must be a name (symbol) or a proof term, "
+                                   "got the string " (pr-str a) " — write it as a symbol, e.g. "
+                                   "(simp [" a "]) not (simp [" (pr-str a) "]).")
+                              {:kind :tactic-error :arg a}))
+              ;; Anything else (a compound form) elaborates to a proof term in the goal context.
+              :else (elab/elaborate-in-context (:env ps) (:lctx g) a)))
+          args)))
+
+(clojure.core/defn- elab-apply-arg
+  "Resolve an `apply`/`solve_by_elim` lemma argument to a kernel term, returning [ps' term].
+   A bare symbol that names a LOCAL HYPOTHESIS resolves to that fvar first (locals shadow globals,
+   as in Lean's apply/solve_by_elim) — so e.g. a quantified hypothesis `h : ∀x, f x ~ g x` can be
+   passed and applied. Otherwise: bare symbol → `@`-explicit elaboration (no implicit insertion,
+   like Lean's elabTermForApply); compound form → elaborate in context. If a bare symbol is a
+   universe-polymorphic const whose universe is not pinned standalone (e.g. List.Perm.nil :
+   @List.Perm.{u} α [] []), elaboration throws — so we mint fresh Level.mvars for its levelParams
+   and let apply-tac's meta-isDefEq solve them against the goal (Lean's forallMetaTelescope +
+   isDefEq). Mirrors Apply.lean."
+  [ps lctx arg]
+  (let [hyp-fid (when (symbol? arg)
+                  (reduce (fn [best [id d]]
+                            (if (and (= :local (:tag d)) (= (str arg) (:name d))
+                                     (or (nil? best) (> (long id) (long best))))
+                              id best))
+                          nil lctx))]
+    (if hyp-fid
+      [ps (e/fvar hyp-fid)]
+      (let [arg' (if (symbol? arg) (symbol (str "@" arg)) arg)]
+        (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
+             (catch Throwable ex
+               (if (and (symbol? arg)
+                        (clojure.string/includes? (str (.getMessage ex)) "universe level"))
+                 (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
+                       lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+                       [ps' ids] (reduce (fn [[p acc] _]
+                                           (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                                         [ps []] lparams)]
+                   [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
+                 (throw ex))))))))
+
+(clojure.core/defn- do-rewrite-one
+  "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
+   matching), or an applied Eq term. `reverse?` rewrites right-to-left."
+  [ps reverse? spec]
+  (let [g (proof/current-goal ps)
+        hyp-fid (when (symbol? spec)
+                  (reduce (fn [best [id d]]
+                            (if (and (= (str spec) (:name d))
+                                     (or (nil? best) (> (long id) (long best))))
+                              id best))
+                          nil (:lctx g)))
+        term (if hyp-fid
+               (e/fvar hyp-fid)
+               ;; env lemma: elaborate @-explicit so implicits stay ∀-bound (rewrite-lemma
+               ;; instantiates ALL params by matching); applied form elaborates as-is.
+               (elab/elaborate-in-context
+                (:env ps) (:lctx g)
+                (if (symbol? spec) (symbol (str "@" spec)) spec)))]
+    (basic/rewrite-lemma ps term reverse?)))
+
+(clojure.core/defn- do-rewrite
+  "Lean's `rewrite` (NOT `rw`): rewrite the goal by a local hypothesis (by name), an env lemma
+   (∀-quantified, instantiated by matching), or an applied Eq term. Faithful to Lean's bracketed
+   `rewrite [r1, r2, …]`: a VECTOR argument is a SEQUENCE of rewrite rules applied left-to-right, each
+   optionally prefixed `←`/`<-` for a right-to-left rewrite (Lean's `rw [← h, g]`). A bare/applied
+   form (or a leading `←`/`<-`) is a single rule. NOTE: the vector must NOT be elaborated as a term —
+   `[lemma]` is a list literal whose element-universe level mvar is never constrained, so it would
+   surface as an 'unsolved universe level' error. Does NOT close the goal — that's `rw`'s `try rfl`."
+  [ps args]
+  (if (vector? (first args))
+    ;; rw [r1, r2, …] — sequential rewrites, per-element ←/<- for reverse
+    (loop [ps ps, toks (seq (first args))]
+      (if (empty? toks)
+        ps
+        (let [rev? (boolean (#{'<- '←} (first toks)))
+              spec (if rev? (second toks) (first toks))
+              rest-toks (if rev? (drop 2 toks) (rest toks))]
+          (recur (do-rewrite-one ps rev? spec) rest-toks))))
+    (let [reverse? (boolean (#{'<- '←} (first args)))
+          spec (if reverse? (second args) (first args))]
+      (do-rewrite-one ps reverse? spec))))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -626,7 +744,14 @@
    'left      (fn [ps _] (basic/left ps))
    'right     (fn [ps _] (basic/right ps))
    'exact?    (fn [ps _] (basic/exact? ps))
+   'exact     (fn [ps args]
+                ;; (exact <term>) — close the goal with an explicit proof term, elaborated in the
+                ;; goal's local context (hypotheses in scope). The companion to exact? (auto-search).
+                (let [g (proof/current-goal ps)
+                      term (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
+                  (basic/exact ps term)))
    'omega     (fn [ps _] (omega/omega ps))
+   'ac_rfl    (fn [ps _] (ac/ac-rfl ps))
    'trans     (fn [ps args]
                 ;; (trans mid h1 h2) — transitivity: a ≤ mid, mid ≤ c → a ≤ c
                 ;; Builds: @le_trans Real inst a mid c h1 h2
@@ -658,46 +783,72 @@
                       g (proof/current-goal ps)
                       hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
                   (basic/have-tac ps hyp-name hyp-type)))
-   'simp      (fn [ps args] (if (seq args) (simp/simp ps (vec args)) (simp/simp ps)))
-   'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (vec args)) (simp/simp-all ps)))
+   'simp      (fn [ps args] (if (seq args) (simp/simp ps (simp-lemma-args ps args)) (simp/simp ps)))
+   'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (simp-lemma-args ps args)) (simp/simp-all ps)))
+   'dsimp     (fn [ps _args] (simp/dsimp ps))
    'intro     (fn [ps args] (if (seq args) (basic/intros ps (mapv str args)) (basic/intro ps)))
    'intros    (fn [ps args] (basic/intros ps (mapv str args)))
    'apply     (fn [ps args]
-                (let [arg (first args)
-                      g (proof/current-goal ps)
-                      ;; A bare-symbol argument elaborates @-explicit (no implicit insertion):
-                      ;; apply-tac peels the foralls itself, creating ITS OWN metavars that
-                      ;; unify against the goal — saturating here would demand implicits be
-                      ;; solvable without the goal (lean4's apply elaborates the head the same
-                      ;; way: `elabTermForApply` suppresses implicit insertion for idents).
-                      arg' (if (symbol? arg) (symbol (str "@" arg)) arg)
-                      term (elab/elaborate-in-context (:env ps) (:lctx g) arg')]
-                  (basic/apply-tac ps term)))
-   'rewrite   (fn [ps args]
-                (let [nm (str (first args))
-                      ;; When names shadow, prefer the most recently allocated fvar (highest ID)
-                      fid (reduce (fn [best [id d]]
-                                    (if (and (= nm (:name d))
-                                             (or (nil? best) (> (long id) (long best))))
-                                      id best))
-                                  nil (:lctx (proof/current-goal ps)))]
-                  (basic/rewrite ps (e/fvar fid))))
+                (let [g (proof/current-goal ps)
+                      [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
+                  (basic/apply-tac ps' term)))
+   ;; Lean 4's two tactics, faithfully split (Init/Tactics.lean:606 — `rw` ≡ `rewrite; try rfl`):
+   ;;   (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — rewrite ONLY, leaves the goal.
+   ;;   (rw …)                                                   — rewrite, then `try (rfl)` to close.
+   'rewrite   (fn [ps args] (do-rewrite ps args))
+   'rw        (fn [ps args]
+                ;; `rw` = `rewrite` then a cheap reflexivity attempt (Lean appends `try (with_reducible
+                ;; rfl)`). The `try` is essential: a non-refl residual goal survives. (basic/rfl uses
+                ;; full is-def-eq vs Lean's reducible-only — a benign superset under `try`: it can only
+                ;; close MORE refl goals, never reject.)
+                (let [ps' (do-rewrite ps args)]
+                  (try (basic/rfl ps') (catch Throwable _ ps'))))
    'cases     (fn [ps args]
-                (let [nm (str (first args))
-                      fid (reduce (fn [best [id d]]
-                                    (if (and (= nm (:name d))
-                                             (or (nil? best) (> (long id) (long best))))
-                                      id best))
-                                  nil (:lctx (proof/current-goal ps)))]
-                  (basic/cases ps fid)))
+                ;; (cases h)      — case-split on hypothesis `h` (by name)
+                ;; (cases hp e)   — faithful `cases hp : e`: substitute Bool discriminant `e`,
+                ;;                  adding `hp : e = true/false` per branch (Lean's idiom)
+                (let [rest-args (rest args)]
+                  (if (seq rest-args)
+                    (let [hname (str (first args))
+                          g (proof/current-goal ps)
+                          cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
+                      (basic/cases-eq ps cond-expr hname))
+                    (let [nm (str (first args))
+                          fid (reduce (fn [best [id d]]
+                                        (if (and (= nm (:name d))
+                                                 (or (nil? best) (> (long id) (long best))))
+                                          id best))
+                                      nil (:lctx (proof/current-goal ps)))]
+                      (basic/cases ps fid)))))
+   'generalize (fn [ps args]
+                 ;; (generalize x h e) — Lean's `generalize h : e = x`: abstract term `e` in the goal
+                 ;; as fresh var `x` (+ hyp `h : e = x`), so `cases`/`induction` can split a NESTED
+                 ;; scrutinee (the RAWREC case).
+                 (let [xname (str (first args))
+                       hname (str (second args))
+                       g (proof/current-goal ps)
+                       e-expr (elab/elaborate-in-context (:env ps) (:lctx g) (nth args 2))]
+                   (basic/generalize ps e-expr xname hname)))
    'induction (fn [ps args]
-                (let [nm (str (first args))
-                      fid (reduce (fn [best [id d]]
-                                    (if (and (= nm (:name d))
-                                             (or (nil? best) (> (long id) (long best))))
-                                      id best))
-                                  nil (:lctx (proof/current-goal ps)))]
-                  (basic/induction ps fid)))
+                ;; (induction x) or (induction x generalizing acc …) — Lean's `generalizing`:
+                ;; revert the named hyps INTO the goal first (so the induction motive becomes
+                ;; ∀ acc…, P x and the IH is the ∀-quantified `∀ acc…, P tail` foldl proofs need),
+                ;; do induction on x, then re-intro acc… in every resulting case.
+                (let [find-fid (fn [ps nm]
+                                 (reduce (fn [best [id d]]
+                                           (if (and (= nm (:name d))
+                                                    (or (nil? best) (> (long id) (long best))))
+                                             id best))
+                                         nil (:lctx (proof/current-goal ps))))
+                      gen? (= 'generalizing (second args))
+                      gen-syms (when gen? (vec (drop 2 args)))
+                      ;; revert innermost-last (reverse order) so re-intro restores original order
+                      ps (reduce (fn [ps g] (basic/revert ps (find-fid ps (str g))))
+                                 ps (reverse gen-syms))
+                      ps (basic/induction ps (find-fid ps (str (first args))))]
+                  (if (seq gen-syms)
+                    (basic/all-goals ps (fn [ps'] (basic/intros ps' (mapv str gen-syms))))
+                    ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))
@@ -738,12 +889,37 @@
    'grind     (fn [ps args]
                 (let [f (requiring-resolve 'ansatz.tactic.grind/grind)]
                   (f ps (vec (map str args)))))
-   'solve_by_elim (fn [ps _args] (basic/solve-by-elim ps))
+   'solve_by_elim (fn [ps args]
+                    ;; Lean 4 `solve_by_elim [lemmas]`: backtracking apply over the hypotheses PLUS
+                    ;; the given lemma set. We resolve each lemma arg to a TERM the way `apply` does
+                    ;; (bare symbol → `@`-explicit elaboration; compound form → elaborate in context),
+                    ;; then hand the term vector to basic/solve-by-elim as extra apply-candidates.
+                    ;; Closes e.g. the `induction h` (List.Perm) cases by applying the Perm
+                    ;; constructors (nil/cons/swap/trans) + assumption on the IHs.
+                    (let [g (proof/current-goal ps)
+                          flat (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
+                          [ps' lemmas] (reduce (fn [[p acc] a]
+                                                 (let [[p' t] (elab-apply-arg p (:lctx g) a)]
+                                                   [p' (conj acc t)]))
+                                               [ps []] flat)]
+                      (if (seq lemmas)
+                        (basic/solve-by-elim ps' 6 lemmas)
+                        (basic/solve-by-elim ps'))))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
+   'split     (fn [ps _args] (basic/split-tac ps))
    'revert    (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
                                 (:lctx (proof/current-goal ps)))]
-                  (basic/revert ps fid)))})
+                  (basic/revert ps fid)))
+   'subst     (fn [ps args]
+                ;; (subst h) — Lean's `subst h`: given `h : x = e` / `e = x`, eliminate the variable.
+                (let [nm (str (first args))
+                      fid (some (fn [[id d]] (when (= nm (:name d)) id))
+                                (:lctx (proof/current-goal ps)))]
+                  (basic/subst ps fid)))
+   'subst_vars (fn [ps _args]
+                 ;; (subst_vars) — Lean's `subst_vars`: subst every variable-equality hypothesis.
+                 (basic/subst-vars ps))})
 
 ;; Initialize registry with built-in tactics
 (when (empty? @tactic-registry)
@@ -851,7 +1027,17 @@
   [env pairs ret-type-form body-form]
   (let [n (count pairs)
         fids (mapv inc (range n))
-        ptypes (mapv (fn [p] (elab/elaborate env (second p))) pairs)
+        ;; Elaborate param types in an ACCUMULATING context (a dependent telescope), so a later
+        ;; binder's type can reference an earlier binder — e.g. `[S :- Type, m :- (WAddMonoid S)]`
+        ;; resolves S. (elab-signature already does this for the ∀-type; the body-lambda must match,
+        ;; else polymorphic/dependent signatures fail with "Unknown constant: S".)
+        ptypes (loop [i 0 lctx {} acc []]
+                 (if (= i n) acc
+                     (let [p (nth pairs i)
+                           pt (elab/elaborate-in-context env lctx (second p))]
+                       (recur (inc i)
+                              (assoc lctx (nth fids i) {:name (str (first p)) :type pt :tag :local})
+                              (conj acc pt)))))
         ;; A Subtype-typed param (e.g. a malli [:int {:min k}] refinement) registers with an
         ;; :as-term coercion: body references elaborate as `Subtype.val T P p`, so refined
         ;; params are used directly as their carrier (the refinement is erased at runtime;
@@ -874,7 +1060,12 @@
     (loop [i (dec n) acc body-bvar]
       (if (< i 0) acc
           (let [[pn _ binfo] (nth pairs i)]
-            (recur (dec i) (e/lam (str pn) (nth ptypes i) acc (or binfo :default))))))))
+            ;; A dependent param type may reference earlier binders' fvars; abstract those
+            ;; (fids[0..i-1]) into bvars so the lambda binding type is closed (mirrors
+            ;; elab-signature's mkForallFVars), else the type leaks "Unknown free variable".
+            (recur (dec i) (e/lam (str pn)
+                                  (e/abstract-many (nth ptypes i) (subvec fids 0 i))
+                                  acc (or binfo :default))))))))
 
 (clojure.core/defn- mentions-const?
   "Does expr reference the constant named nm anywhere?"
@@ -1056,7 +1247,11 @@
                       discr-pos (if (e/bvar? major-arg)
                                   (- n 1 (e/bvar-idx major-arg))
                                   (dec n))  ;; fallback: last param
-                      n-non-discr (dec n)]
+                      n-non-discr (dec n)
+                      ;; positions of the non-discriminant params (the fixed prefix + any
+                      ;; trailing carried params), in order — used to map a loose param-bvar
+                      ;; in the peeled body back to the eq-gen's param fvar.
+                      non-discr-indices (vec (remove #{discr-pos} (range n)))]
                   (doseq [i (range (count ctor-names))]
                     (try
                       (let [ctor-name (nth ctor-names i)
@@ -1070,9 +1265,19 @@
                             all-fvids (vec (concat param-fvids field-fvids))
                             param-fvars (mapv e/fvar param-fvids)
                             field-fvars (mapv e/fvar field-fvids)
-                            ;; Get actual inductive type params from recursor args
-                            rec-args (vec (e/get-app-args peeled))
-                            ind-type-params (vec (take np rec-args))
+                            ;; Inductive type params (e.g. `S` in `List S`) = the args applied to the
+                            ;; inductive in the DISCRIMINANT's type. Derive the discriminant's type by
+                            ;; peeling the fn type telescope, instantiating each earlier binder with
+                            ;; its eq-gen param fvar — for a polymorphic fn this resolves `S` to the S
+                            ;; param fvar (no loose bvar, no placeholder fvar leak into field-types).
+                            fn-type (.type ^ConstantInfo (env/lookup env' cname))
+                            discr-type (loop [t fn-type p 0]
+                                         (cond (not (e/forall? t)) t
+                                               (= p discr-pos) (e/forall-type t)
+                                               :else (recur (e/instantiate1 (e/forall-body t)
+                                                                            (nth param-fvars (.indexOf ^java.util.List non-discr-indices p)))
+                                                            (inc p))))
+                            ind-type-params (vec (take np (e/get-app-args discr-type)))
                             ;; Constructor levels
                             ctor-levels (let [clps (vec (.levelParams ctor-ci))
                                               rlps (vec (.levelParams rci))
@@ -1104,14 +1309,29 @@
                                                   (recur (e/instantiate1 (e/forall-body t) sub) (dec skip) j acc))
                                                 (recur (e/instantiate1 (e/forall-body t) (nth field-fvars j))
                                                        0 (inc j) (conj acc (e/forall-type t))))))
-                            ;; Non-discriminant param indices (all except discr-pos)
-                            non-discr-indices (vec (remove #{discr-pos} (range n)))
-                            ;; Register fvars in TC's lctx for WHNF reduction
-                            param-types (mapv (fn [j]
-                                                (let [orig-idx (nth non-discr-indices j)
-                                                      [pn pt-form] (nth (vec pairs) orig-idx)]
-                                                  (elab/elaborate env' pt-form)))
-                                              (range n-non-discr))
+                            ;; Non-discriminant param types, for the WHNF lctx. Peel the FUNCTION's
+                            ;; type telescope instantiating each binder with its eq-gen repr (param
+                            ;; fvar, or the ctor-app at the discriminant) — this yields the correctly
+                            ;; DEPENDENT types (e.g. m : WAddMonoid S with S the eq-gen's S fvar).
+                            ;; Re-elaborating the surface form standalone fails on polymorphic /
+                            ;; instance params (`(WAddMonoid S)` → "Unknown constant: S").
+                            reprs (mapv (fn [p]
+                                          (if (= p discr-pos) ctor-app
+                                              (nth param-fvars (.indexOf ^java.util.List non-discr-indices p))))
+                                        (range n))
+                            param-types (loop [t fn-type p 0 acc []]
+                                          (if (or (>= p n) (not (e/forall? t))) acc
+                                              (recur (e/instantiate1 (e/forall-body t) (nth reprs p))
+                                                     (inc p)
+                                                     (if (= p discr-pos) acc (conj acc (e/forall-type t))))))
+                            ;; Return type in THIS eq-gen's param fvars (peel all binders). The
+                            ;; elaborator's :ret-ansatz references elab-signature's own param fvars
+                            ;; (wf-fix-fresh ids) which are NOT abstracted — for a polymorphic fn
+                            ;; (ret = S) that fvar would leak into the equation as "Unknown free
+                            ;; variable". Reconstruct ret over param-fvars so it abstracts cleanly.
+                            ret-eq (loop [t fn-type p 0]
+                                     (if (or (>= p n) (not (e/forall? t))) t
+                                         (recur (e/instantiate1 (e/forall-body t) (nth reprs p)) (inc p))))
                             st' (reduce (fn [s [fid nm tp]]
                                           (update s :lctx red/lctx-add-local fid nm tp))
                                         (tc/mk-tc-state env')
@@ -1471,24 +1691,31 @@
                                 all-nf (count all-fvids)
                                 ;; Eq ret_type lhs rhs (all with fvars)
                                 eq-body (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                                ret-ansatz lhs rhs)
+                                                ret-eq lhs rhs)
                                 eq-body (if condition (e/arrow condition eq-body) eq-body)
                                 abstracted-type
                                 (e/abstract-many eq-body (vec (concat param-fvids all-fvids)))
-                                ;; Wrap in foralls: all fields then params (right to left)
+                                ;; Wrap in foralls: all fields then params (right to left). A binder
+                                ;; TYPE may depend on earlier binders (a polymorphic field `head : S`,
+                                ;; an instance param `m : WAddMonoid S`); abstract those earlier fvars
+                                ;; out of each binder type — params are outermost, then fields — so the
+                                ;; telescope is well-scoped (else S leaks as "Unknown free variable").
                                 full-type (loop [j (dec all-nf) body abstracted-type]
                                             (if (< j 0) body
                                                 (recur (dec j)
                                                        (e/forall' (if (< j nf) (str "f" j) (str "g" (- j nf)))
-                                                                  (nth all-ftypes j) body :default))))
+                                                                  (e/abstract-many (nth all-ftypes j)
+                                                                                   (vec (concat param-fvids (subvec all-fvids 0 j))))
+                                                                  body :default))))
                                 full-type (loop [j (dec n-non-discr) body full-type]
                                             (if (< j 0) body
                                                 (recur (dec j)
                                                        (e/forall' (str (first (nth (vec pairs) (nth non-discr-indices j))))
-                                                                  (nth param-types j) body :default))))
+                                                                  (e/abstract-many (nth param-types j) (subvec (vec param-fvids) 0 j))
+                                                                  body :default))))
                                 ;; Proof: rfl (with fvars), then abstract
                                 rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                                  ret-ansatz lhs)
+                                                  ret-eq lhs)
                                 proof-body (if condition (e/lam "h" condition rfl-proof :default) rfl-proof)
                                 abstracted-proof (e/abstract-many proof-body
                                                                   (vec (concat param-fvids all-fvids)))
@@ -1496,12 +1723,15 @@
                                              (if (< j 0) body
                                                  (recur (dec j)
                                                         (e/lam (if (< j nf) (str "f" j) (str "g" (- j nf)))
-                                                               (nth all-ftypes j) body :default))))
+                                                               (e/abstract-many (nth all-ftypes j)
+                                                                                (vec (concat param-fvids (subvec all-fvids 0 j))))
+                                                               body :default))))
                                 full-proof (loop [j (dec n-non-discr) body full-proof]
                                              (if (< j 0) body
                                                  (recur (dec j)
                                                         (e/lam (str (first (nth (vec pairs) (nth non-discr-indices j))))
-                                                               (nth param-types j) body :default))))
+                                                               (e/abstract-many (nth param-types j) (subvec (vec param-fvids) 0 j))
+                                                               body :default))))
                                 eqn-name (name/from-string (str fn-name ".eq_" (inc i) (or suffix "")))]
                             (try
                               (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
@@ -1549,15 +1779,21 @@
    (prove-theorem thm-name params prop-form tactic-forms nil))
   ([thm-name params prop-form tactic-forms ctx]
    (let [env (if ctx (:env ctx) (env))
-         pairs (parse-params params)
+         ;; L3: prop-form may be a PRECOMPUTED kernel Expr goal (the full Π-telescoped statement)
+         ;; rather than a surface s-expr — this lets generic/generated laws use the high-level
+         ;; tactic block instead of hand-building the whole proof TERM. In that mode `params` is a
+         ;; vector of binder NAMES to intro (or empty, letting the tactic block control intros).
+         expr-goal? (instance? ansatz.kernel.Expr prop-form)
+         pairs (when-not expr-goal? (parse-params params))
          ;; P3 of the elaborator unification: the goal telescope (binders may depend on
          ;; earlier binders — hypothesis Props routinely do — and the prop on all of them)
          ;; elaborates fvar-first via elab-signature; binder types and the statement go
          ;; through the SAME elaborator as function bodies (lean4: one elaborator for
          ;; terms and tactic goals).
-         goal-type (:type-ansatz (elab-signature env pairs prop-form))
+         goal-type (if expr-goal? prop-form (:type-ansatz (elab-signature env pairs prop-form)))
          [ps _] (proof/start-proof env goal-type)
-         ps (if (seq pairs) (basic/intros ps (mapv (comp str first) pairs)) ps)
+         intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
+         ps (if (seq intro-names) (basic/intros ps intro-names) ps)
          ps (reduce run-tactic ps tactic-forms)]
      (when-not (proof/solved? ps)
        (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
@@ -1572,6 +1808,94 @@
          (env/check-constant final-env ci)
          (swap! ansatz-env (fn [_] (env/check-constant final-env ci)))))
      (when *verbose* (println "✓" thm-name "proved")))))
+
+(clojure.core/defn prove-law
+  "Like `prove-theorem`, but RETURNS `[goal-type proof-term]` and does NOT install — for callers that
+   register the law themselves (e.g. wandler's `thm!` = `(mk-thm name [] goal proof)`). Lets a
+   hand-built `[goal proof]` proof migrate to the thin tactic surface without touching the
+   registration plumbing. `params`+`prop-form` are surface forms (or `prop-form` a precomputed Expr
+   goal with `params` = binder names); `tactic-forms` is the tactic block. Verifies before returning."
+  [params prop-form tactic-forms]
+  (let [env (env)
+        expr-goal? (instance? ansatz.kernel.Expr prop-form)
+        pairs (when-not expr-goal? (parse-params params))
+        goal-type (if expr-goal? prop-form (:type-ansatz (elab-signature env pairs prop-form)))
+        [ps _] (proof/start-proof env goal-type)
+        intro-names (if expr-goal? (mapv str params) (mapv (comp str first) pairs))
+        ps (if (seq intro-names) (basic/intros ps intro-names) ps)
+        ps (reduce run-tactic ps tactic-forms)]
+    (when-not (proof/solved? ps)
+      (throw (ex-info (str "Proof incomplete\n" (proof/format-goals ps)) {:ps ps})))
+    (extract/verify ps)
+    [goal-type (extract/extract ps)]))
+
+;; ============================================================
+;; Law registration — idempotent + NON-SWALLOWING (the registry helper)
+;; ============================================================
+;; Runtime law libraries (e.g. wandler) install proven theorems into the global
+;; env as a side effect of loading. Lean does this at elaboration time and fails
+;; LOUDLY; we install at runtime, so callers grew an ad-hoc
+;;   (when-not (has? "X") (try (eval '(theorem …)) (catch Throwable _ nil)))
+;; around every law. The `catch _ nil` silently swallows proof failures — a broken
+;; law just never gets admitted, surfacing only as a missed optimization. This
+;; helper is the clean replacement: idempotent via `has-constant?`, and it
+;; RE-RAISES by default so a regression is seen, not hidden.
+
+(def ^:dynamic *install-ledger*
+  "When bound to an atom, `install-theorem!` conj's an entry
+   {:name s, :status :present|:admitted|:failed [, :error msg]} per call, so an
+   installer can report admitted-vs-skipped counts. nil = no ledger (default)."
+  nil)
+
+(clojure.core/defn has-constant?
+  "True if constant `s` (string or symbol) is already in the current env. The
+   idempotency predicate behind `install-theorem!` — replaces the open-coded
+   `(some? (env/lookup (env) (name/from-string s)))` each law file repeats."
+  [s]
+  (some? (env/lookup (env) (name/from-string (str s)))))
+
+(clojure.core/defn- record-install!
+  [nm status err]
+  (when *install-ledger*
+    (swap! *install-ledger* conj (cond-> {:name nm :status status}
+                                   err (assoc :error (.getMessage ^Throwable err)))))
+  (when (and *verbose* (= status :failed))
+    (println "✗" nm "failed to install:" (.getMessage ^Throwable err)))
+  status)
+
+(clojure.core/defn install-theorem!
+  "Idempotent, NON-SWALLOWING law registration — the clean replacement for the
+   `(when-not (has? \"X\") (try (eval '(theorem …)) (catch Throwable _ nil)))`
+   pattern. If `thm-name` is already present, no-op (returns :present). Otherwise
+   prove it via `prove-theorem` (verifies + installs). On proof failure: RE-RAISE
+   by default (a broken law must not silently vanish); under `:lenient? true`,
+   record the failure to `*install-ledger*` and return :failed instead of throwing.
+
+   `params`/`prop-form`/`tactic-forms` are exactly what `prove-theorem` takes
+   (surface forms, or a precomputed Expr goal with `params` = binder names). No
+   `eval` needed for literal forms — pass the quoted data directly; reserve `eval`
+   only for programmatically-assembled tactic blocks. Returns the status keyword."
+  [thm-name params prop-form tactic-forms & {:keys [lenient?]}]
+  (let [nm (str thm-name)]
+    (if (has-constant? nm)
+      (record-install! nm :present nil)
+      (if lenient?
+        (try (prove-theorem thm-name params prop-form tactic-forms)
+             (record-install! nm :admitted nil)
+             (catch Throwable e (record-install! nm :failed e)))
+        (do (prove-theorem thm-name params prop-form tactic-forms)
+            (record-install! nm :admitted nil))))))
+
+(defmacro install-guarded!
+  "Idempotent, NON-SWALLOWING guard for PROGRAMMATIC law installs that don't fit `deftheorem` —
+   raw-term `env/check-constant` admits, `admit!`s of generated equations, programmatically-assembled
+   `theorem`/`defn` forms. `(install-guarded! \"Name\" body...)` runs `body` (which must add the
+   constant `Name` to the env) only when `Name` is absent, and RE-RAISES on failure — replacing the
+   silent `(when-not (has? \"Name\") (try body (catch Throwable _ nil)))` that hid proof regressions.
+   For a genuinely-deferred install, catch + log explicitly at the call site instead of using this."
+  [name & body]
+  `(when-not (has-constant? ~name)
+     ~@body))
 
 ;; ============================================================
 ;; Macros
@@ -1695,6 +2019,15 @@
   [thm-name params prop & tactics]
   `(prove-theorem '~thm-name '~params '~prop '~(vec tactics)))
 
+(defmacro deftheorem
+  "Idempotent, NON-SWALLOWING `theorem`: proves + installs `thm-name` unless it is
+   already present; RE-RAISES on failure. Sugar over `install-theorem!` for literal
+   forms — the drop-in for `(theorem …)` in runtime install paths (no eval/try/catch
+   needed). For the ledger / lenient mode, call `install-theorem!` directly.
+   (a/deftheorem add-zero [n :- Nat] (= Nat (+ n 0) n) (simp Nat.add_zero))"
+  [thm-name params prop & tactics]
+  `(install-theorem! '~thm-name '~params '~prop '~(vec tactics)))
+
 (defmacro inductive
   "Define an inductive type with constructors.
    (a/inductive Color [] (red) (green) (blue))
@@ -1766,32 +2099,131 @@
 ;;   - Pair.fst : ∀ {α β}, Pair α β → α  (projection using Expr.proj)
 ;;   - Pair.snd : ∀ {α β}, Pair α β → β
 
+(clojure.core/defn add-inherited-accessors!
+  "For a structure CHILD that `:extends` PARENT (embedded as the packed subobject field
+   `to{PARENT}`), generate the inherited field accessors — following Lean 4's subobject model
+   (../lean4 Structure.lean: `fromSubobject` fields have no own projection; access is the parent
+   projection composed with the subobject projection). Lean inlines this at elaboration; we have
+   no subobject-aware dot-notation, so we materialize each as an `:abbrev` def
+     CHILD.f := λ {params} (s : CHILD params) => PARENT.f params (CHILD.to{PARENT} params s)
+   which unfolds to exactly that composition. Parent field names come from the structure-registry
+   (the parent was defined via `a/structure`). Skips any field the child overrides (its own
+   projection wins) and the already-generated `to{PARENT}` projection. `n-params` = carrier arity."
+  [child-str parent-str to-field n-params]
+  (let [env0 (env)
+        child-name (name/from-string child-str)
+        parent-fields (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
+                              [parent-str :fields])
+        ci (env/lookup env0 child-name)
+        lvl-params (vec (.levelParams ^ConstantInfo ci))
+        lvl-levels (mapv lvl/param lvl-params)
+        ind-type (.type ^ConstantInfo ci)
+        param-types (loop [t ind-type i 0 acc []]
+                      (if (and (< i n-params) (e/forall? t))
+                        (recur (e/forall-body t) (inc i) (conj acc (e/forall-type t)))
+                        acc))
+        ;; Self's type: CHILD p…, at depth n-params (self not yet bound) → param i = bvar(n-params-i-1)
+        ind-applied (reduce (fn [a i] (e/app a (e/bvar (- n-params i 1))))
+                            (e/const' child-name lvl-levels) (range n-params))
+        ;; Inside (λ {params} (self) => BODY): self = bvar 0, param i = bvar(n-params - i)
+        param-bvar (fn [i] (e/bvar (- n-params i)))
+        ;; CHILD.to{PARENT} params self  : PARENT p…
+        to-app (e/app (reduce (fn [a i] (e/app a (param-bvar i)))
+                              (e/const' (name/from-string (str child-str "." to-field)) lvl-levels)
+                              (range n-params))
+                      (e/bvar 0))]
+    (doseq [f parent-fields
+            :let [child-f (name/from-string (str child-str "." f))]
+            :when (not (env/lookup (env) child-f))]
+      (let [parent-f (reduce (fn [a i] (e/app a (param-bvar i)))
+                             (e/const' (name/from-string (str parent-str "." f)) lvl-levels)
+                             (range n-params))
+            body (e/app parent-f to-app)
+            val  (e/lam "self" ind-applied body :default)
+            val  (loop [i (dec n-params) b val]
+                   (if (< i 0) b (recur (dec i) (e/lam "p" (nth param-types i) b :implicit))))
+            ty   (tc/infer-type (tc/mk-tc-state (env)) val)
+            cidef (env/mk-def child-f lvl-params ty val :hints :abbrev)]
+        (reset! @(requiring-resolve 'ansatz.core/ansatz-env)
+                (env/check-constant (env) cidef))))))
+
+(clojure.core/defn rewrite-inherited-field-refs
+  "Rewrite bare references to a parent's field names inside a child structure field-type form
+   into explicit subobject projections — mirroring Lean's `fromSubobject` resolution (../lean4
+   Structure.lean: parent fields are opened into scope as projections of the subobject while
+   elaborating child fields). A reference to parent field `f` becomes `(Parent.f carrier… toField)`:
+   the parent projection applied (carrier args explicit) to the embedded subobject. This keeps the
+   child's axiom fields (e.g. `mul_add : mul a (add b c) = …`) admissible by the existing field
+   compiler with no changes to it. `field-set` = parent field-name strings; `carrier-args` = the
+   carrier s-exprs from `:extends (Parent carrier…)`; `to-field` = the subobject field symbol.
+   Assumes no local binder shadows a parent field name (parent fields are ops/axioms like add/zero;
+   child binders are a/b/c — no collision)."
+  [form field-set parent-sym carrier-args to-field]
+  (cond
+    (and (symbol? form) (contains? field-set (str form)))
+    (apply list (symbol (str parent-sym "." form)) (concat carrier-args [to-field]))
+    (seq? form)
+    (apply list (map #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form))
+    (vector? form)
+    (mapv #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form)
+    :else form))
+
 (defmacro structure
   "Define a structure (single-constructor inductive with projections).
 
    (a/structure Pair [α Type β Type] (fst α) (snd β))
 
    Fields are specified as (name type) pairs. The constructor is always 'mk'.
-   Projection functions are automatically generated."
+   Projection functions are automatically generated.
+
+   Inheritance (Lean-4 subobject model):
+     (a/structure WSemiring [S Type] :extends (WAddMonoid S)
+       (mul (=> S S S)) (mul_add ...) ...)
+   The parent is embedded as a packed `to{Parent}` field (field 0); `Child.to{Parent}` is its
+   projection and inherited accessors `Child.<parentField>` are generated (see EXTENDS_DESIGN.md).
+   Single inheritance only for now — multiple `:extends` parents are rejected."
   [type-name params & fields]
-  (let [;; Split :in option
-        [opts fields] (if (= :in (first fields))
-                        [{:in (second fields)} (drop 2 fields)]
-                        [{} fields])
+  (let [;; Consume leading option pairs (:in, :extends) in any order
+        [opts fields] (loop [o {} fs fields]
+                        (if (and (keyword? (first fs)) (#{:in :extends} (first fs)))
+                          (recur (assoc o (first fs) (second fs)) (drop 2 fs))
+                          [o fs]))
+        extends-form (:extends opts)
+        _ (when (and extends-form (not (and (sequential? extends-form) (symbol? (first extends-form)))))
+            (throw (ex-info "structure :extends expects a single (Parent carrier…) form; multiple inheritance not yet implemented"
+                            {:extends extends-form})))
+        parent-sym (when extends-form (first extends-form))
+        to-field   (when parent-sym (symbol (str "to" parent-sym)))
         ;; Parse fields: (name type) pairs
-        field-specs (mapv (fn [f]
-                            (if (sequential? f)
-                              [(first f) (second f)]
-                              (throw (ex-info "structure field must be (name type)" {:field f}))))
-                          fields)
+        base-field-specs (mapv (fn [f]
+                                 (if (sequential? f)
+                                   [(first f) (second f)]
+                                   (throw (ex-info "structure field must be (name type)" {:field f}))))
+                               fields)
+        ;; Prepend the packed subobject field (Lean's `subobject` kind) when extending
+        field-specs (if extends-form
+                      (into [[to-field extends-form]] base-field-specs)
+                      base-field-specs)
         ;; Build the flat field vector for the constructor: [name1 type1 name2 type2 ...]
         flat-fields (vec (mapcat identity field-specs))
         ;; Single constructor named 'mk'
         ctor-spec ['mk flat-fields]]
     `(do
-       ;; Define the inductive with single constructor
-       (inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
-         ~@(when (:in opts) [:in `'~(:in opts)]))
+       ;; Define the inductive with single constructor. When extending, rewrite inherited-field
+       ;; references in the new fields' types to subobject projections at runtime (parent field
+       ;; names come from the registry, available once the parent is defined).
+       ~(if extends-form
+          `(let [pfields# (set (get-in @@(requiring-resolve 'ansatz.core/structure-registry)
+                                       [~(str parent-sym) :fields]))
+                 new-specs# (mapv (fn [[fn# ft#]]
+                                    [fn# (rewrite-inherited-field-refs
+                                          ft# pfields# '~parent-sym '~(vec (rest extends-form)) '~to-field)])
+                                  '~base-field-specs)
+                 flat# (vec (mapcat identity (into [['~to-field '~extends-form]] new-specs#)))]
+             (inductive/define-inductive (env) ~(str type-name) '~params [[(symbol "mk") flat#]]
+               ~@(when (:in opts) [:in `'~(:in opts)])))
+          `(inductive/define-inductive (env) ~(str type-name) '~params '~[ctor-spec]
+             ~@(when (:in opts) [:in `'~(:in opts)])))
 
        ;; Generate projection functions
        ;; Each projection is: λ {params...} (x : T params) => proj T.name idx x
@@ -1836,9 +2268,19 @@
                                     (env/check-constant env# proj-ci#))))])))
           field-specs)
 
+       ;; Inherited accessors for the embedded parent (Lean subobject `fromSubobject` access).
+       ;; Runs after the projection loop so Child.to{Parent} exists.
+       ~@(when extends-form
+           [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
+                                       ~(str to-field) ~(/ (count params) 2))])
+
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
-       (defrecord ~type-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs))
+       ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
+       ;; namespace, so a second definition of the same structure (e.g. an env reset then re-install)
+       ;; would throw "already refers to". Skip the defrecord if the class is already defined.
+       (when-not (instance? Class (resolve '~type-name))
+         (defrecord ~type-name ~(mapv (fn [[fname _]] (symbol (str fname))) field-specs)))
 
        ;; Register in structure-registry for ansatz->clj compilation
        (swap! @(requiring-resolve 'ansatz.core/structure-registry)

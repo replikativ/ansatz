@@ -89,15 +89,19 @@
 
 (defn parse-params
   "Parse a parameter vector into triples [name type-form binder-info]. Surfaces, auto-detected:
-     metadata (preferred, for a/defn):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst]
+     metadata (preferred, for a/defn):  [^Nat n  ^{:- (List Nat)} xs  ^:inst inst  ^:implicit S]
      :- separator (natural for proof binders / a/theorem):  [n :- Nat,  h :- (= Nat n n)]
      positional pairs (older):           [n Nat]
    Metadata composes — types ride on the binder symbols, so the binding vector stays a normal
-   Clojure vector; ^:inst marks an instance binder."
+   Clojure vector; ^:inst marks an instance binder ([inst-implicit]), ^:implicit a Lean-style
+   {implicit} binder (inferred at call sites — the fixed prefix of a polymorphic recursive fn).
+   In the :- form the marker is a token after the type:  [S :- Type :implicit, m :- (C S) :inst]."
   [params]
   (if (metadata-params? params)
     (mapv (fn [sym]
-            (let [binfo (if (:inst (meta sym)) :inst-implicit :default)]
+            (let [binfo (cond (:inst (meta sym))     :inst-implicit
+                              (:implicit (meta sym))  :implicit
+                              :else                   :default)]
               [(with-meta sym nil) (binder-type sym) binfo]))
           params)
     (let [cleaned (remove #{:-} params)
@@ -106,9 +110,11 @@
       (while (seq @remaining)
         (let [r @remaining
               pname (first r)
-              ptype (second r)]
-          (if (and (> (count r) 2) (= :inst (nth r 2)))
-            (do (swap! result conj [pname ptype :inst-implicit])
+              ptype (second r)
+              marker (when (> (count r) 2) (nth r 2))
+              binfo ({:inst :inst-implicit :implicit :implicit} marker)]
+          (if binfo
+            (do (swap! result conj [pname ptype binfo])
                 (reset! remaining (vec (drop 3 r))))
             (do (swap! result conj [pname ptype :default])
                 (reset! remaining (vec (drop 2 r)))))))

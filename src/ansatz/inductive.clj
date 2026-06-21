@@ -41,7 +41,7 @@
   "Parse [a Type, b Type] or [a : Type, b : Type] → [[a Type] [b Type]].
    Commas and colons are syntactic sugar; both are ignored."
   [binder-vec]
-  (let [tokens (remove (fn [t] (or (= (str t) ",") (= (str t) ":"))) binder-vec)]
+  (let [tokens (remove (fn [t] (contains? #{"," ":" ":-" "="} (str t))) binder-vec)]
     (loop [ts (seq tokens) result []]
       (if (or (nil? ts) (empty? ts))
         result
@@ -89,10 +89,21 @@
     (and (sequential? form) (seq form))
     (let [h (if (nil? (first form)) "nil" (str (first form)))]
       (case h
-        ;; Arrow
-        ("->" "arrow")
-        (e/arrow (compile-type env scope depth (nth form 1) self-name self-const)
-                 (compile-type env scope (inc depth) (nth form 2) self-name self-const))
+        ;; Non-dependent function type. Glyphs: `=>` (the canonical arrow), `→`, `arrow`, AND `->`.
+        ;; NOTE: design #54's "`->` is Clojure threading, never an arrow" applies to TERM position
+        ;; (the fvar elaborator, elaborate.clj) where the ambivalence is real. compile-type handles
+        ;; only TYPES, where `->` is unambiguously a function arrow (as in Lean) — threading is
+        ;; meaningless in a type. So `->` IS an arrow here. N-ary currying: (=> A B C) = A → B → C.
+        ("arrow" "=>" "→" "->")
+        (let [parts (vec (rest form))]
+          (when (< (count parts) 2)
+            (throw (ex-info "arrow / => expects at least two types" {:form form})))
+          (letfn [(build [ps d]
+                    (if (= 1 (count ps))
+                      (compile-type env scope d (first ps) self-name self-const)
+                      (e/arrow (compile-type env scope d (first ps) self-name self-const)
+                               (build (rest ps) (inc d)))))]
+            (build parts depth)))
         ;; Dependent function type: (forall [a Type, b Type, ...] body)
         ;; Needed so structure/inductive fields can express categorical operations
         ;; like (forall [a Ob b Ob c Ob] (=> (Hom a b) (=> (Hom b c) (Hom a c))))
@@ -1655,16 +1666,29 @@
                 env)
           ;; Build noConfusion for non-indexed, non-Prop types — caller can
           ;; opt out via :no-confusion? false (see docstring re: Bug C).
+          ;; noConfusion is an AUXILIARY (like casesOn/recOn): the core inductive +
+          ;; constructors + recursor are already kernel-checked above, so a failure to
+          ;; build noConfusion is a builder limitation, NOT a soundness issue. The
+          ;; current builder's de-Bruijn handling chokes on dependent fields (a field
+          ;; type that applies an earlier field — e.g. a typeclass axiom
+          ;; `add_assoc : ∀ a b c, add (add a b) c = …`). Rather than abort the whole
+          ;; declaration, warn and skip: the type stays usable (projections, recursor,
+          ;; instance resolution all work; only noConfusion is absent).
           env (if (and no-confusion? (zero? n-indices) (not is-prop))
-                (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
-                                                      level-param-names rec-name rec-level-params
-                                                      result-level is-rec ind-name-str)
-                      nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
-                                                level-param-names rec-name rec-level-params
-                                                result-level is-rec ind-name-str)
-                      env (env/check-constant env nct-ci)
-                      env (env/check-constant env nc-ci)]
-                  env)
+                (try
+                  (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
+                                                        level-param-names rec-name rec-level-params
+                                                        result-level is-rec ind-name-str)
+                        nc-ci (build-no-confusion env params ctors ind-name ind-level-levels
+                                                  level-param-names rec-name rec-level-params
+                                                  result-level is-rec ind-name-str)
+                        env (env/check-constant env nct-ci)
+                        env (env/check-constant env nc-ci)]
+                    env)
+                  (catch Exception e
+                    (println "⚠ noConfusion skipped for" ind-name-str "—" (.getMessage e)
+                             "(auxiliary only; the inductive + recursor are kernel-checked)")
+                    env))
                 env)]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)

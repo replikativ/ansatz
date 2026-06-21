@@ -71,16 +71,47 @@
     (not (or (e/lit-nat? head) (e/lit-str? head) (e/const? head)
              (e/fvar? head) (e/proj? head) (e/forall? head)))))
 
+(def ^:private structure-registry*
+  ;; ansatz.surface.ingest/structure-registry — the atom of `a/structure`-defined type names. Lazy to
+  ;; avoid a load cycle (ingest pulls elaboration; discr-tree is low-level). Keys are type-name strings.
+  (delay (requiring-resolve 'ansatz.surface.ingest/structure-registry)))
+
+(defn- ansatz-structure?
+  "Is `tname` (a structure-type Name) defined via `a/structure` (so its auto-generated projection
+   LEMMAS carry raw `.proj` spellings)? — as opposed to a Lean Init class (BEq/HAdd/…) whose lemmas
+   use the accessor const."
+  [tname]
+  (boolean (when-let [reg @structure-registry*]
+             (contains? @@reg (name/->string tname)))))
+
 (defn- reduce-for-dt
-  "Lean 4's reduceDT: reduce expression before discrimination tree keying.
-   Uses whnf-no-delta (beta/iota/proj/let, NO delta unfolding).
-   For root terms, stops if the result would be a bad key."
+  "Discrimination-tree keying reduction (Lean 4's reduceDT, DiscrTree/Main.lean:204-245: whnfCore at
+   REDUCIBLE transparency). Faithful to Lean, we do NOT reduce a class-projection accessor
+   (`@BEq.beq α inst a b`, `@HAdd.hAdd … inst a b`) to a projection: the instance is not @[reducible]
+   and the projection function is not @[reducible], so `whnfCore` leaves the head as the CONST accessor
+   (`getKeyArgs` keys `.const BEq.beq`, instance arg starred). Keying BOTH symbolic-instance patterns
+   and concrete-instance queries by that const is what lets `beq_iff_eq`/`zero_add` match their goals.
+   So the base reduction is `whnf-no-delta` (beta/iota/proj/let, no delta) — accessor stays const.
+
+   ONE ansatz-specific deviation: types defined via `a/structure` have auto-generated projection
+   LEMMAS whose types carry raw `.proj` (our `structure` macro emits the kernel projection, where
+   Lean would use the accessor function). For those — and ONLY those (looked up in the
+   structure-registry) — we canonicalize a registered-structure accessor on the goal to the same stuck
+   `.proj` via `accessor->stuck-proj` (beta-only, struct NOT reduced through), so goal and raw-proj
+   lemma key alike. Lean Init classes are not registered, so their accessor const head is left as-is.
+   For root terms, stop if the result is a bad key."
   [env e root?]
   (try
-    (let [reduced (red/whnf-no-delta env e)]
-      (if (and root? (bad-key? reduced))
+    (let [reduced (red/whnf-no-delta env e)
+          canon (let [p (red/accessor->stuck-proj env reduced)]
+                  (if (and p
+                           (e/proj? (e/get-app-fn p))
+                           (ansatz-structure? (e/proj-type-name (e/get-app-fn p))))
+                    p
+                    reduced))]
+      (if (and root? (bad-key? canon))
         e  ;; Don't reduce to a bad key at the root
-        reduced))
+        canon))
     (catch Exception _ e)))
 
 ;; ============================================================
@@ -192,6 +223,16 @@
                  (let [nargs (count args)
                        k (fvar-key (e/fvar-id head) nargs)]
                    (recur (into rest-todo (reverse args))
+                          (conj! keys k)))
+
+               ;; Projection applied to args, e.g. `(WSemiring.1 inst) u v` — the form a reduced
+               ;; typeclass accessor takes (Lean getKeyArgs .proj case: key = proj with the app-arg
+               ;; count, push the struct value then the args). Without this, a proj-headed
+               ;; application fell to `other-key` and dropped its args. Arity = struct + nargs.
+                 (e/proj? head)
+                 (let [nargs (count args)
+                       k (proj-key (e/proj-type-name head) (e/proj-idx head) (inc nargs))]
+                   (recur (into rest-todo (reverse (cons (e/proj-struct head) args)))
                           (conj! keys k)))
 
                ;; Other head (lambda application, etc.)

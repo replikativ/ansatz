@@ -49,6 +49,12 @@
 
       :exact (:term assignment)
 
+      ;; generalize h : e = x — original goal proof = (?n) e (Eq.refl e), where ?n : ∀ x, e=x → G[e:=x]
+      ;; is the single subgoal (child). Splice in its extracted proof.
+      :generalize (let [{:keys [child e rfl]} assignment
+                        child-term (extract-term ps child)]
+                    (e/app* child-term e rfl))
+
       :rfl (let [eq-refl-name (name/from-string "Eq.refl")
                  levels (:levels assignment)]
              (e/app* (e/const' eq-refl-name levels)
@@ -174,6 +180,35 @@
                       bool-rec (e/const' (name/from-string "Bool.rec") [motive-level])]
                   ;; @Bool.rec motive false-lam true-lam cond rfl
                   (e/app* bool-rec motive false-lam true-lam cond rfl-proof))
+
+      ;; by-cases-dec → @Decidable.casesOn c motive inst (λ h:¬c, false) (λ h:c, true)
+      :by-cases-dec (let [{:keys [cond inst motive motive-level not-c
+                                  h-false-id h-true-id false-goal true-goal]} assignment
+                          false-term (extract-term ps false-goal)
+                          true-term (extract-term ps true-goal)
+                          false-lam (e/lam "h" not-c
+                                           (e/abstract1 false-term h-false-id) :default)
+                          true-lam (e/lam "h" cond
+                                          (e/abstract1 true-term h-true-id) :default)
+                          ;; Decidable.casesOn.{u} (p) (motive : Decidable p → Sort u)
+                          ;;   (t : Decidable p) (isFalse) (isTrue) : motive t
+                          dec-cases (e/const' (name/from-string "Decidable.casesOn") [motive-level])]
+                      (e/app* dec-cases cond motive inst false-lam true-lam))
+
+      ;; split-matcher → match_N us params MOTIVE discr alt-lams (Eq.refl discr)
+      ;; MOTIVE = λ d. (Eq discr d) → Goal ; alt-lamᵢ = λ ys. λ h:(Eq discr patternᵢ). subgoalᵢ
+      :split-matcher
+      (let [{:keys [match-name us params discr discr-type eq-lvl motive alts]} assignment
+            alt-lams (mapv (fn [{:keys [pattern ys-ids ys-types h-id h-type goal]}]
+                             (let [body (extract-term ps goal)
+                                   h-lam (e/lam "h" h-type (e/abstract1 body h-id) :default)]
+                               (reduce (fn [b [yid yty]] (e/lam "y" yty (e/abstract1 b yid) :default))
+                                       h-lam (reverse (map vector ys-ids ys-types)))))
+                           alts)
+            matcher-app (apply e/app* (e/const' (name/from-string match-name) us)
+                               (concat params [motive discr] alt-lams))
+            refl (e/app* (e/const' (name/from-string "Eq.refl") [eq-lvl]) discr-type discr)]
+        (e/app matcher-app refl))
 
       ;; simp-all-hyps: hypothesis simplification wrapper.
       ;; For each replacement (h : P → h' : P'), wrap child proof:

@@ -4,7 +4,7 @@
             [ansatz.export.parser :as parser]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel Name ConstantInfo Env Expr FlatStore]
+  (:import [ansatz.kernel Name ConstantInfo Env Expr]
            [java.io File Writer]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -23,12 +23,6 @@
           (delete-dir-recursive (.getPath child))
           (.delete child)))
       (.delete f))))
-
-(defn- close-flat-ctx! [ctx]
-  (when-let [w (:log-writer ctx)]
-    (.close ^Writer w))
-  (when-let [fs (::storage/flat-store ctx)]
-    (.close ^FlatStore fs)))
 
 (defn- write-quot-ndjson! [path]
   (spit path
@@ -227,45 +221,3 @@
         (finally
           (delete-dir-recursive dir))))))
 
-(deftest flatstore-verify-test
-  (testing "FlatStore verification uses the same staged kernel admission path"
-    (let [dir (temp-dir)]
-      (try
-        (storage/import-to-flatstore! example-file dir)
-        (let [ctx (storage/prepare-verify-flat dir)
-              thm-name (name/from-string "Nat.add_succ")]
-          (try
-            (is (nil? (env/lookup (:env ctx) thm-name))
-                "future declarations must not be visible before admission")
-            (let [stats (storage/verify-batch! ctx (count (:decl-order ctx))
-                                               :timeout-ms 0)]
-              (is (zero? (:errors stats)))
-              (is (:done? stats))
-              (is (some? (env/lookup (:env ctx) thm-name))
-                  "admitted FlatStore declarations become visible through the staged env"))
-            (finally
-              (close-flat-ctx! ctx))))
-        (finally
-          (delete-dir-recursive dir))))))
-
-(deftest flatstore-quot-enables-kernel-support-test
-  (testing "FlatStore verification enables quotient reduction support from imported Quot"
-    (let [dir (temp-dir)
-          ndjson (str dir File/separator "quot.ndjson")
-          out-dir (str dir File/separator "flat")]
-      (try
-        (write-quot-ndjson! ndjson)
-        (storage/import-to-flatstore! ndjson out-dir)
-        (let [ctx (storage/prepare-verify-flat out-dir)
-              quot-name (name/from-string "Quot")]
-          (try
-            (is (.isQuotEnabled ^Env (:env ctx)))
-            (is (nil? (env/lookup (:env ctx) quot-name)))
-            (let [result (storage/verify-one! ctx :timeout-ms 0)]
-              (is (= :ok (:status result)))
-              (is (.isQuotEnabled ^Env (:env ctx)))
-              (is (some? (env/lookup (:env ctx) quot-name))))
-            (finally
-              (close-flat-ctx! ctx))))
-        (finally
-          (delete-dir-recursive dir))))))

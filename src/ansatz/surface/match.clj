@@ -207,28 +207,45 @@
 
 (defn- replace-self-ih
   "Rewrite a structural self-call to the recursor's IH throughout expr. A self-call qualifies when
-   it is the FULLY-applied self-name with exactly one argument a bare recursive-field fvar (the
-   structurally-smaller arg) and every OTHER argument the corresponding unchanged parameter fvar —
+   its FIRST `arity` arguments are the FULLY-applied self-name with exactly one a bare recursive-field
+   fvar (the structurally-smaller arg) and every OTHER the corresponding unchanged parameter fvar —
    i.e. (add k n) with k the recursive field of m and n the second parameter → the field's IH (which
    the motive carries the other params through). Single- and multi-parameter; partial applications and
-   calls that change another argument are left as the axiom → check-constant rejects (→ the user adds
-   :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids is the
-   positional parameter fvar-ids."
+   calls that change another *parameter* argument are left as the axiom → check-constant rejects (→ the
+   user adds :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids
+   is the positional parameter fvar-ids.
+
+   EXTRA trailing args (beyond `arity`) are an APPLICATION OF THE IH — the faithful Lean `brecOn`
+   encoding for a recursion whose result type is itself a function (the motive generalizes the
+   trailing/varying argument). E.g. `parFold {S} m depth : List S → S` recursing as
+   `(parFold m d) (xs.take n)`: the kernel flattens this to `parFold S m d (take ..)`, so after the
+   `arity`-prefix self-call resolves to the field's IH (of type `motive d = List S → S`), the extra
+   `(take ..)` is applied TO that IH. This is what lets a recursive call TRANSFORM the carried argument
+   (`drop`/`take`) — it rides the motive, not a fixed parameter. If the motive is NOT a function type
+   the `(IH extra)` is ill-typed and `check-constant` rejects it (so the non-curried form stays a
+   genuine error, as it must). Extras are recursed (they may carry nested self-calls)."
   [expr self-name field->ih param-ids]
   (let [rec (fn rec [e] (replace-self-ih e self-name field->ih param-ids))
         self-call-ih
-        (fn [args]   ;; → IH fvar when args form a clean structural self-call, else nil
-          (when (and param-ids (= (count args) (count param-ids)))
-            (let [rec-pos (keep-indexed (fn [j a] (when (and (= :fvar (e/tag a))
+        (fn [args]   ;; → IH (possibly applied to extra args) when the prefix is a clean self-call, else nil
+          (when (and param-ids (>= (count args) (count param-ids)))
+            (let [np (count param-ids)
+                  args (vec args)
+                  param-args (subvec args 0 np)
+                  extra-args (subvec args np)
+                  rec-pos (keep-indexed (fn [j a] (when (and (= :fvar (e/tag a))
                                                              (contains? field->ih (e/fvar-id a))) j))
-                                        args)]
+                                        param-args)]
               (when (= 1 (count rec-pos))
                 (let [jr (first rec-pos)]
                   (when (every? (fn [j] (or (= j jr)
-                                            (and (= :fvar (e/tag (nth args j)))
-                                                 (= (e/fvar-id (nth args j)) (nth param-ids j)))))
-                                (range (count args)))
-                    (e/fvar (get field->ih (e/fvar-id (nth args jr))))))))))]
+                                            (and (= :fvar (e/tag (nth param-args j)))
+                                                 (= (e/fvar-id (nth param-args j)) (nth param-ids j)))))
+                                (range np))
+                    ;; IH for the field; apply to any extra args (the brecOn motive-as-function case).
+                    (reduce e/app
+                            (e/fvar (get field->ih (e/fvar-id (nth param-args jr))))
+                            (map rec extra-args))))))))]
     (if (= :app (e/tag expr))
       (let [[head args] (collect-spine expr)]
         (if (and (= :const (e/tag head)) (= (e/const-name head) self-name))
@@ -400,11 +417,19 @@
         ;; IH, so a natural recursive call stands in for ih_<field> (Lean's surface affordance).
         ;; No-op unless a self-name is in scope (define-verified) and this ctor has recursive fields.
         rhs-body (if (and *self-name* (seq early-rec-indices))
-                   (replace-self-ih rhs-body *self-name*
-                                    (into {} (map-indexed
-                                              (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
-                                              early-rec-indices))
-                                    *self-params*)
+                   ;; Zonk first: a polymorphic self-call `(self tl)` over an IMPLICIT fixed prefix
+                   ;; (e.g. {S} in `wsum : {S} → WAddMonoid S → List S → S`) elaborates to
+                   ;; `self ?S tl` with ?S a metavar solved (via the tl : List ?S unification) to the
+                   ;; S parameter fvar. replace-self-ih checks the non-recursive args are the unchanged
+                   ;; param fvars, so the inserted implicit must be resolved to its solution first —
+                   ;; else the structural self-call is missed and routes (wrongly) to the WF path.
+                   (let [zf (:zonk-fn est')
+                         body (if zf (zf est' rhs-body) rhs-body)]
+                     (replace-self-ih body *self-name*
+                                      (into {} (map-indexed
+                                                (fn [i fidx] [(nth field-fvar-ids fidx) (nth ih-fvar-ids i)])
+                                                early-rec-indices))
+                                      *self-params*))
                    rhs-body)
         ;; Best-effort: unify the branch's inferred type with the expected ret-type
         ;; (the motive). For a non-dependent motive (no loose bvar) this resolves

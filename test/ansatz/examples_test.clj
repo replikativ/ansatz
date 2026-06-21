@@ -616,7 +616,7 @@
     (binding [a/*verbose* false]
       (a/prove-theorem 'ex-insert-base '[x :- Nat]
                        '(= Bool (ex-sorted ((ex-insertSorted x) nil)) true)
-                       '[(simp "ex-insertSorted" "ex-sorted")])
+                       '[(simp ex-insertSorted ex-sorted)])
       (is true "base case proved by simp"))))
 
 (deftest test-isort-singleton
@@ -626,9 +626,9 @@
                        '(= Bool (ex-sorted ((ex-insertSorted x) (cons y nil))) true)
                        '[(by_cases (<= x y))
                          ;; simp_all unfolds + omega handles LE goals from hypothesis decomposition
-                         (all_goals (try (simp_all "ex-insertSorted" "ex-sorted")))
+                         (all_goals (try (simp_all ex-insertSorted ex-sorted)))
                          (all_goals (try (omega)))
-                         (all_goals (try (simp_all "ex-insertSorted" "ex-sorted")))
+                         (all_goals (try (simp_all ex-insertSorted ex-sorted)))
                          (all_goals (try (omega)))])
       (is true "singleton case proved by by_cases + simp_all + omega"))))
 
@@ -678,12 +678,12 @@
                                (apply (Sorted.single x))
                                ;; Case-split on x ≤ a, unfold insertSorted
                                (all_goals (try (by_cases (<= x a))))
-                               (all_goals (try (simp_all "ex-insertSorted")))
+                               (all_goals (try (simp_all ex-insertSorted)))
                                ;; Sub-split cons_cons case on x ≤ b
                                (all_goals (try (by_cases (<= x b))))
-                               (all_goals (try (simp_all "ex-insertSorted")))
+                               (all_goals (try (simp_all ex-insertSorted)))
                                ;; Reduce remaining Bool.rec applications
-                               (all_goals (try (simp_all "ex-insertSorted")))
+                               (all_goals (try (simp_all ex-insertSorted)))
                                ;; Close: constructors + arithmetic + assumptions
                                (all_goals (try (apply Sorted.cons_cons)))
                                (all_goals (try (omega)))
@@ -862,7 +862,7 @@
           (a/prove-theorem 'bal1-leaf-valid
                            '[v :- Nat, r :- (TRBTree Nat), hr :- (ValidRB r)]
                            '(ValidRB (((ex-bal1c (TRBTree.leaf Nat)) v) r))
-                           '[(simp "ex-bal1c")
+                           '[(simp ex-bal1c)
                              (apply ValidRB.vnode) (apply ValidRB.vleaf) (assumption)]
                            ctx)
           (is true "balance1 leaf case preserves ValidRB")
@@ -875,7 +875,7 @@
                            '(ValidRB (((ex-bal1c
                                         (TRBTree.node Nat (TRBColor.red)
                                                       (TRBTree.node Nat (TRBColor.red) a x b) y c)) v) r))
-                           '[(simp "ex-bal1c")
+                           '[(simp ex-bal1c)
                              (apply ValidRB.vnode)
                              (apply ValidRB.vnode) (assumption) (assumption)
                              (apply ValidRB.vnode) (assumption) (assumption)]
@@ -968,14 +968,14 @@
                            '(ValidRB (((ex-bal1full l) v) r))
                            '[(cases hl)
                              ;; vleaf: balance1 leaf v r = node black leaf v r
-                             (simp "ex-bal1full")
+                             (simp ex-bal1full)
                              (apply ValidRB.vnode) (apply ValidRB.vleaf) (assumption)
                              ;; vnode: cases on color (structural, hl reverted in motive)
                              (cases c)
                              ;; red: cases on inner left subtree
                              (cases l)
                              ;; red-leaf: eq_2s1
-                             (simp "ex-bal1full")
+                             (simp ex-bal1full)
                              (apply ValidRB.vnode)
                              (apply ValidRB.vnode) (apply ValidRB.vleaf) (assumption)
                              (assumption)
@@ -983,17 +983,17 @@
                              (cases color)
                              ;; LL rotation (red-red): decompose inner ValidRB
                              (cases hl)
-                             (simp "ex-bal1full")
+                             (simp ex-bal1full)
                              (apply ValidRB.vnode)
                              (apply ValidRB.vnode) (assumption) (assumption)
                              (apply ValidRB.vnode) (assumption) (assumption)
                              ;; red-black: no rotation
-                             (simp "ex-bal1full")
+                             (simp ex-bal1full)
                              (apply ValidRB.vnode)
                              (apply ValidRB.vnode) (assumption) (assumption)
                              (assumption)
                              ;; black: no rotation
-                             (simp "ex-bal1full")
+                             (simp ex-bal1full)
                              (apply ValidRB.vnode)
                              (apply ValidRB.vnode) (assumption) (assumption)
                              (assumption)]
@@ -1057,6 +1057,24 @@
                         (apply sub_nonneg_of_le) (assumption)
                         (apply sub_le_self) (apply mul_nonneg) (assumption) (assumption)])
      (is true))))
+
+(deftest test-perm-symm-thin
+  ;; Thin PERM-cluster proof (the #146/#157 migration payoff): no hand-built List.Perm proof term,
+  ;; just `induction` + `solve_by_elim` over the Perm constructors. Exercises the univ-poly apply
+  ;; path end-to-end — apply-tac solves the lemmas' universe-level metavars via meta-isDefEq
+  ;; (Apply.lean-faithful), and zonks them into both the head and the remaining subgoal types so the
+  ;; cons/trans cases def-eq-match their IHs. The kernel check (env/check-constant) sees concrete
+  ;; levels only. Requires Mathlib (List.Perm is not in init-medium).
+  (when-mathlib
+   (testing "List.Perm.symm proves thinly via induction + solve_by_elim and kernel-verifies"
+     (a/prove-theorem 'ex-perm-symm
+                      '[α :- Type, l1 :- (List α), l2 :- (List α), h :- (List.Perm α l1 l2)]
+                      '(List.Perm α l2 l1)
+                      '[(induction h)
+                        (all_goals (solve_by_elim [List.Perm.nil List.Perm.cons
+                                                   List.Perm.swap List.Perm.trans]))])
+     (is (env/lookup (a/env) (name/from-string "ex-perm-symm"))
+         "ex-perm-symm installed (check-constant passed)"))))
 
 (deftest test-wf-merge-two-list-lex
   (testing "merge-style two-list recursion (the README headline): packed SIZED domains

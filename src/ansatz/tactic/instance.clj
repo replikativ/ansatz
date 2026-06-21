@@ -255,7 +255,14 @@
                                          (reset! ok false)))))
                                  (when @ok @s))))]
         ;; Try to fill all arguments
-          (let [filled-args
+          (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
+                ;; registers these as instances whose structure argument is an instance subgoal,
+                ;; even though as a plain function that argument is EXPLICIT. We mirror that ONLY for
+                ;; projection-named candidates, so ordinary instances with genuine explicit args are
+                ;; untouched (Lean gates on class metadata; this name gate is the faithful proxy).
+                proj-candidate? (let [s (name/->string (:name candidate))]
+                                  (or (.contains s ".to") (.contains s ".toImpl")))
+                filled-args
                 (reduce
                  (fn [acc {:keys [fvar-id fvar type info]}]
                    (when acc
@@ -263,24 +270,34 @@
                      ;; Solved by structural matching
                        (conj acc val)
                      ;; Not in subst — try other strategies
-                       (case info
-                         :inst-implicit
-                       ;; Substitute known values into the type first
-                         (let [resolved-type (reduce (fn [ty [fid val]]
-                                                       (e/instantiate1 (e/abstract1 ty fid) val))
-                                                     type subst)]
+                       (let [resolved-type (reduce (fn [ty [fid val]]
+                                                     (e/instantiate1 (e/abstract1 ty fid) val))
+                                                   type subst)]
+                         (case info
+                           :inst-implicit
+                           ;; Instance-implicit: synthesize recursively.
                            (if-let [inst (synthesize* st env index resolved-type (inc depth))]
                              (conj acc inst)
-                             nil))
+                             nil)
 
-                         (:implicit :strict-implicit)
-                       ;; Implicit arg not determined by structural match.
-                       ;; This can happen if the arg appears only in other args' types.
-                       ;; Try: look at other solved args to determine this one.
-                         nil
+                           (:implicit :strict-implicit)
+                           ;; Implicit arg not determined by structural match.
+                           ;; This can happen if the arg appears only in other args' types.
+                           ;; Try: look at other solved args to determine this one.
+                           nil
 
-                       ;; :default — explicit arg, can't infer
-                         nil))))
+                           ;; :default — explicit arg. For a structure-`extends` parent projection
+                           ;; (`X.toY`), Lean treats the structure argument as an instance subgoal
+                           ;; (the projection is registered as an instance `[X …] : Y …`). We mirror
+                           ;; that here, gated to projection candidates so ordinary explicit args are
+                           ;; not synthesized. `synthesize*` self-gates further (succeeds only for real
+                           ;; class goals) and the full term is type-checked against the goal below, so
+                           ;; this never loosens soundness.
+                           (if proj-candidate?
+                             (if-let [inst (synthesize* st env index resolved-type (inc depth))]
+                               (conj acc inst)
+                               nil)
+                             nil))))))
                  []
                  @arg-info)]
             (when filled-args
@@ -315,6 +332,16 @@
                             term)))))
                   (catch Exception _ nil))))))))
     (catch Exception _ nil)))
+
+(def ^:private parent-class-sources
+  "Curated superclass → subclasses whose structure-`extends` parent projection `{Sub}.to{Super}`
+   yields an instance of the superclass (Lean auto-registers these as instances). Needed for PSS
+   envs, where `build-instance-index` can't scan the lazy store to find the `.to` projections (the
+   full-scan path only sees the locally-added constants). Same curated style as `common-classes`;
+   extend as new class hierarchies are exercised. The synthesizer fills the projection's structure
+   argument by recursive synthesis (see try-candidate's projection-arg handling)."
+  {"ReflBEq"  ["LawfulBEq" "EquivBEq"]
+   "EquivBEq" ["LawfulBEq"]})
 
 (defn- discover-candidates
   "On-demand candidate discovery for PSS environments.
@@ -354,9 +381,11 @@
           (when (= class-str "Decidable")
             (for [tn all-names]
               (str "instDecidableEq" tn)))
-            ;; Common coercion patterns: {Super}.to{Class}
-            ;; These are tried if the class has known superclasses
-          ))]
+            ;; Structure-`extends` parent projections {Sub}.to{Class} — an instance of Class via a
+            ;; subclass instance (e.g. ReflBEq via LawfulBEq.toReflBEq). try-candidate synthesizes the
+            ;; projection's structure argument; the goal class is the projection's RETURN type.
+          (for [sub (get parent-class-sources class-str)]
+            (str sub ".to" class-str))))]
     (keep (fn [n]
             (let [nm (name/from-string n)]
               (when (env/lookup env nm)
@@ -376,7 +405,19 @@
                               [h _] (e/get-app-fn-args w)]
                           (when (e/const? h) (e/const-name h))))]
       (when head-info
-        (let [;; Try pre-built index first, then on-demand discovery
+        (let [;; Local instances FIRST (Lean synthInstance checks local-context instances): an lctx
+              ;; hypothesis whose type head is this class and is def-eq to the goal (e.g. a polymorphic
+              ;; `dec : DecidableEq K` discharging a `DecidableEq K` obligation).
+              local-inst
+              (some (fn [[fid decl]]
+                      (when (and (= :local (:tag decl)) (:type decl))
+                        (let [[dh _] (e/get-app-fn-args (:type decl))]
+                          (when (and (e/const? dh) (= (e/const-name dh) head-info)
+                                     (try (tc/is-def-eq st (:type decl) goal-type)
+                                          (catch Throwable _ false)))
+                            (e/fvar fid)))))
+                    (:lctx st))
+              ;; Try pre-built index first, then on-demand discovery
               candidates (let [idx-cands (get-instances index head-info)]
                            (if (seq idx-cands)
                              idx-cands
@@ -384,10 +425,12 @@
             ;; Try candidates from index/discovery
             ;; Limit candidates to prevent combinatorial explosion
             ;; (some classes have 300+ instances in Mathlib)
-              from-candidates (some (fn [candidate]
-                                      (try-candidate st env index candidate goal-type depth))
-                                    (take config/*max-candidates* candidates))]
-          (or from-candidates
+              from-candidates (when-not local-inst
+                                (some (fn [candidate]
+                                        (try-candidate st env index candidate goal-type depth))
+                                      (take config/*max-candidates* candidates)))]
+          (or local-inst
+              from-candidates
             ;; Fallback: name-based resolution with derivation chains (from ansatz.core)
               (try
                 (let [resolve-fn (requiring-resolve 'ansatz.core/resolve-basic-instance)
