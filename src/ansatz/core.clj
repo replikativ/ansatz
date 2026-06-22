@@ -748,8 +748,16 @@
    'exact     (fn [ps args]
                 ;; (exact <term>) — close the goal with an explicit proof term, elaborated in the
                 ;; goal's local context (hypotheses in scope). The companion to exact? (auto-search).
+                ;; BIDIRECTIONAL (faithful to Lean's `exact`): the goal type is the EXPECTED type, so a
+                ;; partially-applied citation whose implicits aren't pinned by its explicit args alone
+                ;; (e.g. `List.map_congr_left h` — f/g/l implicit) gets them solved by unifying the
+                ;; lemma's conclusion against the goal, instead of surfacing "unsolved metavariables".
                 (let [g (proof/current-goal ps)
-                      term (elab/elaborate-in-context (:env ps) (:lctx g) (first args))]
+                      term (try (elab/elaborate-in-context (:env ps) (:lctx g) (first args) (:type g))
+                                ;; fall back to expectation-free elaboration if the expected-type unify
+                                ;; rejects a def-eq-but-not-syntactic match the kernel would still accept.
+                                (catch Throwable _
+                                  (elab/elaborate-in-context (:env ps) (:lctx g) (first args))))]
                   (basic/exact ps term)))
    'omega     (fn [ps _] (omega/omega ps))
    'ac_rfl    (fn [ps _] (ac/ac-rfl ps))
