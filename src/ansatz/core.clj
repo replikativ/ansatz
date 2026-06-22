@@ -741,6 +741,7 @@
    'assumption (fn [ps _] (basic/assumption ps))
    'constructor (fn [ps _] (basic/constructor ps))
    'exfalso   (fn [ps _] (basic/exfalso ps))
+   'contradiction (fn [ps _] (basic/contradiction ps))
    'left      (fn [ps _] (basic/left ps))
    'right     (fn [ps _] (basic/right ps))
    'exact?    (fn [ps _] (basic/exact? ps))
@@ -777,12 +778,21 @@
                                    a-val mid c-val h1-term h2-term)]
                   (basic/apply-tac ps term)))
    'have      (fn [ps args]
-                ;; (have name type) — introduces a have goal
-                ;; Pass local context so hypothesis names resolve as fvars
+                ;; (have name type)        — introduce `name : type` as a new subgoal to prove, then
+                ;;                           continue the body with `name` in scope (Lean `have h : T`).
+                ;; (have name type proof)  — discharge that subgoal immediately with `proof` (Lean
+                ;;                           `have h : T := proof`); leaves only the body goal.
                 (let [hyp-name (str (first args))
                       g (proof/current-goal ps)
-                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
-                  (basic/have-tac ps hyp-name hyp-type)))
+                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))
+                      ps' (basic/have-tac ps hyp-name hyp-type)]
+                  (if (>= (count args) 3)
+                    ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
+                    ;; elaborated proof term (in the original context), leaving the body goal current.
+                    (let [g1 (proof/current-goal ps')
+                          proof-term (elab/elaborate-in-context (:env ps') (:lctx g1) (nth args 2))]
+                      (basic/exact ps' proof-term))
+                    ps')))
    'simp      (fn [ps args] (if (seq args) (simp/simp ps (simp-lemma-args ps args)) (simp/simp ps)))
    'simp_all  (fn [ps args] (if (seq args) (simp/simp-all ps (simp-lemma-args ps args)) (simp/simp-all ps)))
    'dsimp     (fn [ps _args] (simp/dsimp ps))

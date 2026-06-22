@@ -1545,6 +1545,49 @@
                             :motive-level motive-level})
         (proof/record-tactic :exfalso [] (:id goal)))))
 
+(defn- false-const? [t]
+  (and (e/const? t) (= "False" (name/->string (e/const-name t)))))
+
+(defn contradiction
+  "Close the goal from contradictory hypotheses — a faithful SUBSET of Lean 4's
+   `MVarId.contradiction` (Meta/Tactic/Contradiction.lean) covering the no-noConfusion paths:
+     (1) a hypothesis `h : False`             → `exfalso; exact h`;
+     (2) a `¬p` hypothesis paired with `p`    → `exfalso; exact (hneg hpos)` (Lean's mkFalseElim).
+   Each hypothesis type is whnf'd, so `¬p` is recognized through its `p → False` unfolding and `p`
+   is matched up to def-eq. The constructor-clash / decide / empty-type paths (which need
+   noConfusion or `cases`) are intentionally omitted. Throws if nothing fires (Lean throwTacticEx)."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        lctx (:lctx goal)
+        st (mk-tc ps lctx)
+        whnf (fn [t] (whnf-in-goal ps lctx t))
+        locals (filterv (fn [[_ d]] (= :local (:tag d))) (seq lctx))
+        false-hyp (some (fn [[id d]] (when (false-const? (whnf (:type d))) id)) locals)]
+    (cond
+      false-hyp
+      (exact (exfalso ps) (e/fvar false-hyp))
+
+      :else
+      (let [neg (some (fn [[id d]]
+                        (let [w (whnf (:type d))]
+                          ;; `¬p` ≡ `p → False`: a non-dependent Pi whose body whnf's to False.
+                          (when (and (e/forall? w)
+                                     (false-const? (whnf (e/forall-body w)))
+                                     (zero? (e/bvar-range (e/forall-body w))))
+                            (let [p (e/forall-type w)
+                                  hpos (some (fn [[id2 d2]]
+                                               (when (and (not= id2 id)
+                                                          (try (tc/is-def-eq st (whnf (:type d2)) p)
+                                                               (catch Exception _ false)))
+                                                 id2))
+                                             locals)]
+                              (when hpos [id hpos])))))
+                      locals)]
+        (if neg
+          (exact (exfalso ps) (e/app (e/fvar (first neg)) (e/fvar (second neg))))
+          (tactic-error! "contradiction: no contradictory hypotheses found" {}))))))
+
 ;; ============================================================
 ;; subst (substitute equality into context)
 ;; ============================================================
