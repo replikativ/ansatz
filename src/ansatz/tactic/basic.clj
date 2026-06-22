@@ -1787,8 +1787,14 @@
         _ (when (zero? num-indices)
             (tactic-error! "generalize-indices: type has no indices" {:type hyp-type}))
 
-        ;; Infer index types from the inductive type's forall telescope
-        ind-type-ci (.type ind-ci)
+        ;; Infer index types from the inductive type's forall telescope. The inductive's declared
+        ;; type is UNIVERSE-POLYMORPHIC (e.g. `List.Mem.{u} : {α : Type u} → α → List.{u} α → Prop`);
+        ;; instantiate its level params with the CONCRETE levels from the actual hypothesis
+        ;; (`ind-levels`), or the extracted index types (`List.{u} α`) carry an abstract `u` and the
+        ;; fresh index var / equality / new-goal terms fail to type-check (Sort 1 vs Sort (u+1)).
+        ind-type-ci (e/instantiate-level-params
+                     (.type ind-ci)
+                     (into {} (map vector (vec (.levelParams ind-ci)) ind-levels)))
         index-types
         (loop [t ind-type-ci i 0 ps-rem params idx-types []]
           (if (and (< i num-params) (e/forall? t))
