@@ -2030,23 +2030,23 @@
                           base+idx
                           (loop [e base k num-ind-eqs]
                             (if (<= k 0) e
-                              (let [et (whnf-in-goal ps lctx (tc/infer-type st e))
-                                    dom (when (e/forall? et) (whnf-in-goal ps lctx (e/forall-type et)))
-                                    [dh dargs] (when dom (e/get-app-fn-args dom))
-                                    dn (when (and dh (e/const? dh)) (name/->string (e/const-name dh)))
-                                    refl (cond
-                                           (= dn "HEq")
-                                           (e/app* (e/const' (name/from-string "HEq.refl")
-                                                             [(sort-level-of ps st lctx (nth dargs 0))])
-                                                   (nth dargs 0) (nth dargs 1))
-                                           (= dn "Eq")
-                                           (e/app* (e/const' (name/from-string "Eq.refl")
-                                                             [(sort-level-of ps st lctx (nth dargs 0))])
-                                                   (nth dargs 0) (nth dargs 1))
-                                           :else
-                                           (tactic-error! "unify-eq: unexpected index-eq arg in per-ctor noConfusion"
-                                                          {:dom dom}))]
-                                (recur (e/app e refl) (dec k)))))
+                                (let [et (whnf-in-goal ps lctx (tc/infer-type st e))
+                                      dom (when (e/forall? et) (whnf-in-goal ps lctx (e/forall-type et)))
+                                      [dh dargs] (when dom (e/get-app-fn-args dom))
+                                      dn (when (and dh (e/const? dh)) (name/->string (e/const-name dh)))
+                                      refl (cond
+                                             (= dn "HEq")
+                                             (e/app* (e/const' (name/from-string "HEq.refl")
+                                                               [(sort-level-of ps st lctx (nth dargs 0))])
+                                                     (nth dargs 0) (nth dargs 1))
+                                             (= dn "Eq")
+                                             (e/app* (e/const' (name/from-string "Eq.refl")
+                                                               [(sort-level-of ps st lctx (nth dargs 0))])
+                                                     (nth dargs 0) (nth dargs 1))
+                                             :else
+                                             (tactic-error! "unify-eq: unexpected index-eq arg in per-ctor noConfusion"
+                                                            {:dom dom}))]
+                                  (recur (e/app e refl) (dec k)))))
                           nc-full (e/app base+idx (e/fvar eq-fvar-id))
                           nct (whnf-in-goal ps lctx (tc/infer-type st nc-full))
                           cont-type (if (e/forall? nct) (e/forall-type nct) (:type goal))
