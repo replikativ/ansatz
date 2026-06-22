@@ -239,8 +239,9 @@
       (if as (reduce e/app v as) v))))
 
 ;; ── Instance-projection specialization (Lean-faithful monomorphization) ──────────────────────────
-;; Collapse a structure OWN-field projection applied to a concrete `{Struct}.mk` literal down to the
-;; carrier op, so optimizer-emitted `[inst : WSemiring S]`-parameterized terms stay executable.
+;; Collapse a structure OWN-field projection applied to a structure instance — a concrete `{Struct}.mk`
+;; literal OR a named instance `def` that unfolds to one — down to the carrier op, so optimizer-emitted
+;; `[inst : WSemiring S]`-parameterized terms stay executable whether the instance is inline or named.
 
 (clojure.core/defn- own-proj-info
   "If const-name `h` is a structure OWN-field projection ({Struct}.{field}, field ∈ Struct's fields),
@@ -262,24 +263,48 @@
     (when (and (e/const? h) (= (str strukt ".mk") (name/->string (e/const-name h)))) (vec as))))
 
 (clojure.core/defn- resolve-mk
-  "Structurally reduce instance OWN-field projections over `{Struct}.mk` literals to a fixpoint:
-   `WSemiring.toWAddMonoid (WSemiring.mk … parentInst …)` → parentInst → … → the carrier op term."
+  "Structurally reduce a projection's major premise to a `{Struct}.mk` literal, faithful to the kernel's
+   `reduce_proj` (type_checker.cpp): whnf the major premise — INCLUDING delta-unfolding a named instance
+   `def` — before matching the constructor. Two reduction steps, to a fixpoint:
+     • own-field projection over a (resolved) mk literal:
+       `WSemiring.toWAddMonoid (WSemiring.mk … parentInst …)` → parentInst → … → the carrier op term;
+     • a named instance const whose value heads to a constructor:
+       `instWSemiring_Nat` → its value `(WSemiring.mk …)` (delta). This is the `c = whnf(proj_expr(e))`
+       step Lean does — it lets chains of PARENT instances referenced BY NAME resolve (algebra.clj builds
+       `WSemiring.mk … instWAddMonoid_Nat …`, so `WSemiring.add` over the named instance reduces through
+       both the WSemiring mk and the named WAddMonoid parent down to `Nat.add`).
+   A non-instance def (e.g. `Nat.add`, whose value heads to a recursor, not a ctor) is left intact, so
+   this terminates (it only recurses toward constructors, which carry no value) and never over-reduces."
   [env expr]
-  (let [[h args] (e/get-app-fn-args expr)]
-    (if-let [info (and (e/const? h) (own-proj-info env (name/->string (e/const-name h))))]
-      (let [{:keys [strukt np fidx]} info]
-        (if (> (count args) np)
-          (let [self (resolve-mk env (nth args np))
-                margs (mk-args strukt self)]
-            (if (and margs (> (count margs) (+ np fidx)))
-              (resolve-mk env (nth margs (+ np fidx)))
+  (let [[h args] (e/get-app-fn-args expr)
+        info (when (e/const? h) (own-proj-info env (name/->string (e/const-name h))))]
+    (cond
+      ;; own-field projection over a (resolved) mk literal → the field
+      (and info (> (count args) (:np info)))
+      (let [{:keys [strukt np fidx]} info
+            self  (resolve-mk env (nth args np))
+            margs (mk-args strukt self)]
+        (if (and margs (> (count margs) (+ np fidx)))
+          (resolve-mk env (nth margs (+ np fidx)))
+          expr))
+      ;; named instance const in major-premise position: delta-unfold iff its value heads to a
+      ;; constructor (i.e. it IS a structure instance) — the kernel's whnf-of-major-premise step.
+      (and (e/const? h) (nil? info))
+      (let [ci (env/lookup env (e/const-name h))]
+        (if (and ci (.value ^ConstantInfo ci))
+          (let [v   (beta-apply (.value ^ConstantInfo ci) args)
+                [vh _] (e/get-app-fn-args v)
+                vci (when (e/const? vh) (env/lookup env (e/const-name vh)))]
+            (if (and vci (.isCtor ^ConstantInfo vci))
+              (resolve-mk env v)
               expr))
           expr))
-      expr)))
+      :else expr)))
 
 (clojure.core/defn collapse-instance-projections
   "Deep, term-level instance monomorphization: everywhere in `expr`, collapse a structure OWN-field
-   projection over a concrete `{Struct}.mk` literal to the carrier op, and inline structure-prefixed
+   projection over a structure instance (a `{Struct}.mk` literal, or a named instance `def` that
+   `resolve-mk` delta-unfolds to one) to the carrier op, and inline structure-prefixed
    reducible (:abbrev) accessors (e.g. an inherited `WSemiring.add`) so they too reduce to the op.
    Used to normalize an `[inst : WSemiring S]`-parameterized law's rhs (instantiated at a concrete
    instance) BEFORE the optimizer's structural pattern-matching — otherwise the projection wrapper
