@@ -123,6 +123,27 @@
                        '[(have hx (= Nat n n)) (rfl) (exact hx)])
       (is true "theorem proved"))))
 
+(deftest test-cases-on-indexed-family
+  ;; `cases` on a PARAMETERIZED indexed Prop family (List.Mem) — Bug B: the index equalities are
+  ;; discharged by the faithful injectionCore port (per-ctor `<ctor>.noConfusion` + `eq_of_heq` for
+  ;; same-ctor; `ctorIdx` + `noConfusion_of_Nat` + `False.elim` for different ctors).
+  (testing "cases on `r ∈ head::tail` splits (same-ctor cons=cons injection succeeds)"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'cases-mem-cons
+                       '[^{:- Type} X ^{:- X} r ^{:- X} head ^{:- (List X)} tail
+                         ^{:- (Membership.mem X (List X) (List.instMembership X) (List.cons X head tail) r)} hr]
+                       '(= Nat 0 0)
+                       '[(cases hr) (all_goals (try (rfl)))])
+      (is true "theorem proved")))
+  (testing "cases on `r ∈ []` closes to zero goals (different-ctor nil/cons is impossible)"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'cases-mem-nil
+                       '[^{:- Type} X ^{:- X} r ^{:- Prop} C
+                         ^{:- (Membership.mem X (List X) (List.instMembership X) (List.nil X) r)} hr]
+                       'C
+                       '[(cases hr)])
+      (is true "theorem proved"))))
+
 (deftest test-contradiction
   (testing "contradiction closes the goal from a `False` hypothesis"
     (binding [a/*verbose* false]
