@@ -72,6 +72,13 @@
    :add_assoc "Nat.add_assoc" :zero_add "Nat.zero_add" :add_zero "Nat.add_zero"
    :mul_add "Nat.left_distrib" :mul_zero "Nat.mul_zero" :zero_mul "Nat.zero_mul"})
 
+(def bool-row
+  "The WSemiring instance row for Bool — boolean provenance / reachability (∨ = +, ∧ = ·), from Init
+   lemmas. Left-distributive: `Bool.and_or_distrib_left` is `a && (b || c) = (a && b) || (a && c)`."
+  {:add "Bool.or" :zero "Bool.false" :mul "Bool.and"
+   :add_assoc "Bool.or_assoc" :zero_add "Bool.false_or" :add_zero "Bool.or_false"
+   :mul_add "Bool.and_or_distrib_left" :mul_zero "Bool.and_false" :zero_mul "Bool.false_and"})
+
 (defn install-instance!
   "Build and KERNEL-VERIFY the WAddMonoid + WSemiring instances for `carrier` (a kernel const name,
    e.g. \"Nat\") from `row`, adding both to the env as `instWAddMonoid_<carrier>` /
@@ -83,18 +90,22 @@
         am-name (str "instWAddMonoid_" carrier)
         ws-name (str "instWSemiring_" carrier)]
     (try
-      (reset! a/ansatz-env
-              (env/check-constant (a/env)
-                                  (env/mk-def (nm/from-string am-name) []
-                                              (e/app (kconst "WAddMonoid") S)
-                                              (addmonoid-instance S row))))
-      (reset! a/ansatz-env
-              (env/check-constant (a/env)
-                                  (env/mk-def (nm/from-string ws-name) []
-                                              (e/app (kconst "WSemiring") S)
-                                              (e/app* (kconst "WSemiring.mk") S (kconst am-name)
-                                                      (kconst (:mul row)) (kconst (:mul_add row))
-                                                      (kconst (:mul_zero row)) (kconst (:zero_mul row))))))
+      ;; Idempotent: kernel `check-constant` rejects re-declaration, so only add each instance when
+      ;; absent. Lets `install-laws!` (and concurrent carrier installers) call this repeatedly.
+      (when-not (has? am-name)
+        (reset! a/ansatz-env
+                (env/check-constant (a/env)
+                                    (env/mk-def (nm/from-string am-name) []
+                                                (e/app (kconst "WAddMonoid") S)
+                                                (addmonoid-instance S row)))))
+      (when-not (has? ws-name)
+        (reset! a/ansatz-env
+                (env/check-constant (a/env)
+                                    (env/mk-def (nm/from-string ws-name) []
+                                                (e/app (kconst "WSemiring") S)
+                                                (e/app* (kconst "WSemiring.mk") S (kconst am-name)
+                                                        (kconst (:mul row)) (kconst (:mul_add row))
+                                                        (kconst (:mul_zero row)) (kconst (:zero_mul row)))))))
       {:carrier carrier :status :verified :addmonoid am-name :semiring ws-name}
       (catch Exception ex
         {:carrier carrier :status :failed :error (.getMessage ex)}))))
