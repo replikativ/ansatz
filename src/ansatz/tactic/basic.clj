@@ -1545,6 +1545,49 @@
                             :motive-level motive-level})
         (proof/record-tactic :exfalso [] (:id goal)))))
 
+(defn- false-const? [t]
+  (and (e/const? t) (= "False" (name/->string (e/const-name t)))))
+
+(defn contradiction
+  "Close the goal from contradictory hypotheses — a faithful SUBSET of Lean 4's
+   `MVarId.contradiction` (Meta/Tactic/Contradiction.lean) covering the no-noConfusion paths:
+     (1) a hypothesis `h : False`             → `exfalso; exact h`;
+     (2) a `¬p` hypothesis paired with `p`    → `exfalso; exact (hneg hpos)` (Lean's mkFalseElim).
+   Each hypothesis type is whnf'd, so `¬p` is recognized through its `p → False` unfolding and `p`
+   is matched up to def-eq. The constructor-clash / decide / empty-type paths (which need
+   noConfusion or `cases`) are intentionally omitted. Throws if nothing fires (Lean throwTacticEx)."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        lctx (:lctx goal)
+        st (mk-tc ps lctx)
+        whnf (fn [t] (whnf-in-goal ps lctx t))
+        locals (filterv (fn [[_ d]] (= :local (:tag d))) (seq lctx))
+        false-hyp (some (fn [[id d]] (when (false-const? (whnf (:type d))) id)) locals)]
+    (cond
+      false-hyp
+      (exact (exfalso ps) (e/fvar false-hyp))
+
+      :else
+      (let [neg (some (fn [[id d]]
+                        (let [w (whnf (:type d))]
+                          ;; `¬p` ≡ `p → False`: a non-dependent Pi whose body whnf's to False.
+                          (when (and (e/forall? w)
+                                     (false-const? (whnf (e/forall-body w)))
+                                     (zero? (e/bvar-range (e/forall-body w))))
+                            (let [p (e/forall-type w)
+                                  hpos (some (fn [[id2 d2]]
+                                               (when (and (not= id2 id)
+                                                          (try (tc/is-def-eq st (whnf (:type d2)) p)
+                                                               (catch Exception _ false)))
+                                                 id2))
+                                             locals)]
+                              (when hpos [id hpos])))))
+                      locals)]
+        (if neg
+          (exact (exfalso ps) (e/app (e/fvar (first neg)) (e/fvar (second neg))))
+          (tactic-error! "contradiction: no contradictory hypotheses found" {}))))))
+
 ;; ============================================================
 ;; subst (substitute equality into context)
 ;; ============================================================
@@ -1744,8 +1787,14 @@
         _ (when (zero? num-indices)
             (tactic-error! "generalize-indices: type has no indices" {:type hyp-type}))
 
-        ;; Infer index types from the inductive type's forall telescope
-        ind-type-ci (.type ind-ci)
+        ;; Infer index types from the inductive type's forall telescope. The inductive's declared
+        ;; type is UNIVERSE-POLYMORPHIC (e.g. `List.Mem.{u} : {α : Type u} → α → List.{u} α → Prop`);
+        ;; instantiate its level params with the CONCRETE levels from the actual hypothesis
+        ;; (`ind-levels`), or the extracted index types (`List.{u} α`) carry an abstract `u` and the
+        ;; fresh index var / equality / new-goal terms fail to type-check (Sort 1 vs Sort (u+1)).
+        ind-type-ci (e/instantiate-level-params
+                     (.type ind-ci)
+                     (into {} (map vector (vec (.levelParams ind-ci)) ind-levels)))
         index-types
         (loop [t ind-type-ci i 0 ps-rem params idx-types []]
           (if (and (< i num-params) (e/forall? t))
@@ -1866,128 +1915,169 @@
 ;; After generalizeIndices + cases, each branch has equalities like:
 ;; node c l k r = leaf (impossible) or node c l k r = node c' l' k' r' (decompose)
 
+(defn- assert-hyp
+  "Lean `have h : T := proof` at the proof-state level: discharge the have-subgoal with `proof-term`,
+   leaving the body goal (with `hyp-name : hyp-type` in scope) the current goal."
+  [ps hyp-name hyp-type proof-term]
+  (exact (have-tac ps hyp-name hyp-type) proof-term))
+
+(defn- count-head-foralls [t]
+  (loop [t t n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n)))
+
+(defn- sort-level-of
+  "Universe level `u` such that `expr : Sort u` (the level of expr's type), or `lvl/zero` on failure."
+  [ps st lctx expr]
+  (let [s (try (whnf-in-goal ps lctx (tc/infer-type st expr)) (catch Exception _ nil))]
+    (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
+
 (defn- unify-eq
-  "Process one equality hypothesis in a cases branch.
+  "Process one equality hypothesis in a cases branch (Lean 4 UnifyEq.lean + injectionCore).
    Returns {:ps ps' :status :solved/:continue :num-new-eqs n}.
-   :solved means the branch is impossible (goal closed).
-   :continue means the equality was resolved (via subst, injection, or clear)."
+   :solved means the branch is impossible (goal closed via noConfusion/False.elim).
+   :continue means the equality was resolved (via subst, clear, or constructor injection)."
   [ps eq-fvar-id]
   (let [goal (proof/current-goal ps)
         st (mk-tc ps (:lctx goal))
-        eq-decl (red/lctx-lookup (:lctx goal) eq-fvar-id)
-        eq-type (whnf-in-goal ps (:lctx goal) (:type eq-decl))
+        lctx (:lctx goal)
+        eq-decl (red/lctx-lookup lctx eq-fvar-id)
+        eq-type (whnf-in-goal ps lctx (:type eq-decl))
         [head args] (e/get-app-fn-args eq-type)
-        _ (when-not (and (e/const? head)
-                         (= (e/const-name head) (name/from-string "Eq"))
-                         (= 3 (count args)))
-            (tactic-error! "unify-eq: not an equality" {:type eq-type}))
-        alpha (nth args 0)
-        lhs (nth args 1)
-        rhs (nth args 2)
-        lhs-whnf (whnf-in-goal ps (:lctx goal) lhs)
-        rhs-whnf (whnf-in-goal ps (:lctx goal) rhs)]
-
+        hname (when (e/const? head) (name/->string (e/const-name head)))]
     (cond
-      ;; Case 1: fvar = expr or expr = fvar → subst
-      (e/fvar? lhs-whnf)
-      {:ps (subst ps eq-fvar-id) :status :continue :num-new-eqs 0}
+      ;; HEq α a β b with α ≡ β → convert to a homogeneous `Eq a b` (Lean injectionCore: mkEqOfHEq)
+      ;; and recurse. Per-ctor noConfusion produces HEq field equalities even when the field types
+      ;; match, so this is the bridge that lets the Eq machinery (subst/injection) consume them.
+      (and (= hname "HEq") (= 4 (count args)))
+      (let [a-ty (nth args 0) a (nth args 1) b-ty (nth args 2) b (nth args 3)]
+        (if (tc/is-def-eq st a-ty b-ty)
+          (let [lvl (sort-level-of ps st lctx a-ty)
+                eq-proof (e/app* (e/const' (name/from-string "eq_of_heq") [lvl]) a-ty a b (e/fvar eq-fvar-id))
+                eq-T (e/app* (e/const' (name/from-string "Eq") [lvl]) a-ty a b)
+                ps (assert-hyp ps "heqEq" eq-T eq-proof)
+                g2 (proof/current-goal ps)
+                new-eq (last (sort (keys (:lctx g2))))]
+            (unify-eq ps new-eq))
+          (tactic-error! "unify-eq: heterogeneous HEq (types not defeq)" {:type eq-type})))
 
-      (e/fvar? rhs-whnf)
-      {:ps (subst ps eq-fvar-id) :status :continue :num-new-eqs 0}
-
-      ;; Case 2: defEq a b → clear the equality
-      (tc/is-def-eq st lhs-whnf rhs-whnf)
-      {:ps (clear ps eq-fvar-id) :status :continue :num-new-eqs 0}
-
-      ;; Case 3: ctor_i args = ctor_j args' → use noConfusion
-      :else
-      (let [[lhs-head lhs-args] (e/get-app-fn-args lhs-whnf)
-            [rhs-head rhs-args] (e/get-app-fn-args rhs-whnf)]
-        (if (and (e/const? lhs-head) (e/const? rhs-head))
-          (let [lhs-name (e/const-name lhs-head)
-                rhs-name (e/const-name rhs-head)
-                ;; Look up noConfusion for the type
-                [alpha-head alpha-args] (e/get-app-fn-args alpha)
-                _ (when-not (e/const? alpha-head)
-                    (tactic-error! "unify-eq: cannot determine inductive type" {:alpha alpha}))
-                ind-name (e/const-name alpha-head)
-                nc-name (name/mk-str ind-name "noConfusion")
-                nc-ci (env/lookup (:env ps) nc-name)
-                _ (when-not nc-ci
-                    (tactic-error! (str "unify-eq: " (name/->string nc-name) " not found") {}))
-                ;; Compute goal sort level
-                goal-sort (try (tc/infer-type st (:type goal)) (catch Exception _ nil))
-                goal-sort-whnf (when goal-sort (whnf-in-goal ps (:lctx goal) goal-sort))
-                motive-level (if (and goal-sort-whnf (e/sort? goal-sort-whnf))
-                               (e/sort-level goal-sort-whnf)
-                               lvl/zero)
-                ;; noConfusion levels: [v, ...ind-levels]
-                ind-levels (e/const-levels alpha-head)
-                nc-levels (into [motive-level] ind-levels)
-                ;; Different constructors → noConfusion closes the goal
-                ;; noConfusion.{v,...} {params} {P} {a} {b} h : noConfusionType P a b
-                ;; For diff ctors: noConfusionType P a b = P (= goal type)
-                ;; So noConfusion h : P directly!
-                nc-term (e/app* (e/const' nc-name nc-levels)
-                                ;; {params} (implicit, inferred)
-                                ;; {P} (implicit = goal type)
-                                ;; {a} {b} (implicit = lhs, rhs)
-                                ;; h = eq-fvar
-                                (e/fvar eq-fvar-id))]
-            (if (not= lhs-name rhs-name)
-              ;; Different constructors: noConfusion closes the goal
-              (let [;; Apply noConfusion: need to supply implicit args
-                    ;; noConfusion {params} {P} {a} {b} h
+      (and (= hname "Eq") (= 3 (count args)))
+      (let [alpha (nth args 0) lhs (nth args 1) rhs (nth args 2)
+            lhs-whnf (whnf-in-goal ps lctx lhs)
+            rhs-whnf (whnf-in-goal ps lctx rhs)]
+        (cond
+          ;; fvar = e / e = fvar → subst
+          (e/fvar? lhs-whnf) {:ps (subst ps eq-fvar-id) :status :continue :num-new-eqs 0}
+          (e/fvar? rhs-whnf) {:ps (subst ps eq-fvar-id) :status :continue :num-new-eqs 0}
+          ;; defEq → clear
+          (tc/is-def-eq st lhs-whnf rhs-whnf) {:ps (clear ps eq-fvar-id) :status :continue :num-new-eqs 0}
+          ;; ctor … = ctor … → injection / noConfusion
+          :else
+          (let [[lhs-head lhs-args] (e/get-app-fn-args lhs-whnf)
+                [rhs-head rhs-args] (e/get-app-fn-args rhs-whnf)]
+            (if (and (e/const? lhs-head) (e/const? rhs-head))
+              (let [lhs-name (e/const-name lhs-head)
+                    rhs-name (e/const-name rhs-head)
+                    same? (= lhs-name rhs-name)
+                    [alpha-head alpha-args] (e/get-app-fn-args alpha)
+                    _ (when-not (e/const? alpha-head)
+                        (tactic-error! "unify-eq: cannot determine inductive type" {:alpha alpha}))
+                    ind-name (e/const-name alpha-head)
+                    ind-levels (e/const-levels alpha-head)
                     ^ConstantInfo ind-ci (env/lookup! (:env ps) ind-name)
                     num-params (.numParams ind-ci)
                     ind-params (subvec (vec alpha-args) 0 (min num-params (count alpha-args)))
-                    nc-full (reduce e/app
-                                    (e/const' nc-name nc-levels)
-                                    (concat ind-params
-                                            [(:type goal) lhs rhs (e/fvar eq-fvar-id)]))]
-                ;; Assign goal directly with the noConfusion proof
-                {:ps (-> (proof/assign-mvar ps (:id goal)
-                                            {:kind :exact :term nc-full})
-                         (proof/record-tactic :injection-solved [eq-fvar-id] (:id goal)))
-                 :status :solved :num-new-eqs 0})
+                    motive-level (sort-level-of ps st lctx (:type goal))]
+                ;; Two discharge strategies, picked by which aux declarations the type actually has:
+                ;;  • FAITHFUL per-ctor / ctorIdx injection (Lean injectionCore / AppBuilder.mkNoConfusion)
+                ;;    when the per-constructor `<ctor>.noConfusion` (same ctor) or `<Ind>.ctorIdx` +
+                ;;    `noConfusion_of_Nat` (different ctors) exist — IMPORTED parameterized types like List,
+                ;;    whose monolithic `<Ind>.noConfusion` is HETEROGENEOUS and unusable as `(params P a b h)`.
+                ;;  • MONOLITHIC `<Ind>.noConfusion` `(params)(P)(a)(b)(h)` otherwise — parameterless types
+                ;;    (Nat) and ansatz `a/inductive` types, whose generated noConfusion is HOMOGENEOUS.
+                ;; Parameterless types always take the monolithic path (it is tested + Eq-direct).
+                (let [nc-mono-name (name/mk-str ind-name "noConfusion")
+                      perctor-name (name/mk-str lhs-name "noConfusion")
+                      ci-name (name/mk-str ind-name "ctorIdx")
+                      nc-levels (into [motive-level] ind-levels)
+                      optionC? (and (pos? num-params)
+                                    (if same?
+                                      (some? (env/lookup (:env ps) perctor-name))
+                                      (and (some? (env/lookup (:env ps) ci-name))
+                                           (some? (env/lookup (:env ps) (name/from-string "noConfusion_of_Nat"))))))]
+                  (cond
+                    ;; FAITHFUL — different constructors → False.elim P (noConfusion_of_Nat α (ctorIdx params) a b h)
+                    (and optionC? (not same?))
+                    (let [alpha-lvl (sort-level-of ps st lctx alpha)
+                          f (reduce e/app (e/const' ci-name ind-levels) ind-params)
+                          noc (e/app* (e/const' (name/from-string "noConfusion_of_Nat") [alpha-lvl])
+                                      alpha f lhs rhs (e/fvar eq-fvar-id))
+                          fe (e/app* (e/const' (name/from-string "False.elim") [motive-level]) (:type goal) noc)]
+                      {:ps (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term fe})
+                               (proof/record-tactic :injection-solved [eq-fvar-id] (:id goal)))
+                       :status :solved :num-new-eqs 0})
 
-              ;; Same constructor: noConfusion gives continuation type
-              ;; noConfusionType P (ctor args) (ctor args') = (a1=a1' → ... → P) → P
-              ;; noConfusion h : (a1=a1' → ... → P) → P
-              ;; We derive the continuation type from noConfusion's actual type (principled).
-              (let [^ConstantInfo ind-ci (env/lookup! (:env ps) ind-name)
-                    ^ConstantInfo lhs-ctor-ci (env/lookup! (:env ps) lhs-name)
-                    num-params (.numParams ind-ci)
-                    n-ctor-fields (.numFields lhs-ctor-ci)
-                    ind-params (subvec (vec alpha-args) 0 (min num-params (count alpha-args)))
-                    nc-full (reduce e/app
-                                    (e/const' nc-name nc-levels)
-                                    (concat ind-params
-                                            [(:type goal) lhs rhs (e/fvar eq-fvar-id)]))
-                    ;; Infer nc-full's type and WHNF to get (cont-type → P) → P
-                    ;; Then extract cont-type from the forall domain
-                    nc-full-type (tc/infer-type st nc-full)
-                    nc-full-type-whnf (whnf-in-goal ps (:lctx goal) nc-full-type)
-                    ;; nc-full-type-whnf should be: ∀ (_ : cont-type → P), P
-                    ;; i.e., a forall whose domain is (cont-type → P) and body is P
-                    ;; Extract the domain (which is the continuation type including → P)
-                    cont-with-p (when (e/forall? nc-full-type-whnf)
-                                  (e/forall-type nc-full-type-whnf))
-                    ;; cont-with-p = f1=g1 → ... → fn=gn → P
-                    ;; This is exactly the continuation type we need
-                    cont-type (or cont-with-p (:type goal))
-                    [ps' cont-goal-id] (proof/fresh-mvar-replacing ps cont-type (:lctx goal) (:id goal))]
-                ;; Assign original goal: noConfusion h cont-proof
-                ;; nc-full : (a1=a1' → ... → P) → P
-                ;; cont-proof : a1=a1' → ... → P
-                {:ps (-> (proof/assign-mvar ps' (:id goal)
-                                            {:kind :apply
-                                             :head nc-full
-                                             :arg-mvars [cont-goal-id]})
-                         (proof/record-tactic :injection-decompose [eq-fvar-id] (:id goal)))
-                 :status :continue :num-new-eqs n-ctor-fields})))
-          ;; Not constructor-headed: can't solve
-          (tactic-error! "unify-eq: cannot solve equality" {:lhs lhs-whnf :rhs rhs-whnf}))))))
+                    ;; FAITHFUL — same ctor → <ctor>.noConfusion params P fields₁ fields₂ [indexEqRefls…] h
+                    (and optionC? same?)
+                    (let [^ConstantInfo nc-ci (env/lookup (:env ps) perctor-name)
+                          ^ConstantInfo lc (env/lookup! (:env ps) lhs-name)
+                          nfields (.numFields lc)
+                          fields1 (subvec (vec lhs-args) (min num-params (count lhs-args)))
+                          fields2 (subvec (vec rhs-args) (min num-params (count rhs-args)))
+                          base (reduce e/app (e/const' perctor-name nc-levels)
+                                       (concat ind-params [(:type goal)] fields1 fields2))
+                          ;; supply the constructor's fixed-index equalities (refl) before `h`
+                          arity (count-head-foralls (.type nc-ci))
+                          num-ind-eqs (- arity (count ind-params) (* 2 nfields) 3)
+                          base+idx
+                          (loop [e base k num-ind-eqs]
+                            (if (<= k 0) e
+                                (let [et (whnf-in-goal ps lctx (tc/infer-type st e))
+                                      dom (when (e/forall? et) (whnf-in-goal ps lctx (e/forall-type et)))
+                                      [dh dargs] (when dom (e/get-app-fn-args dom))
+                                      dn (when (and dh (e/const? dh)) (name/->string (e/const-name dh)))
+                                      refl (cond
+                                             (= dn "HEq")
+                                             (e/app* (e/const' (name/from-string "HEq.refl")
+                                                               [(sort-level-of ps st lctx (nth dargs 0))])
+                                                     (nth dargs 0) (nth dargs 1))
+                                             (= dn "Eq")
+                                             (e/app* (e/const' (name/from-string "Eq.refl")
+                                                               [(sort-level-of ps st lctx (nth dargs 0))])
+                                                     (nth dargs 0) (nth dargs 1))
+                                             :else
+                                             (tactic-error! "unify-eq: unexpected index-eq arg in per-ctor noConfusion"
+                                                            {:dom dom}))]
+                                  (recur (e/app e refl) (dec k)))))
+                          nc-full (e/app base+idx (e/fvar eq-fvar-id))
+                          nct (whnf-in-goal ps lctx (tc/infer-type st nc-full))
+                          cont-type (if (e/forall? nct) (e/forall-type nct) (:type goal))
+                          [ps' cg] (proof/fresh-mvar-replacing ps cont-type lctx (:id goal))]
+                      {:ps (-> (proof/assign-mvar ps' (:id goal) {:kind :apply :head nc-full :arg-mvars [cg]})
+                               (proof/record-tactic :injection-decompose [eq-fvar-id] (:id goal)))
+                       :status :continue :num-new-eqs nfields})
+
+                    ;; MONOLITHIC fallback (homogeneous <Ind>.noConfusion) — Nat + ansatz a/inductive types.
+                    :else
+                    (let [_ (when-not (env/lookup (:env ps) nc-mono-name)
+                              (tactic-error! (str "unify-eq: " (name/->string nc-mono-name)
+                                                  " not found (and no per-ctor/ctorIdx aux)") {}))
+                          nc-full (reduce e/app (e/const' nc-mono-name nc-levels)
+                                          (concat ind-params [(:type goal) lhs rhs (e/fvar eq-fvar-id)]))]
+                      (if-not same?
+                        {:ps (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term nc-full})
+                                 (proof/record-tactic :injection-solved [eq-fvar-id] (:id goal)))
+                         :status :solved :num-new-eqs 0}
+                        (let [^ConstantInfo lc (env/lookup! (:env ps) lhs-name)
+                              nfields (.numFields lc)
+                              nct (whnf-in-goal ps lctx (tc/infer-type st nc-full))
+                              cont-type (if (e/forall? nct) (e/forall-type nct) (:type goal))
+                              [ps' cg] (proof/fresh-mvar-replacing ps cont-type lctx (:id goal))]
+                          {:ps (-> (proof/assign-mvar ps' (:id goal) {:kind :apply :head nc-full :arg-mvars [cg]})
+                                   (proof/record-tactic :injection-decompose [eq-fvar-id] (:id goal)))
+                           :status :continue :num-new-eqs nfields}))))))
+              (tactic-error! "unify-eq: cannot solve equality" {:lhs lhs-whnf :rhs rhs-whnf})))))
+
+      :else
+      (tactic-error! "unify-eq: not an equality" {:type eq-type}))))
 
 (defn- unify-cases-eqs
   "Solve all equality hypotheses in a cases branch.

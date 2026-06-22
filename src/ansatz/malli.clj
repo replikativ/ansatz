@@ -129,6 +129,15 @@
               (e/lam "s" (kconst "String") body :default)))))
 
 ;; ── schema → kernel type (ported from wandler, comprehensive) ────────────────────────────
+(defn- ksubtype-nodup
+  "`Subtype (List X) (fun l => List.Nodup X l)` — the refinement carrier for a malli `:set` (a list
+   with no duplicate elements). The `Nodup` proof rides the value (`Subtype.property`); the optimizer's
+   certified DISTINCT-removal (`nodup_eraseDups`) consumes it to drop a redundant `distinct`."
+  [X]
+  (let [listX (klist X)
+        P (e/lam "l" listX (e/app* (e/const' (nm "List.Nodup") [lvl/zero]) X (e/bvar 0)) :default)]
+    (e/app* (e/const' (nm "Subtype") [u1]) listX P)))
+
 (defn schema->type-expr
   "Convert a malli schema FORM to a kernel type Expr. Unknown constants (Option, Float, …)
    surface honestly at elaboration if the env lacks them; unsupported schema SHAPES throw
@@ -163,7 +172,10 @@
       (let [[tag & more] f
             [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
         (case tag
-          (:sequential :vector :set) (klist (schema->type-expr (first more)))
+          (:sequential :vector) (klist (schema->type-expr (first more)))
+          ;; a `:set` is a List with a declared no-duplicates invariant → the Nodup refinement carrier,
+          ;; which licenses certified DISTINCT-removal downstream.
+          :set (ksubtype-nodup (schema->type-expr (first more)))
           :maybe (koption (schema->type-expr (first more)))
           :tuple (kprods (map schema->type-expr more))
           ;; [:map [:k T] …] → a synthesized named-field structure: keyword access in

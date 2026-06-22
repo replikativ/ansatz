@@ -104,6 +104,62 @@
       (a/prove-theorem 'rfl-sep '[^Nat n] '(= Nat n n) '[(rfl)])
       (is true "theorem proved"))))
 
+(deftest test-have-inline-proof
+  (testing "`have h : T proof` discharges the subgoal inline (Lean `have h : T := e`)"
+    (binding [a/*verbose* false]
+      ;; split an Or via have+cases — the idiom the inline-have unblocks (no separate exact dance)
+      (a/prove-theorem 'have-inline-test
+                       '[^Nat r ^{:- (Or (= Nat r 0) (= Nat r 1))} h]
+                       '(= Nat r r)
+                       '[(have hor (Or (= Nat r 0) (= Nat r 1)) h)
+                         (cases hor)
+                         (all_goals (try (rfl)))])
+      (is true "theorem proved")))
+  (testing "`have h : T` (no proof) still leaves the type as a subgoal"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'have-noproof-test
+                       '[^Nat n]
+                       '(= Nat n n)
+                       '[(have hx (= Nat n n)) (rfl) (exact hx)])
+      (is true "theorem proved"))))
+
+(deftest test-cases-on-indexed-family
+  ;; `cases` on a PARAMETERIZED indexed Prop family (List.Mem) — Bug B: the index equalities are
+  ;; discharged by the faithful injectionCore port (per-ctor `<ctor>.noConfusion` + `eq_of_heq` for
+  ;; same-ctor; `ctorIdx` + `noConfusion_of_Nat` + `False.elim` for different ctors).
+  (testing "cases on `r ∈ head::tail` splits (same-ctor cons=cons injection succeeds)"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'cases-mem-cons
+                       '[^{:- Type} X ^{:- X} r ^{:- X} head ^{:- (List X)} tail
+                         ^{:- (Membership.mem X (List X) (List.instMembership X) (List.cons X head tail) r)} hr]
+                       '(= Nat 0 0)
+                       '[(cases hr) (all_goals (try (rfl)))])
+      (is true "theorem proved")))
+  (testing "cases on `r ∈ []` closes to zero goals (different-ctor nil/cons is impossible)"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'cases-mem-nil
+                       '[^{:- Type} X ^{:- X} r ^{:- Prop} C
+                         ^{:- (Membership.mem X (List X) (List.instMembership X) (List.nil X) r)} hr]
+                       'C
+                       '[(cases hr)])
+      (is true "theorem proved"))))
+
+(deftest test-contradiction
+  (testing "contradiction closes the goal from a `False` hypothesis"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'contra-false-test
+                       '[^{:- False} h]
+                       '(= Nat 0 1)
+                       '[(contradiction)])
+      (is true "theorem proved")))
+  (testing "contradiction closes the goal from a `¬p` / `p` pair"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'contra-negpos-test
+                       '[^{:- Prop} p ^{:- p} hp ^{:- (Not p)} hn]
+                       '(= Nat 0 1)
+                       '[(contradiction)])
+      (is true "theorem proved"))))
+
 ;; ============================================================
 ;; inductive tests
 ;; ============================================================
