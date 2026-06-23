@@ -454,10 +454,25 @@
                   (e/forall' (str nam) typ-expr abs-body :default))))]
       (build binders est))))
 
+(defn- subtype-as-term
+  "If `typ-expr` is a `Subtype B P`, the coercion term `Subtype.val B P fv` (the binder read through its
+   carrier) — else nil. Used to auto-coerce a refined binder's references to the underlying value, the
+   way a refined a/defn param already is (ansatz.core), so a predicate like `(<= 5 x)` / `(count s)` over
+   a `Subtype`-refined element reads naturally. Lean-faithful: this is the `Subtype` → base coercion."
+  [typ-expr fv]
+  (let [[h args] (e/get-app-fn-args typ-expr)]
+    (when (and (e/const? h) (= "Subtype" (name/->string (e/const-name h))) (= 2 (count args)))
+      (e/app* (e/const' (name/from-string "Subtype.val") (vec (e/const-levels h)))
+              (first args) (second args) fv))))
+
 (defn- elab-lam
-  "Elaborate a lambda expression with binders."
+  "Elaborate a lambda expression with binders. When `(:coerce-refined-binders est)` is set (the data-
+   pipeline SOAC context — wandler.surface.collections/compile-fn turns it on), a `Subtype`-typed binder
+   gets an `:as-term` so its references auto-coerce to the carrier value; default off, so proofs and
+   ordinary lambdas are unaffected."
   [est binder-vec body-sexpr]
-  (let [binders (parse-binders binder-vec)]
+  (let [binders (parse-binders binder-vec)
+        coerce? (:coerce-refined-binders est)]
     (letfn [(build [binders est]
               (if (empty? binders)
                 (elab-term est body-sexpr)
@@ -471,8 +486,10 @@
                       typ-expr (zonk est (elab-term est typ-sexpr))
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
+                      as-term (when coerce? (subtype-as-term typ-expr fv))
                       est' (-> est
-                               (assoc-in [:scope nam] {:fvar-id fvar-id :type typ-expr})
+                               (assoc-in [:scope nam] (cond-> {:fvar-id fvar-id :type typ-expr}
+                                                        as-term (assoc :as-term as-term)))
                                (update :tc update :lctx red/lctx-add-local fvar-id (str nam) typ-expr))
                       body-expr (build (rest binders) est')
                       abs-body (e/abstract1 body-expr fvar-id)]
