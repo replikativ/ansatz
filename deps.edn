@@ -1,7 +1,7 @@
 {:paths ["src" "classes" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/data.json {:mvn/version "2.5.1"}
-        org.replikativ/persistent-sorted-set {:mvn/version "0.4.119"}
+        org.replikativ/persistent-sorted-set {:mvn/version "0.4.126"}
         org.replikativ/konserve {:mvn/version "0.9.345"
                                  :exclusions [org.clojure/clojurescript
                                               com.github.pkpkpk/cljs-node-io
