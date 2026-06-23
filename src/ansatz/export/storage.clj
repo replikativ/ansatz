@@ -13,6 +13,7 @@
             [konserve.serializers :as ser]
             [clojure.core.cache.wrapped :as cache]
             [org.replikativ.persistent-sorted-set :as pss]
+            [org.replikativ.persistent-sorted-set.fressian :as pss-fress]
             [ansatz.kernel.name :as ansatz-name]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
@@ -267,24 +268,10 @@
 ;; PSS node Fressian handlers
 ;; ============================================================
 
-(defn- make-pss-write-handlers []
-  {Leaf
-   {""
-    (reify WriteHandler
-      (write [_ writer leaf]
-        (.writeTag writer "pss.Leaf" 1)
-        (.writeObject writer (.keys ^Leaf leaf))))}
-
-   Branch
-   {""
-    (reify WriteHandler
-      (write [_ writer node]
-        (.writeTag writer "pss.Branch" 1)
-        (.writeObject writer {:level (.level ^Branch node)
-                              :keys (.keys ^Branch node)
-                              :addresses (.addresses ^Branch node)})))}
-
-   Name
+;; Ansatz element handlers — the kernel's domain types (Name/Level/Expr/…). These
+;; are element-agnostic to the PSS node codec: a leaf's `keys` recurse through them.
+(def ^:private ansatz-element-write-handlers
+  {Name
    {"" (reify WriteHandler (write [_ w v] (write-name w v)))}
 
    Level
@@ -302,23 +289,8 @@
    CIShell
    {"" (reify WriteHandler (write [_ w v] (write-ci-shell w v)))}})
 
-(defn- make-pss-read-handlers [settings-atom]
-  {"pss.Leaf"
-   (reify ReadHandler
-     (read [_ reader _tag _cnt]
-       (let [keys (.readObject reader)]
-         (Leaf. ^List keys ^Settings @settings-atom))))
-
-   "pss.Branch"
-   (reify ReadHandler
-     (read [_ reader _tag _cnt]
-       (let [{:keys [keys level addresses]} (.readObject reader)]
-         (Branch. (int level)
-                  ^List keys
-                  ^List addresses
-                  ^Settings @settings-atom))))
-
-   "ansatz.Name"
+(def ^:private ansatz-element-read-handlers
+  {"ansatz.Name"
    (reify ReadHandler (read [_ r t c] (read-name r t c)))
 
    "ansatz.Level"
@@ -335,6 +307,51 @@
 
    "ansatz.CIShell"
    (reify ReadHandler (read [_ r t c] (read-ci-shell r t c)))})
+
+;; Legacy (pre-canonical) ansatz PSS node read handlers. Ansatz's OLD Leaf wrote a
+;; BARE keys-List (tag "pss.Leaf"), NOT a {:keys …} map — so unlike proximum/stratum
+;; it is NOT a subset of the canonical map and CANNOT be read by the canonical reader.
+;; We keep these so existing stores load without migration; new writes use the
+;; canonical pss/leaf + pss/branch tags (see make-write-handlers).
+(defn- legacy-node-read-handlers [settings-atom]
+  {"pss.Leaf"
+   (reify ReadHandler
+     (read [_ reader _tag _cnt]
+       (let [keys (.readObject reader)]
+         (Leaf. ^List keys ^Settings @settings-atom))))
+
+   "pss.Branch"
+   (reify ReadHandler
+     (read [_ reader _tag _cnt]
+       (let [{:keys [keys level addresses]} (.readObject reader)]
+         (Branch. (int level)
+                  ^List keys
+                  ^List addresses
+                  ^Settings @settings-atom))))})
+
+(defn- make-write-handlers
+  "Canonical PSS node + root write handlers (pss/leaf, pss/branch, pss/set) merged
+   with ansatz's element handlers. New stores write the canonical, cross-tool wire
+   form shared by datahike/proximum/stratum/yggdrasil."
+  []
+  (pss-fress/canonical-write-handlers
+   {:element-write-handlers ansatz-element-write-handlers}))
+
+(defn- make-read-handlers
+  "Canonical PSS read handlers (pss/leaf, pss/branch, pss/set) + ansatz element
+   handlers, UNION the legacy node read handlers so pre-canonical stores still load.
+   Nodes self-describe their branching-factor; :default-bf only backstops pre-bf
+   blobs. The root handler resolves its storage via storage-atom (circular ref);
+   ansatz normally reconstructs roots lexically via pss/restore-by, so it is inert
+   for ansatz's own stores but present for cross-tool root blobs."
+  [settings-atom storage-atom]
+  (merge
+   (pss-fress/canonical-read-handlers
+    {:resolve-storage       (fn [_] @storage-atom)
+     :default-bf            512
+     :ref-type              :weak
+     :element-read-handlers ansatz-element-read-handlers})
+   (legacy-node-read-handlers settings-atom)))
 
 ;; ============================================================
 ;; CachedStorage (IStorage implementation)
@@ -424,8 +441,9 @@
    and :settings-atom."
   [dir-path]
   (let [settings-atom (atom nil)
-        read-handlers (make-pss-read-handlers settings-atom)
-        write-handlers (make-pss-write-handlers)
+        storage-atom (atom nil)
+        read-handlers (make-read-handlers settings-atom storage-atom)
+        write-handlers (make-write-handlers)
         kstore (fs/connect-fs-store
                 dir-path
                 :opts {:sync? true}
@@ -438,6 +456,7 @@
         cached (->CachedStorage kstore lru-cache (atom []) (atom []) (atom []) settings-atom)
         settings (Settings. 64 RefType/WEAK)]
     (reset! settings-atom settings)
+    (reset! storage-atom cached)
     {:store kstore
      :storage cached
      :settings-atom settings-atom}))
