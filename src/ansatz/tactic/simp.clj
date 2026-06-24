@@ -2675,6 +2675,13 @@
                    (when ci (extract-simp-lemma env ci 1000))))
                lemma-names)))
 
+(def ^:private simp-only-builtins
+  "Lean 4's `simpOnlyBuiltins` (Elab/Tactic/Simp.lean): the ONLY lemmas `simp only` starts
+   with — the reflexive closers — before adding the user-given lemmas. No default @[simp] set,
+   no simprocs. `eq_self_iff_true` is ansatz's `eq_self`; `iff_self` closes `P ↔ P` (tolerated
+   absent in an Init-only env, like the other names)."
+  ["eq_self_iff_true" "iff_self"])
+
 (def ^:private default-simp-lemmas
   "Default simp lemma names (commonly used in Lean 4 Init)."
   [;; Nat arithmetic
@@ -2901,9 +2908,13 @@
          ;; or a hypothesis fvar); everything else is a name to resolve against the env.
          term-args (filter #(instance? ansatz.kernel.Expr %) lemma-names)
          name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
-         all-names (distinct (concat default-simp-lemmas
-                                     (env/get-extension env :simp-lemmas #{})
-                                     name-args))
+         ;; Lean 4 `simp only`: start from `simpOnlyBuiltins` (reflexive closers) + the user
+         ;; lemmas ONLY — the default @[simp] corpus and @[simp]-extension are excluded.
+         all-names (if (:only? opts)
+                     (distinct (concat simp-only-builtins name-args))
+                     (distinct (concat default-simp-lemmas
+                                       (env/get-extension env :simp-lemmas #{})
+                                       name-args)))
          lemmas (make-simp-lemmas env all-names)
          ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
          term-lemmas (vec (mapcat (fn [t]
@@ -3053,14 +3064,17 @@
    Phase 3: simp the goal in the updated lctx (eq-proof consistent).
    This order ensures the goal's Eq.mpr is built in the correct lctx."
   ([ps] (simp-all ps []))
-  ([ps lemma-names]
+  ([ps lemma-names] (simp-all ps lemma-names {}))
+  ([ps lemma-names opts]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          env (or (ensure-ble-eq (:env ps)) (:env ps))
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
-         all-names (distinct (concat default-simp-lemmas
-                                     (env/get-extension env :simp-lemmas #{})
-                                     lemma-names))]
+         all-names (if (:only? opts)
+                     (distinct (concat simp-only-builtins lemma-names))
+                     (distinct (concat default-simp-lemmas
+                                       (env/get-extension env :simp-lemmas #{})
+                                       lemma-names)))]
      ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
        ;; corruption from full simp on hypothesis types. Non-def-eq changes
