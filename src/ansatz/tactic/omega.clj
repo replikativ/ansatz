@@ -764,11 +764,17 @@
 ;; ============================================================
 
 (defn- collect-hypotheses
-  "Collect constraints from all hypotheses in the local context."
+  "Collect constraints from all hypotheses in the local context.
+
+   Only PROP hypotheses are inspected (faithful to Lean's omega frontend). A non-Prop
+   binder such as `h : Z → Nat` (a function in scope, type `Type` not `Prop`) is skipped
+   — otherwise its arrow type is mistaken for a logical implication and the decision
+   queues a bogus `¬Z ∨ Nat` disjunction (see collect-hypotheses in omega_proof)."
   [st table lctx]
   (reduce
    (fn [[table constraints] [id decl]]
-     (if (= :local (:tag decl))
+     (if (and (= :local (:tag decl))
+              (try (#'tc/is-prop? st (:type decl)) (catch Exception _ false)))
        (try
          (let [[table' new-cs] (reify-prop st table (:type decl))]
            [table' (into constraints new-cs)])
