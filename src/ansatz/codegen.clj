@@ -106,7 +106,10 @@
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
     "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
-    "List.length"   (fn [_ _ _ ca _] (list 'count (nth ca 1)))
+    "List.length"   (fn [_ _ _ ca _]              ; arity-tolerant: `List.length A` as a fn VALUE
+                      (case (count ca)             ; (eta-reduced, e.g. fused into a comp) lowers to `count`
+                        1 'clojure.core/count
+                        (list 'count (nth ca 1))))
     ;; SizeOf.sizeOf T inst x → runtime size (mirrors sizeOf_spec; reached via the fuel scaffolding).
     "SizeOf.sizeOf" (fn [_ _ _ ca _] (list 'ansatz.core/rt-sizeof (nth ca 2)))
     ;; refinement erasure: a Subtype value IS its carrier at runtime (arity-tolerant for eta-reduced partials)

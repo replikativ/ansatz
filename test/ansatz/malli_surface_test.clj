@@ -4,6 +4,7 @@
   (:require [clojure.test :refer [deftest testing is]]
             [malli.core :as m]
             [ansatz.core :as a]
+            [ansatz.malli]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]))
@@ -123,3 +124,26 @@
         (is (= 5 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-dot))
                                      {:x 2 :y 3})))
             "runtime takes a plain Clojure map")))))
+
+(deftest test-opaque-gradual-scalars
+  ;; The general (total) functor: opaque scalars with no sharp native rep route to the gradual `Opaque`
+  ;; carrier instead of throwing — so a realistic event record (timestamp/status/uuid) can be MODELED,
+  ;; carried, and keyed (group-by/join) while precise fields keep the full optimizer algebra.
+  @booted
+  (binding [a/*verbose* false]
+    (let [opq? (fn [t] (= "Opaque" (let [[h _] (e/get-app-fn-args t)]
+                                     (and (e/const? h) (name/->string (e/const-name h))))))]
+      (testing "opaque scalars -> Opaque (was: throw 'unsupported scalar schema')"
+        (doseq [s [:keyword :uuid :symbol :any :some 'keyword? 'uuid? 'any?]]
+          (is (opq? (ansatz.malli/schema->type-expr s)) (str s " -> Opaque"))))
+      (testing "ensure-opaque! installs the axioms (idempotent)"
+        (ansatz.malli/ensure-opaque!)
+        (is (some? (env/lookup (a/env) (name/from-string "Opaque"))) "Opaque : Type")
+        (is (some? (env/lookup (a/env) (name/from-string "instDecidableEqOpaque"))) "DecidableEq Opaque"))
+      (testing "[:enum ...] maps to its members' type (string->String, int->Nat, keyword->Opaque)"
+        (is (re-find #"String" (e/->string (ansatz.malli/schema->type-expr [:enum "x" "y"]))))
+        (is (re-find #"Nat"    (e/->string (ansatz.malli/schema->type-expr [:enum 1 2]))))
+        (is (opq? (ansatz.malli/schema->type-expr [:enum :a :b]))))
+      (testing "precise scalars unchanged (still sharp native types)"
+        (is (re-find #"Nat"    (e/->string (ansatz.malli/schema->type-expr [:int {:min 0}]))))
+        (is (re-find #"String" (e/->string (ansatz.malli/schema->type-expr :string))))))))

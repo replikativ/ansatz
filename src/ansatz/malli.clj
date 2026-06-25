@@ -87,6 +87,25 @@
                assoc tname {:fields (mapv first entries) :map? true})))
     (kconst tname)))
 
+(defn ensure-opaque!
+  "Idempotently install the OPAQUE carrier into the global env: `Opaque : Type` — an abstract type
+   inhabited only by runtime boundary values (keywords, uuids, symbols, dates, any value a schema does not
+   model precisely) — plus `instDecidableEqOpaque : DecidableEq Opaque`. An opaque field is CARRIED
+   (projected) and group-by/join KEY on it (the dec lowers to Clojure `=`, erased at runtime); the type
+   has NO other operations, so the type system prevents misuse (no arithmetic/string ops on a date). This
+   is the gradual `?` of the typed lane: native where the schema is sharp, `Opaque` where it is not — so a
+   record mixes precise fields (full optimizer algebra) with opaque ones (carry + key). Returns the
+   `Opaque` const Expr. (For wholesale dynamic EDN with conformance + dynamic ops, the separate Value lane
+   `ansatz.surface.schema/schema->value-type` is the other pole.)"
+  []
+  (let [env0 ((requiring-resolve 'ansatz.core/env))]
+    (when-not (env/lookup env0 (nm "Opaque"))
+      (let [env1 (env/add-constant env0 (env/mk-axiom (nm "Opaque") [] (e/sort' u1)))
+            env2 (env/add-constant env1 (env/mk-axiom (nm "instDecidableEqOpaque") []
+                                                      (e/app (e/const' (nm "DecidableEq") [u1]) (kconst "Opaque"))))]
+        (reset! (deref (requiring-resolve 'ansatz.core/ansatz-env)) env2))))
+  (kconst "Opaque"))
+
 (defn- kprods
   "Right-nested Prod over component types (records/tuples as anonymous products)."
   [ts]
@@ -156,6 +175,10 @@
         :string (kconst "String")
         :double (kconst "Float")
         :nil (kconst "Unit")
+        ;; opaque scalars (keyword/uuid/symbol/any) — no sharp native rep; the gradual `Opaque` carrier
+        ;; (carry + group-by/join key via `=`, no other ops). Registered schemas still take precedence.
+        (:keyword :symbol :uuid :any :some :qualified-keyword :qualified-symbol)
+        (ensure-opaque!)
         (if-let [r (deref-registry f)]
           (schema->type-expr r)
           (throw (ex-info (str "ansatz.malli: unsupported scalar schema " f) {:form f}))))
@@ -166,6 +189,8 @@
         (nat-int? pos-int?) (kconst "Nat")
         boolean? (kconst "Bool")
         string? (kconst "String")
+        (keyword? symbol? uuid? any? some? ident? simple-keyword? qualified-keyword?)
+        (ensure-opaque!)
         (throw (ex-info (str "ansatz.malli: unsupported predicate schema " f) {:form f})))
 
       (vector? f)
@@ -205,6 +230,13 @@
                    :else (schema->type-expr base)))
           :string (or (ksubtype-string (:min props) (:max props)) (kconst "String"))
           :double (kconst "Float")
+          ;; [:enum v…] → the members' scalar type (string→String, int→Nat, bool→Bool); a
+          ;; keyword/heterogeneous enum carries as the gradual Opaque (carry + key, no literal compare).
+          :enum (let [v (first more)]
+                  (cond (string? v) (kconst "String")
+                        (int? v)     (kconst "Nat")
+                        (boolean? v) (kconst "Bool")
+                        :else        (ensure-opaque!)))
           :ref (if-let [r (deref-registry f)]
                  (schema->type-expr r)
                  (throw (ex-info "ansatz.malli: unregistered [:ref …]" {:form f})))

@@ -822,9 +822,10 @@
 
         ;; (= T a b) → Eq T a b (the theorem-statement equality form)
             "="
-            (if (= 4 (count sexpr))
-              (elab-term est (list 'Eq (nth sexpr 1) (nth sexpr 2) (nth sexpr 3)))
-              (elab-error! "= expects (= Type lhs rhs)" {:form sexpr}))
+            ;; `=` is an alias for `==`: 2-arg `(= a b)` is the ordinary Clojure equality (a Bool
+            ;; decision, type-directed on the operands — the most common filter); 4-arg `(= T a b)`
+            ;; is the Prop `Eq` (for a/theorem goals). Both route through the `==` handler below.
+            (elab-term est (cons '== (rest sexpr)))
 
         ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool (Nat.b*).
             ("<" "==" "<=" ">" ">=" "≤" "≥")

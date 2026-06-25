@@ -2462,11 +2462,20 @@
 
 (defn- collect-hypotheses
   "Collect constraints from local context hypotheses.
-   Passes the fvar as the hypothesis proof term."
+   Passes the fvar as the hypothesis proof term.
+
+   Only PROP hypotheses are considered — faithful to Lean's omega frontend, which
+   walks the local context and interprets propositional facts, ignoring everything
+   else. Crucially, a non-Prop binder like `h : Z → Nat` (a *function* in scope, whose
+   type is a `Type`, not a `Prop`) must NOT be mistaken for a logical implication
+   `P → Q` and negated via `not_or_of_imp` — that builds an ill-typed `¬Z ∨ Nat`
+   (Not applied to a Type) that the kernel rejects. The `is-prop?` gate (the binder
+   type must itself live in `Sort 0`) excludes those uniformly."
   [st table problem lctx]
   (reduce
    (fn [[table problem] [id decl]]
-     (if (= :local (:tag decl))
+     (if (and (= :local (:tag decl))
+              (try (#'tc/is-prop? st (:type decl)) (catch Exception _ false)))
        (try
          (let [hyp-proof (e/fvar id)]
            (reify-prop st table problem (:type decl) hyp-proof))
