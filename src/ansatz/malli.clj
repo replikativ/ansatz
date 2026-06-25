@@ -102,7 +102,7 @@
     (when-not (env/lookup env0 (nm "Opaque"))
       (let [env1 (env/add-constant env0 (env/mk-axiom (nm "Opaque") [] (e/sort' u1)))
             env2 (env/add-constant env1 (env/mk-axiom (nm "instDecidableEqOpaque") []
-                                          (e/app (e/const' (nm "DecidableEq") [u1]) (kconst "Opaque"))))]
+                                                      (e/app (e/const' (nm "DecidableEq") [u1]) (kconst "Opaque"))))]
         (reset! (deref (requiring-resolve 'ansatz.core/ansatz-env)) env2))))
   (kconst "Opaque"))
 

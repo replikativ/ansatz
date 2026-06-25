@@ -834,8 +834,8 @@
                   (reduce (fn [ps x] (basic/intros (basic/apply-funext ps) [(str x)])) ps args)
                   (loop [ps ps i 0]
                     (if (>= i 64) ps
-                      (if-let [ps' (try (basic/intro (basic/apply-funext ps)) (catch Throwable _ nil))]
-                        (recur ps' (inc i)) ps)))))
+                        (if-let [ps' (try (basic/intro (basic/apply-funext ps)) (catch Throwable _ nil))]
+                          (recur ps' (inc i)) ps)))))
    ;; Lean 4's two tactics, faithfully split (Init/Tactics.lean:606 — `rw` ≡ `rewrite; try rfl`):
    ;;   (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — rewrite ONLY, leaves the goal.
    ;;   (rw …)                                                   — rewrite, then `try (rfl)` to close.
