@@ -824,6 +824,18 @@
                 (let [g (proof/current-goal ps)
                       [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
                   (basic/apply-tac ps' term)))
+   ;; Lean 4 `funext` tactic (Init/NotationExtra.lean): a macro over `apply funext; intro`. Proves a
+   ;; function-equality goal `f = g` by function extensionality (∀x, f x = g x → f = g):
+   ;;   (funext)        => repeat (apply funext; intro)        — peel all function binders
+   ;;   (funext x)      => apply funext; intro x
+   ;;   (funext x y …)  => apply funext; intro x; funext y …
+   'funext    (fn [ps args]
+                (if (seq args)
+                  (reduce (fn [ps x] (basic/intros (basic/apply-funext ps) [(str x)])) ps args)
+                  (loop [ps ps i 0]
+                    (if (>= i 64) ps
+                      (if-let [ps' (try (basic/intro (basic/apply-funext ps)) (catch Throwable _ nil))]
+                        (recur ps' (inc i)) ps)))))
    ;; Lean 4's two tactics, faithfully split (Init/Tactics.lean:606 — `rw` ≡ `rewrite; try rfl`):
    ;;   (rewrite h) / (rewrite <- lemma) / (rewrite (lemma a b)) — rewrite ONLY, leaves the goal.
    ;;   (rw …)                                                   — rewrite, then `try (rfl)` to close.

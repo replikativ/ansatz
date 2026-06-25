@@ -221,6 +221,44 @@
                             (into [child-id] (remove #{child-id} gs))))
            (proof/record-tactic :intro [binder-name] (:id goal)))))))
 
+(declare apply-tac)
+
+(defn- funext-sort-lvl
+  "The universe level `u` such that `e : Sort u`, or lvl/zero if not a sort."
+  [st e]
+  (let [t (try (#'tc/cached-whnf st (tc/infer-type st e)) (catch Throwable _ nil))]
+    (if (and t (e/sort? t)) (e/sort-level t) lvl/zero)))
+
+(defn apply-funext
+  "One `apply funext` step (Lean's `funext` tactic is `repeat (apply funext; intro)`). Reduces a
+   function-equality goal `f = g` (where `f g : ∀x:α, β x`) to `∀x:α, f x = g x` via the `funext`
+   axiom. ansatz's generic `apply` can't higher-order-unify funext's dependent `β`, so we build the
+   concrete `funext.{u,v} α β f g` from the goal (the same proof term Lean's `apply funext` yields,
+   with α/β solved explicitly) and delegate to `apply-tac`."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        gt (whnf-in-goal ps (:lctx goal) (:type goal))
+        [hd args] (e/get-app-fn-args gt)]
+    (when-not (and (e/const? hd) (= "Eq" (name/->string (e/const-name hd))) (= 3 (count args)))
+      (tactic-error! "funext: goal is not an equality `f = g`" {:type gt}))
+    (let [T (nth args 0) f (nth args 1) g (nth args 2)
+          st (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal))
+          Tw (#'tc/cached-whnf st T)]
+      (when-not (e/forall? Tw)
+        (tactic-error! "funext: the equated values are not functions" {:type Tw}))
+      (let [alpha (e/forall-type Tw)
+            B (e/forall-body Tw)
+            nm (e/forall-name Tw)
+            beta (e/lam nm alpha B :default)
+            u (funext-sort-lvl st alpha)
+            ;; β's codomain level: open the binder so a DEPENDENT B infers correctly
+            [_ xid] (proof/alloc-id ps)
+            st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) (red/lctx-add-local (:lctx goal) xid nm alpha))
+            v (funext-sort-lvl st' (e/instantiate1 B (e/fvar xid)))
+            partial (e/app* (e/const' (name/from-string "funext") [u v]) alpha beta f g)]
+        (apply-tac ps partial)))))
+
 ;; ============================================================
 ;; intros
 ;; ============================================================
