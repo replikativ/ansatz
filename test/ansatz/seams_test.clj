@@ -86,6 +86,25 @@
           (swap! @(requiring-resolve 'ansatz.surface.ingest/term-elaborator-registry)
                  dissoc 'tcount))))))
 
+(deftest term-elaborator-alias-resolution
+  (testing "a term elaborator registered under a FULLY-QUALIFIED name fires on a namespace ALIAS of it
+            — so a surface (d/q …) dispatches exactly like the fully-qualified (datahike.api/q …)"
+    (binding [ansatz.core/*verbose* false]
+      ;; register under a REAL var's canonical symbol (so `resolve` of an alias finds it)
+      ((requiring-resolve 'ansatz.surface.api/register-term-elaborator!)
+       'clojure.string/blank?
+       (fn [_est _args] (ansatz.kernel.expr/lit-nat 42)))
+      (try
+        (when-not (get (ns-aliases *ns*) 'cs) (alias 'cs 'clojure.string))
+        ;; (cs/blank?) — head `cs/blank?` misses the registry directly, resolves to clojure.string/blank?,
+        ;; and dispatches to the elaborator registered under that canonical name
+        (eval '(ansatz.core/defn seam-alias [] Nat (cs/blank?)))
+        (is (= 42 (clojure.core/long (deref (resolve 'seam-alias))))
+            "an aliased head dispatched to the elaborator registered under its canonical name")
+        (finally
+          (swap! @(requiring-resolve 'ansatz.surface.ingest/term-elaborator-registry)
+                 dissoc 'clojure.string/blank?))))))
+
 (deftest elab-base-delegation
   (testing "elab-base: a wrapping term elaborator delegates the non-special case to the
             BUILT-IN form without re-entering itself (one-shot registry bypass)"
