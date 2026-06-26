@@ -617,6 +617,19 @@
    hands the non-special case back without re-entering itself."
   false)
 
+(defn- registry-lookup
+  "Look up a surface-form `head` symbol in `registry`. Direct hit first; if it misses AND `head` is
+   namespace-qualified (including via a namespace ALIAS, e.g. `d/q` where `d` aliases `datahike.api`),
+   retry under its resolved canonical var symbol (`datahike.api/q`). This lets an elaborator registered
+   under a fully-qualified name fire on any alias of it — so a surface `(d/q …)` dispatches exactly like
+   the fully-qualified `(datahike.api/q …)`. Resolution uses `*ns*` (the user ns at elaboration), so a
+   bare/unqualified head is never resolved (it keeps its registered-vocabulary meaning)."
+  [registry head]
+  (or (get registry head)
+      (when (namespace head)
+        (when-let [v (try (resolve head) (catch Throwable _ nil))]
+          (when (var? v) (get registry (symbol v)))))))
+
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
@@ -671,11 +684,11 @@
       ;; namespace that registered `dec`/`map`/`min`/… globally silently shadowed same-named binders.)
       (if-let [telab (and (symbol? head) (not bypass?)
                           (not (contains? (:scope est) head))
-                          (get @ingest/term-elaborator-registry head))]
+                          (registry-lookup @ingest/term-elaborator-registry head))]
         (telab est (vec (rest sexpr)))
         (if-let [expander (and (symbol? head) (not bypass?)
                                (not (contains? (:scope est) head))
-                               (get @ingest/elaborator-registry head))]
+                               (registry-lookup @ingest/elaborator-registry head))]
           (elab-term est (expander (rest sexpr)))
           (case (when (symbol? head) (str head))
             "forall" (let [[_ binder-vec & body-forms] sexpr]

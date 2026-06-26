@@ -120,51 +120,98 @@
 (def no-expand-macros ingest/no-expand-macros)
 (def expand-macro? ingest/expand-macro?)
 
-(declare init!*)
+(declare init!* init!-bundled-medium!)
 
 (clojure.core/defn init!
-  "Load Ansatz environment from LMDB store and build instance index.
-   1-arity: a store NAME (\"cslib\", \"mathlib\") resolved via ansatz.store —
+  "Load an Ansatz environment and build the instance index.
+
+   0-arity `(init!)` — ZERO-SETUP: load the bundled MEDIUM Init tier (~2997 Lean
+   `Init` declarations) straight from the jar, in TRUST mode. Enough for ordinary
+   verified `defn`/`theorem` over Nat/List/Bool with no store to build. Also via
+   the name \"medium\".
+
+   1-arity `(init! \"init\"|\"mathlib\"|…)` — a store NAME resolved via ansatz.store:
    the durable data-root ($ANSATZ_STORE_DIR → $XDG_DATA_HOME/ansatz/stores →
-   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>."
+   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>.
+   This is the full, kernel-verified tier; a missing named store is an honest error
+   (it does NOT silently fall back to the bundled medium tier).
+
+   2-arity `(init! store-path branch)` — load from an explicit store path."
+  ([] (init!-bundled-medium!))
   ([store-name]
-   (let [path (or ((requiring-resolve 'ansatz.store/resolve-existing) store-name)
-                  (throw (ex-info (str "No store named '" store-name "' found. Run "
-                                       "./scripts/setup-" (name store-name) ".sh to build it.")
-                                  {:store store-name})))]
-     (init! path (name store-name))))
+   (if (contains? #{"medium" "init-medium"} (name store-name))
+     (init!-bundled-medium!)
+     (let [path (or ((requiring-resolve 'ansatz.store/resolve-existing) store-name)
+                    (throw (ex-info (str "No store named '" store-name "' found. Run "
+                                         "./scripts/setup-" (name store-name) ".sh to build it, "
+                                         "or call (init!) for the bundled medium tier.")
+                                    {:store store-name})))]
+       (init! path (name store-name)))))
   ([store-path branch]
    (init!* store-path branch)))
+
+(clojure.core/defn- setup-env!
+  "Install global proof state from an already-loaded `env`: reset the env atom,
+   inherit Lean's bundled @[simp]/@[csimp]/@[extern] + Match.MatcherInfo, and build
+   the instance index. `store-path` is the store dir (for store-local attrs + the
+   complete instances.tsv) or nil for the bundled in-memory tier (→ name-based
+   instance discovery from the env)."
+  [env store-path]
+  (reset! ansatz-env env)
+  (attrs/load-bundled-attrs!)              ;; inherit Lean's Init @[simp]/@[csimp]/@[extern]
+  (when store-path
+    (attrs/load-store-attrs! store-path))  ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside
+  (matchers/load-bundled-matchers!)        ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
+  ;; Build instance index: from the store's complete TSV when present, else name-based discovery (~200ms).
+  (let [tsv-candidates (when store-path
+                         ["resources/instances.tsv" "instances.tsv"
+                          (str store-path "/instances.tsv")])
+        tsv-path (some (fn [p] (let [f (clojure.java.io/file p)]
+                                 (when (.exists f) (.getPath f))))
+                       tsv-candidates)
+        load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
+        build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
+        idx (if tsv-path
+              (do (when *verbose* (println "Loading instance registry from" tsv-path "..."))
+                  (load-tsv tsv-path))
+              (build-fn env))]
+    (reset! ansatz-instance-index idx)
+    (when (resolve 'ansatz.core/synth-cache)
+      (reset! @(resolve 'ansatz.core/synth-cache) {}))
+    (when *verbose*
+      (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
+               (count idx) "classes indexed"))))
 
 (clojure.core/defn- init!*
   [store-path branch]
   (let [sm (storage/open-store store-path)
         env (storage/load-env sm branch)]
-    (reset! ansatz-env env)
-    (attrs/load-bundled-attrs!)            ;; inherit Lean's Init @[simp]/@[csimp]/@[extern]
-    (attrs/load-store-attrs! store-path)   ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside
-    (matchers/load-bundled-matchers!)      ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
-    ;; Build instance index:
-    ;; 1. Try loading from TSV (Lean 4 export, complete)
-    ;; 2. Fall back to name-based discovery (~200ms, partial)
-    (let [;; Try to find instances.tsv relative to working dir or in resources/
-          tsv-candidates ["resources/instances.tsv" "instances.tsv"
-                          (str store-path "/instances.tsv")]
-          tsv-path (some (fn [p] (let [f (clojure.java.io/file p)]
-                                   (when (.exists f) (.getPath f))))
-                         tsv-candidates)
-          load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-          build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-          idx (if tsv-path
-                (do (when *verbose* (println "Loading instance registry from" tsv-path "..."))
-                    (load-tsv tsv-path))
-                (build-fn env))]
-      (reset! ansatz-instance-index idx)
-      (when (resolve 'ansatz.core/synth-cache)
-        (reset! @(resolve 'ansatz.core/synth-cache) {}))
-      (when *verbose*
-        (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
-                 (count idx) "classes indexed")))))
+    (setup-env! env store-path)))
+
+(def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
+
+(clojure.core/defn- bundled-medium-env
+  "Replay the bundled medium Init tier (gzipped lean4export NDJSON resource) into an
+   env, in TRUST mode (:verify? false — a known-good export, admitted without
+   re-checking). nil if the resource isn't on the classpath."
+  []
+  (when-let [res (clojure.java.io/resource bundled-medium-resource)]
+    (let [s (with-open [in (java.util.zip.GZIPInputStream. (clojure.java.io/input-stream res))]
+              (slurp in))
+          decls (:decls ((requiring-resolve 'ansatz.export.parser/parse-ndjson-string) s))]
+      (:env ((requiring-resolve 'ansatz.export.replay/replay) decls :verify? false)))))
+
+(clojure.core/defn- init!-bundled-medium! []
+  (if-let [env (bundled-medium-env)]
+    (do (setup-env! env nil)
+        (println (str "Ansatz: loaded the bundled medium Init tier ("
+                      (.size ^ansatz.kernel.Env @ansatz-env) " declarations, TRUST mode).\n"
+                      "  For the full Init or Mathlib, build a durable store and call "
+                      "(init! \"init\") / (init! \"mathlib\")."))
+        :medium)
+    (throw (ex-info (str "Bundled medium Init resource not found on the classpath: "
+                         bundled-medium-resource " — is ansatz on the classpath as a built jar?")
+                    {:resource bundled-medium-resource}))))
 
 (clojure.core/defn load-init!
   "ZERO-CONFIG bootstrap for library users: load Lean `Init` from the export bundled in the jar

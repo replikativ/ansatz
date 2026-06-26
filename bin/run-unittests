@@ -13,7 +13,9 @@ clojure -M:ci \
 	-n ansatz.kernel.typechecker-test \
 	-n ansatz.surface.lean-test \
 	-n ansatz.surface.pp-test \
-	-n ansatz.theory.convergence-test
+	-n ansatz.theory.convergence-test \
+	-n ansatz.bundled-init-test
 
 echo
-echo "Integration tests requiring test-data/init-medium.ndjson are not part of the default CI unit suite."
+echo "bundled-init-test exercises the zero-setup (a/init!) path from the in-jar medium tier."
+echo "Integration tests requiring the FULL test-data store are not part of the default CI unit suite."
