@@ -29,6 +29,29 @@
                 :else e))]
     (go expr)))
 
+(defn- contains-level-mvar? [l]
+  (and l (lvl/has-mvar? l)))
+
+(defn- contains-mvar?
+  "True when `expr` contains expression or universe-level metavariables."
+  [expr]
+  (case (e/tag expr)
+    :mvar true
+    :sort (contains-level-mvar? (e/sort-level expr))
+    :const (boolean (some contains-level-mvar? (e/const-levels expr)))
+    :app (or (contains-mvar? (e/app-fn expr))
+             (contains-mvar? (e/app-arg expr)))
+    :lam (or (contains-mvar? (e/lam-type expr))
+             (contains-mvar? (e/lam-body expr)))
+    :forall (or (contains-mvar? (e/forall-type expr))
+                (contains-mvar? (e/forall-body expr)))
+    :let (or (contains-mvar? (e/let-type expr))
+             (contains-mvar? (e/let-value expr))
+             (contains-mvar? (e/let-body expr)))
+    :mdata (contains-mvar? (e/mdata-expr expr))
+    :proj (contains-mvar? (e/proj-struct expr))
+    false))
+
 (defn extract-term
   "Recursively extract a proof term from a metavariable assignment."
   [ps mvar-id]
@@ -293,6 +316,8 @@
         root-type (proof/mvar-type ps (:root-mvar ps))]
     (when (e/has-fvar-flag term)
       (throw (ex-info "Extracted term contains free variables" {:term term})))
+    (when (contains-mvar? term)
+      (throw (ex-info "Extracted term contains metavariables" {:term term})))
     (let [tc (doto (TypeChecker. env) (.setFuel 50000000))
           inferred (.check tc term)]                ; STRICT: re-checks every app arg
       (when-not (.isDefEq tc inferred root-type)

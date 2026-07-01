@@ -137,6 +137,14 @@
       (is (= meta-term (meta/zonk-expr (:meta-mctx ps) (e/mvar root))))
       (is (meta/closed-expr? (:meta-mctx ps) meta-term)))))
 
+(deftest verify-rejects-raw-metavariables-at-kernel-boundary
+  (testing "legacy extraction cannot pass raw mvars to the kernel checker"
+    (let [prop (e/sort' lvl/zero)
+          [ps root] (proof/start-proof (env/empty-env) prop)
+          ps (proof/assign-mvar ps root {:kind :exact :term (e/mvar 999)})]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metavariables"
+                            (extract/verify ps))))))
+
 (deftest extract-meta-parity-for-apply
   (testing "apply assignments are mirrored as an mvar application spine"
     (let [prop (e/sort' lvl/zero)
