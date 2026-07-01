@@ -177,6 +177,7 @@
                   :or {allow-depth-mismatch? false
                        unification? false}}]
   (let [decl (expr-decl! mctx id)
+        raw-value value
         value (zonk-expr mctx value)
         type (zonk-expr mctx (:type decl))
         check-type? (if (some? check-type?) check-type? (some? env))]
@@ -226,7 +227,7 @@
                                       :expected type
                                       :inferred inferred
                                       :value value}))))
-    value))
+    raw-value))
 
 (defn checked-assign-expr
   "Validate and assign expression metavariable `id := value`.

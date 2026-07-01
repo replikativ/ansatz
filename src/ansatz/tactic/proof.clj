@@ -302,7 +302,8 @@
 
 (defn- assign-meta-if-possible [ps mvar-id assignment]
   (if-let [expr (assignment-expr ps assignment)]
-    (update ps :meta-mctx #(meta/assign-expr (or % meta/empty-context) mvar-id expr))
+    (update ps :meta-mctx #(meta/checked-assign-expr (or % meta/empty-context) mvar-id expr
+                                                     {:check-type? false}))
     ps))
 
 (defn assign-mvar

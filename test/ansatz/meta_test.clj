@@ -196,6 +196,14 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metavariables"
                             (extract/verify ps))))))
 
+(deftest proof-assignment-mirror-rejects-cyclic-meta-assignment
+  (testing "tactic assignment cannot write a self-referential term into :meta-mctx"
+    (let [prop (e/sort' lvl/zero)
+          [ps root] (proof/start-proof (env/empty-env) prop)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
+                            (proof/assign-mvar ps root {:kind :exact :term (e/mvar root)})))
+      (is (nil? (meta/expr-assignment (:meta-mctx ps) root))))))
+
 (deftest extract-meta-parity-for-apply
   (testing "apply assignments are mirrored as an mvar application spine"
     (let [prop (e/sort' lvl/zero)
