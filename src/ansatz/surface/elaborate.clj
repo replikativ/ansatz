@@ -1363,6 +1363,44 @@
   [est expr]
   (#'tc/cached-whnf (:tc est) (zonk est expr)))
 
+(defn- attach-elab-lctx
+  "Populate an elaboration state with a proof/local context."
+  [est lctx]
+  (reduce (fn [est [id decl]]
+            (if-let [n (:name decl)]
+              (let [sym (symbol n)]
+                (-> est
+                    (assoc-in [:scope sym]
+                              (cond-> {:fvar-id id :type (:type decl)}
+                                (:as-term decl) (assoc :as-term (:as-term decl))))
+                    (update :tc update :lctx
+                            red/lctx-add-local id n (:type decl))))
+              est))
+          est
+          lctx))
+
+(defn- check-expected!
+  [est expr expected]
+  (when expected
+    (let [inferred (infer-with-mvars est expr)]
+      (when-not (unify! est inferred expected)
+        (elab-error! "Type mismatch"
+                     {:expected expected :inferred inferred})))))
+
+(defn- finalize-elaboration
+  [mode est expr]
+  (case mode
+    :strict (strict-finalize est expr)
+    :collecting (collecting-finalize est expr)))
+
+(defn- elaborate*
+  [mode env lctx sexpr expected]
+  (let [est (cond-> (mk-elab-state env)
+              lctx (attach-elab-lctx lctx))
+        expr (elab-term est sexpr)]
+    (check-expected! est expr expected)
+    (finalize-elaboration mode est expr)))
+
 (defn elaborate
   "Elaborate an s-expression into a fully explicit Ansatz Expr.
 
@@ -1386,15 +1424,7 @@
   ([env sexpr]
    (elaborate env sexpr nil))
   ([env sexpr expected]
-   (let [est (mk-elab-state env)
-         expr (elab-term est sexpr)
-         ;; If expected type given, unify
-         _ (when expected
-             (let [inferred (infer-with-mvars est expr)]
-               (when-not (unify! est inferred expected)
-                 (elab-error! "Type mismatch"
-                              {:expected expected :inferred inferred}))))]
-     (strict-finalize est expr))))
+   (elaborate* :strict env nil sexpr expected)))
 
 (defn elaborate-collecting
   "Elaborate like `elaborate`, but return unsolved holes instead of failing.
@@ -1407,14 +1437,7 @@
   ([env sexpr]
    (elaborate-collecting env sexpr nil))
   ([env sexpr expected]
-   (let [est (mk-elab-state env)
-         expr (elab-term est sexpr)
-         _ (when expected
-             (let [inferred (infer-with-mvars est expr)]
-               (when-not (unify! est inferred expected)
-                 (elab-error! "Type mismatch"
-                              {:expected expected :inferred inferred}))))]
-     (collecting-finalize est expr))))
+   (elaborate* :collecting env nil sexpr expected)))
 
 (defn elaborate-in-context
   "Elaborate an s-expression with a local context from a proof state.
@@ -1430,53 +1453,14 @@
   ([env lctx sexpr]
    (elaborate-in-context env lctx sexpr nil))
   ([env lctx sexpr expected]
-   (let [est (mk-elab-state env)
-         ;; Populate scope with lctx entries
-         est (reduce (fn [est [id decl]]
-                       (if-let [n (:name decl)]
-                         (let [sym (symbol n)]
-                           (-> est
-                               (assoc-in [:scope sym]
-                                         (cond-> {:fvar-id id :type (:type decl)}
-                                           (:as-term decl) (assoc :as-term (:as-term decl))))
-                               (update :tc update :lctx
-                                       red/lctx-add-local id n (:type decl))))
-                         est))
-                     est
-                     lctx)
-         expr (elab-term est sexpr)
-         _ (when expected
-             (let [inferred (infer-with-mvars est expr)]
-               (when-not (unify! est inferred expected)
-                 (elab-error! "Type mismatch"
-                              {:expected expected :inferred inferred}))))]
-     (strict-finalize est expr))))
+   (elaborate* :strict env lctx sexpr expected)))
 
 (defn elaborate-in-context-collecting
   "Contextual variant of `elaborate-collecting`."
   ([env lctx sexpr]
    (elaborate-in-context-collecting env lctx sexpr nil))
   ([env lctx sexpr expected]
-   (let [est (mk-elab-state env)
-         est (reduce (fn [est [id decl]]
-                       (if-let [n (:name decl)]
-                         (let [sym (symbol n)]
-                           (-> est
-                               (assoc-in [:scope sym]
-                                         (cond-> {:fvar-id id :type (:type decl)}
-                                           (:as-term decl) (assoc :as-term (:as-term decl))))
-                               (update :tc update :lctx
-                                       red/lctx-add-local id n (:type decl))))
-                         est))
-                     est
-                     lctx)
-         expr (elab-term est sexpr)
-         _ (when expected
-             (let [inferred (infer-with-mvars est expr)]
-               (when-not (unify! est inferred expected)
-                 (elab-error! "Type mismatch"
-                              {:expected expected :inferred inferred}))))]
-     (collecting-finalize est expr))))
+   (elaborate* :collecting env lctx sexpr expected)))
 
 (defn elaborate-check
   "Elaborate and verify: elaborate the s-expression, then verify the result
