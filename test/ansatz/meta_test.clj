@@ -96,6 +96,28 @@
       (is (meta/expr-depends-on? mctx (e/mvar 2) 7))
       (is (not (meta/expr-depends-on? mctx (e/mvar 1) 99))))))
 
+(deftest collect-mvars-and-dependencies
+  (testing "expr-mvars instantiates direct assignments and follows delayed assignments"
+    (let [prop (e/sort' lvl/zero)
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop {})
+                   (meta/add-expr-mvar-decl 2 prop {})
+                   (meta/add-expr-mvar-decl 3 prop {})
+                   (meta/assign-expr 1 (e/mvar 2))
+                   (meta/assign-delayed 2 [(e/fvar 42)] 3))]
+      (is (= [2 3] (meta/expr-mvars mctx (e/mvar 1))))
+      (is (= [3] (meta/expr-mvars-no-delayed mctx (e/mvar 1))))))
+
+  (testing "mvar dependencies inspect declaration types and local contexts"
+    (let [prop (e/sort' lvl/zero)
+          lctx {42 {:tag :local :id 42 :name "x" :type (e/mvar 3)}}
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 (e/mvar 2) lctx)
+                   (meta/add-expr-mvar-decl 2 prop {})
+                   (meta/add-expr-mvar-decl 3 prop {}))]
+      (is (= [2 3] (meta/mvar-dependencies mctx 1)))
+      (is (= [1 2 3] (meta/expr-mvar-dependencies mctx (e/mvar 1)))))))
+
 (deftest proof-state-mirrors-legacy-assignments-into-meta-mctx
   (testing "a solved tactic proof can be read as a zonked root mvar"
     (let [prop (e/sort' lvl/zero)

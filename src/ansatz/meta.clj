@@ -330,6 +330,91 @@
               acc))]
     (go expr #{})))
 
+(declare expr-mvars)
+
+(defn expr-mvars
+  "Lean-style `getMVars`: instantiate assigned mvars, collect remaining mvars,
+   and follow delayed assignments to their pending metavariables."
+  ([mctx expr]
+   (expr-mvars mctx expr #{}))
+  ([mctx expr visiting]
+   (let [ids (collect-expr-mvars (zonk-expr mctx expr))]
+     (vec
+      (sort
+       (reduce
+        (fn [acc id]
+          (let [acc (conj acc id)]
+            (if (contains? visiting id)
+              acc
+              (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
+                (into acc (expr-mvars mctx (e/mvar mvar-id-pending) (conj visiting id)))
+                acc))))
+        #{}
+        ids))))))
+
+(defn expr-mvars-no-delayed
+  "Like `expr-mvars`, but remove mvars that are themselves delayed-assigned."
+  [mctx expr]
+  (vec (remove #(expr-delayed-assigned? mctx %)
+               (expr-mvars mctx expr))))
+
+(declare mvar-dependencies)
+
+(defn- add-expr-mvar-deps [mctx acc expr]
+  (into acc (expr-mvars mctx expr)))
+
+(defn- add-local-decl-mvar-deps [mctx acc local-decl]
+  (let [acc (if-let [t (:type local-decl)]
+              (add-expr-mvar-deps mctx acc t)
+              acc)]
+    (if-let [v (:value local-decl)]
+      (add-expr-mvar-deps mctx acc v)
+      acc)))
+
+(defn mvar-dependencies
+  "Return mvars that occur in the type/local context of mvar `id`, recursively
+   following delayed assignments. This is the local analogue of Lean's
+   `MVarId.getMVarDependencies`."
+  ([mctx id]
+   (mvar-dependencies mctx id false))
+  ([mctx id include-delayed?]
+   (letfn [(go [seen acc id]
+             (if (contains? seen id)
+               acc
+               (let [seen (conj seen id)
+                     decl (expr-decl mctx id)
+                     acc (if decl
+                           (let [acc (add-expr-mvar-deps mctx acc (:type decl))]
+                             (reduce (fn [acc [_ local-decl]]
+                                       (add-local-decl-mvar-deps mctx acc local-decl))
+                                     acc (:lctx decl)))
+                           acc)
+                     acc (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
+                           (cond-> acc
+                             (or include-delayed?
+                                 (not (expr-assigned-or-delayed? mctx mvar-id-pending)))
+                             (conj mvar-id-pending))
+                           acc)]
+                 (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
+                   (go seen acc mvar-id-pending)
+                   acc))))]
+     (vec (sort (disj (go #{} #{} id) id))))))
+
+(defn expr-mvar-dependencies
+  "Return dependencies of all mvars occurring in `expr`."
+  ([mctx expr]
+   (expr-mvar-dependencies mctx expr false))
+  ([mctx expr include-delayed?]
+   (let [ids (if include-delayed?
+               (expr-mvars mctx expr)
+               (expr-mvars-no-delayed mctx expr))]
+     (vec
+      (sort
+       (reduce (fn [acc id]
+                 (into acc (mvar-dependencies mctx id include-delayed?)))
+               (set ids)
+               ids))))))
+
 (defn contains-unsolved-expr-mvar?
   "True when `expr`, after chasing direct assignments, still contains an
    expression mvar without a direct assignment. Delayed assignments count as
