@@ -3196,10 +3196,8 @@
                                 replacements')
                  ;; Create body sub-goal (insert at front for priority)
                [ps'' body-goal-id]
-               (let [[ps''' id] (proof/alloc-id ps')]
-                 [(-> ps'''
-                      (assoc-in [:mctx id] {:type (:type goal') :lctx new-lctx :assignment nil})
-                      (update :goals #(into [id] %)))
+               (let [[ps''' id] (proof/fresh-mvar ps' (:type goal') new-lctx)]
+                 [(update ps''' :goals #(into [id] (remove #{id} %)))
                   id])
                  ;; Assign current goal with simp-all-hyps wrapper
                ps'' (-> (proof/assign-mvar ps'' (:id goal')

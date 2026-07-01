@@ -55,7 +55,7 @@
 (defn serialize-proof-trace
   "Export the full proof trace from a solved proof state as a seq of maps."
   [ps]
-  (let [root-type (get-in ps [:mctx (:root-mvar ps) :type])]
+  (let [root-type (proof/mvar-type ps (:root-mvar ps))]
     {:goal (e/->string root-type)
      :solved (proof/solved? ps)
      :num-steps (count (:trace ps))

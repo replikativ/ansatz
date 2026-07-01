@@ -5,6 +5,7 @@
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof])
   (:import [ansatz.kernel TypeChecker]))
 
@@ -92,7 +93,7 @@
                (let [minor-terms (mapv (fn [{:keys [field-fvars goal-id]}]
                                          (let [branch-term (extract-term ps goal-id)]
                                            (reduce (fn [body fid]
-                                                     (let [decl (get-in ps [:mctx goal-id :lctx fid])
+                                                     (let [decl (get (proof/mvar-lctx ps goal-id) fid)
                                                            ft (or (:type decl) (e/sort' lvl/zero))]
                                                        (e/lam (or (:name decl) "x") ft
                                                               (e/abstract1 body fid) :default)))
@@ -260,6 +261,24 @@
                     {:open-goals (count (:goals ps))})))
   (extract-term ps (:root-mvar ps)))
 
+(defn extract-meta
+  "Extract by zonking the Lean-shaped `:meta-mctx` root mvar.
+   This is the migration bridge toward replacing legacy recipe extraction:
+   it succeeds only when the meta assignment graph closes completely."
+  [ps]
+  (when-not (proof/solved? ps)
+    (throw (ex-info "Cannot extract: proof has open goals"
+                    {:open-goals (count (:goals ps))})))
+  (let [mctx (:meta-mctx ps)
+        root (:root-mvar ps)
+        term (meta/zonk-expr mctx (e/mvar root))]
+    (when-not (meta/closed-expr? mctx term)
+      (throw (ex-info "Cannot extract: meta proof contains unassigned metavariables"
+                      {:root-mvar root
+                       :unassigned-expr-mvars (meta/unassigned-expr-mvars mctx term)
+                       :unassigned-level-mvars (meta/unassigned-level-mvars mctx term)})))
+    term))
+
 (defn verify
   "Extract the proof term and verify it AUTHORITATIVELY with the kernel's STRICT
    checker `TypeChecker.check` (= Lean's `check` / infer_type_core(e, false)), which
@@ -272,7 +291,7 @@
   [ps]
   (let [term (extract ps)
         env (:env ps)
-        root-type (get-in ps [:mctx (:root-mvar ps) :type])]
+        root-type (proof/mvar-type ps (:root-mvar ps))]
     (when (e/has-fvar-flag term)
       (throw (ex-info "Extracted term contains free variables" {:term term})))
     (let [tc (doto (TypeChecker. env) (.setFuel 50000000))

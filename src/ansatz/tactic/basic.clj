@@ -490,7 +490,7 @@
               try-meta-isdefeq
               (fn []
                 (try
-                  (reset! umctx (into {} (map (fn [mid] [mid {:type (get-in ps [:mctx mid :type])
+                  (reset! umctx (into {} (map (fn [mid] [mid {:type (proof/mvar-type ps mid)
                                                               :solution nil}])
                                               (concat arg-mvars gmvars))))
                   (when (u/is-def-eq! st umctx resolved-ty (:type goal))
@@ -590,7 +590,7 @@
                      (reduce (fn [ps mvar-id]
                                (if (proof/mvar-assigned? ps mvar-id)
                                  ps
-                                 (let [old-type (get-in ps [:mctx mvar-id :type])
+                                 (let [old-type (proof/mvar-type ps mvar-id)
                                        new-type (reduce (fn [ty [fid val]]
                                                           (e/instantiate1
                                                            (e/abstract1 ty fid) val))
@@ -598,7 +598,7 @@
                                        new-type (if has-level-sols?
                                                   (u/zonk-levels-in-expr umctx new-type)
                                                   new-type)]
-                                   (assoc-in ps [:mctx mvar-id :type] new-type))))
+                                   (proof/set-mvar-type ps mvar-id new-type))))
                              ps arg-mvars)
                      ps)
                 ;; Persist sibling-shared mvar solutions (the `trans` middle term etc.) into the SHARED
@@ -636,7 +636,7 @@
                       (fn [ps mid]
                         (if (proof/mvar-assigned? ps mid)
                           ps
-                          (let [mtype (get-in ps [:mctx mid :type])
+                          (let [mtype (proof/mvar-type ps mid)
                                 [mhead _] (when mtype (e/get-app-fn-args mtype))]
                             (if (and mtype (e/const? mhead)
                                       ;; Heuristic: class-like types (capitalized,
