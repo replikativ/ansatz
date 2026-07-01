@@ -18,11 +18,15 @@ The local Ansatz shape now follows that split:
 - the metacontext now exposes Lean-style assignability/depth predicates,
   assigned/assignable scans, declaration instantiation, and conservative
   dependency checks over unassigned mvar local contexts;
+- expression and universe mvars have checked assignment helpers that enforce
+  freshness, depth, occurs checks, and local-context safety; expression
+  assignment can also type-check closed values against the mvar declaration;
 - proof states carry `:meta-mctx` beside the legacy `:mctx`;
 - new goals declare real `Expr.mvar` ids in `:meta-mctx`;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
-- `extract-meta` zonks `(mvar root)` and refuses to return if mvars remain.
+- `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
+  refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 
 The important hardening point is delayed abstraction under binders. A child
 goal introduced under `intro`, `have`, `cases`, or branch binders may be solved
@@ -33,11 +37,12 @@ been zonked, which is the local version of Lean's delayed assignment discipline.
 
 ## Current Boundary
 
-This is not yet a full replacement for the legacy proof extractor or the
-surface elaborator.
+This is not yet a full replacement for the legacy proof-state compatibility
+map or the surface elaborator.
 
-- `extract` still uses legacy recipes.
-- `extract-meta` is the migration bridge and parity target.
+- `extract` uses the metacontext path for modern proof states.
+- `extract-legacy` remains as a migration/debugging path while tactic writers
+  still construct legacy recipes.
 - Surface elaboration still uses fvar-backed placeholders in this rebuilt
   slice.
 - The kernel still rejects raw mvars by construction: callers must zonk first.
@@ -79,14 +84,15 @@ only if the kernel checks it.
 
 1. Move more tactic readers from `:mctx` to `proof/mvar-decl`,
    `proof/mvar-type`, and `proof/mvar-lctx`.
-2. Continue parity tests for `extract-meta` across tactic families. Current
-   coverage includes `intro`/`assumption`, `apply`, `have`, `whnf-goal`
-   (`simp-reduce` child delegation), and `cases`; branch splitters and larger
-   simp/rewrite paths are still next.
-3. Convert surface elaboration holes from fvar-backed placeholders to real
+2. Continue parity tests for larger tactic families. Current focused coverage
+   includes `intro`/`assumption`, `apply`, `have`, `whnf-goal`
+   (`simp-reduce` child delegation), `cases`, `rewrite`, `generalize`,
+   `revert`, `exfalso`, `subst`, `clear`, Bool `by-cases`, and Decidable
+   `by-cases`.
+3. Extend checked assignment into the mvar-aware unifier. The current helper
+   enforces the structural side of Lean's `checkedAssign`; the remaining gap is
+   type compatibility when assignment values/types still contain open mvars.
+4. Convert surface elaboration holes from fvar-backed placeholders to real
    `Expr.mvar` plus `:meta-mctx`.
-4. Introduce a single strict/collecting elaboration finalizer:
-   strict mode errors on remaining mvars, collecting mode returns the zonked
-   term plus hole declarations.
-5. Only after parity is broad, replace legacy extraction and collapse
-   `:mctx` into `:meta-mctx` compatibility views.
+5. Collapse `:mctx` into `:meta-mctx` compatibility views once tactic writers
+   no longer need the legacy recipe map.

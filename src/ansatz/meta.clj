@@ -8,7 +8,8 @@
    delayed assignments live in one forkable value.  The trusted kernel should
    still only see terms after this context has been zonked."
   (:require [ansatz.kernel.expr :as e]
-            [ansatz.kernel.level :as lvl]))
+            [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.tc :as tc]))
 
 (def empty-context
   {:depth 0
@@ -111,6 +112,18 @@
   (= (:depth (expr-decl! mctx id))
      (:depth mctx 0)))
 
+(defn expr-unification-assignable?
+  "Return true when `id` may be assigned by unification.
+
+   Lean's `isDefEq` assigns natural and synthetic mvars at the current depth,
+   but not synthetic-opaque tactic goals. Explicit tactic assignment may still
+   assign synthetic-opaque goals via the low-level/checked assignment path."
+  [mctx id]
+  (let [decl (expr-decl! mctx id)]
+    (and (expr-assignable? mctx id)
+         (not= :syntheticOpaque (:kind decl))
+         (not= :synthetic-opaque (:kind decl)))))
+
 (defn expr-assigned? [mctx id]
   (contains? (:expr-assignment mctx) id))
 
@@ -128,8 +141,131 @@
   [mctx id value]
   (assoc-in mctx [:expr-assignment id] value))
 
-(defn assign-level [mctx id value]
+(defn assign-level
+  "Low-level universe mvar assignment. Like Lean's low-level API, this does not
+   occurs-check or enforce assignment depth."
+  [mctx id value]
   (assoc-in mctx [:level-assignment id] value))
+
+(defn- checked-assignment-error! [msg data]
+  (throw (ex-info (str "Invalid metavariable assignment: " msg)
+                  (merge {:kind :metavar-assignment-error} data))))
+
+(declare zonk-level zonk-expr collect-expr-mvars closed-expr? unassigned-expr-mvars
+         unassigned-level-mvars instantiate-lctx-mvars)
+
+(defn- collect-fvars
+  [expr]
+  (letfn [(go [expr acc]
+            (if-not (e/has-fvar-flag expr)
+              acc
+              (case (e/tag expr)
+                :fvar (conj acc (e/fvar-id expr))
+                :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
+                :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
+                :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
+                :let (go (e/let-body expr)
+                         (go (e/let-value expr)
+                             (go (e/let-type expr) acc)))
+                :mdata (go (e/mdata-expr expr) acc)
+                :proj (go (e/proj-struct expr) acc)
+                acc)))]
+    (go expr #{})))
+
+(defn- validate-expr-assignment
+  [mctx id value {:keys [env check-type? allow-depth-mismatch? unification?]
+                  :or {allow-depth-mismatch? false
+                       unification? false}}]
+  (let [decl (expr-decl! mctx id)
+        value (zonk-expr mctx value)
+        type (zonk-expr mctx (:type decl))
+        check-type? (if (some? check-type?) check-type? (some? env))]
+    (when (expr-assigned-or-delayed? mctx id)
+      (checked-assignment-error! "metavariable is already assigned"
+                                 {:mvar-id id}))
+    (when-not (or allow-depth-mismatch? (expr-assignable? mctx id))
+      (checked-assignment-error! "metavariable is not assignable at the current depth"
+                                 {:mvar-id id
+                                  :mvar-depth (:depth decl)
+                                  :context-depth (:depth mctx 0)}))
+    (when (and unification? (not (expr-unification-assignable? mctx id)))
+      (checked-assignment-error! "metavariable is not assignable by unification"
+                                 {:mvar-id id
+                                  :kind (:kind decl)}))
+    (when (contains? (collect-expr-mvars value) id)
+      (checked-assignment-error! "cyclic expression assignment"
+                                 {:mvar-id id
+                                  :value value}))
+    (let [allowed (set (keys (:lctx decl)))
+          escaped (vec (sort (remove allowed (collect-fvars value))))]
+      (when (seq escaped)
+        (checked-assignment-error! "assignment contains free variables outside the metavariable context"
+                                   {:mvar-id id
+                                    :escaped-fvars escaped
+                                    :allowed-fvars (vec (sort allowed))})))
+    (when check-type?
+      (when-not env
+        (checked-assignment-error! "type checking requested without an environment"
+                                   {:mvar-id id}))
+      (when-not (closed-expr? mctx value)
+        (checked-assignment-error! "cannot type-check assignment with unresolved metavariables"
+                                   {:mvar-id id
+                                    :unassigned-expr-mvars (unassigned-expr-mvars mctx value)
+                                    :unassigned-level-mvars (unassigned-level-mvars mctx value)}))
+      (when-not (closed-expr? mctx type)
+        (checked-assignment-error! "cannot type-check metavariable type with unresolved metavariables"
+                                   {:mvar-id id
+                                    :unassigned-expr-mvars (unassigned-expr-mvars mctx type)
+                                    :unassigned-level-mvars (unassigned-level-mvars mctx type)}))
+      (let [lctx (instantiate-lctx-mvars mctx (:lctx decl))
+            st (tc/mk-tc-state-with-locals env lctx)
+            inferred (tc/infer-type st value)]
+        (when-not (tc/is-def-eq st inferred type)
+          (checked-assignment-error! "assignment type mismatch"
+                                     {:mvar-id id
+                                      :expected type
+                                      :inferred inferred
+                                      :value value}))))
+    value))
+
+(defn checked-assign-expr
+  "Validate and assign expression metavariable `id := value`.
+
+   This is the checked counterpart to `assign-expr`, analogous to Lean's
+   `MVarId.checkedAssign`/`isDefEq` assignment boundary. It always enforces
+   assignment freshness, depth, occurs check, and local-context safety. When
+   `:env` is supplied, it also verifies `infer(value) ≡ mvar.type` after
+   zonking, provided the value and type contain no unresolved mvars.
+
+   Options:
+   - `:env` enables type compatibility checking.
+   - `:check-type?` overrides whether type compatibility is checked.
+   - `:unification?` additionally rejects synthetic-opaque goals.
+   - `:allow-depth-mismatch?` bypasses the depth guard for explicit recovery
+     paths."
+  ([mctx id value]
+   (checked-assign-expr mctx id value {}))
+  ([mctx id value opts]
+   (assign-expr mctx id (validate-expr-assignment mctx id value opts))))
+
+(defn checked-assign-level
+  "Validate and assign universe metavariable `id := value` with Lean-style
+   depth and occurs checks."
+  [mctx id value]
+  (when (level-assignment mctx id)
+    (checked-assignment-error! "universe metavariable is already assigned"
+                               {:mvar-id id}))
+  (when-not (level-assignable? mctx id)
+    (checked-assignment-error! "universe metavariable is not assignable at the current depth"
+                               {:mvar-id id
+                                :level-depth (get-in mctx [:level-depth id])
+                                :level-assign-depth (:level-assign-depth mctx 0)}))
+  (let [value (zonk-level mctx value)]
+    (when (lvl/occurs? id value)
+      (checked-assignment-error! "cyclic universe assignment"
+                                 {:mvar-id id
+                                  :value value}))
+    (assign-level mctx id value)))
 
 (defn assign-delayed
   "Record delayed assignment `?id fvars := ?pending-id`."

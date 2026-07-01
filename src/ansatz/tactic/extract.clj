@@ -274,9 +274,10 @@
                         [(e/fvar orig-hyp-fvar-id)]
                         rfl-proofs))))))
 
-(defn extract
-  "Extract the complete proof term from the root metavariable.
-   Throws if any goals remain open."
+(defn extract-legacy
+  "Extract the complete proof term from legacy tactic assignment recipes.
+   This is kept as a migration/debugging path while tactic assignment
+   construction is moved onto the Lean-shaped metacontext."
   [ps]
   (when-not (proof/solved? ps)
     (throw (ex-info "Cannot extract: proof has open goals"
@@ -300,6 +301,17 @@
                        :unassigned-expr-mvars (meta/unassigned-expr-mvars mctx term)
                        :unassigned-level-mvars (meta/unassigned-level-mvars mctx term)})))
     term))
+
+(defn extract
+  "Extract the complete proof term from the root metavariable.
+   New proof states use the Lean-shaped `:meta-mctx` and are extracted by
+   zonking `(mvar root)`. Legacy recipe extraction remains available through
+   `extract-legacy` and is used only for old proof-state maps without a
+   metacontext."
+  [ps]
+  (if (:meta-mctx ps)
+    (extract-meta ps)
+    (extract-legacy ps)))
 
 (defn verify
   "Extract the proof term and verify it AUTHORITATIVELY with the kernel's STRICT
