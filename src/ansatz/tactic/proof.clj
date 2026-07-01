@@ -66,6 +66,29 @@
 (defn mvar-lctx [ps id]
   (:lctx (mvar-decl ps id)))
 
+(defn mvar-ids
+  "All known metavariable ids, preferring the Lean-shaped metacontext."
+  [ps]
+  (if-let [mctx (:meta-mctx ps)]
+    (keys (:decls mctx))
+    (keys (:mctx ps))))
+
+(defn mvar-assignment
+  "Return the legacy assignment recipe for `id`, if any.
+
+   During migration this is still the source of extraction recipes; callers
+   that only need assigned/open status should use `mvar-assigned?` or
+   `mvar-open?` instead."
+  [ps id]
+  (get-in ps [:mctx id :assignment]))
+
+(defn mvar-exact-term
+  "Return the exact term assigned to `id` when the legacy recipe is `:exact`."
+  [ps id]
+  (let [assignment (mvar-assignment ps id)]
+    (when (= :exact (:kind assignment))
+      (:term assignment))))
+
 (defn set-mvar-type
   "Update an mvar type in both the legacy compatibility map and the
    Lean-shaped metacontext."
@@ -82,9 +105,9 @@
     :exact (:term assignment)
     ;; For apply: value is (app* head solved-arg-values...) when all args are solved
     :apply (let [{:keys [head arg-mvars]} assignment]
-             (when (every? #(some? (get-in ps [:mctx % :assignment])) arg-mvars)
+             (when (every? #(some? (mvar-assignment ps %)) arg-mvars)
                (reduce (fn [t mid]
-                         (let [a (get-in ps [:mctx mid :assignment])]
+                         (let [a (mvar-assignment ps mid)]
                            (e/app t
                                   (or (assignment-concrete-value ps a) (e/fvar mid)))))
                        head arg-mvars)))
@@ -402,3 +425,9 @@
   (or (true? (when-let [mctx (:meta-mctx ps)]
                (meta/expr-assigned-or-delayed? mctx mvar-id)))
       (some? (get-in ps [:mctx mvar-id :assignment]))))
+
+(defn mvar-open?
+  "True when `mvar-id` is declared and not assigned or delayed-assigned."
+  [ps mvar-id]
+  (and (some? (mvar-decl ps mvar-id))
+       (not (mvar-assigned? ps mvar-id))))

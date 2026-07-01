@@ -32,8 +32,7 @@
 (defn extract-term
   "Recursively extract a proof term from a metavariable assignment."
   [ps mvar-id]
-  (let [m (get-in ps [:mctx mvar-id])
-        assignment (:assignment m)]
+  (let [assignment (proof/mvar-assignment ps mvar-id)]
     (when-not assignment
       (throw (ex-info "Cannot extract: unassigned metavariable"
                       {:mvar-id mvar-id})))

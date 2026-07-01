@@ -38,12 +38,9 @@
   "Instantiate solved proof-state mvars that are represented as fvars in expr."
   [ps expr mvar-ids]
   (reduce (fn [t mid]
-            (let [m (get-in ps [:mctx mid])]
-              (if (and m (:assignment m)
-                       (= :exact (:kind (:assignment m))))
-                (e/instantiate1 (e/abstract1 t mid)
-                                (:term (:assignment m)))
-                t)))
+            (if-let [term (proof/mvar-exact-term ps mid)]
+              (e/instantiate1 (e/abstract1 t mid) term)
+              t))
           expr mvar-ids))
 
 (defn- collect-fvar-ids
@@ -75,8 +72,7 @@
   (vec (filter (fn [id]
                  (and (not= id (:id goal))
                       (not (contains? arg-mvar-set id))
-                      (let [m (get-in ps [:mctx id])]
-                        (and m (not (:assignment m))))))
+                      (proof/mvar-open? ps id)))
                (collect-fvar-ids (:type goal)))))
 
 (defn- normalize-for-match
@@ -312,9 +308,8 @@
         lctx (:lctx goal)
         goal-type (:type goal)
         ;; Collect ALL unresolved fvar-mvars (including implicit/hidden ones)
-        unresolved-mvars (set (keep (fn [[mid m]]
-                                      (when (not (:assignment m)) mid))
-                                    (:mctx ps)))
+        unresolved-mvars (set (filter #(proof/mvar-open? ps %)
+                                      (proof/mvar-ids ps)))
         ;; Strategy 1: structural equality (fast, no mvar issues)
         struct-match (some (fn [[id decl]]
                              (when (and (= :local (:tag decl))
@@ -331,8 +326,8 @@
                                 (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
                           ;; Also register unresolved mvars as locals
                           _ (doseq [mid unresolved-mvars]
-                              (let [m (get-in ps [:mctx mid])]
-                                (when m (.addLocal jtc (long mid) "?m" (:type m)))))
+                              (when-let [mtype (proof/mvar-type ps mid)]
+                                (.addLocal jtc (long mid) "?m" mtype)))
                           st (mk-tc ps lctx)
                           goal-whnf (try (#'tc/cached-whnf st goal-type)
                                          (catch Exception _ goal-type))]
@@ -404,11 +399,9 @@
               binfo (e/forall-info ty)
               ;; Substitute already-resolved fvars into the param type
               inst-type (reduce (fn [t fid]
-                                  (let [m (get-in ps [:mctx fid])]
-                                    (if (and m (:assignment m) (= :exact (:kind (:assignment m))))
-                                      (e/instantiate1 (e/abstract1 t fid)
-                                                      (:term (:assignment m)))
-                                      t)))
+                                  (if-let [term (proof/mvar-exact-term ps fid)]
+                                    (e/instantiate1 (e/abstract1 t fid) term)
+                                    t))
                                 param-type arg-mvars)
               ;; Goal-directed inference following Lean 4:
               ;; 1. Implicit type params (Sort): infer from goal's type args
@@ -525,17 +518,15 @@
                                       (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
                                 ;; Register unresolved mvars as locals so TC can handle them
                                 _ (doseq [mid arg-mvars]
-                                    (let [m (get-in ps [:mctx mid])]
-                                      (when (and m (not (:assignment m)))
-                                        (.addLocal jtc (long mid) "?mvar" (:type m)))))]
+                                    (when (proof/mvar-open? ps mid)
+                                      (.addLocal jtc (long mid) "?mvar" (proof/mvar-type ps mid))))]
                             ;; Following Lean 4: isDefEq is the primary matching mechanism.
                             ;; First, try to resolve remaining mvars by WHNF-matching
                             ;; the resolved type against the goal type. This handles cases
                             ;; like Nat.le vs LE.le where heads differ but are def-eq.
                             (let [;; Collect unresolved mvar fvar-ids
                                   unresolved (set (filter (fn [mid]
-                                                            (let [m (get-in ps [:mctx mid])]
-                                                              (and m (not (:assignment m)))))
+                                                            (proof/mvar-open? ps mid))
                                                           arg-mvars))
                                   ;; Try structural extraction on recursively-normalized forms first
                                   deep-subst (atom {})
@@ -614,8 +605,8 @@
                                  (let [v (u/zonk umctx s)
                                        v (if has-level-sols? (u/zonk-levels-in-expr umctx v) v)
                                        concrete? (every? (fn [fid]
-                                                           (let [m (get-in ps [:mctx fid])]
-                                                             (or (nil? m) (:assignment m))))
+                                                           (or (nil? (proof/mvar-decl ps fid))
+                                                               (proof/mvar-assigned? ps fid)))
                                                          (collect-fvar-ids v))]
                                    (if concrete?
                                      (proof/assign-mvar ps mid {:kind :exact :term v})
