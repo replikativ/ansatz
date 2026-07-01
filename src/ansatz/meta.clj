@@ -78,6 +78,15 @@
 (defn set-expr-mvar-type [mctx id type]
   (assoc-in mctx [:decls id :type] type))
 
+(defn set-expr-mvar-kind [mctx id kind]
+  (assoc-in mctx [:decls id :kind] kind))
+
+(defn set-expr-mvar-user-name [mctx id user-name]
+  (let [old (get-in mctx [:decls id :user-name])]
+    (cond-> (assoc-in mctx [:decls id :user-name] user-name)
+      old (update :user-names dissoc old)
+      user-name (assoc-in [:user-names user-name] id))))
+
 (defn expr-assignment [mctx id]
   (get-in mctx [:expr-assignment id]))
 

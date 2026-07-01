@@ -179,10 +179,23 @@
       (is (= 1 (count holes)))
       (is (= expr (:expr (first holes))))
       (is (= expected (:type (first holes))))
+      (is (= :natural (:kind (first holes))))
+      (is (nil? (:user-name (first holes))))
       (is (map? meta-mctx))
       ;; The hole's type was determined by expected, so the synthetic type
       ;; and universe mvars should have been solved away.
       (is (empty? level-holes)))))
+
+(deftest test-elab-collecting-named-hole
+  (testing "named holes preserve user-name metadata in the metacontext"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          {:keys [holes meta-mctx]} (elab/elaborate-collecting env '?goal expected)
+          hole (first holes)
+          user-name (:user-name hole)]
+      (is (= 1 (count holes)))
+      (is (= "goal" (name/->string user-name)))
+      (is (= (:id hole) (get-in meta-mctx [:user-names user-name]))))))
 
 (deftest test-elab-strict-top-hole-fails
   (testing "strict elaboration still rejects unsolved holes"

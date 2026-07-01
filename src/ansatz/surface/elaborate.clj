@@ -48,14 +48,29 @@
     id))
 
 (defn- fresh-mvar!
-  "Create a fresh metavariable (as an fvar) with the given type.
-   Returns the fvar Expr. Records in mctx for later solving."
-  [est type]
-  (let [id (fresh-id! est)]
-    (swap! (:mctx est) assoc id {:type type :solution nil})
-    (swap! (:meta-mctx est)
-           meta/add-expr-mvar-decl id type (:lctx (:tc est)))
-    (e/fvar id)))
+  "Create a fresh metavariable (as an fvar compatibility placeholder) with
+   the given type. The mirrored metacontext declaration records Lean-style
+   `:kind` and `:user-name` data."
+  ([est type]
+   (fresh-mvar! est type {}))
+  ([est type {:keys [kind user-name inst-implicit?]
+              :or {kind :natural}}]
+   (let [id (fresh-id! est)]
+     (swap! (:mctx est) assoc id (cond-> {:type type :solution nil :kind kind}
+                                   user-name (assoc :user-name user-name)
+                                   inst-implicit? (assoc :inst-implicit true)))
+     (swap! (:meta-mctx est)
+            meta/add-expr-mvar-decl id type (:lctx (:tc est))
+            (cond-> {:kind kind}
+              user-name (assoc :user-name user-name)))
+     (e/fvar id))))
+
+(defn- mark-inst-implicit!
+  [est mvar]
+  (let [id (e/fvar-id mvar)]
+    (swap! (:mctx est) assoc-in [id :inst-implicit] true)
+    (swap! (:mctx est) assoc-in [id :kind] :synthetic)
+    (swap! (:meta-mctx est) meta/set-expr-mvar-kind id :synthetic)))
 
 (defn- fresh-level-mvar!
   "Create a fresh universe level metavariable.
@@ -326,6 +341,8 @@
                     {:id id
                      :expr (e/mvar id)
                      :type (surface-expr->meta est (zonk est (:type m)))
+                     :kind (:kind m)
+                     :user-name (:user-name m)
                      :inst-implicit? (boolean (:inst-implicit m))})
                   unsolved)
      :level-holes (mapv (fn [[id m]]
@@ -518,11 +535,15 @@
                  (or (= info :implicit)
                      (= info :strict-implicit)
                      (= info :inst-implicit))))
-        (let [arg-mvar (fresh-mvar! est (e/forall-type ty))
+        (let [binfo (e/forall-info ty)
+              inst? (= binfo :inst-implicit)
+              arg-mvar (fresh-mvar! est (e/forall-type ty)
+                                    (cond-> {:kind (if inst? :synthetic :natural)}
+                                      (e/forall-name ty) (assoc :user-name (e/forall-name ty))
+                                      inst? (assoc :inst-implicit? true)))
               ;; Mark instance-implicit mvars so they can be solved by instance
               ;; synthesis (not just unification) before the final unsolved-check.
-              _ (when (= (e/forall-info ty) :inst-implicit)
-                  (swap! (:mctx est) assoc-in [(e/fvar-id arg-mvar) :inst-implicit] true))
+              _ (when inst? (mark-inst-implicit! est arg-mvar))
               expr' (e/app expr arg-mvar)
               ty' (#'tc/cached-whnf tc (e/instantiate1 (e/forall-body ty) arg-mvar))]
           (recur expr' ty'))
@@ -805,13 +826,9 @@
   [est hole-name]
   (let [u (fresh-level-mvar! est)
         type-hole (fresh-mvar! est (e/sort' u))
-        term-hole (fresh-mvar! est type-hole)]
-    (swap! (:mctx est) assoc-in [(e/fvar-id term-hole) :user-name] hole-name)
-    (swap! (:meta-mctx est)
-           (fn [mctx]
-             (if hole-name
-               (assoc-in mctx [:decls (e/fvar-id term-hole) :user-name] hole-name)
-               mctx)))
+        term-hole (fresh-mvar! est type-hole
+                                (cond-> {}
+                                  hole-name (assoc :user-name hole-name)))]
     term-hole))
 
 (defn- elab-term
@@ -1016,8 +1033,9 @@
                               u   (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
                                     (lvl/succ-pred (e/sort-level Ts))
                                     (fresh-level-mvar! est))
-                              inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T'))
-                              _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)]
+                              inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T')
+                                                 {:kind :synthetic :inst-implicit? true})
+                              _ (mark-inst-implicit! est inst)]
                           (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
 
         ;; (= T a b) → Eq T a b (the theorem-statement equality form)
@@ -1093,8 +1111,8 @@
                         [ev ebody] else-clause
                         cond-expr (elab-term est cond-form)
                         dec-ty (e/app (e/const' (name/from-string "Decidable") []) cond-expr)
-                        inst (fresh-mvar! est dec-ty)
-                        _ (swap! (:mctx est) assoc-in [(e/fvar-id inst) :inst-implicit] true)
+                        inst (fresh-mvar! est dec-ty {:kind :synthetic :inst-implicit? true})
+                        _ (mark-inst-implicit! est inst)
                         mk-branch (fn [bv bty body]
                                     (let [fid (fresh-id! est)
                                           est' (-> est
