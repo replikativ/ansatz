@@ -213,6 +213,25 @@
       (is (= 1 (count holes)))
       (is (= (e/fvar 7) (:type (first holes)))))))
 
+(deftest test-elab-solver-mirrors-through-checked-metacontext-assignment
+  (testing "expression mvar mirror assignment rejects cycles before mutating legacy state"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          id (e/fvar-id hole)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
+                            (#'elab/solve-mvar! st id hole)))
+      (is (nil? (get-in @(:mctx st) [id :solution])))
+      (is (nil? (get-in @(:meta-mctx st) [:expr-assignment id])))))
+
+  (testing "level mvar mirror assignment rejects cycles before mutating legacy state"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (first (keys @(:level-mctx st)))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
+                            (#'elab/solve-level-mvar! st id (lvl/succ u))))
+      (is (nil? (get-in @(:level-mctx st) [id :solution])))
+      (is (nil? (get-in @(:meta-mctx st) [:level-assignment id]))))))
+
 ;; ============================================================
 ;; elaborate-check (full verification)
 ;; ============================================================

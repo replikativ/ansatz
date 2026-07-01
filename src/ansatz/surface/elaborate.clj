@@ -82,7 +82,7 @@
     (swap! (:meta-mctx est) meta/add-level-mvar-decl id)
     (lvl/param n)))
 
-(declare unify-levels!)
+(declare unify-levels! surface-expr->meta surface-level->meta)
 
 (defn- solve-mvar!
   "Assign a solution to a metavariable. Returns true if successful.
@@ -94,20 +94,24 @@
       (if (:solution m)
         ;; Already solved — check consistency
         (= (:solution m) solution)
-        (do (swap! (:mctx est) assoc-in [id :solution] solution)
-            (swap! (:meta-mctx est) meta/assign-expr id solution)
+        (let [meta-solution (surface-expr->meta est solution)]
+          (swap! (:meta-mctx est)
+                 meta/checked-assign-expr id meta-solution
+                 {:check-type? false
+                  :unification? true})
+          (swap! (:mctx est) assoc-in [id :solution] solution)
             ;; Try to solve level metavars: if the mvar's expected type is Sort ?u
             ;; and solution's type is Sort N, unify ?u = N
-            (try
-              (let [expected-type (:type m)
-                    tc (:tc est)
-                    actual-type (tc/infer-type tc solution)
-                    expected-whnf (#'tc/cached-whnf tc expected-type)
-                    actual-whnf (#'tc/cached-whnf tc actual-type)]
-                (when (and (e/sort? expected-whnf) (e/sort? actual-whnf))
-                  (unify-levels! est (e/sort-level expected-whnf) (e/sort-level actual-whnf))))
-              (catch Exception _ nil))
-            true)))))
+          (try
+            (let [expected-type (:type m)
+                  tc (:tc est)
+                  actual-type (tc/infer-type tc solution)
+                  expected-whnf (#'tc/cached-whnf tc expected-type)
+                  actual-whnf (#'tc/cached-whnf tc actual-type)]
+              (when (and (e/sort? expected-whnf) (e/sort? actual-whnf))
+                (unify-levels! est (e/sort-level expected-whnf) (e/sort-level actual-whnf))))
+            (catch Exception _ nil))
+          true)))))
 
 (defn- mvar-solution [est id]
   (get-in @(:mctx est) [id :solution]))
@@ -119,8 +123,9 @@
     (when m
       (if (:solution m)
         true
-        (do (swap! (:level-mctx est) assoc-in [id :solution] solution)
-            (swap! (:meta-mctx est) meta/assign-level id solution)
+        (do (swap! (:meta-mctx est)
+                   meta/checked-assign-level id (surface-level->meta est solution))
+            (swap! (:level-mctx est) assoc-in [id :solution] solution)
             true)))))
 
 ;; ============================================================
