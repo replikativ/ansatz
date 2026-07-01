@@ -51,6 +51,23 @@
   [mctx id]
   (assoc-in mctx [:level-depth id] (:depth mctx 0)))
 
+(defn with-depth
+  "Return `mctx` with its expression metavariable assignment depth set to
+   `depth`. Lean uses this depth to prevent nested unification problems from
+   assigning parent metavariables."
+  [mctx depth]
+  (assoc mctx :depth depth))
+
+(defn inc-depth
+  "Enter a nested expression-metavariable assignment depth."
+  [mctx]
+  (update mctx :depth (fnil inc 0)))
+
+(defn with-level-assign-depth
+  "Return `mctx` with its universe metavariable assignment depth set."
+  [mctx depth]
+  (assoc mctx :level-assign-depth depth))
+
 (defn expr-decl [mctx id]
   (get-in mctx [:decls id]))
 
@@ -69,6 +86,21 @@
 
 (defn delayed-assignment [mctx id]
   (get-in mctx [:delayed-assignment id]))
+
+(defn level-assignable?
+  "Lean parity for `isLevelMVarAssignable`: a level mvar is assignable when
+   its declaration depth is at least the context's level assignment depth."
+  [mctx id]
+  (if-let [d (get-in mctx [:level-depth id])]
+    (>= d (:level-assign-depth mctx 0))
+    (throw (ex-info "Unknown universe metavariable" {:mvar-id id}))))
+
+(defn expr-assignable?
+  "Lean parity for `MVarId.isAssignable`: expression mvars are assignable only
+   at the current metacontext depth."
+  [mctx id]
+  (= (:depth (expr-decl! mctx id))
+     (:depth mctx 0)))
 
 (defn expr-assigned? [mctx id]
   (contains? (:expr-assignment mctx) id))
@@ -154,6 +186,21 @@
 
 (defn- contains-unsolved-level-mvar? [mctx l]
   (boolean (seq (remove #(level-assignment mctx %) (collect-level-mvars l)))))
+
+(defn has-assigned-level-mvar?
+  "Return true iff `l` contains a universe mvar with an assignment."
+  [mctx l]
+  (boolean (some #(level-assignment mctx %) (collect-level-mvars l))))
+
+(defn has-assignable-level-mvar?
+  "Return true iff `l` contains a universe mvar assignable at the current
+   level-assignment depth."
+  [mctx l]
+  (boolean
+   (some (fn [id]
+           (and (contains? (:level-depth mctx) id)
+                (level-assignable? mctx id)))
+         (collect-level-mvars l))))
 
 (declare contains-unsolved-expr-mvar?)
 
@@ -322,3 +369,134 @@
   [mctx expr]
   (and (empty? (unassigned-expr-mvars mctx expr))
        (empty? (unassigned-level-mvars mctx expr))))
+
+(defn instantiate-level-mvars
+  "Lean-named alias for `zonk-level`."
+  [mctx l]
+  (zonk-level mctx l))
+
+(defn instantiate-expr-mvars
+  "Lean-named alias for `zonk-expr`."
+  [mctx expr]
+  (zonk-expr mctx expr))
+
+(defn instantiate-lctx-mvars
+  "Instantiate assigned expression and level metavariables in every declaration
+   in an Ansatz local context."
+  [mctx lctx]
+  (reduce-kv
+   (fn [lctx id decl]
+     (let [decl' (cond-> decl
+                   (:type decl) (update :type #(zonk-expr mctx %))
+                   (:value decl) (update :value #(zonk-expr mctx %)))]
+       (assoc lctx id decl')))
+   {}
+   lctx))
+
+(defn instantiate-mvar-decl-mvars
+  "Instantiate assigned mvars in a metavariable declaration's local context and
+   type, then store the updated declaration."
+  [mctx id]
+  (let [decl (expr-decl! mctx id)]
+    (assoc-in mctx [:decls id]
+              (-> decl
+                  (update :lctx #(instantiate-lctx-mvars mctx %))
+                  (update :type #(zonk-expr mctx %))))))
+
+(declare local-decl-depends-on?)
+
+(defn expr-depends-on?
+  "Lean-style may-dependency check.
+
+   Returns true iff `expr` depends on a free variable accepted by `fvar-pred`
+   or on an unassigned metavariable accepted by `mvar-pred`. For an unassigned
+   metavariable that is not itself accepted, this checks the metavariable's
+   local context, matching Lean's conservative dependency rule."
+  ([mctx expr fvar-id]
+   (expr-depends-on? mctx expr #{fvar-id} #{}))
+  ([mctx expr fvar-pred mvar-pred]
+   (let [fvar-pred (if (set? fvar-pred) fvar-pred (or fvar-pred (constantly false)))
+         mvar-pred (if (set? mvar-pred) mvar-pred (or mvar-pred (constantly false)))
+         visited (atom #{})]
+     (letfn [(go [expr]
+               (let [expr (zonk-expr mctx expr)]
+                 (if (contains? @visited expr)
+                   false
+                   (do
+                     (swap! visited conj expr)
+                     (case (e/tag expr)
+                       :fvar (boolean (fvar-pred (e/fvar-id expr)))
+                       :mvar (let [id (e/mvar-id expr)]
+                               (or (boolean (mvar-pred id))
+                                   (when-let [decl (expr-decl mctx id)]
+                                     (some (fn [[fid local-decl]]
+                                             (or (fvar-pred fid)
+                                                 (local-decl-depends-on? mctx local-decl fvar-pred mvar-pred)))
+                                           (:lctx decl)))))
+                       :sort false
+                       :const false
+                       :app (or (go (e/app-fn expr))
+                                (go (e/app-arg expr)))
+                       :lam (or (go (e/lam-type expr))
+                                (go (e/lam-body expr)))
+                       :forall (or (go (e/forall-type expr))
+                                   (go (e/forall-body expr)))
+                       :let (or (go (e/let-type expr))
+                                (go (e/let-value expr))
+                                (go (e/let-body expr)))
+                       :mdata (go (e/mdata-expr expr))
+                       :proj (go (e/proj-struct expr))
+                       false)))))]
+       (boolean (go expr))))))
+
+(defn local-decl-depends-on?
+  "Dependency check for a local declaration."
+  [mctx local-decl fvar-pred mvar-pred]
+  (or (when-let [t (:type local-decl)]
+        (expr-depends-on? mctx t fvar-pred mvar-pred))
+      (when-let [v (:value local-decl)]
+        (expr-depends-on? mctx v fvar-pred mvar-pred))))
+
+(defn has-assigned-mvar?
+  "Return true iff `expr` contains an assigned expression/level mvar or a
+   delayed-assigned expression mvar."
+  [mctx expr]
+  (letfn [(go [expr]
+            (case (e/tag expr)
+              :mvar (or (expr-assigned? mctx (e/mvar-id expr))
+                        (expr-delayed-assigned? mctx (e/mvar-id expr)))
+              :sort (has-assigned-level-mvar? mctx (e/sort-level expr))
+              :const (boolean (some #(has-assigned-level-mvar? mctx %)
+                                    (e/const-levels expr)))
+              :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
+              :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
+              :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
+              :let (or (go (e/let-type expr))
+                       (go (e/let-value expr))
+                       (go (e/let-body expr)))
+              :mdata (go (e/mdata-expr expr))
+              :proj (go (e/proj-struct expr))
+              false))]
+    (boolean (go expr))))
+
+(defn has-assignable-mvar?
+  "Return true iff `expr` contains an expression/level mvar assignable at the
+   current metacontext depth."
+  [mctx expr]
+  (letfn [(go [expr]
+            (case (e/tag expr)
+              :mvar (and (expr-decl mctx (e/mvar-id expr))
+                         (expr-assignable? mctx (e/mvar-id expr)))
+              :sort (has-assignable-level-mvar? mctx (e/sort-level expr))
+              :const (boolean (some #(has-assignable-level-mvar? mctx %)
+                                    (e/const-levels expr)))
+              :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
+              :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
+              :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
+              :let (or (go (e/let-type expr))
+                       (go (e/let-value expr))
+                       (go (e/let-body expr)))
+              :mdata (go (e/mdata-expr expr))
+              :proj (go (e/proj-struct expr))
+              false))]
+    (boolean (go expr))))

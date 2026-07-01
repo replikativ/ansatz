@@ -399,6 +399,6 @@
 (defn mvar-assigned?
   "Check if a metavariable has been assigned."
   [ps mvar-id]
-  (or (some? (when-let [mctx (:meta-mctx ps)]
-               (meta/expr-assignment mctx mvar-id)))
+  (or (true? (when-let [mctx (:meta-mctx ps)]
+               (meta/expr-assigned-or-delayed? mctx mvar-id)))
       (some? (get-in ps [:mctx mvar-id :assignment]))))

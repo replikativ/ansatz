@@ -15,6 +15,9 @@ Lean's split is:
 The local Ansatz shape now follows that split:
 
 - `ansatz.meta/empty-context` is a persistent metacontext value;
+- the metacontext now exposes Lean-style assignability/depth predicates,
+  assigned/assignable scans, declaration instantiation, and conservative
+  dependency checks over unassigned mvar local contexts;
 - proof states carry `:meta-mctx` beside the legacy `:mctx`;
 - new goals declare real `Expr.mvar` ids in `:meta-mctx`;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
@@ -76,8 +79,10 @@ only if the kernel checks it.
 
 1. Move more tactic readers from `:mctx` to `proof/mvar-decl`,
    `proof/mvar-type`, and `proof/mvar-lctx`.
-2. Add parity tests for `extract-meta` across tactic families, starting with
-   `apply`, `have`, `cases`, `simp-reduce`, and branch splitters.
+2. Continue parity tests for `extract-meta` across tactic families. Current
+   coverage includes `intro`/`assumption`, `apply`, `have`, `whnf-goal`
+   (`simp-reduce` child delegation), and `cases`; branch splitters and larger
+   simp/rewrite paths are still next.
 3. Convert surface elaboration holes from fvar-backed placeholders to real
    `Expr.mvar` plus `:meta-mctx`.
 4. Introduce a single strict/collecting elaboration finalizer:
