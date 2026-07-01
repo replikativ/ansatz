@@ -5,6 +5,7 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.surface.elaborate :as elab]
             [ansatz.export.parser :as parser]
@@ -164,6 +165,40 @@
       ;; Prop is Sort 0, not Nat
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mismatch|error"
                             (elab/elaborate env 'Prop nat))))))
+
+;; ============================================================
+;; Collecting holes
+;; ============================================================
+
+(deftest test-elab-collecting-top-hole
+  (testing "collecting elaboration returns real mvars instead of failing"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          {:keys [expr holes meta-mctx level-holes]} (elab/elaborate-collecting env '_ expected)]
+      (is (e/mvar? expr))
+      (is (= 1 (count holes)))
+      (is (= expr (:expr (first holes))))
+      (is (= expected (:type (first holes))))
+      (is (map? meta-mctx))
+      ;; The hole's type was determined by expected, so the synthetic type
+      ;; and universe mvars should have been solved away.
+      (is (empty? level-holes)))))
+
+(deftest test-elab-strict-top-hole-fails
+  (testing "strict elaboration still rejects unsolved holes"
+    (let [env (env/empty-env)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsolved metavariables"
+                            (elab/elaborate env '_ (e/sort' lvl/zero)))))))
+
+(deftest test-elab-collecting-context-hole
+  (testing "contextual collecting keeps local fvars and records hole type"
+    (let [env (env/empty-env)
+          prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 7 "p" prop)
+          {:keys [expr holes]} (elab/elaborate-in-context-collecting env lctx '_ (e/fvar 7))]
+      (is (e/mvar? expr))
+      (is (= 1 (count holes)))
+      (is (= (e/fvar 7) (:type (first holes)))))))
 
 ;; ============================================================
 ;; elaborate-check (full verification)

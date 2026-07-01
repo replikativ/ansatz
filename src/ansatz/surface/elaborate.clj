@@ -22,6 +22,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.surface.match :as match]
             [ansatz.surface.ingest :as ingest])
   (:import [ansatz.kernel Env]))
@@ -38,6 +39,7 @@
    :next-id (atom 1000000)  ;; high start to avoid collision with tc ids
    :mctx (atom {})          ;; {id → {:type Expr :solution Expr-or-nil}}
    :level-mctx (atom {})    ;; {id → {:solution Level-or-nil}}
+   :meta-mctx (atom meta/empty-context)
    :scope {}                ;; symbol → {:fvar-id long :type Expr}
    :depth 0})
 
@@ -51,6 +53,8 @@
   [est type]
   (let [id (fresh-id! est)]
     (swap! (:mctx est) assoc id {:type type :solution nil})
+    (swap! (:meta-mctx est)
+           meta/add-expr-mvar-decl id type (:lctx (:tc est)))
     (e/fvar id)))
 
 (defn- fresh-level-mvar!
@@ -60,6 +64,7 @@
   (let [id (fresh-id! est)
         n (name/from-string (str "?u" id))]
     (swap! (:level-mctx est) assoc id {:name n :solution nil})
+    (swap! (:meta-mctx est) meta/add-level-mvar-decl id)
     (lvl/param n)))
 
 (declare unify-levels!)
@@ -75,6 +80,7 @@
         ;; Already solved — check consistency
         (= (:solution m) solution)
         (do (swap! (:mctx est) assoc-in [id :solution] solution)
+            (swap! (:meta-mctx est) meta/assign-expr id solution)
             ;; Try to solve level metavars: if the mvar's expected type is Sort ?u
             ;; and solution's type is Sort N, unify ?u = N
             (try
@@ -99,6 +105,7 @@
       (if (:solution m)
         true
         (do (swap! (:level-mctx est) assoc-in [id :solution] solution)
+            (swap! (:meta-mctx est) meta/assign-level id solution)
             true)))))
 
 ;; ============================================================
@@ -172,8 +179,160 @@
             (if (identical? s (e/proj-struct expr))
               expr
               (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
+    :mdata (let [x (zonk est (e/mdata-expr expr))]
+             (if (identical? x (e/mdata-expr expr))
+               expr
+               (e/mdata (e/mdata-data expr) x)))
     ;; Atoms
     expr))
+
+(defn- legacy-level-mvar-id
+  "Return the legacy level mvar id represented by synthetic Level.param `l`, if any."
+  [est l]
+  (when (lvl/param? l)
+    (let [n (lvl/param-name l)]
+      (some (fn [[id m]] (when (= (:name m) n) id))
+            @(:level-mctx est)))))
+
+(defn- surface-level->meta
+  "Replace remaining synthetic level params with real Level.mvar nodes."
+  [est l]
+  (if (nil? l)
+    l
+    (case (lvl/tag l)
+      :zero l
+      :succ (let [p (surface-level->meta est (lvl/succ-pred l))]
+              (if (identical? p (lvl/succ-pred l)) l (lvl/succ p)))
+      :max (let [a (surface-level->meta est (lvl/max-lhs l))
+                 b (surface-level->meta est (lvl/max-rhs l))]
+             (if (and (identical? a (lvl/max-lhs l))
+                      (identical? b (lvl/max-rhs l)))
+               l
+               (lvl/level-max a b)))
+      :imax (let [a (surface-level->meta est (lvl/imax-lhs l))
+                  b (surface-level->meta est (lvl/imax-rhs l))]
+              (if (and (identical? a (lvl/imax-lhs l))
+                       (identical? b (lvl/imax-rhs l)))
+                l
+                (lvl/imax a b)))
+      :param (if-let [id (legacy-level-mvar-id est l)]
+               (lvl/mvar id)
+               l)
+      :mvar l)))
+
+(defn- surface-expr->meta
+  "Replace legacy fvar-backed elaboration mvars with real Expr.mvar nodes, and
+   replace synthetic level params with Level.mvar nodes. Ordinary local fvars
+   are preserved."
+  [est expr]
+  (let [mctx @(:mctx est)]
+    (letfn [(go [expr]
+              (case (e/tag expr)
+                :fvar (if (contains? mctx (e/fvar-id expr))
+                        (e/mvar (e/fvar-id expr))
+                        expr)
+                :sort (let [u (surface-level->meta est (e/sort-level expr))]
+                        (if (identical? u (e/sort-level expr))
+                          expr
+                          (e/sort' u)))
+                :const (let [levels (e/const-levels expr)
+                             levels' (mapv #(surface-level->meta est %) levels)]
+                         (if (= levels levels')
+                           expr
+                           (e/const' (e/const-name expr) levels')))
+                :app (let [f (go (e/app-fn expr))
+                           a (go (e/app-arg expr))]
+                       (if (and (identical? f (e/app-fn expr))
+                                (identical? a (e/app-arg expr)))
+                         expr
+                         (e/app f a)))
+                :lam (let [t (go (e/lam-type expr))
+                           b (go (e/lam-body expr))]
+                       (if (and (identical? t (e/lam-type expr))
+                                (identical? b (e/lam-body expr)))
+                         expr
+                         (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+                :forall (let [t (go (e/forall-type expr))
+                              b (go (e/forall-body expr))]
+                          (if (and (identical? t (e/forall-type expr))
+                                   (identical? b (e/forall-body expr)))
+                            expr
+                            (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+                :let (let [t (go (e/let-type expr))
+                           v (go (e/let-value expr))
+                           b (go (e/let-body expr))]
+                       (if (and (identical? t (e/let-type expr))
+                                (identical? v (e/let-value expr))
+                                (identical? b (e/let-body expr)))
+                         expr
+                         (e/let' (e/let-name expr) t v b)))
+                :mdata (let [x (go (e/mdata-expr expr))]
+                         (if (identical? x (e/mdata-expr expr))
+                           expr
+                           (e/mdata (e/mdata-data expr) x)))
+                :proj (let [s (go (e/proj-struct expr))]
+                        (if (identical? s (e/proj-struct expr))
+                          expr
+                          (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
+                expr))]
+      (go expr))))
+
+(defn- sync-meta-decls!
+  "Keep the mirrored metacontext declarations readable after legacy zonking by
+   converting their types/local contexts to real mvar representation."
+  [est]
+  (let [legacy @(:mctx est)]
+    (swap! (:meta-mctx est)
+           (fn [mctx]
+             (reduce-kv
+              (fn [mctx id m]
+                (let [type (surface-expr->meta est (zonk est (:type m)))]
+                  (meta/set-expr-mvar-type mctx id type)))
+              mctx legacy)))))
+
+(defn- unsolved-mvars [est]
+  (filterv (fn [[_ m]] (nil? (:solution m))) @(:mctx est)))
+
+(defn- unsolved-levels [est]
+  (filterv (fn [[_ m]] (nil? (:solution m))) @(:level-mctx est)))
+
+(declare elab-error! solve-instance-mvars!)
+
+(defn- strict-finalize [est expr]
+  (solve-instance-mvars! est)
+  (let [result (zonk est expr)
+        unsolved (unsolved-mvars est)
+        unsolved-levels (unsolved-levels est)]
+    (when (seq unsolved)
+      (elab-error! "Unsolved metavariables"
+                   {:count (count unsolved)
+                    :mvars (mapv (fn [[id m]] {:id id :type (:type m)}) unsolved)}))
+    (when (seq unsolved-levels)
+      (elab-error! "Unsolved universe level metavariables"
+                   {:count (count unsolved-levels)
+                    :names (mapv (fn [[_ m]] (:name m)) unsolved-levels)}))
+    result))
+
+(defn- collecting-finalize [est expr]
+  (solve-instance-mvars! est)
+  (let [legacy-result (zonk est expr)
+        _ (sync-meta-decls! est)
+        result (surface-expr->meta est legacy-result)
+        unsolved (unsolved-mvars est)
+        unsolved-levels (unsolved-levels est)]
+    {:expr result
+     :meta-mctx @(:meta-mctx est)
+     :holes (mapv (fn [[id m]]
+                    {:id id
+                     :expr (e/mvar id)
+                     :type (surface-expr->meta est (zonk est (:type m)))
+                     :inst-implicit? (boolean (:inst-implicit m))})
+                  unsolved)
+     :level-holes (mapv (fn [[id m]]
+                          {:id id
+                           :level (lvl/mvar id)
+                           :name (:name m)})
+                        unsolved-levels)}))
 
 ;; ============================================================
 ;; Level parsing (same as surface.term)
@@ -630,6 +789,31 @@
         (when-let [v (try (resolve head) (catch Throwable _ nil))]
           (when (var? v) (get registry (symbol v)))))))
 
+(defn- hole-symbol?
+  "Lean-style placeholder syntax for the surface layer: `_`, `?_`, or any
+   symbol whose name starts with `?`."
+  [x]
+  (and (symbol? x)
+       (let [s (str x)]
+         (or (= s "_")
+             (= s "?_")
+             (clojure.string/starts-with? s "?")))))
+
+(defn- fresh-hole!
+  "Create a term hole. Its type is itself a metavariable so later
+   bidirectional constraints can determine it."
+  [est hole-name]
+  (let [u (fresh-level-mvar! est)
+        type-hole (fresh-mvar! est (e/sort' u))
+        term-hole (fresh-mvar! est type-hole)]
+    (swap! (:mctx est) assoc-in [(e/fvar-id term-hole) :user-name] hole-name)
+    (swap! (:meta-mctx est)
+           (fn [mctx]
+             (if hole-name
+               (assoc-in mctx [:decls (e/fvar-id term-hole) :user-name] hole-name)
+               mctx)))
+    term-hole))
+
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
@@ -660,6 +844,9 @@
     (string? sexpr)  (e/lit-str sexpr)
     (boolean? sexpr) (e/const' (name/from-string (if sexpr "Bool.true" "Bool.false")) [])
     (nil? sexpr)     (elab-term est (symbol "List.nil"))  ;; bare nil = empty List
+
+    (hole-symbol? sexpr)
+    (fresh-hole! est (when-not (#{"_" "?_"} (str sexpr)) (name/from-string (subs (str sexpr) 1))))
 
     (symbol? sexpr)
     ;; A bare symbol in term position: insert its implicit/instance arguments
@@ -1203,27 +1390,31 @@
          expr (elab-term est sexpr)
          ;; If expected type given, unify
          _ (when expected
-             (let [inferred (tc/infer-type (:tc est) expr)]
+             (let [inferred (infer-with-mvars est expr)]
                (when-not (unify! est inferred expected)
                  (elab-error! "Type mismatch"
-                              {:expected expected :inferred inferred}))))
-         ;; Solve instance-implicit metavariables via synthesis (uses the fvar
-         ;; context so goals mentioning local binders resolve), then zonk.
-         _ (solve-instance-mvars! est)
-         ;; Zonk all metavariables
-         result (zonk est expr)
-         ;; Check for remaining unsolved metavars
-         unsolved (filterv (fn [[id m]] (nil? (:solution m))) @(:mctx est))
-         unsolved-levels (filterv (fn [[id m]] (nil? (:solution m))) @(:level-mctx est))]
-     (when (seq unsolved)
-       (elab-error! "Unsolved metavariables"
-                    {:count (count unsolved)
-                     :mvars (mapv (fn [[id m]] {:id id :type (:type m)}) unsolved)}))
-     (when (seq unsolved-levels)
-       (elab-error! "Unsolved universe level metavariables"
-                    {:count (count unsolved-levels)
-                     :names (mapv (fn [[id m]] (:name m)) unsolved-levels)}))
-     result)))
+                              {:expected expected :inferred inferred}))))]
+     (strict-finalize est expr))))
+
+(defn elaborate-collecting
+  "Elaborate like `elaborate`, but return unsolved holes instead of failing.
+
+   Returns:
+     {:expr Expr-with-real-mvars
+      :meta-mctx MetavarContext
+      :holes [{:id :expr :type :inst-implicit?}]
+      :level-holes [{:id :level :name}]}"
+  ([env sexpr]
+   (elaborate-collecting env sexpr nil))
+  ([env sexpr expected]
+   (let [est (mk-elab-state env)
+         expr (elab-term est sexpr)
+         _ (when expected
+             (let [inferred (infer-with-mvars est expr)]
+               (when-not (unify! est inferred expected)
+                 (elab-error! "Type mismatch"
+                              {:expected expected :inferred inferred}))))]
+     (collecting-finalize est expr))))
 
 (defn elaborate-in-context
   "Elaborate an s-expression with a local context from a proof state.
@@ -1255,23 +1446,37 @@
                      lctx)
          expr (elab-term est sexpr)
          _ (when expected
-             (let [inferred (tc/infer-type (:tc est) expr)]
+             (let [inferred (infer-with-mvars est expr)]
                (when-not (unify! est inferred expected)
                  (elab-error! "Type mismatch"
-                              {:expected expected :inferred inferred}))))
-         _ (solve-instance-mvars! est)
-         result (zonk est expr)
-         unsolved (filterv (fn [[_ m]] (nil? (:solution m))) @(:mctx est))
-         unsolved-levels (filterv (fn [[_ m]] (nil? (:solution m))) @(:level-mctx est))]
-     (when (seq unsolved)
-       (elab-error! "Unsolved metavariables"
-                    {:count (count unsolved)
-                     :mvars (mapv (fn [[id m]] {:id id :type (:type m)}) unsolved)}))
-     (when (seq unsolved-levels)
-       (elab-error! "Unsolved universe level metavariables"
-                    {:count (count unsolved-levels)
-                     :names (mapv (fn [[_ m]] (:name m)) unsolved-levels)}))
-     result)))
+                              {:expected expected :inferred inferred}))))]
+     (strict-finalize est expr))))
+
+(defn elaborate-in-context-collecting
+  "Contextual variant of `elaborate-collecting`."
+  ([env lctx sexpr]
+   (elaborate-in-context-collecting env lctx sexpr nil))
+  ([env lctx sexpr expected]
+   (let [est (mk-elab-state env)
+         est (reduce (fn [est [id decl]]
+                       (if-let [n (:name decl)]
+                         (let [sym (symbol n)]
+                           (-> est
+                               (assoc-in [:scope sym]
+                                         (cond-> {:fvar-id id :type (:type decl)}
+                                           (:as-term decl) (assoc :as-term (:as-term decl))))
+                               (update :tc update :lctx
+                                       red/lctx-add-local id n (:type decl))))
+                         est))
+                     est
+                     lctx)
+         expr (elab-term est sexpr)
+         _ (when expected
+             (let [inferred (infer-with-mvars est expr)]
+               (when-not (unify! est inferred expected)
+                 (elab-error! "Type mismatch"
+                              {:expected expected :inferred inferred}))))]
+     (collecting-finalize est expr))))
 
 (defn elaborate-check
   "Elaborate and verify: elaborate the s-expression, then verify the result
