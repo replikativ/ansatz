@@ -26,6 +26,9 @@ The local Ansatz shape now follows that split:
   assignment can also type-check closed values against the mvar declaration;
 - proof states carry `:meta-mctx` beside the legacy `:mctx`;
 - new goals declare real `Expr.mvar` ids in `:meta-mctx`;
+- surface elaboration still stores compatibility fvar/param placeholders, but
+  type inference for terms containing holes now converts through
+  `:meta-mctx` and `ansatz.meta/infer-type`;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
@@ -46,8 +49,9 @@ map or the surface elaborator.
 - `extract` uses the metacontext path for modern proof states.
 - `extract-legacy` remains as a migration/debugging path while tactic writers
   still construct legacy recipes.
-- Surface elaboration still uses fvar-backed placeholders in this rebuilt
-  slice, but the meta layer can now type expressions containing real mvars.
+- Surface elaboration still returns through fvar-backed compatibility
+  placeholders internally, but its hole-aware type inference now uses the
+  mirrored metacontext.
 - The kernel still rejects raw mvars by construction: callers must zonk first.
 
 That is deliberate. It lets us migrate tactic families and elaborator code

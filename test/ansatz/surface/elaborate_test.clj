@@ -7,6 +7,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as elab]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]))
@@ -231,6 +232,17 @@
                             (#'elab/solve-level-mvar! st id (lvl/succ u))))
       (is (nil? (get-in @(:level-mctx st) [id :solution])))
       (is (nil? (get-in @(:meta-mctx st) [:level-assignment id]))))))
+
+(deftest test-elab-infer-with-mvars-uses-mirrored-metacontext
+  (testing "dependent surface holes are typed through real mvars in :meta-mctx"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          alpha (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          term (#'elab/fresh-mvar! st alpha)
+          alpha-id (e/fvar-id alpha)
+          term-id (e/fvar-id term)
+          term-decl (meta/expr-decl @(:meta-mctx st) term-id)]
+      (is (= (e/mvar alpha-id) (:type term-decl)))
+      (is (= alpha (#'elab/infer-with-mvars st term))))))
 
 ;; ============================================================
 ;; elaborate-check (full verification)

@@ -80,6 +80,9 @@
 (defn set-expr-mvar-type [mctx id type]
   (assoc-in mctx [:decls id :type] type))
 
+(defn set-expr-mvar-lctx [mctx id lctx]
+  (assoc-in mctx [:decls id :lctx] lctx))
+
 (defn set-expr-mvar-kind [mctx id kind]
   (assoc-in mctx [:decls id :kind] kind))
 

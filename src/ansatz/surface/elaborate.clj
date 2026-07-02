@@ -47,6 +47,9 @@
   (let [id (swap! (:next-id est) inc)]
     id))
 
+(declare unify-levels! surface-expr->meta surface-level->meta surface-lctx->meta
+         meta-expr->surface)
+
 (defn- fresh-mvar!
   "Create a fresh metavariable (as an fvar compatibility placeholder) with
    the given type. The mirrored metacontext declaration records Lean-style
@@ -60,7 +63,9 @@
                                    user-name (assoc :user-name user-name)
                                    inst-implicit? (assoc :inst-implicit true)))
      (swap! (:meta-mctx est)
-            meta/add-expr-mvar-decl id type (:lctx (:tc est))
+            meta/add-expr-mvar-decl id
+            (surface-expr->meta est type)
+            (surface-lctx->meta est (:lctx (:tc est)))
             (cond-> {:kind kind}
               user-name (assoc :user-name user-name)))
      (e/fvar id))))
@@ -81,8 +86,6 @@
     (swap! (:level-mctx est) assoc id {:name n :solution nil})
     (swap! (:meta-mctx est) meta/add-level-mvar-decl id)
     (lvl/param n)))
-
-(declare unify-levels! surface-expr->meta surface-level->meta)
 
 (defn- solve-mvar!
   "Assign a solution to a metavariable. Returns true if successful.
@@ -297,6 +300,101 @@
                 expr))]
       (go expr))))
 
+(defn- surface-lctx->meta
+  "Convert mvar-shaped data inside a local context to real metacontext nodes."
+  [est lctx]
+  (reduce-kv
+   (fn [acc id decl]
+     (assoc acc id
+            (cond-> decl
+              (:type decl) (update :type #(surface-expr->meta est (zonk est %)))
+              (:value decl) (update :value #(surface-expr->meta est (zonk est %))))))
+   {}
+   lctx))
+
+(defn- meta-level->surface
+  "Replace real Level.mvar nodes belonging to this elaboration with legacy
+   synthetic Level.param nodes."
+  [est l]
+  (if (nil? l)
+    l
+    (case (lvl/tag l)
+      :zero l
+      :succ (let [p (meta-level->surface est (lvl/succ-pred l))]
+              (if (identical? p (lvl/succ-pred l)) l (lvl/succ p)))
+      :max (let [a (meta-level->surface est (lvl/max-lhs l))
+                 b (meta-level->surface est (lvl/max-rhs l))]
+             (if (and (identical? a (lvl/max-lhs l))
+                      (identical? b (lvl/max-rhs l)))
+               l
+               (lvl/level-max a b)))
+      :imax (let [a (meta-level->surface est (lvl/imax-lhs l))
+                  b (meta-level->surface est (lvl/imax-rhs l))]
+              (if (and (identical? a (lvl/imax-lhs l))
+                       (identical? b (lvl/imax-rhs l)))
+                l
+                (lvl/imax a b)))
+      :mvar (if-let [entry (get @(:level-mctx est) (lvl/mvar-id l))]
+              (lvl/param (:name entry))
+              l)
+      :param l)))
+
+(defn- meta-expr->surface
+  "Replace real Expr.mvar/Level.mvar nodes belonging to this elaboration with
+   the legacy fvar/param placeholders used by the remaining surface code."
+  [est expr]
+  (let [legacy @(:mctx est)]
+    (letfn [(go [expr]
+              (case (e/tag expr)
+                :mvar (if (contains? legacy (e/mvar-id expr))
+                        (e/fvar (e/mvar-id expr))
+                        expr)
+                :sort (let [u (meta-level->surface est (e/sort-level expr))]
+                        (if (identical? u (e/sort-level expr))
+                          expr
+                          (e/sort' u)))
+                :const (let [levels (e/const-levels expr)
+                             levels' (mapv #(meta-level->surface est %) levels)]
+                         (if (= levels levels')
+                           expr
+                           (e/const' (e/const-name expr) levels')))
+                :app (let [f (go (e/app-fn expr))
+                           a (go (e/app-arg expr))]
+                       (if (and (identical? f (e/app-fn expr))
+                                (identical? a (e/app-arg expr)))
+                         expr
+                         (e/app f a)))
+                :lam (let [t (go (e/lam-type expr))
+                           b (go (e/lam-body expr))]
+                       (if (and (identical? t (e/lam-type expr))
+                                (identical? b (e/lam-body expr)))
+                         expr
+                         (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+                :forall (let [t (go (e/forall-type expr))
+                              b (go (e/forall-body expr))]
+                          (if (and (identical? t (e/forall-type expr))
+                                   (identical? b (e/forall-body expr)))
+                            expr
+                            (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+                :let (let [t (go (e/let-type expr))
+                           v (go (e/let-value expr))
+                           b (go (e/let-body expr))]
+                       (if (and (identical? t (e/let-type expr))
+                                (identical? v (e/let-value expr))
+                                (identical? b (e/let-body expr)))
+                         expr
+                         (e/let' (e/let-name expr) t v b)))
+                :mdata (let [x (go (e/mdata-expr expr))]
+                         (if (identical? x (e/mdata-expr expr))
+                           expr
+                           (e/mdata (e/mdata-data expr) x)))
+                :proj (let [s (go (e/proj-struct expr))]
+                        (if (identical? s (e/proj-struct expr))
+                          expr
+                          (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
+                expr))]
+      (go expr))))
+
 (defn- sync-meta-decls!
   "Keep the mirrored metacontext declarations readable after legacy zonking by
    converting their types/local contexts to real mvar representation."
@@ -307,7 +405,11 @@
              (reduce-kv
               (fn [mctx id m]
                 (let [type (surface-expr->meta est (zonk est (:type m)))]
-                  (meta/set-expr-mvar-type mctx id type)))
+                  (-> mctx
+                      (meta/set-expr-mvar-type id type)
+                      (meta/set-expr-mvar-lctx id
+                                                (surface-lctx->meta est
+                                                                    (:lctx (meta/expr-decl! mctx id)))))))
               mctx legacy)))))
 
 (defn- unsolved-mvars [est]
@@ -455,23 +557,19 @@
                false)))))
 
 (defn- infer-with-mvars
-  "infer-type using a tc context augmented with the current elaboration mvars (as
-   locals keyed by their fvar id), so terms still mentioning mvars can be typed.
-   The kernel tc otherwise has no knowledge of elaboration mvars; Lean keeps them
-   in the metacontext that inferType consults. Falls back to plain infer-type."
+  "Infer the type of an expression that may still mention elaboration mvars.
+
+   Lean keeps elaboration metavariables in the metacontext consulted by
+   Meta.inferType. We mirror that: convert the legacy fvar/param placeholders to
+   real Expr.mvar/Level.mvar nodes, infer through `:meta-mctx`, then convert the
+   inferred type back to the legacy surface shape until the rest of this file no
+   longer needs the compatibility representation."
   [est expr]
-  ;; Zonk first so SOLVED mvars are substituted (otherwise the kernel sees an
-  ;; opaque local where a concrete type belongs, e.g. List.cons ?α n with ?α
-  ;; solved=Nat → spurious mismatch). Only the remaining UNSOLVED mvars are added
-  ;; to the lctx as typed locals.
-  (let [expr (zonk est expr)
-        tc (reduce (fn [tc [id m]]
-                     (if (:solution m)
-                       tc
-                       (try (update tc :lctx red/lctx-add-local id (str "?m" id) (zonk est (:type m)))
-                            (catch Throwable _ tc))))
-                   (:tc est) @(:mctx est))]
-    (tc/infer-type tc expr)))
+  (sync-meta-decls! est)
+  (let [expr (surface-expr->meta est (zonk est expr))
+        st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))
+        inferred (meta/infer-type @(:meta-mctx est) st expr)]
+    (zonk est (meta-expr->surface est inferred))))
 
 ;; ============================================================
 ;; Core elaboration
