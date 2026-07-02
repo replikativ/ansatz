@@ -45,13 +45,14 @@ The local Ansatz shape now follows that split:
 - the metacontext unifier handles direct assignments, Miller-pattern
   assignments under binders, universe assignments, closed kernel delegation,
   and Lean-style synthetic-vs-natural assignment preference;
-- the tactic fvar-backed unifier now tries the Lean-shaped metacontext unifier
-  first and syncs successful assignments back, retaining the old implementation
-  as a fallback during migration;
+- the tactic fvar-backed unifier API now bridges into the Lean-shaped
+  metacontext unifier as the single implementation path and syncs successful
+  assignments back;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
 - tactic proof states now keep declarations in `:meta-mctx` and extraction
-  recipes in `:recipes`; `:mctx` is only a legacy fallback path;
+  recipes in `:recipes`; `:mctx` is a compatibility view for older tactic
+  plumbing;
 - tactic `refine` now elaborates a surface term in the current proof
   metacontext, saves the fresh mvar boundary, assigns the current goal, and
   turns the freshly-created non-natural holes into goals; `refine-prime`
@@ -117,21 +118,19 @@ only if the kernel checks it.
 
 1. Remove the remaining surface compatibility maps where callers can read
    directly from `:meta-mctx`.
-2. Finish the tactic unifier migration by removing the fvar-backed atom
-   fallback once the metacontext path covers all observed simp/rewrite/apply
-   cases.
-3. Extend the tactic-level `refine` path toward fuller Lean
+2. Extend the tactic-level `refine` path toward fuller Lean
    `elabTermWithHoles` parity: goal tagging, better diagnostics for natural
    holes, term-elaboration variants for `apply`, and handling let-rec/style
    auxiliary holes.
-4. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
+3. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
    unifier now handles direct expression assignments, Miller-pattern
    assignment, universe assignments, closed kernel delegation, and structural
    recursion; remaining Lean gaps include richer proof/instance heuristics,
    delayed assignment integration in unification, and stronger stuck/cheap
    defeq modes.
-5. Continue parity tests for larger tactic families and proof extraction
+4. Continue parity tests for larger tactic families and proof extraction
    recipes as more assignment recipes are replaced by direct metacontext proof
    terms.
-6. Collapse the remaining compatibility views once the surface compatibility
-   maps and tactic unifier fallback are gone.
+5. Collapse the remaining compatibility views once the surface compatibility
+   maps and tactic assignment recipes are replaced by direct metacontext proof
+   terms.

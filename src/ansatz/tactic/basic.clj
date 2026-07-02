@@ -507,7 +507,7 @@
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
         (let [resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
-              ;; Level-mvar solutions from the meta-isDefEq fallback (Strategy C) land here; the proof
+              ;; Level-mvar solutions from the meta-isDefEq path (Strategy C) land here; the proof
               ;; `:head` is zonked with it so the trusted kernel never sees a Level.mvar.
               umctx (atom {})
               ;; Sibling-shared mvars occurring in the goal (e.g. the `trans` middle term). Lean's
