@@ -265,6 +265,23 @@
       (is (not (contains? (get @(:mctx st) term-id) :type)))
       (is (= alpha (#'elab/infer-with-mvars st term))))))
 
+(deftest test-elab-unsolved-scans-read-metacontext
+  (testing "expression holes are reported from :meta-mctx even without compatibility entries"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          id (e/mvar-id hole)
+          _ (reset! (:mctx st) {})
+          result (#'elab/collecting-finalize st hole)]
+      (is (= [id] (mapv :id (:holes result))))))
+
+  (testing "level holes are reported from :meta-mctx even without compatibility entries"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (lvl/mvar-id u)
+          _ (reset! (:level-mctx st) {})
+          result (#'elab/collecting-finalize st (e/sort' u))]
+      (is (= [id] (mapv :id (:level-holes result)))))))
+
 ;; ============================================================
 ;; elaborate-check (full verification)
 ;; ============================================================

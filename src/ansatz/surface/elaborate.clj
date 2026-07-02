@@ -58,8 +58,8 @@
     nil))
 
 (declare unify-levels! surface-expr->meta surface-level->meta surface-lctx->meta
-         meta-expr->surface surface-mvar-type meta-mvar-type infer-with-mvars
-         whnf-with-mvars)
+         meta-level->surface meta-expr->surface surface-mvar-type meta-mvar-type
+         infer-with-mvars whnf-with-mvars)
 
 (defn- fresh-mvar!
   "Create a fresh expression metavariable with the given type. The mirrored
@@ -127,7 +127,14 @@
           true)))))
 
 (defn- mvar-solution [est id]
-  (get-in @(:mctx est) [id :solution]))
+  (or (when-let [solution (meta/expr-assignment @(:meta-mctx est) id)]
+        (meta-expr->surface est solution))
+      (get-in @(:mctx est) [id :solution])))
+
+(defn- level-mvar-solution [est id]
+  (or (when-let [solution (meta/level-assignment @(:meta-mctx est) id)]
+        (meta-level->surface est solution))
+      (get-in @(:level-mctx est) [id :solution])))
 
 (defn- solve-level-mvar!
   "Assign a solution to a level metavariable."
@@ -162,16 +169,14 @@
                   rhs (zonk-level est (lvl/imax-rhs l))]
               (lvl/imax lhs rhs))
           4 (let [n (lvl/param-name l)
-                ;; Check if this is one of our level mvars
-                  entry (some (fn [[id m]]
-                                (when (= (:name m) n) m))
-                              @(:level-mctx est))]
-              (if (and entry (:solution entry))
-                (zonk-level est (:solution entry))
+                  id (some (fn [[id m]]
+                             (when (= (:name m) n) id))
+                           @(:level-mctx est))]
+              (if-let [solution (when id (level-mvar-solution est id))]
+                (zonk-level est solution)
                 l))
-          5 (let [id (lvl/mvar-id l)
-                  entry (get @(:level-mctx est) id)]
-              (if-let [solution (:solution entry)]
+          5 (let [id (lvl/mvar-id l)]
+              (if-let [solution (level-mvar-solution est id)]
                 (zonk-level est solution)
                 l))))))
 
@@ -460,10 +465,26 @@
            (reduce meta/instantiate-mvar-decl-mvars mctx (keys (:decls mctx))))))
 
 (defn- unsolved-mvars [est]
-  (filterv (fn [[_ m]] (nil? (:solution m))) @(:mctx est)))
+  (let [mctx @(:meta-mctx est)
+        legacy @(:mctx est)]
+    (->> (:decls mctx)
+         (remove (fn [[id _]] (meta/expr-assigned-or-delayed? mctx id)))
+         (sort-by first)
+         (mapv (fn [[id decl]]
+                 [id (cond-> {:kind (:kind decl)
+                              :user-name (:user-name decl)}
+                       (get-in legacy [id :inst-implicit])
+                       (assoc :inst-implicit true))])))))
 
 (defn- unsolved-levels [est]
-  (filterv (fn [[_ m]] (nil? (:solution m))) @(:level-mctx est)))
+  (let [mctx @(:meta-mctx est)
+        legacy @(:level-mctx est)]
+    (->> (:level-depth mctx)
+         (remove (fn [[id _]] (meta/level-assignment mctx id)))
+         (sort-by first)
+         (mapv (fn [[id _]]
+                 [id {:name (or (get-in legacy [id :name])
+                                (name/from-string (str "?u" id)))}])))))
 
 (declare elab-error! solve-instance-mvars!)
 
@@ -1422,8 +1443,13 @@
 (defn- has-unsolved-mvar?
   "True if (zonked) expr still contains an unsolved elaboration mvar."
   [est expr]
-  (let [mctx @(:mctx est)]
-    (letfn [(unsolved? [id] (let [m (get mctx id)] (and m (nil? (:solution m)))))
+  (let [mctx @(:meta-mctx est)
+        legacy @(:mctx est)]
+    (letfn [(unsolved? [id]
+              (if (meta/expr-decl mctx id)
+                (not (meta/expr-assigned-or-delayed? mctx id))
+                (let [m (get legacy id)]
+                  (and m (nil? (:solution m))))))
             (go [x]
                 (when (instance? ansatz.kernel.Expr x)
                   (case (e/tag x)
