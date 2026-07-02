@@ -107,28 +107,28 @@
    Also attempts to solve level metavars by inferring the type of the solution
    and unifying with the expected type."
   [est id solution]
-  (let [m (get @(:mctx est) id)]
-    (when m
-      (if (:solution m)
-        ;; Already solved — check consistency
-        (= (:solution m) solution)
-        (let [meta-solution (surface-expr->meta est solution)]
-          (swap! (:meta-mctx est)
-                 meta/checked-assign-expr id meta-solution
-                 {:check-type? false
-                  :unification? true})
-          (swap! (:mctx est) assoc-in [id :solution] solution)
-            ;; Try to solve level metavars: if the mvar's expected type is Sort ?u
-            ;; and solution's type is Sort N, unify ?u = N
-          (try
-            (let [expected-type (surface-mvar-type est id)
-                  actual-type (infer-with-mvars est solution)
-                  expected-whnf (whnf-with-mvars est expected-type)
-                  actual-whnf (whnf-with-mvars est actual-type)]
-              (when (and (e/sort? expected-whnf) (e/sort? actual-whnf))
-                (unify-levels! est (e/sort-level expected-whnf) (e/sort-level actual-whnf))))
-            (catch Exception _ nil))
-          true)))))
+  (when (meta/expr-decl @(:meta-mctx est) id)
+    (if-let [assigned (meta/expr-assignment @(:meta-mctx est) id)]
+      ;; Already solved — check consistency against the metacontext assignment.
+      (= (meta-expr->surface est assigned) solution)
+      (let [meta-solution (surface-expr->meta est solution)]
+        (swap! (:meta-mctx est)
+               meta/checked-assign-expr id meta-solution
+               {:check-type? false
+                :unification? true})
+        (when (contains? @(:mctx est) id)
+          (swap! (:mctx est) assoc-in [id :solution] solution))
+        ;; Try to solve level metavars: if the mvar's expected type is Sort ?u
+        ;; and solution's type is Sort N, unify ?u = N
+        (try
+          (let [expected-type (surface-mvar-type est id)
+                actual-type (infer-with-mvars est solution)
+                expected-whnf (whnf-with-mvars est expected-type)
+                actual-whnf (whnf-with-mvars est actual-type)]
+            (when (and (e/sort? expected-whnf) (e/sort? actual-whnf))
+              (unify-levels! est (e/sort-level expected-whnf) (e/sort-level actual-whnf))))
+          (catch Exception _ nil))
+        true))))
 
 (defn- mvar-solution [est id]
   (or (when-let [solution (meta/expr-assignment @(:meta-mctx est) id)]
@@ -143,14 +143,14 @@
 (defn- solve-level-mvar!
   "Assign a solution to a level metavariable."
   [est id solution]
-  (let [m (get @(:level-mctx est) id)]
-    (when m
-      (if (:solution m)
-        true
-        (do (swap! (:meta-mctx est)
-                   meta/checked-assign-level id (surface-level->meta est solution))
-            (swap! (:level-mctx est) assoc-in [id :solution] solution)
-            true)))))
+  (when (contains? (:level-depth @(:meta-mctx est)) id)
+    (if (meta/level-assignment @(:meta-mctx est) id)
+      true
+      (do (swap! (:meta-mctx est)
+                 meta/checked-assign-level id (surface-level->meta est solution))
+          (when (contains? @(:level-mctx est) id)
+            (swap! (:level-mctx est) assoc-in [id :solution] solution))
+          true))))
 
 ;; ============================================================
 ;; Metavariable zonking (substitute solutions)

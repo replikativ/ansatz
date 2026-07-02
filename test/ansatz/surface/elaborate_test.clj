@@ -293,6 +293,26 @@
       (is (= id (:id reported)))
       (is (:inst-implicit? reported)))))
 
+(deftest test-elab-assignment-writes-metacontext-without-compatibility-entry
+  (testing "expression assignment does not require a compatibility mctx entry"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          id (e/mvar-id hole)
+          solution (e/sort' lvl/zero)
+          _ (reset! (:mctx st) {})]
+      (is (#'elab/solve-mvar! st id solution))
+      (is (= solution (meta/expr-assignment @(:meta-mctx st) id)))
+      (is (nil? (get @(:mctx st) id)))))
+
+  (testing "level assignment does not require a compatibility level entry"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (lvl/mvar-id u)
+          _ (reset! (:level-mctx st) {})]
+      (is (#'elab/solve-level-mvar! st id lvl/zero))
+      (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id)))
+      (is (nil? (get @(:level-mctx st) id))))))
+
 ;; ============================================================
 ;; elaborate-check (full verification)
 ;; ============================================================
