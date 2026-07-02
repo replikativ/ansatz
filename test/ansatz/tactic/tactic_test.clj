@@ -7,6 +7,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
@@ -240,6 +241,7 @@
           [ps root-id] (proof/start-proof env prop)]
       (is (= 1 (count (:goals ps))))
       (is (= root-id (:root-mvar ps)))
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps root-id))))
       (is (not (proof/solved? ps)))))
 
   (testing "goals returns goal info"
@@ -248,6 +250,31 @@
           gs (proof/goals ps)]
       (is (= 1 (count gs)))
       (is (= prop (:type (first gs)))))))
+
+(deftest test-tactic-goals-are-synthetic-opaque
+  (testing "ordinary defeq cannot close the current tactic goal"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          goal (proof/current-goal ps)
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id)) (:lctx goal))
+          st (tc/mk-tc-state-with-locals env (:lctx goal))]
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps (:id goal)))))
+      (is (nil? (meta/is-def-eq (:meta-mctx ps) st
+                                (e/mvar (:id goal))
+                                (e/fvar h-id)))))))
+
+(deftest test-auxiliary-proof-mvars-can-be-natural
+  (testing "the proof allocator can still create Lean-style assignable auxiliary mvars"
+    (let [env (minimal-env)
+          [ps _] (proof/start-proof env prop)
+          [ps aux-id] (proof/fresh-mvar ps prop (red/empty-lctx) {:kind :natural})]
+      (is (= :natural (:kind (proof/mvar-decl ps aux-id)))))))
 
 ;; ============================================================
 ;; Test 10: apply with unification (implicit args)

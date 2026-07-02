@@ -25,7 +25,12 @@ The local Ansatz shape now follows that split:
   freshness, depth, occurs checks, and local-context safety; expression
   assignment can also type-check closed values against the mvar declaration;
 - proof states carry `:meta-mctx` beside the legacy `:mctx`;
-- new goals declare real `Expr.mvar` ids in `:meta-mctx`;
+- tactic continuation goals declare real `Expr.mvar` ids in `:meta-mctx` and
+  default to Lean-style `syntheticOpaque`, so ordinary unification cannot
+  silently close the current goal;
+- apply-style theorem argument holes remain assignable metavariables: regular
+  forall-telescope arguments are `natural`, while instance-implicit arguments
+  are `synthetic`, matching Lean's `forallMetaTelescopeReducing` rule;
 - surface elaboration now uses real `Expr.mvar` nodes for expression holes and
   real `Level.mvar` nodes for universe holes;
 - surface expression mvar declarations live in `:meta-mctx`; surface `:mctx`
@@ -109,14 +114,18 @@ only if the kernel checks it.
 2. Finish the tactic unifier migration by removing the fvar-backed atom
    fallback once the metacontext path covers all observed simp/rewrite/apply
    cases.
-3. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
+3. Add a tactic-level equivalent of Lean's `elabTermWithHoles`/`refine`
+   pipeline: elaborate in the current metacontext, collect newly-created mvars,
+   reject unsolved natural holes unless explicitly allowed, assign the current
+   goal, and return the remaining mvars as goals.
+4. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
    unifier now handles direct expression assignments, Miller-pattern
    assignment, universe assignments, closed kernel delegation, and structural
    recursion; remaining Lean gaps include richer proof/instance heuristics,
    delayed assignment integration in unification, and stronger stuck/cheap
    defeq modes.
-4. Continue parity tests for larger tactic families and proof extraction
+5. Continue parity tests for larger tactic families and proof extraction
    recipes as more assignment recipes are replaced by direct metacontext proof
    terms.
-5. Collapse the remaining compatibility views once the surface compatibility
+6. Collapse the remaining compatibility views once the surface compatibility
    maps and tactic unifier fallback are gone.

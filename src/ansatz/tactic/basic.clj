@@ -432,7 +432,8 @@
               synthesized inferred-val]
           (if synthesized
             ;; Value inferred/synthesized — create a pre-assigned mvar
-            (let [[ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal))
+            (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
+                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
                   ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
                   new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
               (recur ps' (whnf-in-goal ps' (:lctx goal) new-ty)
@@ -442,7 +443,8 @@
             ;; Not synthesized — create mvar (for implicit, inst-implicit, AND explicit params)
             ;; Following Lean 4: peel ALL foralls, explicit mvars become subgoals.
             ;; Track implicit mvars separately — they won't become visible subgoals.
-            (let [[ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal))
+            (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
+                  [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
                   new-ty (e/instantiate1 (e/forall-body ty) (e/fvar mvar-id))
                   is-implicit (#{:implicit :strict-implicit :inst-implicit} binfo)]
               (recur ps' (whnf-in-goal ps' (:lctx goal) new-ty)

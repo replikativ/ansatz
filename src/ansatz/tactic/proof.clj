@@ -21,31 +21,42 @@
 
 (defn fresh-mvar
   "Create a fresh metavariable with the given type and local context.
-   Returns [ps' mvar-id]."
-  [ps type lctx]
-  (let [[ps' id] (alloc-id ps)]
-    [(-> ps'
-         (update :meta-mctx #(meta/add-expr-mvar-decl (or % meta/empty-context) id type lctx))
-         (update :goals conj id))
-     id]))
+   Returns [ps' mvar-id].
+
+   Tactic continuations are Lean-style synthetic-opaque goals by default:
+   ordinary unification must not solve them accidentally. Callers that are
+   creating auxiliary inference metavariables, such as apply's forall telescope,
+   should pass `{:kind :natural}` or `{:kind :synthetic}`."
+  ([ps type lctx]
+   (fresh-mvar ps type lctx {}))
+  ([ps type lctx opts]
+   (let [[ps' id] (alloc-id ps)
+         opts (merge {:kind :syntheticOpaque} opts)]
+     [(-> ps'
+          (update :meta-mctx #(meta/add-expr-mvar-decl (or % meta/empty-context) id type lctx opts))
+          (update :goals conj id))
+      id])))
 
 (defn fresh-mvar-replacing
   "Create a fresh mvar that replaces an existing goal in the goals list.
    The new mvar takes the position of replaced-id (after assign-mvar removes it).
    Returns [ps' mvar-id]."
-  [ps type lctx replaced-id]
-  (let [[ps' id] (alloc-id ps)
-        ;; Find position of replaced-id before it gets removed
-        pos (.indexOf ^java.util.List (vec (:goals ps')) replaced-id)
-        pos (if (neg? pos) -1 pos)]
-    [(-> ps'
-         (update :meta-mctx #(meta/add-expr-mvar-decl (or % meta/empty-context) id type lctx))
-         (update :goals (fn [gs]
-                          (if (neg? pos)
-                            (conj gs id)  ;; fallback: append
-                            (into (conj (subvec (vec gs) 0 pos) id)
-                                  (subvec (vec gs) pos))))))
-     id]))
+  ([ps type lctx replaced-id]
+   (fresh-mvar-replacing ps type lctx replaced-id {}))
+  ([ps type lctx replaced-id opts]
+   (let [[ps' id] (alloc-id ps)
+         opts (merge {:kind :syntheticOpaque} opts)
+         ;; Find position of replaced-id before it gets removed.
+         pos (.indexOf ^java.util.List (vec (:goals ps')) replaced-id)
+         pos (if (neg? pos) -1 pos)]
+     [(-> ps'
+          (update :meta-mctx #(meta/add-expr-mvar-decl (or % meta/empty-context) id type lctx opts))
+          (update :goals (fn [gs]
+                           (if (neg? pos)
+                             (conj gs id)  ;; fallback: append
+                             (into (conj (subvec (vec gs) 0 pos) id)
+                                   (subvec (vec gs) pos))))))
+      id])))
 
 (defn- legacy-mvar-decl [ps id]
   (get-in ps [:mctx id]))
