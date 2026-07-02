@@ -59,6 +59,10 @@ The local Ansatz shape now follows that split:
   mirrors Lean's `refine'` by allowing natural holes to become goals too, and
   both are exposed through the public surface tactic forms `(refine ...)` and
   `(refine' ...)`;
+- `refine`/`refine-prime` tag anonymous collected goals using Lean's
+  `tagUntaggedGoals` convention: one anonymous child inherits the parent tag,
+  while multiple anonymous children receive stable `refine_i`/`refine'_i`
+  suffix tags;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 
@@ -119,9 +123,9 @@ only if the kernel checks it.
 1. Remove the remaining surface compatibility maps where callers can read
    directly from `:meta-mctx`.
 2. Extend the tactic-level `refine` path toward fuller Lean
-   `elabTermWithHoles` parity: goal tagging, better diagnostics for natural
-   holes, term-elaboration variants for `apply`, and handling let-rec/style
-   auxiliary holes.
+   `elabTermWithHoles` parity: better diagnostics for natural holes,
+   term-elaboration variants for `apply`, and handling let-rec/style auxiliary
+   holes.
 3. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
    unifier now handles direct expression assignments, Miller-pattern
    assignment, universe assignments, closed kernel delegation, and structural

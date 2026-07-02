@@ -311,6 +311,8 @@
              :or {allow-natural-holes? false}}]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
+         parent-tag (:user-name goal)
+         tag-suffix (name/from-string (if allow-natural-holes? "refine'" "refine"))
          next-id-start (max 1000000 (:next-id ps 1))
          {:keys [expr meta-mctx holes level-holes]}
          (elab/elaborate-in-context-collecting (:env ps) (:lctx goal) form (:type goal)
@@ -333,6 +335,7 @@
            ps (proof/assign-mvar ps (:id goal) {:kind :exact :term expr})]
        (-> ps
            (update :goals (fn [gs] (into visible-ids gs)))
+           (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)
            (proof/record-tactic :refine [form] (:id goal)))))))
 
 (defn refine-prime

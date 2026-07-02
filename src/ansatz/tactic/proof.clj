@@ -75,6 +75,9 @@
 (defn mvar-lctx [ps id]
   (:lctx (mvar-decl ps id)))
 
+(defn mvar-user-name [ps id]
+  (:user-name (mvar-decl ps id)))
+
 (defn mvar-ids
   "All known metavariable ids, preferring the Lean-shaped metacontext."
   [ps]
@@ -106,6 +109,42 @@
   (if (:meta-mctx ps)
     (update ps :meta-mctx meta/set-expr-mvar-type id type)
     (assoc-in ps [:mctx id :type] type)))
+
+(defn set-mvar-user-name
+  "Set the user-facing goal tag for an mvar. Anonymous names clear the tag."
+  [ps id user-name]
+  (let [user-name (when-not (name/anonymous? user-name) user-name)]
+    (if (:meta-mctx ps)
+      (update ps :meta-mctx meta/set-expr-mvar-user-name id user-name)
+      (if user-name
+        (assoc-in ps [:mctx id :user-name] user-name)
+        (update-in ps [:mctx id] dissoc :user-name)))))
+
+(defn- anonymous-mvar? [ps id]
+  (name/anonymous? (mvar-user-name ps id)))
+
+(defn- indexed-tag [parent-tag suffix idx]
+  (let [parent (or parent-tag (name/anonymous))
+        suffix-str (if (name/anonymous? suffix) "goal" (name/->string suffix))]
+    (name/mk-str parent (str suffix-str "_" idx))))
+
+(defn tag-untagged-goals
+  "Lean's `tagUntaggedGoals`: give newly-created anonymous goals stable tags.
+
+   If one new goal is anonymous, it inherits `parent-tag`. If multiple are
+   anonymous, they are tagged `<parent>.<suffix>_1`, `<parent>.<suffix>_2`, ...
+   Named holes keep their existing user names."
+  [ps parent-tag suffix new-goal-ids]
+  (let [parent-tag (when-not (name/anonymous? parent-tag) parent-tag)
+        suffix (when-not (name/anonymous? suffix) suffix)
+        anonymous-ids (filterv #(anonymous-mvar? ps %) new-goal-ids)]
+    (cond
+      (empty? anonymous-ids) ps
+      (= 1 (count anonymous-ids)) (set-mvar-user-name ps (first anonymous-ids) parent-tag)
+      :else (reduce-kv (fn [ps i id]
+                         (set-mvar-user-name ps id (indexed-tag parent-tag suffix (inc i))))
+                       ps
+                       anonymous-ids))))
 
 (defn- assignment-concrete-value
   "Extract the concrete value from an assignment, if available.
@@ -365,14 +404,14 @@
   [ps]
   (when-let [id (first (:goals ps))]
     (let [m (mvar-decl ps id)]
-      {:id id :type (:type m) :lctx (:lctx m)})))
+      {:id id :type (:type m) :lctx (:lctx m) :user-name (:user-name m)})))
 
 (defn goals
   "Get all open goals as seq of {:id :type :lctx}."
   [ps]
   (map (fn [id]
          (let [m (mvar-decl ps id)]
-           {:id id :type (:type m) :lctx (:lctx m)}))
+           {:id id :type (:type m) :lctx (:lctx m) :user-name (:user-name m)}))
        (:goals ps)))
 
 (defn solved?
@@ -404,7 +443,11 @@
       (str (count gs) " goal(s):\n"
            (clojure.string/join "\n\n"
                                 (map-indexed (fn [i g]
-                                               (str "Goal " (inc i) ":\n" (format-goal g)))
+                                               (let [tag (:user-name g)
+                                                     label (if (name/anonymous? tag)
+                                                             (str "Goal " (inc i))
+                                                             (str "Goal " (inc i) " (" (name/->string tag) ")"))]
+                                                 (str label ":\n" (format-goal g))))
                                              gs))))))
 
 ;; ============================================================

@@ -335,6 +335,38 @@
         (is (proof/solved? ps))
         (is (not (e/has-fvar-flag (extract/verify ps))))))))
 
+(deftest test-refine-tags-single-unnamed-hole
+  (testing "a single unnamed refine-prime hole inherits the parent goal tag"
+    (let [env (minimal-env)
+          parent-tag (name/from-string "main")
+          [ps root] (proof/start-proof env prop)
+          ps (proof/set-mvar-user-name ps root parent-tag)
+          ps (basic/refine-prime ps '_)
+          goal (proof/current-goal ps)]
+      (is (= 1 (count (:goals ps))))
+      (is (= parent-tag (:user-name goal)))
+      (is (= parent-tag (:user-name (proof/mvar-decl ps (:id goal)))))
+      (is (re-find #"Goal 1 \(main\)" (proof/format-goals ps))))))
+
+(deftest test-refine-tags-multiple-unnamed-holes
+  (testing "multiple unnamed refine-prime holes receive stable suffix tags"
+    (let [env (minimal-env)
+          ;; forall (p : Prop), (p -> p -> p) -> p
+          p-to-p-to-p (e/forall' "_" (e/bvar 0)
+                                 (e/forall' "_" (e/bvar 1) (e/bvar 2) :default)
+                                 :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "f" p-to-p-to-p (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "f")
+                 (basic/refine-prime '(f _ _)))
+          tags (mapv #(some-> (:user-name %) name/->string) (proof/goals ps))]
+      (is (= 2 (count (:goals ps))))
+      (is (= ["refine'_1" "refine'_2"] tags)))))
+
 ;; ============================================================
 ;; Test 11: apply with unification (implicit args)
 ;; ============================================================
