@@ -25,7 +25,6 @@
   [ps type lctx]
   (let [[ps' id] (alloc-id ps)]
     [(-> ps'
-         (assoc-in [:mctx id] {:type type :lctx lctx :assignment nil})
          (update :meta-mctx #(meta/add-expr-mvar-decl (or % meta/empty-context) id type lctx))
          (update :goals conj id))
      id]))
@@ -40,7 +39,6 @@
         pos (.indexOf ^java.util.List (vec (:goals ps')) replaced-id)
         pos (if (neg? pos) -1 pos)]
     [(-> ps'
-         (assoc-in [:mctx id] {:type type :lctx lctx :assignment nil})
          (update :meta-mctx #(meta/add-expr-mvar-decl (or % meta/empty-context) id type lctx))
          (update :goals (fn [gs]
                           (if (neg? pos)
@@ -90,12 +88,12 @@
       (:term assignment))))
 
 (defn set-mvar-type
-  "Update an mvar type in both the legacy compatibility map and the
-   Lean-shaped metacontext."
+  "Update an mvar type, preferring the Lean-shaped metacontext.
+   Legacy proof states without `:meta-mctx` still store the type in `:mctx`."
   [ps id type]
-  (-> ps
-      (assoc-in [:mctx id :type] type)
-      (update :meta-mctx meta/set-expr-mvar-type id type)))
+  (if (:meta-mctx ps)
+    (update ps :meta-mctx meta/set-expr-mvar-type id type)
+    (assoc-in ps [:mctx id :type] type)))
 
 (defn- assignment-concrete-value
   "Extract the concrete value from an assignment, if available.

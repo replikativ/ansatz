@@ -290,6 +290,14 @@
       (is (= meta-term (meta/zonk-expr (:meta-mctx ps) (e/mvar root))))
       (is (meta/closed-expr? (:meta-mctx ps) meta-term)))))
 
+(deftest proof-state-declarations-live-in-metacontext
+  (testing "legacy proof :mctx stores recipes, not duplicated declarations"
+    (let [prop (e/sort' lvl/zero)
+          [ps root] (proof/start-proof (env/empty-env) prop)]
+      (is (= prop (proof/mvar-type ps root)))
+      (is (= prop (:type (meta/expr-decl (:meta-mctx ps) root))))
+      (is (nil? (get (:mctx ps) root))))))
+
 (deftest verify-rejects-raw-metavariables-at-kernel-boundary
   (testing "legacy extraction cannot pass raw mvars to the kernel checker"
     (let [prop (e/sort' lvl/zero)

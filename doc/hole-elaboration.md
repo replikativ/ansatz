@@ -42,6 +42,8 @@ The local Ansatz shape now follows that split:
   as a fallback during migration;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
+- tactic proof states now keep declarations in `:meta-mctx`; legacy `:mctx` is
+  recipe storage for extraction rather than a duplicated declaration table;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 
