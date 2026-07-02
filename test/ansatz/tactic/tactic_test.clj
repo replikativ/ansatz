@@ -349,6 +349,30 @@
         (is (proof/solved? ps))
         (is (not (e/has-fvar-flag (extract/verify ps))))))))
 
+(deftest test-refine-prime-stores-instantiated-assignment
+  (testing "refine-prime assigns the zonked elaborated value to the main goal"
+    (let [env (require-init-medium)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          goal-id (:id (proof/current-goal ps))
+          lctx (:lctx (proof/current-goal ps))
+          p-id (some (fn [[id d]] (when (= "p" (:name d)) id)) lctx)
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id)) lctx)
+          ps (basic/refine-prime ps (list (symbol "@id") '_ 'h))
+          term (:term (proof/mvar-assignment ps goal-id))
+          [head args] (e/get-app-fn-args term)]
+      (is (proof/solved? ps))
+      (is (e/const? head))
+      (is (= (name/from-string "id") (e/const-name head)))
+      (is (= [(e/fvar p-id) (e/fvar h-id)] args))
+      (is (empty? (meta/collect-expr-mvars term)))
+      (is (not (e/has-fvar-flag (extract/verify ps)))))))
+
 (deftest test-refine-tags-single-unnamed-hole
   (testing "a single unnamed refine-prime hole inherits the parent goal tag"
     (let [env (minimal-env)

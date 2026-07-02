@@ -373,7 +373,10 @@
                         {:mvar-id (:id goal) :value checked-expr})
 
          :else
-         (let [ps (proof/assign-mvar ps (:id goal) {:kind :exact :term expr})]
+         ;; If child goals remain, keep the raw expression because it may carry
+         ;; delayed-abstraction metadata needed when those children are solved.
+         (let [assignment-expr (if (seq visible-ids) expr checked-expr)
+               ps (proof/assign-mvar ps (:id goal) {:kind :exact :term assignment-expr})]
            (-> ps
                (update :goals (fn [gs] (into visible-ids gs)))
                (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)

@@ -81,6 +81,8 @@ The local Ansatz shape now follows that split:
 - `refine` mirrors Lean's main-goal guard: refining with the main goal keeps it
   open, while values that merely depend on the main goal metavariable are
   rejected;
+- `refine` assigns the instantiated elaborated value when no child goals remain,
+  while preserving delayed-abstraction metadata when child goals are still open;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 
