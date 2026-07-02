@@ -262,6 +262,7 @@
           term-id (e/fvar-id term)
           term-decl (meta/expr-decl @(:meta-mctx st) term-id)]
       (is (= (e/mvar alpha-id) (:type term-decl)))
+      (is (not (contains? (get @(:mctx st) term-id) :type)))
       (is (= alpha (#'elab/infer-with-mvars st term))))))
 
 ;; ============================================================

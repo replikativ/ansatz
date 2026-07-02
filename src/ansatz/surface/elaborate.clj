@@ -37,7 +37,7 @@
   {:env env
    :tc (tc/mk-tc-state env)
    :next-id (atom 1000000)  ;; high start to avoid collision with tc ids
-   :mctx (atom {})          ;; {id → {:type Expr :solution Expr-or-nil}}
+   :mctx (atom {})          ;; compatibility metadata/solutions; declarations live in :meta-mctx
    :level-mctx (atom {})    ;; {id → {:solution Level-or-nil}}
    :meta-mctx (atom meta/empty-context)
    :scope {}                ;; symbol → {:fvar-id long :type Expr}
@@ -48,7 +48,7 @@
     id))
 
 (declare unify-levels! surface-expr->meta surface-level->meta surface-lctx->meta
-         meta-expr->surface)
+         meta-expr->surface surface-mvar-type meta-mvar-type)
 
 (defn- fresh-mvar!
   "Create a fresh metavariable (as an fvar compatibility placeholder) with
@@ -59,7 +59,7 @@
   ([est type {:keys [kind user-name inst-implicit?]
               :or {kind :natural}}]
    (let [id (fresh-id! est)]
-     (swap! (:mctx est) assoc id (cond-> {:type type :solution nil :kind kind}
+     (swap! (:mctx est) assoc id (cond-> {:solution nil :kind kind}
                                    user-name (assoc :user-name user-name)
                                    inst-implicit? (assoc :inst-implicit true)))
      (swap! (:meta-mctx est)
@@ -106,7 +106,7 @@
             ;; Try to solve level metavars: if the mvar's expected type is Sort ?u
             ;; and solution's type is Sort N, unify ?u = N
           (try
-            (let [expected-type (:type m)
+            (let [expected-type (surface-mvar-type est id)
                   tc (:tc est)
                   actual-type (tc/infer-type tc solution)
                   expected-whnf (#'tc/cached-whnf tc expected-type)
@@ -395,6 +395,19 @@
                 expr))]
       (go expr))))
 
+(defn- meta-mvar-type
+  "Return the metacontext-shaped type of expression mvar `id`, after zonking."
+  [est id]
+  (let [mctx @(:meta-mctx est)]
+    (when-let [decl (meta/expr-decl mctx id)]
+      (meta/zonk-expr mctx (:type decl)))))
+
+(defn- surface-mvar-type
+  "Return the legacy surface-shaped type of expression mvar `id`."
+  [est id]
+  (when-let [type (meta-mvar-type est id)]
+    (meta-expr->surface est type)))
+
 (defn- sync-legacy-levels-from-meta!
   "Mirror solved universe levels from `:meta-mctx` back into the legacy
    compatibility level context."
@@ -417,20 +430,11 @@
 
 (defn- sync-meta-decls!
   "Keep the mirrored metacontext declarations readable after legacy zonking by
-   converting their types/local contexts to real mvar representation."
+   instantiating assigned mvars in their types/local contexts."
   [est]
-  (let [legacy @(:mctx est)]
-    (swap! (:meta-mctx est)
-           (fn [mctx]
-             (reduce-kv
-              (fn [mctx id m]
-                (let [type (surface-expr->meta est (zonk est (:type m)))]
-                  (-> mctx
-                      (meta/set-expr-mvar-type id type)
-                      (meta/set-expr-mvar-lctx id
-                                                (surface-lctx->meta est
-                                                                    (:lctx (meta/expr-decl! mctx id)))))))
-              mctx legacy)))))
+  (swap! (:meta-mctx est)
+         (fn [mctx]
+           (reduce meta/instantiate-mvar-decl-mvars mctx (keys (:decls mctx))))))
 
 (defn- unsolved-mvars [est]
   (filterv (fn [[_ m]] (nil? (:solution m))) @(:mctx est)))
@@ -448,7 +452,9 @@
     (when (seq unsolved)
       (elab-error! "Unsolved metavariables"
                    {:count (count unsolved)
-                    :mvars (mapv (fn [[id m]] {:id id :type (:type m)}) unsolved)}))
+                    :mvars (mapv (fn [[id _]]
+                                    {:id id :type (surface-mvar-type est id)})
+                                  unsolved)}))
     (when (seq unsolved-levels)
       (elab-error! "Unsolved universe level metavariables"
                    {:count (count unsolved-levels)
@@ -467,7 +473,7 @@
      :holes (mapv (fn [[id m]]
                     {:id id
                      :expr (e/mvar id)
-                     :type (surface-expr->meta est (zonk est (:type m)))
+                     :type (meta-mvar-type est id)
                      :kind (:kind m)
                      :user-name (:user-name m)
                      :inst-implicit? (boolean (:inst-implicit m))})
@@ -1409,7 +1415,7 @@
                              @(:mctx est))
             solved-any (atom false)]
         (doseq [[id _] pending]
-          (let [goal (zonk est (:type (get @(:mctx est) id)))]
+          (let [goal (zonk est (surface-mvar-type est id))]
             ;; Only synthesize once the goal is fully determined (no unsolved mvars),
             ;; else we'd resolve against an under-specified class.
             (when-not (has-unsolved-mvar? est goal)
