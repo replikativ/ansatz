@@ -196,6 +196,7 @@
           user-name (:user-name hole)]
       (is (= 1 (count holes)))
       (is (= "goal" (name/->string user-name)))
+      (is (= :syntheticOpaque (:kind hole)))
       (is (= (:id hole) (get-in meta-mctx [:user-names user-name]))))))
 
 (deftest test-elab-strict-top-hole-fails

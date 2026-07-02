@@ -1,7 +1,7 @@
 ;; Tactic layer — core tactics.
 
 (ns ansatz.tactic.basic
-  "Core tactics: intro, intros, exact, assumption, apply, rfl, constructor,
+  "Core tactics: intro, intros, exact, refine, assumption, apply, rfl, constructor,
    cases, induction, rewrite, have-tac, revert, exfalso, subst, clear.
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
@@ -14,6 +14,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.unify :as u]
+            [ansatz.surface.elaborate :as elab]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -292,6 +293,52 @@
                      {:expected (:type goal) :inferred inferred}))
     (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
         (proof/record-tactic :exact [:term] (:id goal)))))
+
+(defn- max-collected-mvar-id [mctx]
+  (reduce max 0 (concat (keys (:decls mctx)) (keys (:level-depth mctx)))))
+
+(defn refine
+  "Refine the current goal using a surface term.
+
+   This mirrors Lean's tactic-side `refine`: elaborate the term against the
+   current goal type, assign the goal to the elaborated value, and replace it
+   with the new non-natural holes. Natural holes are rejected by default, as in
+   Lean's `refine`; pass `{:allow-natural-holes? true}` or use
+   `refine-prime` for Lean's `refine'` behavior."
+  ([ps form]
+   (refine ps form {}))
+  ([ps form {:keys [allow-natural-holes?]
+             :or {allow-natural-holes? false}}]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         next-id-start (max 1000000 (:next-id ps 1))
+         {:keys [expr meta-mctx holes level-holes]}
+         (elab/elaborate-in-context-collecting (:env ps) (:lctx goal) form (:type goal)
+                                               {:next-id-start next-id-start
+                                                :initial-meta-mctx (:meta-mctx ps)})
+         natural-holes (filterv #(= :natural (:kind %)) holes)]
+     (when (seq level-holes)
+       (tactic-error! "refine: unresolved universe level holes"
+                      {:level-holes level-holes}))
+     (when (and (not allow-natural-holes?) (seq natural-holes))
+       (tactic-error! "refine: unresolved natural holes"
+                      {:holes natural-holes}))
+     (let [visible-holes (if allow-natural-holes?
+                           holes
+                           (remove #(= :natural (:kind %)) holes))
+           visible-ids (mapv :id visible-holes)
+           ps (-> ps
+                  (assoc :meta-mctx meta-mctx)
+                  (update :next-id #(max (or % 1) (inc (max-collected-mvar-id meta-mctx)))))
+           ps (proof/assign-mvar ps (:id goal) {:kind :exact :term expr})]
+       (-> ps
+           (update :goals (fn [gs] (into visible-ids gs)))
+           (proof/record-tactic :refine [form] (:id goal)))))))
+
+(defn refine-prime
+  "Lean `refine'`: like `refine`, but natural holes become subgoals."
+  [ps form]
+  (refine ps form {:allow-natural-holes? true}))
 
 ;; ============================================================
 ;; assumption

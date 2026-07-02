@@ -277,7 +277,66 @@
       (is (= :natural (:kind (proof/mvar-decl ps aux-id)))))))
 
 ;; ============================================================
-;; Test 10: apply with unification (implicit args)
+;; Test 10: refine with surface holes
+;; ============================================================
+
+(deftest test-refine-surface-term
+  (testing "refine closes a goal with a surface term in the local context"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/refine 'h))]
+      (is (proof/solved? ps))
+      (is (not (e/has-fvar-flag (extract/verify ps)))))))
+
+(deftest test-refine-named-hole-becomes-goal
+  (testing "named holes are synthetic-opaque goals under refine"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/refine '?goal))
+          goal (proof/current-goal ps)]
+      (is (= 1 (count (:goals ps))))
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps (:id goal)))))
+      (let [ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+(deftest test-refine-rejects-natural-holes
+  (testing "refine rejects unsolved natural holes by default"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop (e/bvar 0) :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (basic/intro ps "p")]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"natural holes"
+                            (basic/refine ps '_))))))
+
+(deftest test-refine-prime-allows-natural-holes-under-binders
+  (testing "refine-prime turns lambda-body holes into subgoals with delayed abstraction"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (basic/intro ps "p")
+          ps (basic/refine-prime ps '(lam [h p] _))]
+      (is (= 1 (count (:goals ps))))
+      (let [ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+;; ============================================================
+;; Test 11: apply with unification (implicit args)
 ;; ============================================================
 
 (deftest test-apply-unification

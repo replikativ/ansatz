@@ -34,15 +34,21 @@
 
 (defn- mk-elab-state
   "Create elaboration state with metavar tracking."
-  [^Env env]
-  {:env env
-   :tc (tc/mk-tc-state env)
-   :next-id (atom 1000000)  ;; high start to avoid collision with tc ids
-   :mctx (atom {})          ;; compatibility metadata/solutions; declarations live in :meta-mctx
-   :level-mctx (atom {})    ;; {id → {:solution Level-or-nil}}
-   :meta-mctx (atom meta/empty-context)
-   :scope {}                ;; symbol → {:fvar-id long :type Expr}
-   :depth 0})
+  ([^Env env]
+   (mk-elab-state env {}))
+  ([^Env env {:keys [next-id-start initial-meta-mctx collect-from-index]
+              :or {next-id-start 1000000
+                   initial-meta-mctx meta/empty-context}}]
+   {:env env
+    :tc (tc/mk-tc-state env)
+    :next-id (atom next-id-start)  ;; high start to avoid collision with tc ids
+    :mctx (atom {})          ;; compatibility metadata/solutions; declarations live in :meta-mctx
+    :level-mctx (atom {})    ;; {id → {:solution Level-or-nil}}
+    :meta-mctx (atom initial-meta-mctx)
+    :collect-from-index (or collect-from-index (:mvar-counter initial-meta-mctx 0))
+    :initial-level-mvar-ids (set (keys (:level-depth initial-meta-mctx)))
+    :scope {}                ;; symbol → {:fvar-id long :type Expr}
+    :depth 0}))
 
 (defn- fresh-id! [est]
   (let [id (swap! (:next-id est) inc)]
@@ -231,9 +237,15 @@
               expr
               (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
     :mdata (let [x (zonk est (e/mdata-expr expr))]
-             (if (identical? x (e/mdata-expr expr))
-               expr
-               (e/mdata (e/mdata-data expr) x)))
+             (if-let [fvar-ids (::meta/abstract-fvars (e/mdata-data expr))]
+               (if (seq (meta/collect-expr-mvars x))
+                 (if (identical? x (e/mdata-expr expr))
+                   expr
+                   (e/mdata (e/mdata-data expr) x))
+                 (e/abstract-many x fvar-ids))
+               (if (identical? x (e/mdata-expr expr))
+                 expr
+                 (e/mdata (e/mdata-data expr) x))))
     ;; Atoms
     expr))
 
@@ -476,6 +488,7 @@
          (sort-by first)
          (mapv (fn [[id decl]]
                  [id (cond-> {:kind (:kind decl)
+                              :index (:index decl)
                               :user-name (:user-name decl)}
                        (or (:inst-implicit? decl)
                            (get-in legacy [id :inst-implicit]))
@@ -515,8 +528,14 @@
   (let [legacy-result (zonk est expr)
         _ (sync-meta-decls! est)
         result (surface-expr->meta est legacy-result)
-        unsolved (unsolved-mvars est)
-        unsolved-levels (unsolved-levels est)]
+        start (:collect-from-index est 0)
+        unsolved (filterv (fn [[_ decl]]
+                            (>= (:index decl 0) start))
+                          (unsolved-mvars est))
+        old-levels (:initial-level-mvar-ids est #{})
+        unsolved-levels (filterv (fn [[id _]]
+                                   (not (contains? old-levels id)))
+                                 (unsolved-levels est))]
     {:expr result
      :meta-mctx @(:meta-mctx est)
      :holes (mapv (fn [[id m]]
@@ -780,7 +799,7 @@
                                (assoc-in [:scope nam] {:fvar-id fvar-id :type typ-expr})
                                (update :tc update :lctx red/lctx-add-local fvar-id (str nam) typ-expr))
                       body-expr (build (rest binders) est')
-                      abs-body (e/abstract1 body-expr fvar-id)]
+                      abs-body (e/abstract1 (meta/abstract-fvars body-expr [fvar-id]) fvar-id)]
                   (e/forall' (str nam) typ-expr abs-body :default))))]
       (build binders est))))
 
@@ -822,7 +841,7 @@
                                                         as-term (assoc :as-term as-term)))
                                (update :tc update :lctx red/lctx-add-local fvar-id (str nam) typ-expr))
                       body-expr (build (rest binders) est')
-                      abs-body (e/abstract1 body-expr fvar-id)]
+                      abs-body (e/abstract1 (meta/abstract-fvars body-expr [fvar-id]) fvar-id)]
                   (e/lam (str nam) typ-expr abs-body :default))))]
       (build binders est))))
 
@@ -977,7 +996,7 @@
   (let [u (fresh-level-mvar! est)
         type-hole (fresh-mvar! est (e/sort' u))
         term-hole (fresh-mvar! est type-hole
-                                (cond-> {}
+                                (cond-> {:kind (if hole-name :syntheticOpaque :natural)}
                                   hole-name (assoc :user-name hole-name)))]
     term-hole))
 
@@ -1579,12 +1598,14 @@
     :collecting (collecting-finalize est expr)))
 
 (defn- elaborate*
-  [mode env lctx sexpr expected]
-  (let [est (cond-> (mk-elab-state env)
-              lctx (attach-elab-lctx lctx))
-        expr (elab-term est sexpr)]
-    (check-expected! est expr expected)
-    (finalize-elaboration mode est expr)))
+  ([mode env lctx sexpr expected]
+   (elaborate* mode env lctx sexpr expected {}))
+  ([mode env lctx sexpr expected opts]
+   (let [est (cond-> (mk-elab-state env opts)
+               lctx (attach-elab-lctx lctx))
+         expr (elab-term est sexpr)]
+     (check-expected! est expr expected)
+     (finalize-elaboration mode est expr))))
 
 (defn elaborate
   "Elaborate an s-expression into a fully explicit Ansatz Expr.
@@ -1645,7 +1666,9 @@
   ([env lctx sexpr]
    (elaborate-in-context-collecting env lctx sexpr nil))
   ([env lctx sexpr expected]
-   (elaborate* :collecting env lctx sexpr expected)))
+   (elaborate-in-context-collecting env lctx sexpr expected {}))
+  ([env lctx sexpr expected opts]
+   (elaborate* :collecting env lctx sexpr expected opts)))
 
 (defn elaborate-check
   "Elaborate and verify: elaborate the s-expression, then verify the result

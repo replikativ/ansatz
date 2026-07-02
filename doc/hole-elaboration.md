@@ -52,6 +52,10 @@ The local Ansatz shape now follows that split:
   Lean-style expression assignment when possible;
 - tactic proof states now keep declarations in `:meta-mctx` and extraction
   recipes in `:recipes`; `:mctx` is only a legacy fallback path;
+- tactic `refine` now elaborates a surface term in the current proof
+  metacontext, saves the fresh mvar boundary, assigns the current goal, and
+  turns the freshly-created non-natural holes into goals; `refine-prime`
+  mirrors Lean's `refine'` by allowing natural holes to become goals too;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 
@@ -114,10 +118,10 @@ only if the kernel checks it.
 2. Finish the tactic unifier migration by removing the fvar-backed atom
    fallback once the metacontext path covers all observed simp/rewrite/apply
    cases.
-3. Add a tactic-level equivalent of Lean's `elabTermWithHoles`/`refine`
-   pipeline: elaborate in the current metacontext, collect newly-created mvars,
-   reject unsolved natural holes unless explicitly allowed, assign the current
-   goal, and return the remaining mvars as goals.
+3. Extend the tactic-level `refine` path toward fuller Lean
+   `elabTermWithHoles` parity: goal tagging, better diagnostics for natural
+   holes, term-elaboration variants for `apply`, and handling let-rec/style
+   auxiliary holes.
 4. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
    unifier now handles direct expression assignments, Miller-pattern
    assignment, universe assignments, closed kernel delegation, and structural
