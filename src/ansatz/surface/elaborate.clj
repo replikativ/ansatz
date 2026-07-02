@@ -48,7 +48,8 @@
     id))
 
 (declare unify-levels! surface-expr->meta surface-level->meta surface-lctx->meta
-         meta-expr->surface surface-mvar-type meta-mvar-type)
+         meta-expr->surface surface-mvar-type meta-mvar-type infer-with-mvars
+         whnf-with-mvars)
 
 (defn- fresh-mvar!
   "Create a fresh metavariable (as an fvar compatibility placeholder) with
@@ -107,10 +108,9 @@
             ;; and solution's type is Sort N, unify ?u = N
           (try
             (let [expected-type (surface-mvar-type est id)
-                  tc (:tc est)
-                  actual-type (tc/infer-type tc solution)
-                  expected-whnf (#'tc/cached-whnf tc expected-type)
-                  actual-whnf (#'tc/cached-whnf tc actual-type)]
+                  actual-type (infer-with-mvars est solution)
+                  expected-whnf (whnf-with-mvars est expected-type)
+                  actual-whnf (whnf-with-mvars est actual-type)]
               (when (and (e/sort? expected-whnf) (e/sort? actual-whnf))
                 (unify-levels! est (e/sort-level expected-whnf) (e/sort-level actual-whnf))))
             (catch Exception _ nil))
@@ -562,6 +562,15 @@
         inferred (meta/infer-type @(:meta-mctx est) st expr)]
     (zonk est (meta-expr->surface est inferred))))
 
+(defn- whnf-with-mvars
+  "Weak-head normalize an elaborator expression through the metacontext."
+  [est expr]
+  (sync-meta-decls! est)
+  (let [expr (surface-expr->meta est (zonk est expr))
+        st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))
+        reduced (meta/whnf @(:meta-mctx est) st expr)]
+    (zonk est (meta-expr->surface est reduced))))
+
 ;; ============================================================
 ;; Core elaboration
 ;; ============================================================
@@ -621,9 +630,8 @@
    implicit/instance-implicit arguments. Returns [expr' type'] where
    type' is the remaining (non-implicit) type."
   [est fn-expr fn-type]
-  (let [tc (:tc est)]
-    (loop [expr fn-expr
-           ty (#'tc/cached-whnf tc fn-type)]
+  (loop [expr fn-expr
+         ty (whnf-with-mvars est fn-type)]
       (if (and (e/forall? ty)
                (let [info (e/forall-info ty)]
                  (or (= info :implicit)
@@ -639,15 +647,15 @@
               ;; synthesis (not just unification) before the final unsolved-check.
               _ (when inst? (mark-inst-implicit! est arg-mvar))
               expr' (e/app expr arg-mvar)
-              ty' (#'tc/cached-whnf tc (e/instantiate1 (e/forall-body ty) arg-mvar))]
+              ty' (whnf-with-mvars est (e/instantiate1 (e/forall-body ty) arg-mvar))]
           (recur expr' ty'))
-        [expr ty]))))
+        [expr ty])))
 
 (defn- type-head-name
   "Whnf the (zonked) type and return its head constant's name as a string (e.g. \"Nat\",
    \"Int\"), or nil if the head isn't a constant. Used for type-directed op selection."
   [est ty]
-  (let [tw (#'tc/cached-whnf (:tc est) (zonk est ty))
+  (let [tw (whnf-with-mvars est ty)
         [h _] (e/get-app-fn-args tw)]
     (when (e/const? h) (name/->string (e/const-name h)))))
 
@@ -660,7 +668,6 @@
           (resolve-symbol est head-sexpr)
           {:expr (elab-term est head-sexpr) :explicit? false})
         head-expr expr
-        tc (:tc est)
         head-type (infer-with-mvars est head-expr)
         ;; Positional convention (matches sexp->ansatz / the prior a/defn bodies): when
         ;; the user supplies exactly the full binder count (implicits INCLUDED, e.g.
@@ -697,7 +704,7 @@
               (unify! est arg-type dom-type)
               (let [expr' (e/app expr arg-expr)
                     body-inst (e/instantiate1 (e/forall-body ty) arg-expr)
-                    ty' (#'tc/cached-whnf tc body-inst)]
+                    ty' (whnf-with-mvars est body-inst)]
                 (recur expr' ty' (next args))))
             (elab-error! "Too many arguments"
                          {:fn head-sexpr :remaining-args (vec args)
@@ -1036,7 +1043,11 @@
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
             "match"  (let [args (vec (rest sexpr))
-                           est* (assoc est :infer-fn infer-with-mvars :unify-fn unify! :zonk-fn zonk)]
+                           est* (assoc est
+                                       :infer-fn infer-with-mvars
+                                       :whnf-fn whnf-with-mvars
+                                       :unify-fn unify!
+                                       :zonk-fn zonk)]
                        (if (vector? (get args 1))
                          (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
                      ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the
@@ -1095,8 +1106,8 @@
                            inst (e/app* (e/const' (name/from-string dec-name) []) a* b*)
                            then-expr (elab-term est t)
                            else-expr (elab-term est e)
-                           ret-type (tc/infer-type (:tc est) (zonk est then-expr))
-                           ret-sort (tc/infer-type (:tc est) ret-type)
+                           ret-type (infer-with-mvars est then-expr)
+                           ret-sort (infer-with-mvars est ret-type)
                            u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
                            not-prop (e/app (e/const' (name/from-string "Not") []) prop)]
                        (e/app* (e/const' (name/from-string "dite") [u])
@@ -1106,7 +1117,7 @@
                      (let [cond-expr (elab-term est c)
                            then-expr (elab-term est t)
                            else-expr (elab-term est e)
-                           ret-type (tc/infer-type (:tc est) (zonk est then-expr))]
+                           ret-type (infer-with-mvars est then-expr)]
                        (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
                                (e/lam "_" (e/const' (name/from-string "Bool") []) ret-type :default)
                                else-expr then-expr cond-expr))))
@@ -1214,11 +1225,11 @@
                                                    (update :tc update :lctx red/lctx-add-local fid (str bv) bty))
                                           be (elab-term est' body)]
                                       [(e/lam (str bv) bty (e/abstract1 be fid) :default)
-                                       (tc/infer-type (:tc est') (zonk est be))]))
+                                       (infer-with-mvars est' be)]))
                         [then-fn ret-type] (mk-branch tv cond-expr tbody)
                         not-cond (e/app (e/const' (name/from-string "Not") []) cond-expr)
                         [else-fn _] (mk-branch ev not-cond ebody)
-                        ret-sort (tc/infer-type (:tc est) (zonk est ret-type))
+                        ret-sort (infer-with-mvars est ret-type)
                         u (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))]
                     (e/app* (e/const' (name/from-string "dite") [u])
                             ret-type cond-expr inst then-fn else-fn))
@@ -1280,7 +1291,7 @@
                                    (elab-term est e)
                                    (e/app* (e/const' (name/from-string "Bool.rec") [(lvl/succ lvl/zero)])
                                            (e/lam "_" (e/const' (name/from-string "Bool") [])
-                                                  (tc/infer-type (:tc est) (zonk est (elab-term est e))) :default)
+                                                  (infer-with-mvars est (elab-term est e)) :default)
                                            (build more) (elab-term est e) (elab-term est t))))))]
                      (build (rest sexpr)))
 
@@ -1297,8 +1308,8 @@
                         ;; cond.{u} : {α : Sort u} → Bool → α → α → α. α (implicit, but passed
                         ;; positionally here) = type of `a`; the level param u = the level of α's
                         ;; OWN type (type-of(Option Nat) = Sort 1 ⟹ u = 1), i.e. sort-level of α's type.
-                        α (tc/infer-type (:tc est) (zonk est a))
-                        αsort (#'tc/cached-whnf (:tc est) (tc/infer-type (:tc est) (zonk est α)))
+                        α (infer-with-mvars est a)
+                        αsort (whnf-with-mvars est (infer-with-mvars est α))
                         u (if (e/sort? αsort) (e/sort-level αsort) lvl/zero)]
                     (e/app* (e/const' (name/from-string "cond") [u]) α c a b))
 
@@ -1309,7 +1320,7 @@
                                  (elab-term est (if (= 1 (count body)) (first body) (cons 'do body)))
                                  (let [[nm vform] (first ps)
                                        vexpr (elab-term est vform)
-                                       vtype (tc/infer-type (:tc est) (zonk est vexpr))
+                                       vtype (infer-with-mvars est vexpr)
                                        fid (fresh-id! est)
                                        est' (-> est
                                                 (assoc-in [:scope nm] {:fvar-id fid :type vtype})
@@ -1331,7 +1342,7 @@
               (keyword? head)
               (let [field-name (name head)
                     struct-expr (elab-term est (second sexpr))
-                    struct-type (#'tc/cached-whnf (:tc est) (infer-with-mvars est struct-expr))
+                    struct-type (whnf-with-mvars est (infer-with-mvars est struct-expr))
                     [th _] (e/get-app-fn-args struct-type)
                     tn (when (e/const? th) (name/->string (e/const-name th)))
                     reg (deref ingest/structure-registry)
@@ -1425,7 +1436,7 @@
                 ;; Unify the instance's concrete type with the goal so universe
                 ;; levels shared with the class head (e.g. LE.le.{?u}) get solved
                 ;; (solve-mvar! only propagates levels when both sides are Sorts).
-                (try (unify! est (tc/infer-type (:tc est) sol) goal)
+                (try (unify! est (infer-with-mvars est sol) goal)
                      (catch Throwable _ nil))
                 (reset! solved-any true)))))
         (when @solved-any (recur))))))
@@ -1468,12 +1479,12 @@
   "The (whnf'd, zonked) TYPE of an elaborated subterm — for type-directed dispatch
    (e.g. count → vsize / Map.size / List.length depending on the collection type)."
   [est expr]
-  (zonk est (#'tc/cached-whnf (:tc est) (infer-with-mvars est expr))))
+  (whnf-with-mvars est (infer-with-mvars est expr)))
 
 (defn subterm-whnf
   "whnf a kernel type/term in the elaboration's typechecker context."
   [est expr]
-  (#'tc/cached-whnf (:tc est) (zonk est expr)))
+  (whnf-with-mvars est expr))
 
 (defn- attach-elab-lctx
   "Populate an elaboration state with a proof/local context."
