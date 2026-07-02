@@ -227,7 +227,7 @@
   (testing "level mvar mirror assignment rejects cycles before mutating legacy state"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           u (#'elab/fresh-level-mvar! st)
-          id (first (keys @(:level-mctx st)))]
+          id (lvl/mvar-id u)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
                             (#'elab/solve-level-mvar! st id (lvl/succ u))))
       (is (nil? (get-in @(:level-mctx st) [id :solution])))
@@ -237,7 +237,7 @@
   (testing "surface level unification solves in :meta-mctx and syncs legacy state"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           u (#'elab/fresh-level-mvar! st)
-          id (first (keys @(:level-mctx st)))]
+          id (lvl/mvar-id u)]
       (is (#'elab/unify-levels! st (lvl/succ u) (lvl/succ lvl/zero)))
       (is (= lvl/zero (get-in @(:level-mctx st) [id :solution])))
       (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))

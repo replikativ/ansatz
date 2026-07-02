@@ -90,13 +90,13 @@
 
 (defn- fresh-level-mvar!
   "Create a fresh universe level metavariable.
-   Returns a Level/param with a synthetic name."
+   Returns a real Level.mvar; the compatibility context keeps a display name."
   [est]
   (let [id (fresh-id! est)
         n (name/from-string (str "?u" id))]
     (swap! (:level-mctx est) assoc id {:name n :solution nil})
     (swap! (:meta-mctx est) meta/add-level-mvar-decl id)
-    (lvl/param n)))
+    (lvl/mvar id)))
 
 (defn- solve-mvar!
   "Assign a solution to a metavariable. Returns true if successful.
@@ -168,6 +168,11 @@
                               @(:level-mctx est))]
               (if (and entry (:solution entry))
                 (zonk-level est (:solution entry))
+                l))
+          5 (let [id (lvl/mvar-id l)
+                  entry (get @(:level-mctx est) id)]
+              (if-let [solution (:solution entry)]
+                (zonk-level est solution)
                 l))))))
 
 (defn- zonk
@@ -224,15 +229,22 @@
     expr))
 
 (defn- legacy-level-mvar-id
-  "Return the legacy level mvar id represented by synthetic Level.param `l`, if any."
+  "Return the level mvar id represented by `l`, accepting both real Level.mvar
+   nodes and the older synthetic Level.param compatibility shape."
   [est l]
-  (when (lvl/param? l)
+  (cond
+    (lvl/mvar? l)
+    (lvl/mvar-id l)
+
+    (lvl/param? l)
     (let [n (lvl/param-name l)]
       (some (fn [[id m]] (when (= (:name m) n) id))
             @(:level-mctx est)))))
 
 (defn- surface-level->meta
-  "Replace remaining synthetic level params with real Level.mvar nodes."
+  "Translate live surface levels to metacontext-shaped levels. Level mvars are
+   already real `Level.mvar` nodes; the synthetic param path remains for
+   compatibility with older elaborator artifacts."
   [est l]
   (if (nil? l)
     l
@@ -260,7 +272,8 @@
 (defn- surface-expr->meta
   "Translate live surface expressions to metacontext-shaped expressions.
    Expression mvars are already real `Expr.mvar` nodes; the legacy fvar path is
-   retained for compatibility. Synthetic level params become `Level.mvar`."
+   retained for compatibility. Level mvars are already real `Level.mvar` nodes,
+   with legacy synthetic params still accepted."
   [est expr]
   (let [mctx @(:mctx est)]
     (letfn [(go [expr]
@@ -327,8 +340,9 @@
    lctx))
 
 (defn- meta-level->surface
-  "Replace real Level.mvar nodes belonging to this elaboration with legacy
-   synthetic Level.param nodes."
+  "Translate metacontext-shaped levels back to the live surface representation.
+   Level mvars are now live `Level.mvar` nodes; the param path remains for
+   compatibility with older elaborator artifacts."
   [est l]
   (if (nil? l)
     l
@@ -348,15 +362,12 @@
                        (identical? b (lvl/imax-rhs l)))
                 l
                 (lvl/imax a b)))
-      :mvar (if-let [entry (get @(:level-mctx est) (lvl/mvar-id l))]
-              (lvl/param (:name entry))
-              l)
+      :mvar l
       :param l)))
 
 (defn- meta-expr->surface
   "Translate metacontext-shaped data back to the live surface representation.
-   Expression mvars are now live `Expr.mvar` nodes; universe mvars still map to
-   legacy synthetic `Level.param` placeholders until the level migration lands."
+   Expression and universe mvars are now live `Expr.mvar`/`Level.mvar` nodes."
   [est expr]
   (letfn [(go [expr]
             (case (e/tag expr)
@@ -564,9 +575,9 @@
 
    Lean keeps elaboration metavariables in the metacontext consulted by
    Meta.inferType. We mirror that: expression holes are live `Expr.mvar` nodes,
-   legacy fvar placeholders are still accepted, synthetic level params are
-   converted to `Level.mvar`, and the inferred type is translated back to the
-   live surface shape."
+   universe holes are live `Level.mvar` nodes, legacy fvar/level-param
+   placeholders are still accepted, and the inferred type is translated back to
+   the live surface shape."
   [est expr]
   (sync-meta-decls! est)
   (let [expr (surface-expr->meta est (zonk est expr))

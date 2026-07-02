@@ -26,9 +26,8 @@ The local Ansatz shape now follows that split:
   assignment can also type-check closed values against the mvar declaration;
 - proof states carry `:meta-mctx` beside the legacy `:mctx`;
 - new goals declare real `Expr.mvar` ids in `:meta-mctx`;
-- surface elaboration now uses real `Expr.mvar` nodes for expression holes;
-  universe holes still use compatibility level params that convert through
-  `:meta-mctx`;
+- surface elaboration now uses real `Expr.mvar` nodes for expression holes and
+  real `Level.mvar` nodes for universe holes;
 - surface expression mvar declarations live in `:meta-mctx`; surface `:mctx`
   now keeps compatibility metadata/solutions instead of duplicated types;
 - surface type inference and WHNF for terms containing holes now route through
@@ -66,9 +65,8 @@ map or the surface elaborator.
 - `extract` uses the metacontext path for modern proof states.
 - `extract-legacy` remains as a migration/debugging path while tactic writers
   still construct legacy recipes.
-- Surface elaboration uses real expression mvars internally, but universe holes
-  still pass through compatibility level params, and `:mctx`/`:level-mctx`
-  remain compatibility views.
+- Surface elaboration uses real expression and universe mvars internally, but
+  `:mctx`/`:level-mctx` remain compatibility views.
 - The kernel still rejects raw mvars by construction: callers must zonk first.
 
 That is deliberate. It lets us migrate tactic families and elaborator code
@@ -106,8 +104,8 @@ only if the kernel checks it.
 
 ## Next Fidelity Targets
 
-1. Finish the surface universe representation migration: internally elaborate
-   with real `Level.mvar` instead of level-param compatibility placeholders.
+1. Remove the remaining surface compatibility maps where callers can read
+   directly from `:meta-mctx`.
 2. Finish the tactic unifier migration by removing the fvar-backed atom
    fallback once the metacontext path covers all observed simp/rewrite/apply
    cases.
@@ -120,5 +118,5 @@ only if the kernel checks it.
 4. Continue parity tests for larger tactic families and proof extraction
    recipes as more assignment recipes are replaced by direct metacontext proof
    terms.
-5. Collapse the remaining compatibility views once surface level placeholders
-   and the tactic unifier fallback are gone.
+5. Collapse the remaining compatibility views once the surface compatibility
+   maps and tactic unifier fallback are gone.
