@@ -317,9 +317,22 @@
     (let [env (minimal-env)
           goal-type (e/forall' "p" prop (e/bvar 0) :default)
           [ps _] (proof/start-proof env goal-type)
-          ps (basic/intro ps "p")]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"natural holes"
-                            (basic/refine ps '_))))))
+          ps (basic/intro ps "p")
+          expected-type-str (e/->string (:type (proof/current-goal ps)))]
+      (try
+        (basic/refine ps '_)
+        (is false "expected refine to reject natural holes")
+        (catch clojure.lang.ExceptionInfo ex
+          (let [data (ex-data ex)
+                diagnostics (:hole-diagnostics data)
+                first-hole (first diagnostics)]
+            (is (re-find #"natural holes" (.getMessage ex)))
+            (is (re-find #"use refine'" (.getMessage ex)))
+            (is (= 1 (:hole-count data)))
+            (is (= 1 (count diagnostics)))
+            (is (= :natural (:kind first-hole)))
+            (is (= "?m." (subs (:display-name first-hole) 0 3)))
+            (is (= expected-type-str (:type-str first-hole)))))))))
 
 (deftest test-refine-prime-allows-natural-holes-under-binders
   (testing "refine-prime turns lambda-body holes into subgoals with delayed abstraction"

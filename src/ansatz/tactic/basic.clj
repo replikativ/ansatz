@@ -6,6 +6,7 @@
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
   (:require [clojure.set]
+            [clojure.string :as str]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -298,6 +299,23 @@
 (defn- max-collected-mvar-id [mctx]
   (reduce max 0 (concat (keys (:decls mctx)) (keys (:level-depth mctx)))))
 
+(defn- hole-display-name [hole]
+  (if-let [user-name (:user-name hole)]
+    (str "?" (name/->string user-name))
+    (str "?m." (:id hole))))
+
+(defn- hole-diagnostic [hole]
+  (assoc hole
+         :display-name (hole-display-name hole)
+         :type-str (e/->string (:type hole))))
+
+(defn- format-hole-diagnostics [holes]
+  (str/join
+   "\n"
+   (map (fn [hole]
+          (str "  " (:display-name hole) " : " (:type-str hole)))
+        holes)))
+
 (defn refine
   "Refine the current goal using a surface term.
 
@@ -326,8 +344,13 @@
        (tactic-error! "refine: unresolved universe level holes"
                       {:level-holes level-holes}))
      (when (and (not allow-natural-holes?) (seq natural-holes))
-       (tactic-error! "refine: unresolved natural holes"
-                      {:holes natural-holes}))
+       (let [diagnostics (mapv hole-diagnostic natural-holes)]
+         (tactic-error! (str "refine: unresolved natural holes\n"
+                             (format-hole-diagnostics diagnostics)
+                             "\nuse refine' if these holes should become goals")
+                        {:holes natural-holes
+                         :hole-diagnostics diagnostics
+                         :hole-count (count diagnostics)})))
      (let [visible-holes (if allow-natural-holes?
                            holes
                            (remove #(= :natural (:kind %)) holes))

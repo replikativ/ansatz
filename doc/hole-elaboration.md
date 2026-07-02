@@ -66,6 +66,9 @@ The local Ansatz shape now follows that split:
 - `refine-prime` elaborates with a Lean-style `holesAsSyntheticOpaque` mode,
   so explicit `_` holes become synthetic-opaque tactic goals rather than
   ordinary natural metavariables;
+- default `refine` rejection for natural holes now reports typed diagnostics
+  in `ex-data`, giving REPL/search tooling the unfilled-hole ids, display
+  names, kinds, and types;
 - named synthetic holes reuse an existing metacontext user-name entry when one
   is available, matching Lean's synthetic-hole lookup behavior;
 - `refine` mirrors Lean's main-goal guard: refining with the main goal keeps it
