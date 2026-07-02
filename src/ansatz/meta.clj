@@ -681,7 +681,7 @@
                   (update :lctx #(instantiate-lctx-mvars mctx %))
                   (update :type #(zonk-expr mctx %))))))
 
-(declare infer-type)
+(declare infer-type is-def-eq)
 
 (defn- open-binder-type
   [st lctx name type body]
@@ -806,6 +806,109 @@
      (go st expr)))
   ([mctx env lctx expr]
    (infer-type mctx (tc/mk-tc-state-with-locals env lctx) expr)))
+
+(defn- try-assign-expr-defeq
+  [mctx st id value]
+  (when-not (contains? (collect-expr-mvars (zonk-expr mctx value)) id)
+    (try
+      (let [decl (expr-decl! mctx id)
+            value-type (infer-type mctx st value)
+            mctx (is-def-eq mctx st value-type (:type decl))]
+        (when mctx
+          (checked-assign-expr mctx id value
+                               {:check-type? false
+                                :unification? true})))
+      (catch clojure.lang.ExceptionInfo _ nil)
+      (catch Throwable _ nil))))
+
+(defn- expr-mvar-assignment-candidate
+  [mctx a b]
+  (cond
+    (and (e/mvar? a)
+         (not (expr-assigned-or-delayed? mctx (e/mvar-id a))))
+    [(e/mvar-id a) b]
+
+    (and (e/mvar? b)
+         (not (expr-assigned-or-delayed? mctx (e/mvar-id b))))
+    [(e/mvar-id b) a]))
+
+(defn- closed-kernel-defeq
+  [mctx st a b]
+  (when (and (closed-expr? mctx a)
+             (closed-expr? mctx b))
+    (try
+      (when (tc/is-def-eq st a b) mctx)
+      (catch Throwable _ nil))))
+
+(defn- is-def-eq-core
+  [mctx st a b]
+  (or
+   (when (= a b) mctx)
+   (closed-kernel-defeq mctx st a b)
+   (when-let [[id value] (expr-mvar-assignment-candidate mctx a b)]
+     (try-assign-expr-defeq mctx st id value))
+   (when (= (e/tag a) (e/tag b))
+     (case (e/tag a)
+       :sort (is-level-def-eq mctx (e/sort-level a) (e/sort-level b))
+
+       :const (when (and (= (e/const-name a) (e/const-name b))
+                         (= (count (e/const-levels a))
+                            (count (e/const-levels b))))
+                (reduce (fn [mctx [u v]]
+                          (when mctx (is-level-def-eq mctx u v)))
+                        mctx
+                        (map vector (e/const-levels a) (e/const-levels b))))
+
+       :app (when-let [mctx (is-def-eq mctx st (e/app-fn a) (e/app-fn b))]
+              (is-def-eq mctx st (e/app-arg a) (e/app-arg b)))
+
+       :lam (when-let [mctx (is-def-eq mctx st (e/lam-type a) (e/lam-type b))]
+              (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
+                                                         (e/lam-name a)
+                                                         (e/lam-type a)
+                                                         (e/lam-body a))
+                    body-b (e/instantiate1 (e/lam-body b) fv)]
+                (is-def-eq mctx st' body-a body-b)))
+
+       :forall (when-let [mctx (is-def-eq mctx st (e/forall-type a) (e/forall-type b))]
+                 (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
+                                                            (e/forall-name a)
+                                                            (e/forall-type a)
+                                                            (e/forall-body a))
+                       body-b (e/instantiate1 (e/forall-body b) fv)]
+                   (is-def-eq mctx st' body-a body-b)))
+
+       :let (when-let [mctx (is-def-eq mctx st (e/let-type a) (e/let-type b))]
+              (when-let [mctx (is-def-eq mctx st (e/let-value a) (e/let-value b))]
+                (is-def-eq mctx st
+                           (e/instantiate1 (e/let-body a) (e/let-value a))
+                           (e/instantiate1 (e/let-body b) (e/let-value b)))))
+
+       :mdata (is-def-eq mctx st (e/mdata-expr a) (e/mdata-expr b))
+
+       :proj (when (and (= (e/proj-type-name a) (e/proj-type-name b))
+                        (= (e/proj-idx a) (e/proj-idx b)))
+               (is-def-eq mctx st (e/proj-struct a) (e/proj-struct b)))
+
+       :fvar (when (= (e/fvar-id a) (e/fvar-id b)) mctx)
+       (:lit-nat :lit-str :bvar) (when (= a b) mctx)
+       nil))))
+
+(defn is-def-eq
+  "Lean-shaped expression definitional equality with metavariable assignment.
+
+   Return an updated metacontext on success and nil on failure. This is a Meta
+   service, not a kernel check: it may assign expression and level
+   metavariables in the returned metacontext, but accepted proofs still have to
+   be zonked and checked by the kernel."
+  [mctx st a b]
+  (let [a (zonk-expr mctx a)
+        b (zonk-expr mctx b)]
+    (or (is-def-eq-core mctx st a b)
+        (let [a' (whnf mctx st a)
+              b' (whnf mctx st b)]
+          (when (or (not= a a') (not= b b'))
+            (is-def-eq-core mctx st (zonk-expr mctx a') (zonk-expr mctx b')))))))
 
 (declare local-decl-depends-on?)
 

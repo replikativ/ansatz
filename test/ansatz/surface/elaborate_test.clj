@@ -242,6 +242,17 @@
       (is (= lvl/zero (get-in @(:level-mctx st) [id :solution])))
       (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))
 
+(deftest test-elab-expression-unification-uses-metacontext
+  (testing "surface expression unification solves in :meta-mctx and syncs legacy state"
+    (let [prop (e/sort' lvl/zero)
+          st (-> (#'elab/mk-elab-state (env/empty-env))
+                 (update :tc update :lctx red/lctx-add-local 42 "h" prop))
+          hole (#'elab/fresh-mvar! st prop)
+          id (e/fvar-id hole)]
+      (is (#'elab/unify! st hole (e/fvar 42)))
+      (is (= (e/fvar 42) (get-in @(:mctx st) [id :solution])))
+      (is (= (e/fvar 42) (meta/expr-assignment @(:meta-mctx st) id))))))
+
 (deftest test-elab-infer-with-mvars-uses-mirrored-metacontext
   (testing "dependent surface holes are typed through real mvars in :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))

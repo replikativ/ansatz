@@ -194,6 +194,25 @@
     (is (= (e/mvar 1)
            (meta/whnf mctx st (e/app id-lam (e/mvar 1)))))))
 
+(deftest meta-defeq-assigns-expression-metavariables
+  (testing "expression unification assigns through the checked metacontext boundary"
+    (let [prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 42 "h" prop)
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 prop lctx)
+          st (tc/mk-tc-state-with-locals (env/empty-env) lctx)
+          solved (meta/is-def-eq mctx st (e/mvar 1) (e/fvar 42))]
+      (is solved)
+      (is (= (e/fvar 42) (meta/expr-assignment solved 1)))))
+
+  (testing "synthetic opaque goals are not assigned by unification"
+    (let [prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 42 "h" prop)
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 prop lctx
+                                        {:kind :syntheticOpaque})
+          st (tc/mk-tc-state-with-locals (env/empty-env) lctx)]
+      (is (nil? (meta/is-def-eq mctx st (e/mvar 1) (e/fvar 42))))
+      (is (nil? (meta/expr-assignment mctx 1))))))
+
 (deftest expr-dependency-is-conservative-over-unassigned-mvars
   (testing "assigned mvars are followed and unassigned mvars may depend on their local context"
     (let [prop (e/sort' lvl/zero)

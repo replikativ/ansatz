@@ -32,6 +32,8 @@ The local Ansatz shape now follows that split:
 - surface universe-level unification now routes through the persistent
   metacontext level unifier and syncs assignments back to the compatibility
   level context;
+- surface expression unification now routes through `ansatz.meta/is-def-eq`
+  and syncs expression/level assignments back to compatibility contexts;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
@@ -99,10 +101,11 @@ only if the kernel checks it.
    (`simp-reduce` child delegation), `cases`, `rewrite`, `generalize`,
    `revert`, `exfalso`, `subst`, `clear`, Bool `by-cases`, and Decidable
    `by-cases`.
-3. Extend checked assignment and Meta-layer type inference into the mvar-aware
-   unifier. The current helper
-   enforces the structural side of Lean's `checkedAssign`; the remaining gap is
-   type compatibility when assignment values/types still contain open mvars.
+3. Extend the mvar-aware unifier beyond the first-order surface path. The meta
+   unifier now handles direct expression assignments, universe assignments,
+   closed kernel delegation, and structural recursion; remaining Lean gaps
+   include Miller-pattern assignment, synthetic preference ordering, and
+   tactic-side replacement of the older fvar-backed unifier.
 4. Convert surface elaboration holes from fvar-backed placeholders to real
    `Expr.mvar` plus `:meta-mctx`.
 5. Collapse `:mctx` into `:meta-mctx` compatibility views once tactic writers

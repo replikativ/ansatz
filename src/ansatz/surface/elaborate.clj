@@ -405,6 +405,16 @@
         (swap! (:level-mctx est) assoc-in [id :solution]
                (meta-level->surface est solution))))))
 
+(defn- sync-legacy-exprs-from-meta!
+  "Mirror solved expression mvars from `:meta-mctx` back into the legacy
+   compatibility expression context."
+  [est]
+  (let [mctx @(:meta-mctx est)]
+    (doseq [[id _] @(:mctx est)]
+      (when-let [solution (meta/expr-assignment mctx id)]
+        (swap! (:mctx est) assoc-in [id :solution]
+               (meta-expr->surface est solution))))))
+
 (defn- sync-meta-decls!
   "Keep the mirrored metacontext declarations readable after legacy zonking by
    converting their types/local contexts to real mvar representation."
@@ -521,35 +531,15 @@
   "First-order unification of two expressions, solving metavars in est.
    Returns true on success."
   [est a b]
-  (let [a (zonk est a)
-        b (zonk est b)]
-    (or (= a b)
-        ;; If one side is an unsolved mvar, solve it
-        (and (e/fvar? a) (get @(:mctx est) (e/fvar-id a))
-             (not (mvar-solution est (e/fvar-id a)))
-             (solve-mvar! est (e/fvar-id a) b))
-        (and (e/fvar? b) (get @(:mctx est) (e/fvar-id b))
-             (not (mvar-solution est (e/fvar-id b)))
-             (solve-mvar! est (e/fvar-id b) a))
-        ;; Structural unification
-        (and (= (e/tag a) (e/tag b))
-             (case (e/tag a)
-               :sort (unify-levels! est (e/sort-level a) (e/sort-level b))
-               :const (and (= (e/const-name a) (e/const-name b))
-                           (let [la (e/const-levels a)
-                                 lb (e/const-levels b)]
-                             (and (= (count la) (count lb))
-                                  (every? true? (map #(unify-levels! est %1 %2) la lb)))))
-               :app (and (unify! est (e/app-fn a) (e/app-fn b))
-                         (unify! est (e/app-arg a) (e/app-arg b)))
-               :forall (and (unify! est (e/forall-type a) (e/forall-type b))
-                            (unify! est (e/forall-body a) (e/forall-body b)))
-               :lam (and (unify! est (e/lam-type a) (e/lam-type b))
-                         (unify! est (e/lam-body a) (e/lam-body b)))
-               :fvar (= (e/fvar-id a) (e/fvar-id b))
-               :bvar (= (e/bvar-idx a) (e/bvar-idx b))
-               (:lit-nat :lit-str) (= a b)
-               false)))))
+  (sync-meta-decls! est)
+  (let [a (surface-expr->meta est (zonk est a))
+        b (surface-expr->meta est (zonk est b))
+        st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))]
+    (when-let [mctx (meta/is-def-eq @(:meta-mctx est) st a b)]
+      (reset! (:meta-mctx est) mctx)
+      (sync-legacy-levels-from-meta! est)
+      (sync-legacy-exprs-from-meta! est)
+      true)))
 
 (defn- infer-with-mvars
   "Infer the type of an expression that may still mention elaboration mvars.
