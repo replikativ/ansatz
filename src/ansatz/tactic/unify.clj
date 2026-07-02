@@ -17,7 +17,8 @@
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
-            [ansatz.kernel.level :as lvl]))
+            [ansatz.kernel.level :as lvl]
+            [ansatz.meta :as meta]))
 
 ;; ============================================================
 ;; Metavariable context
@@ -177,7 +178,7 @@
 (defn- whnf* [st e]
   (try (#'tc/cached-whnf st e) (catch Exception _ e)))
 
-(declare is-def-eq!)
+(declare legacy-is-def-eq!)
 
 (defn- mvar-app-spine
   "If `e` is `(?m a1 … an)` with `?m` an unsolved metavariable (n ≥ 1), return [mvar-id [a1 … an]];
@@ -225,7 +226,7 @@
   (let [fid (long (swap! (:next-id st) inc))
         fv (e/fvar fid)
         st' (update st :lctx red/lctx-add-local fid name (zonk mctx dom))]
-    (is-def-eq! st' mctx (conj bound fid) (e/instantiate1 body-a fv) (e/instantiate1 body-b fv))))
+    (legacy-is-def-eq! st' mctx (conj bound fid) (e/instantiate1 body-a fv) (e/instantiate1 body-b fv))))
 
 (defn- assign-or-recurse [st mctx bound a b]
   ;; a, b assumed zonked. Try mvar-assignment / pattern-solve, else structural recursion.
@@ -242,24 +243,24 @@
       ;; first-order approximation / structural recursion
      (when (= (e/tag a) (e/tag b))
        (case (e/tag a)
-         :app    (and (is-def-eq! st mctx bound (e/app-fn a) (e/app-fn b))
-                      (is-def-eq! st mctx bound (e/app-arg a) (e/app-arg b)))
+         :app    (and (legacy-is-def-eq! st mctx bound (e/app-fn a) (e/app-fn b))
+                      (legacy-is-def-eq! st mctx bound (e/app-arg a) (e/app-arg b)))
          :const  (and (= (e/const-name a) (e/const-name b))
                       (= (count (e/const-levels a)) (count (e/const-levels b)))
                       (every? true? (map #(is-level-def-eq! mctx %1 %2) (e/const-levels a) (e/const-levels b))))
          :proj   (and (= (e/proj-type-name a) (e/proj-type-name b))
                       (= (e/proj-idx a) (e/proj-idx b))
-                      (is-def-eq! st mctx bound (e/proj-struct a) (e/proj-struct b)))
-         :lam    (and (is-def-eq! st mctx bound (e/lam-type a) (e/lam-type b))
+                      (legacy-is-def-eq! st mctx bound (e/proj-struct a) (e/proj-struct b)))
+         :lam    (and (legacy-is-def-eq! st mctx bound (e/lam-type a) (e/lam-type b))
                       (open-binder st mctx bound (e/lam-type a) (e/lam-name a) (e/lam-body a) (e/lam-body b)))
-         :forall (and (is-def-eq! st mctx bound (e/forall-type a) (e/forall-type b))
+         :forall (and (legacy-is-def-eq! st mctx bound (e/forall-type a) (e/forall-type b))
                       (open-binder st mctx bound (e/forall-type a) (e/forall-name a) (e/forall-body a) (e/forall-body b)))
          :sort   (is-level-def-eq! mctx (e/sort-level a) (e/sort-level b))
          :fvar   (= (e/fvar-id a) (e/fvar-id b))
          (:lit-nat :lit-str :bvar) (= a b)
          false)))))
 
-(defn is-def-eq!
+(defn- legacy-is-def-eq!
   "Metavariable-aware, reduction-aware definitional equality (Lean's `Meta.isDefEq`).
    Solves metavariables of `mctx` in place; returns true on success.
 
@@ -279,7 +280,7 @@
    `st` is a `tc/mk-tc-state` (with the goal's lctx attached); `mctx` is the metavariable atom.
    `bound` (4-arg arity defaults to ∅) is the set of fvar ids opened from binders during this run —
    the only fvars eligible as Miller-pattern arguments."
-  ([st mctx a b] (is-def-eq! st mctx #{} a b))
+  ([st mctx a b] (legacy-is-def-eq! st mctx #{} a b))
   ([st mctx bound a b]
    ;; instantiateMVars = chase BOTH expr- and level-mvar solutions. The level pass only runs when some
    ;; level-mvar has been solved (regression-safe: zero cost when no level-mvars are in play), so a
@@ -293,3 +294,151 @@
          (let [a' (whnf* st a) b' (whnf* st b)]
            (when (or (not (identical? a' a)) (not (identical? b' b)))
              (assign-or-recurse st mctx bound (zonk mctx a') (zonk mctx b'))))))))
+
+(defn- legacy-mvar-entry? [[id _]]
+  (integer? id))
+
+(defn- legacy-level->meta [l]
+  (if-not (lvl/has-mvar? l)
+    l
+    (case (lvl/tag l)
+      :succ (lvl/succ (legacy-level->meta (lvl/succ-pred l)))
+      :max (lvl/level-max (legacy-level->meta (lvl/max-lhs l))
+                           (legacy-level->meta (lvl/max-rhs l)))
+      :imax (lvl/imax (legacy-level->meta (lvl/imax-lhs l))
+                      (legacy-level->meta (lvl/imax-rhs l)))
+      l)))
+
+(declare legacy-expr->meta meta-expr->legacy)
+
+(defn- legacy-expr->meta [legacy expr]
+  (case (e/tag expr)
+    :fvar (if (contains? legacy (e/fvar-id expr))
+            (e/mvar (e/fvar-id expr))
+            expr)
+    :sort (e/sort' (legacy-level->meta (e/sort-level expr)))
+    :const (e/const' (e/const-name expr) (mapv legacy-level->meta (e/const-levels expr)))
+    :app (e/app (legacy-expr->meta legacy (e/app-fn expr))
+                (legacy-expr->meta legacy (e/app-arg expr)))
+    :lam (e/lam (e/lam-name expr)
+                (legacy-expr->meta legacy (e/lam-type expr))
+                (legacy-expr->meta legacy (e/lam-body expr))
+                (e/lam-info expr))
+    :forall (e/forall' (e/forall-name expr)
+                       (legacy-expr->meta legacy (e/forall-type expr))
+                       (legacy-expr->meta legacy (e/forall-body expr))
+                       (e/forall-info expr))
+    :let (e/let' (e/let-name expr)
+                 (legacy-expr->meta legacy (e/let-type expr))
+                 (legacy-expr->meta legacy (e/let-value expr))
+                 (legacy-expr->meta legacy (e/let-body expr)))
+    :proj (e/proj (e/proj-type-name expr) (e/proj-idx expr)
+                  (legacy-expr->meta legacy (e/proj-struct expr)))
+    :mdata (e/mdata (e/mdata-data expr)
+                    (legacy-expr->meta legacy (e/mdata-expr expr)))
+    expr))
+
+(defn- meta-expr->legacy [legacy expr]
+  (case (e/tag expr)
+    :mvar (if (contains? legacy (e/mvar-id expr))
+            (e/fvar (e/mvar-id expr))
+            expr)
+    :app (e/app (meta-expr->legacy legacy (e/app-fn expr))
+                (meta-expr->legacy legacy (e/app-arg expr)))
+    :lam (e/lam (e/lam-name expr)
+                (meta-expr->legacy legacy (e/lam-type expr))
+                (meta-expr->legacy legacy (e/lam-body expr))
+                (e/lam-info expr))
+    :forall (e/forall' (e/forall-name expr)
+                       (meta-expr->legacy legacy (e/forall-type expr))
+                       (meta-expr->legacy legacy (e/forall-body expr))
+                       (e/forall-info expr))
+    :let (e/let' (e/let-name expr)
+                 (meta-expr->legacy legacy (e/let-type expr))
+                 (meta-expr->legacy legacy (e/let-value expr))
+                 (meta-expr->legacy legacy (e/let-body expr)))
+    :proj (e/proj (e/proj-type-name expr) (e/proj-idx expr)
+                  (meta-expr->legacy legacy (e/proj-struct expr)))
+    :mdata (e/mdata (e/mdata-data expr)
+                    (meta-expr->legacy legacy (e/mdata-expr expr)))
+    expr))
+
+(defn- legacy-lctx->meta [legacy lctx]
+  (reduce-kv
+   (fn [acc id decl]
+     (assoc acc id
+            (cond-> decl
+              (:type decl) (update :type #(legacy-expr->meta legacy %))
+              (:value decl) (update :value #(legacy-expr->meta legacy %)))))
+   {}
+   lctx))
+
+(defn- meta-level-ids-in-expr [expr]
+  (set (meta/unassigned-level-mvars meta/empty-context expr)))
+
+(defn- build-meta-context [st legacy a b]
+  (let [entries (filter legacy-mvar-entry? legacy)
+        lctx-exprs (mapcat (fn [[_ {:keys [type value]}]] [type value])
+                           (:lctx st))
+        exprs (remove nil? (concat [a b]
+                                   lctx-exprs
+                                   (mapcat (fn [[_ {:keys [type solution]}]]
+                                             [type solution])
+                                           entries)))
+        exprs (map #(legacy-expr->meta legacy %) exprs)
+        level-ids (into (set (keys (:levels legacy)))
+                        (mapcat meta-level-ids-in-expr exprs))
+        lctx (legacy-lctx->meta legacy (:lctx st))]
+    (-> (reduce meta/add-level-mvar-decl meta/empty-context level-ids)
+        (as-> mctx
+            (reduce (fn [mctx [id {:keys [type]}]]
+                      (meta/add-expr-mvar-decl mctx id
+                                               (legacy-expr->meta legacy type)
+                                               lctx))
+                    mctx entries))
+        (as-> mctx
+            (reduce (fn [mctx [id {:keys [solution]}]]
+                      (if solution
+                        (meta/assign-expr mctx id (legacy-expr->meta legacy solution))
+                        mctx))
+                    mctx entries))
+        (as-> mctx
+            (reduce (fn [mctx [id solution]]
+                      (meta/assign-level mctx id solution))
+                    mctx (:levels legacy))))))
+
+(defn- sync-legacy-from-meta! [mctx meta-mctx]
+  (let [legacy @mctx]
+    (doseq [[id _] (filter legacy-mvar-entry? legacy)]
+      (when-let [solution (meta/expr-assignment meta-mctx id)]
+        (swap! mctx assoc-in [id :solution]
+               (meta-expr->legacy legacy solution))))
+    (doseq [[id solution] (:level-assignment meta-mctx)]
+      (swap! mctx assoc-in [:levels id] solution))))
+
+(defn- try-meta-is-def-eq!
+  [st mctx bound a b]
+  (try
+    (let [legacy @mctx
+          meta-mctx (build-meta-context st legacy a b)
+          lctx (legacy-lctx->meta legacy (:lctx st))
+          meta-st (tc/attach-lctx (tc/mk-tc-state (:env st)) lctx)
+          a (legacy-expr->meta legacy a)
+          b (legacy-expr->meta legacy b)]
+      (when-let [meta-mctx (meta/is-def-eq meta-mctx meta-st bound a b)]
+        (sync-legacy-from-meta! mctx meta-mctx)
+        true))
+    (catch Throwable _ nil)))
+
+(defn is-def-eq!
+  "Metavariable-aware, reduction-aware definitional equality.
+
+   The public tactic API still accepts the historical fvar-backed `mctx` atom,
+   but first tries the Lean-shaped persistent metacontext implementation and
+   syncs successful assignments back. If the meta bridge cannot handle a case
+   yet, it falls back to the legacy tactic unifier."
+  ([st mctx a b]
+   (is-def-eq! st mctx #{} a b))
+  ([st mctx bound a b]
+   (or (try-meta-is-def-eq! st mctx bound a b)
+       (legacy-is-def-eq! st mctx bound a b))))

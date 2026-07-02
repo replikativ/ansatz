@@ -62,14 +62,23 @@
       (is (u/is-def-eq! st mctx idapp (e/lit-nat 5)))
       (is (= (e/lit-nat 5) (u/zonk mctx m))))))
 
+(deftest test-reducing-self-equation-does-not-assign
+  (testing "?x ≡ Nat.add ?x 0 succeeds by reduction without a cyclic assignment"
+    (let [env (require-env)
+          st (tc/mk-tc-state env)
+          mctx (atom {})
+          m (u/fresh-mvar! mctx 1005 (c "Nat"))]
+      (is (u/is-def-eq! st mctx m (nadd m (e/lit-nat 0))))
+      (is (nil? (get-in @mctx [1005 :solution]))))))
+
 (deftest test-occurs-check-rejects
   (testing "occurs check: ?x cannot be assigned a term containing ?x"
     (let [env (require-env)
           st (tc/mk-tc-state env)
           mctx (atom {})
           m (u/fresh-mvar! mctx 1003 (c "Nat"))]
-      ;; ?x =?= Nat.add ?x 0  → must fail (occurs)
-      (is (not (u/is-def-eq! st mctx m (nadd m (e/lit-nat 0))))))))
+      ;; ?x =?= Nat.add 0 ?x  → must fail (occurs; unlike Nat.add ?x 0, this is stuck)
+      (is (not (u/is-def-eq! st mctx m (nadd (e/lit-nat 0) m)))))))
 
 (deftest test-mismatch-fails
   (testing "genuinely distinct closed terms do not unify"

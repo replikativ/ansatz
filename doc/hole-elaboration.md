@@ -37,6 +37,9 @@ The local Ansatz shape now follows that split:
 - the metacontext unifier handles direct assignments, Miller-pattern
   assignments under binders, universe assignments, closed kernel delegation,
   and Lean-style synthetic-vs-natural assignment preference;
+- the tactic fvar-backed unifier now tries the Lean-shaped metacontext unifier
+  first and syncs successful assignments back, retaining the old implementation
+  as a fallback during migration;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
@@ -108,8 +111,8 @@ only if the kernel checks it.
    unifier now handles direct expression assignments, Miller-pattern
    assignment, universe assignments, closed kernel delegation, and structural
    recursion; remaining Lean gaps include richer proof/instance heuristics,
-   delayed assignment integration in unification, and tactic-side replacement
-   of the older fvar-backed unifier.
+   delayed assignment integration in unification, and finishing the tactic-side
+   migration away from the older fvar-backed compatibility atom.
 4. Convert surface elaboration holes from fvar-backed placeholders to real
    `Expr.mvar` plus `:meta-mctx`.
 5. Collapse `:mctx` into `:meta-mctx` compatibility views once tactic writers
