@@ -45,7 +45,9 @@
     :next-id (atom next-id-start)  ;; high start to avoid collision with tc ids
     :mctx (atom {})          ;; compatibility metadata/solutions; declarations live in :meta-mctx
     :level-mctx (atom {})    ;; {id → {:solution Level-or-nil}}
-    :meta-mctx (atom initial-meta-mctx)
+    :meta-mctx (atom (meta/with-synthetic-opaque-assignment
+                      initial-meta-mctx
+                      holes-as-synthetic-opaque?))
     :collect-from-index (or collect-from-index (:mvar-counter initial-meta-mctx 0))
     :initial-level-mvar-ids (set (keys (:level-depth initial-meta-mctx)))
     :holes-as-synthetic-opaque? holes-as-synthetic-opaque?
@@ -533,6 +535,7 @@
 
 (defn- strict-finalize [est expr]
   (solve-instance-mvars! est)
+  (swap! (:meta-mctx est) meta/with-synthetic-opaque-assignment false)
   (let [result (zonk est expr)
         unsolved (unsolved-mvars est)
         unsolved-levels (unsolved-levels est)]
@@ -553,6 +556,7 @@
   (let [legacy-result (zonk est expr)
         _ (sync-meta-decls! est)
         result (surface-expr->meta est legacy-result)
+        _ (swap! (:meta-mctx est) meta/with-synthetic-opaque-assignment false)
         start (:collect-from-index est 0)
         mctx @(:meta-mctx est)
         legacy @(:mctx est)

@@ -224,6 +224,22 @@
       (is (= :syntheticOpaque (:kind (first holes))))
       (is (nil? (:user-name (first holes)))))))
 
+(deftest test-elab-collecting-refine-prime-assigns-synthetic-opaque
+  (testing "refine' mode lets later arguments solve synthetic-opaque placeholders"
+    (let [env (require-init-medium)
+          prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 10 "h" prop)
+          {:keys [expr holes level-holes meta-mctx]}
+          (elab/elaborate-in-context-collecting env lctx (list (symbol "@id") '_ 'h) prop
+                                                {:holes-as-synthetic-opaque? true})
+          [head args] (e/get-app-fn-args expr)]
+      (is (e/const? head))
+      (is (= (name/from-string "id") (e/const-name head)))
+      (is (= [prop (e/fvar 10)] args))
+      (is (empty? holes))
+      (is (empty? level-holes))
+      (is (not (:assign-synthetic-opaque? meta-mctx))))))
+
 (deftest test-elab-strict-top-hole-fails
   (testing "strict elaboration still rejects unsolved holes"
     (let [env (env/empty-env)]

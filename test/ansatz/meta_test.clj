@@ -211,7 +211,18 @@
                                         {:kind :syntheticOpaque})
           st (tc/mk-tc-state-with-locals (env/empty-env) lctx)]
       (is (nil? (meta/is-def-eq mctx st (e/mvar 1) (e/fvar 42))))
-      (is (nil? (meta/expr-assignment mctx 1))))))
+      (is (nil? (meta/expr-assignment mctx 1)))))
+
+  (testing "synthetic opaque mvars can be assigned under the refine' scope"
+    (let [prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 42 "h" prop)
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop lctx {:kind :syntheticOpaque})
+                   (meta/with-synthetic-opaque-assignment true))
+          st (tc/mk-tc-state-with-locals (env/empty-env) lctx)
+          solved (meta/is-def-eq mctx st (e/mvar 1) (e/fvar 42))]
+      (is solved)
+      (is (= (e/fvar 42) (meta/expr-assignment solved 1))))))
 
 (deftest meta-defeq-assigns-miller-patterns
   (testing "unification can solve ?m x := x under a freshly opened binder"

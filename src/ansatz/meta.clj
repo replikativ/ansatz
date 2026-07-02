@@ -23,6 +23,16 @@
    :expr-assignment {}
    :delayed-assignment {}})
 
+(defn with-synthetic-opaque-assignment
+  "Return `mctx` with synthetic-opaque mvars assignable by unification when
+   `enabled?` is true. This mirrors Lean's scoped `withAssignableSyntheticOpaque`
+   used by `refine'`; callers should strip the flag before exposing the context
+   to ordinary tactic search."
+  [mctx enabled?]
+  (if enabled?
+    (assoc mctx :assign-synthetic-opaque? true)
+    (dissoc mctx :assign-synthetic-opaque?)))
+
 (defn add-expr-mvar-decl
   "Declare expression metavariable `id` in local context `lctx` with type `type`.
    `opts` may include `:user-name`, `:local-instances`, `:kind`, and
@@ -131,8 +141,9 @@
   [mctx id]
   (let [decl (expr-decl! mctx id)]
     (and (expr-assignable? mctx id)
-         (not= :syntheticOpaque (:kind decl))
-         (not= :synthetic-opaque (:kind decl)))))
+         (or (:assign-synthetic-opaque? mctx)
+             (and (not= :syntheticOpaque (:kind decl))
+                  (not= :synthetic-opaque (:kind decl)))))))
 
 (defn expr-assigned? [mctx id]
   (contains? (:expr-assignment mctx) id))
