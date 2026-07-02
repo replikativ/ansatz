@@ -253,6 +253,7 @@
                       ;; failed check (a genuinely-varying param ⇒ NOT a structural call, which must
                       ;; route to the WF path) leaves no stray solutions.
                       uf (:unify-fn est)
+                      mm0 (when (and uf (:meta-mctx est)) @(:meta-mctx est))
                       m0 (when uf @(:mctx est))
                       lm0 (when (and uf (:level-mctx est)) @(:level-mctx est))
                       fixed? (every? (fn [j]
@@ -269,6 +270,7 @@
                             (e/fvar (get field->ih (e/fvar-id (nth param-args jr))))
                             (map rec extra-args))
                     (do (when uf
+                          (when mm0 (reset! (:meta-mctx est) mm0))
                           (reset! (:mctx est) m0)
                           (when lm0 (reset! (:level-mctx est) lm0)))
                         nil)))))))]
