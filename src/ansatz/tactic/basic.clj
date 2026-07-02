@@ -1,7 +1,7 @@
 ;; Tactic layer — core tactics.
 
 (ns ansatz.tactic.basic
-  "Core tactics: intro, intros, exact, refine, assumption, apply, rfl, constructor,
+  "Core tactics: intro, intros, exact, refine, change, assumption, apply, rfl, constructor,
    cases, induction, rewrite, have-tac, revert, exfalso, subst, clear.
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
@@ -2322,6 +2322,43 @@
         ;; which would leave the subgoal mvar dangling as an unbound free variable.
         (-> (proof/assign-mvar ps' (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id})
             (proof/record-tactic :whnf [] (:id goal)))))))
+
+(defn change
+  "Replace the main target with a definitionally equal target type.
+
+   Target-only version of Lean's `change`: placeholders in `new-type-form` are
+   solved by unification against the current target when possible; remaining
+   synthetic holes become goals."
+  [ps new-type-form]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        st (mk-tc ps (:lctx goal))
+        expected-type (tc/infer-type st (:type goal))
+        tag-suffix (name/from-string "change")
+        {:keys [ps checked-expr visible-ids]}
+        (telab/elab-term-with-holes
+         ps goal new-type-form
+         {:allow-natural-holes? false
+          :tag-suffix tag-suffix
+          :tactic-name "change"
+          :expected-type expected-type
+          :after-elab
+          (fn [{:keys [expr meta-mctx]}]
+            (let [mctx (meta/with-synthetic-opaque-assignment meta-mctx true)
+                  expr (meta/zonk-expr mctx expr)]
+              (if-let [mctx (meta/is-def-eq mctx st expr (:type goal))]
+                {:expr (meta/zonk-expr mctx expr)
+                 :meta-mctx (meta/with-synthetic-opaque-assignment mctx false)}
+                (tactic-error! "'change' tactic failed"
+                               {:pattern expr :target (:type goal)}))))})
+        [ps' new-id] (proof/fresh-mvar-replacing ps checked-expr (:lctx goal) (:id goal))
+        ps' (-> (proof/assign-mvar ps' (:id goal)
+                                    {:kind :simp-reduce :eq-proof nil :child new-id})
+                (proof/record-tactic :change [new-type-form] (:id goal)))
+        front (into [new-id] visible-ids)
+        front-set (set front)]
+    (update ps' :goals (fn [gs]
+                         (into (vec front) (remove front-set gs))))))
 
 (defn unfold-in-goal
   "Unfold (delta-reduce) a definition in the goal type.

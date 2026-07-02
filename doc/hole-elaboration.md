@@ -61,7 +61,8 @@ The local Ansatz shape now follows that split:
   `(refine' ...)`;
 - `ansatz.tactic.elab-term/elab-term-with-holes` is now the shared
   tactic-level helper for Lean-style hole collection, diagnostics, metacontext
-  installation, and goal tagging; `refine`/`refine-prime` are the first callers;
+  installation, and goal tagging; `refine`/`refine-prime` and target-only
+  `change` are the first callers;
 - collecting elaboration now mirrors Lean's `collectFreshMVars` boundary more
   closely by exposing only fresh unassigned holes reachable from the zonked
   elaborated value, so unused scratch metavariables are not promoted to goals;
@@ -86,6 +87,9 @@ The local Ansatz shape now follows that split:
   rejected;
 - `refine` assigns the instantiated elaborated value when no child goals remain,
   while preserving delayed-abstraction metadata when child goals are still open;
+- target-only `change` now uses the same collection helper to elaborate a
+  replacement target, solve placeholders by defeq against the current target,
+  and create a def-eq child goal plus any remaining synthetic holes;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 

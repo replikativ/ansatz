@@ -9,6 +9,7 @@
    proof state, and tag anonymous collected goals."
   (:require [clojure.string :as str]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as surface]
@@ -37,6 +38,42 @@
           (str "  " (:display-name hole) " : " (:type-str hole)))
         holes)))
 
+(defn- fresh-result-mvar-ids [mctx expr start-index]
+  (->> (meta/expr-mvars-no-delayed mctx expr)
+       distinct
+       (filter (fn [id]
+                 (let [decl (meta/expr-decl mctx id)]
+                   (and decl
+                        (>= (:index decl 0) start-index)
+                        (not (meta/expr-assigned-or-delayed? mctx id))))))
+       (sort-by #(get-in mctx [:decls % :index] 0))
+       vec))
+
+(defn- fresh-result-level-ids [mctx expr old-level-ids]
+  (->> (meta/unassigned-level-mvars mctx expr)
+       distinct
+       (remove old-level-ids)
+       sort
+       vec))
+
+(defn- collected-holes [mctx expr start-index]
+  (mapv (fn [id]
+          (let [decl (meta/expr-decl mctx id)]
+            {:id id
+             :expr (e/mvar id)
+             :type (meta/zonk-expr mctx (:type decl))
+             :kind (:kind decl)
+             :user-name (:user-name decl)
+             :inst-implicit? (boolean (:inst-implicit? decl))}))
+        (fresh-result-mvar-ids mctx expr start-index)))
+
+(defn- collected-level-holes [mctx expr old-level-ids]
+  (mapv (fn [id]
+          {:id id
+           :level (lvl/mvar id)
+           :name (name/from-string (str "?u" id))})
+        (fresh-result-level-ids mctx expr old-level-ids)))
+
 (defn elab-term-with-holes
   "Elaborate `form` in `goal` and collect newly-created holes.
 
@@ -44,24 +81,34 @@
    - `:allow-natural-holes?` mirrors Lean's `allowNaturalHoles`.
    - `:tag-suffix` is used by `proof/tag-untagged-goals`.
    - `:tactic-name` prefixes diagnostics.
+   - `:after-elab` may return an updated `{:expr ... :meta-mctx ...}` before
+     final hole collection.
 
    Returns a map with the updated proof state under `:ps`, the raw elaborated
    `:expr`, the mvar-instantiated `:checked-expr`, all collected `:holes`, and
    the visible goal ids under `:visible-ids`."
   [ps goal form {:keys [allow-natural-holes? tag-suffix tactic-name expected-type parent-tag
-                        natural-hole-hint]
+                        natural-hole-hint after-elab]
                  :or {allow-natural-holes? false
                       tactic-name "tactic"}}]
-  (let [parent-tag (or parent-tag (:user-name goal))
+  (let [initial-meta-mctx (:meta-mctx ps)
+        start-index (:mvar-counter initial-meta-mctx 0)
+        old-level-ids (set (keys (:level-depth initial-meta-mctx)))
+        parent-tag (or parent-tag (:user-name goal))
         tag-suffix (or tag-suffix (name/from-string tactic-name))
         expected-type (or expected-type (:type goal))
         next-id-start (max 1000000 (:next-id ps 1))
-        {:keys [expr meta-mctx holes level-holes]}
+        {:keys [expr meta-mctx]}
         (surface/elaborate-in-context-collecting (:env ps) (:lctx goal) form expected-type
                                                  {:next-id-start next-id-start
-                                                  :initial-meta-mctx (:meta-mctx ps)
+                                                  :initial-meta-mctx initial-meta-mctx
                                                   :holes-as-synthetic-opaque? allow-natural-holes?})
+        {:keys [expr meta-mctx]}
+        (cond-> {:expr expr :meta-mctx meta-mctx}
+          after-elab after-elab)
         checked-expr (meta/zonk-expr meta-mctx expr)
+        holes (collected-holes meta-mctx checked-expr start-index)
+        level-holes (collected-level-holes meta-mctx checked-expr old-level-ids)
         natural-holes (filterv #(= :natural (:kind %)) holes)]
     (when (seq level-holes)
       (tactic-error! (str tactic-name ": unresolved universe level holes")

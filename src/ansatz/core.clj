@@ -810,6 +810,8 @@
                 (basic/refine ps (first args)))
    'refine'   (fn [ps args]
                 (basic/refine-prime ps (first args)))
+   'change    (fn [ps args]
+                (basic/change ps (first args)))
    'omega     (fn [ps _] (omega/omega ps))
    'ac_rfl    (fn [ps _] (ac/ac-rfl ps))
    'trans     (fn [ps args]

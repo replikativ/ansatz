@@ -26,6 +26,7 @@
 
 (def ^:private nat (e/const' (name/from-string "Nat") []))
 (def ^:private u1 (lvl/succ lvl/zero))
+(def ^:private prop (e/sort' lvl/zero))
 (defn- mk-eq [a b]
   (e/app* (e/const' (name/from-string "Eq") [u1]) nat a b))
 
@@ -121,6 +122,35 @@
       ;; Close with assumption (h : False)
       (let [ps (basic/assumption ps)]
         (is (proof/solved? ps))))))
+
+;; ============================================================
+;; change
+;; ============================================================
+
+(deftest test-change-solves-natural-holes
+  (testing "change solves natural placeholders by defeq against the current target"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/change '_))]
+      (is (= 1 (count (:goals ps))))
+      (let [ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+(deftest test-change-rejects-non-defeq-target
+  (testing "change rejects a replacement target that is not definitionally equal"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop (e/bvar 0) :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (basic/intro ps "p")]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"change.*failed"
+                            (basic/change ps '(arrow p p)))))))
 
 ;; ============================================================
 ;; clear
