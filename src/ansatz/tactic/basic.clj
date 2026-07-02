@@ -6,7 +6,6 @@
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
   (:require [clojure.set]
-            [clojure.string :as str]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -15,8 +14,8 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.unify :as u]
-            [ansatz.surface.elaborate :as elab]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -296,26 +295,6 @@
     (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
         (proof/record-tactic :exact [:term] (:id goal)))))
 
-(defn- max-collected-mvar-id [mctx]
-  (reduce max 0 (concat (keys (:decls mctx)) (keys (:level-depth mctx)))))
-
-(defn- hole-display-name [hole]
-  (if-let [user-name (:user-name hole)]
-    (str "?" (name/->string user-name))
-    (str "?m." (:id hole))))
-
-(defn- hole-diagnostic [hole]
-  (assoc hole
-         :display-name (hole-display-name hole)
-         :type-str (e/->string (:type hole))))
-
-(defn- format-hole-diagnostics [holes]
-  (str/join
-   "\n"
-   (map (fn [hole]
-          (str "  " (:display-name hole) " : " (:type-str hole)))
-        holes)))
-
 (defn refine
   "Refine the current goal using a surface term.
 
@@ -330,34 +309,13 @@
              :or {allow-natural-holes? false}}]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
-         parent-tag (:user-name goal)
          tag-suffix (name/from-string (if allow-natural-holes? "refine'" "refine"))
-         next-id-start (max 1000000 (:next-id ps 1))
-         {:keys [expr meta-mctx holes level-holes]}
-         (elab/elaborate-in-context-collecting (:env ps) (:lctx goal) form (:type goal)
-                                               {:next-id-start next-id-start
-                                                :initial-meta-mctx (:meta-mctx ps)
-                                                :holes-as-synthetic-opaque? allow-natural-holes?})
-         checked-expr (meta/zonk-expr meta-mctx expr)
-         natural-holes (filterv #(= :natural (:kind %)) holes)]
-     (when (seq level-holes)
-       (tactic-error! "refine: unresolved universe level holes"
-                      {:level-holes level-holes}))
-     (when (and (not allow-natural-holes?) (seq natural-holes))
-       (let [diagnostics (mapv hole-diagnostic natural-holes)]
-         (tactic-error! (str "refine: unresolved natural holes\n"
-                             (format-hole-diagnostics diagnostics)
-                             "\nuse refine' if these holes should become goals")
-                        {:holes natural-holes
-                         :hole-diagnostics diagnostics
-                         :hole-count (count diagnostics)})))
-     (let [visible-holes (if allow-natural-holes?
-                           holes
-                           (remove #(= :natural (:kind %)) holes))
-           visible-ids (mapv :id visible-holes)
-           ps (-> ps
-                  (assoc :meta-mctx meta-mctx)
-                  (update :next-id #(max (or % 1) (inc (max-collected-mvar-id meta-mctx)))))]
+         {:keys [ps expr checked-expr visible-ids]}
+         (telab/elab-term-with-holes ps goal form
+                                     {:allow-natural-holes? allow-natural-holes?
+                                      :tag-suffix tag-suffix
+                                      :tactic-name "refine"
+                                      :natural-hole-hint "use refine' if these holes should become goals"})]
        (cond
          (= checked-expr (e/mvar (:id goal)))
          (-> ps
@@ -365,7 +323,6 @@
                               (into [(:id goal)]
                                     (concat visible-ids
                                             (remove #{(:id goal)} gs)))))
-             (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)
              (proof/record-tactic :refine [form] (:id goal)))
 
          (contains? (meta/collect-expr-mvars checked-expr) (:id goal))
@@ -379,8 +336,7 @@
                ps (proof/assign-mvar ps (:id goal) {:kind :exact :term assignment-expr})]
            (-> ps
                (update :goals (fn [gs] (into visible-ids gs)))
-               (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)
-               (proof/record-tactic :refine [form] (:id goal)))))))))
+               (proof/record-tactic :refine [form] (:id goal))))))))
 
 (defn refine-prime
   "Lean `refine'`: like `refine`, but natural holes become subgoals."

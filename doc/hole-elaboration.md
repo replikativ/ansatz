@@ -59,6 +59,9 @@ The local Ansatz shape now follows that split:
   mirrors Lean's `refine'` by allowing natural holes to become goals too, and
   both are exposed through the public surface tactic forms `(refine ...)` and
   `(refine' ...)`;
+- `ansatz.tactic.elab-term/elab-term-with-holes` is now the shared
+  tactic-level helper for Lean-style hole collection, diagnostics, metacontext
+  installation, and goal tagging; `refine`/`refine-prime` are the first callers;
 - collecting elaboration now mirrors Lean's `collectFreshMVars` boundary more
   closely by exposing only fresh unassigned holes reachable from the zonked
   elaborated value, so unused scratch metavariables are not promoted to goals;
