@@ -4,6 +4,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
+            [ansatz.kernel.reduce :as red]
+            [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
@@ -137,6 +139,46 @@
           decl (meta/expr-decl mctx 1)]
       (is (= prop (:type decl)))
       (is (= prop (get-in decl [:lctx 42 :type]))))))
+
+(deftest meta-infer-type-accepts-expression-metavariables
+  (testing "unassigned mvars infer from their metacontext declarations"
+    (let [prop (e/sort' lvl/zero)
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 prop {})
+          st (tc/mk-tc-state (env/empty-env))]
+      (is (= prop (meta/infer-type mctx st (e/mvar 1))))))
+
+  (testing "assigned mvars are instantiated before inference"
+    (let [prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 42 "p" prop)
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop lctx)
+                   (meta/assign-expr 1 (e/fvar 42)))
+          st (tc/mk-tc-state-with-locals (env/empty-env) lctx)]
+      (is (= prop (meta/infer-type mctx st (e/mvar 1)))))))
+
+(deftest meta-infer-type-is-lean-like-shape-inference
+  (testing "application through an mvar function infers the instantiated codomain"
+    (let [prop (e/sort' lvl/zero)
+          fn-type (e/forall' "p" prop prop :default)
+          lctx (red/lctx-add-local (red/empty-lctx) 42 "p" prop)
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 fn-type lctx)
+          st (tc/mk-tc-state-with-locals (env/empty-env) lctx)]
+      (is (= prop (meta/infer-type mctx st (e/app (e/mvar 1) (e/fvar 42)))))))
+
+  (testing "as in Lean Meta.inferType, application arguments are not fully checked"
+    (let [prop (e/sort' lvl/zero)
+          fn-type (e/forall' "p" prop prop :default)
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 fn-type {})
+          st (tc/mk-tc-state (env/empty-env))]
+      (is (= prop (meta/infer-type mctx st (e/app (e/mvar 1) prop)))))))
+
+(deftest meta-whnf-treats-unassigned-mvars-as-stuck
+  (let [prop (e/sort' lvl/zero)
+        mctx (meta/add-expr-mvar-decl meta/empty-context 1 prop {})
+        st (tc/mk-tc-state (env/empty-env))
+        id-lam (e/lam "x" prop (e/bvar 0) :default)]
+    (is (= (e/mvar 1)
+           (meta/whnf mctx st (e/app id-lam (e/mvar 1)))))))
 
 (deftest expr-dependency-is-conservative-over-unassigned-mvars
   (testing "assigned mvars are followed and unassigned mvars may depend on their local context"

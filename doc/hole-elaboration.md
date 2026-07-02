@@ -18,6 +18,9 @@ The local Ansatz shape now follows that split:
 - the metacontext now exposes Lean-style assignability/depth predicates,
   assigned/assignable scans, declaration instantiation, and conservative
   dependency checks over unassigned mvar local contexts;
+- `ansatz.meta/infer-type` accepts real expression mvars and infers their
+  types from the metacontext, matching Lean's Meta-layer `inferType` shape
+  inference rather than kernel validation;
 - expression and universe mvars have checked assignment helpers that enforce
   freshness, depth, occurs checks, and local-context safety; expression
   assignment can also type-check closed values against the mvar declaration;
@@ -44,7 +47,7 @@ map or the surface elaborator.
 - `extract-legacy` remains as a migration/debugging path while tactic writers
   still construct legacy recipes.
 - Surface elaboration still uses fvar-backed placeholders in this rebuilt
-  slice.
+  slice, but the meta layer can now type expressions containing real mvars.
 - The kernel still rejects raw mvars by construction: callers must zonk first.
 
 That is deliberate. It lets us migrate tactic families and elaborator code
@@ -89,7 +92,8 @@ only if the kernel checks it.
    (`simp-reduce` child delegation), `cases`, `rewrite`, `generalize`,
    `revert`, `exfalso`, `subst`, `clear`, Bool `by-cases`, and Decidable
    `by-cases`.
-3. Extend checked assignment into the mvar-aware unifier. The current helper
+3. Extend checked assignment and Meta-layer type inference into the mvar-aware
+   unifier. The current helper
    enforces the structural side of Lean's `checkedAssign`; the remaining gap is
    type compatibility when assignment values/types still contain open mvars.
 4. Convert surface elaboration holes from fvar-backed placeholders to real

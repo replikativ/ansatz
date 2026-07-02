@@ -9,6 +9,7 @@
    still only see terms after this context has been zonked."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]))
 
 (def empty-context
@@ -633,6 +634,132 @@
               (-> decl
                   (update :lctx #(instantiate-lctx-mvars mctx %))
                   (update :type #(zonk-expr mctx %))))))
+
+(declare infer-type)
+
+(defn- open-binder-type
+  [st lctx name type body]
+  (let [fid (swap! (:next-id st) inc)
+        fv (e/fvar fid)
+        lctx' (red/lctx-add-local lctx fid name type)
+        st' (assoc st :lctx lctx')]
+    [st' fv lctx' (e/instantiate1 body fv)]))
+
+(defn- kernel-defeq-when-closed?
+  [mctx st a b]
+  (let [a (zonk-expr mctx a)
+        b (zonk-expr mctx b)]
+    (and (closed-expr? mctx a)
+         (closed-expr? mctx b)
+         (try
+           (tc/is-def-eq st a b)
+           (catch Throwable _ false)))))
+
+(defn- mvar-head-stuck?
+  [mctx expr]
+  (let [[head _] (e/get-app-fn-args expr)
+        head (zonk-expr mctx head)]
+    (e/mvar? head)))
+
+(defn whnf
+  "Meta-layer weak-head reduction.
+
+   This is the analogue of Lean `Meta.whnf` for the subset Ansatz currently
+   needs: it instantiates assigned mvars first and reduces with a metacontext
+   aware `infer-type` callback. If the head is an unassigned expression mvar,
+   the expression is stuck and returned unchanged."
+  [mctx st expr]
+  (let [expr (zonk-expr mctx expr)]
+    (if (mvar-head-stuck? mctx expr)
+      expr
+      (red/whnf (:env st) expr (:lctx st)
+                {:infer-fn (fn [e] (infer-type mctx st e))
+                 :is-def-eq-fn (fn [a b] (kernel-defeq-when-closed? mctx st a b))}))))
+
+(defn ensure-sort
+  "Meta-layer sort check used by `infer-type`."
+  [mctx st expr]
+  (let [expr (whnf mctx st expr)]
+    (if (e/sort? expr)
+      expr
+      (throw (ex-info "Meta inferType expected a sort"
+                      {:kind :meta-type-error :got expr})))))
+
+(defn ensure-pi
+  "Meta-layer function-type check used by `infer-type`."
+  [mctx st expr]
+  (let [expr (whnf mctx st expr)]
+    (if (e/forall? expr)
+      [(e/forall-name expr) (e/forall-type expr) (e/forall-body expr) (e/forall-info expr)]
+      (throw (ex-info "Meta inferType expected a function type"
+                      {:kind :meta-type-error :got expr})))))
+
+(defn infer-type
+  "Infer the type of `expr` while consulting a Lean-shaped metacontext.
+
+   Unlike the kernel checker, this function accepts real `Expr.mvar` nodes:
+   unassigned mvars infer to their declaration type, and assigned mvars are
+   instantiated before inference. This follows Lean's Meta `inferType`: it is
+   type-shape inference, not full term validation, so application arguments are
+   not checked for definitional equality with the domain."
+  ([mctx st expr]
+   (letfn [(go [st expr]
+             (let [expr (zonk-expr mctx expr)]
+               (case (e/tag expr)
+                 :mvar (zonk-expr mctx (:type (expr-decl! mctx (e/mvar-id expr))))
+
+                 :bvar (throw (ex-info "Meta inferType found loose bound variable"
+                                        {:kind :meta-type-error :expr expr}))
+
+                 :sort (e/sort' (lvl/succ (e/sort-level expr)))
+
+                 :const (tc/infer-type st expr)
+
+                 :fvar (if-let [decl (red/lctx-lookup (:lctx st) (e/fvar-id expr))]
+                         (zonk-expr mctx (:type decl))
+                         (tc/infer-type st expr))
+
+                 :app (let [fn-type (whnf mctx st (go st (e/app-fn expr)))
+                            [_ _ body _] (ensure-pi mctx st fn-type)]
+                        (zonk-expr mctx (e/instantiate1 body (e/app-arg expr))))
+
+                 :lam (let [dom-type (zonk-expr mctx (e/lam-type expr))
+                            _ (ensure-sort mctx st (go st dom-type))
+                            [st' fv _ body] (open-binder-type st (:lctx st)
+                                                              (e/lam-name expr)
+                                                              dom-type
+                                                              (e/lam-body expr))
+                            body-type (go st' body)]
+                        (e/forall' (e/lam-name expr) dom-type
+                                   (e/abstract1 body-type (e/fvar-id fv))
+                                   (e/lam-info expr)))
+
+                 :forall (let [dom-type (zonk-expr mctx (e/forall-type expr))
+                               dom-sort (ensure-sort mctx st (go st dom-type))
+                               [st' _ _ body] (open-binder-type st (:lctx st)
+                                                                 (e/forall-name expr)
+                                                                 dom-type
+                                                                 (e/forall-body expr))
+                               cod-sort (ensure-sort mctx st' (go st' body))]
+                           (e/sort' (lvl/imax (e/sort-level dom-sort)
+                                              (e/sort-level cod-sort))))
+
+                 :let (let [value (zonk-expr mctx (e/let-value expr))
+                            type (zonk-expr mctx (e/let-type expr))
+                            fid (swap! (:next-id st) inc)
+                            fv (e/fvar fid)
+                            lctx' (red/lctx-add-let (:lctx st) fid (e/let-name expr) type value)
+                            st' (assoc st :lctx lctx')
+                            body-type (go st' (e/instantiate1 (e/let-body expr) fv))]
+                        (zonk-expr mctx (e/instantiate1 (e/abstract1 body-type fid) value)))
+
+                 :lit-nat (tc/infer-type st expr)
+                 :lit-str (tc/infer-type st expr)
+                 :mdata (go st (e/mdata-expr expr))
+                 :proj (tc/infer-type st (zonk-expr mctx expr)))))]
+     (go st expr)))
+  ([mctx env lctx expr]
+   (infer-type mctx (tc/mk-tc-state-with-locals env lctx) expr)))
 
 (declare local-decl-depends-on?)
 
