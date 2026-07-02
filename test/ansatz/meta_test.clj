@@ -293,10 +293,14 @@
 (deftest proof-state-declarations-live-in-metacontext
   (testing "legacy proof :mctx stores recipes, not duplicated declarations"
     (let [prop (e/sort' lvl/zero)
-          [ps root] (proof/start-proof (env/empty-env) prop)]
+          [ps root] (proof/start-proof (env/empty-env) prop)
+          assignment {:kind :exact :term prop}
+          ps' (proof/assign-mvar ps root assignment)]
       (is (= prop (proof/mvar-type ps root)))
       (is (= prop (:type (meta/expr-decl (:meta-mctx ps) root))))
-      (is (nil? (get (:mctx ps) root))))))
+      (is (nil? (get (:mctx ps) root)))
+      (is (= assignment (get-in ps' [:recipes root])))
+      (is (nil? (get-in ps' [:mctx root :assignment]))))))
 
 (deftest verify-rejects-raw-metavariables-at-kernel-boundary
   (testing "legacy extraction cannot pass raw mvars to the kernel checker"

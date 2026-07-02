@@ -72,13 +72,14 @@
     (keys (:mctx ps))))
 
 (defn mvar-assignment
-  "Return the legacy assignment recipe for `id`, if any.
+  "Return the assignment recipe for `id`, if any.
 
-   During migration this is still the source of extraction recipes; callers
-   that only need assigned/open status should use `mvar-assigned?` or
-   `mvar-open?` instead."
+   Modern proof states store recipes under `:recipes`; legacy states used
+   `[:mctx id :assignment]`. Callers that only need assigned/open status should
+   use `mvar-assigned?` or `mvar-open?` instead."
   [ps id]
-  (get-in ps [:mctx id :assignment]))
+  (or (get-in ps [:recipes id])
+      (get-in ps [:mctx id :assignment])))
 
 (defn mvar-exact-term
   "Return the exact term assigned to `id` when the legacy recipe is `:exact`."
@@ -312,7 +313,7 @@
    ∃, the proof goal gets the witness substituted)."
   [ps mvar-id assignment]
   (let [ps (-> ps
-               (assoc-in [:mctx mvar-id :assignment] assignment)
+               (assoc-in [:recipes mvar-id] assignment)
                (update :goals (fn [gs] (into [] (remove #{mvar-id}) gs)))
                (assign-meta-if-possible mvar-id assignment))]
     ;; Propagate: if this mvar was used as an fvar in sibling goal types,
@@ -339,8 +340,8 @@
   [env goal-type]
   (let [ps {:env env
             :goals []
-            :mctx {}
             :meta-mctx meta/empty-context
+            :recipes {}
             :next-id 1
             :root-mvar nil
             :trace []
@@ -423,7 +424,7 @@
   [ps mvar-id]
   (or (true? (when-let [mctx (:meta-mctx ps)]
                (meta/expr-assigned-or-delayed? mctx mvar-id)))
-      (some? (get-in ps [:mctx mvar-id :assignment]))))
+      (some? (mvar-assignment ps mvar-id))))
 
 (defn mvar-open?
   "True when `mvar-id` is declared and not assigned or delayed-assigned."
