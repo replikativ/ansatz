@@ -319,6 +319,38 @@
       (is (= id (:id reported)))
       (is (:inst-implicit? reported)))))
 
+(deftest test-elab-collecting-only-reports-result-mvars
+  (testing "unused fresh expression mvars are not collected as holes"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          live (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          live-id (e/mvar-id live)
+          stale (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          stale-id (e/mvar-id stale)
+          result (#'elab/collecting-finalize st live)]
+      (is (= [live-id] (mapv :id (:holes result))))
+      (is (not (some #{stale-id} (mapv :id (:holes result)))))))
+
+  (testing "unused fresh level mvars are not collected as level holes"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          live (#'elab/fresh-level-mvar! st)
+          live-id (lvl/mvar-id live)
+          stale (#'elab/fresh-level-mvar! st)
+          stale-id (lvl/mvar-id stale)
+          result (#'elab/collecting-finalize st (e/sort' live))]
+      (is (= [live-id] (mapv :id (:level-holes result))))
+      (is (not (some #{stale-id} (mapv :id (:level-holes result)))))))
+
+  (testing "assigned fresh mvars are followed before collecting"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          source (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          source-id (e/mvar-id source)
+          target (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          target-id (e/mvar-id target)]
+      (is (#'elab/solve-mvar! st source-id target))
+      (let [result (#'elab/collecting-finalize st source)]
+        (is (= [target-id] (mapv :id (:holes result))))
+        (is (not (some #{source-id} (mapv :id (:holes result)))))))))
+
 (deftest test-elab-assignment-writes-metacontext-without-compatibility-entry
   (testing "expression assignment does not require a compatibility mctx entry"
     (let [st (#'elab/mk-elab-state (env/empty-env))

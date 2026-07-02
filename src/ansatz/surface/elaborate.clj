@@ -506,6 +506,29 @@
                  [id {:name (or (get-in legacy [id :name])
                                 (name/from-string (str "?u" id)))}])))))
 
+(defn- fresh-result-mvar-ids
+  "Lean-style collection boundary for tactic holes: only unassigned mvars that
+   occur in the zonked result become collected holes."
+  [mctx expr start-index]
+  (->> (meta/expr-mvars-no-delayed mctx expr)
+       distinct
+       (filter (fn [id]
+                 (let [decl (meta/expr-decl mctx id)]
+                   (and decl
+                        (>= (:index decl 0) start-index)
+                        (not (meta/expr-assigned-or-delayed? mctx id))))))
+       (sort-by #(get-in mctx [:decls % :index] 0))
+       vec))
+
+(defn- fresh-result-level-ids
+  "Collect new unassigned universe mvars that occur in the zonked result."
+  [mctx expr old-level-ids]
+  (->> (meta/unassigned-level-mvars mctx expr)
+       distinct
+       (remove old-level-ids)
+       sort
+       vec))
+
 (declare elab-error! solve-instance-mvars!)
 
 (defn- strict-finalize [est expr]
@@ -531,13 +554,23 @@
         _ (sync-meta-decls! est)
         result (surface-expr->meta est legacy-result)
         start (:collect-from-index est 0)
-        unsolved (filterv (fn [[_ decl]]
-                            (>= (:index decl 0) start))
-                          (unsolved-mvars est))
+        mctx @(:meta-mctx est)
+        legacy @(:mctx est)
+        unsolved (mapv (fn [id]
+                         (let [decl (meta/expr-decl mctx id)]
+                           [id (cond-> {:kind (:kind decl)
+                                        :index (:index decl)
+                                        :user-name (:user-name decl)}
+                                 (or (:inst-implicit? decl)
+                                     (get-in legacy [id :inst-implicit]))
+                                 (assoc :inst-implicit true))]))
+                       (fresh-result-mvar-ids mctx result start))
         old-levels (:initial-level-mvar-ids est #{})
-        unsolved-levels (filterv (fn [[id _]]
-                                   (not (contains? old-levels id)))
-                                 (unsolved-levels est))]
+        level-legacy @(:level-mctx est)
+        unsolved-levels (mapv (fn [id]
+                                [id {:name (or (get-in level-legacy [id :name])
+                                               (name/from-string (str "?u" id)))}])
+                              (fresh-result-level-ids mctx result old-levels))]
     {:expr result
      :meta-mctx @(:meta-mctx est)
      :holes (mapv (fn [[id m]]

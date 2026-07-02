@@ -59,6 +59,9 @@ The local Ansatz shape now follows that split:
   mirrors Lean's `refine'` by allowing natural holes to become goals too, and
   both are exposed through the public surface tactic forms `(refine ...)` and
   `(refine' ...)`;
+- collecting elaboration now mirrors Lean's `collectFreshMVars` boundary more
+  closely by exposing only fresh unassigned holes reachable from the zonked
+  elaborated value, so unused scratch metavariables are not promoted to goals;
 - `refine`/`refine-prime` tag anonymous collected goals using Lean's
   `tagUntaggedGoals` convention: one anonymous child inherits the parent tag,
   while multiple anonymous children receive stable `refine_i`/`refine'_i`
