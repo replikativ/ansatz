@@ -5,7 +5,8 @@
    Ansatz terms by resolving names, inserting implicit arguments, inferring
    universe levels, and type-checking.
 
-   This is THE elaborator: type-directed, fvar-first, with metavariables + instance synthesis.
+   This is THE elaborator: type-directed, locally nameless with fvar locals,
+   with metavariables + instance synthesis.
    It backs `a/defn` bodies+signatures, `a/theorem` goals, proof terms, and tactic-arg
    elaboration. (The legacy bvar-only `term` builder it superseded has been retired.)
 
@@ -47,14 +48,23 @@
   (let [id (swap! (:next-id est) inc)]
     id))
 
+(defn- expr-mvar-id
+  "Return the elaboration mvar id represented by `expr`, accepting both the
+   current real-mvar representation and the older fvar compatibility shape."
+  [expr]
+  (case (e/tag expr)
+    :mvar (e/mvar-id expr)
+    :fvar (e/fvar-id expr)
+    nil))
+
 (declare unify-levels! surface-expr->meta surface-level->meta surface-lctx->meta
          meta-expr->surface surface-mvar-type meta-mvar-type infer-with-mvars
          whnf-with-mvars)
 
 (defn- fresh-mvar!
-  "Create a fresh metavariable (as an fvar compatibility placeholder) with
-   the given type. The mirrored metacontext declaration records Lean-style
-   `:kind` and `:user-name` data."
+  "Create a fresh expression metavariable with the given type. The mirrored
+   compatibility context keeps lightweight metadata while declarations and
+   assignments live in `:meta-mctx`."
   ([est type]
    (fresh-mvar! est type {}))
   ([est type {:keys [kind user-name inst-implicit?]
@@ -69,11 +79,11 @@
             (surface-lctx->meta est (:lctx (:tc est)))
             (cond-> {:kind kind}
               user-name (assoc :user-name user-name)))
-     (e/fvar id))))
+     (e/mvar id))))
 
 (defn- mark-inst-implicit!
   [est mvar]
-  (let [id (e/fvar-id mvar)]
+  (let [id (expr-mvar-id mvar)]
     (swap! (:mctx est) assoc-in [id :inst-implicit] true)
     (swap! (:mctx est) assoc-in [id :kind] :synthetic)
     (swap! (:meta-mctx est) meta/set-expr-mvar-kind id :synthetic)))
@@ -164,6 +174,10 @@
   "Substitute all solved metavariables in an expression."
   [est expr]
   (case (e/tag expr)
+    :mvar (let [id (e/mvar-id expr)]
+            (if-let [sol (mvar-solution est id)]
+              (zonk est sol)
+              expr))
     :fvar (let [id (e/fvar-id expr)]
             (if-let [sol (mvar-solution est id)]
               (zonk est sol)
@@ -244,9 +258,9 @@
       :mvar l)))
 
 (defn- surface-expr->meta
-  "Replace legacy fvar-backed elaboration mvars with real Expr.mvar nodes, and
-   replace synthetic level params with Level.mvar nodes. Ordinary local fvars
-   are preserved."
+  "Translate live surface expressions to metacontext-shaped expressions.
+   Expression mvars are already real `Expr.mvar` nodes; the legacy fvar path is
+   retained for compatibility. Synthetic level params become `Level.mvar`."
   [est expr]
   (let [mctx @(:mctx est)]
     (letfn [(go [expr]
@@ -340,60 +354,58 @@
       :param l)))
 
 (defn- meta-expr->surface
-  "Replace real Expr.mvar/Level.mvar nodes belonging to this elaboration with
-   the legacy fvar/param placeholders used by the remaining surface code."
+  "Translate metacontext-shaped data back to the live surface representation.
+   Expression mvars are now live `Expr.mvar` nodes; universe mvars still map to
+   legacy synthetic `Level.param` placeholders until the level migration lands."
   [est expr]
-  (let [legacy @(:mctx est)]
-    (letfn [(go [expr]
-              (case (e/tag expr)
-                :mvar (if (contains? legacy (e/mvar-id expr))
-                        (e/fvar (e/mvar-id expr))
-                        expr)
-                :sort (let [u (meta-level->surface est (e/sort-level expr))]
-                        (if (identical? u (e/sort-level expr))
+  (letfn [(go [expr]
+            (case (e/tag expr)
+              :mvar expr
+              :sort (let [u (meta-level->surface est (e/sort-level expr))]
+                      (if (identical? u (e/sort-level expr))
+                        expr
+                        (e/sort' u)))
+              :const (let [levels (e/const-levels expr)
+                           levels' (mapv #(meta-level->surface est %) levels)]
+                       (if (= levels levels')
+                         expr
+                         (e/const' (e/const-name expr) levels')))
+              :app (let [f (go (e/app-fn expr))
+                         a (go (e/app-arg expr))]
+                     (if (and (identical? f (e/app-fn expr))
+                              (identical? a (e/app-arg expr)))
+                       expr
+                       (e/app f a)))
+              :lam (let [t (go (e/lam-type expr))
+                         b (go (e/lam-body expr))]
+                     (if (and (identical? t (e/lam-type expr))
+                              (identical? b (e/lam-body expr)))
+                       expr
+                       (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+              :forall (let [t (go (e/forall-type expr))
+                            b (go (e/forall-body expr))]
+                        (if (and (identical? t (e/forall-type expr))
+                                 (identical? b (e/forall-body expr)))
                           expr
-                          (e/sort' u)))
-                :const (let [levels (e/const-levels expr)
-                             levels' (mapv #(meta-level->surface est %) levels)]
-                         (if (= levels levels')
-                           expr
-                           (e/const' (e/const-name expr) levels')))
-                :app (let [f (go (e/app-fn expr))
-                           a (go (e/app-arg expr))]
-                       (if (and (identical? f (e/app-fn expr))
-                                (identical? a (e/app-arg expr)))
+                          (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+              :let (let [t (go (e/let-type expr))
+                         v (go (e/let-value expr))
+                         b (go (e/let-body expr))]
+                     (if (and (identical? t (e/let-type expr))
+                              (identical? v (e/let-value expr))
+                              (identical? b (e/let-body expr)))
+                       expr
+                       (e/let' (e/let-name expr) t v b)))
+              :mdata (let [x (go (e/mdata-expr expr))]
+                       (if (identical? x (e/mdata-expr expr))
                          expr
-                         (e/app f a)))
-                :lam (let [t (go (e/lam-type expr))
-                           b (go (e/lam-body expr))]
-                       (if (and (identical? t (e/lam-type expr))
-                                (identical? b (e/lam-body expr)))
-                         expr
-                         (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-                :forall (let [t (go (e/forall-type expr))
-                              b (go (e/forall-body expr))]
-                          (if (and (identical? t (e/forall-type expr))
-                                   (identical? b (e/forall-body expr)))
-                            expr
-                            (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-                :let (let [t (go (e/let-type expr))
-                           v (go (e/let-value expr))
-                           b (go (e/let-body expr))]
-                       (if (and (identical? t (e/let-type expr))
-                                (identical? v (e/let-value expr))
-                                (identical? b (e/let-body expr)))
-                         expr
-                         (e/let' (e/let-name expr) t v b)))
-                :mdata (let [x (go (e/mdata-expr expr))]
-                         (if (identical? x (e/mdata-expr expr))
-                           expr
-                           (e/mdata (e/mdata-data expr) x)))
-                :proj (let [s (go (e/proj-struct expr))]
-                        (if (identical? s (e/proj-struct expr))
-                          expr
-                          (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
-                expr))]
-      (go expr))))
+                         (e/mdata (e/mdata-data expr) x)))
+              :proj (let [s (go (e/proj-struct expr))]
+                      (if (identical? s (e/proj-struct expr))
+                        expr
+                        (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
+              expr))]
+    (go expr)))
 
 (defn- meta-mvar-type
   "Return the metacontext-shaped type of expression mvar `id`, after zonking."
@@ -403,7 +415,7 @@
       (meta/zonk-expr mctx (:type decl)))))
 
 (defn- surface-mvar-type
-  "Return the legacy surface-shaped type of expression mvar `id`."
+  "Return the live surface-shaped type of expression mvar `id`."
   [est id]
   (when-let [type (meta-mvar-type est id)]
     (meta-expr->surface est type)))
@@ -551,10 +563,10 @@
   "Infer the type of an expression that may still mention elaboration mvars.
 
    Lean keeps elaboration metavariables in the metacontext consulted by
-   Meta.inferType. We mirror that: convert the legacy fvar/param placeholders to
-   real Expr.mvar/Level.mvar nodes, infer through `:meta-mctx`, then convert the
-   inferred type back to the legacy surface shape until the rest of this file no
-   longer needs the compatibility representation."
+   Meta.inferType. We mirror that: expression holes are live `Expr.mvar` nodes,
+   legacy fvar placeholders are still accepted, synthetic level params are
+   converted to `Level.mvar`, and the inferred type is translated back to the
+   live surface shape."
   [est expr]
   (sync-meta-decls! est)
   (let [expr (surface-expr->meta est (zonk est expr))
@@ -1397,13 +1409,14 @@
 ;; ============================================================
 
 (defn- has-unsolved-mvar?
-  "True if (zonked) expr still contains an fvar that is an unsolved mvar."
+  "True if (zonked) expr still contains an unsolved elaboration mvar."
   [est expr]
   (let [mctx @(:mctx est)]
     (letfn [(unsolved? [id] (let [m (get mctx id)] (and m (nil? (:solution m)))))
             (go [x]
                 (when (instance? ansatz.kernel.Expr x)
                   (case (e/tag x)
+                    :mvar (unsolved? (e/mvar-id x))
                     :fvar (unsolved? (e/fvar-id x))
                     :app (or (go (e/app-fn x)) (go (e/app-arg x)))
                     :lam (or (go (e/lam-type x)) (go (e/lam-body x)))

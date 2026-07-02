@@ -218,7 +218,7 @@
   (testing "expression mvar mirror assignment rejects cycles before mutating legacy state"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
-          id (e/fvar-id hole)]
+          id (e/mvar-id hole)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
                             (#'elab/solve-mvar! st id hole)))
       (is (nil? (get-in @(:mctx st) [id :solution])))
@@ -248,7 +248,7 @@
           st (-> (#'elab/mk-elab-state (env/empty-env))
                  (update :tc update :lctx red/lctx-add-local 42 "h" prop))
           hole (#'elab/fresh-mvar! st prop)
-          id (e/fvar-id hole)]
+          id (e/mvar-id hole)]
       (is (#'elab/unify! st hole (e/fvar 42)))
       (is (= (e/fvar 42) (get-in @(:mctx st) [id :solution])))
       (is (= (e/fvar 42) (meta/expr-assignment @(:meta-mctx st) id))))))
@@ -258,8 +258,8 @@
     (let [st (#'elab/mk-elab-state (env/empty-env))
           alpha (#'elab/fresh-mvar! st (e/sort' lvl/zero))
           term (#'elab/fresh-mvar! st alpha)
-          alpha-id (e/fvar-id alpha)
-          term-id (e/fvar-id term)
+          alpha-id (e/mvar-id alpha)
+          term-id (e/mvar-id term)
           term-decl (meta/expr-decl @(:meta-mctx st) term-id)]
       (is (= (e/mvar alpha-id) (:type term-decl)))
       (is (not (contains? (get @(:mctx st) term-id) :type)))

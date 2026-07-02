@@ -26,11 +26,13 @@ The local Ansatz shape now follows that split:
   assignment can also type-check closed values against the mvar declaration;
 - proof states carry `:meta-mctx` beside the legacy `:mctx`;
 - new goals declare real `Expr.mvar` ids in `:meta-mctx`;
-- surface elaboration still stores compatibility fvar/param placeholders, but
-  type inference for terms containing holes now converts through
-  `:meta-mctx` and `ansatz.meta/infer-type`;
+- surface elaboration now uses real `Expr.mvar` nodes for expression holes;
+  universe holes still use compatibility level params that convert through
+  `:meta-mctx`;
 - surface expression mvar declarations live in `:meta-mctx`; surface `:mctx`
   now keeps compatibility metadata/solutions instead of duplicated types;
+- surface type inference and WHNF for terms containing holes now route through
+  `:meta-mctx` and `ansatz.meta`;
 - surface universe-level unification now routes through the persistent
   metacontext level unifier and syncs assignments back to the compatibility
   level context;
@@ -64,9 +66,9 @@ map or the surface elaborator.
 - `extract` uses the metacontext path for modern proof states.
 - `extract-legacy` remains as a migration/debugging path while tactic writers
   still construct legacy recipes.
-- Surface elaboration still returns through fvar-backed compatibility
-  placeholders internally, but its hole-aware type inference now uses the
-  mirrored metacontext.
+- Surface elaboration uses real expression mvars internally, but universe holes
+  still pass through compatibility level params, and `:mctx`/`:level-mctx`
+  remain compatibility views.
 - The kernel still rejects raw mvars by construction: callers must zonk first.
 
 That is deliberate. It lets us migrate tactic families and elaborator code
@@ -104,8 +106,8 @@ only if the kernel checks it.
 
 ## Next Fidelity Targets
 
-1. Finish the surface representation migration: internally elaborate with real
-   `Expr.mvar`/`Level.mvar` instead of fvar/param compatibility placeholders.
+1. Finish the surface universe representation migration: internally elaborate
+   with real `Level.mvar` instead of level-param compatibility placeholders.
 2. Finish the tactic unifier migration by removing the fvar-backed atom
    fallback once the metacontext path covers all observed simp/rewrite/apply
    cases.
@@ -118,5 +120,5 @@ only if the kernel checks it.
 4. Continue parity tests for larger tactic families and proof extraction
    recipes as more assignment recipes are replaced by direct metacontext proof
    terms.
-5. Collapse the remaining compatibility views once surface placeholders and the
-   tactic unifier fallback are gone.
+5. Collapse the remaining compatibility views once surface level placeholders
+   and the tactic unifier fallback are gone.
