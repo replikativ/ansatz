@@ -104,20 +104,19 @@ only if the kernel checks it.
 
 ## Next Fidelity Targets
 
-1. Move more tactic readers from `:mctx` to `proof/mvar-decl`,
-   `proof/mvar-type`, and `proof/mvar-lctx`.
-2. Continue parity tests for larger tactic families. Current focused coverage
-   includes `intro`/`assumption`, `apply`, `have`, `whnf-goal`
-   (`simp-reduce` child delegation), `cases`, `rewrite`, `generalize`,
-   `revert`, `exfalso`, `subst`, `clear`, Bool `by-cases`, and Decidable
-   `by-cases`.
-3. Extend the mvar-aware unifier beyond the first-order surface path. The meta
+1. Finish the surface representation migration: internally elaborate with real
+   `Expr.mvar`/`Level.mvar` instead of fvar/param compatibility placeholders.
+2. Finish the tactic unifier migration by removing the fvar-backed atom
+   fallback once the metacontext path covers all observed simp/rewrite/apply
+   cases.
+3. Extend the mvar-aware unifier beyond the current common tactic paths. The meta
    unifier now handles direct expression assignments, Miller-pattern
    assignment, universe assignments, closed kernel delegation, and structural
    recursion; remaining Lean gaps include richer proof/instance heuristics,
-   delayed assignment integration in unification, and finishing the tactic-side
-   migration away from the older fvar-backed compatibility atom.
-4. Convert surface elaboration holes from fvar-backed placeholders to real
-   `Expr.mvar` plus `:meta-mctx`.
-5. Collapse `:mctx` into `:meta-mctx` compatibility views once tactic writers
-   no longer need the legacy recipe map.
+   delayed assignment integration in unification, and stronger stuck/cheap
+   defeq modes.
+4. Continue parity tests for larger tactic families and proof extraction
+   recipes as more assignment recipes are replaced by direct metacontext proof
+   terms.
+5. Collapse the remaining compatibility views once surface placeholders and the
+   tactic unifier fallback are gone.
