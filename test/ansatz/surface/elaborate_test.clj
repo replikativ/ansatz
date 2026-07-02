@@ -280,7 +280,18 @@
           id (lvl/mvar-id u)
           _ (reset! (:level-mctx st) {})
           result (#'elab/collecting-finalize st (e/sort' u))]
-      (is (= [id] (mapv :id (:level-holes result)))))))
+      (is (= [id] (mapv :id (:level-holes result))))))
+
+  (testing "instance-hole metadata is reported from :meta-mctx without compatibility entries"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero)
+                                    {:kind :synthetic :inst-implicit? true})
+          id (e/mvar-id hole)
+          _ (reset! (:mctx st) {})
+          result (#'elab/collecting-finalize st hole)
+          reported (first (:holes result))]
+      (is (= id (:id reported)))
+      (is (:inst-implicit? reported)))))
 
 ;; ============================================================
 ;; elaborate-check (full verification)

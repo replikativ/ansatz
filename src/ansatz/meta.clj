@@ -26,23 +26,24 @@
 (defn add-expr-mvar-decl
   "Declare expression metavariable `id` in local context `lctx` with type `type`.
    `opts` may include `:user-name`, `:local-instances`, `:kind`, and
-   `:num-scope-args`."
+   `:num-scope-args`, and `:inst-implicit?`."
   ([mctx id type lctx]
    (add-expr-mvar-decl mctx id type lctx {}))
-  ([mctx id type lctx {:keys [user-name local-instances kind num-scope-args]
+  ([mctx id type lctx {:keys [user-name local-instances kind num-scope-args inst-implicit?]
                        :or {user-name nil
                             local-instances {}
                             kind :natural
                             num-scope-args 0}}]
    (let [idx (:mvar-counter mctx 0)
-         decl {:user-name user-name
-               :lctx lctx
-               :type type
-               :depth (:depth mctx 0)
-               :local-instances local-instances
-               :kind kind
-               :num-scope-args num-scope-args
-               :index idx}]
+         decl (cond-> {:user-name user-name
+                       :lctx lctx
+                       :type type
+                       :depth (:depth mctx 0)
+                       :local-instances local-instances
+                       :kind kind
+                       :num-scope-args num-scope-args
+                       :index idx}
+                inst-implicit? (assoc :inst-implicit? true))]
      (cond-> (-> mctx
                  (update :mvar-counter (fnil inc 0))
                  (assoc-in [:decls id] decl))
@@ -85,6 +86,11 @@
 
 (defn set-expr-mvar-kind [mctx id kind]
   (assoc-in mctx [:decls id :kind] kind))
+
+(defn set-expr-mvar-inst-implicit [mctx id inst-implicit?]
+  (if inst-implicit?
+    (assoc-in mctx [:decls id :inst-implicit?] true)
+    (update-in mctx [:decls id] dissoc :inst-implicit?)))
 
 (defn set-expr-mvar-user-name [mctx id user-name]
   (let [old (get-in mctx [:decls id :user-name])]

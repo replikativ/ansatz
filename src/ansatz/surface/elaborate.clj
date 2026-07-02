@@ -78,7 +78,8 @@
             (surface-expr->meta est type)
             (surface-lctx->meta est (:lctx (:tc est)))
             (cond-> {:kind kind}
-              user-name (assoc :user-name user-name)))
+              user-name (assoc :user-name user-name)
+              inst-implicit? (assoc :inst-implicit? true)))
      (e/mvar id))))
 
 (defn- mark-inst-implicit!
@@ -86,7 +87,10 @@
   (let [id (expr-mvar-id mvar)]
     (swap! (:mctx est) assoc-in [id :inst-implicit] true)
     (swap! (:mctx est) assoc-in [id :kind] :synthetic)
-    (swap! (:meta-mctx est) meta/set-expr-mvar-kind id :synthetic)))
+    (swap! (:meta-mctx est)
+           #(-> %
+                (meta/set-expr-mvar-kind id :synthetic)
+                (meta/set-expr-mvar-inst-implicit id true)))))
 
 (defn- fresh-level-mvar!
   "Create a fresh universe level metavariable.
@@ -473,7 +477,8 @@
          (mapv (fn [[id decl]]
                  [id (cond-> {:kind (:kind decl)
                               :user-name (:user-name decl)}
-                       (get-in legacy [id :inst-implicit])
+                       (or (:inst-implicit? decl)
+                           (get-in legacy [id :inst-implicit]))
                        (assoc :inst-implicit true))])))))
 
 (defn- unsolved-levels [est]
@@ -1472,8 +1477,15 @@
         build-idx (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
         index (build-idx (:env est))]
     (loop []
-      (let [pending (filterv (fn [[_ m]] (and (:inst-implicit m) (nil? (:solution m))))
-                             @(:mctx est))
+      (let [mctx @(:meta-mctx est)
+            legacy @(:mctx est)
+            pending (->> (:decls mctx)
+                         (filter (fn [[id decl]]
+                                   (and (or (:inst-implicit? decl)
+                                            (get-in legacy [id :inst-implicit]))
+                                        (not (meta/expr-assigned-or-delayed? mctx id)))))
+                         (sort-by first)
+                         vec)
             solved-any (atom false)]
         (doseq [[id _] pending]
           (let [goal (zonk est (surface-mvar-type est id))]
