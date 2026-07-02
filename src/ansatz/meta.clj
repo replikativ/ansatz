@@ -352,6 +352,49 @@
                 (level-assignable? mctx id)))
          (collect-level-mvars l))))
 
+(defn is-level-def-eq
+  "Lean-shaped universe-level unification.
+
+   Return an updated metacontext on success and nil on failure. Successful
+   mvar assignments are recorded in `:level-assignment` using the checked
+   assignment boundary, so depth and occurs checks still apply."
+  [mctx a b]
+  (let [a (zonk-level mctx a)
+        b (zonk-level mctx b)]
+    (cond
+      (lvl/level= a b) mctx
+
+      (and (lvl/succ? a) (lvl/succ? b))
+      (is-level-def-eq mctx (lvl/succ-pred a) (lvl/succ-pred b))
+
+      (lvl/mvar? a)
+      (when-not (lvl/occurs? (lvl/mvar-id a) b)
+        (try
+          (checked-assign-level mctx (lvl/mvar-id a) b)
+          (catch clojure.lang.ExceptionInfo _ nil)))
+
+      (lvl/mvar? b)
+      (when-not (lvl/occurs? (lvl/mvar-id b) a)
+        (try
+          (checked-assign-level mctx (lvl/mvar-id b) a)
+          (catch clojure.lang.ExceptionInfo _ nil)))
+
+      (and (lvl/level-zero? a) (lvl/max? b))
+      (when-let [mctx (is-level-def-eq mctx a (lvl/max-lhs b))]
+        (is-level-def-eq mctx a (lvl/max-rhs b)))
+
+      (and (lvl/max? a) (lvl/level-zero? b))
+      (when-let [mctx (is-level-def-eq mctx (lvl/max-lhs a) b)]
+        (is-level-def-eq mctx (lvl/max-rhs a) b))
+
+      (and (lvl/level-zero? a) (lvl/imax? b))
+      (is-level-def-eq mctx a (lvl/imax-rhs b))
+
+      (and (lvl/imax? a) (lvl/level-zero? b))
+      (is-level-def-eq mctx (lvl/imax-rhs a) b)
+
+      :else nil)))
+
 (declare contains-unsolved-expr-mvar?)
 
 (defn- fvar-id-from-expr [x]

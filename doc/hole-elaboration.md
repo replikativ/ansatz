@@ -29,6 +29,9 @@ The local Ansatz shape now follows that split:
 - surface elaboration still stores compatibility fvar/param placeholders, but
   type inference for terms containing holes now converts through
   `:meta-mctx` and `ansatz.meta/infer-type`;
+- surface universe-level unification now routes through the persistent
+  metacontext level unifier and syncs assignments back to the compatibility
+  level context;
 - tactic assignments still keep legacy extraction recipes, but also mirror a
   Lean-style expression assignment when possible;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and

@@ -233,6 +233,15 @@
       (is (nil? (get-in @(:level-mctx st) [id :solution])))
       (is (nil? (get-in @(:meta-mctx st) [:level-assignment id]))))))
 
+(deftest test-elab-level-unification-uses-metacontext
+  (testing "surface level unification solves in :meta-mctx and syncs legacy state"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (first (keys @(:level-mctx st)))]
+      (is (#'elab/unify-levels! st (lvl/succ u) (lvl/succ lvl/zero)))
+      (is (= lvl/zero (get-in @(:level-mctx st) [id :solution])))
+      (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))
+
 (deftest test-elab-infer-with-mvars-uses-mirrored-metacontext
   (testing "dependent surface holes are typed through real mvars in :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))

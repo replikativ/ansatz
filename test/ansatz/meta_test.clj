@@ -124,6 +124,20 @@
                           (meta/checked-assign-level
                            (meta/with-level-assign-depth mctx 1) 10 lvl/zero)))))
 
+(deftest meta-level-defeq-assigns-through-metacontext
+  (testing "level unification records checked assignments"
+    (let [mctx (meta/add-level-mvar-decl meta/empty-context 10)
+          solved (meta/is-level-def-eq mctx (lvl/succ (lvl/mvar 10))
+                                       (lvl/succ lvl/zero))]
+      (is solved)
+      (is (= lvl/zero (meta/level-assignment solved 10)))))
+
+  (testing "failed assignments leave the original persistent context unchanged"
+    (let [mctx (meta/add-level-mvar-decl meta/empty-context 10)]
+      (is (nil? (meta/is-level-def-eq mctx (lvl/mvar 10)
+                                      (lvl/succ (lvl/mvar 10)))))
+      (is (nil? (meta/level-assignment mctx 10))))))
+
 (deftest instantiate-mvar-declaration-mvars
   (testing "assigned mvars are instantiated inside declaration types and local contexts"
     (let [u (lvl/mvar 10)

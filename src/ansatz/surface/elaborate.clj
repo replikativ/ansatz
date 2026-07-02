@@ -395,6 +395,16 @@
                 expr))]
       (go expr))))
 
+(defn- sync-legacy-levels-from-meta!
+  "Mirror solved universe levels from `:meta-mctx` back into the legacy
+   compatibility level context."
+  [est]
+  (let [mctx @(:meta-mctx est)]
+    (doseq [[id _] @(:level-mctx est)]
+      (when-let [solution (meta/level-assignment mctx id)]
+        (swap! (:level-mctx est) assoc-in [id :solution]
+               (meta-level->surface est solution))))))
+
 (defn- sync-meta-decls!
   "Keep the mirrored metacontext declarations readable after legacy zonking by
    converting their types/local contexts to real mvar representation."
@@ -500,27 +510,12 @@
 (defn- unify-levels!
   "Try to unify two levels, solving level metavars."
   [est l1 l2]
-  (let [l1 (zonk-level est l1)
-        l2 (zonk-level est l2)]
-    (or (lvl/level= l1 l2)
-        ;; If one side is a level mvar, solve it
-        (when (lvl/param? l1)
-          (let [n (lvl/param-name l1)
-                entry (some (fn [[id m]] (when (= (:name m) n) id))
-                            @(:level-mctx est))]
-            (when entry
-              (solve-level-mvar! est entry l2))))
-        (when (lvl/param? l2)
-          (let [n (lvl/param-name l2)
-                entry (some (fn [[id m]] (when (= (:name m) n) id))
-                            @(:level-mctx est))]
-            (when entry
-              (solve-level-mvar! est entry l1))))
-        ;; succ a =?= succ b → a =?= b. Needed for Type-u constants (α : Type ?u =
-        ;; Sort (succ ?u)): unifying succ ?u with succ 0 must peel to solve ?u, since
-        ;; the param-mvar cases above only fire on a *bare* param level.
-        (when (and (lvl/succ? l1) (lvl/succ? l2))
-          (unify-levels! est (lvl/succ-pred l1) (lvl/succ-pred l2))))))
+  (let [l1 (surface-level->meta est (zonk-level est l1))
+        l2 (surface-level->meta est (zonk-level est l2))]
+    (when-let [mctx (meta/is-level-def-eq @(:meta-mctx est) l1 l2)]
+      (reset! (:meta-mctx est) mctx)
+      (sync-legacy-levels-from-meta! est)
+      true)))
 
 (defn- unify!
   "First-order unification of two expressions, solving metavars in est.
