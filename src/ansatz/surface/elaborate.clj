@@ -36,9 +36,10 @@
   "Create elaboration state with metavar tracking."
   ([^Env env]
    (mk-elab-state env {}))
-  ([^Env env {:keys [next-id-start initial-meta-mctx collect-from-index]
+  ([^Env env {:keys [next-id-start initial-meta-mctx collect-from-index holes-as-synthetic-opaque?]
               :or {next-id-start 1000000
-                   initial-meta-mctx meta/empty-context}}]
+                   initial-meta-mctx meta/empty-context
+                   holes-as-synthetic-opaque? false}}]
    {:env env
     :tc (tc/mk-tc-state env)
     :next-id (atom next-id-start)  ;; high start to avoid collision with tc ids
@@ -47,6 +48,7 @@
     :meta-mctx (atom initial-meta-mctx)
     :collect-from-index (or collect-from-index (:mvar-counter initial-meta-mctx 0))
     :initial-level-mvar-ids (set (keys (:level-depth initial-meta-mctx)))
+    :holes-as-synthetic-opaque? holes-as-synthetic-opaque?
     :scope {}                ;; symbol → {:fvar-id long :type Expr}
     :depth 0}))
 
@@ -995,8 +997,11 @@
   [est hole-name]
   (let [u (fresh-level-mvar! est)
         type-hole (fresh-mvar! est (e/sort' u))
+        kind (if (or hole-name (:holes-as-synthetic-opaque? est))
+               :syntheticOpaque
+               :natural)
         term-hole (fresh-mvar! est type-hole
-                                (cond-> {:kind (if hole-name :syntheticOpaque :natural)}
+                                (cond-> {:kind kind}
                                   hole-name (assoc :user-name hole-name)))]
     term-hole))
 
@@ -1643,7 +1648,9 @@
   ([env sexpr]
    (elaborate-collecting env sexpr nil))
   ([env sexpr expected]
-   (elaborate* :collecting env nil sexpr expected)))
+   (elaborate-collecting env sexpr expected {}))
+  ([env sexpr expected opts]
+   (elaborate* :collecting env nil sexpr expected opts)))
 
 (defn elaborate-in-context
   "Elaborate an s-expression with a local context from a proof state.

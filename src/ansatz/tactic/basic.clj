@@ -317,7 +317,8 @@
          {:keys [expr meta-mctx holes level-holes]}
          (elab/elaborate-in-context-collecting (:env ps) (:lctx goal) form (:type goal)
                                                {:next-id-start next-id-start
-                                                :initial-meta-mctx (:meta-mctx ps)})
+                                                :initial-meta-mctx (:meta-mctx ps)
+                                                :holes-as-synthetic-opaque? allow-natural-holes?})
          natural-holes (filterv #(= :natural (:kind %)) holes)]
      (when (seq level-holes)
        (tactic-error! "refine: unresolved universe level holes"

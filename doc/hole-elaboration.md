@@ -63,6 +63,9 @@ The local Ansatz shape now follows that split:
   `tagUntaggedGoals` convention: one anonymous child inherits the parent tag,
   while multiple anonymous children receive stable `refine_i`/`refine'_i`
   suffix tags;
+- `refine-prime` elaborates with a Lean-style `holesAsSyntheticOpaque` mode,
+  so explicit `_` holes become synthetic-opaque tactic goals rather than
+  ordinary natural metavariables;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 

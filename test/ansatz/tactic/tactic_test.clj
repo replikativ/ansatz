@@ -331,6 +331,7 @@
           ps (basic/intro ps "p")
           ps (basic/refine-prime ps '(lam [h p] _))]
       (is (= 1 (count (:goals ps))))
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps (first (:goals ps))))))
       (let [ps (basic/assumption ps)]
         (is (proof/solved? ps))
         (is (not (e/has-fvar-flag (extract/verify ps))))))))
@@ -363,9 +364,12 @@
                  (basic/intro "p")
                  (basic/intro "f")
                  (basic/refine-prime '(f _ _)))
-          tags (mapv #(some-> (:user-name %) name/->string) (proof/goals ps))]
+          goals (vec (proof/goals ps))
+          tags (mapv #(some-> (:user-name %) name/->string) goals)
+          kinds (mapv #(->> (:id %) (proof/mvar-decl ps) :kind) goals)]
       (is (= 2 (count (:goals ps))))
-      (is (= ["refine'_1" "refine'_2"] tags)))))
+      (is (= ["refine'_1" "refine'_2"] tags))
+      (is (= [:syntheticOpaque :syntheticOpaque] kinds)))))
 
 ;; ============================================================
 ;; Test 11: apply with unification (implicit args)

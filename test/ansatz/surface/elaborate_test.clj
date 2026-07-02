@@ -199,6 +199,16 @@
       (is (= :syntheticOpaque (:kind hole)))
       (is (= (:id hole) (get-in meta-mctx [:user-names user-name]))))))
 
+(deftest test-elab-collecting-hole-as-synthetic-opaque
+  (testing "collecting elaboration can mirror Lean refine' holesAsSyntheticOpaque mode"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          {:keys [holes]} (elab/elaborate-collecting env '_ expected
+                                                    {:holes-as-synthetic-opaque? true})]
+      (is (= 1 (count holes)))
+      (is (= :syntheticOpaque (:kind (first holes))))
+      (is (nil? (:user-name (first holes)))))))
+
 (deftest test-elab-strict-top-hole-fails
   (testing "strict elaboration still rejects unsolved holes"
     (let [env (env/empty-env)]
