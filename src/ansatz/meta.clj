@@ -823,14 +823,56 @@
 
 (defn- expr-mvar-assignment-candidate
   [mctx a b]
-  (cond
-    (and (e/mvar? a)
-         (not (expr-assigned-or-delayed? mctx (e/mvar-id a))))
-    [(e/mvar-id a) b]
+  (letfn [(unassigned? [x]
+            (and (e/mvar? x)
+                 (not (expr-assigned-or-delayed? mctx (e/mvar-id x)))))
+          (synthetic? [x]
+            (when (e/mvar? x)
+              (= :synthetic (:kind (expr-decl! mctx (e/mvar-id x))))))]
+    (cond
+      (and (unassigned? a) (unassigned? b) (synthetic? a) (not (synthetic? b)))
+      [(e/mvar-id b) a]
 
-    (and (e/mvar? b)
-         (not (expr-assigned-or-delayed? mctx (e/mvar-id b))))
-    [(e/mvar-id b) a]))
+      (and (unassigned? a) (unassigned? b))
+      [(e/mvar-id a) b]
+
+      (unassigned? a)
+      [(e/mvar-id a) b]
+
+      (unassigned? b)
+      [(e/mvar-id b) a])))
+
+(defn- mvar-app-spine
+  [mctx expr]
+  (let [[head args] (e/get-app-fn-args expr)]
+    (when (and (e/mvar? head)
+               (seq args)
+               (not (expr-assigned-or-delayed? mctx (e/mvar-id head))))
+      [(e/mvar-id head) args])))
+
+(defn- try-assign-miller-pattern
+  [mctx st bound id args value]
+  (when (and (every? (fn [arg]
+                       (and (e/fvar? arg)
+                            (contains? bound (e/fvar-id arg))))
+                     args)
+             (let [ids (map e/fvar-id args)]
+               (apply distinct? ids))
+             (not (contains? (collect-expr-mvars (zonk-expr mctx value)) id)))
+    (let [ids (mapv e/fvar-id args)
+          types (mapv (fn [fid]
+                        (:type (red/lctx-lookup (:lctx st) fid)))
+                      ids)]
+      (when (every? some? types)
+        (let [body (e/abstract-many value ids)
+              lam (reduce (fn [acc i]
+                            (let [type (e/abstract-many
+                                        (zonk-expr mctx (nth types i))
+                                        (subvec ids 0 i))]
+                              (e/lam "x" type acc :default)))
+                          body
+                          (reverse (range (count ids))))]
+          (try-assign-expr-defeq mctx st id lam))))))
 
 (defn- closed-kernel-defeq
   [mctx st a b]
@@ -841,12 +883,16 @@
       (catch Throwable _ nil))))
 
 (defn- is-def-eq-core
-  [mctx st a b]
+  [mctx st bound a b]
   (or
    (when (= a b) mctx)
    (closed-kernel-defeq mctx st a b)
    (when-let [[id value] (expr-mvar-assignment-candidate mctx a b)]
      (try-assign-expr-defeq mctx st id value))
+   (when-let [[id args] (mvar-app-spine mctx a)]
+     (try-assign-miller-pattern mctx st bound id args b))
+   (when-let [[id args] (mvar-app-spine mctx b)]
+     (try-assign-miller-pattern mctx st bound id args a))
    (when (= (e/tag a) (e/tag b))
      (case (e/tag a)
        :sort (is-level-def-eq mctx (e/sort-level a) (e/sort-level b))
@@ -859,36 +905,37 @@
                         mctx
                         (map vector (e/const-levels a) (e/const-levels b))))
 
-       :app (when-let [mctx (is-def-eq mctx st (e/app-fn a) (e/app-fn b))]
-              (is-def-eq mctx st (e/app-arg a) (e/app-arg b)))
+       :app (when-let [mctx (is-def-eq mctx st bound (e/app-fn a) (e/app-fn b))]
+              (is-def-eq mctx st bound (e/app-arg a) (e/app-arg b)))
 
-       :lam (when-let [mctx (is-def-eq mctx st (e/lam-type a) (e/lam-type b))]
+       :lam (when-let [mctx (is-def-eq mctx st bound (e/lam-type a) (e/lam-type b))]
               (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
                                                          (e/lam-name a)
                                                          (e/lam-type a)
                                                          (e/lam-body a))
                     body-b (e/instantiate1 (e/lam-body b) fv)]
-                (is-def-eq mctx st' body-a body-b)))
+                (is-def-eq mctx st' (conj bound (e/fvar-id fv)) body-a body-b)))
 
-       :forall (when-let [mctx (is-def-eq mctx st (e/forall-type a) (e/forall-type b))]
+       :forall (when-let [mctx (is-def-eq mctx st bound (e/forall-type a) (e/forall-type b))]
                  (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
                                                             (e/forall-name a)
                                                             (e/forall-type a)
                                                             (e/forall-body a))
                        body-b (e/instantiate1 (e/forall-body b) fv)]
-                   (is-def-eq mctx st' body-a body-b)))
+                   (is-def-eq mctx st' (conj bound (e/fvar-id fv)) body-a body-b)))
 
-       :let (when-let [mctx (is-def-eq mctx st (e/let-type a) (e/let-type b))]
-              (when-let [mctx (is-def-eq mctx st (e/let-value a) (e/let-value b))]
+       :let (when-let [mctx (is-def-eq mctx st bound (e/let-type a) (e/let-type b))]
+              (when-let [mctx (is-def-eq mctx st bound (e/let-value a) (e/let-value b))]
                 (is-def-eq mctx st
+                           bound
                            (e/instantiate1 (e/let-body a) (e/let-value a))
                            (e/instantiate1 (e/let-body b) (e/let-value b)))))
 
-       :mdata (is-def-eq mctx st (e/mdata-expr a) (e/mdata-expr b))
+       :mdata (is-def-eq mctx st bound (e/mdata-expr a) (e/mdata-expr b))
 
        :proj (when (and (= (e/proj-type-name a) (e/proj-type-name b))
                         (= (e/proj-idx a) (e/proj-idx b)))
-               (is-def-eq mctx st (e/proj-struct a) (e/proj-struct b)))
+               (is-def-eq mctx st bound (e/proj-struct a) (e/proj-struct b)))
 
        :fvar (when (= (e/fvar-id a) (e/fvar-id b)) mctx)
        (:lit-nat :lit-str :bvar) (when (= a b) mctx)
@@ -901,14 +948,16 @@
    service, not a kernel check: it may assign expression and level
    metavariables in the returned metacontext, but accepted proofs still have to
    be zonked and checked by the kernel."
-  [mctx st a b]
-  (let [a (zonk-expr mctx a)
-        b (zonk-expr mctx b)]
-    (or (is-def-eq-core mctx st a b)
-        (let [a' (whnf mctx st a)
-              b' (whnf mctx st b)]
-          (when (or (not= a a') (not= b b'))
-            (is-def-eq-core mctx st (zonk-expr mctx a') (zonk-expr mctx b')))))))
+  ([mctx st a b]
+   (is-def-eq mctx st #{} a b))
+  ([mctx st bound a b]
+   (let [a (zonk-expr mctx a)
+         b (zonk-expr mctx b)]
+     (or (is-def-eq-core mctx st bound a b)
+         (let [a' (whnf mctx st a)
+               b' (whnf mctx st b)]
+           (when (or (not= a a') (not= b b'))
+             (is-def-eq-core mctx st bound (zonk-expr mctx a') (zonk-expr mctx b'))))))))
 
 (declare local-decl-depends-on?)
 

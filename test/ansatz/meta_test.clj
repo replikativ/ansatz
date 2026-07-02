@@ -213,6 +213,33 @@
       (is (nil? (meta/is-def-eq mctx st (e/mvar 1) (e/fvar 42))))
       (is (nil? (meta/expr-assignment mctx 1))))))
 
+(deftest meta-defeq-assigns-miller-patterns
+  (testing "unification can solve ?m x := x under a freshly opened binder"
+    (let [prop (e/sort' lvl/zero)
+          fn-type (e/forall' "x" prop prop :default)
+          lhs (e/forall' "x" prop
+                         (e/app (e/mvar 1) (e/bvar 0))
+                         :default)
+          rhs (e/forall' "x" prop (e/bvar 0) :default)
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 fn-type {})
+          st (tc/mk-tc-state (env/empty-env))
+          solved (meta/is-def-eq mctx st lhs rhs)]
+      (is solved)
+      (is (= (e/lam "x" prop (e/bvar 0) :default)
+             (meta/expr-assignment solved 1))))))
+
+(deftest meta-defeq-prefers-natural-over-synthetic
+  (testing "when unifying synthetic with natural, assign the natural mvar"
+    (let [prop (e/sort' lvl/zero)
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop {} {:kind :synthetic})
+                   (meta/add-expr-mvar-decl 2 prop {}))
+          st (tc/mk-tc-state (env/empty-env))
+          solved (meta/is-def-eq mctx st (e/mvar 1) (e/mvar 2))]
+      (is solved)
+      (is (= (e/mvar 1) (meta/expr-assignment solved 2)))
+      (is (nil? (meta/expr-assignment solved 1))))))
+
 (deftest expr-dependency-is-conservative-over-unassigned-mvars
   (testing "assigned mvars are followed and unassigned mvars may depend on their local context"
     (let [prop (e/sort' lvl/zero)
