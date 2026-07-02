@@ -199,6 +199,21 @@
       (is (= :syntheticOpaque (:kind hole)))
       (is (= (:id hole) (get-in meta-mctx [:user-names user-name]))))))
 
+(deftest test-elab-collecting-reuses-existing-named-hole
+  (testing "named holes reuse an existing user-name entry in the metacontext"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          hole-name (name/from-string "goal")
+          initial-mctx (meta/add-expr-mvar-decl meta/empty-context 7 expected
+                                                (red/empty-lctx)
+                                                {:kind :syntheticOpaque
+                                                 :user-name hole-name})
+          {:keys [expr holes meta-mctx]} (elab/elaborate-collecting env '?goal expected
+                                                                    {:initial-meta-mctx initial-mctx})]
+      (is (= (e/mvar 7) expr))
+      (is (empty? holes))
+      (is (= 7 (get-in meta-mctx [:user-names hole-name]))))))
+
 (deftest test-elab-collecting-hole-as-synthetic-opaque
   (testing "collecting elaboration can mirror Lean refine' holesAsSyntheticOpaque mode"
     (let [env (env/empty-env)

@@ -349,6 +349,35 @@
       (is (= parent-tag (:user-name (proof/mvar-decl ps (:id goal)))))
       (is (re-find #"Goal 1 \(main\)" (proof/format-goals ps))))))
 
+(deftest test-refine-main-goal-named-hole-keeps-goal
+  (testing "refining with the main goal mvar preserves the current goal"
+    (let [env (minimal-env)
+          main-tag (name/from-string "main")
+          [ps root] (proof/start-proof env prop)
+          ps (proof/set-mvar-user-name ps root main-tag)
+          ps (basic/refine ps '?main)]
+      (is (= [root] (:goals ps)))
+      (is (proof/mvar-open? ps root))
+      (is (= main-tag (:user-name (proof/current-goal ps)))))))
+
+(deftest test-refine-rejects-main-goal-dependency
+  (testing "refine rejects values that contain the main goal mvar"
+    (let [env (minimal-env)
+          main-tag (name/from-string "main")
+          ;; forall (p : Prop), (p -> p) -> p
+          p-to-p (e/forall' "_" (e/bvar 0) (e/bvar 1) :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "f" p-to-p (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "f"))
+          goal-id (:id (proof/current-goal ps))
+          ps (proof/set-mvar-user-name ps goal-id main-tag)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"depends on the main goal"
+                            (basic/refine ps '(f ?main)))))))
+
 (deftest test-refine-tags-multiple-unnamed-holes
   (testing "multiple unnamed refine-prime holes receive stable suffix tags"
     (let [env (minimal-env)

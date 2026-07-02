@@ -995,15 +995,17 @@
   "Create a term hole. Its type is itself a metavariable so later
    bidirectional constraints can determine it."
   [est hole-name]
-  (let [u (fresh-level-mvar! est)
-        type-hole (fresh-mvar! est (e/sort' u))
-        kind (if (or hole-name (:holes-as-synthetic-opaque? est))
-               :syntheticOpaque
-               :natural)
-        term-hole (fresh-mvar! est type-hole
-                                (cond-> {:kind kind}
-                                  hole-name (assoc :user-name hole-name)))]
-    term-hole))
+  (if-let [id (when hole-name (get-in @(:meta-mctx est) [:user-names hole-name]))]
+    (meta/zonk-expr @(:meta-mctx est) (e/mvar id))
+    (let [u (fresh-level-mvar! est)
+          type-hole (fresh-mvar! est (e/sort' u))
+          kind (if (or hole-name (:holes-as-synthetic-opaque? est))
+                 :syntheticOpaque
+                 :natural)
+          term-hole (fresh-mvar! est type-hole
+                                  (cond-> {:kind kind}
+                                    hole-name (assoc :user-name hole-name)))]
+      term-hole)))
 
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."

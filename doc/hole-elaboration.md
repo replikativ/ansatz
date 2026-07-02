@@ -66,6 +66,11 @@ The local Ansatz shape now follows that split:
 - `refine-prime` elaborates with a Lean-style `holesAsSyntheticOpaque` mode,
   so explicit `_` holes become synthetic-opaque tactic goals rather than
   ordinary natural metavariables;
+- named synthetic holes reuse an existing metacontext user-name entry when one
+  is available, matching Lean's synthetic-hole lookup behavior;
+- `refine` mirrors Lean's main-goal guard: refining with the main goal keeps it
+  open, while values that merely depend on the main goal metavariable are
+  rejected;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 

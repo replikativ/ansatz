@@ -12,6 +12,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.unify :as u]
             [ansatz.surface.elaborate :as elab]
@@ -319,6 +320,7 @@
                                                {:next-id-start next-id-start
                                                 :initial-meta-mctx (:meta-mctx ps)
                                                 :holes-as-synthetic-opaque? allow-natural-holes?})
+         checked-expr (meta/zonk-expr meta-mctx expr)
          natural-holes (filterv #(= :natural (:kind %)) holes)]
      (when (seq level-holes)
        (tactic-error! "refine: unresolved universe level holes"
@@ -332,12 +334,27 @@
            visible-ids (mapv :id visible-holes)
            ps (-> ps
                   (assoc :meta-mctx meta-mctx)
-                  (update :next-id #(max (or % 1) (inc (max-collected-mvar-id meta-mctx)))))
-           ps (proof/assign-mvar ps (:id goal) {:kind :exact :term expr})]
-       (-> ps
-           (update :goals (fn [gs] (into visible-ids gs)))
-           (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)
-           (proof/record-tactic :refine [form] (:id goal)))))))
+                  (update :next-id #(max (or % 1) (inc (max-collected-mvar-id meta-mctx)))))]
+       (cond
+         (= checked-expr (e/mvar (:id goal)))
+         (-> ps
+             (update :goals (fn [gs]
+                              (into [(:id goal)]
+                                    (concat visible-ids
+                                            (remove #{(:id goal)} gs)))))
+             (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)
+             (proof/record-tactic :refine [form] (:id goal)))
+
+         (contains? (meta/collect-expr-mvars checked-expr) (:id goal))
+         (tactic-error! "refine: value depends on the main goal metavariable"
+                        {:mvar-id (:id goal) :value checked-expr})
+
+         :else
+         (let [ps (proof/assign-mvar ps (:id goal) {:kind :exact :term expr})]
+           (-> ps
+               (update :goals (fn [gs] (into visible-ids gs)))
+               (proof/tag-untagged-goals parent-tag tag-suffix visible-ids)
+               (proof/record-tactic :refine [form] (:id goal)))))))))
 
 (defn refine-prime
   "Lean `refine'`: like `refine`, but natural holes become subgoals."
