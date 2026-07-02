@@ -55,7 +55,9 @@ The local Ansatz shape now follows that split:
 - tactic `refine` now elaborates a surface term in the current proof
   metacontext, saves the fresh mvar boundary, assigns the current goal, and
   turns the freshly-created non-natural holes into goals; `refine-prime`
-  mirrors Lean's `refine'` by allowing natural holes to become goals too;
+  mirrors Lean's `refine'` by allowing natural holes to become goals too, and
+  both are exposed through the public surface tactic forms `(refine ...)` and
+  `(refine' ...)`;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 

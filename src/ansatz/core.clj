@@ -806,6 +806,10 @@
                                 (catch Throwable _
                                   (elab/elaborate-in-context (:env ps) (:lctx g) (first args))))]
                   (basic/exact ps term)))
+   'refine    (fn [ps args]
+                (basic/refine ps (first args)))
+   'refine'   (fn [ps args]
+                (basic/refine-prime ps (first args)))
    'omega     (fn [ps _] (omega/omega ps))
    'ac_rfl    (fn [ps _] (ac/ac-rfl ps))
    'trans     (fn [ps args]

@@ -91,6 +91,19 @@
       (a/prove-theorem 'assume-test '[^Nat n ^{:- (= Nat n n)} h] '(= Nat n n) '[(assumption)])
       (is true "theorem proved"))))
 
+(deftest test-theorem-refine
+  (testing "Prove through public refine tactics"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'refine-named-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(refine ?goal) (assumption)])
+      (a/prove-theorem 'refine-prime-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(refine' _) (assumption)])
+      (is true "theorems proved"))))
+
 (deftest test-theorem-induction
   (testing "Prove by induction on Nat"
     (binding [a/*verbose* false]
