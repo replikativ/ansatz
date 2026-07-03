@@ -15,6 +15,7 @@
             [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
+            [ansatz.tactic.instance :as inst]
             [ansatz.tactic.unify :as u]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
@@ -114,6 +115,117 @@
               ps))
           ps
           ids))
+
+(defn- zonk-proof-expr
+  "Instantiate both Lean-shaped metavariables and the older fvar-backed proof
+   metavariables inside `expr`."
+  [ps expr]
+  (when expr
+    (instantiate-solved-mvars
+     ps
+     (if-let [mctx (:meta-mctx ps)]
+       (meta/zonk-expr mctx expr)
+       expr)
+     (proof/mvar-ids ps))))
+
+(defn- assigned-mvar-term
+  [ps mvar-id]
+  (or (proof/mvar-exact-term ps mvar-id)
+      (when-let [mctx (:meta-mctx ps)]
+        (meta/expr-assignment mctx mvar-id))))
+
+(defn- try-synthesize-instance-in-context
+  "Try instance synthesis using the metavariable's local context first. This is
+   the local analogue of Lean's `mvarId.withContext` around `synthInstance`."
+  [ps lctx goal-type]
+  (let [goal-type (zonk-proof-expr ps goal-type)
+        st (mk-tc ps lctx)
+        idx (try ((requiring-resolve 'ansatz.core/instance-index))
+                 (catch Throwable _ {}))]
+    (or (try (inst/synthesize* st (:env ps) idx goal-type 0)
+             (catch Throwable _ nil))
+        (try (inst/tabled-synthesize st (:env ps) idx goal-type)
+             (catch Throwable _ nil))
+        (try (let [f (requiring-resolve 'ansatz.core/try-synthesize-instance)]
+               (f (:env ps) goal-type idx))
+             (catch Throwable _ nil)))))
+
+(defn- assigned-instance-compatible
+  "Return an updated proof state when the already-assigned instance mvar is
+   definitionally equal to the synthesized instance, otherwise nil."
+  [ps lctx mvar-id inst-term]
+  (when-let [assigned (assigned-mvar-term ps mvar-id)]
+    (let [st (mk-tc ps lctx)
+          assigned (zonk-proof-expr ps assigned)
+          inst-term (zonk-proof-expr ps inst-term)]
+      (try
+        (when-let [mctx (meta/is-def-eq (:meta-mctx ps) st assigned inst-term)]
+          (assoc ps :meta-mctx mctx))
+        (catch Throwable _ nil)))))
+
+(defn- synthesize-apply-instances
+  "Lean-shaped `synthAppInstances` for `apply`: synthesize inst-implicit
+   telescope metavariables after result-type unification, including assigned
+   instance arguments, and retry postponed failures when later synthesis made
+   progress."
+  ([ps arg-mvars arg-binfos]
+   (synthesize-apply-instances ps arg-mvars arg-binfos
+                               {:synth-assigned-instances? true
+                                :allow-synth-failures? false}))
+  ([ps arg-mvars arg-binfos {:keys [synth-assigned-instances?
+                                    allow-synth-failures?]}]
+   (let [todo (->> (map vector arg-mvars arg-binfos)
+                   (filterv (fn [[mvar-id binfo]]
+                              (and (= binfo :inst-implicit)
+                                   (or synth-assigned-instances?
+                                       (not (proof/mvar-assigned? ps mvar-id)))))))]
+     (loop [ps ps
+            todo todo]
+       (if (empty? todo)
+         ps
+         (let [{:keys [ps postponed first-error progress-after-error?]}
+               (reduce
+                (fn [{:keys [ps saw-error?] :as acc} [mvar-id _binfo]]
+                  (let [decl (proof/mvar-decl ps mvar-id)
+                        lctx (:lctx decl)
+                        mtype (zonk-proof-expr ps (:type decl))
+                        ps (proof/set-mvar-type ps mvar-id mtype)
+                        inst-term (try-synthesize-instance-in-context ps lctx mtype)]
+                    (if inst-term
+                      (let [ps' (if (proof/mvar-assigned? ps mvar-id)
+                                  (assigned-instance-compatible ps lctx mvar-id inst-term)
+                                  (proof/assign-mvar ps mvar-id
+                                                     {:kind :exact :term inst-term}))]
+                        (if ps'
+                          (-> acc
+                              (assoc :ps ps')
+                              (cond-> saw-error? (assoc :progress-after-error? true)))
+                          (assoc acc
+                                 :saw-error? true
+                                 :first-error (or (:first-error acc)
+                                                  (ex-info "apply: failed to assign synthesized instance"
+                                                           {:mvar-id mvar-id
+                                                            :type mtype
+                                                            :instance inst-term}))
+                                 :postponed (conj (:postponed acc) [mvar-id :inst-implicit]))))
+                      (assoc acc
+                             :saw-error? true
+                             :first-error (or (:first-error acc)
+                                              (ex-info "apply: failed to synthesize instance implicit argument"
+                                                       {:mvar-id mvar-id
+                                                        :type mtype}))
+                             :postponed (conj (:postponed acc) [mvar-id :inst-implicit])))))
+                {:ps ps
+                 :postponed []
+                 :first-error nil
+                 :saw-error? false
+                 :progress-after-error? false}
+                todo)]
+           (cond
+             (nil? first-error) ps
+             progress-after-error? (recur ps postponed)
+             allow-synth-failures? ps
+             :else (throw first-error))))))))
 
 (defn- goal-mvar-ids
   "The UNSOLVED proof mvars (fvar-encoded) that occur in `goal`'s type, excluding the goal itself and
@@ -544,8 +656,8 @@
     (loop [ps ps
            ty (meta-whnf-in-goal ps (:lctx goal) term-type)
            arg-mvars []
+           arg-binfos []
            mvar-id-set #{}
-           type-param-idx 0
            implicit-mvars #{}]
       (if (and (e/forall? ty)
                (not (apply-target-compatible? ps goal ty arg-mvars mvar-id-set)))
@@ -557,30 +669,20 @@
                                     (e/instantiate1 (e/abstract1 t fid) term)
                                     t))
                                 param-type arg-mvars)
-              ;; Goal-directed inference following Lean 4:
-              ;; 1. Implicit type params (Sort): infer from goal's type args
-              ;; 2. Inst-implicit: synthesize instance
-              ;; 3. Implicit value params: try to infer from goal structure
-              is-type-param (and (#{:implicit :strict-implicit} binfo)
-                                 (let [stw (try (#'tc/cached-whnf st inst-type) (catch Exception _ nil))]
-                                   (and stw (e/sort? stw))))
+              ;; Lean's apply creates metavariables for ordinary implicit
+              ;; parameters and lets result-type unification solve them. Do not
+              ;; guess type parameters from goal arguments here: for equality
+              ;; goals, the first goal argument is the equality domain, not
+              ;; necessarily the theorem's first implicit type parameter.
               inferred-val
               (cond
-                ;; Implicit type param: infer from goal's corresponding arg
-                ;; Use type-param-idx to pick the right arg (not always first)
-                is-type-param
-                (let [[gh ga] (e/get-app-fn-args (:type goal))]
-                  (when (and (seq ga) (< type-param-idx (count ga)))
-                    (nth ga type-param-idx)))
-
                 ;; Inst-implicit: synthesize
                 (= binfo :inst-implicit)
                 (try
-                  (let [synth-fn (requiring-resolve 'ansatz.core/try-synthesize-instance)]
-                    (synth-fn (:env ps) inst-type))
+                  (try-synthesize-instance-in-context ps (:lctx goal) inst-type)
                   (catch Exception _ nil))
 
-                ;; Implicit value param: try to extract from goal args
+                ;; Ordinary implicit value/type params remain apply mvars.
                 (#{:implicit :strict-implicit} binfo)
                 nil)  ;; leave as mvar
               synthesized inferred-val]
@@ -591,8 +693,9 @@
                   ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
                   new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
               (recur ps' (meta-whnf-in-goal ps' (:lctx goal) new-ty)
-                     (conj arg-mvars mvar-id) mvar-id-set
-                     (if is-type-param (inc type-param-idx) type-param-idx)
+                     (conj arg-mvars mvar-id)
+                     (conj arg-binfos binfo)
+                     mvar-id-set
                      implicit-mvars))
             ;; Not synthesized — create mvar (for implicit, inst-implicit, AND explicit params).
             ;; Following Lean 4, explicit mvars become subgoals when they remain unsolved.
@@ -603,8 +706,8 @@
                   is-implicit (#{:implicit :strict-implicit :inst-implicit} binfo)]
               (recur ps' (meta-whnf-in-goal ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id)
+                     (conj arg-binfos binfo)
                      (conj mvar-id-set mvar-id)
-                     (if is-type-param (inc type-param-idx) type-param-idx)
                      (if is-implicit (conj implicit-mvars mvar-id) implicit-mvars)))))
         ;; Phase 2: Match result type against goal.
         ;; Following Lean 4's apply (Apply.lean): use isDefEq as the PRIMARY
@@ -790,43 +893,11 @@
                   ps (-> (proof/assign-mvar ps (:id goal)
                                             {:kind :apply :head head-term :arg-mvars arg-mvars})
                          (proof/record-tactic :apply [head-term] (:id goal)))
-                  ;; Post-processing: auto-close typeclass instance subgoals.
-                  ;; Lean 4's apply does this via synthAppInstances (Apply.lean).
-                  ;; If a subgoal's type is a class application (not a relation/prop),
-                  ;; try to synthesize the instance automatically.
-                  ps (reduce
-                      (fn [ps mid]
-                        (if (proof/mvar-assigned? ps mid)
-                          ps
-                          (let [mtype (proof/mvar-type ps mid)
-                                [mhead _] (when mtype (e/get-app-fn-args mtype))]
-                            (if (and mtype (e/const? mhead)
-                                      ;; Heuristic: class-like types (capitalized,
-                                      ;; not relation/logic constructors)
-                                     (let [s (name/->string (e/const-name mhead))]
-                                       (and (pos? (count s))
-                                            (Character/isUpperCase ^char (first s))
-                                            (not (#{"Eq" "LE" "LT" "GE" "GT"
-                                                    "Not" "And" "Or" "Iff"
-                                                    "HAdd" "HMul" "HSub" "HDiv"
-                                                    "HPow" "Exists" "Sigma"} s)))))
-                              (if-let [inst (or
-                                               ;; Fast path: Clojure synthesis
-                                             (try (let [f (requiring-resolve
-                                                           'ansatz.core/try-synthesize-instance)]
-                                                    (f (:env ps) mtype))
-                                                  (catch Exception _ nil))
-                                               ;; Deep path: tabled synthesis
-                                             (try (let [f (requiring-resolve
-                                                           'ansatz.tactic.instance/tabled-synthesize)
-                                                        st' (tc/mk-tc-state (:env ps))
-                                                        idx ((requiring-resolve 'ansatz.core/instance-index))]
-                                                    (f st' (:env ps) idx mtype))
-                                                  (catch Exception _ nil)))]
-                                (proof/assign-mvar ps mid {:kind :exact :term inst})
-                                ps)
-                              ps))))
-                      ps arg-mvars)
+                  ;; Lean 4's apply postprocesses exactly the inst-implicit
+                  ;; telescope metavariables with synthAppInstances. It retries
+                  ;; postponed synthesis when later instance synthesis made
+                  ;; progress, and it checks already-assigned instance mvars too.
+                  ps (synthesize-apply-instances ps arg-mvars arg-binfos)
                   ;; Move unsolved EXPLICIT arg-mvars to front of goals (Lean 4: new goals first).
                   ;; Implicit mvars stay in mctx as shared mvars but aren't visible subgoals.
                   ;; They get resolved when explicit subgoals are solved (via assign-mvar propagation).

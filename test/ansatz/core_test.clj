@@ -140,6 +140,19 @@
                        '[^{:- Prop} q ^{:- q} hq]
                        'q
                        '[(apply _) (assumption)])
+      (when-not (a/has-constant? "ApplyLocalCls")
+        (a/structure ApplyLocalCls [S Type]
+          (witness S)))
+      (when-not (a/has-constant? "applyLocalInstEq")
+        (a/prove-theorem 'applyLocalInstEq
+                         '[S :- Type :implicit inst :- (ApplyLocalCls S) :inst]
+                         '(= (ApplyLocalCls S) inst inst)
+                         '[(rfl)]))
+      (when-not (a/has-constant? "apply-local-instance-test")
+        (a/prove-theorem 'apply-local-instance-test
+                         '[S :- Type inst :- (ApplyLocalCls S)]
+                         '(= (ApplyLocalCls S) inst inst)
+                         '[(apply applyLocalInstEq)]))
       (a/prove-theorem 'clear-unused-test
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)
