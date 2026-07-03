@@ -95,7 +95,7 @@ The local Ansatz shape now follows that split:
   the same strict `exact` path, so holes in the proof are rejected instead of
   bypassing the tactic metacontext;
 - `clear` now checks Lean-style local-context and target dependencies before
-  removing a hypothesis;
+  removing a hypothesis, and is exposed as a public tactic form;
 - `specialize` mirrors Lean's `ElabTerm.lean` shape: it elaborates a local
   hypothesis application without an expected type, lets argument holes become
   goals, asserts the specialized result, tries to clear the original

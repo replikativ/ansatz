@@ -994,6 +994,10 @@
                         (basic/solve-by-elim ps'))))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
    'split     (fn [ps _args] (basic/split-tac ps))
+   'clear     (fn [ps args]
+                (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
+                                (:lctx (proof/current-goal ps)))]
+                  (basic/clear ps fid)))
    'revert    (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
                                 (:lctx (proof/current-goal ps)))]

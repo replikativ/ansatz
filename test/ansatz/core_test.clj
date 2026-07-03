@@ -120,6 +120,10 @@
                          ^{:- p} hp]
                        '(arrow q r)
                        '[(apply h) (assumption)])
+      (a/prove-theorem 'clear-unused-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(clear h) (rfl)])
       (is true "theorems proved"))))
 
 (deftest test-theorem-induction
