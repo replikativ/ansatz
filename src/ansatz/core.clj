@@ -831,34 +831,64 @@
                                    a-val mid c-val h1-term h2-term)]
                   (basic/apply-tac ps term)))
    'have      (fn [ps args]
-                ;; (have name type)        — introduce `name : type` as a new subgoal to prove, then
-                ;;                           continue the body with `name` in scope (Lean `have h : T`).
-                ;; (have name type proof)  — discharge that subgoal immediately with `proof` (Lean
-                ;;                           `have h : T := proof`); leaves only the body goal.
+                ;; (have name type)             — introduce `name : type` as a proof subgoal.
+                ;; (have name type proof)       — existing compact Ansatz spelling of Lean
+                ;;                                `have name : type := proof`.
+                ;; (have name type := proof)    — Lean-like explicit-type spelling.
+                ;; (have name := proof)         — Lean-like inferred-type spelling.
                 (let [hyp-name (str (first args))
-                      g (proof/current-goal ps)
-                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))
-                      ps' (basic/have-tac ps hyp-name hyp-type)]
-                  (if (>= (count args) 3)
-                    ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
-                    ;; proof term, leaving the body goal current.
-                    (basic/exact-form ps' (nth args 2))
-                    ps')))
+                      argc (count args)]
+                  (cond
+                    (and (= argc 3) (= ':= (second args)))
+                    (basic/have-infer-tac ps hyp-name (nth args 2))
+
+                    (and (= argc 4) (= ':= (nth args 2)))
+                    (let [g (proof/current-goal ps)
+                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                      (basic/exact-form (basic/have-tac ps hyp-name hyp-type) (nth args 3)))
+
+                    (>= argc 2)
+                    (let [g (proof/current-goal ps)
+                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))
+                          ps' (basic/have-tac ps hyp-name hyp-type)]
+                      (if (>= argc 3)
+                        ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
+                        ;; proof term, leaving the body goal current.
+                        (basic/exact-form ps' (nth args 2))
+                        ps'))
+
+                    :else
+                    (throw (ex-info "have: expected (have name type), (have name type proof), or (have name := proof)"
+                                    {:kind :tactic-error :args args})))))
    'replace   (fn [ps args]
                 ;; Lean-style `replace`: `have` the new declaration, then try to clear the old local
                 ;; with the same user-facing name from the body goal.
                 (let [hyp-name (str (first args))
+                      argc (count args)
                       g (proof/current-goal ps)
                       old-fid (reduce (fn [best [id d]]
                                         (if (and (= hyp-name (:name d))
                                                  (or (nil? best) (> (long id) (long best))))
                                           id best))
                                       nil
-                                      (:lctx g))
-                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
-                  (if (>= (count args) 3)
-                    (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 2))
-                    (basic/replace-tac ps old-fid hyp-name hyp-type))))
+                                      (:lctx g))]
+                  (cond
+                    (and (= argc 3) (= ':= (second args)))
+                    (basic/replace-infer-tac ps old-fid hyp-name (nth args 2))
+
+                    (and (= argc 4) (= ':= (nth args 2)))
+                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                      (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 3)))
+
+                    (>= argc 2)
+                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                      (if (>= argc 3)
+                        (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 2))
+                        (basic/replace-tac ps old-fid hyp-name hyp-type)))
+
+                    :else
+                    (throw (ex-info "replace: expected (replace name type), (replace name type proof), or (replace name := proof)"
+                                    {:kind :tactic-error :args args})))))
    ;; Lean 4 `simp only [...]` / `simp_all only [...]`: a leading `only` token strips the default
    ;; @[simp] corpus, using ONLY the given lemmas (+ reflexive-closer builtins). See simp/simp opts.
    'simp      (fn [ps args]

@@ -1651,6 +1651,41 @@
                                  others (filterv #(not (new-ids %)) gs)]
                              (into [sub1-id sub2-id] others)))))))
 
+(defn- reject-inline-have-holes! [tactic-name visible-holes]
+  (when (seq visible-holes)
+    (let [diagnostics (mapv telab/hole-diagnostic visible-holes)]
+      (tactic-error! (str tactic-name ": unresolved holes\n"
+                          (telab/format-hole-diagnostics diagnostics))
+                     {:holes visible-holes
+                      :hole-diagnostics diagnostics
+                      :hole-count (count diagnostics)}))))
+
+(defn- elab-have-proof-with-inferred-type
+  [ps proof-form tactic-name]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        {:keys [ps checked-expr visible-holes meta-mctx]}
+        (telab/elab-term-with-holes ps goal proof-form
+                                    {:expected-type nil
+                                     :allow-natural-holes? false
+                                     :tag-suffix (name/from-string tactic-name)
+                                     :tactic-name tactic-name})
+        visible-holes (vec visible-holes)
+        _ (reject-inline-have-holes! tactic-name visible-holes)
+        st (mk-tc ps (:lctx goal))
+        hyp-type (meta/zonk-expr meta-mctx
+                                 (meta/infer-type meta-mctx st checked-expr))]
+    {:ps ps
+     :proof checked-expr
+     :type hyp-type}))
+
+(defn have-infer-tac
+  "Lean-style `have h := proof`: elaborate `proof` without an expected type,
+   infer the asserted local type, then assert/exact it."
+  [ps hyp-name proof-form]
+  (let [{:keys [ps proof type]} (elab-have-proof-with-inferred-type ps proof-form "have")]
+    (exact (have-tac ps hyp-name type) proof)))
+
 (defn- move-goals-to-front
   [ps front]
   (let [front (vec front)
@@ -1692,6 +1727,21 @@
          [ps-cleared body-goal-id] (clear-focused-goal-if-possible ps-proof body-goal-id old-fvar-id)]
      (-> (move-goals-to-front ps-cleared [body-goal-id])
          (proof/record-tactic :replace [hyp-name] goal-id)))))
+
+(defn replace-infer-tac
+  "Lean-style `replace h := proof`: infer the replacement type from `proof`,
+   assert it under the old user-facing name, then try to clear the old local."
+  [ps old-fvar-id hyp-name proof-form]
+  (let [goal-id (:id (proof/current-goal ps))
+        {:keys [ps proof type]} (elab-have-proof-with-inferred-type ps proof-form "replace")
+        ps-have (have-tac ps hyp-name type)
+        ps-proof (exact ps-have proof)
+        body-goal-id (first (:goals ps-proof))
+        _ (when-not body-goal-id
+            (tactic-error! "replace: proof closed all goals unexpectedly" {:name hyp-name}))
+        [ps-cleared body-goal-id] (clear-focused-goal-if-possible ps-proof body-goal-id old-fvar-id)]
+    (-> (move-goals-to-front ps-cleared [body-goal-id])
+        (proof/record-tactic :replace [hyp-name] goal-id))))
 
 ;; ============================================================
 ;; revert (move hypothesis back into goal)

@@ -132,6 +132,10 @@
                        '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
                        'q
                        '[(replace h q) (exact (h hp)) (assumption)])
+      (a/prove-theorem 'replace-infer-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(replace h := (h hp)) (assumption)])
       (is true "theorems proved"))))
 
 (deftest test-theorem-induction
@@ -164,6 +168,20 @@
                        '[^Nat n]
                        '(= Nat n n)
                        '[(have hx (= Nat n n)) (rfl) (exact hx)])
+      (is true "theorem proved")))
+  (testing "`have h := proof` infers the asserted type from the proof"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'have-infer-test
+                       '[^Nat n]
+                       '(= Nat n n)
+                       '[(have hx := (Eq.refl n)) (exact hx)])
+      (is true "theorem proved")))
+  (testing "`have h : T := proof` spelling is accepted"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'have-explicit-assign-test
+                       '[^Nat n]
+                       '(= Nat n n)
+                       '[(have hx (= Nat n n) := (Eq.refl n)) (exact hx)])
       (is true "theorem proved")))
   (testing "`have h : T proof` rejects proof holes"
     (binding [a/*verbose* false]
