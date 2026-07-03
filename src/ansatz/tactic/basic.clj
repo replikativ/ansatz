@@ -78,6 +78,24 @@
             [id decl]))
         lctx))
 
+(defn- generated-goal-depends-on-others?
+  [ps generated-ids id]
+  (let [others (disj (set generated-ids) id)
+        type (proof/mvar-type ps id)]
+    (boolean (some others (collect-fvar-ids type)))))
+
+(defn- reorder-generated-goals-nondependent-first
+  "Lean's ApplyNewGoals.nonDependentFirst ordering: generated goals whose types
+   do not mention another generated goal come before generated goals that do."
+  [ps generated-ids]
+  (let [[nondeps deps] (reduce (fn [[nondeps deps] id]
+                                 (if (generated-goal-depends-on-others? ps generated-ids id)
+                                   [nondeps (conj deps id)]
+                                   [(conj nondeps id) deps]))
+                               [[] []]
+                               generated-ids)]
+    (into nondeps deps)))
+
 (defn- goal-mvar-ids
   "The UNSOLVED proof mvars (fvar-encoded) that occur in `goal`'s type, excluding the goal itself and
    this apply's own arg-mvars. These are the metavars SHARED with sibling goals (e.g. the middle term
@@ -775,12 +793,13 @@
                                 ps)
                               ps))))
                       ps arg-mvars)
-                  ;; Move unsolved EXPLICIT arg-mvars to front of goals (Lean 4: new goals first)
+                  ;; Move unsolved EXPLICIT arg-mvars to front of goals (Lean 4: new goals first).
                   ;; Implicit mvars stay in mctx as shared mvars but aren't visible subgoals.
                   ;; They get resolved when explicit subgoals are solved (via assign-mvar propagation).
                   unsolved-args (filterv #(and (not (proof/mvar-assigned? ps %))
                                                (not (contains? implicit-mvars %)))
-                                         arg-mvars)]
+                                         arg-mvars)
+                  unsolved-args (reorder-generated-goals-nondependent-first ps unsolved-args)]
               (update ps :goals (fn [gs]
                                   (into (vec unsolved-args)
                                         (remove (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars)) gs)))))))))))

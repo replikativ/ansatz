@@ -470,6 +470,37 @@
                           (inc attempts))))]
         (is (proof/solved? ps))))))
 
+(deftest test-apply-orders-nondependent-goals-first
+  (testing "apply orders nondependent generated goals before dependent ones like Lean"
+    (let [env (minimal-env)
+          ;; h : (α : Type) -> α -> (q : Prop) -> q -> p
+          h-type (e/forall' "α" type0
+                            (e/forall' "x" (e/bvar 0)
+                                       (e/forall' "q" prop
+                                                  (e/forall' "hq" (e/bvar 0)
+                                                             (e/bvar 4)
+                                                             :default)
+                                                  :default)
+                                       :default)
+                            :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" h-type (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id))
+                     (:lctx (proof/current-goal ps)))
+          ps (basic/apply-tac ps (e/fvar h-id))
+          ids (vec (:goals ps))
+          [alpha-id q-id x-id hq-id] ids]
+      (is (= 4 (count ids)))
+      (is (= type0 (proof/mvar-type ps alpha-id)))
+      (is (= prop (proof/mvar-type ps q-id)))
+      (is (= (e/fvar alpha-id) (proof/mvar-type ps x-id)))
+      (is (= (e/fvar q-id) (proof/mvar-type ps hq-id))))))
+
 ;; ============================================================
 ;; Test 11: trace recording
 ;; ============================================================
