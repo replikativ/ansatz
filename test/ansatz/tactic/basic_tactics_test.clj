@@ -153,6 +153,49 @@
                             (basic/change ps '(arrow p p)))))))
 
 ;; ============================================================
+;; show
+;; ============================================================
+
+(deftest test-show-current-goal
+  (testing "show changes the current matching goal"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/show '_))]
+      (is (= 1 (count (:goals ps))))
+      (let [ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+(deftest test-show-finds-later-goal
+  (testing "show focuses the first later goal whose target matches"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          p-id (find-hyp ps "p")
+          p-expr (e/fvar p-id)
+          ps (basic/have-tac ps "k" (e/forall' "hp" p-expr p-expr :default))
+          ps (basic/show ps 'p)
+          current (proof/current-goal ps)]
+      (is (some (fn [[_ d]] (= "k" (:name d))) (:lctx current))
+          "the body goal introduced by have should be focused")
+      (let [ps (basic/assumption ps)
+            ps (basic/intro ps "hp")
+            ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+;; ============================================================
 ;; clear
 ;; ============================================================
 

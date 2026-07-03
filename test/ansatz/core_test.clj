@@ -106,6 +106,10 @@
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)
                        '[(change _) (assumption)])
+      (a/prove-theorem 'show-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(show _) (assumption)])
       (is true "theorems proved"))))
 
 (deftest test-theorem-induction

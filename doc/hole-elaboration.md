@@ -90,6 +90,9 @@ The local Ansatz shape now follows that split:
 - target-only `change` now uses the same collection helper to elaborate a
   replacement target, solve placeholders by defeq against the current target,
   and create a def-eq child goal plus any remaining synthetic holes;
+- `show` builds on the same target-elaboration path but searches the open-goal
+  list like Lean: the first goal whose target is definitionally equal to the
+  pattern is changed and moved to the front, with earlier goals kept after it;
 - `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
   refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
 

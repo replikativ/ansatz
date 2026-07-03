@@ -1,7 +1,7 @@
 ;; Tactic layer — core tactics.
 
 (ns ansatz.tactic.basic
-  "Core tactics: intro, intros, exact, refine, change, assumption, apply, rfl, constructor,
+  "Core tactics: intro, intros, exact, refine, change, show, assumption, apply, rfl, constructor,
    cases, induction, rewrite, have-tac, revert, exfalso, subst, clear.
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
@@ -2323,24 +2323,21 @@
         (-> (proof/assign-mvar ps' (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id})
             (proof/record-tactic :whnf [] (:id goal)))))))
 
-(defn change
-  "Replace the main target with a definitionally equal target type.
-
-   Target-only version of Lean's `change`: placeholders in `new-type-form` are
-   solved by unification against the current target when possible; remaining
-   synthetic holes become goals."
-  [ps new-type-form]
+(defn- change-target*
+  [ps new-type-form {:keys [tactic-name record-kind tag-suffix]
+                     :or {tactic-name "change"
+                          record-kind :change}}]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         st (mk-tc ps (:lctx goal))
         expected-type (tc/infer-type st (:type goal))
-        tag-suffix (name/from-string "change")
+        tag-suffix (or tag-suffix (name/from-string tactic-name))
         {:keys [ps checked-expr visible-ids]}
         (telab/elab-term-with-holes
          ps goal new-type-form
          {:allow-natural-holes? false
           :tag-suffix tag-suffix
-          :tactic-name "change"
+          :tactic-name tactic-name
           :expected-type expected-type
           :after-elab
           (fn [{:keys [expr meta-mctx]}]
@@ -2349,16 +2346,65 @@
               (if-let [mctx (meta/is-def-eq mctx st expr (:type goal))]
                 {:expr (meta/zonk-expr mctx expr)
                  :meta-mctx (meta/with-synthetic-opaque-assignment mctx false)}
-                (tactic-error! "'change' tactic failed"
+                (tactic-error! (str "'" tactic-name "' tactic failed")
                                {:pattern expr :target (:type goal)}))))})
         [ps' new-id] (proof/fresh-mvar-replacing ps checked-expr (:lctx goal) (:id goal))
         ps' (-> (proof/assign-mvar ps' (:id goal)
                                     {:kind :simp-reduce :eq-proof nil :child new-id})
-                (proof/record-tactic :change [new-type-form] (:id goal)))
+                (proof/record-tactic record-kind [new-type-form] (:id goal)))]
+    {:ps ps'
+     :old-id (:id goal)
+     :new-id new-id
+     :visible-ids visible-ids}))
+
+(defn change
+  "Replace the main target with a definitionally equal target type.
+
+   Target-only version of Lean's `change`: placeholders in `new-type-form` are
+   solved by unification against the current target when possible; remaining
+   synthetic holes become goals."
+  [ps new-type-form]
+  (let [{:keys [ps new-id visible-ids]} (change-target* ps new-type-form {})
         front (into [new-id] visible-ids)
         front-set (set front)]
-    (update ps' :goals (fn [gs]
-                         (into (vec front) (remove front-set gs))))))
+    (update ps :goals (fn [gs]
+                        (into (vec front) (remove front-set gs))))))
+
+(defn show
+  "Find the first open goal whose target is definitionally equal to `new-type-form`,
+   replace that target, and bring the matching goal to the front.
+
+   This mirrors Lean's `show`: it is equivalent to trying `change` on each goal
+   in order, then focusing the first match."
+  [ps new-type-form]
+  (let [goal-ids (vec (:goals ps))
+        _ (when (empty? goal-ids) (tactic-error! "No goals" {}))]
+    (loop [prev []
+           remaining goal-ids
+           first-error nil]
+      (if (empty? remaining)
+        (tactic-error! "'show' tactic failed, no goals unify with the given pattern"
+                       (cond-> {:pattern new-type-form}
+                         first-error (assoc :first-error (ex-data first-error))))
+        (let [gid (first remaining)
+              tail (subvec (vec remaining) 1)
+              focused-goals (into [gid] (concat prev tail))
+              focused (assoc ps :goals focused-goals)
+              attempt (try
+                        {:ok? true
+                         :result (change-target* focused new-type-form
+                                                 {:tactic-name "show"
+                                                  :record-kind :show
+                                                  :tag-suffix (name/from-string "show")})}
+                        (catch Exception e
+                          {:ok? false :error e}))]
+          (if (:ok? attempt)
+            (let [{:keys [ps new-id visible-ids]} (:result attempt)
+                  front (into [new-id] (concat prev visible-ids tail))
+                  front-set (set front)]
+              (update ps :goals (fn [gs]
+                                  (into (vec front) (remove front-set gs)))))
+            (recur (conj prev gid) tail (or first-error (:error attempt)))))))))
 
 (defn unfold-in-goal
   "Unfold (delta-reduce) a definition in the goal type.
