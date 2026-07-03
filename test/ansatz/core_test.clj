@@ -163,6 +163,11 @@
             [ps _] (proof/start-proof (a/env) goal-type)
             ps (basic/constructor ps)]
         (is (proof/solved? ps))
+        (is (some? (extract/verify ps))))
+      (let [goal-type (e/app (e/const' (name/from-string "TChoice") []) (e/lit-nat 1))
+            [ps _] (proof/start-proof (a/env) goal-type)
+            ps (basic/right ps)]
+        (is (proof/solved? ps))
         (is (some? (extract/verify ps)))))))
 
 (deftest test-theorem-induction

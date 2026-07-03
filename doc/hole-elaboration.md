@@ -118,6 +118,9 @@ The local Ansatz shape now follows that split:
   tries constructors in declaration order and delegates each candidate to the
   same `apply` path, succeeding at the first applicable constructor instead of
   blindly committing to constructor zero;
+- `left`/`right` now mirror Lean's `nthConstructor` wrappers: they apply
+  constructor indices 0/1 for any two-constructor inductive target rather than
+  hard-coding `Or.inl`/`Or.inr`;
 - `change` now uses the same collection helper to elaborate a replacement
   target or selected local hypothesis type, solve placeholders by defeq
   against the current expression, and create a def-eq child goal plus any

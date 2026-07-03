@@ -2534,15 +2534,41 @@
 ;; Convenience tactics — Lean 4 sugar
 ;; ============================================================
 
+(defn- nth-constructor
+  "Lean's `MVarId.nthConstructor`: apply constructor `idx` of the target
+   inductive, optionally requiring an exact constructor count."
+  [ps tactic-name idx expected-count]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        goal-type (whnf-in-goal ps (:lctx goal) (:type goal))
+        [head _args] (e/get-app-fn-args goal-type)]
+    (when-not (e/const? head)
+      (tactic-error! (str tactic-name ": target is not an inductive datatype")
+                     {:type goal-type}))
+    (let [^ConstantInfo ci (env/lookup! (:env ps) (e/const-name head))]
+      (when-not (.isInduct ci)
+        (tactic-error! (str tactic-name ": target is not an inductive datatype")
+                       {:type goal-type}))
+      (let [ctors (.ctors ci)
+            num-ctors (alength ctors)]
+        (when (and expected-count (not= num-ctors expected-count))
+          (tactic-error! (str tactic-name " tactic works for inductive types with exactly "
+                              expected-count " constructors")
+                         {:type goal-type :expected expected-count :actual num-ctors}))
+        (when-not (< idx num-ctors)
+          (tactic-error! (str tactic-name ": constructor index out of bounds")
+                         {:type goal-type :index idx :num-constructors num-ctors}))
+        (apply-tac ps (e/const' (aget ctors idx) (e/const-levels head)))))))
+
 (defn left
-  "Choose the left branch of an Or goal. Lean 4: left."
+  "Apply constructor 0 of a two-constructor inductive. Lean 4: left."
   [ps]
-  (apply-tac ps (e/const' (name/from-string "Or.inl") [])))
+  (nth-constructor ps "left" 0 2))
 
 (defn right
-  "Choose the right branch of an Or goal. Lean 4: right."
+  "Apply constructor 1 of a two-constructor inductive. Lean 4: right."
   [ps]
-  (apply-tac ps (e/const' (name/from-string "Or.inr") [])))
+  (nth-constructor ps "right" 1 2))
 
 (defn use-witness
   "Provide a witness for an existential goal.
