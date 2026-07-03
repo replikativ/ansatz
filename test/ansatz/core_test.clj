@@ -114,6 +114,12 @@
                        '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
                        'q
                        '[(specialize (h hp)) (assumption)])
+      (a/prove-theorem 'apply-partial-forall-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- Prop} r
+                         ^{:- (arrow p (arrow q r))} h
+                         ^{:- p} hp]
+                       '(arrow q r)
+                       '[(apply h) (assumption)])
       (is true "theorems proved"))))
 
 (deftest test-theorem-induction

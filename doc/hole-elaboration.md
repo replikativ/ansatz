@@ -100,6 +100,10 @@ The local Ansatz shape now follows that split:
   hypothesis application without an expected type, lets argument holes become
   goals, asserts the specialized result, tries to clear the original
   hypothesis, and orders generated holes before the body goal;
+- `apply` now mirrors Lean's `MVarId.apply` stopping behavior more closely:
+  it stops adding forall-telescope metavariables once the partial conclusion
+  already matches the target, so applying a multi-argument implication to a
+  function target leaves only the genuinely missing prefix arguments;
 - target-only `change` now uses the same collection helper to elaborate a
   replacement target, solve placeholders by defeq against the current target,
   and create a def-eq child goal plus any remaining synthetic holes;

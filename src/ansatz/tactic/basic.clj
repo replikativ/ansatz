@@ -22,8 +22,8 @@
 (defn- tactic-error! [msg data]
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
-;; Forward declarations for mutually-dependent tactics
-(declare generalize-indices unify-cases-eqs unify-eq revert)
+;; Forward declarations for mutually-dependent tactics/helpers
+(declare generalize-indices unify-cases-eqs unify-eq revert match-expr)
 
 (defn- mk-tc
   "Create a TC state from the proof state and a goal's local context."
@@ -138,6 +138,31 @@
                              (e/mdata (e/mdata-data expr) ne)))
                   expr)))]
     (go expr)))
+
+(defn- apply-target-compatible?
+  "Cheap Lean-style `apply` stopping check: can the current partially-applied
+   result type close the target if we stop adding arguments here?"
+  [ps goal ty arg-mvars mvar-id-set]
+  (let [st (mk-tc ps (:lctx goal))
+        resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
+        goal-type (:type goal)
+        goal-whnf (whnf-in-goal ps (:lctx goal) goal-type)
+        resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)]
+    (boolean
+     (or (match-expr resolved-ty goal-type mvar-id-set)
+         (match-expr resolved-ty goal-whnf mvar-id-set)
+         (match-expr resolved-whnf goal-type mvar-id-set)
+         (match-expr resolved-whnf goal-whnf mvar-id-set)
+         (try
+           (let [umctx (atom (into {} (map (fn [mid]
+                                             [mid {:type (proof/mvar-type ps mid)
+                                                   :solution nil}])
+                                           arg-mvars)))]
+             (u/is-def-eq! st umctx resolved-ty goal-type))
+           (catch Exception _ false))
+         (try
+           (tc/is-def-eq st resolved-ty goal-type)
+           (catch Exception _ false))))))
 
 ;; ============================================================
 ;; First-order pattern matching (for apply unification)
@@ -464,7 +489,8 @@
 (defn apply-tac
   "Apply a term to the current goal, generating subgoals for its arguments.
    Following Lean 4's Meta/Tactic/Apply.lean:
-   1. Peel forall binders, creating fvars as metavariable placeholders
+   1. Peel forall binders until the partial conclusion matches the target,
+      creating fvars as metavariable placeholders
    2. Match result type against goal via first-order pattern matching
    3. Assign matched fvars, create subgoals for unmatched ones
    4. Substitute solved values into remaining subgoal types"
@@ -473,7 +499,9 @@
         _ (when-not goal (tactic-error! "No goals" {}))
         st (mk-tc ps (:lctx goal))
         term-type (tc/infer-type st term)]
-    ;; Peel forall binders, creating fresh fvars for each argument.
+    ;; Peel forall binders, creating fresh fvars for each argument. As in
+    ;; Lean's MVarId.apply, stop early when the partial result type already
+    ;; matches the target.
     ;; For inst-implicit params, try to synthesize immediately — this resolves
     ;; projections like LE.0(Preorder.toLE) before they reach matching.
     (loop [ps ps
@@ -482,7 +510,8 @@
            mvar-id-set #{}
            type-param-idx 0
            implicit-mvars #{}]
-      (if (e/forall? ty)
+      (if (and (e/forall? ty)
+               (not (apply-target-compatible? ps goal ty arg-mvars mvar-id-set)))
         (let [param-type (e/forall-type ty)
               binfo (e/forall-info ty)
               ;; Substitute already-resolved fvars into the param type
@@ -528,8 +557,8 @@
                      (conj arg-mvars mvar-id) mvar-id-set
                      (if is-type-param (inc type-param-idx) type-param-idx)
                      implicit-mvars))
-            ;; Not synthesized — create mvar (for implicit, inst-implicit, AND explicit params)
-            ;; Following Lean 4: peel ALL foralls, explicit mvars become subgoals.
+            ;; Not synthesized — create mvar (for implicit, inst-implicit, AND explicit params).
+            ;; Following Lean 4, explicit mvars become subgoals when they remain unsolved.
             ;; Track implicit mvars separately — they won't become visible subgoals.
             (let [mvar-kind (if (= binfo :inst-implicit) :synthetic :natural)
                   [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
