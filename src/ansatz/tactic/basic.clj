@@ -837,12 +837,13 @@
 ;; ============================================================
 
 (defn constructor
-  "Apply the constructor of the inductive type at the head of the goal."
+  "Apply the first applicable constructor of the inductive type at the head of
+   the goal, matching Lean's `MVarId.constructor`."
   [ps]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         goal-type (whnf-in-goal ps (:lctx goal) (:type goal))
-        [head args] (e/get-app-fn-args goal-type)]
+        [head _args] (e/get-app-fn-args goal-type)]
     (when-not (e/const? head)
       (tactic-error! "constructor: goal head is not a constant" {:type goal-type}))
     (let [^ConstantInfo ci (env/lookup! (:env ps) (e/const-name head))]
@@ -851,10 +852,21 @@
       (let [ctors (.ctors ci)]
         (when (zero? (alength ctors))
           (tactic-error! "constructor: no constructors" {:type goal-type}))
-        (let [ctor-name (aget ctors 0)
-              ctor-levels (e/const-levels head)
-              ctor-term (e/const' ctor-name ctor-levels)]
-          (apply-tac ps ctor-term))))))
+        (let [ctor-levels (e/const-levels head)]
+          (loop [i 0
+                 first-error nil]
+            (if (< i (alength ctors))
+              (let [ctor-term (e/const' (aget ctors i) ctor-levels)]
+                (let [attempt (try
+                                {:ok? true :ps (apply-tac ps ctor-term)}
+                                (catch Exception ex
+                                  {:ok? false :error ex}))]
+                  (if (:ok? attempt)
+                    (:ps attempt)
+                    (recur (inc i) (or first-error (:error attempt))))))
+              (tactic-error! "constructor: no applicable constructor found"
+                             (cond-> {:type goal-type}
+                               first-error (assoc :first-error (ex-data first-error)))))))))))
 
 ;; ============================================================
 ;; rewrite

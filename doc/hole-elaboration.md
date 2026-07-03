@@ -114,6 +114,10 @@ The local Ansatz shape now follows that split:
   function target leaves only the genuinely missing prefix arguments; visible
   generated goals are ordered using Lean's default
   `ApplyNewGoals.nonDependentFirst` policy;
+- `constructor` now mirrors Lean's `MVarId.constructor` selection loop: it
+  tries constructors in declaration order and delegates each candidate to the
+  same `apply` path, succeeding at the first applicable constructor instead of
+  blindly committing to constructor zero;
 - `change` now uses the same collection helper to elaborate a replacement
   target or selected local hypothesis type, solve placeholders by defeq
   against the current expression, and create a def-eq child goal plus any
