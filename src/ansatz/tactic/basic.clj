@@ -2559,31 +2559,42 @@
         (-> (proof/assign-mvar ps' (:id goal) {:kind :simp-reduce :eq-proof nil :child new-id})
             (proof/record-tactic :whnf [] (:id goal)))))))
 
+(defn- elab-change-pattern
+  "Lean's `elabChange`: elaborate `new-type-form` with the type of
+   `target-expr` as expected type, then require it to be definitionally equal
+   to `target-expr`, while allowing synthetic opaque placeholders to be solved
+   by the defeq check."
+  [ps goal target-expr new-type-form {:keys [tactic-name tag-suffix]
+                                      :or {tactic-name "change"}}]
+  (let [st (mk-tc ps (:lctx goal))
+        expected-type (tc/infer-type st target-expr)
+        tag-suffix (or tag-suffix (name/from-string tactic-name))]
+    (telab/elab-term-with-holes
+     ps goal new-type-form
+     {:allow-natural-holes? false
+      :tag-suffix tag-suffix
+      :tactic-name tactic-name
+      :expected-type expected-type
+      :after-elab
+      (fn [{:keys [expr meta-mctx]}]
+        (let [mctx (meta/with-synthetic-opaque-assignment meta-mctx true)
+              expr (meta/zonk-expr mctx expr)]
+          (if-let [mctx (meta/is-def-eq mctx st expr target-expr)]
+            {:expr (meta/zonk-expr mctx expr)
+             :meta-mctx (meta/with-synthetic-opaque-assignment mctx false)}
+            (tactic-error! (str "'" tactic-name "' tactic failed")
+                           {:pattern expr :target target-expr}))))})))
+
 (defn- change-target*
   [ps new-type-form {:keys [tactic-name record-kind tag-suffix]
                      :or {tactic-name "change"
                           record-kind :change}}]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        expected-type (tc/infer-type st (:type goal))
-        tag-suffix (or tag-suffix (name/from-string tactic-name))
         {:keys [ps checked-expr visible-ids]}
-        (telab/elab-term-with-holes
-         ps goal new-type-form
-         {:allow-natural-holes? false
-          :tag-suffix tag-suffix
-          :tactic-name tactic-name
-          :expected-type expected-type
-          :after-elab
-          (fn [{:keys [expr meta-mctx]}]
-            (let [mctx (meta/with-synthetic-opaque-assignment meta-mctx true)
-                  expr (meta/zonk-expr mctx expr)]
-              (if-let [mctx (meta/is-def-eq mctx st expr (:type goal))]
-                {:expr (meta/zonk-expr mctx expr)
-                 :meta-mctx (meta/with-synthetic-opaque-assignment mctx false)}
-                (tactic-error! (str "'" tactic-name "' tactic failed")
-                               {:pattern expr :target (:type goal)}))))})
+        (elab-change-pattern ps goal (:type goal) new-type-form
+                             {:tactic-name tactic-name
+                              :tag-suffix tag-suffix})
         [ps' new-id] (proof/fresh-mvar-replacing ps checked-expr (:lctx goal) (:id goal))
         ps' (-> (proof/assign-mvar ps' (:id goal)
                                     {:kind :simp-reduce :eq-proof nil :child new-id})
@@ -2605,6 +2616,36 @@
         front-set (set front)]
     (update ps :goals (fn [gs]
                         (into (vec front) (remove front-set gs))))))
+
+(defn change-local
+  "Replace a local hypothesis type with a definitionally equal type.
+
+   Mirrors Lean's `change newType at h`: the local fvar id is preserved, only
+   its declaration type changes in the child goal."
+  [ps hyp-fvar-id new-type-form]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        hyp-decl (red/lctx-lookup (:lctx goal) hyp-fvar-id)
+        _ (when-not hyp-decl
+            (tactic-error! "change: hypothesis not in context" {:id hyp-fvar-id}))
+        old-type (:type hyp-decl)
+        {:keys [ps checked-expr visible-ids]}
+        (elab-change-pattern ps goal old-type new-type-form
+                             {:tactic-name "change"
+                              :tag-suffix (name/from-string "change")})
+        new-lctx (assoc (:lctx goal) hyp-fvar-id (assoc hyp-decl :type checked-expr))
+        [ps' new-id] (proof/fresh-mvar-replacing ps (:type goal) new-lctx (:id goal))
+        ps' (-> (proof/assign-mvar ps' (:id goal)
+                                    {:kind :change-local
+                                     :fvar-id hyp-fvar-id
+                                     :old-type old-type
+                                     :new-type checked-expr
+                                     :child new-id})
+                (proof/record-tactic :change-local [new-type-form hyp-fvar-id] (:id goal)))
+        front (into [new-id] visible-ids)
+        front-set (set front)]
+    (update ps' :goals (fn [gs]
+                         (into (vec front) (remove front-set gs))))))
 
 (defn show
   "Find the first open goal whose target is definitionally equal to `new-type-form`,

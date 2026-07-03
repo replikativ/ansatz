@@ -114,9 +114,11 @@ The local Ansatz shape now follows that split:
   function target leaves only the genuinely missing prefix arguments; visible
   generated goals are ordered using Lean's default
   `ApplyNewGoals.nonDependentFirst` policy;
-- target-only `change` now uses the same collection helper to elaborate a
-  replacement target, solve placeholders by defeq against the current target,
-  and create a def-eq child goal plus any remaining synthetic holes;
+- `change` now uses the same collection helper to elaborate a replacement
+  target or selected local hypothesis type, solve placeholders by defeq
+  against the current expression, and create a def-eq child goal plus any
+  remaining synthetic holes; the public surface accepts `(change T)` and
+  `(change T at h h2 ...)`;
 - `show` builds on the same target-elaboration path but searches the open-goal
   list like Lean: the first goal whose target is definitionally equal to the
   pattern is changed and moved to the front, with earlier goals kept after it;

@@ -106,6 +106,14 @@
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)
                        '[(change _) (assumption)])
+      (a/prove-theorem 'change-local-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(change _ at h) (exact h)])
+      (a/prove-theorem 'change-local-beta-test
+                       '[^Nat n ^{:- ((lam [x Nat] (= Nat x x)) n)} h]
+                       '(= Nat n n)
+                       '[(change (= Nat n n) at h) (exact h)])
       (a/prove-theorem 'show-hole-test
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)

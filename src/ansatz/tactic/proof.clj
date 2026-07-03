@@ -340,6 +340,8 @@
 
     :clear (e/mvar (:child assignment))
 
+    :change-local (e/mvar (:child assignment))
+
     :generalize-indices
     (let [{:keys [child orig-indices orig-hyp-fvar-id rfl-proofs]} assignment]
       (reduce e/app (e/mvar child)

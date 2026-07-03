@@ -783,6 +783,16 @@
           spec (if reverse? (second args) (first args))]
       (do-rewrite-one ps reverse? spec))))
 
+(clojure.core/defn- latest-local-id-by-name
+  [lctx local-name]
+  (let [local-name (str local-name)]
+    (reduce (fn [best [id d]]
+              (if (and (= local-name (:name d))
+                       (or (nil? best) (> (long id) (long best))))
+                id best))
+            nil
+            lctx)))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -801,7 +811,22 @@
    'specialize (fn [ps args]
                  (basic/specialize ps (first args)))
    'change    (fn [ps args]
-                (basic/change ps (first args)))
+                (let [new-type (first args)]
+                  (if (= 'at (second args))
+                    (let [locs (vec (drop 2 args))]
+                      (when (empty? locs)
+                        (throw (ex-info "change: expected at least one local name after `at`"
+                                        {:kind :tactic-error :args args})))
+                      (reduce (fn [ps loc]
+                                (let [g (proof/current-goal ps)
+                                      fid (latest-local-id-by-name (:lctx g) loc)]
+                                  (when-not fid
+                                    (throw (ex-info (str "change: unknown local '" loc "'")
+                                                    {:kind :tactic-error :local loc})))
+                                  (basic/change-local ps fid new-type)))
+                              ps
+                              locs))
+                    (basic/change ps new-type))))
    'show      (fn [ps args]
                 (basic/show ps (first args)))
    'omega     (fn [ps _] (omega/omega ps))

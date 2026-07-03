@@ -263,6 +263,11 @@
       :clear (let [{:keys [child]} assignment]
                (extract-term ps child))
 
+      ;; change h at local declaration  →  child proof directly, because the
+      ;; old and new local types are definitionally equal.
+      :change-local (let [{:keys [child]} assignment]
+                      (extract-term ps child))
+
       ;; generalize-indices  →  child applied to original indices, hyp, and rfl proofs
       ;; child : ∀ j1'..jk' h'. eq1 → ... → eqk → Goal
       ;; result: child j1..jk h rfl..rfl
