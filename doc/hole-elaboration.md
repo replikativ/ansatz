@@ -90,6 +90,9 @@ The local Ansatz shape now follows that split:
 - public `exact` now uses the same tactic-level elaboration helper in strict
   mode: it elaborates against the current target and rejects fresh unassigned
   natural or synthetic holes instead of promoting them to goals;
+- inline public `have h : T proof` closes the generated proof subgoal through
+  the same strict `exact` path, so holes in the proof are rejected instead of
+  bypassing the tactic metacontext;
 - target-only `change` now uses the same collection helper to elaborate a
   replacement target, solve placeholders by defeq against the current target,
   and create a def-eq child goal plus any remaining synthetic holes;

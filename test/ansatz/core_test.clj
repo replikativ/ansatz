@@ -142,7 +142,15 @@
                        '[^Nat n]
                        '(= Nat n n)
                        '[(have hx (= Nat n n)) (rfl) (exact hx)])
-      (is true "theorem proved"))))
+      (is true "theorem proved")))
+  (testing "`have h : T proof` rejects proof holes"
+    (binding [a/*verbose* false]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved holes"
+                            (a/prove-theorem 'have-inline-hole-test
+                                             '[^Nat n]
+                                             '(= Nat n n)
+                                             '[(have hx (= Nat n n) ?proof)
+                                               (exact hx)]))))))
 
 (deftest test-cases-on-indexed-family
   ;; `cases` on a PARAMETERIZED indexed Prop family (List.Mem) — Bug B: the index equalities are

@@ -839,10 +839,8 @@
                       ps' (basic/have-tac ps hyp-name hyp-type)]
                   (if (>= (count args) 3)
                     ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
-                    ;; elaborated proof term (in the original context), leaving the body goal current.
-                    (let [g1 (proof/current-goal ps')
-                          proof-term (elab/elaborate-in-context (:env ps') (:lctx g1) (nth args 2))]
-                      (basic/exact ps' proof-term))
+                    ;; proof term, leaving the body goal current.
+                    (basic/exact-form ps' (nth args 2))
                     ps')))
    ;; Lean 4 `simp only [...]` / `simp_all only [...]`: a leading `only` token strips the default
    ;; @[simp] corpus, using ONLY the given lemmas (+ reflexive-closer builtins). See simp/simp opts.
