@@ -501,6 +501,32 @@
       (is (= (e/fvar alpha-id) (proof/mvar-type ps x-id)))
       (is (= (e/fvar q-id) (proof/mvar-type ps hq-id))))))
 
+(deftest test-apply-tags-generated-goals
+  (testing "multiple unnamed apply goals receive stable parent-derived tags"
+    (let [env (minimal-env)
+          main-tag (name/from-string "main")
+          ;; forall (p : Prop), (p -> p -> p) -> p
+          p-to-p-to-p (e/forall' "_" (e/bvar 0)
+                                 (e/forall' "_" (e/bvar 1) (e/bvar 2) :default)
+                                 :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" p-to-p-to-p (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          goal-id (:id (proof/current-goal ps))
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id))
+                     (:lctx (proof/current-goal ps)))
+          ps (-> ps
+                 (proof/set-mvar-user-name goal-id main-tag)
+                 (basic/apply-tac (e/fvar h-id)))
+          goals (vec (proof/goals ps))
+          tags (mapv #(some-> (:user-name %) name/->string) goals)]
+      (is (= 2 (count goals)))
+      (is (= ["main.apply_1" "main.apply_2"] tags)))))
+
 ;; ============================================================
 ;; Test 11: trace recording
 ;; ============================================================

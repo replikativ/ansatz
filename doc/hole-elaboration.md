@@ -120,7 +120,8 @@ The local Ansatz shape now follows that split:
   implicit telescope metavariables are postprocessed with a Lean-shaped
   `synthAppInstances` analogue that retries postponed instance synthesis,
   checks already-assigned instance arguments, and runs in the mvar local
-  context;
+  context; returned apply goals are head-beta-normalized and anonymous
+  generated goals are tagged from the parent goal;
 - `constructor` now mirrors Lean's `MVarId.constructor` selection loop: it
   tries constructors in declaration order and delegates each candidate to the
   same `apply` path, succeeding at the first applicable constructor instead of

@@ -103,6 +103,20 @@
                                generated-ids)]
     (into nondeps deps)))
 
+(defn- head-beta
+  "Iterated head beta-reduction, matching Lean's `Expr.headBeta` shape without
+   delta/iota/proj/zeta reduction."
+  [expr]
+  (loop [expr expr
+         fuel 128]
+    (let [[head args] (e/get-app-fn-args expr)]
+      (if (and (pos? fuel) (e/lam? head) (seq args))
+        (recur (apply e/app*
+                      (e/instantiate1 (e/lam-body head) (first args))
+                      (rest args))
+               (dec fuel))
+        expr))))
+
 (defn- zonk-mvar-decl-types
   "Instantiate assigned metavariables inside the declaration types of open
    mvars. Lean calls `headBetaType` on returned apply goals; this is the local
@@ -110,7 +124,7 @@
   [ps ids]
   (reduce (fn [ps id]
             (if-let [decl (proof/mvar-decl ps id)]
-              (let [ty (meta/zonk-expr (:meta-mctx ps) (:type decl))]
+              (let [ty (head-beta (meta/zonk-expr (:meta-mctx ps) (:type decl)))]
                 (proof/set-mvar-type ps id ty))
               ps))
           ps
@@ -912,7 +926,11 @@
                                                      (not (contains? implicit-mvars %)))))
                   front (into (vec unsolved-args) other-mvar-ids)
                   front-set (set front)
-                  generated-set (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars))]
+                  generated-set (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars))
+                  ps (zonk-mvar-decl-types ps front)
+                  ps (proof/tag-untagged-goals ps (:user-name goal)
+                                               (name/from-string "apply")
+                                               unsolved-args)]
               (update ps :goals (fn [gs]
                                   (into front
                                         (remove #(or (front-set %) (generated-set %)) gs)))))))))))
