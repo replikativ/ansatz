@@ -94,6 +94,9 @@ The local Ansatz shape now follows that split:
 - inline public `have h : T proof` closes the generated proof subgoal through
   the same strict `exact` path, so holes in the proof are rejected instead of
   bypassing the tactic metacontext;
+- public `replace` follows Lean's implementation strategy: create the new
+  declaration using the `have` path, then try to clear the old local from the
+  body goal while leaving it available to any replacement proof subgoal;
 - `clear` now checks Lean-style local-context and target dependencies before
   removing a hypothesis, and is exposed as a public tactic form;
 - `specialize` mirrors Lean's `ElabTerm.lean` shape: it elaborates a local

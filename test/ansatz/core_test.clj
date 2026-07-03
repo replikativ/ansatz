@@ -124,6 +124,14 @@
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)
                        '[(clear h) (rfl)])
+      (a/prove-theorem 'replace-inline-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(replace h q (h hp)) (assumption)])
+      (a/prove-theorem 'replace-noproof-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(replace h q) (exact (h hp)) (assumption)])
       (is true "theorems proved"))))
 
 (deftest test-theorem-induction

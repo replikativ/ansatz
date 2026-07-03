@@ -2,7 +2,7 @@
 
 (ns ansatz.tactic.basic
   "Core tactics: intro, intros, exact, refine, specialize, change, show, assumption, apply, rfl, constructor,
-   cases, induction, rewrite, have-tac, revert, exfalso, subst, clear.
+   cases, induction, rewrite, have-tac, replace-tac, revert, exfalso, subst, clear.
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
   (:require [clojure.set]
@@ -23,7 +23,7 @@
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
 ;; Forward declarations for mutually-dependent tactics/helpers
-(declare generalize-indices unify-cases-eqs unify-eq revert match-expr)
+(declare generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear)
 
 (defn- mk-tc
   "Create a TC state from the proof state and a goal's local context."
@@ -1650,6 +1650,48 @@
                            (let [new-ids #{sub1-id sub2-id}
                                  others (filterv #(not (new-ids %)) gs)]
                              (into [sub1-id sub2-id] others)))))))
+
+(defn- move-goals-to-front
+  [ps front]
+  (let [front (vec front)
+        front-set (set front)]
+    (update ps :goals (fn [gs]
+                        (into front (remove front-set gs))))))
+
+(defn- clear-focused-goal-if-possible
+  [ps goal-id hyp-fvar-id]
+  (if-not hyp-fvar-id
+    [ps goal-id]
+    (let [focused (move-goals-to-front ps [goal-id])
+          cleared (try-clear focused hyp-fvar-id)
+          child-id (get-in cleared [:recipes goal-id :child] goal-id)]
+      [cleared child-id])))
+
+(defn replace-tac
+  "Lean-style `replace`: introduce a new hypothesis and try to clear the old
+   hypothesis with the same user-facing name from the body goal.
+
+   With no proof, the proof subgoal keeps the old hypothesis available, while
+   the body goal is cleared when possible."
+  ([ps old-fvar-id hyp-name hyp-type]
+   (let [ps-have (have-tac ps hyp-name hyp-type)
+         proof-goal-id (first (:goals ps-have))
+         body-goal-id (second (:goals ps-have))
+         _ (when-not (and proof-goal-id body-goal-id)
+             (tactic-error! "replace: failed to create assertion goals" {:name hyp-name}))
+         [ps-cleared body-goal-id] (clear-focused-goal-if-possible ps-have body-goal-id old-fvar-id)]
+     (-> (move-goals-to-front ps-cleared [proof-goal-id body-goal-id])
+         (proof/record-tactic :replace [hyp-name] (:id (proof/current-goal ps))))))
+  ([ps old-fvar-id hyp-name hyp-type proof-form]
+   (let [goal-id (:id (proof/current-goal ps))
+         ps-have (have-tac ps hyp-name hyp-type)
+         ps-proof (exact-form ps-have proof-form)
+         body-goal-id (first (:goals ps-proof))
+         _ (when-not body-goal-id
+             (tactic-error! "replace: proof closed all goals unexpectedly" {:name hyp-name}))
+         [ps-cleared body-goal-id] (clear-focused-goal-if-possible ps-proof body-goal-id old-fvar-id)]
+     (-> (move-goals-to-front ps-cleared [body-goal-id])
+         (proof/record-tactic :replace [hyp-name] goal-id)))))
 
 ;; ============================================================
 ;; revert (move hypothesis back into goal)

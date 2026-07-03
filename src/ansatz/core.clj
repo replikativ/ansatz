@@ -844,6 +844,21 @@
                     ;; proof term, leaving the body goal current.
                     (basic/exact-form ps' (nth args 2))
                     ps')))
+   'replace   (fn [ps args]
+                ;; Lean-style `replace`: `have` the new declaration, then try to clear the old local
+                ;; with the same user-facing name from the body goal.
+                (let [hyp-name (str (first args))
+                      g (proof/current-goal ps)
+                      old-fid (reduce (fn [best [id d]]
+                                        (if (and (= hyp-name (:name d))
+                                                 (or (nil? best) (> (long id) (long best))))
+                                          id best))
+                                      nil
+                                      (:lctx g))
+                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                  (if (>= (count args) 3)
+                    (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 2))
+                    (basic/replace-tac ps old-fid hyp-name hyp-type))))
    ;; Lean 4 `simp only [...]` / `simp_all only [...]`: a leading `only` token strips the default
    ;; @[simp] corpus, using ONLY the given lemmas (+ reflexive-closer builtins). See simp/simp opts.
    'simp      (fn [ps args]
