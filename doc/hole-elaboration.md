@@ -61,8 +61,9 @@ The local Ansatz shape now follows that split:
   `(refine' ...)`;
 - `ansatz.tactic.elab-term/elab-term-with-holes` is now the shared
   tactic-level helper for Lean-style hole collection, diagnostics, metacontext
-  installation, and goal tagging; `refine`/`refine-prime` and target-only
-  `change` are the first callers;
+  installation, and goal tagging; it supports both goal-expected elaboration
+  and Lean's explicit no-expected-type mode used by tactics such as
+  `specialize`;
 - collecting elaboration now mirrors Lean's `collectFreshMVars` boundary more
   closely by exposing only fresh unassigned holes reachable from the zonked
   elaborated value, so unused scratch metavariables are not promoted to goals;
@@ -93,6 +94,12 @@ The local Ansatz shape now follows that split:
 - inline public `have h : T proof` closes the generated proof subgoal through
   the same strict `exact` path, so holes in the proof are rejected instead of
   bypassing the tactic metacontext;
+- `clear` now checks Lean-style local-context and target dependencies before
+  removing a hypothesis;
+- `specialize` mirrors Lean's `ElabTerm.lean` shape: it elaborates a local
+  hypothesis application without an expected type, lets argument holes become
+  goals, asserts the specialized result, tries to clear the original
+  hypothesis, and orders generated holes before the body goal;
 - target-only `change` now uses the same collection helper to elaborate a
   replacement target, solve placeholders by defeq against the current target,
   and create a def-eq child goal plus any remaining synthetic holes;

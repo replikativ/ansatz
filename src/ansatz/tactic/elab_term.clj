@@ -81,22 +81,26 @@
    - `:allow-natural-holes?` mirrors Lean's `allowNaturalHoles`.
    - `:tag-suffix` is used by `proof/tag-untagged-goals`.
    - `:tactic-name` prefixes diagnostics.
+   - `:expected-type`, when omitted, defaults to the current goal type; when
+     present as nil, elaborates without an expected type.
    - `:after-elab` may return an updated `{:expr ... :meta-mctx ...}` before
      final hole collection.
 
    Returns a map with the updated proof state under `:ps`, the raw elaborated
    `:expr`, the mvar-instantiated `:checked-expr`, all collected `:holes`, and
    the visible goal ids under `:visible-ids`."
-  [ps goal form {:keys [allow-natural-holes? tag-suffix tactic-name expected-type parent-tag
-                        natural-hole-hint after-elab]
-                 :or {allow-natural-holes? false
-                      tactic-name "tactic"}}]
-  (let [initial-meta-mctx (:meta-mctx ps)
+  [ps goal form opts]
+  (let [{:keys [allow-natural-holes? tag-suffix tactic-name expected-type parent-tag
+                natural-hole-hint after-elab]
+         :or {allow-natural-holes? false
+              tactic-name "tactic"}} opts
+        expected-provided? (contains? opts :expected-type)
+        initial-meta-mctx (:meta-mctx ps)
         start-index (:mvar-counter initial-meta-mctx 0)
         old-level-ids (set (keys (:level-depth initial-meta-mctx)))
         parent-tag (or parent-tag (:user-name goal))
         tag-suffix (or tag-suffix (name/from-string tactic-name))
-        expected-type (or expected-type (:type goal))
+        expected-type (if expected-provided? expected-type (:type goal))
         next-id-start (max 1000000 (:next-id ps 1))
         {:keys [expr meta-mctx]}
         (surface/elaborate-in-context-collecting (:env ps) (:lctx goal) form expected-type

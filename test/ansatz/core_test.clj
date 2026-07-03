@@ -110,6 +110,10 @@
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)
                        '[(show _) (assumption)])
+      (a/prove-theorem 'specialize-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(specialize (h hp)) (assumption)])
       (is true "theorems proved"))))
 
 (deftest test-theorem-induction

@@ -1,7 +1,7 @@
 ;; Tactic layer — core tactics.
 
 (ns ansatz.tactic.basic
-  "Core tactics: intro, intros, exact, refine, change, show, assumption, apply, rfl, constructor,
+  "Core tactics: intro, intros, exact, refine, specialize, change, show, assumption, apply, rfl, constructor,
    cases, induction, rewrite, have-tac, revert, exfalso, subst, clear.
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
@@ -63,6 +63,20 @@
                     nil)))]
       (go e))
     (set acc)))
+
+(defn- expr-depends-on-fvar?
+  [expr fvar-id]
+  (contains? (collect-fvar-ids expr) fvar-id))
+
+(defn- lctx-dependency-on-fvar
+  [lctx fvar-id]
+  (some (fn [[id decl]]
+          (when (and (not= id fvar-id)
+                     (or (expr-depends-on-fvar? (:type decl) fvar-id)
+                         (when-let [value (:value decl)]
+                           (expr-depends-on-fvar? value fvar-id))))
+            [id decl]))
+        lctx))
 
 (defn- goal-mvar-ids
   "The UNSOLVED proof mvars (fvar-encoded) that occur in `goal`'s type, excluding the goal itself and
@@ -1852,6 +1866,11 @@
         _ (when-not goal (tactic-error! "No goals" {}))
         _ (when-not (red/lctx-lookup (:lctx goal) hyp-fvar-id)
             (tactic-error! "clear: hypothesis not in context" {:id hyp-fvar-id}))
+        _ (when-let [[dep-id _] (lctx-dependency-on-fvar (:lctx goal) hyp-fvar-id)]
+            (tactic-error! "clear: local declaration depends on hypothesis"
+                           {:id hyp-fvar-id :dependent-id dep-id}))
+        _ (when (expr-depends-on-fvar? (:type goal) hyp-fvar-id)
+            (tactic-error! "clear: target depends on hypothesis" {:id hyp-fvar-id}))
         new-lctx (dissoc (:lctx goal) hyp-fvar-id)
         [ps' new-goal-id] (proof/fresh-mvar ps (:type goal) new-lctx)]
     (-> (proof/assign-mvar ps' (:id goal)
@@ -1859,6 +1878,59 @@
                             :fvar-id hyp-fvar-id
                             :child new-goal-id})
         (proof/record-tactic :clear [hyp-fvar-id] (:id goal)))))
+
+(defn- try-clear
+  [ps hyp-fvar-id]
+  (try
+    (clear ps hyp-fvar-id)
+    (catch Exception _
+      ps)))
+
+(defn specialize
+  "Specialize a local hypothesis application.
+
+   Mirrors Lean's `specialize h a`: elaborate the application without an
+   expected type, allow holes in its arguments to become goals, add the
+   specialized result as a hypothesis, and try to clear the original
+   hypothesis."
+  [ps form]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        {:keys [ps expr checked-expr visible-ids]}
+        (telab/elab-term-with-holes ps goal form
+                                    {:allow-natural-holes? true
+                                     :expected-type nil
+                                     :tag-suffix (name/from-string "specialize")
+                                     :tactic-name "specialize"})
+        head (e/get-app-fn checked-expr)
+        _ (when-not (e/fvar? head)
+            (tactic-error! "'specialize' requires a term whose head is a local hypothesis"
+                           {:term checked-expr}))
+        hyp-fvar-id (e/fvar-id head)
+        hyp-decl (or (red/lctx-lookup (:lctx goal) hyp-fvar-id)
+                     (tactic-error! "'specialize' requires a local hypothesis"
+                                    {:term checked-expr :head hyp-fvar-id}))
+        st (mk-tc ps (:lctx goal))
+        specialized-type (->> (meta/infer-type (:meta-mctx ps) st expr)
+                              (meta/zonk-expr (:meta-mctx ps)))
+        proof-term (if (seq visible-ids) expr checked-expr)
+        ps-have (have-tac ps (:name hyp-decl) specialized-type)
+        proof-goal-id (first (:goals ps-have))
+        body-goal-id (second (:goals ps-have))
+        _ (when-not (and proof-goal-id body-goal-id)
+            (tactic-error! "specialize: failed to create assertion goals" {:term checked-expr}))
+        ps-proof (proof/assign-mvar ps-have proof-goal-id {:kind :exact :term proof-term})
+        ps-body (assoc ps-proof :goals
+                       (into [body-goal-id]
+                             (remove #{body-goal-id} (:goals ps-proof))))
+        ps-cleared (try-clear ps-body hyp-fvar-id)
+        body-id (first (:goals ps-cleared))
+        front (into (vec visible-ids) [body-id])
+        front-set (set front)]
+    (-> ps-cleared
+        (update :goals (fn [gs]
+                         (into (vec front) (remove front-set gs))))
+        (proof/record-tactic :specialize [form] (:id goal)))))
 
 ;; ============================================================
 ;; generalizeIndices (for indexed family cases pipeline)

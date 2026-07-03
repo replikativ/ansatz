@@ -243,6 +243,68 @@
         (let [ps (basic/rfl ps)]
           (is (proof/solved? ps)))))))
 
+(deftest test-clear-rejects-dependent-hypothesis
+  (testing "clear rejects hypotheses used by later declarations or the target"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          p-id (find-hyp ps "p")]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"clear: local declaration depends"
+                            (basic/clear ps p-id))))))
+
+;; ============================================================
+;; specialize
+;; ============================================================
+
+(deftest test-specialize-local-hypothesis
+  (testing "specialize replaces a quantified local hypothesis with an applied one"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "q" prop
+                                          (e/forall' "h" (e/forall' "hp" (e/bvar 1) (e/bvar 1) :default)
+                                                     (e/forall' "hp" (e/bvar 2) (e/bvar 2) :default)
+                                                     :default)
+                                          :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "q")
+                 (basic/intro "h")
+                 (basic/intro "hp")
+                 (basic/specialize '(h hp))
+                 (basic/assumption))]
+      (is (proof/solved? ps))
+      (is (not (e/has-fvar-flag (extract/verify ps)))))))
+
+(deftest test-specialize-promotes-argument-holes
+  (testing "specialize puts elaboration holes before the body goal"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "q" prop
+                                          (e/forall' "h" (e/forall' "hp" (e/bvar 1) (e/bvar 1) :default)
+                                                     (e/forall' "hp" (e/bvar 2) (e/bvar 2) :default)
+                                                     :default)
+                                          :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "q")
+                 (basic/intro "h")
+                 (basic/intro "hp")
+                 (basic/specialize '(h _)))]
+      (is (= 2 (count (:goals ps))))
+      (let [ps (basic/assumption ps)
+            ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
 ;; ============================================================
 ;; Tactic combinators
 ;; ============================================================

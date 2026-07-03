@@ -798,6 +798,8 @@
                 (basic/refine ps (first args)))
    'refine'   (fn [ps args]
                 (basic/refine-prime ps (first args)))
+   'specialize (fn [ps args]
+                 (basic/specialize ps (first args)))
    'change    (fn [ps args]
                 (basic/change ps (first args)))
    'show      (fn [ps args]
