@@ -295,6 +295,30 @@
     (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
         (proof/record-tactic :exact [:term] (:id goal)))))
 
+(defn exact-form
+  "Close the current goal with a surface term elaborated against the target.
+
+   Lean's `exact` rejects fresh unassigned holes instead of turning them into
+   subgoals. Use `refine`/`refine'` when holes should remain open."
+  [ps form]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        {:keys [ps checked-expr visible-holes]}
+        (telab/elab-term-with-holes ps goal form
+                                    {:allow-natural-holes? false
+                                     :tag-suffix (name/from-string "exact")
+                                     :tactic-name "exact"})
+        visible-holes (vec visible-holes)]
+    (when (seq visible-holes)
+      (let [diagnostics (mapv telab/hole-diagnostic visible-holes)]
+        (tactic-error! (str "exact: unresolved holes\n"
+                            (telab/format-hole-diagnostics diagnostics))
+                       {:holes visible-holes
+                        :hole-diagnostics diagnostics
+                        :hole-count (count diagnostics)})))
+    (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term checked-expr})
+        (proof/record-tactic :exact [form] (:id goal)))))
+
 (defn refine
   "Refine the current goal using a surface term.
 

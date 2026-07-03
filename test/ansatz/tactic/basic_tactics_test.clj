@@ -35,6 +35,35 @@
     (some (fn [[id d]] (when (= hyp-name (:name d)) id)) (:lctx g))))
 
 ;; ============================================================
+;; exact
+;; ============================================================
+
+(deftest test-exact-form-closes-goal
+  (testing "exact elaborates a surface term against the current target"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/exact-form 'h))]
+      (is (proof/solved? ps))
+      (is (not (e/has-fvar-flag (extract/verify ps)))))))
+
+(deftest test-exact-form-rejects-holes
+  (testing "exact rejects fresh unassigned holes instead of creating goals"
+    (let [env (env/empty-env)
+          goal-type (e/forall' "p" prop (e/bvar 0) :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (basic/intro ps "p")]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved natural holes"
+                            (basic/exact-form ps '_)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved holes"
+                            (basic/exact-form ps '?goal))))))
+
+;; ============================================================
 ;; induction
 ;; ============================================================
 

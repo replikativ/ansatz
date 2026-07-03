@@ -87,6 +87,9 @@ The local Ansatz shape now follows that split:
   rejected;
 - `refine` assigns the instantiated elaborated value when no child goals remain,
   while preserving delayed-abstraction metadata when child goals are still open;
+- public `exact` now uses the same tactic-level elaboration helper in strict
+  mode: it elaborates against the current target and rejects fresh unassigned
+  natural or synthetic holes instead of promoting them to goals;
 - target-only `change` now uses the same collection helper to elaborate a
   replacement target, solve placeholders by defeq against the current target,
   and create a def-eq child goal plus any remaining synthetic holes;
