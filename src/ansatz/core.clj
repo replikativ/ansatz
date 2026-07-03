@@ -19,6 +19,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
             [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.simp :as simp]
@@ -709,6 +710,14 @@
               :else (elab/elaborate-in-context (:env ps) (:lctx g) a)))
           args)))
 
+(clojure.core/defn- apply-hole-symbol?
+  [x]
+  (and (symbol? x)
+       (let [s (str x)]
+         (or (= s "_")
+             (= s "?_")
+             (clojure.string/starts-with? s "?")))))
+
 (clojure.core/defn- elab-apply-arg
   "Resolve an `apply`/`solve_by_elim` lemma argument to a kernel term, returning [ps' term].
    A bare symbol that names a LOCAL HYPOTHESIS resolves to that fvar first (locals shadow globals,
@@ -728,7 +737,16 @@
                           nil lctx))]
     (if hyp-fid
       [ps (e/fvar hyp-fid)]
-      (let [arg' (if (symbol? arg) (symbol (str "@" arg)) arg)]
+      (if (or (apply-hole-symbol? arg) (not (symbol? arg)))
+        (let [goal (proof/current-goal ps)
+              {:keys [ps checked-expr]}
+              (telab/elab-term-with-holes ps goal arg
+                                          {:expected-type nil
+                                           :allow-natural-holes? true
+                                           :tag-suffix (name/from-string "apply")
+                                           :tactic-name "apply"})]
+          [ps checked-expr])
+        (let [arg' (symbol (str "@" arg))]
         (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
              (catch Throwable ex
                (if (and (symbol? arg)
@@ -739,7 +757,7 @@
                                            (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
                                          [ps []] lparams)]
                    [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
-                 (throw ex))))))))
+                 (throw ex)))))))))
 
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by

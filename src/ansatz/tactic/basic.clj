@@ -36,6 +36,12 @@
   (let [st (mk-tc ps goal-lctx)]
     (#'tc/cached-whnf st expr)))
 
+(defn- meta-whnf-in-goal
+  "WHNF reduce an expression while consulting the proof state's metacontext."
+  [ps goal-lctx expr]
+  (let [st (mk-tc ps goal-lctx)]
+    (meta/whnf (:meta-mctx ps) st expr)))
+
 (defn- instantiate-solved-mvars
   "Instantiate solved proof-state mvars that are represented as fvars in expr."
   [ps expr mvar-ids]
@@ -95,6 +101,19 @@
                                [[] []]
                                generated-ids)]
     (into nondeps deps)))
+
+(defn- zonk-mvar-decl-types
+  "Instantiate assigned metavariables inside the declaration types of open
+   mvars. Lean calls `headBetaType` on returned apply goals; this is the local
+   analogue needed after apply assigns type holes in the metacontext."
+  [ps ids]
+  (reduce (fn [ps id]
+            (if-let [decl (proof/mvar-decl ps id)]
+              (let [ty (meta/zonk-expr (:meta-mctx ps) (:type decl))]
+                (proof/set-mvar-type ps id ty))
+              ps))
+          ps
+          ids))
 
 (defn- goal-mvar-ids
   "The UNSOLVED proof mvars (fvar-encoded) that occur in `goal`'s type, excluding the goal itself and
@@ -516,14 +535,14 @@
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         st (mk-tc ps (:lctx goal))
-        term-type (tc/infer-type st term)]
+        term-type (meta/infer-type (:meta-mctx ps) st term)]
     ;; Peel forall binders, creating fresh fvars for each argument. As in
     ;; Lean's MVarId.apply, stop early when the partial result type already
     ;; matches the target.
     ;; For inst-implicit params, try to synthesize immediately — this resolves
     ;; projections like LE.0(Preorder.toLE) before they reach matching.
     (loop [ps ps
-           ty (whnf-in-goal ps (:lctx goal) term-type)
+           ty (meta-whnf-in-goal ps (:lctx goal) term-type)
            arg-mvars []
            mvar-id-set #{}
            type-param-idx 0
@@ -571,7 +590,7 @@
                   [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
                   ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
                   new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
-              (recur ps' (whnf-in-goal ps' (:lctx goal) new-ty)
+              (recur ps' (meta-whnf-in-goal ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id) mvar-id-set
                      (if is-type-param (inc type-param-idx) type-param-idx)
                      implicit-mvars))
@@ -582,7 +601,7 @@
                   [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
                   new-ty (e/instantiate1 (e/forall-body ty) (e/fvar mvar-id))
                   is-implicit (#{:implicit :strict-implicit :inst-implicit} binfo)]
-              (recur ps' (whnf-in-goal ps' (:lctx goal) new-ty)
+              (recur ps' (meta-whnf-in-goal ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id)
                      (conj mvar-id-set mvar-id)
                      (if is-type-param (inc type-param-idx) type-param-idx)
@@ -603,7 +622,7 @@
               ;; seeding Strategy C over them and persisting the solutions into the shared `:mctx`.
               gmvars (goal-mvar-ids ps goal mvar-id-set)
               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
-              resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)
+              resolved-whnf (meta-whnf-in-goal ps (:lctx goal) resolved-ty)
               ;; LAZY: `normalize-for-match` deeply WHNF-normalizes every subnode, which DIVERGES on a
               ;; goal carrying a stuck recursor over a symbolic arg (e.g. `Map.join`'s `group_by` foldl
               ;; over an abstract list — the filter→join pushdown C). Lean never pre-normalizes the goal
@@ -617,6 +636,14 @@
               ;; cascade can't (univ-poly lemmas whose level isn't pinned; subterms needing one whnf step
               ;; like `g a → map mk L`) WITHOUT the divergent deep normalize. The same atom holds the
               ;; solved level-mvars (under :levels), used below to zonk the proof `:head`.
+              real-mctx (atom (:meta-mctx ps))
+              try-real-mctx-isdefeq
+              (fn []
+                (try
+                  (when-let [mctx (meta/is-def-eq @real-mctx st resolved-ty (:type goal))]
+                    (reset! real-mctx mctx)
+                    {})
+                  (catch Exception _ nil)))
               try-meta-isdefeq
               (fn []
                 (try
@@ -636,6 +663,10 @@
                         (match-expr resolved-ty goal-whnf mvar-id-set)
                         (match-expr resolved-whnf (:type goal) mvar-id-set)
                         (match-expr resolved-whnf goal-whnf mvar-id-set)
+                        ;; Lean's apply also assigns metavariables already present in the
+                        ;; applied expression. These are real Expr.mvars in the tactic
+                        ;; metacontext, not the historical fvar-backed generated args.
+                        (try-real-mctx-isdefeq)
                         ;; Strategy C runs HERE — before the deep-normalize fallbacks — so the common
                         ;; lazy-isDefEq path never triggers the divergent normalize-for-match.
                         (try-meta-isdefeq)
@@ -702,7 +733,10 @@
                            {:expected (:type goal) :actual resolved-ty :term term}))
 
           ;; Assign solved mvars from the substitution
-          (let [ps (reduce (fn [ps mvar-id]
+          (let [ps (assoc ps :meta-mctx @real-mctx)
+                real-term-mvars (meta/expr-mvars-no-delayed (:meta-mctx ps) term)
+                ps (zonk-mvar-decl-types ps real-term-mvars)
+                ps (reduce (fn [ps mvar-id]
                              (if-let [val (get subst mvar-id)]
                                (proof/assign-mvar ps mvar-id
                                                   {:kind :exact :term val})
@@ -799,10 +833,18 @@
                   unsolved-args (filterv #(and (not (proof/mvar-assigned? ps %))
                                                (not (contains? implicit-mvars %)))
                                          arg-mvars)
-                  unsolved-args (reorder-generated-goals-nondependent-first ps unsolved-args)]
+                  unsolved-args (reorder-generated-goals-nondependent-first ps unsolved-args)
+                  other-mvar-ids (->> (meta/expr-mvars-no-delayed (:meta-mctx ps)
+                                                                   (meta/zonk-expr (:meta-mctx ps) head-term))
+                                      (remove (set unsolved-args))
+                                      (filterv #(and (proof/mvar-open? ps %)
+                                                     (not (contains? implicit-mvars %)))))
+                  front (into (vec unsolved-args) other-mvar-ids)
+                  front-set (set front)
+                  generated-set (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars))]
               (update ps :goals (fn [gs]
-                                  (into (vec unsolved-args)
-                                        (remove (set (filterv #(not (proof/mvar-assigned? ps %)) arg-mvars)) gs)))))))))))
+                                  (into front
+                                        (remove #(or (front-set %) (generated-set %)) gs)))))))))))
 
 ;; ============================================================
 ;; rfl

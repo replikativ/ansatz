@@ -113,7 +113,10 @@ The local Ansatz shape now follows that split:
   already matches the target, so applying a multi-argument implication to a
   function target leaves only the genuinely missing prefix arguments; visible
   generated goals are ordered using Lean's default
-  `ApplyNewGoals.nonDependentFirst` policy;
+  `ApplyNewGoals.nonDependentFirst` policy; compound public `apply` arguments
+  now elaborate in collecting/no-expected-type mode, and `apply-tac` uses the
+  tactic metacontext for type-shape inference so residual holes already present
+  in the applied term are returned after generated apply goals;
 - `constructor` now mirrors Lean's `MVarId.constructor` selection loop: it
   tries constructors in declaration order and delegates each candidate to the
   same `apply` path, succeeding at the first applicable constructor instead of

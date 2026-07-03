@@ -132,6 +132,14 @@
                          ^{:- p} hp]
                        '(arrow q r)
                        '[(apply h) (assumption)])
+      (a/prove-theorem 'apply-compound-hole-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(apply (h ?hp)) (assumption)])
+      (a/prove-theorem 'apply-hole-test
+                       '[^{:- Prop} q ^{:- q} hq]
+                       'q
+                       '[(apply _) (assumption)])
       (a/prove-theorem 'clear-unused-test
                        '[^Nat n ^{:- (= Nat n n)} h]
                        '(= Nat n n)
