@@ -24,35 +24,29 @@ The local Ansatz shape now follows that split:
 - expression and universe mvars have checked assignment helpers that enforce
   freshness, depth, occurs checks, and local-context safety; expression
   assignment can also type-check closed values against the mvar declaration;
-- proof states carry `:meta-mctx` beside the legacy `:mctx`;
+- proof states carry `:meta-mctx` as the only metavariable store;
 - tactic continuation goals declare real `Expr.mvar` ids in `:meta-mctx` and
   default to Lean-style `syntheticOpaque`, so ordinary unification cannot
   silently close the current goal;
-- apply-style theorem argument holes remain assignable metavariables: regular
-  forall-telescope arguments are `natural`, while instance-implicit arguments
-  are `synthetic`, matching Lean's `forallMetaTelescopeReducing` rule;
+- apply-style theorem argument holes are assignable `Expr.mvar`s embedded in
+  goal types: regular forall-telescope arguments are `natural`, while
+  instance-implicit arguments are `synthetic`, matching Lean's
+  `forallMetaTelescopeReducing` rule;
 - surface elaboration now uses real `Expr.mvar` nodes for expression holes and
   real `Level.mvar` nodes for universe holes;
-- surface expression mvar declarations live in `:meta-mctx`; surface `:mctx`
-  now keeps compatibility metadata/solutions instead of duplicated types;
+- surface expression mvar declarations live in `:meta-mctx` — the surface
+  elaborator state is one metacontext atom plus a fresh-id counter;
 - surface type inference and WHNF for terms containing holes now route through
   `:meta-mctx` and `ansatz.meta`;
-- surface universe-level unification now routes through the persistent
-  metacontext level unifier and syncs assignments back to the compatibility
-  level context;
-- surface expression unification now routes through `ansatz.meta/is-def-eq`
-  and syncs expression/level assignments back to compatibility contexts;
+- surface universe-level and expression unification route through the
+  persistent metacontext (`ansatz.meta/is-level-def-eq`/`is-def-eq`);
 - the metacontext unifier handles direct assignments, Miller-pattern
   assignments under binders, universe assignments, closed kernel delegation,
   and Lean-style synthetic-vs-natural assignment preference;
-- the tactic fvar-backed unifier API now bridges into the Lean-shaped
-  metacontext unifier as the single implementation path and syncs successful
-  assignments back;
-- tactic assignments still keep legacy extraction recipes, but also mirror a
-  Lean-style expression assignment when possible;
-- tactic proof states now keep declarations in `:meta-mctx` and extraction
-  recipes in `:recipes`; `:mctx` is a compatibility view for older tactic
-  plumbing;
+- tactic unification IS the metacontext unifier — the fvar-backed bridge is
+  deleted;
+- tactic recipe maps are translated into checked metacontext assignments at
+  `assign-mvar` time and are not stored;
 - tactic `refine` now elaborates a surface term in the current proof
   metacontext, saves the fresh mvar boundary, assigns the current goal, and
   turns the freshly-created non-natural holes into goals; `refine-prime`
@@ -137,8 +131,8 @@ The local Ansatz shape now follows that split:
 - `show` builds on the same target-elaboration path but searches the open-goal
   list like Lean: the first goal whose target is definitionally equal to the
   pattern is changed and moved to the front, with earlier goals kept after it;
-- `extract` now defaults to zonking `(mvar root)` through `:meta-mctx` and
-  refuses to return if mvars remain; `extract-legacy` is kept for parity checks.
+- `extract` zonks `(mvar root)` through `:meta-mctx` and refuses to return
+  if mvars remain; `verify` re-checks with the strict kernel checker.
 
 The important hardening point is delayed abstraction under binders. A child
 goal introduced under `intro`, `have`, `cases`, or branch binders may be solved
@@ -147,21 +141,35 @@ would leak those fvars into a lambda. The meta layer therefore supports delayed
 abstraction markers that abstract the relevant fvars after child mvars have
 been zonked, which is the local version of Lean's delayed assignment discipline.
 
-## Current Boundary
+## Final Architecture (migration complete)
 
-This is not yet a full replacement for the legacy proof-state compatibility
-map or the surface elaborator.
+The dual representation is gone. There is ONE unification world:
 
-- `extract` uses the metacontext path for modern proof states.
-- `extract-legacy` remains as a migration/debugging path while tactic writers
-  still construct legacy recipes.
-- Surface elaboration uses real expression and universe mvars internally, but
-  `:mctx`/`:level-mctx` remain compatibility views.
-- The kernel still rejects raw mvars by construction: callers must zonk first.
-
-That is deliberate. It lets us migrate tactic families and elaborator code
-against one explicit invariant: no unresolved expression or level mvars are
-allowed at kernel-check time.
+- **All holes are real `Expr.mvar` nodes.** Apply's forall telescope embeds
+  `(e/mvar id)` in goal types (Lean's `forallMetaTelescope`); rewrite and simp
+  mint lemma-parameter mvars in an `inc-depth`-bumped metacontext (Lean's
+  `withNewMCtxDepth`, so pattern matching cannot assign goal-level holes);
+  the fvar-encoded bridge (`ansatz.tactic.unify`) is deleted.
+- **The proof state's `:meta-mctx` is the only store** of declarations and
+  assignments. Tactic recipes remain the assignment LANGUAGE: `assign-mvar`
+  translates each recipe via `assignment-expr` into a checked metacontext
+  assignment and throws if a recipe kind has no translation. The `:recipes`
+  store, `extract-legacy`, and the legacy `:mctx` fallbacks are deleted.
+- **Goal views instantiate on access** (`proof/current-goal`/`goals` zonk
+  assigned mvars — Lean's `getType'` discipline) and `prune-solved-goals`
+  drops goals solved by unification (Lean's `pruneSolvedGoals`). Sibling
+  propagation is therefore automatic; the old fvar-substitution loop is gone.
+- **One isDefEq**: `apply`, `exact`, `assumption`, `refine`, `rewrite`, and
+  simp's `try-theorem` all match through `ansatz.meta/is-def-eq` in the shared
+  metacontext. `assumption` is Lean's `findLocalDeclWithType?`.
+- **The surface elaborator's state is one metacontext atom** plus a fresh-id
+  counter; the compat `:mctx`/`:level-mctx` mirrors and the translation walks
+  are deleted. `match.clj` backtracks by snapshotting the single value —
+  Lean's `saveState`/`restoreState`. The value at every fork boundary is
+  `(meta-mctx, next-id)`.
+- **The kernel still rejects raw mvars by construction**: `extract` zonks the
+  root and requires a closed term; `verify` runs the strict Java checker. No
+  search-layer proposal can weaken this.
 
 ## Relational Search Direction
 
@@ -223,16 +231,15 @@ in `ansatz.meta`:
 - speculative defeq paths no longer swallow `Throwable` — only `ExceptionInfo`
   (kernel type errors) reads as "not defeq".
 
-## Known Migration Gap (acceptance test: `^:wip apply-telescope-holes-unify-in-exact`)
+## Closed Migration Gap (acceptance test: `apply-telescope-holes-unify-in-exact`)
 
-`apply` telescope holes are still fvar-encoded in goal types. Consequence,
-confirmed in the REPL: after `(apply Nat.le_trans)` the goals are
-`a ≤ (fvar b)` / `(fvar b) ≤ c`; `(assumption)` solves them (the tactic
-unifier bridge knows the fvar is an mvar) but `(exact h1)` fails, because
-surface elaboration receives the expected type with a rigid `(fvar b)`. Lean
-has one `isDefEq` for both. The fix is the remaining fvar→mvar migration:
-goal types carry real `Expr.mvar` nodes and tactic-side elaboration unifies in
-the proof state's `:meta-mctx`.
+`apply` telescope holes were originally fvar-encoded in goal types, splitting
+the system into two unification worlds: after `(apply Nat.le_trans)`,
+`(assumption)` solved the shared middle-term hole (bridge unifier) while
+`(exact h1)` failed (surface elaboration saw a rigid fvar). With holes as
+real `Expr.mvar` nodes in the one metacontext, both paths now solve it —
+the acceptance test covers `apply; exact; exact` end-to-end including strict
+kernel verification.
 
 ## Next Fidelity Targets
 
