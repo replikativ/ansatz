@@ -2734,6 +2734,29 @@ public final class TypeChecker {
                 return;
             }
             if (isValidNestedInductiveOccurrence(tc, type, inductiveNames, paramFvars)) {
+                // Nested occurrence `D As Is` where D is an already-defined inductive:
+                // the being-defined inductive may occur ONLY strictly-positively inside
+                // D's PARAMETERS, and NOT at all in D's indices. Lean's C++ kernel has no
+                // nested escape hatch here — it supports nesting via an elaborator-level
+                // nested→mutual transform BEFORE the kernel. We handle nesting in-kernel,
+                // so we must re-run the positivity check on each nested parameter argument
+                // (and reject any occurrence in an index). Without this recursion a
+                // negative occurrence like `List (Bad → Bad)` would slip through.
+                Object[] nApp = decomposeApp(type);
+                Expr nHead = (Expr) nApp[0];
+                Expr[] nArgs = (Expr[]) nApp[1];
+                ConstantInfo nCi = tc.getEnv().lookup((Name) nHead.o0);
+                int nParams = nCi.numParams;
+                for (int i = 0; i < nParams && i < nArgs.length; i++) {
+                    checkPositivity(tc, nArgs[i], inductiveNames, paramFvars, ctorName, argIdx);
+                }
+                for (int i = nParams; i < nArgs.length; i++) {
+                    if (exprContainsName(nArgs[i], inductiveNames)) {
+                        throw new RuntimeException("Constructor " + ctorName +
+                            " arg #" + argIdx + " has occurrence of inductive type in an" +
+                            " index of nested inductive '" + nHead.o0 + "'");
+                    }
+                }
                 return;
             }
             // Case 4: Contains inductive but not as valid application
