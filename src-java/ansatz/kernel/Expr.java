@@ -21,6 +21,7 @@ import java.util.Objects;
  * <ul>
  *   <li>bits 0-19:  bvarRange (20 bits, max ~1M)
  *   <li>bits 20-51: hash (32 bits)
+ *   <li>bit 61:     hasMVar
  *   <li>bit 62:     hasFVar
  *   <li>bit 63:     hasLevelParam (sign bit)
  * </ul>
@@ -47,6 +48,7 @@ public final class Expr {
     private static final long HASH_MASK = 0xFFFFFFFFL;   // 32 bits
     private static final int HASH_SHIFT = 20;
     private static final long HAS_FVAR_BIT = 1L << 62;
+    private static final long HAS_MVAR_BIT = 1L << 61; // free bit (52..61 unused by bvarRange/hash)
     // bit 63 = sign bit, used for hasLevelParam
 
     public final byte tag;
@@ -201,11 +203,31 @@ public final class Expr {
 
     // --- Packed data helpers ---
 
-    private static long packData(long bvarRange, int hash, boolean hasFVar, boolean hasLevelParam) {
+    private static long packData(long bvarRange, int hash, boolean hasFVar, boolean hasMVar, boolean hasLevelParam) {
         return (bvarRange & BVAR_RANGE_MASK)
              | (((long) hash & HASH_MASK) << HASH_SHIFT)
              | (hasFVar ? HAS_FVAR_BIT : 0L)
+             | (hasMVar ? HAS_MVAR_BIT : 0L)
              | (hasLevelParam ? Long.MIN_VALUE : 0L); // bit 63
+    }
+
+    /** True iff any level in the CONST level list contains a metavariable. */
+    private static boolean levelsHaveMVar(Object levels) {
+        if (levels == null) return false;
+        if (levels instanceof Object[]) {
+            for (Object l : (Object[]) levels) if (l != null && Level.hasMVar((Level) l)) return true;
+            return false;
+        }
+        if (levels instanceof java.util.List) {
+            for (Object l : (java.util.List<?>) levels) if (l != null && Level.hasMVar((Level) l)) return true;
+            return false;
+        }
+        if (levels instanceof clojure.lang.IPersistentVector) {
+            clojure.lang.IPersistentVector v = (clojure.lang.IPersistentVector) levels;
+            for (int i = 0; i < v.count(); i++) { Object l = v.nth(i); if (l != null && Level.hasMVar((Level) l)) return true; }
+            return false;
+        }
+        return false;
     }
 
     // --- Metadata extraction ---
@@ -218,6 +240,12 @@ public final class Expr {
     /** Does this expression contain any free variable? */
     public boolean hasFVar() {
         return (data & HAS_FVAR_BIT) != 0;
+    }
+
+    /** Does this expression contain any (expression- or universe-level) metavariable?
+     *  O(1) — computed compositionally at construction, like Lean's Expr.hasMVar. */
+    public boolean hasMVar() {
+        return (data & HAS_MVAR_BIT) != 0;
     }
 
     /** Does this expression contain any universe level parameter? */
@@ -352,7 +380,7 @@ public final class Expr {
     /** Bound variable (de Bruijn index). */
     public static Expr bvar(long idx) {
         int h = Long.hashCode(idx) * 31 + BVAR;
-        long d = packData(idx + 1, h, false, false);
+        long d = packData(idx + 1, h, false, false, false);
         return intern(new Expr(BVAR, d, null, null, null, null, idx));
     }
 
@@ -441,7 +469,7 @@ public final class Expr {
     /** Sort (universe). Prop = sort(zero), Type u = sort(succ u). */
     public static Expr sort(Object level, boolean levelHasParam) {
         int h = Objects.hashCode(level) * 31 + SORT;
-        long d = packData(0, h, false, levelHasParam);
+        long d = packData(0, h, false, level instanceof Level && Level.hasMVar((Level) level), levelHasParam);
         return intern(new Expr(SORT, d, level, null, null, null, 0));
     }
 
@@ -451,7 +479,7 @@ public final class Expr {
         // different Object[] instances — common after normalization) hash to the same
         // bucket and are recognized as equal by the intern table.
         int h = (Objects.hashCode(name) * 31 + levelsHashCode(levels)) * 31 + CONST;
-        long d = packData(0, h, false, levelsHaveParam);
+        long d = packData(0, h, false, levelsHaveMVar(levels), levelsHaveParam);
         return intern(new Expr(CONST, d, name, levels, null, null, 0));
     }
 
@@ -460,8 +488,9 @@ public final class Expr {
         long br = Math.max(fn.bvarRange(), arg.bvarRange());
         boolean fv = fn.hasFVar() || arg.hasFVar();
         boolean lp = fn.hasLevelParam() || arg.hasLevelParam();
+        boolean mv = fn.hasMVar() || arg.hasMVar();
         int h = (fn.structuralHash() * 31 + arg.structuralHash()) * 31 + APP;
-        long d = packData(br, h, fv, lp);
+        long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(APP, d, fn, arg, null, null, 0));
     }
 
@@ -471,8 +500,9 @@ public final class Expr {
         long br = Math.max(type.bvarRange(), bodyRange > 0 ? bodyRange - 1 : 0);
         boolean fv = type.hasFVar() || body.hasFVar();
         boolean lp = type.hasLevelParam() || body.hasLevelParam();
+        boolean mv = type.hasMVar() || body.hasMVar();
         int h = (Objects.hashCode(name) * 31 + type.structuralHash() * 17 + body.structuralHash()) * 31 + LAM;
-        long d = packData(br, h, fv, lp);
+        long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(LAM, d, name, type, body, binderInfo, 0));
     }
 
@@ -482,8 +512,9 @@ public final class Expr {
         long br = Math.max(type.bvarRange(), bodyRange > 0 ? bodyRange - 1 : 0);
         boolean fv = type.hasFVar() || body.hasFVar();
         boolean lp = type.hasLevelParam() || body.hasLevelParam();
+        boolean mv = type.hasMVar() || body.hasMVar();
         int h = (Objects.hashCode(name) * 31 + type.structuralHash() * 17 + body.structuralHash()) * 31 + FORALL;
-        long d = packData(br, h, fv, lp);
+        long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(FORALL, d, name, type, body, binderInfo, 0));
     }
 
@@ -494,9 +525,10 @@ public final class Expr {
                            bodyRange > 0 ? bodyRange - 1 : 0);
         boolean fv = type.hasFVar() || value.hasFVar() || body.hasFVar();
         boolean lp = type.hasLevelParam() || value.hasLevelParam() || body.hasLevelParam();
+        boolean mv = type.hasMVar() || value.hasMVar() || body.hasMVar();
         int h = (Objects.hashCode(name) * 31 + type.structuralHash() * 17
                 + value.structuralHash() * 13 + body.structuralHash()) * 31 + LET;
-        long d = packData(br, h, fv, lp);
+        long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(LET, d, name, type, value, body, 0));
     }
 
@@ -513,21 +545,21 @@ public final class Expr {
             val = new BigInteger(n.toString());
         }
         int h = val.hashCode() * 31 + LIT_NAT;
-        long d = packData(0, h, false, false);
+        long d = packData(0, h, false, false, false);
         return intern(new Expr(LIT_NAT, d, val, null, null, null, 0));
     }
 
     /** String literal. */
     public static Expr litStr(String s) {
         int h = s.hashCode() * 31 + LIT_STR;
-        long d = packData(0, h, false, false);
+        long d = packData(0, h, false, false, false);
         return intern(new Expr(LIT_STR, d, s, null, null, null, 0));
     }
 
     /** Metadata annotation (definitionally transparent). */
     public static Expr mdata(Object data, Expr expr) {
         int h = (Objects.hashCode(data) * 31 + expr.structuralHash()) * 31 + MDATA;
-        long dd = packData(expr.bvarRange(), h, expr.hasFVar(), expr.hasLevelParam());
+        long dd = packData(expr.bvarRange(), h, expr.hasFVar(), expr.hasMVar(), expr.hasLevelParam());
         return intern(new Expr(MDATA, dd, data, expr, null, null, 0));
     }
 
@@ -535,14 +567,14 @@ public final class Expr {
     public static Expr proj(Object typeName, long idx, Expr struct) {
         int h = (Objects.hashCode(typeName) * 31 + Long.hashCode(idx) * 17
                 + struct.structuralHash()) * 31 + PROJ;
-        long d = packData(struct.bvarRange(), h, struct.hasFVar(), struct.hasLevelParam());
+        long d = packData(struct.bvarRange(), h, struct.hasFVar(), struct.hasMVar(), struct.hasLevelParam());
         return intern(new Expr(PROJ, d, typeName, struct, null, null, idx));
     }
 
     /** Free variable with unique numeric id. Interned for pointer sharing. */
     public static Expr fvar(long id) {
         int h = Long.hashCode(id) * 31 + FVAR;
-        long d = packData(0, h, true, false);
+        long d = packData(0, h, true, false, false);
         return intern(new Expr(FVAR, d, null, null, null, null, id));
     }
 
@@ -551,7 +583,7 @@ public final class Expr {
     public static Expr mvar(long id) {
         int h = Long.hashCode(id) * 31 + MVAR;
         // MVAR does NOT set HAS_FVAR_BIT — this ensures abstract1 skips it
-        long d = packData(0, h, false, false);
+        long d = packData(0, h, false, true, false);
         return intern(new Expr(MVAR, d, null, null, null, null, id));
     }
 
