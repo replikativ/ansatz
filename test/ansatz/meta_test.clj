@@ -7,6 +7,7 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
+            [ansatz.surface.elaborate :as elab]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.tactic.basic :as basic]
@@ -520,3 +521,89 @@
           ps (basic/assumption ps)
           ps (basic/assumption ps)]
       (assert-meta-extract-parity ps))))
+
+(deftest occurs-check-follows-delayed-assignments
+  (testing "?m := f ?d is cyclic when ?d's delayed pending mvar is ?m"
+    (let [prop (e/sort' lvl/zero)
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop {})
+                   (meta/add-expr-mvar-decl 2 (e/forall' "h" prop prop :default) {})
+                   (meta/assign-delayed 2 [(e/fvar 42)] 1))
+          value (e/app (e/mvar 2) (e/lit-nat 0))]
+      (is (meta/expr-occurs? mctx 1 value))
+      (is (not (meta/expr-occurs? mctx 3 value)))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
+                            (meta/checked-assign-expr mctx 1 value))))))
+
+(deftest meta-defeq-retries-other-mvar-when-preferred-side-is-opaque
+  (testing "?opaque =?= ?natural assigns the natural mvar to the opaque goal"
+    (let [prop (e/sort' lvl/zero)
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop {} {:kind :syntheticOpaque})
+                   (meta/add-expr-mvar-decl 2 prop {}))
+          st (tc/mk-tc-state (env/empty-env))
+          solved (meta/is-def-eq mctx st (e/mvar 1) (e/mvar 2))]
+      (is solved)
+      (is (= (e/mvar 1) (meta/expr-assignment solved 2)))
+      (is (nil? (meta/expr-assignment solved 1))))))
+
+(deftest inc-depth-freezes-outer-level-mvars-by-default
+  (testing "Lean incDepth parity: nested problems must not assign outer level mvars"
+    (let [mctx (meta/add-level-mvar-decl meta/empty-context 10)]
+      (is (not (meta/level-assignable? (meta/inc-depth mctx) 10)))
+      (is (meta/level-assignable? (meta/inc-depth mctx true) 10)))))
+
+(deftest delayed-abstraction-wrapper-survives-until-mvars-are-solved
+  (testing "zonk keeps the abstract-fvars wrapper while an mvar inside is open"
+    (let [prop (e/sort' lvl/zero)
+          lctx {42 {:tag :local :id 42 :name "x" :type prop}}
+          mctx (meta/add-expr-mvar-decl meta/empty-context 1 prop lctx)
+          wrapped (e/lam "x" prop (meta/abstract-fvars (e/mvar 1) [42]) :default)]
+      ;; the wrapper must not be dropped while ?1 is unassigned: a later
+      ;; solution mentioning x would otherwise escape the binder
+      (is (= wrapped (meta/zonk-expr mctx wrapped)))
+      ;; once ?1 := x, zonking abstracts x into the binder
+      (let [mctx (meta/assign-expr mctx 1 (e/fvar 42))]
+        (is (= (e/lam "x" prop (e/bvar 0) :default)
+               (meta/zonk-expr mctx wrapped)))))))
+
+(deftest legacy-kind-spelling-is-canonicalized
+  (let [prop (e/sort' lvl/zero)
+        mctx (meta/add-expr-mvar-decl meta/empty-context 1 prop {}
+                                      {:kind :synthetic-opaque})]
+    (is (= :syntheticOpaque (:kind (meta/expr-decl mctx 1))))
+    (is (not (meta/expr-unification-assignable? mctx 1)))))
+
+(deftest checked-assignment-rejects-nested-mvar-with-larger-context
+  (testing "Lean checkMVar analogue: ?m := f ?n needs lctx(?n) ⊆ lctx(?m)"
+    (let [prop (e/sort' lvl/zero)
+          wide-lctx {42 {:tag :local :id 42 :name "x" :type prop}}
+          mctx (-> meta/empty-context
+                   (meta/add-expr-mvar-decl 1 prop {})
+                   (meta/add-expr-mvar-decl 2 prop wide-lctx))]
+      ;; ?2 could later be solved with x, which ?1 must never mention
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"nested metavariable context"
+                            (meta/checked-assign-expr mctx 1 (e/mvar 2))))
+      ;; under a delayed-abstraction wrapper the abstracted fvars are in scope
+      (is (meta/checked-assign-expr
+           mctx 1 (e/lam "x" prop (meta/abstract-fvars (e/mvar 2) [42]) :default))))))
+
+(deftest ^:wip apply-telescope-holes-unify-in-exact
+  (testing "MIGRATION ACCEPTANCE (fvar->mvar): after `apply Nat.le_trans` the
+   shared ?b hole must be solvable by exact's elaboration path, like Lean.
+   Today `assumption` solves it (mvar-aware unifier bridge) but `exact h1`
+   fails: goal types carry the fvar-encoded hole, which surface elaboration
+   treats as rigid. Passes once apply telescope holes are real Expr.mvar."
+    (let [env (require-init-medium)
+          gt (elab/elaborate-check env '(forall [a Nat]
+                                          (forall [c Nat]
+                                            (=> (<= Nat a 10)
+                                                (=> (<= Nat 10 c)
+                                                    (<= Nat a c))))))
+          [ps _] (proof/start-proof env gt)
+          ps (basic/intros ps ["a" "c" "h1" "h2"])
+          ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))
+          ps (basic/exact-form ps 'h1)
+          ps (basic/exact-form ps 'h2)]
+      (is (proof/solved? ps))
+      (is (some? (extract/verify ps))))))
