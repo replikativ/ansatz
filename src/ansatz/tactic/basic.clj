@@ -573,27 +573,27 @@
                                       :tag-suffix tag-suffix
                                       :tactic-name "refine"
                                       :natural-hole-hint "use refine' if these holes should become goals"})]
-       (cond
-         (= checked-expr (e/mvar (:id goal)))
-         (-> ps
-             (update :goals (fn [gs]
-                              (into [(:id goal)]
-                                    (concat visible-ids
-                                            (remove #{(:id goal)} gs)))))
-             (proof/record-tactic :refine [form] (:id goal)))
+     (cond
+       (= checked-expr (e/mvar (:id goal)))
+       (-> ps
+           (update :goals (fn [gs]
+                            (into [(:id goal)]
+                                  (concat visible-ids
+                                          (remove #{(:id goal)} gs)))))
+           (proof/record-tactic :refine [form] (:id goal)))
 
-         (contains? (meta/collect-expr-mvars checked-expr) (:id goal))
-         (tactic-error! "refine: value depends on the main goal metavariable"
-                        {:mvar-id (:id goal) :value checked-expr})
+       (contains? (meta/collect-expr-mvars checked-expr) (:id goal))
+       (tactic-error! "refine: value depends on the main goal metavariable"
+                      {:mvar-id (:id goal) :value checked-expr})
 
-         :else
+       :else
          ;; If child goals remain, keep the raw expression because it may carry
          ;; delayed-abstraction metadata needed when those children are solved.
-         (let [assignment-expr (if (seq visible-ids) expr checked-expr)
-               ps (proof/assign-mvar ps (:id goal) {:kind :exact :term assignment-expr})]
-           (-> ps
-               (update :goals (fn [gs] (into visible-ids gs)))
-               (proof/record-tactic :refine [form] (:id goal))))))))
+       (let [assignment-expr (if (seq visible-ids) expr checked-expr)
+             ps (proof/assign-mvar ps (:id goal) {:kind :exact :term assignment-expr})]
+         (-> ps
+             (update :goals (fn [gs] (into visible-ids gs)))
+             (proof/record-tactic :refine [form] (:id goal))))))))
 
 (defn refine-prime
   "Lean `refine'`: like `refine`, but natural holes become subgoals."
@@ -790,49 +790,49 @@
                         ;; (inferType throws on tag 12) — skip when holes remain.
                         (when-not (or (meta/has-expr-mvar? resolved-ty)
                                       (meta/has-expr-mvar? (:type goal)))
-                         (try
-                          (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
-                                _ (.setFuel jtc config/*default-fuel*)
+                          (try
+                            (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
+                                  _ (.setFuel jtc config/*default-fuel*)
                                 ;; Register goal's lctx with TC
-                                _ (doseq [[id decl] (:lctx goal)]
-                                    (when (= :local (:tag decl))
-                                      (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
+                                  _ (doseq [[id decl] (:lctx goal)]
+                                      (when (= :local (:tag decl))
+                                        (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
                                 ;; Register unresolved mvars as locals so TC can handle them
-                                _ (doseq [mid arg-mvars]
-                                    (when (proof/mvar-open? ps mid)
-                                      (.addLocal jtc (long mid) "?mvar" (proof/mvar-type ps mid))))]
+                                  _ (doseq [mid arg-mvars]
+                                      (when (proof/mvar-open? ps mid)
+                                        (.addLocal jtc (long mid) "?mvar" (proof/mvar-type ps mid))))]
                             ;; Following Lean 4: isDefEq is the primary matching mechanism.
                             ;; First, try to resolve remaining mvars by WHNF-matching
                             ;; the resolved type against the goal type. This handles cases
                             ;; like Nat.le vs LE.le where heads differ but are def-eq.
-                            (let [;; Collect unresolved mvar fvar-ids
-                                  unresolved (set (filter (fn [mid]
-                                                            (proof/mvar-open? ps mid))
-                                                          arg-mvars))
+                              (let [;; Collect unresolved mvar fvar-ids
+                                    unresolved (set (filter (fn [mid]
+                                                              (proof/mvar-open? ps mid))
+                                                            arg-mvars))
                                   ;; Try structural extraction on recursively-normalized forms first
-                                  deep-subst (atom {})
-                                  _ (letfn [(extract [r g]
-                                              (cond
-                                                (and (e/fvar? r) (contains? unresolved (e/fvar-id r)))
-                                                (swap! deep-subst assoc (e/fvar-id r) g)
-                                                (and (e/app? r) (e/app? g))
-                                                (do (extract (e/app-fn r) (e/app-fn g))
-                                                    (extract (e/app-arg r) (e/app-arg g)))
-                                                :else nil))]
-                                      (try (extract @resolved-norm @goal-norm) (catch Exception _ nil))
-                                      (try (extract resolved-whnf goal-whnf) (catch Exception _ nil)))
+                                    deep-subst (atom {})
+                                    _ (letfn [(extract [r g]
+                                                (cond
+                                                  (and (e/fvar? r) (contains? unresolved (e/fvar-id r)))
+                                                  (swap! deep-subst assoc (e/fvar-id r) g)
+                                                  (and (e/app? r) (e/app? g))
+                                                  (do (extract (e/app-fn r) (e/app-fn g))
+                                                      (extract (e/app-arg r) (e/app-arg g)))
+                                                  :else nil))]
+                                        (try (extract @resolved-norm @goal-norm) (catch Exception _ nil))
+                                        (try (extract resolved-whnf goal-whnf) (catch Exception _ nil)))
                                   ;; Substitute extracted bindings into resolved-ty
-                                  resolved-ty' (reduce (fn [t [mid val]]
-                                                         (e/instantiate1 (e/abstract1 t mid) val))
-                                                       resolved-ty @deep-subst)
-                                  resolved-ty'' (normalize-for-match ps (:lctx goal) resolved-ty')
+                                    resolved-ty' (reduce (fn [t [mid val]]
+                                                           (e/instantiate1 (e/abstract1 t mid) val))
+                                                         resolved-ty @deep-subst)
+                                    resolved-ty'' (normalize-for-match ps (:lctx goal) resolved-ty')
                                   ;; Now try isDefEq with all mvars resolved
-                                  deq (or (.isDefEq jtc resolved-ty'' @goal-norm)
-                                          (.isDefEq jtc resolved-ty' (:type goal))
+                                    deq (or (.isDefEq jtc resolved-ty'' @goal-norm)
+                                            (.isDefEq jtc resolved-ty' (:type goal))
                                           ;; Also try with original (in case extraction was wrong)
-                                          (.isDefEq jtc resolved-ty (:type goal)))]
-                              (when deq @deep-subst)))
-                          (catch Exception _ nil)))
+                                            (.isDefEq jtc resolved-ty (:type goal)))]
+                                (when deq @deep-subst)))
+                            (catch Exception _ nil)))
                         ;; Direct equality
                         (when (or (= resolved-ty (:type goal))
                                   (= resolved-ty goal-whnf)
@@ -878,7 +878,7 @@
                                          arg-mvars)
                   unsolved-args (reorder-generated-goals-nondependent-first ps unsolved-args)
                   other-mvar-ids (->> (meta/expr-mvars-no-delayed (:meta-mctx ps)
-                                                                   (meta/zonk-expr (:meta-mctx ps) head-term))
+                                                                  (meta/zonk-expr (:meta-mctx ps) head-term))
                                       (remove (set unsolved-args))
                                       (filterv #(and (proof/mvar-open? ps %)
                                                      (not (contains? implicit-mvars %)))))
@@ -2768,7 +2768,7 @@
                               :tag-suffix tag-suffix})
         [ps' new-id] (proof/fresh-mvar-replacing ps checked-expr (:lctx goal) (:id goal))
         ps' (-> (proof/assign-mvar ps' (:id goal)
-                                    {:kind :simp-reduce :eq-proof nil :child new-id})
+                                   {:kind :simp-reduce :eq-proof nil :child new-id})
                 (proof/record-tactic record-kind [new-type-form] (:id goal)))]
     {:ps ps'
      :old-id (:id goal)
@@ -2807,11 +2807,11 @@
         new-lctx (assoc (:lctx goal) hyp-fvar-id (assoc hyp-decl :type checked-expr))
         [ps' new-id] (proof/fresh-mvar-replacing ps (:type goal) new-lctx (:id goal))
         ps' (-> (proof/assign-mvar ps' (:id goal)
-                                    {:kind :change-local
-                                     :fvar-id hyp-fvar-id
-                                     :old-type old-type
-                                     :new-type checked-expr
-                                     :child new-id})
+                                   {:kind :change-local
+                                    :fvar-id hyp-fvar-id
+                                    :old-type old-type
+                                    :new-type checked-expr
+                                    :child new-id})
                 (proof/record-tactic :change-local [new-type-form hyp-fvar-id] (:id goal)))
         front (into [new-id] visible-ids)
         front-set (set front)]

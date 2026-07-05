@@ -493,59 +493,59 @@
   (let [cache (java.util.IdentityHashMap.)
         visiting (atom #{})]
     (letfn [(go [expr]
-              (or (.get cache expr)
-                  (let [result
-                        (case (e/tag expr)
-                          :mvar (let [id (e/mvar-id expr)]
-                                  (if-let [s (expr-assignment mctx id)]
-                                    (do
-                                      (when (contains? @visiting id)
-                                        (throw (ex-info "Cyclic expression metavariable assignment"
-                                                        {:mvar-id id})))
-                                      (swap! visiting conj id)
-                                      (try
-                                        (go s)
-                                        (finally
-                                          (swap! visiting disj id))))
-                                    expr))
-                          :sort (let [u (zonk-level mctx (e/sort-level expr))]
-                                  (if (identical? u (e/sort-level expr))
-                                    expr
-                                    (e/sort' u)))
-                          :const (let [levels (e/const-levels expr)
-                                       levels' (mapv #(zonk-level mctx %) levels)]
-                                   (if (= levels levels')
-                                     expr
-                                     (e/const' (e/const-name expr) levels')))
-                          :app (let [f (go (e/app-fn expr))
-                                     a (go (e/app-arg expr))
-                                     rebuilt (if (and (identical? f (e/app-fn expr))
-                                                      (identical? a (e/app-arg expr)))
-                                               expr
-                                               (e/app f a))]
-                                 (try-expand-delayed mctx go rebuilt))
-                          :lam (let [t (go (e/lam-type expr))
-                                     b (go (e/lam-body expr))]
-                                 (if (and (identical? t (e/lam-type expr))
-                                          (identical? b (e/lam-body expr)))
-                                   expr
-                                   (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-                          :forall (let [t (go (e/forall-type expr))
-                                        b (go (e/forall-body expr))]
-                                    (if (and (identical? t (e/forall-type expr))
-                                             (identical? b (e/forall-body expr)))
+                (or (.get cache expr)
+                    (let [result
+                          (case (e/tag expr)
+                            :mvar (let [id (e/mvar-id expr)]
+                                    (if-let [s (expr-assignment mctx id)]
+                                      (do
+                                        (when (contains? @visiting id)
+                                          (throw (ex-info "Cyclic expression metavariable assignment"
+                                                          {:mvar-id id})))
+                                        (swap! visiting conj id)
+                                        (try
+                                          (go s)
+                                          (finally
+                                            (swap! visiting disj id))))
+                                      expr))
+                            :sort (let [u (zonk-level mctx (e/sort-level expr))]
+                                    (if (identical? u (e/sort-level expr))
                                       expr
-                                      (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-                          :let (let [t (go (e/let-type expr))
-                                     v (go (e/let-value expr))
-                                     b (go (e/let-body expr))]
-                                 (if (and (identical? t (e/let-type expr))
-                                          (identical? v (e/let-value expr))
-                                          (identical? b (e/let-body expr)))
-                                   expr
-                                   (e/let' (e/let-name expr) t v b)))
-                          :mdata (let [x (go (e/mdata-expr expr))]
-                                   (if-let [fvar-ids (::abstract-fvars (e/mdata-data expr))]
+                                      (e/sort' u)))
+                            :const (let [levels (e/const-levels expr)
+                                         levels' (mapv #(zonk-level mctx %) levels)]
+                                     (if (= levels levels')
+                                       expr
+                                       (e/const' (e/const-name expr) levels')))
+                            :app (let [f (go (e/app-fn expr))
+                                       a (go (e/app-arg expr))
+                                       rebuilt (if (and (identical? f (e/app-fn expr))
+                                                        (identical? a (e/app-arg expr)))
+                                                 expr
+                                                 (e/app f a))]
+                                   (try-expand-delayed mctx go rebuilt))
+                            :lam (let [t (go (e/lam-type expr))
+                                       b (go (e/lam-body expr))]
+                                   (if (and (identical? t (e/lam-type expr))
+                                            (identical? b (e/lam-body expr)))
+                                     expr
+                                     (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+                            :forall (let [t (go (e/forall-type expr))
+                                          b (go (e/forall-body expr))]
+                                      (if (and (identical? t (e/forall-type expr))
+                                               (identical? b (e/forall-body expr)))
+                                        expr
+                                        (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+                            :let (let [t (go (e/let-type expr))
+                                       v (go (e/let-value expr))
+                                       b (go (e/let-body expr))]
+                                   (if (and (identical? t (e/let-type expr))
+                                            (identical? v (e/let-value expr))
+                                            (identical? b (e/let-body expr)))
+                                     expr
+                                     (e/let' (e/let-name expr) t v b)))
+                            :mdata (let [x (go (e/mdata-expr expr))]
+                                     (if-let [fvar-ids (::abstract-fvars (e/mdata-data expr))]
                                      ;; Abstract only once every mvar inside is
                                      ;; solved. Abstracting while an mvar is
                                      ;; still unassigned would silently drop the
@@ -553,23 +553,23 @@
                                      ;; occurrences), so a later solution
                                      ;; mentioning these fvars would leak them
                                      ;; outside their binder.
-                                     (if (contains-unsolved-expr-mvar? mctx x)
+                                       (if (contains-unsolved-expr-mvar? mctx x)
+                                         (if (identical? x (e/mdata-expr expr))
+                                           expr
+                                           (e/mdata (e/mdata-data expr) x))
+                                         (e/abstract-many x fvar-ids))
                                        (if (identical? x (e/mdata-expr expr))
                                          expr
-                                         (e/mdata (e/mdata-data expr) x))
-                                       (e/abstract-many x fvar-ids))
-                                     (if (identical? x (e/mdata-expr expr))
-                                       expr
-                                       (e/mdata (e/mdata-data expr) x))))
-                          :proj (let [s (go (e/proj-struct expr))]
-                                  (if (identical? s (e/proj-struct expr))
-                                    expr
-                                    (e/proj (e/proj-type-name expr)
-                                            (e/proj-idx expr)
-                                            s)))
-                          expr)]
-                    (.put cache expr result)
-                    result)))]
+                                         (e/mdata (e/mdata-data expr) x))))
+                            :proj (let [s (go (e/proj-struct expr))]
+                                    (if (identical? s (e/proj-struct expr))
+                                      expr
+                                      (e/proj (e/proj-type-name expr)
+                                              (e/proj-idx expr)
+                                              s)))
+                            expr)]
+                      (.put cache expr result)
+                      result)))]
       (go expr))))
 
 (defn has-expr-mvar?
@@ -592,17 +592,17 @@
   "Collect expression metavariable ids occurring syntactically in `expr`."
   [expr]
   (letfn [(go [expr acc]
-            (case (e/tag expr)
-              :mvar (conj acc (e/mvar-id expr))
-              :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
-              :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
-              :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
-              :let (go (e/let-body expr)
-                       (go (e/let-value expr)
-                           (go (e/let-type expr) acc)))
-              :mdata (go (e/mdata-expr expr) acc)
-              :proj (go (e/proj-struct expr) acc)
-              acc))]
+              (case (e/tag expr)
+                :mvar (conj acc (e/mvar-id expr))
+                :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
+                :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
+                :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
+                :let (go (e/let-body expr)
+                         (go (e/let-value expr)
+                             (go (e/let-type expr) acc)))
+                :mdata (go (e/mdata-expr expr) acc)
+                :proj (go (e/proj-struct expr) acc)
+                acc))]
     (go expr #{})))
 
 (defn expr-occurs?
@@ -673,25 +673,25 @@
    (mvar-dependencies mctx id false))
   ([mctx id include-delayed?]
    (letfn [(go [seen acc id]
-             (if (contains? seen id)
-               acc
-               (let [seen (conj seen id)
-                     decl (expr-decl mctx id)
-                     acc (if decl
-                           (let [acc (add-expr-mvar-deps mctx acc (:type decl))]
-                             (reduce (fn [acc [_ local-decl]]
-                                       (add-local-decl-mvar-deps mctx acc local-decl))
-                                     acc (:lctx decl)))
-                           acc)
-                     acc (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
-                           (cond-> acc
-                             (or include-delayed?
-                                 (not (expr-assigned-or-delayed? mctx mvar-id-pending)))
-                             (conj mvar-id-pending))
-                           acc)]
-                 (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
-                   (go seen acc mvar-id-pending)
-                   acc))))]
+               (if (contains? seen id)
+                 acc
+                 (let [seen (conj seen id)
+                       decl (expr-decl mctx id)
+                       acc (if decl
+                             (let [acc (add-expr-mvar-deps mctx acc (:type decl))]
+                               (reduce (fn [acc [_ local-decl]]
+                                         (add-local-decl-mvar-deps mctx acc local-decl))
+                                       acc (:lctx decl)))
+                             acc)
+                       acc (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
+                             (cond-> acc
+                               (or include-delayed?
+                                   (not (expr-assigned-or-delayed? mctx mvar-id-pending)))
+                               (conj mvar-id-pending))
+                             acc)]
+                   (if-let [{:keys [mvar-id-pending]} (delayed-assignment mctx id)]
+                     (go seen acc mvar-id-pending)
+                     acc))))]
      (vec (sort (disj (go #{} #{} id) id))))))
 
 (defn expr-mvar-dependencies
@@ -736,19 +736,19 @@
    (vec (remove #(level-assignment mctx %) (keys (:level-depth mctx)))))
   ([mctx expr]
    (letfn [(go [expr acc]
-             (case (e/tag expr)
-               :sort (collect-level-mvars* (e/sort-level expr) acc)
-               :const (reduce (fn [acc u] (collect-level-mvars* u acc))
-                              acc (e/const-levels expr))
-               :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
-               :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
-               :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
-               :let (go (e/let-body expr)
-                        (go (e/let-value expr)
-                            (go (e/let-type expr) acc)))
-               :mdata (go (e/mdata-expr expr) acc)
-               :proj (go (e/proj-struct expr) acc)
-               acc))]
+               (case (e/tag expr)
+                 :sort (collect-level-mvars* (e/sort-level expr) acc)
+                 :const (reduce (fn [acc u] (collect-level-mvars* u acc))
+                                acc (e/const-levels expr))
+                 :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
+                 :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
+                 :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
+                 :let (go (e/let-body expr)
+                          (go (e/let-value expr)
+                              (go (e/let-type expr) acc)))
+                 :mdata (go (e/mdata-expr expr) acc)
+                 :proj (go (e/proj-struct expr) acc)
+                 acc))]
      (vec (remove #(level-assignment mctx %)
                   (go (zonk-expr mctx expr) #{}))))))
 
@@ -885,59 +885,59 @@
    not checked for definitional equality with the domain."
   ([mctx st expr]
    (letfn [(go [st expr]
-             (let [expr (zonk-expr mctx expr)]
-               (case (e/tag expr)
-                 :mvar (zonk-expr mctx (:type (expr-decl! mctx (e/mvar-id expr))))
+               (let [expr (zonk-expr mctx expr)]
+                 (case (e/tag expr)
+                   :mvar (zonk-expr mctx (:type (expr-decl! mctx (e/mvar-id expr))))
 
-                 :bvar (throw (ex-info "Meta inferType found loose bound variable"
-                                        {:kind :meta-type-error :expr expr}))
+                   :bvar (throw (ex-info "Meta inferType found loose bound variable"
+                                         {:kind :meta-type-error :expr expr}))
 
-                 :sort (e/sort' (lvl/succ (e/sort-level expr)))
+                   :sort (e/sort' (lvl/succ (e/sort-level expr)))
 
-                 :const (tc/infer-type st expr)
+                   :const (tc/infer-type st expr)
 
-                 :fvar (if-let [decl (red/lctx-lookup (:lctx st) (e/fvar-id expr))]
-                         (zonk-expr mctx (:type decl))
-                         (tc/infer-type st expr))
+                   :fvar (if-let [decl (red/lctx-lookup (:lctx st) (e/fvar-id expr))]
+                           (zonk-expr mctx (:type decl))
+                           (tc/infer-type st expr))
 
-                 :app (let [fn-type (whnf mctx st (go st (e/app-fn expr)))
-                            [_ _ body _] (ensure-pi mctx st fn-type)]
-                        (zonk-expr mctx (e/instantiate1 body (e/app-arg expr))))
+                   :app (let [fn-type (whnf mctx st (go st (e/app-fn expr)))
+                              [_ _ body _] (ensure-pi mctx st fn-type)]
+                          (zonk-expr mctx (e/instantiate1 body (e/app-arg expr))))
 
-                 :lam (let [dom-type (zonk-expr mctx (e/lam-type expr))
-                            _ (ensure-sort mctx st (go st dom-type))
-                            [st' fv _ body] (open-binder-type st (:lctx st)
-                                                              (e/lam-name expr)
-                                                              dom-type
-                                                              (e/lam-body expr))
-                            body-type (go st' body)]
-                        (e/forall' (e/lam-name expr) dom-type
-                                   (e/abstract1 body-type (e/fvar-id fv))
-                                   (e/lam-info expr)))
+                   :lam (let [dom-type (zonk-expr mctx (e/lam-type expr))
+                              _ (ensure-sort mctx st (go st dom-type))
+                              [st' fv _ body] (open-binder-type st (:lctx st)
+                                                                (e/lam-name expr)
+                                                                dom-type
+                                                                (e/lam-body expr))
+                              body-type (go st' body)]
+                          (e/forall' (e/lam-name expr) dom-type
+                                     (e/abstract1 body-type (e/fvar-id fv))
+                                     (e/lam-info expr)))
 
-                 :forall (let [dom-type (zonk-expr mctx (e/forall-type expr))
-                               dom-sort (ensure-sort mctx st (go st dom-type))
-                               [st' _ _ body] (open-binder-type st (:lctx st)
-                                                                 (e/forall-name expr)
-                                                                 dom-type
-                                                                 (e/forall-body expr))
-                               cod-sort (ensure-sort mctx st' (go st' body))]
-                           (e/sort' (lvl/imax (e/sort-level dom-sort)
-                                              (e/sort-level cod-sort))))
+                   :forall (let [dom-type (zonk-expr mctx (e/forall-type expr))
+                                 dom-sort (ensure-sort mctx st (go st dom-type))
+                                 [st' _ _ body] (open-binder-type st (:lctx st)
+                                                                  (e/forall-name expr)
+                                                                  dom-type
+                                                                  (e/forall-body expr))
+                                 cod-sort (ensure-sort mctx st' (go st' body))]
+                             (e/sort' (lvl/imax (e/sort-level dom-sort)
+                                                (e/sort-level cod-sort))))
 
-                 :let (let [value (zonk-expr mctx (e/let-value expr))
-                            type (zonk-expr mctx (e/let-type expr))
-                            fid (swap! (:next-id st) inc)
-                            fv (e/fvar fid)
-                            lctx' (red/lctx-add-let (:lctx st) fid (e/let-name expr) type value)
-                            st' (assoc st :lctx lctx')
-                            body-type (go st' (e/instantiate1 (e/let-body expr) fv))]
-                        (zonk-expr mctx (e/instantiate1 (e/abstract1 body-type fid) value)))
+                   :let (let [value (zonk-expr mctx (e/let-value expr))
+                              type (zonk-expr mctx (e/let-type expr))
+                              fid (swap! (:next-id st) inc)
+                              fv (e/fvar fid)
+                              lctx' (red/lctx-add-let (:lctx st) fid (e/let-name expr) type value)
+                              st' (assoc st :lctx lctx')
+                              body-type (go st' (e/instantiate1 (e/let-body expr) fv))]
+                          (zonk-expr mctx (e/instantiate1 (e/abstract1 body-type fid) value)))
 
-                 :lit-nat (tc/infer-type st expr)
-                 :lit-str (tc/infer-type st expr)
-                 :mdata (go st (e/mdata-expr expr))
-                 :proj (tc/infer-type st (zonk-expr mctx expr)))))]
+                   :lit-nat (tc/infer-type st expr)
+                   :lit-str (tc/infer-type st expr)
+                   :mdata (go st (e/mdata-expr expr))
+                   :proj (tc/infer-type st (zonk-expr mctx expr)))))]
      (go st expr)))
   ([mctx env lctx expr]
    (infer-type mctx (tc/mk-tc-state-with-locals env lctx) expr)))
@@ -1051,17 +1051,17 @@
 
        :lam (when-let [mctx (is-def-eq mctx st bound (e/lam-type a) (e/lam-type b))]
               (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
-                                                         (e/lam-name a)
-                                                         (e/lam-type a)
-                                                         (e/lam-body a))
+                                                        (e/lam-name a)
+                                                        (e/lam-type a)
+                                                        (e/lam-body a))
                     body-b (e/instantiate1 (e/lam-body b) fv)]
                 (is-def-eq mctx st' (conj bound (e/fvar-id fv)) body-a body-b)))
 
        :forall (when-let [mctx (is-def-eq mctx st bound (e/forall-type a) (e/forall-type b))]
                  (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
-                                                            (e/forall-name a)
-                                                            (e/forall-type a)
-                                                            (e/forall-body a))
+                                                           (e/forall-name a)
+                                                           (e/forall-type a)
+                                                           (e/forall-body a))
                        body-b (e/instantiate1 (e/forall-body b) fv)]
                    (is-def-eq mctx st' (conj bound (e/fvar-id fv)) body-a body-b)))
 
@@ -1116,34 +1116,34 @@
          mvar-pred (if (set? mvar-pred) mvar-pred (or mvar-pred (constantly false)))
          visited (atom #{})]
      (letfn [(go [expr]
-               (let [expr (zonk-expr mctx expr)]
-                 (if (contains? @visited expr)
-                   false
-                   (do
-                     (swap! visited conj expr)
-                     (case (e/tag expr)
-                       :fvar (boolean (fvar-pred (e/fvar-id expr)))
-                       :mvar (let [id (e/mvar-id expr)]
-                               (or (boolean (mvar-pred id))
-                                   (when-let [decl (expr-decl mctx id)]
-                                     (some (fn [[fid local-decl]]
-                                             (or (fvar-pred fid)
-                                                 (local-decl-depends-on? mctx local-decl fvar-pred mvar-pred)))
-                                           (:lctx decl)))))
-                       :sort false
-                       :const false
-                       :app (or (go (e/app-fn expr))
-                                (go (e/app-arg expr)))
-                       :lam (or (go (e/lam-type expr))
-                                (go (e/lam-body expr)))
-                       :forall (or (go (e/forall-type expr))
-                                   (go (e/forall-body expr)))
-                       :let (or (go (e/let-type expr))
-                                (go (e/let-value expr))
-                                (go (e/let-body expr)))
-                       :mdata (go (e/mdata-expr expr))
-                       :proj (go (e/proj-struct expr))
-                       false)))))]
+                 (let [expr (zonk-expr mctx expr)]
+                   (if (contains? @visited expr)
+                     false
+                     (do
+                       (swap! visited conj expr)
+                       (case (e/tag expr)
+                         :fvar (boolean (fvar-pred (e/fvar-id expr)))
+                         :mvar (let [id (e/mvar-id expr)]
+                                 (or (boolean (mvar-pred id))
+                                     (when-let [decl (expr-decl mctx id)]
+                                       (some (fn [[fid local-decl]]
+                                               (or (fvar-pred fid)
+                                                   (local-decl-depends-on? mctx local-decl fvar-pred mvar-pred)))
+                                             (:lctx decl)))))
+                         :sort false
+                         :const false
+                         :app (or (go (e/app-fn expr))
+                                  (go (e/app-arg expr)))
+                         :lam (or (go (e/lam-type expr))
+                                  (go (e/lam-body expr)))
+                         :forall (or (go (e/forall-type expr))
+                                     (go (e/forall-body expr)))
+                         :let (or (go (e/let-type expr))
+                                  (go (e/let-value expr))
+                                  (go (e/let-body expr)))
+                         :mdata (go (e/mdata-expr expr))
+                         :proj (go (e/proj-struct expr))
+                         false)))))]
        (boolean (go expr))))))
 
 (defn local-decl-depends-on?
@@ -1159,21 +1159,21 @@
    delayed-assigned expression mvar."
   [mctx expr]
   (letfn [(go [expr]
-            (case (e/tag expr)
-              :mvar (or (expr-assigned? mctx (e/mvar-id expr))
-                        (expr-delayed-assigned? mctx (e/mvar-id expr)))
-              :sort (has-assigned-level-mvar? mctx (e/sort-level expr))
-              :const (boolean (some #(has-assigned-level-mvar? mctx %)
-                                    (e/const-levels expr)))
-              :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
-              :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
-              :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
-              :let (or (go (e/let-type expr))
-                       (go (e/let-value expr))
-                       (go (e/let-body expr)))
-              :mdata (go (e/mdata-expr expr))
-              :proj (go (e/proj-struct expr))
-              false))]
+              (case (e/tag expr)
+                :mvar (or (expr-assigned? mctx (e/mvar-id expr))
+                          (expr-delayed-assigned? mctx (e/mvar-id expr)))
+                :sort (has-assigned-level-mvar? mctx (e/sort-level expr))
+                :const (boolean (some #(has-assigned-level-mvar? mctx %)
+                                      (e/const-levels expr)))
+                :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
+                :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
+                :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
+                :let (or (go (e/let-type expr))
+                         (go (e/let-value expr))
+                         (go (e/let-body expr)))
+                :mdata (go (e/mdata-expr expr))
+                :proj (go (e/proj-struct expr))
+                false))]
     (boolean (go expr))))
 
 (defn has-assignable-mvar?
@@ -1181,19 +1181,19 @@
    current metacontext depth."
   [mctx expr]
   (letfn [(go [expr]
-            (case (e/tag expr)
-              :mvar (and (expr-decl mctx (e/mvar-id expr))
-                         (expr-assignable? mctx (e/mvar-id expr)))
-              :sort (has-assignable-level-mvar? mctx (e/sort-level expr))
-              :const (boolean (some #(has-assignable-level-mvar? mctx %)
-                                    (e/const-levels expr)))
-              :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
-              :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
-              :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
-              :let (or (go (e/let-type expr))
-                       (go (e/let-value expr))
-                       (go (e/let-body expr)))
-              :mdata (go (e/mdata-expr expr))
-              :proj (go (e/proj-struct expr))
-              false))]
+              (case (e/tag expr)
+                :mvar (and (expr-decl mctx (e/mvar-id expr))
+                           (expr-assignable? mctx (e/mvar-id expr)))
+                :sort (has-assignable-level-mvar? mctx (e/sort-level expr))
+                :const (boolean (some #(has-assignable-level-mvar? mctx %)
+                                      (e/const-levels expr)))
+                :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
+                :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
+                :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
+                :let (or (go (e/let-type expr))
+                         (go (e/let-value expr))
+                         (go (e/let-body expr)))
+                :mdata (go (e/mdata-expr expr))
+                :proj (go (e/proj-struct expr))
+                false))]
     (boolean (go expr))))

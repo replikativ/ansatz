@@ -219,7 +219,7 @@
     (let [env (env/empty-env)
           expected (e/sort' lvl/zero)
           {:keys [holes]} (elab/elaborate-collecting env '_ expected
-                                                    {:holes-as-synthetic-opaque? true})]
+                                                     {:holes-as-synthetic-opaque? true})]
       (is (= 1 (count holes)))
       (is (= :syntheticOpaque (:kind (first holes))))
       (is (nil? (:user-name (first holes)))))))
@@ -320,7 +320,7 @@
   (testing "instance-hole metadata is reported from :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           hole (#'elab/fresh-mvar! st (e/sort' lvl/zero)
-                                    {:kind :synthetic :inst-implicit? true})
+                                   {:kind :synthetic :inst-implicit? true})
           id (e/mvar-id hole)
           result (#'elab/collecting-finalize st hole)
           reported (first (:holes result))]

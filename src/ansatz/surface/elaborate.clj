@@ -44,8 +44,8 @@
     :tc (tc/mk-tc-state env)
     :next-id (atom next-id-start)  ;; high start to avoid collision with tc ids
     :meta-mctx (atom (meta/with-synthetic-opaque-assignment
-                      initial-meta-mctx
-                      holes-as-synthetic-opaque?))
+                       initial-meta-mctx
+                       holes-as-synthetic-opaque?))
     :collect-from-index (or collect-from-index (:mvar-counter initial-meta-mctx 0))
     :initial-level-mvar-ids (set (keys (:level-depth initial-meta-mctx)))
     :holes-as-synthetic-opaque? holes-as-synthetic-opaque?
@@ -222,8 +222,8 @@
       (elab-error! "Unsolved metavariables"
                    {:count (count unsolved)
                     :mvars (mapv (fn [[id _]]
-                                    {:id id :type (surface-mvar-type est id)})
-                                  unsolved)}))
+                                   {:id id :type (surface-mvar-type est id)})
+                                 unsolved)}))
     (when (seq unsolved-levels)
       (elab-error! "Unsolved universe level metavariables"
                    {:count (count unsolved-levels)
@@ -410,24 +410,24 @@
   [est fn-expr fn-type]
   (loop [expr fn-expr
          ty (whnf-with-mvars est fn-type)]
-      (if (and (e/forall? ty)
-               (let [info (e/forall-info ty)]
-                 (or (= info :implicit)
-                     (= info :strict-implicit)
-                     (= info :inst-implicit))))
-        (let [binfo (e/forall-info ty)
-              inst? (= binfo :inst-implicit)
-              arg-mvar (fresh-mvar! est (e/forall-type ty)
-                                    (cond-> {:kind (if inst? :synthetic :natural)}
-                                      (e/forall-name ty) (assoc :user-name (e/forall-name ty))
-                                      inst? (assoc :inst-implicit? true)))
+    (if (and (e/forall? ty)
+             (let [info (e/forall-info ty)]
+               (or (= info :implicit)
+                   (= info :strict-implicit)
+                   (= info :inst-implicit))))
+      (let [binfo (e/forall-info ty)
+            inst? (= binfo :inst-implicit)
+            arg-mvar (fresh-mvar! est (e/forall-type ty)
+                                  (cond-> {:kind (if inst? :synthetic :natural)}
+                                    (e/forall-name ty) (assoc :user-name (e/forall-name ty))
+                                    inst? (assoc :inst-implicit? true)))
               ;; Mark instance-implicit mvars so they can be solved by instance
               ;; synthesis (not just unification) before the final unsolved-check.
-              _ (when inst? (mark-inst-implicit! est arg-mvar))
-              expr' (e/app expr arg-mvar)
-              ty' (whnf-with-mvars est (e/instantiate1 (e/forall-body ty) arg-mvar))]
-          (recur expr' ty'))
-        [expr ty])))
+            _ (when inst? (mark-inst-implicit! est arg-mvar))
+            expr' (e/app expr arg-mvar)
+            ty' (whnf-with-mvars est (e/instantiate1 (e/forall-body ty) arg-mvar))]
+        (recur expr' ty'))
+      [expr ty])))
 
 (defn- type-head-name
   "Whnf the (zonked) type and return its head constant's name as a string (e.g. \"Nat\",
@@ -711,8 +711,8 @@
                  :syntheticOpaque
                  :natural)
           term-hole (fresh-mvar! est type-hole
-                                  (cond-> {:kind kind}
-                                    hole-name (assoc :user-name hole-name)))]
+                                 (cond-> {:kind kind}
+                                   hole-name (assoc :user-name hole-name)))]
       term-hole)))
 
 (defn- elab-term
@@ -922,7 +922,7 @@
                                     (lvl/succ-pred (e/sort-level Ts))
                                     (fresh-level-mvar! est))
                               inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T')
-                                                 {:kind :synthetic :inst-implicit? true})
+                                                {:kind :synthetic :inst-implicit? true})
                               _ (mark-inst-implicit! est inst)]
                           (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
 

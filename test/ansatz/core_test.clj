@@ -147,7 +147,7 @@
                        '[(apply _) (assumption)])
       (when-not (a/has-constant? "ApplyLocalCls")
         (a/structure ApplyLocalCls [S Type]
-          (witness S)))
+                     (witness S)))
       (when-not (a/has-constant? "applyLocalInstEq")
         (a/prove-theorem 'applyLocalInstEq
                          '[S :- Type :implicit inst :- (ApplyLocalCls S) :inst]

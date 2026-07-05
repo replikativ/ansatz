@@ -595,10 +595,10 @@
    one shared metacontext as well."
     (let [env (require-init-medium)
           gt (elab/elaborate-check env '(forall [a Nat]
-                                          (forall [c Nat]
-                                            (=> (<= Nat a 10)
-                                                (=> (<= Nat 10 c)
-                                                    (<= Nat a c))))))
+                                                (forall [c Nat]
+                                                        (=> (<= Nat a 10)
+                                                            (=> (<= Nat 10 c)
+                                                                (<= Nat a c))))))
           [ps _] (proof/start-proof env gt)
           ps (basic/intros ps ["a" "c" "h1" "h2"])
           ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))
@@ -612,10 +612,10 @@
    paths agree (holes solved by unification have mctx assignments, no recipe)"
     (let [env (require-init-medium)
           gt (elab/elaborate-check env '(forall [a Nat]
-                                          (forall [c Nat]
-                                            (=> (<= Nat a 10)
-                                                (=> (<= Nat 10 c)
-                                                    (<= Nat a c))))))
+                                                (forall [c Nat]
+                                                        (=> (<= Nat a 10)
+                                                            (=> (<= Nat 10 c)
+                                                                (<= Nat a c))))))
           [ps _] (proof/start-proof env gt)
           ps (basic/intros ps ["a" "c" "h1" "h2"])
           ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))
@@ -627,7 +627,7 @@
   (testing "Lean parity: no motive over a goal type carrying an unassigned mvar"
     (let [env (require-init-medium)
           gt (elab/elaborate-check env '(forall [a Nat] (forall [c Nat]
-                                          (=> (<= Nat a 10) (=> (<= Nat 10 c) (<= Nat a c))))))
+                                                                (=> (<= Nat a 10) (=> (<= Nat 10 c) (<= Nat a c))))))
           [ps _] (proof/start-proof env gt)
           ps (basic/intros ps ["a" "c" "h1" "h2"])
           ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))]

@@ -127,43 +127,43 @@
   "Replace all occurrences of `(mvar mvar-id)` with `replacement`."
   [expr mvar-id replacement]
   (letfn [(go [expr]
-            (cond
-              (and (e/mvar? expr) (= (e/mvar-id expr) mvar-id)) replacement
-              (e/app? expr) (let [f (go (e/app-fn expr))
-                                  a (go (e/app-arg expr))]
-                              (if (and (identical? f (e/app-fn expr))
-                                       (identical? a (e/app-arg expr)))
-                                expr
-                                (e/app f a)))
-              (e/lam? expr) (let [t (go (e/lam-type expr))
-                                  b (go (e/lam-body expr))]
-                              (if (and (identical? t (e/lam-type expr))
-                                       (identical? b (e/lam-body expr)))
-                                expr
-                                (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-              (e/forall? expr) (let [t (go (e/forall-type expr))
-                                     b (go (e/forall-body expr))]
-                                 (if (and (identical? t (e/forall-type expr))
-                                          (identical? b (e/forall-body expr)))
-                                   expr
-                                   (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-              (e/let? expr) (let [t (go (e/let-type expr))
-                                  v (go (e/let-value expr))
-                                  b (go (e/let-body expr))]
-                              (if (and (identical? t (e/let-type expr))
-                                       (identical? v (e/let-value expr))
-                                       (identical? b (e/let-body expr)))
-                                expr
-                                (e/let' (e/let-name expr) t v b)))
-              (e/mdata? expr) (let [x (go (e/mdata-expr expr))]
-                                (if (identical? x (e/mdata-expr expr))
+              (cond
+                (and (e/mvar? expr) (= (e/mvar-id expr) mvar-id)) replacement
+                (e/app? expr) (let [f (go (e/app-fn expr))
+                                    a (go (e/app-arg expr))]
+                                (if (and (identical? f (e/app-fn expr))
+                                         (identical? a (e/app-arg expr)))
                                   expr
-                                  (e/mdata (e/mdata-data expr) x)))
-              (e/proj? expr) (let [s (go (e/proj-struct expr))]
-                               (if (identical? s (e/proj-struct expr))
-                                 expr
-                                 (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
-              :else expr))]
+                                  (e/app f a)))
+                (e/lam? expr) (let [t (go (e/lam-type expr))
+                                    b (go (e/lam-body expr))]
+                                (if (and (identical? t (e/lam-type expr))
+                                         (identical? b (e/lam-body expr)))
+                                  expr
+                                  (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+                (e/forall? expr) (let [t (go (e/forall-type expr))
+                                       b (go (e/forall-body expr))]
+                                   (if (and (identical? t (e/forall-type expr))
+                                            (identical? b (e/forall-body expr)))
+                                     expr
+                                     (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+                (e/let? expr) (let [t (go (e/let-type expr))
+                                    v (go (e/let-value expr))
+                                    b (go (e/let-body expr))]
+                                (if (and (identical? t (e/let-type expr))
+                                         (identical? v (e/let-value expr))
+                                         (identical? b (e/let-body expr)))
+                                  expr
+                                  (e/let' (e/let-name expr) t v b)))
+                (e/mdata? expr) (let [x (go (e/mdata-expr expr))]
+                                  (if (identical? x (e/mdata-expr expr))
+                                    expr
+                                    (e/mdata (e/mdata-data expr) x)))
+                (e/proj? expr) (let [s (go (e/proj-struct expr))]
+                                 (if (identical? s (e/proj-struct expr))
+                                   expr
+                                   (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
+                :else expr))]
     (go expr)))
 
 (defn- assignment-expr

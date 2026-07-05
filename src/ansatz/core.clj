@@ -747,17 +747,17 @@
                                            :tactic-name "apply"})]
           [ps checked-expr])
         (let [arg' (symbol (str "@" arg))]
-        (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
-             (catch Throwable ex
-               (if (and (symbol? arg)
-                        (clojure.string/includes? (str (.getMessage ex)) "universe level"))
-                 (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
-                       lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
-                       [ps' ids] (reduce (fn [[p acc] _]
-                                           (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
-                                         [ps []] lparams)]
-                   [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
-                 (throw ex)))))))))
+          (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
+               (catch Throwable ex
+                 (if (and (symbol? arg)
+                          (clojure.string/includes? (str (.getMessage ex)) "universe level"))
+                   (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
+                         lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+                         [ps' ids] (reduce (fn [[p acc] _]
+                                             (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                                           [ps []] lparams)]
+                     [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
+                   (throw ex)))))))))
 
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
