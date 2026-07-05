@@ -498,8 +498,9 @@
       (is (= 4 (count ids)))
       (is (= type0 (proof/mvar-type ps alpha-id)))
       (is (= prop (proof/mvar-type ps q-id)))
-      (is (= (e/fvar alpha-id) (proof/mvar-type ps x-id)))
-      (is (= (e/fvar q-id) (proof/mvar-type ps hq-id))))))
+      ;; hole cross-references are real Expr.mvar nodes (Lean's telescope shape)
+      (is (= (e/mvar alpha-id) (proof/mvar-type ps x-id)))
+      (is (= (e/mvar q-id) (proof/mvar-type ps hq-id))))))
 
 (deftest test-apply-tags-generated-goals
   (testing "multiple unnamed apply goals receive stable parent-derived tags"

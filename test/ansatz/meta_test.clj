@@ -588,12 +588,12 @@
       (is (meta/checked-assign-expr
            mctx 1 (e/lam "x" prop (meta/abstract-fvars (e/mvar 2) [42]) :default))))))
 
-(deftest ^:wip apply-telescope-holes-unify-in-exact
+(deftest apply-telescope-holes-unify-in-exact
   (testing "MIGRATION ACCEPTANCE (fvar->mvar): after `apply Nat.le_trans` the
    shared ?b hole must be solvable by exact's elaboration path, like Lean.
-   Today `assumption` solves it (mvar-aware unifier bridge) but `exact h1`
-   fails: goal types carry the fvar-encoded hole, which surface elaboration
-   treats as rigid. Passes once apply telescope holes are real Expr.mvar."
+   `assumption` solves it via the mvar-aware unifier and, since the apply
+   telescope mints real Expr.mvar holes, `exact h1` unifies it through the
+   one shared metacontext as well."
     (let [env (require-init-medium)
           gt (elab/elaborate-check env '(forall [a Nat]
                                           (forall [c Nat]
