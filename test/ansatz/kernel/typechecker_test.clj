@@ -502,6 +502,34 @@
       (is (thrown? Exception
                    (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))
 
+(deftest nested-inductive-positivity-test
+  (testing "the being-defined inductive must occur strictly-positively INSIDE a
+   nesting inductive's parameters — a negative occurrence there is unsound and
+   Lean rejects it, even though the direct-occurrence check would miss it"
+    (let [f "test-data/init-medium.ndjson"]
+      (when (.exists (java.io.File. f))
+        (let [E (:env (replay/replay (:decls (parse-ndjson-file f))))
+              n #(name/from-string %)
+              c #(e/const' (n %) [])
+              list0 (fn [x] (e/app (e/const' (n "List") [lvl/zero]) x))
+              check (fn [nm ctor-ty]
+                      (let [ind (env/mk-induct (n nm) [] type0 :num-params 0 :num-indices 0
+                                               :all [(n nm)] :ctors [(n (str nm ".mk"))])
+                            ct (env/mk-ctor (n (str nm ".mk")) [] ctor-ty (n nm) 0 0 1)]
+                        (TypeChecker/checkInductiveBundle
+                         E (env/mk-inductive-bundle [] 0 false [ind] [ct] []) 5000000)))]
+          ;; NEGATIVE occurrence nested inside List — must be rejected
+          (is (thrown-with-msg?
+               Exception #"non-positive occurrence"
+               (let [b (c "BadN")]
+                 (check "BadN" (e/forall' "xs" (list0 (e/forall' "_" b b :default)) b :default)))))
+          ;; POSITIVE recursive occurrence nested inside List — must be accepted
+          (is (some? (let [tt (c "TreeN")]
+                       (check "TreeN" (e/forall' "kids" (list0 tt) tt :default)))))
+          ;; DOUBLY nested positive (List (List Rose)) — accepted
+          (is (some? (let [r (c "RoseN")]
+                       (check "RoseN" (e/forall' "kids" (list0 (list0 r)) r :default))))))))))
+
 (deftest reject-corrupt-imported-recursor-rule-test
   (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
     (let [f "test-data/Nat.add_succ.ndjson"]
