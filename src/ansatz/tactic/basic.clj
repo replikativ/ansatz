@@ -16,7 +16,6 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
-            [ansatz.tactic.unify :as u]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -357,13 +356,6 @@
          ;; by their syntheticOpaque kind.
          (try
            (some? (meta/is-def-eq (:meta-mctx ps) st resolved-ty goal-type))
-           (catch Exception _ false))
-         (try
-           (let [umctx (atom (into {} (map (fn [mid]
-                                             [mid {:type (proof/mvar-type ps mid)
-                                                   :solution nil}])
-                                           arg-mvars)))]
-             (u/is-def-eq! st umctx resolved-ty goal-type))
            (catch Exception _ false))
          (try
            (and (not (meta/has-expr-mvar? resolved-ty))
@@ -796,28 +788,21 @@
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
         (let [resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
-              ;; Level-mvar solutions from the meta-isDefEq path (Strategy C) land here; the proof
-              ;; `:head` is zonked with it so the trusted kernel never sees a Level.mvar.
-              umctx (atom {})
-              ;; Sibling-shared mvars occurring in the goal (e.g. the `trans` middle term). Lean's
-              ;; apply isDefEq runs in ONE MetavarContext and may assign these; we mirror that by
-              ;; seeding Strategy C over them and persisting the solutions into the shared `:mctx`.
-              gmvars (goal-mvar-ids ps goal mvar-id-set)
               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
               resolved-whnf (meta-whnf-in-goal ps (:lctx goal) resolved-ty)
               ;; LAZY: `normalize-for-match` deeply WHNF-normalizes every subnode, which DIVERGES on a
               ;; goal carrying a stuck recursor over a symbolic arg (e.g. `Map.join`'s `group_by` foldl
               ;; over an abstract list — the filter→join pushdown C). Lean never pre-normalizes the goal
-              ;; for `apply`; it matches via lazy `isDefEq` (Strategy C below). So defer these: they are
-              ;; only forced by the normalize-based fallbacks, which now run AFTER Strategy C.
+              ;; for `apply`; it matches via lazy `isDefEq`. So defer these: they are
+              ;; only forced by the normalize-based fallbacks, which run AFTER the isDefEq strategy.
               goal-norm (delay (normalize-for-match ps (:lctx goal) (:type goal)))
               resolved-norm (delay (normalize-for-match ps (:lctx goal) resolved-ty))
-              ;; Strategy C (the meta-isDefEq, Lean's PRIMARY apply mechanism, Apply.lean:207): ONE
-              ;; isDefEq(conclusion, goal) assigning expr- AND level-mvars in the shared metavar context.
-              ;; It whnf's lazily ON MISMATCH (unify.clj is-def-eq!), so it solves cases the structural
-              ;; cascade can't (univ-poly lemmas whose level isn't pinned; subterms needing one whnf step
-              ;; like `g a → map mk L`) WITHOUT the divergent deep normalize. The same atom holds the
-              ;; solved level-mvars (under :levels), used below to zonk the proof `:head`.
+              ;; Lean's PRIMARY apply mechanism (Apply.lean:207): ONE
+              ;; isDefEq(conclusion, goal) assigning expr- AND level-mvars in
+              ;; the proof state's shared metacontext. It whnf's lazily ON
+              ;; MISMATCH, so it solves cases the structural cascade can't
+              ;; (univ-poly lemmas whose level isn't pinned; subterms needing
+              ;; one whnf step) WITHOUT the divergent deep normalize.
               real-mctx (atom (:meta-mctx ps))
               try-real-mctx-isdefeq
               (fn []
@@ -836,32 +821,17 @@
                       (reset! real-mctx mctx)
                       {}))
                   (catch Exception _ nil)))
-              try-meta-isdefeq
-              (fn []
-                (try
-                  (reset! umctx (into {} (map (fn [mid] [mid {:type (proof/mvar-type ps mid)
-                                                              :solution nil}])
-                                              (concat arg-mvars gmvars))))
-                  (when (u/is-def-eq! st umctx resolved-ty (:type goal))
-                    ;; subst returns only arg-mvar solutions (assigned below as usual); the
-                    ;; sibling-shared `gmvars` solutions are persisted to `:mctx` after.
-                    (into {} (keep (fn [mid]
-                                     (when-let [s (get-in @umctx [mid :solution])]
-                                       [mid (u/zonk umctx s)]))
-                                   arg-mvars)))
-                  (catch Exception _ nil)))
               ;; Strategy A: structural matching (cheap — no normalization)
               subst (or (match-expr resolved-ty (:type goal) mvar-id-set)
                         (match-expr resolved-ty goal-whnf mvar-id-set)
                         (match-expr resolved-whnf (:type goal) mvar-id-set)
                         (match-expr resolved-whnf goal-whnf mvar-id-set)
-                        ;; Lean's apply also assigns metavariables already present in the
-                        ;; applied expression. These are real Expr.mvars in the tactic
-                        ;; metacontext, not the historical fvar-backed generated args.
+                        ;; Lean's PRIMARY apply mechanism (Apply.lean:207): ONE
+                        ;; isDefEq(conclusion, goal) in the shared metacontext,
+                        ;; assigning generated holes, sibling-shared holes, and
+                        ;; level mvars together. It whnf's lazily on mismatch,
+                        ;; so it never triggers the divergent deep normalize.
                         (try-real-mctx-isdefeq)
-                        ;; Strategy C runs HERE — before the deep-normalize fallbacks — so the common
-                        ;; lazy-isDefEq path never triggers the divergent normalize-for-match.
-                        (try-meta-isdefeq)
                         (match-expr @resolved-norm @goal-norm mvar-id-set)
                         (match-expr @resolved-norm goal-whnf mvar-id-set)
                         (match-expr resolved-whnf @goal-norm mvar-id-set)
@@ -916,8 +886,6 @@
                                           (.isDefEq jtc resolved-ty (:type goal)))]
                               (when deq @deep-subst)))
                           (catch Exception _ nil)))
-                        ;; (Strategy C — the meta-isDefEq — now runs ABOVE, before the deep-normalize
-                        ;; fallbacks; see `try-meta-isdefeq` in the cascade above.)
                         ;; Direct equality
                         (when (or (= resolved-ty (:type goal))
                                   (= resolved-ty goal-whnf)
@@ -938,58 +906,15 @@
                                                   {:kind :exact :term val})
                                ps))
                            ps arg-mvars)
-                ;; Substitute solved values into remaining unsolved goal types — both EXPR solutions
-                ;; (subst) AND LEVEL solutions (umctx :levels, from Strategy C's meta-isDefEq). The
-                ;; level zonk is the crux for univ-poly lemmas: a remaining subgoal type otherwise
-                ;; keeps the lemma's level-mvar (e.g. `List.Perm.{?lm} …`) while the hypotheses carry
-                ;; `{0}`, so a follow-up `assumption`/apply can't def-eq-match it.
-                has-level-sols? (seq (get @umctx :levels))
-                ps (if (or (seq subst) has-level-sols?)
-                     (reduce (fn [ps mvar-id]
-                               (if (proof/mvar-assigned? ps mvar-id)
-                                 ps
-                                 (let [old-type (proof/mvar-type ps mvar-id)
-                                       ;; real-mvar holes: assignments (from the
-                                       ;; subst loop above) live in the mctx —
-                                       ;; zonk; abstract1 skips mvar nodes.
-                                       new-type (if (meta/has-expr-mvar? old-type)
-                                                  (meta/zonk-expr (:meta-mctx ps) old-type)
-                                                  old-type)
-                                       new-type (reduce (fn [ty [fid val]]
-                                                          (e/instantiate1
-                                                           (e/abstract1 ty fid) val))
-                                                        new-type subst)
-                                       new-type (if has-level-sols?
-                                                  (u/zonk-levels-in-expr umctx new-type)
-                                                  new-type)]
-                                   (proof/set-mvar-type ps mvar-id new-type))))
-                             ps arg-mvars)
-                     ps)
-                ;; Persist sibling-shared mvar solutions (the `trans` middle term etc.) into the SHARED
-                ;; `:mctx` — Lean's apply assigns these in the one MetavarContext, and assign-mvar then
-                ;; propagates each CONCRETE value into the remaining goals (proof.clj), so a sibling like
-                ;; `?m ~ c` becomes `b ~ c` once `?m := b` is solved while closing `a ~ ?m`. Only persist
-                ;; fully-concrete solutions (no unsolved proof-mvar left), matching Lean's deferral of
-                ;; not-yet-determined mvars; the kernel check therefore never sees a metavar.
-                ps (reduce (fn [ps mid]
-                             (if (proof/mvar-assigned? ps mid)
-                               ps
-                               (if-let [s (get-in @umctx [mid :solution])]
-                                 (let [v (u/zonk umctx s)
-                                       v (if has-level-sols? (u/zonk-levels-in-expr umctx v) v)
-                                       concrete? (every? (fn [hid]
-                                                           (or (nil? (proof/mvar-decl ps hid))
-                                                               (proof/mvar-assigned? ps hid)))
-                                                         (into (collect-fvar-ids v)
-                                                               (meta/collect-expr-mvars v)))]
-                                   (if concrete?
-                                     (proof/assign-mvar ps mid {:kind :exact :term v})
-                                     ps))
-                                 ps)))
-                           ps gmvars)]
-            (let [;; Zonk any level-mvars solved by Strategy C into the head (no-op when umctx has no
-                  ;; level solutions) — the trusted kernel check must see a concrete-level head.
-                  head-term (if (seq (get @umctx :levels)) (u/zonk-levels-in-expr umctx term) term)
+                ;; Solved values (subst + isDefEq assignments) live in the ONE
+                ;; metacontext: remaining goal types pick them up through
+                ;; zonk-on-access and the decl-type zonk below; sibling-shared
+                ;; holes (the `trans` middle term etc.) are assigned there
+                ;; directly, matching Lean's single-MetavarContext apply.
+                ]
+            (let [;; The kernel check must see a concrete head: zonk assigned
+                  ;; expr- and level-mvars (e.g. `List.Perm.{?lm}`) into it.
+                  head-term (meta/zonk-expr (:meta-mctx ps) term)
                   ps (-> (proof/assign-mvar ps (:id goal)
                                             {:kind :apply :head head-term :arg-mvars arg-mvars})
                          (proof/record-tactic :apply [head-term] (:id goal)))

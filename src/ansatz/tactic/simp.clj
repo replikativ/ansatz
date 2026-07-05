@@ -42,7 +42,6 @@
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
             [ansatz.meta :as meta]
-            [ansatz.tactic.unify :as u]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
