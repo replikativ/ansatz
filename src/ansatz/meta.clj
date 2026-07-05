@@ -346,9 +346,18 @@
 (defn abstract-fvars
   "Delay abstraction over `fvar-ids` until after metavariables inside `expr`
    have been zonked. This is the local analogue of Lean's delayed abstraction
-   machinery for mvars that are solved under binders."
-  [expr fvar-ids]
-  (e/mdata {::abstract-fvars (vec fvar-ids)} expr))
+   machinery for mvars that are solved under binders.
+
+   The delay marker is ONLY needed when `expr` contains a metavariable (whose
+   later solution may reintroduce one of `fvar-ids` under the binder). When
+   `expr` is metavariable-free there is nothing to wait for, so we return it
+   unwrapped — the caller's own `abstract1` performs the abstraction, and no
+   `::abstract-fvars` mdata survives for zonk to strip. This keeps the marker
+   off mvar-free terms, which is what lets `zonk-expr` short-circuit on them."
+  [^ansatz.kernel.Expr expr fvar-ids]
+  (if (.hasMVar expr)
+    (e/mdata {::abstract-fvars (vec fvar-ids)} expr)
+    expr))
 
 (declare zonk-level)
 
@@ -484,11 +493,24 @@
                     expr)))))
           expr)))))
 
+(declare zonk-expr*)
+
 (defn zonk-expr
   "Instantiate assigned expression and level metavariables in `expr`.
 
    Delayed assignments are only expanded when the pending metavariable is
-   already ground after zonking, matching Lean's kernel-boundary discipline."
+   already ground after zonking, matching Lean's kernel-boundary discipline.
+
+   Fast path: an expression with NO metavariable (the O(1) `Expr.hasMVar` bit)
+   has nothing to instantiate, so it is returned unchanged without traversal.
+   This is what keeps `is-def-eq` from re-zonking mvar-free subterms at every
+   recursion level (the per-level quadratic)."
+  [mctx ^ansatz.kernel.Expr expr]
+  (if-not (.hasMVar expr)
+    expr
+    (zonk-expr* mctx expr)))
+
+(defn- zonk-expr*
   [mctx expr]
   (let [cache (java.util.IdentityHashMap.)
         visiting (atom #{})]
@@ -1008,6 +1030,14 @@
                           (reverse (range (count ids))))]
           (try-assign-expr-defeq mctx st id lam))))))
 
+(defn zonked-has-mvar?
+  "Does `expr` contain any expression- or universe-level metavariable? Uses the
+   O(1) `Expr.hasMVar` bit (computed compositionally at construction), so on
+   already-zonked terms `(not (zonked-has-mvar? e))` decides closedness in
+   constant time — without the full re-zonk that `closed-expr?` performs."
+  [^ansatz.kernel.Expr expr]
+  (.hasMVar expr))
+
 (defn- closed-kernel-defeq
   [mctx st a b]
   (when (and (closed-expr? mctx a)
@@ -1016,11 +1046,25 @@
       (when (tc/is-def-eq st a b) mctx)
       (catch clojure.lang.ExceptionInfo _ nil))))
 
+(defn- closed-kernel-defeq-zonked
+  "Like `closed-kernel-defeq` but assumes `a`/`b` are already zonked, so it uses
+   the cheap `zonked-has-mvar?` closedness check instead of re-zonking."
+  [mctx st a b]
+  (when (and (not (zonked-has-mvar? a))
+             (not (zonked-has-mvar? b)))
+    (try
+      (when (tc/is-def-eq st a b) mctx)
+      (catch clojure.lang.ExceptionInfo _ nil))))
+
 (defn- is-def-eq-core
   [mctx st bound a b]
+  ;; NOTE: closed terms are handled by the both-closed fast path in `is-def-eq`
+  ;; before reaching here, so this runs only when at least one side has an
+  ;; unresolved metavariable. We must NOT re-run a full kernel defeq at every
+  ;; structural node — that made a single closed comparison do O(term-size)
+  ;; kernel reductions (a severe blowup on speculative simp/apply matching).
   (or
    (when (= a b) mctx)
-   (closed-kernel-defeq mctx st a b)
    (when-let [[id value] (expr-mvar-assignment-candidate mctx a b)]
      (or (try-assign-expr-defeq mctx st id value)
          ;; Lean's isDefEqQuickMVarMVar: when both sides are mvars and the
@@ -1046,8 +1090,26 @@
                         mctx
                         (map vector (e/const-levels a) (e/const-levels b))))
 
-       :app (when-let [mctx (is-def-eq mctx st bound (e/app-fn a) (e/app-fn b))]
-              (is-def-eq mctx st bound (e/app-arg a) (e/app-arg b)))
+       ;; Faithful to Lean's `isDefEqApp`: when the spine heads are CONCRETE,
+       ;; decompose the application spine ONCE (head + args) and compare heads
+       ;; then arguments pairwise. The old code recursed on the CURRIED `app-fn`
+       ;; prefixes, re-running the outer whnf-retry once per prefix level —
+       ;; quadratic reduction on deep spines. Lean only reaches `isDefEqApp`
+       ;; after the metavariable cases, so we keep the curried peel when either
+       ;; ultimate head is an mvar (that the mvar cases above did not resolve):
+       ;; there the mvar head must be free to absorb a partial-application
+       ;; prefix, which strict arity-matched spine comparison would reject.
+       :app (if (or (e/mvar? (e/get-app-fn a)) (e/mvar? (e/get-app-fn b)))
+              (when-let [mctx (is-def-eq mctx st bound (e/app-fn a) (e/app-fn b))]
+                (is-def-eq mctx st bound (e/app-arg a) (e/app-arg b)))
+              (let [[head-a args-a] (e/get-app-fn-args a)
+                    [head-b args-b] (e/get-app-fn-args b)]
+                (when (= (count args-a) (count args-b))
+                  (when-let [mctx (is-def-eq mctx st bound head-a head-b)]
+                    (reduce (fn [mctx [x y]]
+                              (when mctx (is-def-eq mctx st bound x y)))
+                            mctx
+                            (map vector args-a args-b))))))
 
        :lam (when-let [mctx (is-def-eq mctx st bound (e/lam-type a) (e/lam-type b))]
               (let [[st' fv _ body-a] (open-binder-type st (:lctx st)
@@ -1094,11 +1156,19 @@
   ([mctx st bound a b]
    (let [a (zonk-expr mctx a)
          b (zonk-expr mctx b)]
-     (or (is-def-eq-core mctx st bound a b)
-         (let [a' (whnf mctx st a)
-               b' (whnf mctx st b)]
-           (when (or (not= a a') (not= b b'))
-             (is-def-eq-core mctx st bound (zonk-expr mctx a') (zonk-expr mctx b'))))))))
+     (if (and (not (zonked-has-mvar? a)) (not (zonked-has-mvar? b)))
+       ;; Both sides are metavariable-free: the trusted kernel's reduction-based
+       ;; `is-def-eq` is complete and authoritative, so decide it in ONE call and
+       ;; do not descend into the meta structural recursion (which would redo a
+       ;; full kernel defeq AND a full re-zonk per subterm). This is the common
+       ;; case for the speculative match checks that simp/apply/rewrite perform.
+       ;; The closedness check is syntactic (no re-zonk) since a/b are zonked.
+       (closed-kernel-defeq-zonked mctx st a b)
+       (or (is-def-eq-core mctx st bound a b)
+           (let [a' (whnf mctx st a)
+                 b' (whnf mctx st b)]
+             (when (or (not= a a') (not= b b'))
+               (is-def-eq-core mctx st bound (zonk-expr mctx a') (zonk-expr mctx b')))))))))
 
 (declare local-decl-depends-on?)
 
