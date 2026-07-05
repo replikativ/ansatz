@@ -33,27 +33,34 @@
    of NDJSON lines) loaded into the matching extensions — keeping only names that are constants in
    `env`. csimp/impl become {name → target} maps (the f→g replacement / impl); the rest are name
    sets. `stats` maps each extension key to the count loaded, plus :skipped (names absent from env)."
-  [env ndjson]
-  (let [lines   (if (sequential? ndjson) ndjson (str/split-lines (slurp ndjson)))
-        present? (fn [n] (some? (env/lookup env (name/from-string n))))]
-    (reduce (fn [[e stats] [k n target]]
-              (if-let [ext-key (kind->ext k)]
-                (if (present? n)
-                  [(if (map-kinds k)
-                     (env/update-extension e ext-key {} assoc n target)
-                     (env/update-extension e ext-key #{} conj n))
-                   (update stats ext-key (fnil inc 0))]
-                  [e (update stats :skipped (fnil inc 0))])
-                [e stats]))
-            [env {}]
-            (keep parse-line lines))))
+  ([env ndjson] (import-attrs env ndjson {}))
+  ([env ndjson {:keys [present?]}]
+   (let [lines   (if (sequential? ndjson) ndjson (str/split-lines (slurp ndjson)))
+         ;; Presence via env/lookup RESOLVES the declaration; for external
+         ;; (PSS-backed) stores callers should pass a cheap membership
+         ;; `:present?` (see storage/contains-name-checker) — over a corpus
+         ;; like Mathlib's ~93k attrs the difference is minutes vs seconds.
+         present? (or present?
+                      (fn [n] (some? (env/lookup env (name/from-string n)))))]
+     (reduce (fn [[e stats] [k n target]]
+               (if-let [ext-key (kind->ext k)]
+                 (if (present? n)
+                   [(if (map-kinds k)
+                      (env/update-extension e ext-key {} assoc n target)
+                      (env/update-extension e ext-key #{} conj n))
+                    (update stats ext-key (fnil inc 0))]
+                   [e (update stats :skipped (fnil inc 0))])
+                 [e stats]))
+             [env {}]
+             (keep parse-line lines)))))
 
 (defn import-attrs!
   "Load the attributes from `ndjson` into the GLOBAL env (atomically). Returns the load stats."
-  [ndjson]
-  (let [stats (atom nil)]
-    (swap! state/ansatz-env (fn [e] (let [[e' s] (import-attrs e ndjson)] (reset! stats s) e')))
-    @stats))
+  ([ndjson] (import-attrs! ndjson {}))
+  ([ndjson opts]
+   (let [stats (atom nil)]
+     (swap! state/ansatz-env (fn [e] (let [[e' s] (import-attrs e ndjson opts)] (reset! stats s) e')))
+     @stats)))
 
 (def ^:private bundled-attrs-resource "ansatz/init-attrs.ndjson.gz")
 
@@ -62,11 +69,12 @@
    scripts/dump_attrs.lean) into the GLOBAL env's extensions, intersected with the loaded store.
    Called by ansatz.core/init! + load-init! so Lean's @[simp]/@[csimp]/@[extern] are inherited by
    default. No-op (returns nil) if the resource isn't on the classpath. Returns the load stats."
-  []
-  (when-let [res (io/resource bundled-attrs-resource)]
-    (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
-                  (str/split-lines (slurp in)))]
-      (import-attrs! lines))))
+  ([] (load-bundled-attrs! {}))
+  ([opts]
+   (when-let [res (io/resource bundled-attrs-resource)]
+     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+                   (str/split-lines (slurp in)))]
+       (import-attrs! lines opts)))))
 
 (defn load-store-attrs!
   "Import a STORE-LOCAL Lean attribute corpus — `<store-path>/attrs.ndjson.gz` (or plain
@@ -75,12 +83,13 @@
    its OWN attributes: dump it once with `scripts/dump_attrs.lean <Module>` into the store dir.
    Additive over load-bundled-attrs! (union — import is set/map merge). Returns the load stats, or
    nil if no store-local file exists. Called by ansatz.core/init! after load-bundled-attrs!."
-  [store-path]
-  (when store-path
-    (let [gz  (io/file store-path "attrs.ndjson.gz")
-          raw (io/file store-path "attrs.ndjson")]
-      (cond
-        (.exists gz)  (let [lines (with-open [in (java.util.zip.GZIPInputStream. (io/input-stream gz))]
-                                    (str/split-lines (slurp in)))]
-                        (import-attrs! lines))
-        (.exists raw) (import-attrs! (.getPath raw))))))
+  ([store-path] (load-store-attrs! store-path {}))
+  ([store-path opts]
+   (when store-path
+     (let [gz  (io/file store-path "attrs.ndjson.gz")
+           raw (io/file store-path "attrs.ndjson")]
+       (cond
+         (.exists gz)  (let [lines (with-open [in (java.util.zip.GZIPInputStream. (io/input-stream gz))]
+                                     (str/split-lines (slurp in)))]
+                         (import-attrs! lines opts))
+         (.exists raw) (import-attrs! (.getPath raw) opts))))))

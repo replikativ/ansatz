@@ -653,6 +653,22 @@
 ;; Load — reconstruct Env from persisted PSS
 ;; ============================================================
 
+(defn contains-name-checker
+  "Cheap declaration-presence predicate for a persisted branch.
+
+   Returns (fn [name-string] boolean) that answers via PSS membership ONLY
+   (sorted-set tree-node reads) — WITHOUT resolving the ConstantInfo's
+   expression DAG from the store. Use for bulk presence tests (e.g. the
+   attrs import over ~100k Mathlib names), where going through `env/lookup`
+   would hydrate every hit and turn store open into minutes of IO."
+  [store-map branch-name]
+  (let [{:keys [storage store]} store-map
+        branch-meta (store-get store [:branches branch-name])]
+    (when branch-meta
+      (let [env-pss (pss/restore-by name-cmp (:env-root branch-meta) storage)]
+        (fn [name-str]
+          (some? (pss/lookup env-pss [(ansatz-name/from-string name-str) nil])))))))
+
 (defn- branch-loader
   "Create shared lazy branch lookup state.
 
