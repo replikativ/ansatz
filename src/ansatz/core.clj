@@ -827,7 +827,11 @@
    'refine'   (fn [ps args]
                 (basic/refine-prime ps (first args)))
    'specialize (fn [ps args]
-                 (basic/specialize ps (first args)))
+                 ;; Lean spelling `specialize h a b` and the applied form
+                 ;; `specialize (h a b)` both mean: elaborate `(h a b)`.
+                 (basic/specialize ps (if (next args)
+                                        (apply list args)
+                                        (first args))))
    'change    (fn [ps args]
                 (let [new-type (first args)]
                   (if (= 'at (second args))

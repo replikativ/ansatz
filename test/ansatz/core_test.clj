@@ -126,6 +126,11 @@
                        '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
                        'q
                        '[(specialize (h hp)) (assumption)])
+      ;; Lean spelling: `specialize h hp` (varargs, no explicit application)
+      (a/prove-theorem 'specialize-varargs-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(specialize h hp) (assumption)])
       (a/prove-theorem 'apply-partial-forall-test
                        '[^{:- Prop} p ^{:- Prop} q ^{:- Prop} r
                          ^{:- (arrow p (arrow q r))} h
