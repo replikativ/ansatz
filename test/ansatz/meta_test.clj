@@ -34,11 +34,9 @@
         (:lctx (proof/current-goal ps))))
 
 (defn- assert-meta-extract-parity [ps]
-  (let [legacy-term (extract/extract-legacy ps)
-        meta-term (extract/extract-meta ps)
+  (let [meta-term (extract/extract-meta ps)
         default-term (extract/extract ps)]
     (is (proof/solved? ps))
-    (is (= legacy-term meta-term))
     (is (= meta-term default-term))
     (is (meta/closed-expr? (:meta-mctx ps) meta-term))))
 
@@ -303,16 +301,16 @@
       (is (meta/closed-expr? (:meta-mctx ps) meta-term)))))
 
 (deftest proof-state-declarations-live-in-metacontext
-  (testing "legacy proof :mctx stores recipes, not duplicated declarations"
+  (testing "declarations and assignments live only in :meta-mctx"
     (let [prop (e/sort' lvl/zero)
           [ps root] (proof/start-proof (env/empty-env) prop)
           assignment {:kind :exact :term prop}
           ps' (proof/assign-mvar ps root assignment)]
       (is (= prop (proof/mvar-type ps root)))
       (is (= prop (:type (meta/expr-decl (:meta-mctx ps) root))))
-      (is (nil? (get (:mctx ps) root)))
-      (is (= assignment (get-in ps' [:recipes root])))
-      (is (nil? (get-in ps' [:mctx root :assignment]))))))
+      (is (nil? (:mctx ps)))
+      (is (nil? (:recipes ps')))
+      (is (= prop (meta/expr-assignment (:meta-mctx ps') root))))))
 
 (deftest verify-rejects-raw-metavariables-at-kernel-boundary
   (testing "legacy extraction cannot pass raw mvars to the kernel checker"

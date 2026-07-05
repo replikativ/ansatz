@@ -71,19 +71,11 @@
       (when (tc/is-def-eq st a b) ps))))
 
 (defn- instantiate-solved-mvars
-  "Instantiate solved proof-state mvars in `expr`: real `Expr.mvar` holes are
-   zonked through the metacontext; the reduce covers the legacy fvar-encoded
-   representation (`e/abstract1` deliberately skips mvar nodes, so the two
-   paths do not interfere)."
-  [ps expr mvar-ids]
-  (let [expr (if (and (:meta-mctx ps) (meta/has-expr-mvar? expr))
-               (meta/zonk-expr (:meta-mctx ps) expr)
-               expr)]
-    (reduce (fn [t mid]
-              (if-let [term (proof/mvar-exact-term ps mid)]
-                (e/instantiate1 (e/abstract1 t mid) term)
-                t))
-            expr mvar-ids)))
+  "Instantiate solved proof-state holes in `expr` through the metacontext."
+  [ps expr]
+  (if (meta/has-expr-mvar? expr)
+    (meta/zonk-expr (:meta-mctx ps) expr)
+    expr))
 
 (defn- collect-fvar-ids
   "Every fvar id occurring in `e`. Used to find the proof mvars (fvar-encoded) that a goal type
@@ -165,22 +157,14 @@
           ids))
 
 (defn- zonk-proof-expr
-  "Instantiate both Lean-shaped metavariables and the older fvar-backed proof
-   metavariables inside `expr`."
+  "Instantiate assigned metavariables inside `expr`."
   [ps expr]
   (when expr
-    (instantiate-solved-mvars
-     ps
-     (if-let [mctx (:meta-mctx ps)]
-       (meta/zonk-expr mctx expr)
-       expr)
-     (proof/mvar-ids ps))))
+    (meta/zonk-expr (:meta-mctx ps) expr)))
 
 (defn- assigned-mvar-term
   [ps mvar-id]
-  (or (proof/mvar-exact-term ps mvar-id)
-      (when-let [mctx (:meta-mctx ps)]
-        (meta/expr-assignment mctx mvar-id))))
+  (meta/expr-assignment (:meta-mctx ps) mvar-id))
 
 (defn- try-synthesize-instance-in-context
   "Try instance synthesis using the metavariable's local context first. This is
@@ -342,7 +326,7 @@
    result type close the target if we stop adding arguments here?"
   [ps goal ty arg-mvars mvar-id-set]
   (let [st (mk-tc ps (:lctx goal))
-        resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
+        resolved-ty (instantiate-solved-mvars ps ty)
         goal-type (:type goal)
         goal-whnf (whnf-in-goal ps (:lctx goal) goal-type)
         resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)]
@@ -736,7 +720,7 @@
         (let [param-type (e/forall-type ty)
               binfo (e/forall-info ty)
               ;; Substitute already-resolved holes into the param type
-              inst-type (instantiate-solved-mvars ps param-type arg-mvars)
+              inst-type (instantiate-solved-mvars ps param-type)
               ;; Lean's apply creates metavariables for ordinary implicit
               ;; parameters and lets result-type unification solve them. Do not
               ;; guess type parameters from goal arguments here: for equality
@@ -787,7 +771,7 @@
         ;;
         ;; Strategy A: structural matching (fast path for simple cases)
         ;; Strategy B: Java TC isDefEq (handles def-eq like sorted vs List.rec)
-        (let [resolved-ty (instantiate-solved-mvars ps ty arg-mvars)
+        (let [resolved-ty (instantiate-solved-mvars ps ty)
               goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
               resolved-whnf (meta-whnf-in-goal ps (:lctx goal) resolved-ty)
               ;; LAZY: `normalize-for-match` deeply WHNF-normalizes every subnode, which DIVERGES on a
@@ -1892,7 +1876,10 @@
     [ps goal-id]
     (let [focused (move-goals-to-front ps [goal-id])
           cleared (try-clear focused hyp-fvar-id)
-          child-id (get-in cleared [:recipes goal-id :child] goal-id)]
+          ;; `clear` replaces the focused goal in position; on failure
+          ;; try-clear returns the state unchanged, so the front goal is
+          ;; the focused goal either way.
+          child-id (or (first (:goals cleared)) goal-id)]
       [cleared child-id])))
 
 (defn replace-tac

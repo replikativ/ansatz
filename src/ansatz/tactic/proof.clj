@@ -58,16 +58,10 @@
                                    (subvec (vec gs) pos))))))
       id])))
 
-(defn- legacy-mvar-decl [ps id]
-  (get-in ps [:mctx id]))
-
 (defn mvar-decl
-  "Get mvar declaration data, preferring the Lean-shaped `:meta-mctx` and
-   falling back to the legacy `:mctx` representation."
+  "Get mvar declaration data from the Lean-shaped `:meta-mctx`."
   [ps id]
-  (or (when-let [mctx (:meta-mctx ps)]
-        (meta/expr-decl mctx id))
-      (legacy-mvar-decl ps id)))
+  (meta/expr-decl (:meta-mctx ps) id))
 
 (defn mvar-type [ps id]
   (:type (mvar-decl ps id)))
@@ -85,22 +79,10 @@
     (keys (:decls mctx))
     (keys (:mctx ps))))
 
-(defn mvar-assignment
-  "Return the assignment recipe for `id`, if any.
-
-   Modern proof states store recipes under `:recipes`; legacy states used
-   `[:mctx id :assignment]`. Callers that only need assigned/open status should
-   use `mvar-assigned?` or `mvar-open?` instead."
-  [ps id]
-  (or (get-in ps [:recipes id])
-      (get-in ps [:mctx id :assignment])))
-
 (defn mvar-exact-term
-  "Return the exact term assigned to `id` when the legacy recipe is `:exact`."
+  "Return the metacontext assignment of `id`, if any."
   [ps id]
-  (let [assignment (mvar-assignment ps id)]
-    (when (= :exact (:kind assignment))
-      (:term assignment))))
+  (meta/expr-assignment (:meta-mctx ps) id))
 
 (defn set-mvar-type
   "Update an mvar type, preferring the Lean-shaped metacontext.
@@ -145,22 +127,6 @@
                          (set-mvar-user-name ps id (indexed-tag parent-tag suffix (inc i))))
                        ps
                        anonymous-ids))))
-
-(defn- assignment-concrete-value
-  "Extract the concrete value from an assignment, if available.
-   Returns nil when the value cannot be determined (e.g., apply with unsolved args)."
-  [ps assignment]
-  (case (:kind assignment)
-    :exact (:term assignment)
-    ;; For apply: value is (app* head solved-arg-values...) when all args are solved
-    :apply (let [{:keys [head arg-mvars]} assignment]
-             (when (every? #(some? (mvar-assignment ps %)) arg-mvars)
-               (reduce (fn [t mid]
-                         (let [a (mvar-assignment ps mid)]
-                           (e/app t
-                                  (or (assignment-concrete-value ps a) (e/mvar mid)))))
-                       head arg-mvars)))
-    nil))
 
 (defn- replace-mvar
   "Replace all occurrences of `(mvar mvar-id)` with `replacement`."
@@ -351,40 +317,21 @@
 
     nil))
 
-(defn- assign-meta-if-possible [ps mvar-id assignment]
-  (if-let [expr (assignment-expr ps assignment)]
-    (update ps :meta-mctx #(meta/checked-assign-expr (or % meta/empty-context) mvar-id expr
-                                                     {:check-type? false}))
-    ps))
-
 (defn assign-mvar
   "Assign a metavariable, removing it from open goals.
-   When the assignment has a concrete value, substitute the fvar→value
-   mapping into remaining goal types. This propagates solutions from
-   earlier subgoals to later ones (e.g., after providing a witness for
-   ∃, the proof goal gets the witness substituted)."
+
+   The recipe map is the tactic-side assignment LANGUAGE; it is translated by
+   `assignment-expr` into a checked metacontext assignment and not stored.
+   Solutions propagate to sibling goals through zonk-on-access."
   [ps mvar-id assignment]
-  (let [ps (-> ps
-               (assoc-in [:recipes mvar-id] assignment)
-               (update :goals (fn [gs] (into [] (remove #{mvar-id}) gs)))
-               (assign-meta-if-possible mvar-id assignment))]
-    ;; Propagate: if this mvar was used as an fvar in sibling goal types,
-    ;; substitute the solution value
-    (if-let [val (assignment-concrete-value ps assignment)]
-      (reduce (fn [ps goal-id]
-                (if-let [m (mvar-decl ps goal-id)]
-                  (let [old-type (:type m)]
-                    (if (ansatz.kernel.expr/has-fvar-flag old-type)
-                      (let [new-type (ansatz.kernel.expr/instantiate1
-                                      (ansatz.kernel.expr/abstract1 old-type mvar-id)
-                                      val)]
-                        (if (identical? new-type old-type)
-                          ps
-                          (set-mvar-type ps goal-id new-type)))
-                      ps))
-                  ps))
-              ps (:goals ps))
-      ps)))
+  (let [expr (assignment-expr ps assignment)]
+    (when-not expr
+      (throw (ex-info "assign-mvar: recipe has no metacontext translation"
+                      {:mvar-id mvar-id :kind (:kind assignment)})))
+    (-> ps
+        (update :goals (fn [gs] (into [] (remove #{mvar-id}) gs)))
+        (update :meta-mctx #(meta/checked-assign-expr (or % meta/empty-context) mvar-id expr
+                                                      {:check-type? false})))))
 
 (defn start-proof
   "Create a proof state with one open goal of the given type.
@@ -393,7 +340,6 @@
   (let [ps {:env env
             :goals []
             :meta-mctx meta/empty-context
-            :recipes {}
             :next-id 1
             :root-mvar nil
             :trace []
@@ -515,9 +461,7 @@
 (defn mvar-assigned?
   "Check if a metavariable has been assigned."
   [ps mvar-id]
-  (or (true? (when-let [mctx (:meta-mctx ps)]
-               (meta/expr-assigned-or-delayed? mctx mvar-id)))
-      (some? (mvar-assignment ps mvar-id))))
+  (meta/expr-assigned-or-delayed? (:meta-mctx ps) mvar-id))
 
 (defn mvar-open?
   "True when `mvar-id` is declared and not assigned or delayed-assigned."

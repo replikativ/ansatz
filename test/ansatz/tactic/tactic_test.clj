@@ -364,7 +364,8 @@
           p-id (some (fn [[id d]] (when (= "p" (:name d)) id)) lctx)
           h-id (some (fn [[id d]] (when (= "h" (:name d)) id)) lctx)
           ps (basic/refine-prime ps (list (symbol "@id") '_ 'h))
-          term (:term (proof/mvar-assignment ps goal-id))
+          term (meta/zonk-expr (:meta-mctx ps)
+                               (meta/expr-assignment (:meta-mctx ps) goal-id))
           [head args] (e/get-app-fn-args term)]
       (is (proof/solved? ps))
       (is (e/const? head))
