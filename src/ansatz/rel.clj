@@ -182,6 +182,25 @@
    (fn [u]
      (fresh (e/sort' u) f))))
 
+(defn fresh-in
+  "Like `fresh`, but declare the hole in an EXPLICIT local context (a
+   sub-context of the ambient one). Needed when the hole's value must be
+   assignable into another mvar declared in that smaller context — the
+   checked-assignment scope guard rejects values mentioning mvars with a
+   larger lctx (Lean would ctxApprox-restrict; we mint narrow instead)."
+  [lctx type f]
+  (fn [s]
+    (let [[id s] (next-id! s)
+          s (update s :mctx meta/add-expr-mvar-decl id type lctx)]
+      ((f (e/mvar id)) s))))
+
+(defn fresh-ty-in
+  "`fresh-ty` in an explicit local context (see `fresh-in`)."
+  [lctx f]
+  (fresh-level
+   (fn [u]
+     (fresh-in lctx (e/sort' u) f))))
+
 (defn zonk
   "Reify an expression under a state's metacontext."
   [s expr]
@@ -292,27 +311,79 @@
       (when tty
         ((all (=== tty gty) (=== g term)) s)))))
 
+(defn apply-hypo
+  "Relational application of a HYPOTHESIS: close goal-hole `g` by applying
+   local hypothesis `fid` to `k` fresh argument holes. Unifies the
+   hypothesis type with the non-dependent arrow shape ?B₁ → … → ?Bₖ → goal.
+
+   The hypothesis type may itself be a HOLE: unifying the hole with the
+   arrow shape ASSIGNS it, so the search can infer an IMPLICATION — this is
+   modus ponens run backwards (higher-order assumption inference). For a
+   concrete ∀/→ hypothesis the same unification decomposes it structurally.
+   k : obligation holes → goal (continuation over the argument proofs)."
+  [g fid k cont]
+  (fn [s]
+    (when-let [decl (get (:lctx s) fid)]
+      (let [gty (mvar-type s g)
+            hyp-ty (:type decl)
+            ;; When the hypothesis type is a HOLE, the arrow-shape type holes
+            ;; end up INSIDE its assignment — so they must live in (a subset
+            ;; of) ITS declared lctx, or the checked-assignment scope guard
+            ;; rejects the value (Lean would ctxApprox-restrict instead).
+            shape-lctx (if (e/mvar? hyp-ty)
+                         (:lctx (meta/expr-decl (:mctx s) (e/mvar-id hyp-ty)))
+                         (:lctx s))]
+        ((letfn [(go [i bs shapes]
+                     (if (zero? i)
+                       (let [shape (reduce (fn [acc B] (e/arrow B acc))
+                                           gty (rseq shapes))]
+                         (all (=== hyp-ty shape)
+                              (=== g (reduce e/app (e/fvar fid) bs))
+                              (cont bs)))
+                       (fresh-ty-in
+                        shape-lctx
+                        (fn [B]
+                          (fresh B
+                                 (fn [b]
+                                   (go (dec i) (conj bs b) (conj shapes B))))))))]
+           (go k [] []))
+         s)))))
+
 (defn proveo
   "Depth-bounded relational prover: close goal-hole `g` using assumptions
    and the lemma set, recursing on obligations. Branch priors: assumption
    is cheap/likely, each lemma application costs its prior.
-   `lemmas` is a seq of [weight name]."
-  [g lemmas depth]
-  (fn [s]
-    (cond
-      (assigned? s g) (unit s)
-      (not (pos? depth)) mzero
-      :else
-      ((apply condw
-              (concat
-               [[8 (assumptiono g)]]
-               (for [[w cname] lemmas]
-                 [w (applyo g cname
-                            (fn [obs]
-                              (apply all
-                                     (map #(proveo % lemmas (dec depth))
-                                          obs))))])))
-       s))))
+   `lemmas` is a seq of [weight name].
+   opts:
+   - :hyp-arities — also try APPLYING each local hypothesis to this many
+     fresh argument holes (e.g. [1 2]); with a hole-typed hypothesis this
+     infers implications. Default [] (off)."
+  ([g lemmas depth] (proveo g lemmas depth {}))
+  ([g lemmas depth {:keys [hyp-arities] :or {hyp-arities []} :as opts}]
+   (fn [s]
+     (cond
+       (assigned? s g) (unit s)
+       (not (pos? depth)) mzero
+       :else
+       ((apply condw
+               (concat
+                [[8 (assumptiono g)]]
+                (for [[w cname] lemmas]
+                  [w (applyo g cname
+                             (fn [obs]
+                               (apply all
+                                      (map #(proveo % lemmas (dec depth) opts)
+                                           obs))))])
+                (for [[fid decl] (:lctx s)
+                      :when (= :local (:tag decl))
+                      arity hyp-arities]
+                  [(/ 1.0 (double arity))
+                   (apply-hypo g fid arity
+                               (fn [obs]
+                                 (apply all
+                                        (map #(proveo % lemmas (dec depth) opts)
+                                             obs))))])))
+        s)))))
 
 ;; ============================================================
 ;; Kernel disposal

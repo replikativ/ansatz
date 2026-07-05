@@ -84,6 +84,30 @@
         (is (:ok? (r/certify st (::g st)))
             (str "kernel rejects " (e/->string (r/zonk st (::g st)))))))))
 
+(deftest higher-order-assumption-inference
+  (testing "hyp himp : ?A, NO lemmas — the search infers the IMPLICATION
+            ?A := (n ≤ m) → (n ≤ k) and proves the goal by himp hp"
+    (let [n (e/fvar 10) m (e/fvar 11) k (e/fvar 12)
+          demo (r/fresh-ty
+                (fn [A]
+                  (fn [s]
+                    (let [s (update s :lctx
+                                    #(-> %
+                                         (red/lctx-add-local 20 "hp" (nle n m))
+                                         (red/lctx-add-local 21 "himp" A)))]
+                      ((r/fresh (nle n k)
+                                (fn [g]
+                                  (r/all (r/proveo g [] 2 {:hyp-arities [1]})
+                                         (fn [st]
+                                           (r/unit (assoc st ::A (r/zonk st A) ::g g))))))
+                       s)))))
+          res (r/run 4 (r/state *env* :lctx @base-lctx*) demo)
+          answers (set (map #(e/->string (::A %)) res))]
+      (is (contains? answers (e/->string (e/arrow (nle n m) (nle n k))))
+          "inferred the implication (modus ponens run backwards)")
+      (doseq [st res]
+        (is (:ok? (r/certify st (::g st))))))))
+
 (deftest generative-direction-enumerates-consequences
   (testing "goal is a hole; the same relation enumerates provable propositions"
     (let [n (e/fvar 10) m (e/fvar 11) k (e/fvar 12)
