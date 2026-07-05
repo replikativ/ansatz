@@ -356,3 +356,35 @@
           ps (basic/induction ps n-id)
           ps (basic/all-goals ps basic/rfl)]
       (is (proof/solved? ps)))))
+
+(deftest test-clear-replaces-goal-in-position
+  (testing "clear (and thus replace) keeps focus on the current branch even
+   with background goals — the replacement goal takes the cleared goal's slot"
+    (let [env (require-env)
+          ;; p → q → p ∧ p : two And subgoals after constructor, then clear q
+          ;; on the FIRST; the current goal must stay the first branch.
+          goal-type (e/forall' "p" prop
+                               (e/forall' "hp" (e/bvar 0)
+                                          (e/forall' "hq" (e/bvar 1)
+                                                     (e/app* (e/const' (name/from-string "And") [])
+                                                             (e/bvar 2) (e/bvar 2))
+                                                     :default)
+                                          :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps (basic/intro "p") (basic/intro "hp") (basic/intro "hq"))
+          hq-id (some (fn [[id d]] (when (= "hq" (:name d)) id))
+                      (:lctx (proof/current-goal ps)))
+          ps (basic/constructor ps)
+          n-goals (count (:goals ps))
+          first-goal-type (:type (proof/current-goal ps))
+          ps' (basic/clear ps hq-id)]
+      (is (= 2 n-goals))
+      ;; same number of goals, same current target, hq gone from its context
+      (is (= n-goals (count (:goals ps'))))
+      (is (= first-goal-type (:type (proof/current-goal ps'))))
+      (is (nil? (get (:lctx (proof/current-goal ps')) hq-id)))
+      ;; and the state still closes
+      (let [done (-> ps' basic/assumption basic/assumption)]
+        (is (proof/solved? done))
+        (is (some? (extract/verify done)))))))

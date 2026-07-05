@@ -33,11 +33,12 @@
             id))
         (:lctx (proof/current-goal ps))))
 
-(defn- assert-meta-extract-parity [ps]
-  (let [meta-term (extract/extract-meta ps)
-        default-term (extract/extract ps)]
+(defn- assert-meta-extract-closes
+  "The metacontext assignment graph must close over the root: every tactic in
+   the proof produced a checked assignment and zonking reaches a closed term."
+  [ps]
+  (let [meta-term (extract/extract ps)]
     (is (proof/solved? ps))
-    (is (= meta-term default-term))
     (is (meta/closed-expr? (:meta-mctx ps) meta-term))))
 
 (deftest zonk-instantiates-expression-and-level-mvars
@@ -296,7 +297,7 @@
                  (basic/intro "h")
                  (basic/assumption))
           meta-term (extract/extract-meta ps)]
-      (assert-meta-extract-parity ps)
+      (assert-meta-extract-closes ps)
       (is (= meta-term (meta/zonk-expr (:meta-mctx ps) (e/mvar root))))
       (is (meta/closed-expr? (:meta-mctx ps) meta-term)))))
 
@@ -313,7 +314,7 @@
       (is (= prop (meta/expr-assignment (:meta-mctx ps') root))))))
 
 (deftest verify-rejects-raw-metavariables-at-kernel-boundary
-  (testing "legacy extraction cannot pass raw mvars to the kernel checker"
+  (testing "extraction cannot pass raw mvars to the kernel checker"
     (let [prop (e/sort' lvl/zero)
           [ps root] (proof/start-proof (env/empty-env) prop)
           ps (proof/assign-mvar ps root {:kind :exact :term (e/mvar 999)})]
@@ -345,7 +346,7 @@
           h-id (some (fn [[id d]] (when (= "h" (:name d)) id)) (:lctx goal))
           ps (basic/apply-tac ps (e/fvar h-id))
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-have
   (testing "have assignments are mirrored with delayed abstraction over the new hypothesis"
@@ -361,7 +362,7 @@
           ps (basic/have-tac ps "k" (e/fvar p-id))
           ps (basic/assumption ps)
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-simp-reduce-child
   (testing "whnf-goal delegates through a child mvar that meta extraction can zonk"
@@ -373,7 +374,7 @@
           ps (basic/whnf-goal ps)
           ps (basic/intro ps "h")
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-cases
   (testing "case split branches are mirrored with delayed abstraction"
@@ -390,7 +391,7 @@
           ps (basic/cases ps b-id)
           ps (basic/rfl ps)
           ps (basic/rfl ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-rewrite
   (testing "rewrite assignments are mirrored through Eq.ndrec transport"
@@ -409,7 +410,7 @@
           ps (basic/intros ps ["a" "b" "h"])
           ps (basic/rewrite ps (e/fvar (local-id ps "h")))
           ps (basic/rfl ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-generalize
   (testing "generalize assignments are mirrored as child application to the original term and rfl"
@@ -425,7 +426,7 @@
           ps (basic/intro ps "x")
           ps (basic/intro ps "h")
           ps (basic/rfl ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-revert
   (testing "revert assignments are mirrored as child application to the reverted hypothesis"
@@ -438,7 +439,7 @@
           ps (basic/revert ps (local-id ps "h"))
           ps (basic/intro ps "h")
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-exfalso
   (testing "exfalso assignments are mirrored through False.elim"
@@ -451,7 +452,7 @@
           ps (basic/intros ps ["p" "h"])
           ps (basic/exfalso ps)
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-subst
   (testing "subst assignments are mirrored by replacing the child mvar in the prebuilt ndrec term"
@@ -470,7 +471,7 @@
           ps (basic/intros ps ["a" "b" "h"])
           ps (basic/subst ps (local-id ps "h"))
           ps (basic/rfl ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-clear
   (testing "clear assignments are mirrored as a transparent child proof"
@@ -486,7 +487,7 @@
           ps (basic/intros ps ["n" "m"])
           ps (basic/clear ps (local-id ps "m"))
           ps (basic/rfl ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-by-cases
   (testing "Bool by-cases assignments are mirrored as Bool.rec over branch subgoals"
@@ -501,7 +502,7 @@
           ps (basic/by-cases ps (e/fvar (local-id ps "b")))
           ps (basic/rfl ps)
           ps (basic/rfl ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest extract-meta-parity-for-by-cases-dec
   (testing "Decidable by-cases assignments are mirrored as Decidable.casesOn"
@@ -518,7 +519,7 @@
           ps (basic/by-cases-dec ps (e/fvar (local-id ps "p")) (e/fvar (local-id ps "dec")))
           ps (basic/assumption ps)
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest occurs-check-follows-delayed-assignments
   (testing "?m := f ?d is cyclic when ?d's delayed pending mvar is ?m"
@@ -620,7 +621,7 @@
           ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))
           ps (basic/assumption ps)
           ps (basic/assumption ps)]
-      (assert-meta-extract-parity ps))))
+      (assert-meta-extract-closes ps))))
 
 (deftest induction-refuses-goal-with-open-holes
   (testing "Lean parity: no motive over a goal type carrying an unassigned mvar"

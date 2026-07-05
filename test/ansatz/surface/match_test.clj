@@ -49,8 +49,6 @@
           ih-fid 13
           expr (e/app* (e/const' self-name []) (e/mvar mid) (e/fvar rec-fid))
           est {:meta-mctx (atom (meta/add-expr-mvar-decl meta/empty-context mid prop {}))
-               :mctx (atom {mid {:solution nil}})
-               :level-mctx (atom {})
                :unify-fn (fn [est _a b]
                            (swap! (:meta-mctx est) meta/assign-expr mid b)
                            false)}

@@ -79,11 +79,6 @@
     (keys (:decls mctx))
     (keys (:mctx ps))))
 
-(defn mvar-exact-term
-  "Return the metacontext assignment of `id`, if any."
-  [ps id]
-  (meta/expr-assignment (:meta-mctx ps) id))
-
 (defn set-mvar-type
   "Update an mvar type, preferring the Lean-shaped metacontext.
    Legacy proof states without `:meta-mctx` still store the type in `:mctx`."

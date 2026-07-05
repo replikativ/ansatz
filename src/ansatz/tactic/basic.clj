@@ -55,6 +55,21 @@
       (meta/infer-type (:meta-mctx ps) st expr)
       (tc/infer-type st expr))))
 
+(defn- declare-level-mvars
+  "Declare any undeclared universe metavariables occurring in `exprs` so a
+   following `meta/is-def-eq` can assign them (the deleted legacy bridge did
+   this scan when building its context)."
+  [mctx exprs]
+  (reduce (fn [m expr]
+            (reduce (fn [m lid]
+                      (if (contains? (:level-depth m) lid)
+                        m
+                        (meta/add-level-mvar-decl m lid)))
+                    m
+                    (meta/unassigned-level-mvars m expr)))
+          mctx
+          exprs))
+
 (defn- defeq-in-goal
   "Definitional equality in a goal context. Returns an updated proof state on
    success (metavariable assignments installed, solved goals pruned) and nil
@@ -259,20 +274,6 @@
              allow-synth-failures? ps
              :else (throw first-error))))))))
 
-(defn- goal-mvar-ids
-  "The UNSOLVED proof mvars (fvar-encoded) that occur in `goal`'s type, excluding the goal itself and
-   this apply's own arg-mvars. These are the metavars SHARED with sibling goals (e.g. the middle term
-   `?m` minted by `apply List.Perm.trans`). Lean's apply/isDefEq runs in one MetavarContext where such
-   shared mvars are assignable; we make Strategy C assignable over them and persist the solutions into
-   the shared `:mctx` so sibling goals see them."
-  [ps goal arg-mvar-set]
-  (vec (filter (fn [id]
-                 (and (not= id (:id goal))
-                      (not (contains? arg-mvar-set id))
-                      (proof/mvar-open? ps id)))
-               (into (collect-fvar-ids (:type goal))
-                     (meta/collect-expr-mvars (:type goal))))))
-
 (defn- normalize-for-match
   "Recursively normalize an expression enough for tactic-side matching.
    Unlike plain WHNF, this also reduces inside the application spine so
@@ -339,7 +340,9 @@
          ;; cascade re-runs matching and commits). Goal mvars stay protected
          ;; by their syntheticOpaque kind.
          (try
-           (some? (meta/is-def-eq (:meta-mctx ps) st resolved-ty goal-type))
+           (some? (meta/is-def-eq (declare-level-mvars (:meta-mctx ps)
+                                                       [resolved-ty goal-type])
+                                  st resolved-ty goal-type))
            (catch Exception _ false))
          (try
            (and (not (meta/has-expr-mvar? resolved-ty))
@@ -602,86 +605,54 @@
 ;; ============================================================
 
 (defn assumption
-  "Search the local context for a hypothesis matching the goal type.
-   Following Lean 4: uses isDefEq as primary matching (Assumption.lean:20).
-   When the goal has unresolved fvar-mvars, isDefEq matching extracts
-   the bindings and propagates them to sibling goals."
+  "Search the local context for a hypothesis matching the goal type —
+   Lean's `findLocalDeclWithType?` (Assumption.lean): isDefEq per hypothesis.
+   Goals whose types mention metavariable holes match through the shared
+   metacontext, so a hypothesis can determine open holes (e.g. le_trans's
+   middle term)."
   [ps]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         lctx (:lctx goal)
         goal-type (:type goal)
-        ;; Collect ALL unresolved fvar-mvars (including implicit/hidden ones)
-        unresolved-mvars (set (filter #(proof/mvar-open? ps %)
-                                      (proof/mvar-ids ps)))
         ;; Strategy 1: structural equality (fast, no mvar issues)
         struct-match (some (fn [[id decl]]
                              (when (and (= :local (:tag decl))
                                         (= (:type decl) goal-type))
-                               {:fvar-id id :bindings {}}))
+                               {:fvar-id id}))
                            lctx)
-        ;; Strategy 1.5: goals whose types mention real mvar holes match
-        ;; through the shared metacontext — Lean's findLocalDeclWithType?
-        ;; runs one isDefEq per hypothesis and commits the assignments, so a
-        ;; hypothesis can determine open holes (e.g. le_trans's middle term).
-        meta-match (when (and (not struct-match)
-                              (:meta-mctx ps)
-                              (meta/has-expr-mvar? goal-type))
+        ;; Strategy 2: one isDefEq per hypothesis in the shared metacontext;
+        ;; assignments commit into the returned proof state.
+        meta-match (when-not struct-match
                      (some (fn [[id decl]]
-                             (when (= :local (:tag decl))
+                             (when (and (= :local (:tag decl))
+                                        (or (meta/has-expr-mvar? goal-type)
+                                            (meta/has-expr-mvar? (:type decl))))
                                (when-let [ps' (try (defeq-in-goal ps lctx (:type decl) goal-type)
                                                    (catch Exception _ nil))]
-                                 {:fvar-id id :bindings {} :ps ps'})))
+                                 {:fvar-id id :ps ps'})))
                            lctx))
-        ;; Strategy 2: isDefEq with WHNF extraction (Lean 4's primary mechanism).
-        ;; Try each hypothesis; extract fvar-mvar bindings on match.
-        deq-match (when-not (or struct-match meta-match)
+        ;; Strategy 3: Java-TC isDefEq for mvar-free goals — full lazy-delta
+        ;; reduction (e.g. a hypothesis spelled through definitions).
+        deq-match (when-not (or struct-match meta-match
+                                (meta/has-expr-mvar? goal-type))
                     (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
                           _ (.setFuel jtc config/*default-fuel*)
                           _ (doseq [[id decl] lctx]
                               (when (= :local (:tag decl))
-                                (.addLocal jtc (long id) (str (:name decl)) (:type decl))))
-                          ;; Also register unresolved mvars as locals
-                          _ (doseq [mid unresolved-mvars]
-                              (when-let [mtype (proof/mvar-type ps mid)]
-                                (.addLocal jtc (long mid) "?m" mtype)))
-                          st (mk-tc ps lctx)
-                          goal-whnf (try (#'tc/cached-whnf st goal-type)
-                                         (catch Exception _ goal-type))]
+                                (.addLocal jtc (long id) (str (:name decl)) (:type decl))))]
                       (some (fn [[id decl]]
-                              (when (= :local (:tag decl))
-                                (let [hyp-type (:type decl)
-                                      hyp-whnf (try (#'tc/cached-whnf st hyp-type)
-                                                    (catch Exception _ hyp-type))
-                                      ;; Extract fvar-mvar bindings from WHNF forms
-                                      bindings (atom {})
-                                      _ (letfn [(extract [g h]
-                                                  (cond
-                                                    (and (e/fvar? g) (contains? unresolved-mvars (e/fvar-id g)))
-                                                    (swap! bindings assoc (e/fvar-id g) h)
-                                                    (and (e/app? g) (e/app? h))
-                                                    (do (extract (e/app-fn g) (e/app-fn h))
-                                                        (extract (e/app-arg g) (e/app-arg h)))
-                                                    :else nil))]
-                                          (try (extract goal-whnf hyp-whnf) (catch Exception _ nil)))
-                                      ;; Substitute bindings and verify with isDefEq
-                                      resolved-goal (reduce (fn [t [mid val]]
-                                                              (e/instantiate1 (e/abstract1 t mid) val))
-                                                            goal-type @bindings)]
-                                  (when (try (.isDefEq jtc hyp-type resolved-goal)
-                                             (catch Exception _ false))
-                                    {:fvar-id id :bindings @bindings}))))
+                              (when (and (= :local (:tag decl))
+                                         (try (.isDefEq jtc (:type decl) goal-type)
+                                              (catch Exception _ false)))
+                                {:fvar-id id}))
                             lctx)))
         result (or struct-match meta-match deq-match)]
     (when-not result
       (tactic-error! "No matching hypothesis found" {:goal-type (:type goal)}))
-    ;; Propagate fvar-mvar bindings to sibling goals
-    (let [ps (or (:ps result) ps)
-          ps (reduce (fn [ps [mid val]]
-                       (proof/assign-mvar ps mid {:kind :exact :term val}))
-                     ps (:bindings result))]
-      (-> (proof/assign-mvar ps (:id goal) {:kind :assumption :fvar-id (:fvar-id result)})
-          (proof/record-tactic :assumption [] (:id goal))))))
+    (-> (proof/assign-mvar (or (:ps result) ps) (:id goal)
+                           {:kind :assumption :fvar-id (:fvar-id result)})
+        (proof/record-tactic :assumption [] (:id goal)))))
 
 ;; ============================================================
 ;; apply (following Lean 4's MVarId.apply algorithm)
@@ -791,16 +762,8 @@
               try-real-mctx-isdefeq
               (fn []
                 (try
-                  ;; Declare any undeclared level mvars from the applied term's
-                  ;; type first (the legacy bridge did this scan in its
-                  ;; build-meta-context), then run Lean's one-mctx isDefEq.
-                  (let [mctx0 @real-mctx
-                        mctx0 (reduce (fn [m lid]
-                                        (if (contains? (:level-depth m) lid)
-                                          m
-                                          (meta/add-level-mvar-decl m lid)))
-                                      mctx0
-                                      (meta/unassigned-level-mvars mctx0 resolved-ty))]
+                  (let [mctx0 (declare-level-mvars @real-mctx
+                                                   [resolved-ty (:type goal)])]
                     (when-let [mctx (meta/is-def-eq mctx0 st resolved-ty (:type goal))]
                       (reset! real-mctx mctx)
                       {}))
@@ -1876,9 +1839,9 @@
     [ps goal-id]
     (let [focused (move-goals-to-front ps [goal-id])
           cleared (try-clear focused hyp-fvar-id)
-          ;; `clear` replaces the focused goal in position; on failure
-          ;; try-clear returns the state unchanged, so the front goal is
-          ;; the focused goal either way.
+          ;; `clear` replaces the focused goal in position (fresh-mvar-replacing);
+          ;; on failure try-clear returns the state unchanged, so the front
+          ;; goal is the focused goal either way.
           child-id (or (first (:goals cleared)) goal-id)]
       [cleared child-id])))
 
@@ -2192,7 +2155,9 @@
         _ (when (expr-depends-on-fvar? (:type goal) hyp-fvar-id)
             (tactic-error! "clear: target depends on hypothesis" {:id hyp-fvar-id}))
         new-lctx (dissoc (:lctx goal) hyp-fvar-id)
-        [ps' new-goal-id] (proof/fresh-mvar ps (:type goal) new-lctx)]
+        ;; Replace the goal IN POSITION (Lean's MVarId.clear returns the
+        ;; replacement goal where the old one was).
+        [ps' new-goal-id] (proof/fresh-mvar-replacing ps (:type goal) new-lctx (:id goal))]
     (-> (proof/assign-mvar ps' (:id goal)
                            {:kind :clear
                             :fvar-id hyp-fvar-id
