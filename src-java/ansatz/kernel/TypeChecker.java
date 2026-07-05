@@ -2303,9 +2303,94 @@ public final class TypeChecker {
         return new ConstantCheckState(tc);
     }
 
+    private static final Object QUOT_BI = clojure.lang.Keyword.intern(null, "default");
+    private static Expr qPi(Object nm, Expr dom, Expr body) {
+        return Expr.forall(nm, dom, body, QUOT_BI);
+    }
+
+    /**
+     * Validate a quotient-primitive declaration before admitting it.
+     *
+     * Lean's kernel never accepts external quotient declarations: {@code environment::add_quot}
+     * (kernel/quot.cpp) GENERATES exactly Quot / Quot.mk / Quot.lift / Quot.ind with
+     * kernel-computed types. We import the primitives instead, so the kernel must validate that
+     * an admitted quot-kind constant is one of those four canonical primitives with the expected
+     * type — otherwise a raw declaration (e.g. from a corrupt export) could inject an arbitrary
+     * unchecked axiom such as {@code BogusQuot : False}. Throws on any mismatch.
+     */
+    static void validateQuotDeclaration(Env env, ConstantInfo ci) {
+        Expr expected = expectedQuotType((Name) ci.name, ci.levelParams);
+        if (expected == null) {
+            throw new RuntimeException("Invalid quotient declaration '" + ci.name +
+                "': not a canonical quotient primitive (Quot / Quot.mk / Quot.lift / Quot.ind) " +
+                "with the expected universe parameters");
+        }
+        TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
+        if (!tc.isDefEq(ci.type, expected)) {
+            throw new RuntimeException("Invalid quotient declaration '" + ci.name +
+                "': type does not match the kernel-expected type for this quotient primitive");
+        }
+    }
+
+    /** Kernel-expected type for a canonical quotient primitive, or null if the name/arity is not canonical. */
+    private static Expr expectedQuotType(Name name, Object[] lps) {
+        Expr PROP = Expr.sort(Level.ZERO_LEVEL, false);
+        // r : α → α → Prop, built at the binder site directly below α (α = bvar 0 there).
+        Expr rel = qPi("a", Expr.bvar(0), qPi("a", Expr.bvar(1), PROP));
+        if (name == Name.QUOT || name == Name.QUOT_MK || name == Name.QUOT_IND) {
+            if (lps.length != 1) return null;
+            Level u = Level.param(lps[0]);
+            Expr Su = Expr.sort(u, true);
+            Expr QuotU = Expr.mkConst(Name.QUOT, new Object[]{u}, true);
+            if (name == Name.QUOT) {
+                // ∀ (α : Sort u) (r : α→α→Prop), Sort u
+                return qPi("a", Su, qPi("r", rel, Su));
+            }
+            if (name == Name.QUOT_MK) {
+                // ∀ (α : Sort u) (r : α→α→Prop) (a : α), @Quot.{u} α r
+                Expr res = Expr.app(Expr.app(QuotU, Expr.bvar(2)), Expr.bvar(1));
+                return qPi("a", Su, qPi("r", rel, qPi("a", Expr.bvar(1), res)));
+            }
+            // Quot.ind: ∀ α r (β : @Quot α r → Prop) (h : ∀ a, β (@Quot.mk α r a)) (q : @Quot α r), β q
+            Expr QuotMkU = Expr.mkConst(Name.QUOT_MK, new Object[]{u}, true);
+            Expr betaType = qPi("q", Expr.app(Expr.app(QuotU, Expr.bvar(1)), Expr.bvar(0)), PROP);
+            Expr hType = qPi("a", Expr.bvar(2),
+                Expr.app(Expr.bvar(1),
+                    Expr.app(Expr.app(Expr.app(QuotMkU, Expr.bvar(3)), Expr.bvar(2)), Expr.bvar(0))));
+            Expr qType = Expr.app(Expr.app(QuotU, Expr.bvar(3)), Expr.bvar(2));
+            Expr res = Expr.app(Expr.bvar(2), Expr.bvar(0));
+            return qPi("a", Su, qPi("r", rel, qPi("b", betaType, qPi("h", hType, qPi("q", qType, res)))));
+        }
+        if (name == Name.QUOT_LIFT) {
+            if (lps.length != 2) return null;
+            Level u = Level.param(lps[0]);
+            Level v = Level.param(lps[1]);
+            Expr Su = Expr.sort(u, true);
+            Expr Sv = Expr.sort(v, true);
+            Expr QuotU = Expr.mkConst(Name.QUOT, new Object[]{u}, true);
+            Expr EqV = Expr.mkConst(Name.EQ, new Object[]{v}, true);
+            // f : α → β   (ctx [α,r,β])
+            Expr fType = qPi("a", Expr.bvar(2), Expr.bvar(1));
+            // h : ∀ (a b : α), r a b → @Eq.{v} β (f a) (f b)   (ctx [α,r,β,f])
+            Expr rab = Expr.app(Expr.app(Expr.bvar(4), Expr.bvar(1)), Expr.bvar(0));
+            Expr eqBody = Expr.app(Expr.app(Expr.app(EqV, Expr.bvar(4)),
+                Expr.app(Expr.bvar(3), Expr.bvar(2))),
+                Expr.app(Expr.bvar(3), Expr.bvar(1)));
+            Expr hType = qPi("a", Expr.bvar(3), qPi("b", Expr.bvar(4), qPi("h", rab, eqBody)));
+            // q : @Quot.{u} α r   (ctx [α,r,β,f,h])
+            Expr qType = Expr.app(Expr.app(QuotU, Expr.bvar(4)), Expr.bvar(3));
+            // result : β   (ctx [α,r,β,f,h,q])
+            return qPi("a", Su, qPi("r", rel, qPi("b", Sv, qPi("f", fType, qPi("h", hType, qPi("q", qType, Expr.bvar(3)))))));
+        }
+        return null;
+    }
+
     public static Env checkConstant(Env env, ConstantInfo ci, long fuel) {
-        // Quotient primitives: just enable and add (no type-checking needed, they are axioms).
+        // Quotient primitives are trusted kernel primitives, not externally type-checked
+        // declarations — but we MUST validate they are the canonical Quot/Quot.mk/Quot.lift/
+        // Quot.ind with the expected types before admitting (Lean generates these internally).
         if (ci.isQuot()) {
+            validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
 
@@ -2326,6 +2411,7 @@ public final class TypeChecker {
      */
     public static Env checkConstantReplace(Env env, ConstantInfo ci, long fuel) {
         if (ci.isQuot()) {
+            validateQuotDeclaration(env, ci);
             return env.enableQuot().addOrReplaceConstant(ci);
         }
         Expr.enableIntern();
@@ -2407,6 +2493,7 @@ public final class TypeChecker {
     /** Type-check a declaration with structured NDJSON trace output. */
     public static Env checkConstantTraced(Env env, ConstantInfo ci, long fuel, Writer traceWriter) {
         if (ci.isQuot()) {
+            validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
         Expr.enableIntern();
@@ -2423,6 +2510,7 @@ public final class TypeChecker {
     /** Like checkConstantTraced, but emits simple phase markers for theorem/definition checking. */
     public static Env checkConstantTracedPhased(Env env, ConstantInfo ci, long fuel, Writer traceWriter) {
         if (ci.isQuot()) {
+            validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
         Expr.enableIntern();
