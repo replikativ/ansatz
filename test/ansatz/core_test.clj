@@ -3,12 +3,16 @@
    Uses init-medium.ndjson (2997 declarations, ~1.5s load)."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.inductive :as ind]
             [ansatz.export.storage :as storage]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.name :as name]))
+            [ansatz.kernel.name :as name]
+            [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.extract :as extract]
+            [ansatz.tactic.proof :as proof]))
 
 ;; ============================================================
 ;; Environment setup
@@ -91,6 +95,107 @@
       (a/prove-theorem 'assume-test '[^Nat n ^{:- (= Nat n n)} h] '(= Nat n n) '[(assumption)])
       (is true "theorem proved"))))
 
+(deftest test-theorem-refine
+  (testing "Prove through public refine tactics"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'refine-named-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(refine ?goal) (assumption)])
+      (a/prove-theorem 'refine-prime-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(refine' _) (assumption)])
+      (a/prove-theorem 'change-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(change _) (assumption)])
+      (a/prove-theorem 'change-local-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(change _ at h) (exact h)])
+      (a/prove-theorem 'change-local-beta-test
+                       '[^Nat n ^{:- ((lam [x Nat] (= Nat x x)) n)} h]
+                       '(= Nat n n)
+                       '[(change (= Nat n n) at h) (exact h)])
+      (a/prove-theorem 'show-hole-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(show _) (assumption)])
+      (a/prove-theorem 'specialize-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(specialize (h hp)) (assumption)])
+      ;; Lean spelling: `specialize h hp` (varargs, no explicit application)
+      (a/prove-theorem 'specialize-varargs-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(specialize h hp) (assumption)])
+      (a/prove-theorem 'apply-partial-forall-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- Prop} r
+                         ^{:- (arrow p (arrow q r))} h
+                         ^{:- p} hp]
+                       '(arrow q r)
+                       '[(apply h) (assumption)])
+      (a/prove-theorem 'apply-compound-hole-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(apply (h ?hp)) (assumption)])
+      (a/prove-theorem 'apply-hole-test
+                       '[^{:- Prop} q ^{:- q} hq]
+                       'q
+                       '[(apply _) (assumption)])
+      (when-not (a/has-constant? "ApplyLocalCls")
+        (a/structure ApplyLocalCls [S Type]
+                     (witness S)))
+      (when-not (a/has-constant? "applyLocalInstEq")
+        (a/prove-theorem 'applyLocalInstEq
+                         '[S :- Type :implicit inst :- (ApplyLocalCls S) :inst]
+                         '(= (ApplyLocalCls S) inst inst)
+                         '[(rfl)]))
+      (when-not (a/has-constant? "apply-local-instance-test")
+        (a/prove-theorem 'apply-local-instance-test
+                         '[S :- Type inst :- (ApplyLocalCls S)]
+                         '(= (ApplyLocalCls S) inst inst)
+                         '[(apply applyLocalInstEq)]))
+      (a/prove-theorem 'clear-unused-test
+                       '[^Nat n ^{:- (= Nat n n)} h]
+                       '(= Nat n n)
+                       '[(clear h) (rfl)])
+      (a/prove-theorem 'replace-inline-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(replace h q (h hp)) (assumption)])
+      (a/prove-theorem 'replace-noproof-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(replace h q) (exact (h hp)) (assumption)])
+      (a/prove-theorem 'replace-infer-test
+                       '[^{:- Prop} p ^{:- Prop} q ^{:- (arrow p q)} h ^{:- p} hp]
+                       'q
+                       '[(replace h := (h hp)) (assumption)])
+      (is true "theorems proved"))))
+
+(deftest test-constructor-tries-later-indexed-constructors
+  (testing "`constructor` skips inapplicable indexed constructors like Lean"
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "TChoice"))
+        (ind/define-inductive (a/env) "TChoice"
+          '[]
+          [['zero [] [0]]
+           ['one [] [1]]]
+          :indices '[n Nat]))
+      (let [goal-type (e/app (e/const' (name/from-string "TChoice") []) (e/lit-nat 1))
+            [ps _] (proof/start-proof (a/env) goal-type)
+            ps (basic/constructor ps)]
+        (is (proof/solved? ps))
+        (is (some? (extract/verify ps))))
+      (let [goal-type (e/app (e/const' (name/from-string "TChoice") []) (e/lit-nat 1))
+            [ps _] (proof/start-proof (a/env) goal-type)
+            ps (basic/right ps)]
+        (is (proof/solved? ps))
+        (is (some? (extract/verify ps)))))))
+
 (deftest test-theorem-induction
   (testing "Prove by induction on Nat"
     (binding [a/*verbose* false]
@@ -121,7 +226,29 @@
                        '[^Nat n]
                        '(= Nat n n)
                        '[(have hx (= Nat n n)) (rfl) (exact hx)])
-      (is true "theorem proved"))))
+      (is true "theorem proved")))
+  (testing "`have h := proof` infers the asserted type from the proof"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'have-infer-test
+                       '[^Nat n]
+                       '(= Nat n n)
+                       '[(have hx := (Eq.refl n)) (exact hx)])
+      (is true "theorem proved")))
+  (testing "`have h : T := proof` spelling is accepted"
+    (binding [a/*verbose* false]
+      (a/prove-theorem 'have-explicit-assign-test
+                       '[^Nat n]
+                       '(= Nat n n)
+                       '[(have hx (= Nat n n) := (Eq.refl n)) (exact hx)])
+      (is true "theorem proved")))
+  (testing "`have h : T proof` rejects proof holes"
+    (binding [a/*verbose* false]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exact: unresolved holes"
+                            (a/prove-theorem 'have-inline-hole-test
+                                             '[^Nat n]
+                                             '(= Nat n n)
+                                             '[(have hx (= Nat n n) ?proof)
+                                               (exact hx)]))))))
 
 (deftest test-cases-on-indexed-family
   ;; `cases` on a PARAMETERIZED indexed Prop family (List.Mem) — Bug B: the index equalities are

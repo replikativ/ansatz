@@ -19,6 +19,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
             [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.simp :as simp]
@@ -709,6 +710,14 @@
               :else (elab/elaborate-in-context (:env ps) (:lctx g) a)))
           args)))
 
+(clojure.core/defn- apply-hole-symbol?
+  [x]
+  (and (symbol? x)
+       (let [s (str x)]
+         (or (= s "_")
+             (= s "?_")
+             (clojure.string/starts-with? s "?")))))
+
 (clojure.core/defn- elab-apply-arg
   "Resolve an `apply`/`solve_by_elim` lemma argument to a kernel term, returning [ps' term].
    A bare symbol that names a LOCAL HYPOTHESIS resolves to that fvar first (locals shadow globals,
@@ -728,18 +737,27 @@
                           nil lctx))]
     (if hyp-fid
       [ps (e/fvar hyp-fid)]
-      (let [arg' (if (symbol? arg) (symbol (str "@" arg)) arg)]
-        (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
-             (catch Throwable ex
-               (if (and (symbol? arg)
-                        (clojure.string/includes? (str (.getMessage ex)) "universe level"))
-                 (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
-                       lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
-                       [ps' ids] (reduce (fn [[p acc] _]
-                                           (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
-                                         [ps []] lparams)]
-                   [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
-                 (throw ex))))))))
+      (if (or (apply-hole-symbol? arg) (not (symbol? arg)))
+        (let [goal (proof/current-goal ps)
+              {:keys [ps checked-expr]}
+              (telab/elab-term-with-holes ps goal arg
+                                          {:expected-type nil
+                                           :allow-natural-holes? true
+                                           :tag-suffix (name/from-string "apply")
+                                           :tactic-name "apply"})]
+          [ps checked-expr])
+        (let [arg' (symbol (str "@" arg))]
+          (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
+               (catch Throwable ex
+                 (if (and (symbol? arg)
+                          (clojure.string/includes? (str (.getMessage ex)) "universe level"))
+                   (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
+                         lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
+                         [ps' ids] (reduce (fn [[p acc] _]
+                                             (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                                           [ps []] lparams)]
+                     [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
+                   (throw ex)))))))))
 
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
@@ -783,6 +801,16 @@
           spec (if reverse? (second args) (first args))]
       (do-rewrite-one ps reverse? spec))))
 
+(clojure.core/defn- latest-local-id-by-name
+  [lctx local-name]
+  (let [local-name (str local-name)]
+    (reduce (fn [best [id d]]
+              (if (and (= local-name (:name d))
+                       (or (nil? best) (> (long id) (long best))))
+                id best))
+            nil
+            lctx)))
+
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
    'assumption (fn [ps _] (basic/assumption ps))
@@ -793,19 +821,36 @@
    'right     (fn [ps _] (basic/right ps))
    'exact?    (fn [ps _] (basic/exact? ps))
    'exact     (fn [ps args]
-                ;; (exact <term>) — close the goal with an explicit proof term, elaborated in the
-                ;; goal's local context (hypotheses in scope). The companion to exact? (auto-search).
-                ;; BIDIRECTIONAL (faithful to Lean's `exact`): the goal type is the EXPECTED type, so a
-                ;; partially-applied citation whose implicits aren't pinned by its explicit args alone
-                ;; (e.g. `List.map_congr_left h` — f/g/l implicit) gets them solved by unifying the
-                ;; lemma's conclusion against the goal, instead of surfacing "unsolved metavariables".
-                (let [g (proof/current-goal ps)
-                      term (try (elab/elaborate-in-context (:env ps) (:lctx g) (first args) (:type g))
-                                ;; fall back to expectation-free elaboration if the expected-type unify
-                                ;; rejects a def-eq-but-not-syntactic match the kernel would still accept.
-                                (catch Throwable _
-                                  (elab/elaborate-in-context (:env ps) (:lctx g) (first args))))]
-                  (basic/exact ps term)))
+                (basic/exact-form ps (first args)))
+   'refine    (fn [ps args]
+                (basic/refine ps (first args)))
+   'refine'   (fn [ps args]
+                (basic/refine-prime ps (first args)))
+   'specialize (fn [ps args]
+                 ;; Lean spelling `specialize h a b` and the applied form
+                 ;; `specialize (h a b)` both mean: elaborate `(h a b)`.
+                 (basic/specialize ps (if (next args)
+                                        (apply list args)
+                                        (first args))))
+   'change    (fn [ps args]
+                (let [new-type (first args)]
+                  (if (= 'at (second args))
+                    (let [locs (vec (drop 2 args))]
+                      (when (empty? locs)
+                        (throw (ex-info "change: expected at least one local name after `at`"
+                                        {:kind :tactic-error :args args})))
+                      (reduce (fn [ps loc]
+                                (let [g (proof/current-goal ps)
+                                      fid (latest-local-id-by-name (:lctx g) loc)]
+                                  (when-not fid
+                                    (throw (ex-info (str "change: unknown local '" loc "'")
+                                                    {:kind :tactic-error :local loc})))
+                                  (basic/change-local ps fid new-type)))
+                              ps
+                              locs))
+                    (basic/change ps new-type))))
+   'show      (fn [ps args]
+                (basic/show ps (first args)))
    'omega     (fn [ps _] (omega/omega ps))
    'ac_rfl    (fn [ps _] (ac/ac-rfl ps))
    'trans     (fn [ps args]
@@ -833,21 +878,64 @@
                                    a-val mid c-val h1-term h2-term)]
                   (basic/apply-tac ps term)))
    'have      (fn [ps args]
-                ;; (have name type)        — introduce `name : type` as a new subgoal to prove, then
-                ;;                           continue the body with `name` in scope (Lean `have h : T`).
-                ;; (have name type proof)  — discharge that subgoal immediately with `proof` (Lean
-                ;;                           `have h : T := proof`); leaves only the body goal.
+                ;; (have name type)             — introduce `name : type` as a proof subgoal.
+                ;; (have name type proof)       — existing compact Ansatz spelling of Lean
+                ;;                                `have name : type := proof`.
+                ;; (have name type := proof)    — Lean-like explicit-type spelling.
+                ;; (have name := proof)         — Lean-like inferred-type spelling.
                 (let [hyp-name (str (first args))
+                      argc (count args)]
+                  (cond
+                    (and (= argc 3) (= ':= (second args)))
+                    (basic/have-infer-tac ps hyp-name (nth args 2))
+
+                    (and (= argc 4) (= ':= (nth args 2)))
+                    (let [g (proof/current-goal ps)
+                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                      (basic/exact-form (basic/have-tac ps hyp-name hyp-type) (nth args 3)))
+
+                    (>= argc 2)
+                    (let [g (proof/current-goal ps)
+                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))
+                          ps' (basic/have-tac ps hyp-name hyp-type)]
+                      (if (>= argc 3)
+                        ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
+                        ;; proof term, leaving the body goal current.
+                        (basic/exact-form ps' (nth args 2))
+                        ps'))
+
+                    :else
+                    (throw (ex-info "have: expected (have name type), (have name type proof), or (have name := proof)"
+                                    {:kind :tactic-error :args args})))))
+   'replace   (fn [ps args]
+                ;; Lean-style `replace`: `have` the new declaration, then try to clear the old local
+                ;; with the same user-facing name from the body goal.
+                (let [hyp-name (str (first args))
+                      argc (count args)
                       g (proof/current-goal ps)
-                      hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))
-                      ps' (basic/have-tac ps hyp-name hyp-type)]
-                  (if (>= (count args) 3)
-                    ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
-                    ;; elaborated proof term (in the original context), leaving the body goal current.
-                    (let [g1 (proof/current-goal ps')
-                          proof-term (elab/elaborate-in-context (:env ps') (:lctx g1) (nth args 2))]
-                      (basic/exact ps' proof-term))
-                    ps')))
+                      old-fid (reduce (fn [best [id d]]
+                                        (if (and (= hyp-name (:name d))
+                                                 (or (nil? best) (> (long id) (long best))))
+                                          id best))
+                                      nil
+                                      (:lctx g))]
+                  (cond
+                    (and (= argc 3) (= ':= (second args)))
+                    (basic/replace-infer-tac ps old-fid hyp-name (nth args 2))
+
+                    (and (= argc 4) (= ':= (nth args 2)))
+                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                      (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 3)))
+
+                    (>= argc 2)
+                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                      (if (>= argc 3)
+                        (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 2))
+                        (basic/replace-tac ps old-fid hyp-name hyp-type)))
+
+                    :else
+                    (throw (ex-info "replace: expected (replace name type), (replace name type proof), or (replace name := proof)"
+                                    {:kind :tactic-error :args args})))))
    ;; Lean 4 `simp only [...]` / `simp_all only [...]`: a leading `only` token strips the default
    ;; @[simp] corpus, using ONLY the given lemmas (+ reflexive-closer builtins). See simp/simp opts.
    'simp      (fn [ps args]
@@ -998,6 +1086,10 @@
                         (basic/solve-by-elim ps'))))
    'split_ifs (fn [ps _args] (basic/split-ifs ps))
    'split     (fn [ps _args] (basic/split-tac ps))
+   'clear     (fn [ps args]
+                (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
+                                (:lctx (proof/current-goal ps)))]
+                  (basic/clear ps fid)))
    'revert    (fn [ps args]
                 (let [fid (some (fn [[id d]] (when (= (str (first args)) (:name d)) id))
                                 (:lctx (proof/current-goal ps)))]

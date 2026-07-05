@@ -5,7 +5,9 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as elab]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]))
@@ -164,6 +166,214 @@
       ;; Prop is Sort 0, not Nat
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"mismatch|error"
                             (elab/elaborate env 'Prop nat))))))
+
+;; ============================================================
+;; Collecting holes
+;; ============================================================
+
+(deftest test-elab-collecting-top-hole
+  (testing "collecting elaboration returns real mvars instead of failing"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          {:keys [expr holes meta-mctx level-holes]} (elab/elaborate-collecting env '_ expected)]
+      (is (e/mvar? expr))
+      (is (= 1 (count holes)))
+      (is (= expr (:expr (first holes))))
+      (is (= expected (:type (first holes))))
+      (is (= :natural (:kind (first holes))))
+      (is (nil? (:user-name (first holes))))
+      (is (map? meta-mctx))
+      ;; The hole's type was determined by expected, so the synthetic type
+      ;; and universe mvars should have been solved away.
+      (is (empty? level-holes)))))
+
+(deftest test-elab-collecting-named-hole
+  (testing "named holes preserve user-name metadata in the metacontext"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          {:keys [holes meta-mctx]} (elab/elaborate-collecting env '?goal expected)
+          hole (first holes)
+          user-name (:user-name hole)]
+      (is (= 1 (count holes)))
+      (is (= "goal" (name/->string user-name)))
+      (is (= :syntheticOpaque (:kind hole)))
+      (is (= (:id hole) (get-in meta-mctx [:user-names user-name]))))))
+
+(deftest test-elab-collecting-reuses-existing-named-hole
+  (testing "named holes reuse an existing user-name entry in the metacontext"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          hole-name (name/from-string "goal")
+          initial-mctx (meta/add-expr-mvar-decl meta/empty-context 7 expected
+                                                (red/empty-lctx)
+                                                {:kind :syntheticOpaque
+                                                 :user-name hole-name})
+          {:keys [expr holes meta-mctx]} (elab/elaborate-collecting env '?goal expected
+                                                                    {:initial-meta-mctx initial-mctx})]
+      (is (= (e/mvar 7) expr))
+      (is (empty? holes))
+      (is (= 7 (get-in meta-mctx [:user-names hole-name]))))))
+
+(deftest test-elab-collecting-hole-as-synthetic-opaque
+  (testing "collecting elaboration can mirror Lean refine' holesAsSyntheticOpaque mode"
+    (let [env (env/empty-env)
+          expected (e/sort' lvl/zero)
+          {:keys [holes]} (elab/elaborate-collecting env '_ expected
+                                                     {:holes-as-synthetic-opaque? true})]
+      (is (= 1 (count holes)))
+      (is (= :syntheticOpaque (:kind (first holes))))
+      (is (nil? (:user-name (first holes)))))))
+
+(deftest test-elab-collecting-refine-prime-assigns-synthetic-opaque
+  (testing "refine' mode lets later arguments solve synthetic-opaque placeholders"
+    (let [env (require-init-medium)
+          prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 10 "h" prop)
+          {:keys [expr holes level-holes meta-mctx]}
+          (elab/elaborate-in-context-collecting env lctx (list (symbol "@id") '_ 'h) prop
+                                                {:holes-as-synthetic-opaque? true})
+          [head args] (e/get-app-fn-args expr)]
+      (is (e/const? head))
+      (is (= (name/from-string "id") (e/const-name head)))
+      (is (= [prop (e/fvar 10)] args))
+      (is (empty? holes))
+      (is (empty? level-holes))
+      (is (not (:assign-synthetic-opaque? meta-mctx))))))
+
+(deftest test-elab-strict-top-hole-fails
+  (testing "strict elaboration still rejects unsolved holes"
+    (let [env (env/empty-env)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsolved metavariables"
+                            (elab/elaborate env '_ (e/sort' lvl/zero)))))))
+
+(deftest test-elab-collecting-context-hole
+  (testing "contextual collecting keeps local fvars and records hole type"
+    (let [env (env/empty-env)
+          prop (e/sort' lvl/zero)
+          lctx (red/lctx-add-local (red/empty-lctx) 7 "p" prop)
+          {:keys [expr holes]} (elab/elaborate-in-context-collecting env lctx '_ (e/fvar 7))]
+      (is (e/mvar? expr))
+      (is (= 1 (count holes)))
+      (is (= (e/fvar 7) (:type (first holes)))))))
+
+(deftest test-elab-solver-uses-checked-metacontext-assignment
+  (testing "expression mvar assignment rejects cycles"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          id (e/mvar-id hole)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
+                            (#'elab/solve-mvar! st id hole)))
+      (is (nil? (get-in @(:meta-mctx st) [:expr-assignment id])))))
+
+  (testing "level mvar assignment rejects cycles"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (lvl/mvar-id u)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
+                            (#'elab/solve-level-mvar! st id (lvl/succ u))))
+      (is (nil? (get-in @(:meta-mctx st) [:level-assignment id]))))))
+
+(deftest test-elab-level-unification-uses-metacontext
+  (testing "surface level unification solves in :meta-mctx"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (lvl/mvar-id u)]
+      (is (#'elab/unify-levels! st (lvl/succ u) (lvl/succ lvl/zero)))
+      (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))
+
+(deftest test-elab-expression-unification-uses-metacontext
+  (testing "surface expression unification solves in :meta-mctx"
+    (let [prop (e/sort' lvl/zero)
+          st (-> (#'elab/mk-elab-state (env/empty-env))
+                 (update :tc update :lctx red/lctx-add-local 42 "h" prop))
+          hole (#'elab/fresh-mvar! st prop)
+          id (e/mvar-id hole)]
+      (is (#'elab/unify! st hole (e/fvar 42)))
+      (is (= (e/fvar 42) (meta/expr-assignment @(:meta-mctx st) id))))))
+
+(deftest test-elab-infer-with-mvars-uses-metacontext
+  (testing "dependent surface holes are typed through real mvars in :meta-mctx"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          alpha (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          term (#'elab/fresh-mvar! st alpha)
+          alpha-id (e/mvar-id alpha)
+          term-id (e/mvar-id term)
+          term-decl (meta/expr-decl @(:meta-mctx st) term-id)]
+      (is (= (e/mvar alpha-id) (:type term-decl)))
+      (is (= alpha (#'elab/infer-with-mvars st term))))))
+
+(deftest test-elab-unsolved-scans-read-metacontext
+  (testing "expression holes are reported from :meta-mctx"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          id (e/mvar-id hole)
+          result (#'elab/collecting-finalize st hole)]
+      (is (= [id] (mapv :id (:holes result))))))
+
+  (testing "level holes are reported from :meta-mctx"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (lvl/mvar-id u)
+          result (#'elab/collecting-finalize st (e/sort' u))]
+      (is (= [id] (mapv :id (:level-holes result))))))
+
+  (testing "instance-hole metadata is reported from :meta-mctx"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero)
+                                   {:kind :synthetic :inst-implicit? true})
+          id (e/mvar-id hole)
+          result (#'elab/collecting-finalize st hole)
+          reported (first (:holes result))]
+      (is (= id (:id reported)))
+      (is (:inst-implicit? reported)))))
+
+(deftest test-elab-collecting-only-reports-result-mvars
+  (testing "unused fresh expression mvars are not collected as holes"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          live (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          live-id (e/mvar-id live)
+          stale (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          stale-id (e/mvar-id stale)
+          result (#'elab/collecting-finalize st live)]
+      (is (= [live-id] (mapv :id (:holes result))))
+      (is (not (some #{stale-id} (mapv :id (:holes result)))))))
+
+  (testing "unused fresh level mvars are not collected as level holes"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          live (#'elab/fresh-level-mvar! st)
+          live-id (lvl/mvar-id live)
+          stale (#'elab/fresh-level-mvar! st)
+          stale-id (lvl/mvar-id stale)
+          result (#'elab/collecting-finalize st (e/sort' live))]
+      (is (= [live-id] (mapv :id (:level-holes result))))
+      (is (not (some #{stale-id} (mapv :id (:level-holes result)))))))
+
+  (testing "assigned fresh mvars are followed before collecting"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          source (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          source-id (e/mvar-id source)
+          target (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          target-id (e/mvar-id target)]
+      (is (#'elab/solve-mvar! st source-id target))
+      (let [result (#'elab/collecting-finalize st source)]
+        (is (= [target-id] (mapv :id (:holes result))))
+        (is (not (some #{source-id} (mapv :id (:holes result)))))))))
+
+(deftest test-elab-assignment-writes-metacontext
+  (testing "expression assignment lands in the one metacontext"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
+          id (e/mvar-id hole)
+          solution (e/sort' lvl/zero)]
+      (is (#'elab/solve-mvar! st id solution))
+      (is (= solution (meta/expr-assignment @(:meta-mctx st) id)))))
+
+  (testing "level assignment lands in the one metacontext"
+    (let [st (#'elab/mk-elab-state (env/empty-env))
+          u (#'elab/fresh-level-mvar! st)
+          id (lvl/mvar-id u)]
+      (is (#'elab/solve-level-mvar! st id lvl/zero))
+      (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))
 
 ;; ============================================================
 ;; elaborate-check (full verification)

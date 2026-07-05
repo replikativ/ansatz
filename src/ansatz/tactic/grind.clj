@@ -579,7 +579,7 @@
                                          (-> (proof/assign-mvar ps (:id goal)
                                                                 {:kind :exact :term proof-term})
                                              (proof/record-tactic :grind [:ctor-injection] (:id goal)))))
-                                     (catch clojure.lang.ExceptionInfo _ nil))))
+                                     (catch Exception _ nil))))
                                 ;; DIFFERENT ctor: build noConfusion proof directly
                                 ;; T.noConfusion.{u_1, u} : {P} {α} {t : T α} {α'} {t' : T α'} →
                                 ;;   (α = α') → (t ≍ t') → T.noConfusionType P ...

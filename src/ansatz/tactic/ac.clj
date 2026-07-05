@@ -147,7 +147,12 @@
         carrier (nth args 0)
         L (nth args 1)
         R (nth args 2)
-        u (e/sort-level (red/whnf env (tc/infer-type st carrier) (:lctx g)))
+        u (e/sort-level (red/whnf env
+                                  (try (tc/infer-type st carrier)
+                                       (catch Exception ex
+                                         (throw (ex-info "ac_rfl: cannot infer carrier sort"
+                                                         {:carrier carrier} ex))))
+                                  (:lctx g)))
         ;; operator: strip two trailing args off whichever side is op-headed.
         op (or (when (and (e/app? L) (e/app? (e/app-fn L))) (e/app-fn (e/app-fn L)))
                (when (and (e/app? R) (e/app? (e/app-fn R))) (e/app-fn (e/app-fn R)))

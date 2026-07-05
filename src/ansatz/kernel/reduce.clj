@@ -280,7 +280,7 @@
   "Reduce to WHNF without delta unfolding."
   [env e lctx opts]
   (case (e/tag e)
-    (:bvar :sort :lam :forall :lit-nat :lit-str) e
+    (:bvar :sort :lam :forall :lit-nat :lit-str :mvar) e
     :fvar (if-let [decl (when lctx (lctx-lookup lctx (e/fvar-id e)))]
             (if-let [v (:value decl)]
               (do (check-fuel!) (recur env v lctx opts))

@@ -7,6 +7,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.match :as match]
             [ansatz.tactic.proof :as proof]
@@ -37,6 +38,26 @@
 
 (defn- whnf [env expr]
   (red/whnf env expr))
+
+(deftest test-structural-self-call-probe-rolls-back-metacontext
+  (testing "failed fixed-parameter probes do not leak speculative mvar assignments"
+    (let [prop (e/sort' lvl/zero)
+          mid 1001
+          self-name (name/from-string "self")
+          param-fid 11
+          rec-fid 12
+          ih-fid 13
+          expr (e/app* (e/const' self-name []) (e/mvar mid) (e/fvar rec-fid))
+          est {:meta-mctx (atom (meta/add-expr-mvar-decl meta/empty-context mid prop {}))
+               :unify-fn (fn [est _a b]
+                           (swap! (:meta-mctx est) meta/assign-expr mid b)
+                           false)}
+          before @(:meta-mctx est)
+          result (#'match/replace-self-ih est expr self-name {rec-fid ih-fid}
+                                          [param-fid rec-fid])]
+      (is (= expr result))
+      (is (= before @(:meta-mctx est)))
+      (is (nil? (meta/expr-assignment @(:meta-mctx est) mid))))))
 
 ;; ============================================================
 ;; Match expression tests

@@ -7,6 +7,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
@@ -240,6 +241,7 @@
           [ps root-id] (proof/start-proof env prop)]
       (is (= 1 (count (:goals ps))))
       (is (= root-id (:root-mvar ps)))
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps root-id))))
       (is (not (proof/solved? ps)))))
 
   (testing "goals returns goal info"
@@ -249,8 +251,195 @@
       (is (= 1 (count gs)))
       (is (= prop (:type (first gs)))))))
 
+(deftest test-tactic-goals-are-synthetic-opaque
+  (testing "ordinary defeq cannot close the current tactic goal"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          goal (proof/current-goal ps)
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id)) (:lctx goal))
+          st (tc/mk-tc-state-with-locals env (:lctx goal))]
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps (:id goal)))))
+      (is (nil? (meta/is-def-eq (:meta-mctx ps) st
+                                (e/mvar (:id goal))
+                                (e/fvar h-id)))))))
+
+(deftest test-auxiliary-proof-mvars-can-be-natural
+  (testing "the proof allocator can still create Lean-style assignable auxiliary mvars"
+    (let [env (minimal-env)
+          [ps _] (proof/start-proof env prop)
+          [ps aux-id] (proof/fresh-mvar ps prop (red/empty-lctx) {:kind :natural})]
+      (is (= :natural (:kind (proof/mvar-decl ps aux-id)))))))
+
 ;; ============================================================
-;; Test 10: apply with unification (implicit args)
+;; Test 10: refine with surface holes
+;; ============================================================
+
+(deftest test-refine-surface-term
+  (testing "refine closes a goal with a surface term in the local context"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/refine 'h))]
+      (is (proof/solved? ps))
+      (is (not (e/has-fvar-flag (extract/verify ps)))))))
+
+(deftest test-refine-named-hole-becomes-goal
+  (testing "named holes are synthetic-opaque goals under refine"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h")
+                 (basic/refine '?goal))
+          goal (proof/current-goal ps)]
+      (is (= 1 (count (:goals ps))))
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps (:id goal)))))
+      (let [ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+(deftest test-refine-rejects-natural-holes
+  (testing "refine rejects unsolved natural holes by default"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop (e/bvar 0) :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (basic/intro ps "p")
+          expected-type-str (e/->string (:type (proof/current-goal ps)))]
+      (try
+        (basic/refine ps '_)
+        (is false "expected refine to reject natural holes")
+        (catch clojure.lang.ExceptionInfo ex
+          (let [data (ex-data ex)
+                diagnostics (:hole-diagnostics data)
+                first-hole (first diagnostics)]
+            (is (re-find #"natural holes" (.getMessage ex)))
+            (is (re-find #"use refine'" (.getMessage ex)))
+            (is (= 1 (:hole-count data)))
+            (is (= 1 (count diagnostics)))
+            (is (= :natural (:kind first-hole)))
+            (is (= "?m." (subs (:display-name first-hole) 0 3)))
+            (is (= expected-type-str (:type-str first-hole)))))))))
+
+(deftest test-refine-prime-allows-natural-holes-under-binders
+  (testing "refine-prime turns lambda-body holes into subgoals with delayed abstraction"
+    (let [env (minimal-env)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (basic/intro ps "p")
+          ps (basic/refine-prime ps '(lam [h p] _))]
+      (is (= 1 (count (:goals ps))))
+      (is (= :syntheticOpaque (:kind (proof/mvar-decl ps (first (:goals ps))))))
+      (let [ps (basic/assumption ps)]
+        (is (proof/solved? ps))
+        (is (not (e/has-fvar-flag (extract/verify ps))))))))
+
+(deftest test-refine-prime-stores-instantiated-assignment
+  (testing "refine-prime assigns the zonked elaborated value to the main goal"
+    (let [env (require-init-medium)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          goal-id (:id (proof/current-goal ps))
+          lctx (:lctx (proof/current-goal ps))
+          p-id (some (fn [[id d]] (when (= "p" (:name d)) id)) lctx)
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id)) lctx)
+          ps (basic/refine-prime ps (list (symbol "@id") '_ 'h))
+          term (meta/zonk-expr (:meta-mctx ps)
+                               (meta/expr-assignment (:meta-mctx ps) goal-id))
+          [head args] (e/get-app-fn-args term)]
+      (is (proof/solved? ps))
+      (is (e/const? head))
+      (is (= (name/from-string "id") (e/const-name head)))
+      (is (= [(e/fvar p-id) (e/fvar h-id)] args))
+      (is (empty? (meta/collect-expr-mvars term)))
+      (is (not (e/has-fvar-flag (extract/verify ps)))))))
+
+(deftest test-refine-tags-single-unnamed-hole
+  (testing "a single unnamed refine-prime hole inherits the parent goal tag"
+    (let [env (minimal-env)
+          parent-tag (name/from-string "main")
+          [ps root] (proof/start-proof env prop)
+          ps (proof/set-mvar-user-name ps root parent-tag)
+          ps (basic/refine-prime ps '_)
+          goal (proof/current-goal ps)]
+      (is (= 1 (count (:goals ps))))
+      (is (= parent-tag (:user-name goal)))
+      (is (= parent-tag (:user-name (proof/mvar-decl ps (:id goal)))))
+      (is (re-find #"Goal 1 \(main\)" (proof/format-goals ps))))))
+
+(deftest test-refine-main-goal-named-hole-keeps-goal
+  (testing "refining with the main goal mvar preserves the current goal"
+    (let [env (minimal-env)
+          main-tag (name/from-string "main")
+          [ps root] (proof/start-proof env prop)
+          ps (proof/set-mvar-user-name ps root main-tag)
+          ps (basic/refine ps '?main)]
+      (is (= [root] (:goals ps)))
+      (is (proof/mvar-open? ps root))
+      (is (= main-tag (:user-name (proof/current-goal ps)))))))
+
+(deftest test-refine-rejects-main-goal-dependency
+  (testing "refine rejects values that contain the main goal mvar"
+    (let [env (minimal-env)
+          main-tag (name/from-string "main")
+          ;; forall (p : Prop), (p -> p) -> p
+          p-to-p (e/forall' "_" (e/bvar 0) (e/bvar 1) :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "f" p-to-p (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "f"))
+          goal-id (:id (proof/current-goal ps))
+          ps (proof/set-mvar-user-name ps goal-id main-tag)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"depends on the main goal"
+                            (basic/refine ps '(f ?main)))))))
+
+(deftest test-refine-tags-multiple-unnamed-holes
+  (testing "multiple unnamed refine-prime holes receive stable suffix tags"
+    (let [env (minimal-env)
+          ;; forall (p : Prop), (p -> p -> p) -> p
+          p-to-p-to-p (e/forall' "_" (e/bvar 0)
+                                 (e/forall' "_" (e/bvar 1) (e/bvar 2) :default)
+                                 :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "f" p-to-p-to-p (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "f")
+                 (basic/refine-prime '(f _ _)))
+          goals (vec (proof/goals ps))
+          tags (mapv #(some-> (:user-name %) name/->string) goals)
+          kinds (mapv #(->> (:id %) (proof/mvar-decl ps) :kind) goals)]
+      (is (= 2 (count (:goals ps))))
+      (is (= ["refine'_1" "refine'_2"] tags))
+      (is (= [:syntheticOpaque :syntheticOpaque] kinds)))))
+
+;; ============================================================
+;; Test 11: apply with unification (implicit args)
 ;; ============================================================
 
 (deftest test-apply-unification
@@ -281,6 +470,64 @@
                                (catch Exception _ ps))
                           (inc attempts))))]
         (is (proof/solved? ps))))))
+
+(deftest test-apply-orders-nondependent-goals-first
+  (testing "apply orders nondependent generated goals before dependent ones like Lean"
+    (let [env (minimal-env)
+          ;; h : (α : Type) -> α -> (q : Prop) -> q -> p
+          h-type (e/forall' "α" type0
+                            (e/forall' "x" (e/bvar 0)
+                                       (e/forall' "q" prop
+                                                  (e/forall' "hq" (e/bvar 0)
+                                                             (e/bvar 4)
+                                                             :default)
+                                                  :default)
+                                       :default)
+                            :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" h-type (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id))
+                     (:lctx (proof/current-goal ps)))
+          ps (basic/apply-tac ps (e/fvar h-id))
+          ids (vec (:goals ps))
+          [alpha-id q-id x-id hq-id] ids]
+      (is (= 4 (count ids)))
+      (is (= type0 (proof/mvar-type ps alpha-id)))
+      (is (= prop (proof/mvar-type ps q-id)))
+      ;; hole cross-references are real Expr.mvar nodes (Lean's telescope shape)
+      (is (= (e/mvar alpha-id) (proof/mvar-type ps x-id)))
+      (is (= (e/mvar q-id) (proof/mvar-type ps hq-id))))))
+
+(deftest test-apply-tags-generated-goals
+  (testing "multiple unnamed apply goals receive stable parent-derived tags"
+    (let [env (minimal-env)
+          main-tag (name/from-string "main")
+          ;; forall (p : Prop), (p -> p -> p) -> p
+          p-to-p-to-p (e/forall' "_" (e/bvar 0)
+                                 (e/forall' "_" (e/bvar 1) (e/bvar 2) :default)
+                                 :default)
+          goal-type (e/forall' "p" prop
+                               (e/forall' "h" p-to-p-to-p (e/bvar 1) :default)
+                               :default)
+          [ps _] (proof/start-proof env goal-type)
+          ps (-> ps
+                 (basic/intro "p")
+                 (basic/intro "h"))
+          goal-id (:id (proof/current-goal ps))
+          h-id (some (fn [[id d]] (when (= "h" (:name d)) id))
+                     (:lctx (proof/current-goal ps)))
+          ps (-> ps
+                 (proof/set-mvar-user-name goal-id main-tag)
+                 (basic/apply-tac (e/fvar h-id)))
+          goals (vec (proof/goals ps))
+          tags (mapv #(some-> (:user-name %) name/->string) goals)]
+      (is (= 2 (count goals)))
+      (is (= ["main.apply_1" "main.apply_2"] tags)))))
 
 ;; ============================================================
 ;; Test 11: trace recording

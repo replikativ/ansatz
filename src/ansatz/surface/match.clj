@@ -189,6 +189,13 @@
     (f est expr)
     (tc/infer-type (:tc est) expr)))
 
+(defn- est-whnf
+  "Weak-head normalize expr, using the est's mvar-aware whnf-fn when present."
+  [est expr]
+  (if-let [f (:whnf-fn est)]
+    (f est expr)
+    (#'tc/cached-whnf (:tc est) expr)))
+
 ;; Structural-recursion auto-detection (Lean FindRecArg, restricted): the name of the function
 ;; currently being elaborated + its parameter fvar-ids (positional), so a NATURAL recursive call
 ;; (isort tl) / (add k n) can stand in for the recursor's IH. Bound by define-verified (nil
@@ -246,8 +253,9 @@
                       ;; failed check (a genuinely-varying param ⇒ NOT a structural call, which must
                       ;; route to the WF path) leaves no stray solutions.
                       uf (:unify-fn est)
-                      m0 (when uf @(:mctx est))
-                      lm0 (when (and uf (:level-mctx est)) @(:level-mctx est))
+                      ;; The metacontext is the ONE unification state — a
+                      ;; snapshot of its value is Lean's saveState/restoreState.
+                      mm0 (when (and uf (:meta-mctx est)) @(:meta-mctx est))
                       fixed? (every? (fn [j]
                                        (or (= j jr)
                                            (let [a (nth param-args j)
@@ -261,9 +269,8 @@
                     (reduce e/app
                             (e/fvar (get field->ih (e/fvar-id (nth param-args jr))))
                             (map rec extra-args))
-                    (do (when uf
-                          (reset! (:mctx est) m0)
-                          (when lm0 (reset! (:level-mctx est) lm0)))
+                    (do (when (and uf mm0)
+                          (reset! (:meta-mctx est) mm0))
                         nil)))))))]
     (if (= :app (e/tag expr))
       (let [[head args] (collect-spine expr)]
@@ -517,8 +524,8 @@
             fvar (nth field-fvars nested-field-idx)
             field-decl (red/lctx-lookup (:lctx (:tc est)) fvar-id)
             field-type (or (:type field-decl)
-                           (tc/infer-type (:tc est) fvar))
-            field-type-whnf (#'tc/cached-whnf (:tc est) field-type)
+                           (est-infer est fvar))
+            field-type-whnf (est-whnf est field-type)
             ;; Collect inner alts from all matching outer alts
             inner-alts
             (reduce
@@ -682,9 +689,8 @@
   [est elab-fn discr-sexpr alt-sexprs]
   (let [env (:env est)
         discr-expr (elab-fn est discr-sexpr)
-        tc (:tc est)
         discr-type (est-infer est discr-expr)
-        discr-type-whnf (#'tc/cached-whnf tc discr-type)
+        discr-type-whnf (est-whnf est discr-type)
         ;; Qualify bare constructor names against the (inferred) inductive, so e.g.
         ;; `nil`/`(cons h t)` resolve to List.nil/List.cons — lets the a/defn explicit
         ;; match form desugar to plain patterns (one inferring compiler for both).

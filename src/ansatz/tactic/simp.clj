@@ -41,7 +41,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.discr-tree :as dt]
-            [ansatz.tactic.unify :as u]
+            [ansatz.meta :as meta]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
@@ -888,12 +888,16 @@
 
 (defn- forall-meta-telescope
   "Instantiate a ∀-telescope with fresh metavariables (Lean's forallMetaTelescopeReducing).
-   Returns [xs body] where xs are the metavar fvars and body is the type with them substituted."
-  [mctx id-base type]
+   Declares real `Expr.mvar`s in the atom-held metacontext, scoped to `lctx`.
+   Returns [xs body] where xs are the mvar nodes and body is the type with
+   them substituted."
+  [mctx lctx id-base type]
   (loop [ty type xs [] i 0]
     (if (e/forall? ty)
-      (let [m (u/fresh-mvar! mctx (+ id-base i) (e/forall-type ty))]
-        (recur (e/instantiate1 (e/forall-body ty) m) (conj xs m) (inc i)))
+      (let [id (+ id-base i)
+            _ (swap! mctx meta/add-expr-mvar-decl id (e/forall-type ty) lctx)]
+        (recur (e/instantiate1 (e/forall-body ty) (e/mvar id))
+               (conj xs (e/mvar id)) (inc i)))
       [xs ty])))
 
 (defn- try-theorem
@@ -912,16 +916,22 @@
     (when val
       (let [type (try (tc/infer-type st val) (catch Exception _ nil))]
         (when (and type (e/forall? type))
-          (let [mctx (atom {})
-                [xs body] (forall-meta-telescope mctx 9000000 type)
+          ;; Lean's withNewMCtxDepth: lemma-parameter mvars at depth 1; the
+          ;; context is discarded once the zonked proof is extracted.
+          (let [mctx (atom (meta/inc-depth meta/empty-context))
+                [xs body] (forall-meta-telescope mctx (:lctx st) 9000000 type)
                 [head args] (e/get-app-fn-args body)]
             (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
               (let [lhs (nth args 1) rhs (nth args 2)]
-                (when (try (u/is-def-eq! st mctx lhs expr) (catch Exception _ false))
-                  (let [proof (u/zonk mctx (reduce e/app val xs))
-                        rhs' (u/zonk mctx rhs)]
-                    (when (and (not (u/has-unassigned-mvars? mctx proof))
-                               (not (u/has-unassigned-mvars? mctx rhs'))
+                (when (try
+                        (when-let [m (meta/is-def-eq @mctx st lhs expr)]
+                          (reset! mctx m)
+                          true)
+                        (catch Exception _ false))
+                  (let [proof (meta/zonk-expr @mctx (reduce e/app val xs))
+                        rhs' (meta/zonk-expr @mctx rhs)]
+                    (when (and (not (meta/has-expr-mvar? proof))
+                               (not (meta/has-expr-mvar? rhs'))
                                (not= rhs' expr))
                       (mk-result rhs' proof))))))))))))
 
@@ -3196,10 +3206,8 @@
                                 replacements')
                  ;; Create body sub-goal (insert at front for priority)
                [ps'' body-goal-id]
-               (let [[ps''' id] (proof/alloc-id ps')]
-                 [(-> ps'''
-                      (assoc-in [:mctx id] {:type (:type goal') :lctx new-lctx :assignment nil})
-                      (update :goals #(into [id] %)))
+               (let [[ps''' id] (proof/fresh-mvar ps' (:type goal') new-lctx)]
+                 [(update ps''' :goals #(into [id] (remove #{id} %)))
                   id])
                  ;; Assign current goal with simp-all-hyps wrapper
                ps'' (-> (proof/assign-mvar ps'' (:id goal')
