@@ -1092,21 +1092,41 @@ public final class Reducer {
         return reduceNatBinop(opName, va, vb);
     }
 
+    // Lean's kernel refuses to native-reduce Nat.pow when the exponent exceeds
+    // this bound (ReducePowMaxExp, type_checker.cpp:636 = 1<<24), falling back to
+    // structural unfolding. We match it: BigInteger.pow/shiftLeft take an `int`,
+    // and `intValue()` SILENTLY truncates to the low 32 bits — so an exponent of
+    // 2^32 would reduce `2^(2^32)` to `2^0 = 1`, an unsound result. Refusing to
+    // reduce past the bound both avoids the truncation and caps the result size;
+    // genuinely huge exponents then fuel-exhaust structurally and are rejected.
+    private static final BigInteger REDUCE_POW_MAX_EXP = BigInteger.valueOf(1L << 24);
+
     private static Expr reduceNatBinop(Name op, BigInteger a, BigInteger b) {
         if (op == Name.NAT_ADD) return Expr.litNat(a.add(b));
         if (op == Name.NAT_SUB) return Expr.litNat(a.subtract(b).max(BIG_ZERO));
         if (op == Name.NAT_MUL) return Expr.litNat(a.multiply(b));
         if (op == Name.NAT_DIV) return Expr.litNat(b.signum() == 0 ? BIG_ZERO : a.divide(b));
         if (op == Name.NAT_MOD) return Expr.litNat(b.signum() == 0 ? a : a.mod(b));
-        if (op == Name.NAT_POW) return Expr.litNat(a.pow(b.intValue()));
+        if (op == Name.NAT_POW) {
+            if (b.compareTo(REDUCE_POW_MAX_EXP) > 0) return null; // refuse: structural fallback
+            return Expr.litNat(a.pow(b.intValue()));
+        }
         if (op == Name.NAT_GCD) return Expr.litNat(a.gcd(b));
         if (op == Name.NAT_BEQ) return a.equals(b) ? mkBoolTrue() : mkBoolFalse();
         if (op == Name.NAT_BLE) return a.compareTo(b) <= 0 ? mkBoolTrue() : mkBoolFalse();
         if (op == Name.NAT_LAND) return Expr.litNat(a.and(b));
         if (op == Name.NAT_LOR) return Expr.litNat(a.or(b));
         if (op == Name.NAT_XOR) return Expr.litNat(a.xor(b));
-        if (op == Name.NAT_SHIFT_LEFT) return Expr.litNat(a.shiftLeft(b.intValue()));
-        if (op == Name.NAT_SHIFT_RIGHT) return Expr.litNat(a.shiftRight(b.intValue()));
+        if (op == Name.NAT_SHIFT_LEFT) {
+            if (b.compareTo(REDUCE_POW_MAX_EXP) > 0) return null; // same truncation risk + size cap
+            return Expr.litNat(a.shiftLeft(b.intValue()));
+        }
+        if (op == Name.NAT_SHIFT_RIGHT) {
+            // intValue() would truncate a >2^31 amount, and a wrapped-negative
+            // silently becomes shiftLeft. Refuse past the bound (structural fallback).
+            if (b.compareTo(REDUCE_POW_MAX_EXP) > 0) return null;
+            return Expr.litNat(a.shiftRight(b.intValue()));
+        }
         return null;
     }
 
