@@ -133,6 +133,7 @@
           ps (-> ps
                  (assoc :meta-mctx meta-mctx)
                  (update :next-id #(max (or % 1) (inc (max-collected-mvar-id meta-mctx))))
+                 (proof/prune-solved-goals)
                  (proof/tag-untagged-goals parent-tag tag-suffix visible-ids))]
       {:ps ps
        :expr expr

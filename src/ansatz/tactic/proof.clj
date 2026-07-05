@@ -401,20 +401,57 @@
         [ps' root-id] (fresh-mvar ps goal-type (red/empty-lctx))]
     [(assoc ps' :root-mvar root-id) root-id]))
 
+(defn- zonk-when-assigned
+  "Instantiate assigned mvars in `expr` when it mentions any; otherwise return
+   it untouched (the common, mvar-free case)."
+  [mctx expr]
+  (if (and expr (meta/has-assigned-mvar? mctx expr))
+    (meta/zonk-expr mctx expr)
+    expr))
+
+(defn- zonk-lctx-when-assigned
+  [mctx lctx]
+  (if (some (fn [[_ d]]
+              (or (and (:type d) (meta/has-assigned-mvar? mctx (:type d)))
+                  (and (:value d) (meta/has-assigned-mvar? mctx (:value d)))))
+            lctx)
+    (meta/instantiate-lctx-mvars mctx lctx)
+    lctx))
+
+(defn- goal-view
+  "Materialize the goal view for `id`, instantiating assigned mvars in its type
+   and local context on access — Lean's `MVarId.getType'`/`instantiateMVars`
+   discipline, so tactics never see stale hole solutions."
+  [ps id]
+  (let [m (mvar-decl ps id)]
+    (if-let [mctx (:meta-mctx ps)]
+      {:id id
+       :type (zonk-when-assigned mctx (:type m))
+       :lctx (zonk-lctx-when-assigned mctx (:lctx m))
+       :user-name (:user-name m)}
+      {:id id :type (:type m) :lctx (:lctx m) :user-name (:user-name m)})))
+
 (defn current-goal
   "Get the first open goal as {:id :type :lctx}, or nil."
   [ps]
   (when-let [id (first (:goals ps))]
-    (let [m (mvar-decl ps id)]
-      {:id id :type (:type m) :lctx (:lctx m) :user-name (:user-name m)})))
+    (goal-view ps id)))
 
 (defn goals
   "Get all open goals as seq of {:id :type :lctx}."
   [ps]
-  (map (fn [id]
-         (let [m (mvar-decl ps id)]
-           {:id id :type (:type m) :lctx (:lctx m) :user-name (:user-name m)}))
-       (:goals ps)))
+  (map #(goal-view ps %) (:goals ps)))
+
+(defn prune-solved-goals
+  "Drop open goals whose metavariables are already assigned (or delayed
+   assigned) in `:meta-mctx` — Lean's `pruneSolvedGoals`. Unification may
+   solve a goal mvar as a side effect; the goals list must not keep it."
+  [ps]
+  (if-let [mctx (:meta-mctx ps)]
+    (update ps :goals
+            (fn [gs]
+              (into [] (remove #(meta/expr-assigned-or-delayed? mctx %)) gs)))
+    ps))
 
 (defn solved?
   "True if all goals are solved."
