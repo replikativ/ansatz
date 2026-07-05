@@ -1191,14 +1191,26 @@
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          st (mk-tc ps (:lctx goal))
-         ty (tc/infer-type st term)
-         mctx (atom {})
+         ty (infer-in-goal ps (:lctx goal) term)
+         ;; Lean's withNewMCtxDepth: lemma-parameter mvars live at depth+1 in
+         ;; the ONE metacontext, so matching cannot assign goal-level holes;
+         ;; the bumped context is discarded once the proof is zonked out.
+         base-mctx (or (:meta-mctx ps) meta/empty-context)
+         mctx (atom (reduce (fn [m lid]
+                              (if (contains? (:level-depth m) lid)
+                                m
+                                (meta/add-level-mvar-decl m lid)))
+                            (meta/inc-depth base-mctx)
+                            (meta/unassigned-level-mvars base-mctx ty)))
          base (long (+ 50000000 (or (some-> (:next-id st) deref long) 0)))
          ;; forallMetaTelescopeReducing: peel ∀ to fresh metavars (none if already concrete).
          [mvars body] (loop [t ty xs [] i 0]
                         (if (e/forall? t)
-                          (let [m (u/fresh-mvar! mctx (+ base i) (e/forall-type t))]
-                            (recur (e/instantiate1 (e/forall-body t) m) (conj xs m) (inc i)))
+                          (let [id (+ base i)
+                                _ (swap! mctx meta/add-expr-mvar-decl id
+                                         (e/forall-type t) (:lctx goal))]
+                            (recur (e/instantiate1 (e/forall-body t) (e/mvar id))
+                                   (conj xs (e/mvar id)) (inc i)))
                           [xs t]))
          heq (reduce e/app term mvars)
          [head args] (e/get-app-fn-args body)
@@ -1215,19 +1227,23 @@
            :else (tactic-error! "rewrite: lemma is not (∀ …, _ = _ / _ ↔ _)" {:type ty}))]
      (let [pat (if reverse? rhs0 lhs0)   ; match the side we'll FIND in the goal
            found (atom false)
+           try-match (fn [e]
+                       (try
+                         (when-let [m (meta/is-def-eq @mctx st pat e)]
+                           (reset! mctx m)
+                           true)
+                         (catch Exception _ false)))
            scan (fn scan [e]
                   (when-not @found
-                    (let [saved @mctx]
-                      (if (try (u/is-def-eq! st mctx pat e) (catch Exception _ false))
-                        (reset! found true)
-                        (do (reset! mctx saved)
-                            (case (e/tag e)
-                              :app (do (scan (e/app-fn e)) (scan (e/app-arg e)))
-                              :lam (do (scan (e/lam-type e)) (scan (e/lam-body e)))
-                              :forall (do (scan (e/forall-type e)) (scan (e/forall-body e)))
-                              :let (do (scan (e/let-value e)) (scan (e/let-body e)))
-                              :proj (scan (e/proj-struct e))
-                              nil))))))]
+                    (if (try-match e)
+                      (reset! found true)
+                      (case (e/tag e)
+                        :app (do (scan (e/app-fn e)) (scan (e/app-arg e)))
+                        :lam (do (scan (e/lam-type e)) (scan (e/lam-body e)))
+                        :forall (do (scan (e/forall-type e)) (scan (e/forall-body e)))
+                        :let (do (scan (e/let-value e)) (scan (e/let-body e)))
+                        :proj (scan (e/proj-struct e))
+                        nil))))]
        (scan (:type goal))
        (when-not @found
          (tactic-error! "rewrite: no subterm of the goal matches the lemma's LHS" {:lemma-type ty}))
@@ -1238,20 +1254,28 @@
          (when (< i 8)
            (let [before @mctx]
              (doseq [mv mvars]
-               (let [id (e/fvar-id mv) sol (get-in @mctx [id :solution])]
+               (let [id (e/mvar-id mv)
+                     sol (meta/expr-assignment @mctx id)]
                  (when sol
-                   (let [dty (u/zonk mctx (get-in @mctx [id :type]))
-                         sty (try (tc/infer-type st (u/zonk mctx sol)) (catch Exception _ nil))]
-                     (when sty (try (u/is-def-eq! st mctx dty sty) (catch Exception _ nil)))))))
+                   (let [dty (meta/zonk-expr @mctx (:type (meta/expr-decl @mctx id)))
+                         sty (try (meta/infer-type @mctx st (meta/zonk-expr @mctx sol))
+                                  (catch Exception _ nil))]
+                     (when sty
+                       (when-let [m (try (meta/is-def-eq @mctx st dty sty)
+                                         (catch Exception _ nil))]
+                         (reset! mctx m)))))))
              (when (not= before @mctx) (recur (inc i))))))
-       (let [eq-proof (u/zonk mctx eq-proof)]
-         (when (u/has-unassigned-mvars? mctx eq-proof)
+       (let [zonk* #(meta/zonk-expr @mctx %)
+             eq-proof (zonk* eq-proof)]
+         (when (or (meta/has-expr-mvar? eq-proof)
+                   (seq (meta/unassigned-level-mvars @mctx eq-proof)))
            (tactic-error! "rewrite: lemma parameters unresolved after matching" {:type ty}))
          ;; Always FORWARD-rewrite: for `<-`, flip with Eq.symm (sidesteps basic/rewrite's
          ;; reverse-motive Eq.ndrec path).
          (if reverse?
-           (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm") eq-lvls)
-                               (u/zonk mctx eqT) (u/zonk mctx lhs0) (u/zonk mctx rhs0) eq-proof)
+           (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
+                                         (mapv #(meta/zonk-level @mctx %) eq-lvls))
+                               (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
                     false)
            (rewrite ps eq-proof false)))))))
 

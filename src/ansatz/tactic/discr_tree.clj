@@ -288,6 +288,10 @@
              (recur (cons (e/mdata-expr e) rest-todo)
                     keys)
 
+           ;; Metavariable hole → wildcard (Lean's DiscrTree keys mvars as ★)
+             (e/mvar? e)
+             (recur rest-todo (conj! keys star-key))
+
            ;; Fallback
              :else
              (recur rest-todo (conj! keys other-key)))))))))
