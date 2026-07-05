@@ -530,6 +530,29 @@
           (is (some? (let [r (c "RoseN")]
                        (check "RoseN" (e/forall' "kids" (list0 (list0 r)) r :default))))))))))
 
+(deftest reject-non-canonical-quotient-declaration-test
+  (testing "quotient-kind constants are admitted only as the canonical Quot/Quot.mk/
+   Quot.lift/Quot.ind primitives with their expected types — a raw quot-kind decl must
+   not inject an unchecked axiom (Lean generates these internally via add_quot)"
+    (let [f "test-data/init-medium.ndjson"]
+      (when (.exists (java.io.File. f))
+        (let [E (:env (replay/replay (:decls (parse-ndjson-file f))))
+              False* (e/const' (name/from-string "False") [])]
+          ;; A bogus name is rejected — this is the concrete `BogusQuot : False` exploit.
+          (is (thrown-with-msg?
+               Exception #"not a canonical quotient primitive"
+               (TypeChecker/checkConstant E (env/mk-quot (name/from-string "BogusQuot") [] False* :ind) 5000000)))
+          ;; A canonical name with a bogus type is rejected too.
+          (is (thrown-with-msg?
+               Exception #"canonical quotient primitive|does not match the kernel-expected"
+               (TypeChecker/checkConstant E (env/mk-quot (name/from-string "Quot.mk") [] False* :ctor) 5000000)))
+          ;; The real primitives (already in init-medium) pass validation — checked by
+          ;; re-admitting via checkConstantReplace (same validateQuotDeclaration path).
+          (doseq [nm ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"]]
+            (let [ci (env/lookup E (name/from-string nm))]
+              (is (some? (TypeChecker/checkConstantReplace E ci 5000000))
+                  (str nm " should pass quotient validation")))))))))
+
 (deftest reject-corrupt-imported-recursor-rule-test
   (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
     (let [f "test-data/Nat.add_succ.ndjson"]
