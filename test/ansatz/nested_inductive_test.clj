@@ -67,10 +67,10 @@
             node-case (e/lam "kids" listRT (e/lam "ih" Nat* (e/bvar 0) :default) :default)
             nil-case (e/lit-nat 0)
             cons-case (e/lam "h" RT (e/lam "t" listRT (e/lam "hh" Nat*
-                        (e/lam "th" Nat* (nadd (e/bvar 1) (e/bvar 0)) :default) :default) :default) :default)
+                                                             (e/lam "th" Nat* (nadd (e/bvar 1) (e/bvar 0)) :default) :default) :default) :default)
             count (fn [tree] (e/app* (cL "RoseT.rec" [u1])
-                              (e/lam "_" RT Nat* :default) (e/lam "_" listRT Nat* :default)
-                              leaf-case node-case nil-case cons-case tree))
+                                     (e/lam "_" RT Nat* :default) (e/lam "_" listRT Nat* :default)
+                                     leaf-case node-case nil-case cons-case tree))
             leaf (fn [n] (e/app (c "RoseT.leaf") (e/lit-nat n)))
             lcons (fn [h t] (e/app* (cL "List.cons" [lvl/zero]) RT h t))
             lnil (e/app (cL "List.nil" [lvl/zero]) RT)
@@ -86,6 +86,6 @@
   (when @init-env
     (testing "a negative occurrence inside the nesting is still rejected"
       (is (thrown? Exception
-            (ind/define-inductive (a/env) "BadNest" '[]
-              [['mk ['f '(List (=> BadNest BadNest))] []]]
-              :in 'Type))))))
+                   (ind/define-inductive (a/env) "BadNest" '[]
+                     [['mk ['f '(List (=> BadNest BadNest))] []]]
+                     :in 'Type))))))
