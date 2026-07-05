@@ -158,7 +158,7 @@
                (reduce (fn [t mid]
                          (let [a (mvar-assignment ps mid)]
                            (e/app t
-                                  (or (assignment-concrete-value ps a) (e/fvar mid)))))
+                                  (or (assignment-concrete-value ps a) (e/mvar mid)))))
                        head arg-mvars)))
     nil))
 

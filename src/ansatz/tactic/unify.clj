@@ -66,6 +66,9 @@
   [mctx e]
   (case (e/tag e)
     :fvar   (and (contains? @mctx (e/fvar-id e)) (nil? (solution mctx (e/fvar-id e))))
+    ;; A real Expr.mvar node is not tracked by this legacy atom; report it as
+    ;; unsolved so callers reject rather than record a term with an open hole.
+    :mvar   true
     :const  (boolean (some #(level-unsolved-mvar? mctx %) (e/const-levels e)))
     :sort   (level-unsolved-mvar? mctx (e/sort-level e))
     :app    (or (has-mvar? mctx (e/app-fn e)) (has-mvar? mctx (e/app-arg e)))

@@ -52,7 +52,8 @@
          :proj (str (name/->string (e/proj-type-name e)) "." (e/proj-idx e) "(" (recurse (e/proj-struct e) d) ")")
          :fvar (let [id (e/fvar-id e)
                      decl (get lctx id)]
-                 (or (:name decl) (str "?fv" id))))))))
+                 (or (:name decl) (str "?fv" id)))
+         :mvar (str "?m" (e/mvar-id e)))))))
 
 (defn show-goals
   "Pretty-print the open goals."

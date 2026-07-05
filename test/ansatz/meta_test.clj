@@ -607,3 +607,30 @@
           ps (basic/exact-form ps 'h2)]
       (is (proof/solved? ps))
       (is (some? (extract/verify ps))))))
+
+(deftest apply-telescope-holes-solve-via-assumption
+  (testing "assumption determines a shared telescope hole and both extract
+   paths agree (holes solved by unification have mctx assignments, no recipe)"
+    (let [env (require-init-medium)
+          gt (elab/elaborate-check env '(forall [a Nat]
+                                          (forall [c Nat]
+                                            (=> (<= Nat a 10)
+                                                (=> (<= Nat 10 c)
+                                                    (<= Nat a c))))))
+          [ps _] (proof/start-proof env gt)
+          ps (basic/intros ps ["a" "c" "h1" "h2"])
+          ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))
+          ps (basic/assumption ps)
+          ps (basic/assumption ps)]
+      (assert-meta-extract-parity ps))))
+
+(deftest induction-refuses-goal-with-open-holes
+  (testing "Lean parity: no motive over a goal type carrying an unassigned mvar"
+    (let [env (require-init-medium)
+          gt (elab/elaborate-check env '(forall [a Nat] (forall [c Nat]
+                                          (=> (<= Nat a 10) (=> (<= Nat 10 c) (<= Nat a c))))))
+          [ps _] (proof/start-proof env gt)
+          ps (basic/intros ps ["a" "c" "h1" "h2"])
+          ps (basic/apply-tac ps (e/const' (name/from-string "Nat.le_trans") []))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unassigned metavariables"
+                            (basic/induction ps (local-id ps "a")))))))

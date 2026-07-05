@@ -53,9 +53,15 @@
     false))
 
 (defn extract-term
-  "Recursively extract a proof term from a metavariable assignment."
+  "Recursively extract a proof term from a metavariable assignment.
+
+   Holes solved purely by unification have a metacontext assignment but no
+   recipe; fall back to the zonked metacontext value for those."
   [ps mvar-id]
-  (let [assignment (proof/mvar-assignment ps mvar-id)]
+  (let [assignment (or (proof/mvar-assignment ps mvar-id)
+                       (when-let [mctx (:meta-mctx ps)]
+                         (when-let [v (meta/expr-assignment mctx mvar-id)]
+                           {:kind :exact :term (meta/zonk-expr mctx v)})))]
     (when-not assignment
       (throw (ex-info "Cannot extract: unassigned metavariable"
                       {:mvar-id mvar-id})))

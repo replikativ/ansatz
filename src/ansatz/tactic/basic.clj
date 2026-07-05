@@ -644,9 +644,22 @@
                                         (= (:type decl) goal-type))
                                {:fvar-id id :bindings {}}))
                            lctx)
+        ;; Strategy 1.5: goals whose types mention real mvar holes match
+        ;; through the shared metacontext — Lean's findLocalDeclWithType?
+        ;; runs one isDefEq per hypothesis and commits the assignments, so a
+        ;; hypothesis can determine open holes (e.g. le_trans's middle term).
+        meta-match (when (and (not struct-match)
+                              (:meta-mctx ps)
+                              (meta/has-expr-mvar? goal-type))
+                     (some (fn [[id decl]]
+                             (when (= :local (:tag decl))
+                               (when-let [ps' (try (defeq-in-goal ps lctx (:type decl) goal-type)
+                                                   (catch Exception _ nil))]
+                                 {:fvar-id id :bindings {} :ps ps'})))
+                           lctx))
         ;; Strategy 2: isDefEq with WHNF extraction (Lean 4's primary mechanism).
         ;; Try each hypothesis; extract fvar-mvar bindings on match.
-        deq-match (when-not struct-match
+        deq-match (when-not (or struct-match meta-match)
                     (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
                           _ (.setFuel jtc config/*default-fuel*)
                           _ (doseq [[id decl] lctx]
@@ -683,11 +696,12 @@
                                              (catch Exception _ false))
                                     {:fvar-id id :bindings @bindings}))))
                             lctx)))
-        result (or struct-match deq-match)]
+        result (or struct-match meta-match deq-match)]
     (when-not result
       (tactic-error! "No matching hypothesis found" {:goal-type (:type goal)}))
     ;; Propagate fvar-mvar bindings to sibling goals
-    (let [ps (reduce (fn [ps [mid val]]
+    (let [ps (or (:ps result) ps)
+          ps (reduce (fn [ps [mid val]]
                        (proof/assign-mvar ps mid {:kind :exact :term val}))
                      ps (:bindings result))]
       (-> (proof/assign-mvar ps (:id goal) {:kind :assumption :fvar-id (:fvar-id result)})
@@ -963,10 +977,11 @@
                                (if-let [s (get-in @umctx [mid :solution])]
                                  (let [v (u/zonk umctx s)
                                        v (if has-level-sols? (u/zonk-levels-in-expr umctx v) v)
-                                       concrete? (every? (fn [fid]
-                                                           (or (nil? (proof/mvar-decl ps fid))
-                                                               (proof/mvar-assigned? ps fid)))
-                                                         (collect-fvar-ids v))]
+                                       concrete? (every? (fn [hid]
+                                                           (or (nil? (proof/mvar-decl ps hid))
+                                                               (proof/mvar-assigned? ps hid)))
+                                                         (into (collect-fvar-ids v)
+                                                               (meta/collect-expr-mvars v)))]
                                    (if concrete?
                                      (proof/assign-mvar ps mid {:kind :exact :term v})
                                      ps))
@@ -1250,6 +1265,11 @@
   [ps hyp-fvar-id]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
+        ;; Lean refuses to build a motive over a goal with open holes — a
+        ;; shared mvar would otherwise be silently pinned across branches.
+        _ (when (seq (meta/collect-expr-mvars (:type goal)))
+            (tactic-error! "cases: goal type contains unassigned metavariables"
+                           {:type (:type goal)}))
         st (mk-tc ps (:lctx goal))
         hyp-decl (red/lctx-lookup (:lctx goal) hyp-fvar-id)
         _ (when-not hyp-decl
@@ -1669,6 +1689,11 @@
   [ps hyp-fvar-id]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
+        ;; Lean refuses to build a motive over a goal with open holes — a
+        ;; shared mvar would otherwise be silently pinned across branches.
+        _ (when (seq (meta/collect-expr-mvars (:type goal)))
+            (tactic-error! "induction: goal type contains unassigned metavariables"
+                           {:type (:type goal)}))
         st (mk-tc ps (:lctx goal))
         hyp-decl (red/lctx-lookup (:lctx goal) hyp-fvar-id)
         _ (when-not hyp-decl
@@ -2812,7 +2837,7 @@
   [ps goal target-expr new-type-form {:keys [tactic-name tag-suffix]
                                       :or {tactic-name "change"}}]
   (let [st (mk-tc ps (:lctx goal))
-        expected-type (tc/infer-type st target-expr)
+        expected-type (infer-in-goal ps (:lctx goal) target-expr)
         tag-suffix (or tag-suffix (name/from-string tactic-name))]
     (telab/elab-term-with-holes
      ps goal new-type-form
