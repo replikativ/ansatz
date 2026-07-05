@@ -60,6 +60,21 @@ final class InductiveChecker {
         return workingEnv;
     }
 
+    /**
+     * Generate (rather than validate) the recursors for this bundle from scratch, kernel-check
+     * each, declare them into the working env, and return them. Used for the aux mutual block of a
+     * nested inductive, which arrives without imported recursors.
+     */
+    ConstantInfo[] generateAndCheckRecursors() {
+        prepareRecursorState();
+        ConstantInfo[] recs = recursorGenerator.generateRecursors();
+        for (ConstantInfo rec : recs) {
+            TypeChecker.checkRecursorDeclaration(workingEnv, rec, fuel);
+            workingEnv = workingEnv.addConstant(rec);
+        }
+        return recs;
+    }
+
     void prepareRecursorState() {
         checkInductiveTypes();
         declareInductiveTypes();
@@ -280,6 +295,62 @@ final class InductiveChecker {
             out[i] = rec;
         }
         return out;
+    }
+
+    /**
+     * Build the nested-form recursors from the GENERATED aux mutual recursors, mirroring Lean's
+     * kernel restoration (inductive.cpp restore_nested, :828-872). The aux recursors already carry
+     * the correct nested induction hypotheses (they came out of the standard mutual generator);
+     * here we rename them (`<aux>.rec` → `<main>.rec_k`), rewrite aux types/ctors back to the
+     * nested form, restore rule constructor names, and fix the `all` field to the original types.
+     */
+    static ConstantInfo[] restoreGeneratedRecursors(InductiveBundle original, NestedElimResult elim,
+            ConstantInfo[] auxRecursors) {
+        Object[] originalNames = new Object[original.inductives.length];
+        for (int i = 0; i < original.inductives.length; i++) originalNames[i] = original.inductives[i].name;
+
+        ConstantInfo[] out = new ConstantInfo[auxRecursors.length];
+        for (int i = 0; i < auxRecursors.length; i++) {
+            ConstantInfo auxRec = auxRecursors[i];
+            Name restoredName = elim.auxRecToRestoredRec.getOrDefault(auxRec.name, auxRec.name);
+            Expr restoredType = elim.restoreNested(auxRec.type, elim.auxRecToRestoredRec);
+            ConstantInfo.RecursorRule[] restoredRules = null;
+            if (auxRec.rules != null) {
+                restoredRules = new ConstantInfo.RecursorRule[auxRec.rules.length];
+                for (int j = 0; j < auxRec.rules.length; j++) {
+                    ConstantInfo.RecursorRule rule = auxRec.rules[j];
+                    restoredRules[j] = new ConstantInfo.RecursorRule(
+                        restoreConstructorName(elim, rule.ctor),
+                        rule.nfields,
+                        elim.restoreNested(rule.rhs, elim.auxRecToRestoredRec));
+                }
+            }
+            out[i] = ConstantInfo.mkRecursor(
+                restoredName,
+                auxRec.levelParams,
+                restoredType,
+                originalNames,
+                auxRec.numParams,
+                auxRec.numIndices,
+                auxRec.numMotives,
+                auxRec.numMinors,
+                restoredRules,
+                auxRec.isK,
+                auxRec.isUnsafe);
+        }
+        return out;
+    }
+
+    /** Restore an aux constructor name to its original (`List.nested_1.cons` → `List.cons`). */
+    private static Name restoreConstructorName(NestedElimResult elim, Name auxCtorName) {
+        for (java.util.Map.Entry<Name, Name> entry : elim.auxPrefixToRestoredPrefix.entrySet()) {
+            Name auxPrefix = entry.getKey();
+            Name restoredPrefix = entry.getValue();
+            if (hasPrefix(auxCtorName, auxPrefix)) {
+                return auxCtorName.replacePrefix(auxPrefix, restoredPrefix);
+            }
+        }
+        return auxCtorName;
     }
 
     static void compareRestoredImportedBundle(InductiveBundle original, NestedElimResult elim, ConstantInfo[] auxRecursors) {

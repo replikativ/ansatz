@@ -192,9 +192,43 @@
                       (occurs-in? (e/lam-body expr) induct-name))
     :else false))
 
+(defn- container-num-params
+  "Number of parameters of an already-defined inductive `C`, or nil if `C` is
+   not a defined inductive in `env`."
+  [env cname]
+  (let [ci (env/lookup env cname)]
+    (when (and ci (env/induct? ci))
+      (.numParams ^ansatz.kernel.ConstantInfo ci))))
+
+(declare check-positivity!)
+
+(defn- valid-nested-occurrence?
+  "True when `field-type` is `C Ds Is` where `C` is a DEFINED inductive (≠ the
+   one being defined), the being-defined inductive occurs in `C`'s PARAMETERS
+   (`Ds`) but not its indices (`Is`), and occurs strictly-positively there.
+   Mirrors the kernel's `isValidNestedInductiveOccurrence` + recursive
+   positivity (Lean rejects nesting through an index — leanprover/lean4#2125)."
+  [env field-type induct-name ctor-name field-name]
+  (let [[head args] (e/get-app-fn-args field-type)]
+    (boolean
+     (and (e/const? head)
+          (not= (e/const-name head) induct-name)
+          (when-let [np (container-num-params env (e/const-name head))]
+            (and (<= np (count args))
+                 (let [params (take np args)
+                       indices (drop np args)]
+                   (and (not-any? #(occurs-in? % induct-name) indices)
+                        (some #(occurs-in? % induct-name) params)
+                        ;; strict positivity of the occurrence inside each param
+                        (do (doseq [p params]
+                              (when (occurs-in? p induct-name)
+                                (check-positivity! env p induct-name ctor-name field-name)))
+                            true)))))))))
+
 (defn- check-positivity!
-  "Check strict positivity: inductive must not appear in negative position."
-  [field-type induct-name ctor-name field-name]
+  "Check strict positivity: the inductive must not appear in negative position,
+   and may appear nested inside another inductive's strictly-positive parameters."
+  [env field-type induct-name ctor-name field-name]
   (cond
     (not (occurs-in? field-type induct-name)) nil
 
@@ -203,14 +237,45 @@
           (throw (ex-info (str "Non-positive occurrence in " ctor-name "." field-name
                                ": inductive appears left of →")
                           {:ctor ctor-name :field field-name})))
-        (check-positivity! (e/forall-body field-type) induct-name ctor-name field-name))
+        (check-positivity! env (e/forall-body field-type) induct-name ctor-name field-name))
 
-    ;; Direct application I params... — valid recursive reference
     :else
     (let [[head _] (e/get-app-fn-args field-type)]
-      (when-not (and (e/const? head) (= (e/const-name head) induct-name))
+      (cond
+        ;; Direct application I params... — valid recursive reference
+        (and (e/const? head) (= (e/const-name head) induct-name)) nil
+        ;; Nested occurrence inside another inductive's parameters
+        (valid-nested-occurrence? env field-type induct-name ctor-name field-name) nil
+        :else
         (throw (ex-info (str "Invalid occurrence of inductive in " ctor-name "." field-name)
                         {:ctor ctor-name :field field-name}))))))
+
+(defn- collect-nested-apps
+  "Collect the distinct nested container applications `C Ds` occurring in
+   `field-type` (structural keys), for counting `num-nested`."
+  [env field-type induct-name acc]
+  (cond
+    (not (occurs-in? field-type induct-name)) acc
+    (e/forall? field-type)
+    (collect-nested-apps env (e/forall-body field-type) induct-name
+                         (collect-nested-apps env (e/forall-type field-type) induct-name acc))
+    :else
+    (let [[head _] (e/get-app-fn-args field-type)]
+      (if (and (e/const? head)
+               (not= (e/const-name head) induct-name)
+               (container-num-params env (e/const-name head)))
+        (conj acc (e/->string field-type))
+        acc))))
+
+(defn- count-nested
+  "Number of distinct nested container applications across all constructor
+   fields — this is `num-nested` (each maps to one auxiliary inductive)."
+  [env ctors induct-name]
+  (count
+   (reduce (fn [acc ctor]
+             (reduce (fn [a field] (collect-nested-apps env (:type field) induct-name a))
+                     acc (:fields ctor)))
+           #{} ctors)))
 
 ;; ============================================================
 ;; Phase 1: Core declarations
@@ -1567,7 +1632,13 @@
 
         ;; Phase 2: Validation
         _ (doseq [ctor ctors, field (:fields ctor)]
-            (check-positivity! (:type field) ind-name (:name ctor) (:name field)))
+            (check-positivity! env (:type field) ind-name (:name ctor) (:name field)))
+        ;; Nested inductives (the type occurs inside another inductive's parameters,
+        ;; e.g. `node : List Tree → Tree`): the KERNEL transforms nested→mutual and
+        ;; generates the recursor with the nested induction hypothesis. We must not
+        ;; supply a Clojure-built (non-nested) recursor for these.
+        num-nested (count-nested env ctors ind-name)
+        nested? (pos? num-nested)
 
         ;; Compute metadata
         is-rec (boolean (some (fn [ctor]
@@ -1608,7 +1679,7 @@
                               :num-params n-params :num-indices n-indices
                               :all [ind-name]
                               :ctors (mapv #(name/from-string (:full-name %)) ctors)
-                              :num-nested 0
+                              :num-nested num-nested
                               :rec? is-rec :reflexive? is-reflexive)
 
         ;; Build constructor types
@@ -1624,34 +1695,40 @@
 
         ;; Build recursor
         rec-name (name/from-string (str ind-name-str ".rec"))
-        rec-ci (build-recursor env params compiled-indices ctors ind-name ind-level-levels
-                               rec-name rec-level-params rec-level-levels
-                               result-level elim-level is-rec
-                               self-const ind-name-str)
-        preliminary-bundle (env/mk-inductive-bundle ind-levels n-params false
-                                                    [ind-ci] ctor-cis [rec-ci])
-        ;; Use the kernel's Lean-shaped generator for local declarations too.
-        ;; This keeps frontend-authored inductives on the same admission path as imports.
-        lean-rules (vec (TypeChecker/generateExpectedRecursorRules env preliminary-bundle 0 1000000))
-        rec-ci (env/mk-recursor (.name ^ConstantInfo rec-ci)
-                                (vec (.levelParams ^ConstantInfo rec-ci))
-                                (.type ^ConstantInfo rec-ci)
-                                :all (vec (.all ^ConstantInfo rec-ci))
-                                :num-params (.numParams ^ConstantInfo rec-ci)
-                                :num-indices (.numIndices ^ConstantInfo rec-ci)
-                                :num-motives (.numMotives ^ConstantInfo rec-ci)
-                                :num-minors (.numMinors ^ConstantInfo rec-ci)
-                                :rules lean-rules
-                                :k? (.isK ^ConstantInfo rec-ci)
-                                :unsafe? (.isUnsafe ^ConstantInfo rec-ci))
-        kernel-bundle (env/mk-inductive-bundle ind-levels n-params false
-                                               [ind-ci] ctor-cis [rec-ci])]
+        kernel-bundle
+        (if nested?
+          ;; Nested: supply NO recursors; the kernel generates them (with the nested
+          ;; induction hypothesis) from the aux mutual block it derives.
+          (env/mk-inductive-bundle ind-levels n-params false [ind-ci] ctor-cis [])
+          (let [rec-ci (build-recursor env params compiled-indices ctors ind-name ind-level-levels
+                                       rec-name rec-level-params rec-level-levels
+                                       result-level elim-level is-rec
+                                       self-const ind-name-str)
+                preliminary-bundle (env/mk-inductive-bundle ind-levels n-params false
+                                                            [ind-ci] ctor-cis [rec-ci])
+                ;; Use the kernel's Lean-shaped generator for local declarations too.
+                ;; This keeps frontend-authored inductives on the same admission path as imports.
+                lean-rules (vec (TypeChecker/generateExpectedRecursorRules env preliminary-bundle 0 1000000))
+                rec-ci (env/mk-recursor (.name ^ConstantInfo rec-ci)
+                                        (vec (.levelParams ^ConstantInfo rec-ci))
+                                        (.type ^ConstantInfo rec-ci)
+                                        :all (vec (.all ^ConstantInfo rec-ci))
+                                        :num-params (.numParams ^ConstantInfo rec-ci)
+                                        :num-indices (.numIndices ^ConstantInfo rec-ci)
+                                        :num-motives (.numMotives ^ConstantInfo rec-ci)
+                                        :num-minors (.numMinors ^ConstantInfo rec-ci)
+                                        :rules lean-rules
+                                        :k? (.isK ^ConstantInfo rec-ci)
+                                        :unsafe? (.isUnsafe ^ConstantInfo rec-ci))]
+            (env/mk-inductive-bundle ind-levels n-params false
+                                     [ind-ci] ctor-cis [rec-ci])))]
 
     ;; Add core declarations (thread immutable env)
     (let [env (env/check-inductive-bundle env kernel-bundle)
           ;; Build and add auxiliaries (skip for indexed families for now —
-          ;; casesOn/recOn need index-aware motive rewriting)
-          env (if (zero? n-indices)
+          ;; casesOn/recOn need index-aware motive rewriting; and for nested types,
+          ;; which need the below/brecOn-style Meta constructions — deferred)
+          env (if (and (zero? n-indices) (not nested?))
                 (let [cases-on-ci (build-cases-on env params ctors ind-name ind-level-levels
                                                   rec-name rec-level-params rec-level-levels
                                                   result-level elim-level is-rec
@@ -1674,7 +1751,7 @@
           ;; `add_assoc : ∀ a b c, add (add a b) c = …`). Rather than abort the whole
           ;; declaration, warn and skip: the type stays usable (projections, recursor,
           ;; instance resolution all work; only noConfusion is absent).
-          env (if (and no-confusion? (zero? n-indices) (not is-prop))
+          env (if (and no-confusion? (zero? n-indices) (not is-prop) (not nested?))
                 (try
                   (let [nct-ci (build-no-confusion-type env params ctors ind-name ind-level-levels
                                                         level-param-names rec-name rec-level-params
@@ -1694,5 +1771,6 @@
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
 
       (println "✓ inductive" ind-name-str "defined:"
-               (count ctors) "constructors, recursor, casesOn, recOn")
+               (count ctors) "constructors, recursor"
+               (if nested? (str "(nested, num-nested=" num-nested ")") ", casesOn, recOn"))
       env)))

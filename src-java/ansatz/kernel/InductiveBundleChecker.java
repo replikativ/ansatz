@@ -22,21 +22,47 @@ public final class InductiveBundleChecker {
         Env current;
 
         if (bundle.hasNestedInductives()) {
-            ConstantInfo[] auxRecursors = InductiveChecker.lowerImportedRecursors(bundle, elim);
-            InductiveBundle auxBundleWithRecursors = new InductiveBundle(
-                toCheck.levelParams,
-                toCheck.numParams,
-                toCheck.isUnsafe,
-                toCheck.inductives,
-                toCheck.ctors,
-                auxRecursors);
+            boolean haveImportedRecursors = bundle.recursors != null && bundle.recursors.length > 0;
+            if (haveImportedRecursors) {
+                // Import path: lower the imported recursors to the aux form, check the aux
+                // mutual bundle against them, and validate they restore to the nested form.
+                ConstantInfo[] auxRecursors = InductiveChecker.lowerImportedRecursors(bundle, elim);
+                InductiveBundle auxBundleWithRecursors = new InductiveBundle(
+                    toCheck.levelParams,
+                    toCheck.numParams,
+                    toCheck.isUnsafe,
+                    toCheck.inductives,
+                    toCheck.ctors,
+                    auxRecursors);
+                try {
+                    current = new InductiveChecker(env, auxBundleWithRecursors, fuel).run();
+                } catch (RuntimeException ex) {
+                    throw new RuntimeException("nested auxiliary inductive bundle check failed: " + ex.getMessage(), ex);
+                }
+                InductiveChecker.compareRestoredImportedBundle(bundle, elim, auxRecursors);
+                return InductiveChecker.admitOriginalBundle(env, bundle);
+            }
+
+            // Generation path (surface-defined nested inductives, no imported recursors):
+            // run the standard mutual recursor generator on the aux block — the nested
+            // induction hypothesis (`motive_j kids`) comes out for free from the mutual
+            // recursion — then restore each generated recursor to nested form and admit,
+            // exactly as Lean's kernel add_inductive does (inductive.cpp:1116-1181).
+            ConstantInfo[] auxRecursors;
             try {
-                current = new InductiveChecker(env, auxBundleWithRecursors, fuel).run();
+                auxRecursors = new InductiveChecker(env, toCheck, fuel).generateAndCheckRecursors();
             } catch (RuntimeException ex) {
                 throw new RuntimeException("nested auxiliary inductive bundle check failed: " + ex.getMessage(), ex);
             }
-            InductiveChecker.compareRestoredImportedBundle(bundle, elim, auxRecursors);
-            return InductiveChecker.admitOriginalBundle(env, bundle);
+            ConstantInfo[] restoredRecursors = InductiveChecker.restoreGeneratedRecursors(bundle, elim, auxRecursors);
+            InductiveBundle restoredBundle = new InductiveBundle(
+                bundle.levelParams,
+                bundle.numParams,
+                bundle.isUnsafe,
+                bundle.inductives,
+                bundle.ctors,
+                restoredRecursors);
+            return InductiveChecker.admitOriginalBundle(env, restoredBundle);
         }
 
         try {

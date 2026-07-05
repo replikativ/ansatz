@@ -213,10 +213,13 @@ final class RecursorGenerator {
      * Mirrors Lean add_inductive_fn::mk_rec_rules.
      */
     private ConstantInfo.RecursorRule[] buildExpectedRecursorRules(int recIdx, ConstantInfo recCi) {
-        if (recCi.numMotives > recCi.all.length) {
+        if (recCi != null && recCi.numMotives > recCi.all.length) {
             throw new RuntimeException("expected non-nested recursor declaration: " + recCi.name);
         }
+        return buildExpectedRecursorRules(recIdx);
+    }
 
+    private ConstantInfo.RecursorRule[] buildExpectedRecursorRules(int recIdx) {
         ArrayList<LocalDecl> motives = collectMotives();
         ArrayList<LocalDecl> minors = collectMinors();
         Object[] recLevelValues = getExpectedRecLevelValues();
@@ -273,7 +276,7 @@ final class RecursorGenerator {
                 }
                 ArrayList<Expr> itIndices = new ArrayList<>();
                 int indIdx = getIIndices(uTy, itIndices);
-                Name targetRecName = bundle.inductives.length == 1 ? recCi.name : recursorNameForInductiveIndex(indIdx);
+                Name targetRecName = recursorNameForInductiveIndex(indIdx);
                 Expr recApp = Expr.mkConst(targetRecName, recLevelValues, recHasLevelParams);
                 recApp = mkApp(recApp, params);
                 recApp = mkApp(recApp, motives);
@@ -318,6 +321,48 @@ final class RecursorGenerator {
         }
         for (int i = 0; i < levelValues.length; i++) {
             out[i + offset] = levelValues[i];
+        }
+        return out;
+    }
+
+    /** The recursor's level PARAMETER names: the elimination universe (when large-eliminating)
+     *  followed by the inductive's own level parameters. */
+    private Object[] getExpectedRecLevelParams() {
+        int extra = elimLevel.tag == Level.PARAM ? 1 : 0;
+        Object[] out = new Object[bundle.levelParams.length + extra];
+        int offset = 0;
+        if (extra == 1) {
+            out[0] = elimLevel.o0; // the fresh universe Name
+            offset = 1;
+        }
+        for (int i = 0; i < bundle.levelParams.length; i++) {
+            out[i + offset] = bundle.levelParams[i];
+        }
+        return out;
+    }
+
+    /**
+     * Generate the complete recursor declarations for this (plain / mutual) bundle from scratch,
+     * rather than validating provided ones. Used for nested inductives, whose aux mutual block has
+     * no imported recursors — the standard mutual generation yields the correct nested induction
+     * hypotheses. K-target only applies to a single non-mutual Prop inductive, so isK is false for
+     * any block reached here.
+     */
+    ConstantInfo[] generateRecursors() {
+        int numMotives = recInfos.length;
+        int numMinors = collectMinors().size();
+        Object[] allNames = new Object[bundle.inductives.length];
+        for (int i = 0; i < bundle.inductives.length; i++) allNames[i] = bundle.inductives[i].name;
+        Object[] recLevelParams = getExpectedRecLevelParams();
+        ConstantInfo[] out = new ConstantInfo[bundle.inductives.length];
+        for (int dIdx = 0; dIdx < bundle.inductives.length; dIdx++) {
+            Name recName = Name.mkStr(bundle.inductives[dIdx].name, "rec");
+            Expr type = buildExpectedRecursorType(dIdx);
+            ConstantInfo.RecursorRule[] rules = buildExpectedRecursorRules(dIdx);
+            out[dIdx] = ConstantInfo.mkRecursor(
+                recName, recLevelParams, type, allNames,
+                params.size(), numIndices[dIdx], numMotives, numMinors,
+                rules, false, bundle.isUnsafe);
         }
         return out;
     }
@@ -396,11 +441,9 @@ final class RecursorGenerator {
     }
 
     private Name recursorNameForInductiveIndex(int indIdx) {
-        Name expected = Name.mkStr(bundle.inductives[indIdx].name, "rec");
-        for (ConstantInfo rec : bundle.recursors) {
-            if (expected.equals(rec.name)) return rec.name;
-        }
-        throw new RuntimeException("missing recursor for inductive in bundle: " + bundle.inductives[indIdx].name);
+        // Deterministic `<inductive>.rec` — works whether or not the bundle carries
+        // recursor declarations (generation vs validation).
+        return Name.mkStr(bundle.inductives[indIdx].name, "rec");
     }
 
     private LocalDecl mkLocalDecl(TypeChecker tc, Object name, Expr type, Object binderInfo) {
