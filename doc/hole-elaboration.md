@@ -192,6 +192,48 @@ sampling, or cost-based planning. The critical correctness rule remains Lean's:
 search may propose assignments, but the final zonked proof term is accepted
 only if the kernel checks it.
 
+## Fidelity Hardening (landed)
+
+A review pass against `../lean4` closed the following soundness/fidelity gaps
+in `ansatz.meta`:
+
+- occurs checks now follow delayed assignments to their pending mvars
+  (`expr-occurs?`, Lean's `occursCheck` discipline), so cycles through delayed
+  assignments are rejected at assignment time;
+- checked assignment now runs a `CheckAssignment.check` analogue
+  (`check-assignment-scope!`): every free variable must be in the assignee's
+  local context AND every remaining (unassigned/delayed) mvar in the value
+  must have a local context contained in the assignee's. A later legal
+  assignment to a nested mvar can therefore no longer leak fvars out of the
+  assignee's scope. Delayed-abstraction wrappers act as binders for their
+  abstracted fvars. Lean instead restricts the nested mvar's context or
+  creates auxiliary mvars (`ctxApprox`); we reject conservatively — sound,
+  but may fail where Lean succeeds (an ordered local context and context
+  restriction are the follow-up fidelity upgrades);
+- `zonk-expr` keeps the `abstract-fvars` wrapper while an mvar inside is still
+  unassigned (previously an intermediate zonk silently dropped the wrapper —
+  an mvar leaf has no fvar occurrences — so a later solution mentioning the
+  abstracted fvars escaped its binder);
+- mvar-vs-mvar unification retries the other side when the preferred direction
+  is not assignable (Lean's `isDefEqQuickMVarMVar`), so
+  `?goal(syntheticOpaque) =?= ?n(natural)` now solves `?n := ?goal`;
+- `inc-depth` freezes outer level mvars by default (Lean `incDepth` /
+  `withNewMCtxDepth` with `allowLevelAssignments := false`);
+- mvar kinds are canonicalized to one spelling (`:syntheticOpaque`);
+- speculative defeq paths no longer swallow `Throwable` — only `ExceptionInfo`
+  (kernel type errors) reads as "not defeq".
+
+## Known Migration Gap (acceptance test: `^:wip apply-telescope-holes-unify-in-exact`)
+
+`apply` telescope holes are still fvar-encoded in goal types. Consequence,
+confirmed in the REPL: after `(apply Nat.le_trans)` the goals are
+`a ≤ (fvar b)` / `(fvar b) ≤ c`; `(assumption)` solves them (the tactic
+unifier bridge knows the fvar is an mvar) but `(exact h1)` fails, because
+surface elaboration receives the expected type with a rigid `(fvar b)`. Lean
+has one `isDefEq` for both. The fix is the remaining fvar→mvar migration:
+goal types carry real `Expr.mvar` nodes and tactic-side elaboration unifies in
+the proof state's `:meta-mctx`.
+
 ## Next Fidelity Targets
 
 1. Remove the remaining surface compatibility maps where callers can read
