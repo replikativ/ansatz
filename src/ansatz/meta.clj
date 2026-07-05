@@ -758,6 +758,31 @@
   (and (empty? (unassigned-expr-mvars mctx expr))
        (empty? (unassigned-level-mvars mctx expr))))
 
+(defn fresh-result-mvar-ids
+  "Lean-style hole-collection boundary (`collectMVars` over the zonked
+   result): unassigned expression mvars occurring in `expr` whose declaration
+   index is at least `start-index`, in creation order."
+  [mctx expr start-index]
+  (->> (expr-mvars-no-delayed mctx expr)
+       distinct
+       (filter (fn [id]
+                 (let [decl (expr-decl mctx id)]
+                   (and decl
+                        (>= (:index decl 0) start-index)
+                        (not (expr-assigned-or-delayed? mctx id))))))
+       (sort-by #(get-in mctx [:decls % :index] 0))
+       vec))
+
+(defn fresh-result-level-ids
+  "Unassigned universe mvars occurring in `expr` that are not in
+   `old-level-ids`."
+  [mctx expr old-level-ids]
+  (->> (unassigned-level-mvars mctx expr)
+       distinct
+       (remove old-level-ids)
+       sort
+       vec))
+
 (defn instantiate-level-mvars
   "Lean-named alias for `zonk-level`."
   [mctx l]

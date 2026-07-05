@@ -38,24 +38,6 @@
           (str "  " (:display-name hole) " : " (:type-str hole)))
         holes)))
 
-(defn- fresh-result-mvar-ids [mctx expr start-index]
-  (->> (meta/expr-mvars-no-delayed mctx expr)
-       distinct
-       (filter (fn [id]
-                 (let [decl (meta/expr-decl mctx id)]
-                   (and decl
-                        (>= (:index decl 0) start-index)
-                        (not (meta/expr-assigned-or-delayed? mctx id))))))
-       (sort-by #(get-in mctx [:decls % :index] 0))
-       vec))
-
-(defn- fresh-result-level-ids [mctx expr old-level-ids]
-  (->> (meta/unassigned-level-mvars mctx expr)
-       distinct
-       (remove old-level-ids)
-       sort
-       vec))
-
 (defn- collected-holes [mctx expr start-index]
   (mapv (fn [id]
           (let [decl (meta/expr-decl mctx id)]
@@ -65,14 +47,14 @@
              :kind (:kind decl)
              :user-name (:user-name decl)
              :inst-implicit? (boolean (:inst-implicit? decl))}))
-        (fresh-result-mvar-ids mctx expr start-index)))
+        (meta/fresh-result-mvar-ids mctx expr start-index)))
 
 (defn- collected-level-holes [mctx expr old-level-ids]
   (mapv (fn [id]
           {:id id
            :level (lvl/mvar id)
            :name (name/from-string (str "?u" id))})
-        (fresh-result-level-ids mctx expr old-level-ids)))
+        (meta/fresh-result-level-ids mctx expr old-level-ids)))
 
 (defn elab-term-with-holes
   "Elaborate `form` in `goal` and collect newly-created holes.

@@ -43,8 +43,6 @@
    {:env env
     :tc (tc/mk-tc-state env)
     :next-id (atom next-id-start)  ;; high start to avoid collision with tc ids
-    :mctx (atom {})          ;; compatibility metadata/solutions; declarations live in :meta-mctx
-    :level-mctx (atom {})    ;; {id → {:solution Level-or-nil}}
     :meta-mctx (atom (meta/with-synthetic-opaque-assignment
                       initial-meta-mctx
                       holes-as-synthetic-opaque?))
@@ -67,9 +65,8 @@
     :fvar (e/fvar-id expr)
     nil))
 
-(declare unify-levels! surface-expr->meta surface-level->meta surface-lctx->meta
-         meta-level->surface meta-expr->surface surface-mvar-type meta-mvar-type
-         infer-with-mvars whnf-with-mvars)
+(declare unify-levels! surface-lctx->meta surface-mvar-type meta-mvar-type
+         infer-with-mvars whnf-with-mvars zonk zonk-level)
 
 (defn- fresh-mvar!
   "Create a fresh expression metavariable with the given type. The mirrored
@@ -80,12 +77,9 @@
   ([est type {:keys [kind user-name inst-implicit?]
               :or {kind :natural}}]
    (let [id (fresh-id! est)]
-     (swap! (:mctx est) assoc id (cond-> {:solution nil :kind kind}
-                                   user-name (assoc :user-name user-name)
-                                   inst-implicit? (assoc :inst-implicit true)))
      (swap! (:meta-mctx est)
             meta/add-expr-mvar-decl id
-            (surface-expr->meta est type)
+            type
             (surface-lctx->meta est (:lctx (:tc est)))
             (cond-> {:kind kind}
               user-name (assoc :user-name user-name)
@@ -95,8 +89,6 @@
 (defn- mark-inst-implicit!
   [est mvar]
   (let [id (expr-mvar-id mvar)]
-    (swap! (:mctx est) assoc-in [id :inst-implicit] true)
-    (swap! (:mctx est) assoc-in [id :kind] :synthetic)
     (swap! (:meta-mctx est)
            #(-> %
                 (meta/set-expr-mvar-kind id :synthetic)
@@ -106,9 +98,7 @@
   "Create a fresh universe level metavariable.
    Returns a real Level.mvar; the compatibility context keeps a display name."
   [est]
-  (let [id (fresh-id! est)
-        n (name/from-string (str "?u" id))]
-    (swap! (:level-mctx est) assoc id {:name n :solution nil})
+  (let [id (fresh-id! est)]
     (swap! (:meta-mctx est) meta/add-level-mvar-decl id)
     (lvl/mvar id)))
 
@@ -120,14 +110,12 @@
   (when (meta/expr-decl @(:meta-mctx est) id)
     (if-let [assigned (meta/expr-assignment @(:meta-mctx est) id)]
       ;; Already solved — check consistency against the metacontext assignment.
-      (= (meta-expr->surface est assigned) solution)
-      (let [meta-solution (surface-expr->meta est solution)]
+      (= assigned solution)
+      (do
         (swap! (:meta-mctx est)
-               meta/checked-assign-expr id meta-solution
+               meta/checked-assign-expr id solution
                {:check-type? false
                 :unification? true})
-        (when (contains? @(:mctx est) id)
-          (swap! (:mctx est) assoc-in [id :solution] solution))
         ;; Try to solve level metavars: if the mvar's expected type is Sort ?u
         ;; and solution's type is Sort N, unify ?u = N
         (try
@@ -141,14 +129,10 @@
         true))))
 
 (defn- mvar-solution [est id]
-  (or (when-let [solution (meta/expr-assignment @(:meta-mctx est) id)]
-        (meta-expr->surface est solution))
-      (get-in @(:mctx est) [id :solution])))
+  (meta/expr-assignment @(:meta-mctx est) id))
 
 (defn- level-mvar-solution [est id]
-  (or (when-let [solution (meta/level-assignment @(:meta-mctx est) id)]
-        (meta-level->surface est solution))
-      (get-in @(:level-mctx est) [id :solution])))
+  (meta/level-assignment @(:meta-mctx est) id))
 
 (defn- solve-level-mvar!
   "Assign a solution to a level metavariable."
@@ -157,9 +141,7 @@
     (if (meta/level-assignment @(:meta-mctx est) id)
       true
       (do (swap! (:meta-mctx est)
-                 meta/checked-assign-level id (surface-level->meta est solution))
-          (when (contains? @(:level-mctx est) id)
-            (swap! (:level-mctx est) assoc-in [id :solution] solution))
+                 meta/checked-assign-level id solution)
           true))))
 
 ;; ============================================================
@@ -169,279 +151,24 @@
 (defn- zonk-level
   "Substitute solved level metavariables in a level."
   [est l]
-  (if (nil? l) l
-      (let [tag (.tag ^ansatz.kernel.Level l)]
-        (case tag
-          0 l ;; zero
-          1 (let [pred (lvl/succ-pred l)
-                  pred' (zonk-level est pred)]
-              (if (identical? pred pred') l (lvl/succ pred')))
-          2 (let [lhs (zonk-level est (lvl/max-lhs l))
-                  rhs (zonk-level est (lvl/max-rhs l))]
-              (lvl/level-max lhs rhs))
-          3 (let [lhs (zonk-level est (lvl/imax-lhs l))
-                  rhs (zonk-level est (lvl/imax-rhs l))]
-              (lvl/imax lhs rhs))
-          4 (let [n (lvl/param-name l)
-                  id (some (fn [[id m]]
-                             (when (= (:name m) n) id))
-                           @(:level-mctx est))]
-              (if-let [solution (when id (level-mvar-solution est id))]
-                (zonk-level est solution)
-                l))
-          5 (let [id (lvl/mvar-id l)]
-              (if-let [solution (level-mvar-solution est id)]
-                (zonk-level est solution)
-                l))))))
+  (when l (meta/zonk-level @(:meta-mctx est) l)))
 
 (defn- zonk
   "Substitute all solved metavariables in an expression."
   [est expr]
-  (case (e/tag expr)
-    :mvar (let [id (e/mvar-id expr)]
-            (if-let [sol (mvar-solution est id)]
-              (zonk est sol)
-              expr))
-    :fvar (let [id (e/fvar-id expr)]
-            (if-let [sol (mvar-solution est id)]
-              (zonk est sol)
-              expr))
-    :app (let [f (zonk est (e/app-fn expr))
-               a (zonk est (e/app-arg expr))]
-           (if (and (identical? f (e/app-fn expr))
-                    (identical? a (e/app-arg expr)))
-             expr
-             (e/app f a)))
-    :lam (let [ty (zonk est (e/lam-type expr))
-               body (zonk est (e/lam-body expr))]
-           (if (and (identical? ty (e/lam-type expr))
-                    (identical? body (e/lam-body expr)))
-             expr
-             (e/lam (e/lam-name expr) ty body (e/lam-info expr))))
-    :forall (let [ty (zonk est (e/forall-type expr))
-                  body (zonk est (e/forall-body expr))]
-              (if (and (identical? ty (e/forall-type expr))
-                       (identical? body (e/forall-body expr)))
-                expr
-                (e/forall' (e/forall-name expr) ty body (e/forall-info expr))))
-    :let (let [ty (zonk est (e/let-type expr))
-               val (zonk est (e/let-value expr))
-               body (zonk est (e/let-body expr))]
-           (e/let' (e/let-name expr) ty val body))
-    :const (let [levels (e/const-levels expr)
-                 levels' (mapv #(zonk-level est %) levels)]
-             (if (= levels levels')
-               expr
-               (e/const' (e/const-name expr) levels')))
-    :sort (let [l (e/sort-level expr)
-                l' (zonk-level est l)]
-            (if (identical? l l') expr (e/sort' l')))
-    :proj (let [s (zonk est (e/proj-struct expr))]
-            (if (identical? s (e/proj-struct expr))
-              expr
-              (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
-    :mdata (let [x (zonk est (e/mdata-expr expr))]
-             (if-let [fvar-ids (::meta/abstract-fvars (e/mdata-data expr))]
-               (if (seq (meta/collect-expr-mvars x))
-                 (if (identical? x (e/mdata-expr expr))
-                   expr
-                   (e/mdata (e/mdata-data expr) x))
-                 (e/abstract-many x fvar-ids))
-               (if (identical? x (e/mdata-expr expr))
-                 expr
-                 (e/mdata (e/mdata-data expr) x))))
-    ;; Atoms
-    expr))
-
-(defn- legacy-level-mvar-id
-  "Return the level mvar id represented by `l`, accepting both real Level.mvar
-   nodes and the older synthetic Level.param compatibility shape."
-  [est l]
-  (cond
-    (lvl/mvar? l)
-    (lvl/mvar-id l)
-
-    (lvl/param? l)
-    (let [n (lvl/param-name l)]
-      (some (fn [[id m]] (when (= (:name m) n) id))
-            @(:level-mctx est)))))
-
-(defn- surface-level->meta
-  "Translate live surface levels to metacontext-shaped levels. Level mvars are
-   already real `Level.mvar` nodes; the synthetic param path remains for
-   compatibility with older elaborator artifacts."
-  [est l]
-  (if (nil? l)
-    l
-    (case (lvl/tag l)
-      :zero l
-      :succ (let [p (surface-level->meta est (lvl/succ-pred l))]
-              (if (identical? p (lvl/succ-pred l)) l (lvl/succ p)))
-      :max (let [a (surface-level->meta est (lvl/max-lhs l))
-                 b (surface-level->meta est (lvl/max-rhs l))]
-             (if (and (identical? a (lvl/max-lhs l))
-                      (identical? b (lvl/max-rhs l)))
-               l
-               (lvl/level-max a b)))
-      :imax (let [a (surface-level->meta est (lvl/imax-lhs l))
-                  b (surface-level->meta est (lvl/imax-rhs l))]
-              (if (and (identical? a (lvl/imax-lhs l))
-                       (identical? b (lvl/imax-rhs l)))
-                l
-                (lvl/imax a b)))
-      :param (if-let [id (legacy-level-mvar-id est l)]
-               (lvl/mvar id)
-               l)
-      :mvar l)))
-
-(defn- surface-expr->meta
-  "Translate live surface expressions to metacontext-shaped expressions.
-   Expression mvars are already real `Expr.mvar` nodes; the legacy fvar path is
-   retained for compatibility. Level mvars are already real `Level.mvar` nodes,
-   with legacy synthetic params still accepted."
-  [est expr]
-  (let [mctx @(:mctx est)]
-    (letfn [(go [expr]
-              (case (e/tag expr)
-                :fvar (if (contains? mctx (e/fvar-id expr))
-                        (e/mvar (e/fvar-id expr))
-                        expr)
-                :sort (let [u (surface-level->meta est (e/sort-level expr))]
-                        (if (identical? u (e/sort-level expr))
-                          expr
-                          (e/sort' u)))
-                :const (let [levels (e/const-levels expr)
-                             levels' (mapv #(surface-level->meta est %) levels)]
-                         (if (= levels levels')
-                           expr
-                           (e/const' (e/const-name expr) levels')))
-                :app (let [f (go (e/app-fn expr))
-                           a (go (e/app-arg expr))]
-                       (if (and (identical? f (e/app-fn expr))
-                                (identical? a (e/app-arg expr)))
-                         expr
-                         (e/app f a)))
-                :lam (let [t (go (e/lam-type expr))
-                           b (go (e/lam-body expr))]
-                       (if (and (identical? t (e/lam-type expr))
-                                (identical? b (e/lam-body expr)))
-                         expr
-                         (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-                :forall (let [t (go (e/forall-type expr))
-                              b (go (e/forall-body expr))]
-                          (if (and (identical? t (e/forall-type expr))
-                                   (identical? b (e/forall-body expr)))
-                            expr
-                            (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-                :let (let [t (go (e/let-type expr))
-                           v (go (e/let-value expr))
-                           b (go (e/let-body expr))]
-                       (if (and (identical? t (e/let-type expr))
-                                (identical? v (e/let-value expr))
-                                (identical? b (e/let-body expr)))
-                         expr
-                         (e/let' (e/let-name expr) t v b)))
-                :mdata (let [x (go (e/mdata-expr expr))]
-                         (if (identical? x (e/mdata-expr expr))
-                           expr
-                           (e/mdata (e/mdata-data expr) x)))
-                :proj (let [s (go (e/proj-struct expr))]
-                        (if (identical? s (e/proj-struct expr))
-                          expr
-                          (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
-                expr))]
-      (go expr))))
+  (meta/zonk-expr @(:meta-mctx est) expr))
 
 (defn- surface-lctx->meta
-  "Convert mvar-shaped data inside a local context to real metacontext nodes."
+  "Instantiate solved metavariables inside a local context's declarations."
   [est lctx]
   (reduce-kv
    (fn [acc id decl]
      (assoc acc id
             (cond-> decl
-              (:type decl) (update :type #(surface-expr->meta est (zonk est %)))
-              (:value decl) (update :value #(surface-expr->meta est (zonk est %))))))
+              (:type decl) (update :type #(zonk est %))
+              (:value decl) (update :value #(zonk est %)))))
    {}
    lctx))
-
-(defn- meta-level->surface
-  "Translate metacontext-shaped levels back to the live surface representation.
-   Level mvars are now live `Level.mvar` nodes; the param path remains for
-   compatibility with older elaborator artifacts."
-  [est l]
-  (if (nil? l)
-    l
-    (case (lvl/tag l)
-      :zero l
-      :succ (let [p (meta-level->surface est (lvl/succ-pred l))]
-              (if (identical? p (lvl/succ-pred l)) l (lvl/succ p)))
-      :max (let [a (meta-level->surface est (lvl/max-lhs l))
-                 b (meta-level->surface est (lvl/max-rhs l))]
-             (if (and (identical? a (lvl/max-lhs l))
-                      (identical? b (lvl/max-rhs l)))
-               l
-               (lvl/level-max a b)))
-      :imax (let [a (meta-level->surface est (lvl/imax-lhs l))
-                  b (meta-level->surface est (lvl/imax-rhs l))]
-              (if (and (identical? a (lvl/imax-lhs l))
-                       (identical? b (lvl/imax-rhs l)))
-                l
-                (lvl/imax a b)))
-      :mvar l
-      :param l)))
-
-(defn- meta-expr->surface
-  "Translate metacontext-shaped data back to the live surface representation.
-   Expression and universe mvars are now live `Expr.mvar`/`Level.mvar` nodes."
-  [est expr]
-  (letfn [(go [expr]
-            (case (e/tag expr)
-              :mvar expr
-              :sort (let [u (meta-level->surface est (e/sort-level expr))]
-                      (if (identical? u (e/sort-level expr))
-                        expr
-                        (e/sort' u)))
-              :const (let [levels (e/const-levels expr)
-                           levels' (mapv #(meta-level->surface est %) levels)]
-                       (if (= levels levels')
-                         expr
-                         (e/const' (e/const-name expr) levels')))
-              :app (let [f (go (e/app-fn expr))
-                         a (go (e/app-arg expr))]
-                     (if (and (identical? f (e/app-fn expr))
-                              (identical? a (e/app-arg expr)))
-                       expr
-                       (e/app f a)))
-              :lam (let [t (go (e/lam-type expr))
-                         b (go (e/lam-body expr))]
-                     (if (and (identical? t (e/lam-type expr))
-                              (identical? b (e/lam-body expr)))
-                       expr
-                       (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-              :forall (let [t (go (e/forall-type expr))
-                            b (go (e/forall-body expr))]
-                        (if (and (identical? t (e/forall-type expr))
-                                 (identical? b (e/forall-body expr)))
-                          expr
-                          (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-              :let (let [t (go (e/let-type expr))
-                         v (go (e/let-value expr))
-                         b (go (e/let-body expr))]
-                     (if (and (identical? t (e/let-type expr))
-                              (identical? v (e/let-value expr))
-                              (identical? b (e/let-body expr)))
-                       expr
-                       (e/let' (e/let-name expr) t v b)))
-              :mdata (let [x (go (e/mdata-expr expr))]
-                       (if (identical? x (e/mdata-expr expr))
-                         expr
-                         (e/mdata (e/mdata-data expr) x)))
-              :proj (let [s (go (e/proj-struct expr))]
-                      (if (identical? s (e/proj-struct expr))
-                        expr
-                        (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)))
-              expr))]
-    (go expr)))
 
 (defn- meta-mvar-type
   "Return the metacontext-shaped type of expression mvar `id`, after zonking."
@@ -451,30 +178,9 @@
       (meta/zonk-expr mctx (:type decl)))))
 
 (defn- surface-mvar-type
-  "Return the live surface-shaped type of expression mvar `id`."
+  "Return the zonked type of expression mvar `id`."
   [est id]
-  (when-let [type (meta-mvar-type est id)]
-    (meta-expr->surface est type)))
-
-(defn- sync-legacy-levels-from-meta!
-  "Mirror solved universe levels from `:meta-mctx` back into the legacy
-   compatibility level context."
-  [est]
-  (let [mctx @(:meta-mctx est)]
-    (doseq [[id _] @(:level-mctx est)]
-      (when-let [solution (meta/level-assignment mctx id)]
-        (swap! (:level-mctx est) assoc-in [id :solution]
-               (meta-level->surface est solution))))))
-
-(defn- sync-legacy-exprs-from-meta!
-  "Mirror solved expression mvars from `:meta-mctx` back into the legacy
-   compatibility expression context."
-  [est]
-  (let [mctx @(:meta-mctx est)]
-    (doseq [[id _] @(:mctx est)]
-      (when-let [solution (meta/expr-assignment mctx id)]
-        (swap! (:mctx est) assoc-in [id :solution]
-               (meta-expr->surface est solution))))))
+  (meta-mvar-type est id))
 
 (defn- sync-meta-decls!
   "Keep the mirrored metacontext declarations readable after legacy zonking by
@@ -485,8 +191,7 @@
            (reduce meta/instantiate-mvar-decl-mvars mctx (keys (:decls mctx))))))
 
 (defn- unsolved-mvars [est]
-  (let [mctx @(:meta-mctx est)
-        legacy @(:mctx est)]
+  (let [mctx @(:meta-mctx est)]
     (->> (:decls mctx)
          (remove (fn [[id _]] (meta/expr-assigned-or-delayed? mctx id)))
          (sort-by first)
@@ -494,42 +199,16 @@
                  [id (cond-> {:kind (:kind decl)
                               :index (:index decl)
                               :user-name (:user-name decl)}
-                       (or (:inst-implicit? decl)
-                           (get-in legacy [id :inst-implicit]))
+                       (:inst-implicit? decl)
                        (assoc :inst-implicit true))])))))
 
 (defn- unsolved-levels [est]
-  (let [mctx @(:meta-mctx est)
-        legacy @(:level-mctx est)]
+  (let [mctx @(:meta-mctx est)]
     (->> (:level-depth mctx)
          (remove (fn [[id _]] (meta/level-assignment mctx id)))
          (sort-by first)
          (mapv (fn [[id _]]
-                 [id {:name (or (get-in legacy [id :name])
-                                (name/from-string (str "?u" id)))}])))))
-
-(defn- fresh-result-mvar-ids
-  "Lean-style collection boundary for tactic holes: only unassigned mvars that
-   occur in the zonked result become collected holes."
-  [mctx expr start-index]
-  (->> (meta/expr-mvars-no-delayed mctx expr)
-       distinct
-       (filter (fn [id]
-                 (let [decl (meta/expr-decl mctx id)]
-                   (and decl
-                        (>= (:index decl 0) start-index)
-                        (not (meta/expr-assigned-or-delayed? mctx id))))))
-       (sort-by #(get-in mctx [:decls % :index] 0))
-       vec))
-
-(defn- fresh-result-level-ids
-  "Collect new unassigned universe mvars that occur in the zonked result."
-  [mctx expr old-level-ids]
-  (->> (meta/unassigned-level-mvars mctx expr)
-       distinct
-       (remove old-level-ids)
-       sort
-       vec))
+                 [id {:name (name/from-string (str "?u" id))}])))))
 
 (declare elab-error! solve-instance-mvars!)
 
@@ -553,28 +232,23 @@
 
 (defn- collecting-finalize [est expr]
   (solve-instance-mvars! est)
-  (let [legacy-result (zonk est expr)
+  (let [result (zonk est expr)
         _ (sync-meta-decls! est)
-        result (surface-expr->meta est legacy-result)
         _ (swap! (:meta-mctx est) meta/with-synthetic-opaque-assignment false)
         start (:collect-from-index est 0)
         mctx @(:meta-mctx est)
-        legacy @(:mctx est)
         unsolved (mapv (fn [id]
                          (let [decl (meta/expr-decl mctx id)]
                            [id (cond-> {:kind (:kind decl)
                                         :index (:index decl)
                                         :user-name (:user-name decl)}
-                                 (or (:inst-implicit? decl)
-                                     (get-in legacy [id :inst-implicit]))
+                                 (:inst-implicit? decl)
                                  (assoc :inst-implicit true))]))
-                       (fresh-result-mvar-ids mctx result start))
+                       (meta/fresh-result-mvar-ids mctx result start))
         old-levels (:initial-level-mvar-ids est #{})
-        level-legacy @(:level-mctx est)
         unsolved-levels (mapv (fn [id]
-                                [id {:name (or (get-in level-legacy [id :name])
-                                               (name/from-string (str "?u" id)))}])
-                              (fresh-result-level-ids mctx result old-levels))]
+                                [id {:name (name/from-string (str "?u" id))}])
+                              (meta/fresh-result-level-ids mctx result old-levels))]
     {:expr result
      :meta-mctx @(:meta-mctx est)
      :holes (mapv (fn [[id m]]
@@ -633,11 +307,10 @@
 (defn- unify-levels!
   "Try to unify two levels, solving level metavars."
   [est l1 l2]
-  (let [l1 (surface-level->meta est (zonk-level est l1))
-        l2 (surface-level->meta est (zonk-level est l2))]
+  (let [l1 (zonk-level est l1)
+        l2 (zonk-level est l2)]
     (when-let [mctx (meta/is-level-def-eq @(:meta-mctx est) l1 l2)]
       (reset! (:meta-mctx est) mctx)
-      (sync-legacy-levels-from-meta! est)
       true)))
 
 (defn- unify!
@@ -645,13 +318,11 @@
    Returns true on success."
   [est a b]
   (sync-meta-decls! est)
-  (let [a (surface-expr->meta est (zonk est a))
-        b (surface-expr->meta est (zonk est b))
+  (let [a (zonk est a)
+        b (zonk est b)
         st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))]
     (when-let [mctx (meta/is-def-eq @(:meta-mctx est) st a b)]
       (reset! (:meta-mctx est) mctx)
-      (sync-legacy-levels-from-meta! est)
-      (sync-legacy-exprs-from-meta! est)
       true)))
 
 (defn- infer-with-mvars
@@ -664,19 +335,19 @@
    the live surface shape."
   [est expr]
   (sync-meta-decls! est)
-  (let [expr (surface-expr->meta est (zonk est expr))
+  (let [expr (zonk est expr)
         st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))
         inferred (meta/infer-type @(:meta-mctx est) st expr)]
-    (zonk est (meta-expr->surface est inferred))))
+    (zonk est inferred)))
 
 (defn- whnf-with-mvars
   "Weak-head normalize an elaborator expression through the metacontext."
   [est expr]
   (sync-meta-decls! est)
-  (let [expr (surface-expr->meta est (zonk est expr))
+  (let [expr (zonk est expr)
         st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))
         reduced (meta/whnf @(:meta-mctx est) st expr)]
-    (zonk est (meta-expr->surface est reduced))))
+    (zonk est reduced)))
 
 ;; ============================================================
 ;; Core elaboration
@@ -1511,13 +1182,10 @@
 (defn- has-unsolved-mvar?
   "True if (zonked) expr still contains an unsolved elaboration mvar."
   [est expr]
-  (let [mctx @(:meta-mctx est)
-        legacy @(:mctx est)]
+  (let [mctx @(:meta-mctx est)]
     (letfn [(unsolved? [id]
-              (if (meta/expr-decl mctx id)
-                (not (meta/expr-assigned-or-delayed? mctx id))
-                (let [m (get legacy id)]
-                  (and m (nil? (:solution m))))))
+              (when (meta/expr-decl mctx id)
+                (not (meta/expr-assigned-or-delayed? mctx id))))
             (go [x]
                 (when (instance? ansatz.kernel.Expr x)
                   (case (e/tag x)
@@ -1541,11 +1209,9 @@
         index (build-idx (:env est))]
     (loop []
       (let [mctx @(:meta-mctx est)
-            legacy @(:mctx est)
             pending (->> (:decls mctx)
                          (filter (fn [[id decl]]
-                                   (and (or (:inst-implicit? decl)
-                                            (get-in legacy [id :inst-implicit]))
+                                   (and (:inst-implicit? decl)
                                         (not (meta/expr-assigned-or-delayed? mctx id)))))
                          (sort-by first)
                          vec)

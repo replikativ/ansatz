@@ -256,46 +256,42 @@
       (is (= 1 (count holes)))
       (is (= (e/fvar 7) (:type (first holes)))))))
 
-(deftest test-elab-solver-mirrors-through-checked-metacontext-assignment
-  (testing "expression mvar mirror assignment rejects cycles before mutating legacy state"
+(deftest test-elab-solver-uses-checked-metacontext-assignment
+  (testing "expression mvar assignment rejects cycles"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
           id (e/mvar-id hole)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
                             (#'elab/solve-mvar! st id hole)))
-      (is (nil? (get-in @(:mctx st) [id :solution])))
       (is (nil? (get-in @(:meta-mctx st) [:expr-assignment id])))))
 
-  (testing "level mvar mirror assignment rejects cycles before mutating legacy state"
+  (testing "level mvar assignment rejects cycles"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           u (#'elab/fresh-level-mvar! st)
           id (lvl/mvar-id u)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cyclic"
                             (#'elab/solve-level-mvar! st id (lvl/succ u))))
-      (is (nil? (get-in @(:level-mctx st) [id :solution])))
       (is (nil? (get-in @(:meta-mctx st) [:level-assignment id]))))))
 
 (deftest test-elab-level-unification-uses-metacontext
-  (testing "surface level unification solves in :meta-mctx and syncs legacy state"
+  (testing "surface level unification solves in :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           u (#'elab/fresh-level-mvar! st)
           id (lvl/mvar-id u)]
       (is (#'elab/unify-levels! st (lvl/succ u) (lvl/succ lvl/zero)))
-      (is (= lvl/zero (get-in @(:level-mctx st) [id :solution])))
       (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))
 
 (deftest test-elab-expression-unification-uses-metacontext
-  (testing "surface expression unification solves in :meta-mctx and syncs legacy state"
+  (testing "surface expression unification solves in :meta-mctx"
     (let [prop (e/sort' lvl/zero)
           st (-> (#'elab/mk-elab-state (env/empty-env))
                  (update :tc update :lctx red/lctx-add-local 42 "h" prop))
           hole (#'elab/fresh-mvar! st prop)
           id (e/mvar-id hole)]
       (is (#'elab/unify! st hole (e/fvar 42)))
-      (is (= (e/fvar 42) (get-in @(:mctx st) [id :solution])))
       (is (= (e/fvar 42) (meta/expr-assignment @(:meta-mctx st) id))))))
 
-(deftest test-elab-infer-with-mvars-uses-mirrored-metacontext
+(deftest test-elab-infer-with-mvars-uses-metacontext
   (testing "dependent surface holes are typed through real mvars in :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           alpha (#'elab/fresh-mvar! st (e/sort' lvl/zero))
@@ -304,32 +300,28 @@
           term-id (e/mvar-id term)
           term-decl (meta/expr-decl @(:meta-mctx st) term-id)]
       (is (= (e/mvar alpha-id) (:type term-decl)))
-      (is (not (contains? (get @(:mctx st) term-id) :type)))
       (is (= alpha (#'elab/infer-with-mvars st term))))))
 
 (deftest test-elab-unsolved-scans-read-metacontext
-  (testing "expression holes are reported from :meta-mctx even without compatibility entries"
+  (testing "expression holes are reported from :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
           id (e/mvar-id hole)
-          _ (reset! (:mctx st) {})
           result (#'elab/collecting-finalize st hole)]
       (is (= [id] (mapv :id (:holes result))))))
 
-  (testing "level holes are reported from :meta-mctx even without compatibility entries"
+  (testing "level holes are reported from :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           u (#'elab/fresh-level-mvar! st)
           id (lvl/mvar-id u)
-          _ (reset! (:level-mctx st) {})
           result (#'elab/collecting-finalize st (e/sort' u))]
       (is (= [id] (mapv :id (:level-holes result))))))
 
-  (testing "instance-hole metadata is reported from :meta-mctx without compatibility entries"
+  (testing "instance-hole metadata is reported from :meta-mctx"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           hole (#'elab/fresh-mvar! st (e/sort' lvl/zero)
                                     {:kind :synthetic :inst-implicit? true})
           id (e/mvar-id hole)
-          _ (reset! (:mctx st) {})
           result (#'elab/collecting-finalize st hole)
           reported (first (:holes result))]
       (is (= id (:id reported)))
@@ -367,25 +359,21 @@
         (is (= [target-id] (mapv :id (:holes result))))
         (is (not (some #{source-id} (mapv :id (:holes result)))))))))
 
-(deftest test-elab-assignment-writes-metacontext-without-compatibility-entry
-  (testing "expression assignment does not require a compatibility mctx entry"
+(deftest test-elab-assignment-writes-metacontext
+  (testing "expression assignment lands in the one metacontext"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           hole (#'elab/fresh-mvar! st (e/sort' lvl/zero))
           id (e/mvar-id hole)
-          solution (e/sort' lvl/zero)
-          _ (reset! (:mctx st) {})]
+          solution (e/sort' lvl/zero)]
       (is (#'elab/solve-mvar! st id solution))
-      (is (= solution (meta/expr-assignment @(:meta-mctx st) id)))
-      (is (nil? (get @(:mctx st) id)))))
+      (is (= solution (meta/expr-assignment @(:meta-mctx st) id)))))
 
-  (testing "level assignment does not require a compatibility level entry"
+  (testing "level assignment lands in the one metacontext"
     (let [st (#'elab/mk-elab-state (env/empty-env))
           u (#'elab/fresh-level-mvar! st)
-          id (lvl/mvar-id u)
-          _ (reset! (:level-mctx st) {})]
+          id (lvl/mvar-id u)]
       (is (#'elab/solve-level-mvar! st id lvl/zero))
-      (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id)))
-      (is (nil? (get @(:level-mctx st) id))))))
+      (is (= lvl/zero (meta/level-assignment @(:meta-mctx st) id))))))
 
 ;; ============================================================
 ;; elaborate-check (full verification)
