@@ -55,6 +55,13 @@
     (e/const' Name/NAT_ZERO [])
     (e/app (e/const' Name/NAT_SUCC []) (e/lit-nat (dec n)))))
 
+;; Lean's kernel refuses to native-reduce Nat.pow past this exponent
+;; (ReducePowMaxExp = 1<<24, type_checker.cpp:636), falling back to structural
+;; unfolding. `(int vb)` would otherwise truncate/overflow the shift/exponent,
+;; which is unsound (`2^(2^32)` would reduce to `2^0 = 1`). Refusing keeps parity
+;; with the authoritative Java reducer.
+(def ^:private reduce-pow-max-exp (bit-shift-left 1 24))
+
 (defn- reduce-nat-binop
   "Try to reduce a nat binary operation on two literals."
   [^Name op-name a b]
@@ -67,15 +74,18 @@
         Name/NAT_MUL (e/lit-nat (* va vb))
         Name/NAT_DIV (if (zero? vb) (e/lit-nat 0) (e/lit-nat (quot va vb)))
         Name/NAT_MOD (if (zero? vb) (e/lit-nat va) (e/lit-nat (mod va vb)))
-        Name/NAT_POW (e/lit-nat (.pow (biginteger va) (int vb)))
+        Name/NAT_POW (when-not (> vb reduce-pow-max-exp)
+                       (e/lit-nat (.pow (biginteger va) (int vb))))
         Name/NAT_GCD (e/lit-nat (loop [a va b vb] (if (zero? b) a (recur b (mod a b)))))
         Name/NAT_BEQ (if (= va vb) (e/const' Name/BOOL_TRUE []) (e/const' Name/BOOL_FALSE []))
         Name/NAT_BLE (if (<= va vb) (e/const' Name/BOOL_TRUE []) (e/const' Name/BOOL_FALSE []))
         Name/NAT_LAND (e/lit-nat (.and (biginteger va) (biginteger vb)))
         Name/NAT_LOR  (e/lit-nat (.or (biginteger va) (biginteger vb)))
         Name/NAT_XOR  (e/lit-nat (.xor (biginteger va) (biginteger vb)))
-        Name/NAT_SHIFT_LEFT  (e/lit-nat (.shiftLeft (biginteger va) (int vb)))
-        Name/NAT_SHIFT_RIGHT (e/lit-nat (.shiftRight (biginteger va) (int vb)))
+        Name/NAT_SHIFT_LEFT  (when-not (> vb reduce-pow-max-exp)
+                               (e/lit-nat (.shiftLeft (biginteger va) (int vb))))
+        Name/NAT_SHIFT_RIGHT (when-not (> vb reduce-pow-max-exp)
+                               (e/lit-nat (.shiftRight (biginteger va) (int vb))))
         nil))))
 
 (defn- whnf-to-nat

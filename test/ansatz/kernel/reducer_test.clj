@@ -352,6 +352,22 @@
         (is (some? result))
         (is (= Name/BOOL_FALSE (.o0 ^Expr result)))))))
 
+(deftest nat-pow-exponent-bound-test
+  (testing "native Nat.pow reduces exponents up to Lean's ReducePowMaxExp (1<<24)"
+    (let [r (mk-reducer (Env.))
+          pow (e/const' Name/NAT_POW [])
+          reduce-pow (fn [base exp]
+                       (.tryReduceNatExpr r (e/app (e/app pow (e/lit-nat base)) (e/lit-nat exp))))]
+      (is (= (e/lit-nat 1024) (reduce-pow 2 10)))
+      (is (= (e/lit-nat 1) (reduce-pow 1 16777216)))  ;; at the bound
+      ;; Past the bound the kernel MUST NOT native-reduce: b.intValue() would
+      ;; truncate the exponent mod 2^32, making `2^(2^32)` reduce to `2^0 = 1`
+      ;; — an unsound result. Refuse (nil) so structural unfolding handles it.
+      (is (nil? (reduce-pow 2 4294967296)))   ;; 2^32 : intValue would be 0
+      (is (nil? (reduce-pow 2 4294967299)))   ;; 2^32+3 : intValue would be 3
+      (is (nil? (.tryReduceNatExpr r (e/app (e/app (e/const' Name/NAT_SHIFT_LEFT [])
+                                                   (e/lit-nat 1)) (e/lit-nat 4294967296))))))))
+
 ;; ============================================================
 ;; App spine utilities
 ;; ============================================================
