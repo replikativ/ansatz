@@ -572,6 +572,22 @@
                     result)))]
       (go expr))))
 
+(defn has-expr-mvar?
+  "Cheap syntactic check with early exit: does `expr` contain any expression
+   metavariable node? (Expr flags do not track mvars, so this is a walk.)"
+  [expr]
+  (case (e/tag expr)
+    :mvar true
+    :app (or (has-expr-mvar? (e/app-fn expr)) (has-expr-mvar? (e/app-arg expr)))
+    :lam (or (has-expr-mvar? (e/lam-type expr)) (has-expr-mvar? (e/lam-body expr)))
+    :forall (or (has-expr-mvar? (e/forall-type expr)) (has-expr-mvar? (e/forall-body expr)))
+    :let (or (has-expr-mvar? (e/let-type expr))
+             (has-expr-mvar? (e/let-value expr))
+             (has-expr-mvar? (e/let-body expr)))
+    :mdata (has-expr-mvar? (e/mdata-expr expr))
+    :proj (has-expr-mvar? (e/proj-struct expr))
+    false))
+
 (defn collect-expr-mvars
   "Collect expression metavariable ids occurring syntactically in `expr`."
   [expr]

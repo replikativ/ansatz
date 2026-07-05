@@ -31,17 +31,45 @@
   [ps lctx]
   (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx))
 
-(defn- whnf-in-goal
-  "WHNF reduce an expression in the context of a goal."
-  [ps goal-lctx expr]
-  (let [st (mk-tc ps goal-lctx)]
-    (#'tc/cached-whnf st expr)))
-
 (defn- meta-whnf-in-goal
   "WHNF reduce an expression while consulting the proof state's metacontext."
   [ps goal-lctx expr]
   (let [st (mk-tc ps goal-lctx)]
     (meta/whnf (:meta-mctx ps) st expr)))
+
+(defn- whnf-in-goal
+  "WHNF reduce an expression in the context of a goal. Expressions mentioning
+   metavariables route through the metacontext-aware reducer; the mvar-free
+   common case stays on the kernel path."
+  [ps goal-lctx expr]
+  (if (and (:meta-mctx ps) (meta/has-expr-mvar? expr))
+    (meta-whnf-in-goal ps goal-lctx expr)
+    (let [st (mk-tc ps goal-lctx)]
+      (#'tc/cached-whnf st expr))))
+
+(defn- infer-in-goal
+  "Infer a type in a goal context, consulting the metacontext when the
+   expression mentions metavariables (kernel `tc/infer-type` throws on mvars)."
+  [ps goal-lctx expr]
+  (let [st (mk-tc ps goal-lctx)]
+    (if (and (:meta-mctx ps) (meta/has-expr-mvar? expr))
+      (meta/infer-type (:meta-mctx ps) st expr)
+      (tc/infer-type st expr))))
+
+(defn- defeq-in-goal
+  "Definitional equality in a goal context. Returns an updated proof state on
+   success (metavariable assignments installed, solved goals pruned) and nil
+   on failure. Mvar-free inputs stay on the kernel path (kernel `tc/is-def-eq`
+   is silently false on distinct mvars)."
+  [ps goal-lctx a b]
+  (let [st (mk-tc ps goal-lctx)]
+    (if (and (:meta-mctx ps)
+             (or (meta/has-expr-mvar? a) (meta/has-expr-mvar? b)))
+      (when-let [mctx' (meta/is-def-eq (:meta-mctx ps) st a b)]
+        (-> ps
+            (assoc :meta-mctx mctx')
+            (proof/prune-solved-goals)))
+      (when (tc/is-def-eq st a b) ps))))
 
 (defn- instantiate-solved-mvars
   "Instantiate solved proof-state mvars that are represented as fvars in expr."
@@ -489,12 +517,12 @@
   [ps term]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        inferred (tc/infer-type st term)]
-    (when-not (tc/is-def-eq st inferred (:type goal))
+        inferred (infer-in-goal ps (:lctx goal) term)
+        ps' (defeq-in-goal ps (:lctx goal) inferred (:type goal))]
+    (when-not ps'
       (tactic-error! "Type mismatch in exact"
                      {:expected (:type goal) :inferred inferred}))
-    (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term term})
+    (-> (proof/assign-mvar ps' (:id goal) {:kind :exact :term term})
         (proof/record-tactic :exact [:term] (:id goal)))))
 
 (defn exact-form
@@ -954,11 +982,11 @@
     (let [eq-type (nth args 0)
           lhs (nth args 1)
           rhs (nth args 2)
-          st (mk-tc ps (:lctx goal))]
-      (when-not (tc/is-def-eq st lhs rhs)
+          ps' (defeq-in-goal ps (:lctx goal) lhs rhs)]
+      (when-not ps'
         (tactic-error! "rfl: sides are not definitionally equal"
                        {:lhs lhs :rhs rhs}))
-      (-> (proof/assign-mvar ps (:id goal)
+      (-> (proof/assign-mvar ps' (:id goal)
                              {:kind :rfl :eq-type eq-type :val lhs
                               :levels (e/const-levels head)})
           (proof/record-tactic :rfl [] (:id goal))))))
@@ -1067,7 +1095,7 @@
            motive-body (e/abstract1 goal-type-replaced motive-fvar-id)
            motive (e/lam "x" ty motive-body :default)
            ;; Compute the motive output sort level
-           goal-sort (tc/infer-type st (:type goal))
+           goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
            goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
            motive-level (if (e/sort? goal-sort-whnf)
                           (e/sort-level goal-sort-whnf)
@@ -1193,7 +1221,7 @@
         params (subvec (vec type-args) 0 (min num-params (count type-args)))
         indices (subvec (vec type-args) (min num-params (count type-args)))
         ;; Compute the motive output sort level
-        goal-sort (tc/infer-type st (:type goal))
+        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
         goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
         motive-level (if (e/sort? goal-sort-whnf)
                        (e/sort-level goal-sort-whnf)
@@ -1612,7 +1640,7 @@
         params (subvec (vec type-args) 0 (min num-params (count type-args)))
         indices (subvec (vec type-args) (min num-params (count type-args)))
         ;; Compute the motive output sort level
-        goal-sort (tc/infer-type st (:type goal))
+        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
         goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
         motive-level (if (e/sort? goal-sort-whnf)
                        (e/sort-level goal-sort-whnf)
@@ -1934,7 +1962,7 @@
         ;; False.elim : {C : Sort u} → False → C
         ;; u = sort level of the goal type
         st (mk-tc ps (:lctx goal))
-        goal-sort (try (tc/infer-type st (:type goal)) (catch Exception _ nil))
+        goal-sort (try (infer-in-goal ps (:lctx goal) (:type goal)) (catch Exception _ nil))
         goal-sort-whnf (when goal-sort (whnf-in-goal ps (:lctx goal) goal-sort))
         motive-level (if (and goal-sort-whnf (e/sort? goal-sort-whnf))
                        (e/sort-level goal-sort-whnf)
@@ -2027,7 +2055,7 @@
         ;; Build the Eq.ndrec term at tactic time (Lean 4 substCore pattern).
         eq-type (nth args 0)
         eq-level (first (e/const-levels head))
-        goal-sort (try (tc/infer-type st (:type goal)) (catch Exception _ nil))
+        goal-sort (try (infer-in-goal ps (:lctx goal) (:type goal)) (catch Exception _ nil))
         goal-sort-whnf (when goal-sort (whnf-in-goal ps (:lctx goal) goal-sort))
         motive-level (if (and goal-sort-whnf (e/sort? goal-sort-whnf))
                        (e/sort-level goal-sort-whnf)
@@ -2992,7 +3020,7 @@
         [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))
         ;; Build the proof term directly:
         ;; @Bool.rec (λ b, Eq Bool cond b → Goal) (λ h, false_proof) (λ h, true_proof) cond (Eq.refl Bool cond)
-        goal-sort (tc/infer-type st (:type goal))
+        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
         goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
         motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
         ;; motive: λ (b : Bool), Eq Bool cond b → Goal
@@ -3085,7 +3113,7 @@
         [ps' h-true-id] (proof/alloc-id ps')
         lctx-true (red/lctx-add-local (:lctx goal) h-true-id hname (eq-type bool-true))
         [ps' true-goal-id] (proof/fresh-mvar-replacing ps' goal-true lctx-true (:id goal))
-        goal-sort (tc/infer-type st (:type goal))
+        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
         goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
         motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
         ;; motive: λ (b : Bool), Eq Bool e b → Goal[e := b]  (abstracted over the fvar)
@@ -3292,7 +3320,7 @@
         _ (when-not goal (tactic-error! "No goals" {}))
         st (mk-tc ps (:lctx goal))
         not-c (e/app* (e/const' (name/from-string "Not") []) c)
-        goal-sort (tc/infer-type st (:type goal))
+        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
         goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
         motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
         ;; constant motive: λ (_ : Decidable c), Goal
