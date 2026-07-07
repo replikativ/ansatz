@@ -454,7 +454,11 @@
    opts:
    - :hyp-arities — also try APPLYING each local hypothesis to this many
      fresh argument holes (e.g. [1 2]); with a hole-typed hypothesis this
-     infers implications. Default [] (off)."
+     infers implications. Default [] (off).
+
+   Overlay declarations (see `declareo`) are AUTOMATICALLY available as
+   candidates, so a lemma the search declared (and may still be synthesizing)
+   is first-class in the proof — env and overlay are one candidate space."
   ([g lemmas depth] (proveo g lemmas depth {}))
   ([g lemmas depth {:keys [hyp-arities] :or {hyp-arities []} :as opts}]
    (fn [s]
@@ -465,7 +469,7 @@
        ((apply condw
                (concat
                 [[8 (assumptiono g)]]
-                (for [[w cname] lemmas]
+                (for [[w cname] (concat lemmas (map (fn [nm] [1 nm]) (keys (:overlay s))))]
                   [w (applyo g cname
                              (fn [obs]
                                (apply all
@@ -616,3 +620,44 @@
                      (env/mk-def (name/from-string "__certify__") [] goal proof))
                     true
                     (catch Throwable _ false)))}))))
+
+(defn- open-telescope
+  "Peel `ty`'s ∀-telescope into fresh fvars added to `lctx` (binders →
+   hypotheses). Returns [lctx' conclusion fvar-ids], fvar ids from `start-fid`."
+  [lctx ty start-fid]
+  (loop [t ty, lctx lctx, fids [], fid start-fid]
+    (if (e/forall? t)
+      (recur (e/instantiate1 (e/forall-body t) (e/fvar fid))
+             (assoc lctx fid {:tag :local :id fid
+                              :name (or (some-> (e/forall-name t) str) "x")
+                              :type (e/forall-type t)})
+             (conj fids fid) (inc fid))
+      [lctx t fids])))
+
+(defn synthesizeo
+  "Synthesize the VALUE of overlay declaration `name` BY PROVING its type:
+   open the ∀-telescope into a proof context (binders → hypotheses), prove the
+   conclusion via `(prove-conclusion goal-mvar)`, and set the overlay value to
+   `(λ binders. proof)`. Threads the same metacontext + overlay, so the lemma's
+   proof may itself use env AND overlay lemmas (mutual/staged synthesis). `k` is
+   the continuation. This turns a declared lemma-hole into a search-proven def —
+   the general-synthesis step over the relational env."
+  [name prove-conclusion k]
+  (fn [s]
+    (let [ty (get-in s [:overlay name :type])
+          base-lctx (:lctx s)
+          [lctx' concl fids] (open-telescope base-lctx ty (:next-id s))
+          s (assoc s :lctx lctx' :next-id (+ (long (:next-id s)) (count fids)))
+          locals (mapv (fn [fid] (let [d (get lctx' fid)]
+                                   {:fid fid :name (:name d) :type (:type d)}))
+                       fids)]
+      ((fresh concl
+              (fn [g]
+                (all (prove-conclusion g)
+                     (fn [s2]
+                       (let [proof (zonk s2 g)
+                             value (telescope e/lam locals (e/abstract-many proof fids))
+                             s3 (-> s2 (assoc :lctx base-lctx)
+                                    (set-overlay-value name value))]
+                         ((k) s3))))))
+       s))))

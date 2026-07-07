@@ -75,6 +75,48 @@
       (is (:ok? c) "still kernel-certified")
       (is (= [] (:assumed c)) "no assumptions — mytrans is now a checked def"))))
 
+(deftest overlay-lemma-is-an-automatic-proveo-candidate
+  (testing "a declared overlay lemma is used by proveo WITHOUT being listed —
+            env and overlay are one candidate space"
+    (let [s (prove-with-overlay
+             (fn [st]
+               ((r/declareo "mytrans" (trans-ty)
+                            (fn [] (r/fresh (nle n k)
+                                            ;; NOTE: empty lemma list — mytrans comes from the overlay
+                                            (fn [g] (r/all (r/proveo g [] 3)
+                                                           (fn [s2] (r/unit (assoc s2 ::g g))))))))
+                st)))]
+      (is (some? s) "proved n≤k using the overlay lemma with no explicit candidates")
+      (is (:ok? (r/certify s (::g s)))))))
+
+;; ∀ n:Nat, n ≤ n  — a lemma the search can PROVE (via Nat.le_refl)
+(def ^:private refl-ty
+  (delay (e/forall' "n" nat (nle (e/bvar 0) (e/bvar 0)) :default)))
+
+(deftest synthesize-overlay-value-by-search
+  (testing "declare a lemma-hole, SYNTHESIZE its proof by search (not alias),
+            use it, and certify — a search-proven def, no assumptions"
+    (let [a (e/fvar 30)
+          lctx (red/lctx-add-local (red/empty-lctx) 30 "a" nat)
+          s (first (r/run 1 (r/state *env* :lctx lctx)
+                          (fn [st]
+                            ((r/declareo "myrefl" @refl-ty
+                                         (fn []
+                                           (r/synthesizeo
+                                            "myrefl"
+                                            (fn [g] (r/proveo g [[1 "Nat.le_refl"]] 2))
+                                            (fn []
+                                              (r/fresh (nle a a)
+                                                       (fn [gg]
+                                                         (r/all (r/applyo gg "myrefl" (fn [_] r/succeed))
+                                                                (fn [s2] (r/unit (assoc s2 ::g gg))))))))))
+                             st))))
+          c (when s (r/certify s (::g s)))]
+      (is (some? s) "search proved the overlay lemma AND used it in the goal")
+      (is (some? (get-in s [:overlay "myrefl" :value])) "myrefl's value was synthesized")
+      (is (:ok? c) "kernel-certified")
+      (is (= [] (:assumed c)) "no assumptions — myrefl is a search-proven def"))))
+
 (deftest overlay-lemma-shared-across-goals
   (testing "ONE overlay lemma, used by TWO goals, synthesized once"
     (let [s (prove-with-overlay
