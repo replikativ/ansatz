@@ -11,6 +11,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as kenv]
             [ansatz.kernel.reduce :as red]
+            [ansatz.provenance :as prov]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]))
 
@@ -128,6 +129,26 @@
       (is (some? (get-in s [:overlay "myrefl" :value])) "myrefl's value was synthesized")
       (is (:ok? c) "kernel-certified")
       (is (= [] (:assumed c)) "no assumptions — myrefl is a search-proven def"))))
+
+(deftest probability-of-provability-from-uncertain-premises
+  (testing "two UNCERTAIN overlay lemmas (credence axioms) each prove the goal;
+            under ProofsProb the measure over the proof space is the exact
+            probability-of-provability P(L1 ∨ L2), correlation-aware"
+    (let [ltype (e/forall' "x" nat (e/forall' "y" nat (nle (e/bvar 1) (e/bvar 0)) :default) :default)
+          a (e/fvar 40) b (e/fvar 41)
+          lctx (-> (red/empty-lctx) (red/lctx-add-local 40 "a" nat) (red/lctx-add-local 41 "b" nat))
+          states (r/run 5 (r/state *env* :lctx lctx :prov prov/proofs-prov)
+                        (fn [st]
+                          ((r/declareo "L1" ltype
+                                       (fn [] (r/declareo "L2" ltype
+                                                          (fn [] (r/fresh (nle a b)
+                                                                          (fn [g] (r/proveo g [] 3))))
+                                                          :credence 0.6))
+                                       :credence 0.8)
+                           st)))]
+      (is (<= 2 (count states)) "goal proved via each uncertain lemma")
+      (is (< 0.91 (r/combined-measure prov/proofs-prov states) 0.93)
+          "P(L1@0.8 ∨ L2@0.6) = 1-(1-0.8)(1-0.6) = 0.92 — probability the goal is provable"))))
 
 (deftest overlay-lemma-shared-across-goals
   (testing "ONE overlay lemma, used by TWO goals, synthesized once"

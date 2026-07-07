@@ -300,11 +300,22 @@
            :s s})))))
 
 (defn with-lemma
-  "Resolve `cname` (overlay-or-oracle) and call f : [head-expr type] → goal."
+  "Resolve `cname` (overlay-or-oracle) and call f : [head-expr type] → goal. If
+   `cname` is an UNCERTAIN overlay declaration (a `:credence` axiom not yet
+   synthesized), fold that credence into the branch measure as a LABELED fact
+   (keyed by the name, so the same uncertain lemma used by two proofs is counted
+   once under ProofsProb) — probability-of-provability then falls out of the
+   real search."
   [cname f]
   (fn [s]
     (if-let [{:keys [head type s]} (resolve-decl s cname)]
-      ((f [head type]) s)
+      (let [cstr (if (string? cname) cname (name/->string cname))
+            ov (get (:overlay s) cstr)
+            s (if (and ov (:credence ov) (nil? (:value ov)))
+                (update s :tag #(prov/prov-times (:prov s) %
+                                                 (prov/prov-fact (:prov s) cstr (:credence ov))))
+                s)]
+        ((f [head type]) s))
       mzero)))
 
 (defn declareo
@@ -315,15 +326,19 @@
    can type-check proof terms that reference it during the search) and tracked in
    `:overlay` with `:value nil` (an open obligation). `certify` upgrades any
    overlay decl whose value has been synthesized (`set-overlay-value`) to a
-   checked DEF, and reports the rest as `:assumed`. `k` is the continuation."
-  [name type k]
+   checked DEF, and reports the rest as `:assumed`. `k` is the continuation.
+   `:credence` (optional) marks this as an UNCERTAIN premise with that prior;
+   the search folds it into the measure when the lemma is applied (see
+   `with-lemma`), so probability-of-provability accounts for which uncertain
+   premises a proof uses."
+  [name type k & {:keys [credence]}]
   (fn [s]
     (let [ty (zonk s type)
           s (try (assoc s :env
                         (env/check-constant (:env s)
                                             (env/mk-axiom (name/from-string name) [] ty)))
                  (catch Throwable _ s))]  ; ill-formed type → decl not admitted
-      ((k) (assoc-in s [:overlay name] {:type ty :value nil})))))
+      ((k) (assoc-in s [:overlay name] {:type ty :value nil :credence credence})))))
 
 (defn set-overlay-value
   "Record a synthesized value (proof/definition body) for an overlay decl."
