@@ -407,23 +407,53 @@
 ;; Kernel disposal
 ;; ============================================================
 
+(defn- telescope
+  "mkForallFVars / mkLambdaFVars: wrap `body` (already abstracted over every
+   local's fvar) in nested binders, abstracting each binder's TYPE over the
+   binders outer to it (dependent). `locals` is outermost-first."
+  [mk-binder locals body]
+  (let [fids (mapv :fid locals)]
+    (reduce (fn [acc i]
+              (let [{:keys [name type]} (nth locals i)]
+                (mk-binder (or name "h")
+                           (e/abstract-many type (subvec fids 0 i))
+                           acc :default)))
+            body
+            (reverse (range (count locals))))))
+
 (defn certify
-  "The kernel disposes: zonk the solution for hole `g`, require it closed,
-   and STRICT-check it with the trusted kernel against the (zonked) goal
-   type. Returns {:term … :type … :ok? bool} — :ok? true means the search
-   result is a real proof, independent of anything the search did."
+  "The kernel disposes: zonk the solution for hole `g`, close it over the
+   ambient hypotheses, and STRICT-check it with the TRUSTED Java kernel
+   (`env/verifies?` → `TypeChecker.checkConstant`, which re-checks every
+   application argument — NOT the lenient `inferType`). Returns {:term …
+   :type … :ok? bool}; `:ok?` true means the result is a real, kernel-verified
+   proof of the (closed) goal, independent of anything the search did.
+
+   A goal with hypotheses `h : H` in the lctx is disposed as the closed
+   judgement `⊢ (λ h:H. term) : (∀ h:H. goal)` — so `certify` is sound in an
+   open context, not only for closed goals."
   [s g]
-  (let [term (zonk s g)
-        gty (mvar-type s g)
-        ;; hypotheses may have had holes for types — zonk the lctx too
-        s (update s :lctx #(meta/instantiate-lctx-mvars (:mctx s) %))]
-    (if (or (meta/has-expr-mvar? term) (meta/has-expr-mvar? gty))
-      {:term term :type gty :ok? false :reason :open-holes}
-      (let [st (tc-st s)]
-        (try
-          (let [tty (tc/infer-type st term)]
-            {:term term :type gty
-             :ok? (boolean (tc/is-def-eq st tty gty))
-             :inferred tty})
-          (catch Exception ex
-            {:term term :type gty :ok? false :reason (.getMessage ex)}))))))
+  (let [mctx (:mctx s)
+        term0 (zonk s g)
+        gty0 (mvar-type s g)
+        lctx (meta/instantiate-lctx-mvars mctx (:lctx s))
+        locals (->> lctx
+                    (filter (fn [[_ d]] (= :local (:tag d))))
+                    (sort-by first)
+                    (mapv (fn [[fid d]] {:fid fid :name (:name d) :type (:type d)})))
+        fids (mapv :fid locals)
+        proof (telescope e/lam locals (e/abstract-many term0 fids))
+        goal (telescope e/forall' locals (e/abstract-many gty0 fids))]
+    (if (or (meta/has-expr-mvar? proof) (meta/has-expr-mvar? goal))
+      {:term term0 :type gty0 :ok? false :reason :open-holes}
+      {:term term0 :type gty0 :closed-goal goal :closed-proof proof
+       ;; STRICT kernel check of `proof : goal` for ANY goal (Prop OR Type) —
+       ;; a DEF `__certify__ : goal := proof`, checkConstant re-checking every
+       ;; argument. (A THM/`verifies?` would reject a value hole whose type is
+       ;; not a Prop, e.g. ?x : Nat.)
+       :ok? (boolean
+             (try (env/check-constant
+                   (:env s)
+                   (env/mk-def (name/from-string "__certify__") [] goal proof))
+                  true
+                  (catch Throwable _ false)))})))
