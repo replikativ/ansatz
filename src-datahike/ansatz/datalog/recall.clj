@@ -20,8 +20,58 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
             [ansatz.rel :as r]
+            [datahike.api :as d]
             [clojure.edn :as edn])
   (:import [ansatz.kernel ConstantInfo]))
+
+;; ---- Direction-2: the disc-tree AS a datahike secondary index + planned
+;;      datalog recall query (needs the datahike Integer→Long eid coercion fix
+;;      in execute-external-engine; recall via `-search` is identical). ----
+
+(defn project-recall-db
+  "Project `env` into a connection-backed datahike DB for recall: :decl/name
+   (unique) + :decl/dt-key (conclusion disc-tree key), with the :ansatz.index/
+   discr-tree secondary index over :decl/dt-key (fed by the transactor)."
+  [env]
+  (let [cfg {:store {:backend :memory :id (java.util.UUID/randomUUID)}
+             :schema-flexibility :write :keep-history? false
+             ;; disable datahike's 4096-char string cap: a few compiler-generated
+             ;; decls (.noConfusion, .rec motives, match equations) have huge
+             ;; conclusion types whose disc-tree key-path serializes past 4096.
+             :max-string-length 0}
+        _ (d/create-database cfg)
+        conn (d/connect cfg)]
+    (d/transact conn [{:db/ident :decl/name :db/valueType :db.type/string
+                       :db/cardinality :db.cardinality/one :db/unique :db.unique/identity}
+                      {:db/ident :decl/dt-key :db/valueType :db.type/string
+                       :db/cardinality :db.cardinality/one}])
+    (d/transact conn [{:db/ident :idx/dt :db.secondary/type :ansatz.index/discr-tree
+                       :db.secondary/attrs [:decl/dt-key]}])
+    (d/transact conn
+                (vec (for [^ConstantInfo ci (env/all-constants env)
+                           :let [k (try (dti/decl-key (.type ci)) (catch Throwable _ nil))]
+                           :when k]
+                       {:decl/name (nm/->string (.name ci)) :decl/dt-key k})))
+    (Thread/sleep 400)
+    conn))
+
+(defn datalog-recall-provider
+  "An inhabito/expro candidate provider backed by the PLANNED datalog recall
+   query over `conn`: `dt-match` routes to the disc-tree secondary index in-plan
+   (structural recall), then kernel `applies?` confirms in-plan. One SOTA-planned
+   query per goal — the Direction-2 form."
+  ([conn env] (datalog-recall-provider conn env 80))
+  ([conn env limit]
+   (fn [s g]
+     (let [gty (r/mvar-type s g)
+           gkey (dti/query-key gty)]
+       (->> (d/q '[:find ?name :in $ ?env ?goal ?key :where
+                   [(ansatz.index.discr/dt-match :idx/dt ?key) [[?d]]]
+                   [?d :decl/name ?name]
+                   [(ansatz.datalog.confirm/applies? ?env nil ?goal ?name)]]
+                 @conn env gty gkey)
+            (take limit)
+            (mapv (fn [[nm]] [1.0 nm])))))))
 
 (defn build-recall-trie
   "Build an in-process star-aware disc-tree over `env`: each declaration's
