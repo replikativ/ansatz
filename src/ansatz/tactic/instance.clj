@@ -253,7 +253,25 @@
                                        (swap! s assoc (e/fvar-id r) g)
                                        (when-not (try (tc/is-def-eq st r g) (catch Exception _ false))
                                          (reset! ok false)))))
-                                 (when @ok @s))))]
+                                 (when @ok @s)))
+                            ;; LENIENT positional match — DERIVED instances. Same head +
+                            ;; arity; fill ONLY the pattern-fvar positions and SKIP the
+                            ;; rest. A derived instance's result args are PROJECTIONS
+                            ;; (`AddCommMonoid.toAdd α ?fv`) that are not structurally
+                            ;; equal to the goal's DIRECT instances (`instAddNat`) but ARE
+                            ;; defeq once ?fv is synthesized. So we don't require those
+                            ;; positions to match here — the instance fvars get filled by
+                            ;; recursive synthesis and the final is-def-eq below GATES
+                            ;; soundness. (Only fires when the earlier, stricter matches
+                            ;; failed, so ordinary instances are unaffected.)
+                             (when (and (e/const? rh) (e/const? gh)
+                                        (= (e/const-name rh) (e/const-name gh))
+                                        (= (count ra) (count ga)))
+                               (let [s (atom {})]
+                                 (doseq [[r g] (map vector ra ga)]
+                                   (when (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
+                                     (swap! s assoc (e/fvar-id r) g)))
+                                 (when (seq @s) @s))))]
         ;; Try to fill all arguments
           (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
                 ;; registers these as instances whose structure argument is an instance subgoal,
