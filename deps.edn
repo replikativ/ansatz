@@ -25,7 +25,12 @@
   ;; Kept on its own source path so the core build never sees it — opt in with
   ;; `-M:datahike…`. Direction-1 of the datahike integration (Stage 1).
   :datahike {:extra-paths ["src-datahike"]
-             :extra-deps {io.replikativ/datahike {:local/root "/home/christian-weilbach/Development/datahike"}}}
+             :extra-deps {io.replikativ/datahike {:local/root "/home/christian-weilbach/Development/datahike"}}
+             ;; align konserve/hasch to datahike's versions (ansatz pins older —
+             ;; fine for the functional db path, but datahike's connection/
+             ;; transactor API needs its own konserve store arities)
+             :override-deps {org.replikativ/konserve {:mvn/version "0.9.350"}
+                             org.replikativ/hasch {:mvn/version "0.4.98"}}}
 
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
