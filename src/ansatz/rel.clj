@@ -253,23 +253,33 @@
       mzero)))
 
 (defn- peel-telescope
-  "forallMetaTelescope: peel ∀-binders into fresh mvars.
-   Returns [s' arg-mvars conclusion]."
+  "forallMetaTelescope: peel ∀-binders into fresh mvars. Instance-implicit
+   binders are tagged `:inst-implicit?` in the metacontext (so they route to
+   instance synthesis rather than blind term enumeration) and flagged
+   `:inst?` in the returned args. Returns [s' args conclusion] where each arg
+   is {:mvar Expr :inst? bool :explicit? bool}."
   [s ty]
   (loop [s s, t ty, args []]
     (if (e/forall? t)
-      (let [[id s] (next-id! s)
-            s (update s :mctx meta/add-expr-mvar-decl id (e/forall-type t) (:lctx s))]
+      (let [info (e/forall-info t)
+            inst? (= info :inst-implicit)
+            [id s] (next-id! s)
+            s (update s :mctx
+                      #(meta/add-expr-mvar-decl % id (e/forall-type t) (:lctx s)
+                                                (when inst? {:inst-implicit? true})))]
         (recur s
                (e/instantiate1 (e/forall-body t) (e/mvar id))
-               (conj args (e/mvar id))))
+               (conj args {:mvar (e/mvar id) :inst? inst? :explicit? (= info :default)})))
       [s args t])))
 
 (defn applyo
   "Relational `apply`: refine goal-hole `g` with lemma `cname`.
    Peels the lemma's ∀-telescope into fresh mvars, unifies its conclusion
    with g's type, assigns g := (lemma ?a₁ … ?aₙ), then calls
-   k : [unsolved-arg-mvars] → goal for the remaining obligations."
+   k : [unsolved-EXPLICIT-arg-mvars] → goal for the remaining obligations.
+   Instance-implicit args are excluded from k (left for unification /
+   instance synthesis); implicit args are typically pinned by the
+   conclusion unification."
   [g cname k]
   (with-lemma cname
     (fn [[lemma ty]]
@@ -277,10 +287,14 @@
         (let [[s args concl] (peel-telescope s ty)
               gty (mvar-type s g)]
           ((all (=== concl gty)
-                (=== g (reduce e/app lemma args))
+                (=== g (reduce e/app lemma (map :mvar args)))
                 (project*
                  (fn [s]
-                   (k (vec (remove #(assigned? s %) args))))))
+                   (k (->> args
+                           (filter :explicit?)
+                           (map :mvar)
+                           (remove #(assigned? s %))
+                           vec)))))
            s))))))
 
 (defn assumptiono
@@ -402,6 +416,56 @@
                                         (map #(proveo % lemmas (dec depth) opts)
                                              obs))))])))
         s)))))
+
+;; ============================================================
+;; expro — type-directed open-grammar term enumeration
+;; ============================================================
+
+(defn expro
+  "Type-directed relational term ENUMERATOR: fill goal-hole `g` (of any type,
+   not just Prop) by open-grammar synthesis. Productions, as weighted proposals:
+
+   - a LOCAL variable of the goal's type (`assumptiono`) — cheap;
+   - an optional leaf `:gen` generator `(g → goal)` (literals, refinement
+     domains, constructors) — the datalog/refinement tier plugs in here;
+   - a LIBRARY-HEADED application: for each `[weight const-name]` candidate,
+     `applyo` it and recursively `expro` the unsolved EXPLICIT obligations at
+     depth-1. Library-headed ONLY — we never synthesize the function head,
+     which would need higher-order unification beyond Miller patterns.
+
+   `depth` bounds application nesting (drive termination with `expro-deepen`).
+   Instance-implicit args are handled by `applyo` (tagged, left to unification /
+   instance synthesis), not enumerated."
+  [g candidates depth & {:keys [gen]}]
+  (fn [s]
+    (cond
+      (assigned? s g) (unit s)
+      ;; at the depth bound, only LEAVES: a local variable or a generator
+      ;; production (no further applications).
+      (not (pos? depth)) ((apply any (assumptiono g) (when gen [(gen g)])) s)
+      :else
+      ((apply condw
+              (concat
+               [[8 (assumptiono g)]]
+               (when gen [[4 (gen g)]])
+               (for [[w cname] candidates]
+                 [w (applyo g cname
+                            (fn [obs]
+                              (apply all
+                                     (map #(expro % candidates (dec depth) :gen gen)
+                                          obs))))])))
+       s))))
+
+(defn expro-deepen
+  "Iterative deepening over `expro`: search depth 1, then 2, … up to `max-depth`,
+   concatenating answer streams shallow-first (shallow = simpler = higher prior).
+   `g` must be freshly unsolved in `s0` at each depth, so we re-run from `s0`."
+  [s0 g candidates max-depth & {:keys [gen]}]
+  (fn [_]
+    (reduce (fn [$ d]
+              (mplus $ (fn [] ((expro g candidates d :gen gen) s0))))
+            mzero
+            (range 1 (inc max-depth)))))
 
 ;; ============================================================
 ;; Kernel disposal
