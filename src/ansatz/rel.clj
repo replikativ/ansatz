@@ -50,14 +50,18 @@
    :mctx    ansatz.meta metacontext (the substitution)
    :prov    the provenance semiring (measure algebra; default MaxMinProb)
    :tag     this branch's measure tag (default = prov-one)
+   :overlay a RELATIONAL env extension above the fixed oracle: name →
+            {:type Expr :value Expr|nil} declaration-holes the search may
+            synthesize and SHARE across goals (see `declareo`/`lookupo`).
    :next-id fresh id counter (pure value — forking a state is safe)"
-  [env & {:keys [lctx mctx prov tag next-id]}]
+  [env & {:keys [lctx mctx prov tag overlay next-id]}]
   (let [prov (or prov prov/default-provenance)]
     {:env env
      :lctx (or lctx {})
      :mctx (or mctx meta/empty-context)
      :prov prov
      :tag (or tag (prov/prov-one prov))
+     :overlay (or overlay {})
      :next-id (or next-id id-base)}))
 
 (defn measure
@@ -253,22 +257,65 @@
 (defn- const-info [s cname]
   (env/lookup (:env s) (if (string? cname) (name/from-string cname) cname)))
 
+(defn resolve-decl
+  "Unified relational lookup: resolve `cname` to a declaration head+type from
+   the env-OVERLAY first, then the fixed env ORACLE. Returns {:head Expr :type
+   Expr :s state'} with fresh level mvars instantiated, or nil. Overlay decls
+   are monomorphic (no level params) here. This is `lookupo`'s ground-compiled
+   core: known name → oracle; overlay name → the relational declaration-hole."
+  [s cname]
+  (let [nm (if (string? cname) (name/from-string cname) cname)
+        cstr (if (string? cname) cname (name/->string cname))]
+    (if-let [ov (get (:overlay s) cstr)]
+      {:head (e/const' nm []) :type (:type ov) :s s}
+      (when-let [ci (const-info s cname)]
+        (let [lparams (vec (.levelParams ci))
+              [s lvls] (reduce (fn [[s acc] _]
+                                 (let [[id s] (next-id! s)]
+                                   [(update s :mctx meta/add-level-mvar-decl id)
+                                    (conj acc (lvl/mvar id))]))
+                               [s []] lparams)]
+          {:head (e/const' (.name ci) lvls)
+           :type (e/instantiate-level-params (.type ci) (zipmap lparams lvls))
+           :s s})))))
+
 (defn with-lemma
-  "Instantiate constant `cname`'s universe params with fresh level mvars;
-   f : [lemma-expr lemma-type] → goal."
+  "Resolve `cname` (overlay-or-oracle) and call f : [head-expr type] → goal."
   [cname f]
   (fn [s]
-    (if-let [ci (const-info s cname)]
-      (let [lparams (vec (.levelParams ci))
-            [s lvls] (reduce (fn [[s acc] _]
-                               (let [[id s] (next-id! s)]
-                                 [(update s :mctx meta/add-level-mvar-decl id)
-                                  (conj acc (lvl/mvar id))]))
-                             [s []] lparams)
-            nm (.name ci)
-            ty (e/instantiate-level-params (.type ci) (zipmap lparams lvls))]
-        ((f [(e/const' nm lvls) ty]) s))
+    (if-let [{:keys [head type s]} (resolve-decl s cname)]
+      ((f [head type]) s)
       mzero)))
+
+(defn declareo
+  "RELATIONALLY extend the env with a declaration-hole `name : type` (monomorphic,
+   closed type) — a lemma/definition the search may use now (via
+   `applyo`/`with-lemma`/`lookupo`) and synthesize/assume LATER, SHARED across
+   goals. It is added to the WORKING env immediately as an AXIOM (so the kernel
+   can type-check proof terms that reference it during the search) and tracked in
+   `:overlay` with `:value nil` (an open obligation). `certify` upgrades any
+   overlay decl whose value has been synthesized (`set-overlay-value`) to a
+   checked DEF, and reports the rest as `:assumed`. `k` is the continuation."
+  [name type k]
+  (fn [s]
+    (let [ty (zonk s type)
+          s (try (assoc s :env
+                        (env/check-constant (:env s)
+                                            (env/mk-axiom (name/from-string name) [] ty)))
+                 (catch Throwable _ s))]  ; ill-formed type → decl not admitted
+      ((k) (assoc-in s [:overlay name] {:type ty :value nil})))))
+
+(defn set-overlay-value
+  "Record a synthesized value (proof/definition body) for an overlay decl."
+  [s name value]
+  (assoc-in s [:overlay name :value] value))
+
+(defn lookupo
+  "The relational env lookup as a goal: resolve `cname` (overlay ∪ oracle) and
+   pass its [head type] to k; fail if unknown. Ground/known names take the fast
+   oracle path; overlay names are the relational declaration-holes."
+  [cname k]
+  (with-lemma cname k))
 
 (defn- peel-telescope
   "forallMetaTelescope: peel ∀-binders into fresh mvars. Instance-implicit
@@ -509,6 +556,26 @@
             body
             (reverse (range (count locals))))))
 
+(defn commit-overlay
+  "The state's env already holds every overlay decl as an AXIOM (added by
+   `declareo`). Here we UPGRADE any decl whose value has been synthesized to a
+   checked DEF (replacing the axiom), and report the rest as `:assumed`. Returns
+   [env' assumed]: a proof using overlay lemmas is certified GIVEN them — fully
+   if all are synthesized, modulo the listed assumptions otherwise."
+  [s]
+  (reduce (fn [[env assumed] [nm {:keys [type value]}]]
+            (let [ty (zonk s type)
+                  val (some->> value (zonk s))
+                  synth? (and val (not (meta/has-expr-mvar? val))
+                              (not (meta/has-expr-mvar? ty)))]
+              (if synth?
+                [(env/check-constant-replace
+                  env (env/mk-def (name/from-string nm) [] ty val))
+                 assumed]
+                [env (conj assumed nm)])))
+          [(:env s) []]
+          (:overlay s)))
+
 (defn certify
   "The kernel disposes: zonk the solution for hole `g`, close it over the
    ambient hypotheses, and STRICT-check it with the TRUSTED Java kernel
@@ -534,14 +601,18 @@
         goal (telescope e/forall' locals (e/abstract-many gty0 fids))]
     (if (or (meta/has-expr-mvar? proof) (meta/has-expr-mvar? goal))
       {:term term0 :type gty0 :ok? false :reason :open-holes}
-      {:term term0 :type gty0 :closed-goal goal :closed-proof proof
-       ;; STRICT kernel check of `proof : goal` for ANY goal (Prop OR Type) —
-       ;; a DEF `__certify__ : goal := proof`, checkConstant re-checking every
-       ;; argument. (A THM/`verifies?` would reject a value hole whose type is
-       ;; not a Prop, e.g. ?x : Nat.)
-       :ok? (boolean
-             (try (env/check-constant
-                   (:env s)
-                   (env/mk-def (name/from-string "__certify__") [] goal proof))
-                  true
-                  (catch Throwable _ false)))})))
+      ;; commit the relational env-overlay into a forked env first, so a proof
+      ;; using synthesized/assumed lemmas checks against them.
+      (let [[env assumed] (commit-overlay s)]
+        {:term term0 :type gty0 :closed-goal goal :closed-proof proof
+         :assumed assumed  ; overlay lemmas admitted as axioms (nil/[] = fully proved)
+         ;; STRICT kernel check of `proof : goal` for ANY goal (Prop OR Type) —
+         ;; a DEF `__certify__ : goal := proof`, checkConstant re-checking every
+         ;; argument. (A THM/`verifies?` would reject a value hole whose type is
+         ;; not a Prop, e.g. ?x : Nat.)
+         :ok? (boolean
+               (try (env/check-constant
+                     env
+                     (env/mk-def (name/from-string "__certify__") [] goal proof))
+                    true
+                    (catch Throwable _ false)))}))))
