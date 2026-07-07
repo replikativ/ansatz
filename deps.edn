@@ -2,12 +2,12 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/data.json {:mvn/version "2.5.1"}
         org.replikativ/persistent-sorted-set {:mvn/version "0.4.126"}
-        org.replikativ/konserve {:mvn/version "0.9.345"
+        org.replikativ/konserve {:mvn/version "0.9.350"
                                  :exclusions [org.clojure/clojurescript
                                               com.github.pkpkpk/cljs-node-io
                                               com.github.pkpkpk/fress
                                               org.clojars.mmb90/cljs-cache]}
-        org.replikativ/hasch {:mvn/version "0.3.96"
+        org.replikativ/hasch {:mvn/version "0.4.98"
                               :exclusions [org.clojure/clojurescript
                                            com.cognitect/transit-cljs]}
         org.clojure/core.cache {:mvn/version "1.1.234"}}
@@ -24,13 +24,8 @@
   ;; OPTIONAL: the datahike relational projection/recall layer (ansatz.datalog).
   ;; Kept on its own source path so the core build never sees it — opt in with
   ;; `-M:datahike…`. Direction-1 of the datahike integration (Stage 1).
-  :datahike {:extra-paths ["src-datahike"]
-             :extra-deps {io.replikativ/datahike {:local/root "/home/christian-weilbach/Development/datahike"}}
-             ;; align konserve/hasch to datahike's versions (ansatz pins older —
-             ;; fine for the functional db path, but datahike's connection/
-             ;; transactor API needs its own konserve store arities)
-             :override-deps {org.replikativ/konserve {:mvn/version "0.9.350"}
-                             org.replikativ/hasch {:mvn/version "0.4.98"}}}
+  :datahike {:extra-paths ["src-datahike" "test-datahike"]
+             :extra-deps {org.replikativ/datahike {:local/root "/home/christian-weilbach/Development/datahike"}}}
 
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
