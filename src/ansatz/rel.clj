@@ -12,7 +12,8 @@
    ANY position: the proof term, the goal, or a hypothesis TYPE
    (omnidirectional search — e.g. infer the assumption that closes a proof).
 
-   Measure semantics: every state carries a log-weight `:logw`. `condw`
+   Measure semantics: every state carries a provenance `:prov` (a semiring
+   from ansatz.provenance; MaxMinProb/log by default) and a `:tag`. `condw`
    clause weights act as branch priors: they both order the search
    (weighted interleave, Barliman's conde-weighted) and multiply the
    branch's measure. `run` returns states best-first by weight, so the
@@ -26,6 +27,7 @@
    Search states are pure Clojure values: fork = hold a reference. This is
    the SMC invariant inherited from the single-metacontext architecture."
   (:require [ansatz.meta :as meta]
+            [ansatz.provenance :as prov]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
@@ -46,14 +48,27 @@
 
    :lctx    ambient local context (hypotheses), red/lctx shape
    :mctx    ansatz.meta metacontext (the substitution)
-   :logw    log-weight of this branch (measure)
+   :prov    the provenance semiring (measure algebra; default MaxMinProb)
+   :tag     this branch's measure tag (default = prov-one)
    :next-id fresh id counter (pure value — forking a state is safe)"
-  [env & {:keys [lctx mctx logw next-id]}]
-  {:env env
-   :lctx (or lctx {})
-   :mctx (or mctx meta/empty-context)
-   :logw (or logw 0.0)
-   :next-id (or next-id id-base)})
+  [env & {:keys [lctx mctx prov tag next-id]}]
+  (let [prov (or prov prov/default-provenance)]
+    {:env env
+     :lctx (or lctx {})
+     :mctx (or mctx meta/empty-context)
+     :prov prov
+     :tag (or tag (prov/prov-one prov))
+     :next-id (or next-id id-base)}))
+
+(defn measure
+  "The reported measure of a state's branch (prov-recover of its tag)."
+  [s]
+  (prov/prov-recover (:prov s) (:tag s)))
+
+(defn order-weight
+  "The search-ordering key of a state (higher explored/returned first)."
+  [s]
+  (prov/prov-weight (:prov s) (:tag s)))
 
 (defn- tc-st
   "Kernel TC view of a search state (env + ambient lctx)."
@@ -120,23 +135,26 @@
 
 (defn condw
   "Weighted disjunction: clauses are [weight goal ...goals]. The weight is a
-   branch PRIOR: it multiplies the branch measure (logw += log(w/Σw)) and
-   biases the search order (heavier branches are explored first). This is
-   Barliman's conde-weighted unified with probKanren's weighted semantics."
+   branch PRIOR: it folds into the branch measure via the provenance ⊗
+   (`prov-from-prob (w/Σw)`) and biases the search order (heavier clauses are
+   streamed first). Barliman's conde-weighted unified with a provenance
+   semiring (probKanren's weighted semantics, MaxMinProb by default)."
   [& clauses]
   (let [total (double (reduce + (map first clauses)))]
     (fn [s]
-      (->> clauses
-           (sort-by (comp - first))
-           (map (fn [[w & goals]]
-                  (let [s' (update s :logw + (Math/log (/ (double w) total)))]
-                    (fn [] ((apply all goals) s')))))
-           (reduce mplus mzero)))))
+      (let [P (:prov s)]
+        (->> clauses
+             (sort-by (comp - first))
+             (map (fn [[w & goals]]
+                    (let [prior (prov/prov-from-prob P (/ (double w) total))
+                          s' (update s :tag #(prov/prov-times P % prior))]
+                      (fn [] ((apply all goals) s')))))
+             (reduce mplus mzero))))))
 
 (defn weightedo
-  "Multiply the current branch measure by `w` (add log w)."
-  [w]
-  (fn [s] (unit (update s :logw + (Math/log (double w))))))
+  "Fold a probability mass `p` into the current branch measure (⊗)."
+  [p]
+  (fn [s] (unit (update s :tag #(prov/prov-times (:prov s) % (prov/prov-from-prob (:prov s) p))))))
 
 (defn project*
   "Escape hatch: f gets the state and returns a goal."
@@ -226,7 +244,7 @@
   ([n s0 goal] (run n s0 goal {}))
   ([n s0 goal {:keys [raw?]}]
    (let [states (stream-take n (goal s0))]
-     (if raw? states (sort-by (comp - :logw) states)))))
+     (if raw? states (sort-by (comp - order-weight) states)))))
 
 ;; ============================================================
 ;; Proof relations — the omnidirectional tactic vocabulary

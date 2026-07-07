@@ -50,7 +50,7 @@
                                  [9 (r/=== x (e/lit-nat 2))]))))]
       (is (= 2 (count res)))
       ;; heavier branch first, and its weight is larger
-      (is (> (:logw (first res)) (:logw (second res)))))))
+      (is (> (r/order-weight (first res)) (r/order-weight (second res)))))))
 
 (def base-lctx*
   (delay (-> (red/empty-lctx)
