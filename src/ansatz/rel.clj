@@ -451,6 +451,11 @@
      depth-1. Library-headed ONLY — we never synthesize the function head,
      which would need higher-order unification beyond Miller patterns.
 
+   `candidates` is either a static seq of [weight const-name] OR a PROVIDER
+   function `(state, goal-mvar) → [[weight name] …]` — resolved per sub-goal, so
+   each obligation gets candidates for ITS OWN type (fully type-directed when
+   backed by the datalog recall, ansatz.datalog/dq-provider).
+
    `depth` bounds application nesting (drive termination with `expro-deepen`).
    Instance-implicit args are handled by `applyo` (tagged, left to unification /
    instance synthesis), not enumerated."
@@ -462,17 +467,18 @@
       ;; production (no further applications).
       (not (pos? depth)) ((apply any (assumptiono g) (when gen [(gen g)])) s)
       :else
-      ((apply condw
-              (concat
-               [[8 (assumptiono g)]]
-               (when gen [[4 (gen g)]])
-               (for [[w cname] candidates]
-                 [w (applyo g cname
-                            (fn [obs]
-                              (apply all
-                                     (map #(expro % candidates (dec depth) :gen gen)
-                                          obs))))])))
-       s))))
+      (let [cands (if (fn? candidates) (candidates s g) candidates)]
+        ((apply condw
+                (concat
+                 [[8 (assumptiono g)]]
+                 (when gen [[4 (gen g)]])
+                 (for [[w cname] cands]
+                   [w (applyo g cname
+                              (fn [obs]
+                                (apply all
+                                       (map #(expro % candidates (dec depth) :gen gen)
+                                            obs))))])))
+         s)))))
 
 (defn expro-deepen
   "Iterative deepening over `expro`: search depth 1, then 2, … up to `max-depth`,
