@@ -150,6 +150,37 @@
       (is (< 0.91 (r/combined-measure prov/proofs-prov states) 0.93)
           "P(L1@0.8 ∨ L2@0.6) = 1-(1-0.8)(1-0.6) = 0.92 — probability the goal is provable"))))
 
+(defn- proveo-moves
+  "proveo's move-set (assumption leaf + one refiner per lemma), for bestfirst."
+  [lemmas]
+  (fn [_s g]
+    {:leaves [[8 (r/assumptiono g)]]
+     :refiners (vec (for [[w nm] lemmas] [w (fn [g k] (r/applyo g nm k))]))}))
+
+(deftest bestfirst-finds-proof-among-distractors
+  (testing "best-first priority frontier proves a 4-chain a≤d with le_trans mixed
+            among distractor candidates that all conclusion-unify — the frontier
+            expands the most-promising partial proof and stops, where fair
+            interleave would explode over candidates × depth"
+    (let [a (e/fvar 60) b (e/fvar 61) cc (e/fvar 62) d (e/fvar 63)
+          lctx (-> (red/empty-lctx)
+                   (red/lctx-add-local 60 "a" nat) (red/lctx-add-local 61 "b" nat)
+                   (red/lctx-add-local 62 "c" nat) (red/lctx-add-local 63 "d" nat)
+                   (red/lctx-add-local 64 "h1" (nle a b)) (red/lctx-add-local 65 "h2" (nle b cc))
+                   (red/lctx-add-local 66 "h3" (nle cc d)))
+          ;; le_trans + distractors whose conclusions also unify with _ ≤ _
+          lemmas [[1 "Nat.le_trans"] [1 "Nat.le_refl"] [1 "Nat.zero_le"]
+                  [1 "Nat.le_of_lt"] [1 "Nat.le_succ"]]
+          s1 (first (r/run 1 (r/state *env* :lctx lctx)
+                           (r/fresh (nle a d) (fn [g] (fn [s] (r/unit (assoc s ::g g)))))))
+          g (::g s1)
+          sols (r/bestfirst g (proveo-moves lemmas) 6 s1 :max-nodes 8000 :limit 1)
+          s (first sols)
+          c (when s (r/certify s g))]
+      (is (some? s) "best-first found a proof of a≤d among the distractors")
+      (is (:ok? c) "kernel-certified")
+      (is (= [] (:assumed c))))))
+
 (deftest overlay-lemma-shared-across-goals
   (testing "ONE overlay lemma, used by TWO goals, synthesized once"
     (let [s (prove-with-overlay

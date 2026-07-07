@@ -630,6 +630,76 @@
             (range 1 (inc max-depth)))))
 
 ;; ============================================================
+;; bestfirst — a priority-queue frontier over PARTIAL proof states, ordered by
+;; the provenance measure. The operational (search) view of the same semiring
+;; ProbLog evaluates declaratively; the Aesop-style best-first over an AND-OR
+;; hypergraph. Fixes the fair-interleave breadth explosion: instead of exploring
+;; N candidates × depth uniformly, expand the most-promising partial proof first
+;; and stop at the first complete one.
+;; ============================================================
+
+(defn- fold-prior
+  "Fold branch weight `w` (of `total`) into `s`'s measure via the semiring ⊗."
+  [s w total]
+  (let [P (:prov s)]
+    (update s :tag #(prov/prov-times P % (prov/prov-from-prob P (/ (double w) (double total)))))))
+
+(defn- expand-node
+  "Expand open goal `g` (depth `d`) in state `s` → seq of {:state :open}. The
+   move weight folds into each child's measure (so the frontier orders by the
+   provenance-⊗ product along the path). Assigned goals collapse; Π-goals
+   delegate to `inhabito` (intro+recurse); atomic goals expand via the
+   leaves/refiners move set, refiners capturing their obligations as new OPEN
+   goals rather than recursing. `branch-cap` bounds children per move."
+  [s g d moves branch-cap]
+  (cond
+    (assigned? s g) [{:state s :open []}]
+    (e/forall? (mvar-type s g))
+    (for [cs (stream-take branch-cap ((inhabito g moves d) s))]
+      {:state cs :open []})
+    :else
+    (let [{:keys [leaves refiners]} (moves s g)
+          refiners (when (pos? d) refiners)
+          total (max 1.0 (double (+ (reduce + (map first leaves))
+                                    (reduce + (map first refiners)))))]
+      (concat
+       (for [[w lg] leaves
+             cs (stream-take branch-cap (lg s))]
+         {:state (fold-prior cs w total) :open []})
+       (for [[w rf] refiners
+             :let [cap (fn [obs] (fn [st] (unit (assoc st ::obs (vec obs)))))]
+             cs (stream-take branch-cap ((rf g cap) s))]
+         {:state (fold-prior (dissoc cs ::obs) w total)
+          :open (mapv (fn [o] [o (dec d)]) (::obs cs))})))))
+
+(defn bestfirst
+  "Best-first inhabitation of `g0` from `s0`: a priority-queue frontier over
+   PARTIAL proof states, popped in DESCENDING provenance measure (`order-weight`)
+   — expand the most-promising partial proof first, stop at complete ones.
+   `moves` is the same move-set inhabito/proveo/expro use. Returns solved states,
+   best-first. `max-nodes` bounds expansions; `branch-cap` bounds children per
+   move; `limit` bounds returned solutions."
+  [g0 moves depth s0 & {:keys [max-nodes branch-cap limit]
+                        :or {max-nodes 20000 branch-cap 8 limit 1}}]
+  (let [okey (fn [node ctr] [(- (double (order-weight (:state node)))) (long ctr)])
+        init {:state s0 :open [[g0 depth]]}]
+    (loop [ag (sorted-map (okey init 0) init), ctr 1, n 0, sols []]
+      (if (or (empty? ag) (>= n max-nodes) (>= (count sols) limit))
+        sols
+        (let [[k node] (first ag)
+              ag (dissoc ag k)]
+          (if (empty? (:open node))
+            (recur ag ctr n (conj sols (:state node)))
+            (let [[[g d] & rst] (:open node)
+                  children (expand-node (:state node) g d moves branch-cap)
+                  [ag' ctr'] (reduce (fn [[ag c] child]
+                                       (let [nn {:state (:state child)
+                                                 :open (into (vec (:open child)) rst)}]
+                                         [(assoc ag (okey nn c) nn) (inc c)]))
+                                     [ag ctr] children)]
+              (recur ag' ctr' (inc n) sols))))))))
+
+;; ============================================================
 ;; Kernel disposal
 ;; ============================================================
 
