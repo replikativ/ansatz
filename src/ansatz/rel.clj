@@ -32,7 +32,8 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.tc :as tc]))
+            [ansatz.kernel.tc :as tc]
+            [ansatz.tactic.instance :as inst]))
 
 ;; ============================================================
 ;; Search state
@@ -372,33 +373,91 @@
                (conj args {:mvar (e/mvar id) :inst? inst? :explicit? (= info :default)})))
       [s args t])))
 
+(defonce ^:private inst-index-cache (java.util.concurrent.ConcurrentHashMap.))
+
+(defn- instance-index
+  "Cached typeclass instance index for `env` (build-instance-index; empty for a
+   lazy PSS env, where synthesis falls back to on-demand discovery)."
+  [env]
+  (or (.get inst-index-cache env)
+      (let [idx (try (inst/build-instance-index env) (catch Throwable _ {}))]
+        (.put inst-index-cache env idx) idx)))
+
+(defn- assign-instances
+  "SPECIALIZE-DOWN — instance synthesis. For each instance-implicit arg not
+   already pinned by the conclusion unification: if its type is ground,
+   synthesize an instance (ansatz.tactic.instance — Lean-4-style: local
+   instances, the index, PSS on-demand discovery) and assign it. Returns
+   [s' ok?]; ok? is false iff an instance arg stays undetermined AND
+   unsynthesizable (so the application can't close — the hygiene prune, now a
+   FALLBACK). This is what lets a lemma stated over `[Preorder α]` apply to a
+   concrete `Nat`: γ / the specialize-down step of the theory hierarchy."
+  [s args]
+  (let [tcst (tc-st s)
+        idx (instance-index (:env s))]
+    (reduce (fn [[s ok] a]
+              (if (or (not ok) (not (:inst? a)) (assigned? s (:mvar a)))
+                [s ok]
+                (let [ty (zonk s (mvar-type s (:mvar a)))]
+                  (if (meta/has-expr-mvar? ty)
+                    [s false]                       ; instance type undetermined
+                    (if-let [it (try (inst/synthesize* tcst (:env s) idx ty 0)
+                                     (catch Throwable _ nil))]
+                      (if-let [mctx (try (meta/checked-assign-expr
+                                          (:mctx s) (e/mvar-id (:mvar a)) it {:env (:env s)})
+                                         (catch Throwable _ nil))]
+                        [(assoc s :mctx mctx) ok]
+                        [s false])                  ; assignment rejected
+                      [s false])))))                ; no instance found
+            [s true] args)))
+
+(defn- unify-concl
+  "INSTANCE-AWARE conclusion unification (Lean's instance postponement). Unify
+   goal type `gty` with the lemma `concl`, DEFERRING any head-argument position
+   that contains an as-yet-unsynthesized instance mvar: unify the type/value
+   positions first (determining the type mvars), then SYNTHESIZE the instances
+   (their types are now ground), then unify the deferred positions — where the
+   lemma's instance PROJECTION (e.g. `Preorder.toLE Nat ?inst`) is now concrete
+   and defeq to the goal's (`instLENat`). Falls back to plain === (different
+   heads / no instance args)."
+  [gty concl args]
+  (fn [s]
+    (let [[ch cargs] (e/get-app-fn-args concl)
+          [gh gargs] (e/get-app-fn-args gty)
+          inst-ids (into #{} (keep (fn [a] (when (:inst? a) (e/mvar-id (:mvar a)))) args))]
+      (if (and (seq inst-ids)
+               (e/const? ch) (e/const? gh)
+               (= (e/const-name ch) (e/const-name gh))
+               (= (count cargs) (count gargs)))
+        (let [defer? (fn [carg] (boolean (some #(meta/expr-occurs? (:mctx s) % carg) inst-ids)))
+              pairs (map vector cargs gargs)
+              nowp (remove (fn [[c _]] (defer? c)) pairs)
+              defp (filter (fn [[c _]] (defer? c)) pairs)]
+          ((all (apply all (for [[c gg] nowp] (=== c gg)))            ; type/value positions
+                (fn [s2] (let [[s3 ok] (assign-instances s2 args)]     ; synthesize instances
+                           (if ok (unit s3) mzero)))
+                (apply all (for [[c gg] defp] (=== c gg))))            ; now-concrete instance positions
+           s))
+        ((=== gty concl) s)))))
+
 (defn applyo
   "Relational `apply`: refine goal-hole `g` with lemma `cname`.
-   Peels the lemma's ∀-telescope into fresh mvars, unifies its conclusion
-   with g's type, assigns g := (lemma ?a₁ … ?aₙ), then calls
-   k : [unsolved-EXPLICIT-arg-mvars] → goal for the remaining obligations.
-   Instance-implicit args are excluded from k (left for unification /
-   instance synthesis); implicit args are typically pinned by the
-   conclusion unification."
+   Peels the lemma's ∀-telescope into fresh mvars, INSTANCE-AWARELY unifies its
+   conclusion with g's type (synthesizing typeclass instances — specialize-down,
+   so a lemma over `[Preorder α]` applies to `Nat`), assigns g := (lemma …),
+   then calls k : [unsolved-EXPLICIT-arg-mvars] → goal for the obligations."
   [g cname k]
   (with-lemma cname
     (fn [[lemma ty]]
       (fn [s]
         (let [[s args concl] (peel-telescope s ty)
               gty (mvar-type s g)]
-          ((all (=== concl gty)
-                (=== g (reduce e/app lemma (map :mvar args)))
-                ;; mvar-HYGIENE: every INSTANCE-implicit arg must be DETERMINED by
-                ;; the conclusion unification. We don't synthesize instances, so an
-                ;; undetermined instance mvar can never be solved — the application
-                ;; would leave a dangling mvar and can't yield a closed proof.
-                ;; Pruning it here kills the type-class rabbit holes (e.g. the
-                ;; Int-cast `le_of_ofNat_le_ofNat` path) DURING search instead of
-                ;; letting them "succeed" and fail only at certify.
+          ((all (unify-concl gty concl args)
+                ;; confirm all instance args pinned (fallback path + hygiene prune)
                 (fn [s]
-                  (if (every? (fn [a] (or (not (:inst? a)) (assigned? s (:mvar a)))) args)
-                    (unit s)
-                    mzero))
+                  (let [[s' ok?] (assign-instances s args)]
+                    (if ok? (unit s') mzero)))
+                (=== g (reduce e/app lemma (map :mvar args)))
                 (project*
                  (fn [s]
                    (k (->> args

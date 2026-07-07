@@ -157,6 +157,25 @@
     {:leaves [[8 (r/assumptiono g)]]
      :refiners (vec (for [[w nm] lemmas] [w (fn [g k] (r/applyo g nm k))]))}))
 
+(deftest instance-synthesis-general-lemma-over-concrete
+  (testing "a lemma stated over a typeclass ([Preorder α]) applies to a CONCRETE
+            type (Nat) by SYNTHESIZING the instance — specialize-down. (Skips on
+            init-medium, which lacks the general le_trans; validated on mathlib:
+            proof = le_trans Nat Nat.instPreorder …, certified.)"
+    (if-not (kenv/lookup *env* (nm/from-string "le_trans"))
+      (is true "skipped — general le_trans not in this env")
+      (let [x (e/fvar 90) y (e/fvar 91) z (e/fvar 92)
+            lctx (-> (red/empty-lctx)
+                     (red/lctx-add-local 90 "a" nat) (red/lctx-add-local 91 "b" nat)
+                     (red/lctx-add-local 92 "c" nat)
+                     (red/lctx-add-local 93 "h1" (nle x y)) (red/lctx-add-local 94 "h2" (nle y z)))
+            s (first (r/run 1 (r/state *env* :lctx lctx)
+                            (r/fresh (nle x z)
+                                     (fn [g] (r/all (r/applyo g "le_trans" (fn [obs] (apply r/all (map r/assumptiono obs))))
+                                                    (fn [s2] (r/unit (assoc s2 ::g g))))))))]
+        (is (some? s) "general le_trans applied to Nat via synthesized instance")
+        (is (:ok? (r/certify s (::g s))) "kernel-certified")))))
+
 (deftest bestfirst-finds-proof-among-distractors
   (testing "best-first priority frontier proves a 4-chain a≤d with le_trans mixed
             among distractor candidates that all conclusion-unify — the frontier
