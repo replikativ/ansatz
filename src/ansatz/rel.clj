@@ -300,16 +300,34 @@
                      (=== g (e/fvar fid)))))
        s))))
 
-(defn exacto
-  "Relational `exact`: g := term, with the type equation checked relationally
-   (term may contain holes; so may g's type)."
-  [g term]
+(defn assigno
+  "Directly assign a GOAL metavariable `g := v` via the checked-assignment
+   (tactic/`exact`) path — after unifying v's inferred type with g's declared
+   type. Unlike `===`, this succeeds on SYNTHETIC-OPAQUE goals (e.g. named
+   surface holes `?x`, and every goal a tactic is meant to close): `===` refuses
+   to *unify away* an opaque goal, but a search that FILLS one is doing an
+   `exact`, not a unification. `v` may still carry holes — checked-assign
+   validates the (zonked) assignment against the kernel-facing guards."
+  [g v]
   (fn [s]
-    (let [gty (mvar-type s g)
-          tty (try (meta/infer-type (:mctx s) (tc-st s) term)
-                   (catch Exception _ nil))]
-      (when tty
-        ((all (=== tty gty) (=== g term)) s)))))
+    (let [mctx (:mctx s)
+          st (tc-st s)
+          gty (mvar-type s g)
+          vty (try (meta/infer-type mctx st v) (catch Exception _ nil))]
+      (when vty
+        (when-let [mctx (try (meta/is-def-eq mctx st vty gty) (catch Exception _ nil))]
+          (when-let [mctx (try (meta/checked-assign-expr
+                                mctx (e/mvar-id g) (meta/zonk-expr mctx v)
+                                {:env (:env s)})
+                               (catch Exception _ nil))]
+            (unit (assoc s :mctx mctx))))))))
+
+(defn exacto
+  "Relational `exact`: fill goal-hole `g` with `term` (checked-assign path, so
+   it works on synthetic-opaque goals). `term` may contain holes; so may g's
+   type."
+  [g term]
+  (assigno g term))
 
 (defn apply-hypo
   "Relational application of a HYPOTHESIS: close goal-hole `g` by applying
