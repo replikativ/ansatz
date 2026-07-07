@@ -390,13 +390,30 @@
       [s args t])))
 
 (defonce ^:private inst-index-cache (java.util.concurrent.ConcurrentHashMap.))
+(defonce ^:private loaded-instance-index (atom {}))
+
+(defn load-instance-index!
+  "Load a Lean-exported instance TSV (`class<TAB>instance<TAB>priority`) as an
+   AUTHORITATIVE class→instances index, merged into synthesis. Replaces brittle
+   PSS name-GUESSING discovery with Lean's real `@[instance]` registry (derived
+   instances included), so e.g. `AddLeftMono` resolves via
+   `IsOrderedAddMonoid.toAddLeftMono`. Discovery becomes a name-INDEPENDENT
+   lookup; matching stays defeq. Returns the number of classes loaded."
+  [path]
+  (let [idx (inst/load-instance-tsv path)]
+    (reset! loaded-instance-index idx)
+    (.clear inst-index-cache)
+    (count idx)))
 
 (defn- instance-index
-  "Cached typeclass instance index for `env` (build-instance-index; empty for a
-   lazy PSS env, where synthesis falls back to on-demand discovery)."
+  "Cached typeclass instance index for `env`: `build-instance-index` (local
+   decls) merged with any loaded Lean instance TSV (`load-instance-index!`).
+   Empty for a bare lazy PSS env → synthesis falls back to on-demand discovery."
   [env]
   (or (.get inst-index-cache env)
-      (let [idx (try (inst/build-instance-index env) (catch Throwable _ {}))]
+      (let [idx (merge-with (comp vec concat)
+                            (try (inst/build-instance-index env) (catch Throwable _ {}))
+                            @loaded-instance-index)]
         (.put inst-index-cache env idx) idx)))
 
 (def ^:dynamic *instance-mode*
