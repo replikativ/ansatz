@@ -446,45 +446,98 @@
            (go k [] []))
          s)))))
 
-(defn proveo
-  "Depth-bounded relational prover: close goal-hole `g` using assumptions
-   and the lemma set, recursing on obligations. Branch priors: assumption
-   is cheap/likely, each lemma application costs its prior.
-   `lemmas` is a seq of [weight name].
-   opts:
-   - :hyp-arities — also try APPLYING each local hypothesis to this many
-     fresh argument holes (e.g. [1 2]); with a hole-typed hypothesis this
-     infers implications. Default [] (off).
+;; ============================================================
+;; inhabito — THE inhabitation relation. proveo/expro/synthesizeo are presets:
+;; one bidirectional judgment (Curry–Howard: prove = inhabit a type). The
+;; primitives (assumptiono=Var, applyo=App-elim, Π-intro) are the typing rules;
+;; the driver is the ONLY place that recurses; the measure rides on condw.
+;; ============================================================
 
-   Overlay declarations (see `declareo`) are AUTOMATICALLY available as
-   candidates, so a lemma the search declared (and may still be synthesizing)
-   is first-class in the proof — env and overlay are one candidate space."
+(declare telescope open-telescope inhabito)
+
+(defn- solve-obligations
+  "Discharge a refiner's obligation mvars, DEPENDENCY-AWARE: obligations whose
+   zonked goal-TYPE is already ground are attacked first; those still mentioning
+   an unsolved sibling mvar are deferred until an earlier `===` grounds them
+   (Barliman's conde1 deferral — avoids enumerating against a flex goal type)."
+  [obs moves depth]
+  (fn [s]
+    (let [ground? (fn [ob] (not (meta/has-expr-mvar? (mvar-type s ob))))
+          {ready true deferred false} (group-by ground? obs)]
+      ((apply all (map #(inhabito % moves depth) (concat ready deferred))) s))))
+
+(defn- intro-and-inhabit
+  "Π-INTRODUCTION (checking mode): goal type is `∀ …, C`; open the ∀-telescope
+   into fresh fvar hypotheses, inhabit the conclusion C, then
+   `g := λ telescope. proof`. Introduction is FREE — it does NOT consume
+   application `depth` (it is structurally decreasing on the goal type), so a
+   higher-order lemma whose conclusion is itself a Π is handled uniformly."
+  [g gty moves depth]
+  (fn [s]
+    (let [base-lctx (:lctx s)
+          [lctx' concl fids] (open-telescope base-lctx gty (:next-id s))
+          s (assoc s :lctx lctx' :next-id (+ (long (:next-id s)) (count fids)))
+          locals (mapv (fn [fid] (let [d (get lctx' fid)]
+                                   {:fid fid :name (:name d) :type (:type d)}))
+                       fids)]
+      ((fresh-in lctx' concl
+                 (fn [b]
+                   (all (inhabito b moves depth)
+                        (fn [s2]
+                          (let [value (telescope e/lam locals
+                                                 (e/abstract-many (zonk s2 b) fids))
+                                s3 (assoc s2 :lctx base-lctx)]
+                            (when-let [mctx (try (meta/checked-assign-expr
+                                                  (:mctx s3) (e/mvar-id g)
+                                                  (zonk s3 value) {:env (:env s3)})
+                                                 (catch Exception _ nil))]
+                              (unit (assoc s3 :mctx mctx))))))))
+       s))))
+
+(defn inhabito
+  "THE inhabitation relation — fill goal-hole `g` with a term of its type by
+   depth-bounded weighted search. `moves` : (state, goal) →
+     {:leaves [[w leaf-goal] …]   ; g → goal, closes g (available at EVERY depth)
+      :refiners [[w refiner] …]}  ; (g, k) → goal, k : obligations → goal
+   A Π-goal fires the introduction rule; otherwise the moves supply the
+   elimination/var rules and the driver — the ONLY recursion — discharges each
+   refiner's obligations via `solve-obligations`. Moves never recurse. Measure
+   and ordering ride on `condw`; the driver is measure-agnostic."
+  [g moves depth]
+  (fn [s]
+    (if (assigned? s g)
+      (unit s)
+      (let [gty (mvar-type s g)]
+        (if (e/forall? gty)
+          ((intro-and-inhabit g gty moves depth) s)
+          (let [{:keys [leaves refiners]} (moves s g)
+                recur-obs (fn [obs] (solve-obligations obs moves (dec depth)))
+                clauses (concat leaves
+                                (when (pos? depth)
+                                  (for [[w refine] refiners]
+                                    [w (refine g recur-obs)])))]
+            (if (seq clauses) ((apply condw clauses) s) mzero)))))))
+
+(defn proveo
+  "Depth-bounded relational prover — a preset of `inhabito`: close `g` by an
+   assumption, an applied lemma (`lemmas` ∪ the env-overlay, so a declared
+   lemma is automatically first-class), or an applied hypothesis.
+   opts :hyp-arities — arities to try applying each local hypothesis at
+   (default [] off; a hole-typed hyp then infers an implication)."
   ([g lemmas depth] (proveo g lemmas depth {}))
-  ([g lemmas depth {:keys [hyp-arities] :or {hyp-arities []} :as opts}]
-   (fn [s]
-     (cond
-       (assigned? s g) (unit s)
-       (not (pos? depth)) mzero
-       :else
-       ((apply condw
-               (concat
-                [[8 (assumptiono g)]]
-                (for [[w cname] (concat lemmas (map (fn [nm] [1 nm]) (keys (:overlay s))))]
-                  [w (applyo g cname
-                             (fn [obs]
-                               (apply all
-                                      (map #(proveo % lemmas (dec depth) opts)
-                                           obs))))])
-                (for [[fid decl] (:lctx s)
-                      :when (= :local (:tag decl))
-                      arity hyp-arities]
-                  [(/ 1.0 (double arity))
-                   (apply-hypo g fid arity
-                               (fn [obs]
-                                 (apply all
-                                        (map #(proveo % lemmas (dec depth) opts)
-                                             obs))))])))
-        s)))))
+  ([g lemmas depth {:keys [hyp-arities] :or {hyp-arities []}}]
+   (inhabito
+    g
+    (fn [s g]
+      {:leaves [[8 (assumptiono g)]]
+       :refiners (concat
+                  (for [[w nm] (concat lemmas (map (fn [nm] [1 nm]) (keys (:overlay s))))]
+                    [w (fn [g k] (applyo g nm k))])
+                  (for [[fid decl] (:lctx s)
+                        :when (= :local (:tag decl))
+                        a hyp-arities]
+                    [(/ 1.0 (double a)) (fn [g k] (apply-hypo g fid a k))]))})
+    depth)))
 
 ;; ============================================================
 ;; expro — type-directed open-grammar term enumeration
@@ -511,25 +564,13 @@
    Instance-implicit args are handled by `applyo` (tagged, left to unification /
    instance synthesis), not enumerated."
   [g candidates depth & {:keys [gen]}]
-  (fn [s]
-    (cond
-      (assigned? s g) (unit s)
-      ;; at the depth bound, only LEAVES: a local variable or a generator
-      ;; production (no further applications).
-      (not (pos? depth)) ((apply any (assumptiono g) (when gen [(gen g)])) s)
-      :else
-      (let [cands (if (fn? candidates) (candidates s g) candidates)]
-        ((apply condw
-                (concat
-                 [[8 (assumptiono g)]]
-                 (when gen [[4 (gen g)]])
-                 (for [[w cname] cands]
-                   [w (applyo g cname
-                              (fn [obs]
-                                (apply all
-                                       (map #(expro % candidates (dec depth) :gen gen)
-                                            obs))))])))
-         s)))))
+  (inhabito
+   g
+   (fn [s g]
+     (let [cands (if (fn? candidates) (candidates s g) candidates)]
+       {:leaves (cond-> [[8 (assumptiono g)]] gen (conj [4 (gen g)]))
+        :refiners (for [[w nm] cands] [w (fn [g k] (applyo g nm k))])}))
+   depth))
 
 (defn expro-deepen
   "Iterative deepening over `expro`: search depth 1, then 2, … up to `max-depth`,
@@ -635,29 +676,18 @@
       [lctx t fids])))
 
 (defn synthesizeo
-  "Synthesize the VALUE of overlay declaration `name` BY PROVING its type:
-   open the ∀-telescope into a proof context (binders → hypotheses), prove the
-   conclusion via `(prove-conclusion goal-mvar)`, and set the overlay value to
-   `(λ binders. proof)`. Threads the same metacontext + overlay, so the lemma's
-   proof may itself use env AND overlay lemmas (mutual/staged synthesis). `k` is
-   the continuation. This turns a declared lemma-hole into a search-proven def —
-   the general-synthesis step over the relational env."
-  [name prove-conclusion k]
+  "Synthesize the VALUE of overlay declaration `name` BY INHABITING its type:
+   fresh a goal of the overlay type and prove it via `prove` — a preset like
+   `#(proveo % …)` or `#(expro % …)`; `inhabito`'s Π-introduction opens the
+   telescope, so `prove` receives the WHOLE Π-typed goal. Set the overlay value
+   to the proof. Threads the same metacontext + overlay, so the proof may itself
+   use env AND other overlay lemmas (mutual/staged synthesis). Turns a declared
+   lemma-hole into a search-proven, kernel-checked def; `k` continues."
+  [name prove k]
   (fn [s]
-    (let [ty (get-in s [:overlay name :type])
-          base-lctx (:lctx s)
-          [lctx' concl fids] (open-telescope base-lctx ty (:next-id s))
-          s (assoc s :lctx lctx' :next-id (+ (long (:next-id s)) (count fids)))
-          locals (mapv (fn [fid] (let [d (get lctx' fid)]
-                                   {:fid fid :name (:name d) :type (:type d)}))
-                       fids)]
-      ((fresh concl
+    (let [ty (get-in s [:overlay name :type])]
+      ((fresh ty
               (fn [g]
-                (all (prove-conclusion g)
-                     (fn [s2]
-                       (let [proof (zonk s2 g)
-                             value (telescope e/lam locals (e/abstract-many proof fids))
-                             s3 (-> s2 (assoc :lctx base-lctx)
-                                    (set-overlay-value name value))]
-                         ((k) s3))))))
+                (all (prove g)
+                     (fn [s2] ((k) (set-overlay-value s2 name (zonk s2 g)))))))
        s))))

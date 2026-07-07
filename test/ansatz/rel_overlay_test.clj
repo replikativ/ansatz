@@ -93,6 +93,18 @@
 (def ^:private refl-ty
   (delay (e/forall' "n" nat (nle (e/bvar 0) (e/bvar 0)) :default)))
 
+(deftest inhabito-introduces-pi-goals
+  (testing "proveo (a preset of inhabito) proves a ∀-goal DIRECTLY via the
+            driver's Π-introduction rule — no manual telescope. This is the
+            unified inhabitation operation handling a checking-mode goal."
+    (let [s (first (r/run 1 (r/state *env*)
+                          (r/fresh @refl-ty
+                                   (fn [g] (r/all (r/proveo g [[1 "Nat.le_refl"]] 3)
+                                                  (fn [s2] (r/unit (assoc s2 ::g g))))))))
+          c (when s (r/certify s (::g s)))]
+      (is (some? s) "proved ∀n, n≤n by introducing n and applying refl")
+      (is (:ok? c) "kernel-certified as (λ n. Nat.le_refl n) : ∀ n, n≤n"))))
+
 (deftest synthesize-overlay-value-by-search
   (testing "declare a lemma-hole, SYNTHESIZE its proof by search (not alias),
             use it, and certify — a search-proven def, no assumptions"
