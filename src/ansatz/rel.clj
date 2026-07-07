@@ -69,6 +69,26 @@
   [s]
   (prov/prov-recover (:prov s) (:tag s)))
 
+(defn combined-measure
+  "The measure of a DISJUNCTION of branches (⊕ their tags, then recover). Under
+   ProofsProb this is the exact probability-of-provability over the alternative
+   proofs `states`, counting a shared uncertain fact ONCE (correlation-aware)."
+  [prov states]
+  (prov/prov-recover
+   prov (reduce #(prov/prov-plus prov %1 %2)
+                (prov/prov-zero prov) (map :tag states))))
+
+(defn facto
+  "Depend this branch on a LABELED uncertain fact `label` with credence `prob`
+   — folds it into the measure via the provenance semiring (`prov-fact`). Under
+   ProofsProb the label is tracked symbolically, so a fact shared by alternative
+   proofs is counted once by `combined-measure` (exact WMC); under MaxMinProb it
+   folds as a scalar log-prob. `k` continues."
+  [label prob k]
+  (fn [s]
+    (let [prov (:prov s)]
+      ((k) (update s :tag #(prov/prov-times prov % (prov/prov-fact prov label prob)))))))
+
 (defn order-weight
   "The search-ordering key of a state (higher explored/returned first)."
   [s]
