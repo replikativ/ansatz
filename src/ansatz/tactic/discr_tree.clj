@@ -389,22 +389,22 @@
    concrete structure = a more specific (should-be-tried-first) candidate."
   [trie keys]
   (letfn [(go [trie keys score acc]
-            (if (empty? keys)
-              (reduce (fn [a v] (conj a [v score])) acc (:values trie))
-              (let [k (first keys)
-                    rest-keys (rest keys)
-                    children (:children trie {})
+              (if (empty? keys)
+                (reduce (fn [a v] (conj a [v score])) acc (:values trie))
+                (let [k (first keys)
+                      rest-keys (rest keys)
+                      children (:children trie {})
                     ;; stored `*` matches anything — NOT more specific (+0)
-                    acc (if-let [sc (get children star-key)]
-                          (go sc (skip-one-subtree keys) score acc)
-                          acc)]
-                (if (not= k star-key)
+                      acc (if-let [sc (get children star-key)]
+                            (go sc (skip-one-subtree keys) score acc)
+                            acc)]
+                  (if (not= k star-key)
                   ;; concrete query key: exact stored match is +1 specificity
-                  (if-let [c (get children k)] (go c rest-keys (inc score) acc) acc)
+                    (if-let [c (get children k)] (go c rest-keys (inc score) acc) acc)
                   ;; query `*`: explore all stored children, +0 (no constraint)
-                  (reduce (fn [a [ck ct]]
-                            (if (not= ck star-key) (go ct rest-keys score a) a))
-                          acc children)))))]
+                    (reduce (fn [a [ck ct]]
+                              (if (not= ck star-key) (go ct rest-keys score a) a))
+                            acc children)))))]
     (go trie keys 0 [])))
 
 (defn trie-match-ranked
