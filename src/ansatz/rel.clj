@@ -388,6 +388,17 @@
               gty (mvar-type s g)]
           ((all (=== concl gty)
                 (=== g (reduce e/app lemma (map :mvar args)))
+                ;; mvar-HYGIENE: every INSTANCE-implicit arg must be DETERMINED by
+                ;; the conclusion unification. We don't synthesize instances, so an
+                ;; undetermined instance mvar can never be solved — the application
+                ;; would leave a dangling mvar and can't yield a closed proof.
+                ;; Pruning it here kills the type-class rabbit holes (e.g. the
+                ;; Int-cast `le_of_ofNat_le_ofNat` path) DURING search instead of
+                ;; letting them "succeed" and fail only at certify.
+                (fn [s]
+                  (if (every? (fn [a] (or (not (:inst? a)) (assigned? s (:mvar a)))) args)
+                    (unit s)
+                    mzero))
                 (project*
                  (fn [s]
                    (k (->> args

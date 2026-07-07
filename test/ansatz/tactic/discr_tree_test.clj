@@ -239,3 +239,24 @@
           results (dt/lookup-simp-tree tree query)]
       ;; All N lemmas should be returned (degenerate case)
       (is (= n (count results))))))
+
+(deftest specificity-scoring-ranks-concrete-over-star
+  (testing "trie-match-scored: a stored key that matched more CONCRETE (non-star)
+            structure scores higher; trie-match-ranked returns it first (Lean
+            DiscrTree MatchResult parity — fixes star-headed catch-alls burying
+            the specific lemma)"
+    (let [f (e/const' (name/from-string "F") [])
+          c (e/const' (name/from-string "C") [])
+          concrete-app (e/app f c)               ; F C   (fully concrete)
+          star-app (e/app f (e/mvar 999))        ; F ?   (arg is a wildcard)
+          trie (-> dt/empty-trie
+                   (dt/trie-insert (dt/expr->keys concrete-app) :concrete)
+                   (dt/trie-insert (dt/expr->keys star-app) :star))
+          q (dt/expr->keys concrete-app)          ; query: F C
+          scored (into {} (dt/trie-match-scored trie q))
+          ranked (vec (dt/trie-match-ranked trie q))]
+      (is (contains? scored :concrete))
+      (is (contains? scored :star) "star lemma still recalled (over-approximation)")
+      (is (> (get scored :concrete) (get scored :star))
+          "concrete match is more specific (higher non-star count)")
+      (is (= :concrete (first ranked)) "most-specific candidate ranked first"))))

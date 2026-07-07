@@ -370,6 +370,53 @@
               ;; (this handles prefix matches / extra args)
               )))))
 
+(defn- skip-one-subtree
+  "Skip one full argument (1 key + its arity sub-args, recursively) from a key
+   sequence — the amount a `*` in the stored key must consume. Returns the rest."
+  [ks]
+  (if (empty? ks)
+    ks
+    (let [k (first ks) arity (or (:arity k) 0)]
+      (loop [r (rest ks) n arity]
+        (if (zero? n) r (recur (skip-one-subtree r) (dec n)))))))
+
+(defn trie-match-scored
+  "Like `trie-match` but returns `[value score]` pairs, where `score` = the
+   number of CONCRETE (non-star) key matches on the path to that value — Lean 4's
+   DiscrTree SPECIFICITY (`LazyDiscrTree.MatchResult`, score = # non-star
+   matches). A stored `*` or a query `*` contributes 0; a concrete-to-concrete
+   match contributes 1. Higher score = the stored key matched more of the query's
+   concrete structure = a more specific (should-be-tried-first) candidate."
+  [trie keys]
+  (letfn [(go [trie keys score acc]
+            (if (empty? keys)
+              (reduce (fn [a v] (conj a [v score])) acc (:values trie))
+              (let [k (first keys)
+                    rest-keys (rest keys)
+                    children (:children trie {})
+                    ;; stored `*` matches anything — NOT more specific (+0)
+                    acc (if-let [sc (get children star-key)]
+                          (go sc (skip-one-subtree keys) score acc)
+                          acc)]
+                (if (not= k star-key)
+                  ;; concrete query key: exact stored match is +1 specificity
+                  (if-let [c (get children k)] (go c rest-keys (inc score) acc) acc)
+                  ;; query `*`: explore all stored children, +0 (no constraint)
+                  (reduce (fn [a [ck ct]]
+                            (if (not= ck star-key) (go ct rest-keys score a) a))
+                          acc children)))))]
+    (go trie keys 0 [])))
+
+(defn trie-match-ranked
+  "Values matching `keys`, most-specific FIRST (descending `trie-match-scored`
+   score), deduped. This is the retrieval order Lean returns and the order the
+   relational search should try candidates in."
+  [trie keys]
+  (->> (trie-match-scored trie keys)
+       (sort-by (fn [[_ s]] (- (long s))))   ; high score first
+       (map first)
+       distinct))
+
 (defn trie-match-with-extra
   "Like trie-match but also returns values from shorter key sequences
    (i.e., lemmas whose LHS has fewer args than the query).
