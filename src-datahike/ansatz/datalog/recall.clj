@@ -87,25 +87,40 @@
           dt/empty-trie
           (env/all-constants env)))
 
+(defn- ranked-candidates
+  "trie-match-scored output → `[[name score] …]` deduped (max specificity per
+   name), most-specific FIRST. The score is Lean's DiscrTree specificity (# of
+   concrete key matches); it becomes the `condw` prior so the search explores
+   the structurally-specific lemma before the star-headed catch-alls."
+  [scored]
+  (->> scored
+       (reduce (fn [m [nm sc]] (assoc m nm (max (long sc) (get m nm 0)))) {})
+       (sort-by (comp - val))))
+
 (defn recall-provider
   "An `inhabito`/`expro` candidate provider `(state, goal) → [[w name] …]` backed
-   by disc-tree recall: structural narrowing in key space; the search then
-   confirms in term space via its own `applyo`/`===`. Capped at `limit`."
+   by disc-tree recall, RANKED by specificity: structural narrowing in key space,
+   candidate weight = specificity score (+1) so more-specific lemmas get a higher
+   `condw` prior. The search then confirms in term space via `applyo`/`===`.
+   Capped at `limit`."
   ([trie] (recall-provider trie 80))
   ([trie limit]
    (fn [s g]
-     (->> (dt/trie-match trie (dti/query-key (r/mvar-type s g)))
-          distinct (take limit) (mapv (fn [nm] [1.0 nm]))))))
+     (->> (dt/trie-match-scored trie (dti/query-key (r/mvar-type s g)))
+          ranked-candidates
+          (take limit)
+          (mapv (fn [[nm sc]] [(double (inc (long sc))) nm]))))))
 
 (defn recall+confirm-provider
   "Like `recall-provider` but ALSO runs kernel `defeq` confirmation
-   (`applies?`), so only lemmas that TRULY apply to the goal are returned —
-   recall THEN confirm, the search just applies the survivors."
+   (`applies?`) — in RANKED order — so only lemmas that TRULY apply to the goal
+   are returned, most-specific first, weighted by specificity for the search."
   ([trie env] (recall+confirm-provider trie env 80))
   ([trie env limit]
    (fn [s g]
      (let [gty (r/mvar-type s g)]
-       (->> (dt/trie-match trie (dti/query-key gty))
-            distinct
-            (filter #(cf/applies? env nil gty %))
-            (take limit) (mapv (fn [nm] [1.0 nm])))))))
+       (->> (dt/trie-match-scored trie (dti/query-key gty))
+            ranked-candidates
+            (filter (fn [[nm _]] (cf/applies? env nil gty nm)))  ; confirm in ranked order
+            (take limit)
+            (mapv (fn [[nm sc]] [(double (inc (long sc))) nm])))))))
