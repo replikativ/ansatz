@@ -10,6 +10,7 @@
 (ns ansatz.index.discr
   (:require [ansatz.tactic.discr-tree :as dt]
             [ansatz.kernel.name :as nm]
+            [ansatz.kernel.expr :as e]
             [datahike.index.secondary :as sec]
             [datahike.index.entity-set :as es]
             [clojure.edn :as edn])
@@ -85,8 +86,36 @@
   [expr]
   (pr-str (edn-safe-keys (dt/expr->keys expr))))
 
+(defn decl-key
+  "Stored disc-tree key for a declaration TYPE: peel the ∀-telescope,
+   substituting metavariables for the bound variables so they key as STAR
+   wildcards, then key the conclusion. A lemma `∀ n, 0 ≤ n` is thus stored as
+   `0 ≤ *` and structurally matches any `0 ≤ k` query (the kernel `defeq`
+   confirmation then decides which candidates truly apply)."
+  [ty]
+  (loop [t ty, i 0]
+    (if (e/forall? t)
+      (recur (e/instantiate1 (e/forall-body t) (e/mvar (+ 800000 i))) (inc i))
+      (conclusion-key t))))
+
 (defn query-key
   "A query key-path (vector) from a pattern expression; holes/mvars become
    star wildcards inside dt/expr->keys."
   [expr]
   (edn-safe-keys (dt/expr->keys expr)))
+
+;; ---- datalog foreign var: query the disc-tree index from a datalog clause ----
+;; Direction-2 seam. In a query:
+;;   [(ansatz.index.discr/dt-match :idx/dt ?goal-key) [[?d]]]
+;; routes (via :filter mode) to the schema-declared :idx/dt secondary index,
+;; binding ?d to each declaration entity whose conclusion structurally matches
+;; ?goal-key (µs, star-aware). The var body is unused — the executor calls the
+;; index's -search directly; it only needs to resolve to a truthy var carrying
+;; the metadata.
+(defn ^{:datahike/external-engine
+        {:index-key 0                        ; arg 0 = the index ident
+         :binding-columns [:entity-id]       ; → :filter mode (entity-id out)
+         :input-vars :all-bound              ; the query key must be bound
+         :cost-model (fn [_db _idx _args _n] {:estimated-card 30})}}
+  dt-match
+  [_idx-ident _goal-key] true)
