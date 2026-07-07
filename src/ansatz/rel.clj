@@ -346,6 +346,22 @@
   [s name value]
   (assoc-in s [:overlay name :value] value))
 
+(defn hole-type
+  "The (zonked) type of an open hole `mvar` in state `s` — for inspecting a
+   stuck state's obligations at the staging level."
+  [s mvar]
+  (zonk s (mvar-type s mvar)))
+
+(defn fill
+  "Staging-level MODIFY: fill an open hole `mvar` in `s` with `term`
+   (kernel-checked assignment). Returns s' or nil. This is how the LLM/proposer
+   supplies an instance or lemma the search left OPEN (`*instance-mode* :hole`),
+   then continues — certify / resume — WITHOUT re-running the search."
+  [s mvar term]
+  (when-let [mctx (try (meta/checked-assign-expr (:mctx s) (e/mvar-id mvar) term {:env (:env s)})
+                       (catch Throwable _ nil))]
+    (assoc s :mctx mctx)))
+
 (defn lookupo
   "The relational env lookup as a goal: resolve `cname` (overlay ∪ oracle) and
    pass its [head type] to k; fail if unknown. Ground/known names take the fast
@@ -383,33 +399,39 @@
       (let [idx (try (inst/build-instance-index env) (catch Throwable _ {}))]
         (.put inst-index-cache env idx) idx)))
 
+(def ^:dynamic *instance-mode*
+  "How `applyo` handles an instance-implicit arg it can neither unify nor
+   synthesize: `:prune` (default — kill the branch, the hygiene guard) or
+   `:hole` (leave it as an OPEN obligation the search can prove OR the
+   staging level / LLM can fill — capture/modify/continue, omnidirectional)."
+  :prune)
+
 (defn- assign-instances
   "SPECIALIZE-DOWN — instance synthesis. For each instance-implicit arg not
    already pinned by the conclusion unification: if its type is ground,
    synthesize an instance (ansatz.tactic.instance — Lean-4-style: local
    instances, the index, PSS on-demand discovery) and assign it. Returns
-   [s' ok?]; ok? is false iff an instance arg stays undetermined AND
-   unsynthesizable (so the application can't close — the hygiene prune, now a
-   FALLBACK). This is what lets a lemma stated over `[Preorder α]` apply to a
-   concrete `Nat`: γ / the specialize-down step of the theory hierarchy."
+   [s' missing] where `missing` is the mvars that stayed undetermined AND
+   unsynthesizable — the caller prunes (`:prune`) or exposes them as fillable
+   holes (`:hole`). Lets a lemma over `[Preorder α]` apply to a concrete `Nat`."
   [s args]
   (let [tcst (tc-st s)
         idx (instance-index (:env s))]
-    (reduce (fn [[s ok] a]
-              (if (or (not ok) (not (:inst? a)) (assigned? s (:mvar a)))
-                [s ok]
+    (reduce (fn [[s missing] a]
+              (if (or (not (:inst? a)) (assigned? s (:mvar a)))
+                [s missing]
                 (let [ty (zonk s (mvar-type s (:mvar a)))]
                   (if (meta/has-expr-mvar? ty)
-                    [s false]                       ; instance type undetermined
+                    [s (conj missing (:mvar a))]    ; instance type undetermined
                     (if-let [it (try (inst/synthesize* tcst (:env s) idx ty 0)
                                      (catch Throwable _ nil))]
                       (if-let [mctx (try (meta/checked-assign-expr
                                           (:mctx s) (e/mvar-id (:mvar a)) it {:env (:env s)})
                                          (catch Throwable _ nil))]
-                        [(assoc s :mctx mctx) ok]
-                        [s false])                  ; assignment rejected
-                      [s false])))))                ; no instance found
-            [s true] args)))
+                        [(assoc s :mctx mctx) missing]
+                        [s (conj missing (:mvar a))]) ; assignment rejected
+                      [s (conj missing (:mvar a))]))))) ; no instance found
+            [s []] args)))
 
 (defn- unify-concl
   "INSTANCE-AWARE conclusion unification (Lean's instance postponement). Unify
@@ -434,9 +456,15 @@
               nowp (remove (fn [[c _]] (defer? c)) pairs)
               defp (filter (fn [[c _]] (defer? c)) pairs)]
           ((all (apply all (for [[c gg] nowp] (=== c gg)))            ; type/value positions
-                (fn [s2] (let [[s3 ok] (assign-instances s2 args)]     ; synthesize instances
-                           (if ok (unit s3) mzero)))
-                (apply all (for [[c gg] defp] (=== c gg))))            ; now-concrete instance positions
+                (fn [s2]
+                  (let [[s3 missing] (assign-instances s2 args)       ; synthesize instances
+                        missing-set (set (map e/mvar-id missing))]
+                    (if (and (seq missing) (not= *instance-mode* :hole))
+                      mzero
+                      ;; unify the deferred positions whose instance was pinned;
+                      ;; SKIP those still holed (they'll match once the hole is filled)
+                      (let [holed? (fn [carg] (boolean (some #(meta/expr-occurs? (:mctx s3) % carg) missing-set)))]
+                        ((apply all (for [[c gg] defp :when (not (holed? c))] (=== c gg))) s3))))))
            s))
         ((=== gty concl) s)))))
 
@@ -453,18 +481,21 @@
         (let [[s args concl] (peel-telescope s ty)
               gty (mvar-type s g)]
           ((all (unify-concl gty concl args)
-                ;; confirm all instance args pinned (fallback path + hygiene prune)
+                ;; pin instance args; :prune kills the branch on a missing
+                ;; instance, :hole records it as a fillable obligation.
                 (fn [s]
-                  (let [[s' ok?] (assign-instances s args)]
-                    (if ok? (unit s') mzero)))
+                  (let [[s' missing] (assign-instances s args)]
+                    (cond
+                      (empty? missing) (unit s')
+                      (= *instance-mode* :hole) (unit (assoc s' ::inst-holes missing))
+                      :else mzero)))
                 (=== g (reduce e/app lemma (map :mvar args)))
                 (project*
                  (fn [s]
-                   (k (->> args
-                           (filter :explicit?)
-                           (map :mvar)
-                           (remove #(assigned? s %))
-                           vec)))))
+                   ;; obligations = explicit args + (in :hole mode) missing instances
+                   (k (into (->> args (filter :explicit?) (map :mvar)
+                                 (remove #(assigned? s %)) vec)
+                            (remove #(assigned? s %) (::inst-holes s)))))))
            s))))))
 
 (defn assumptiono
