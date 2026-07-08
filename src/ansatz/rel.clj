@@ -405,14 +405,25 @@
     (.clear inst-index-cache)
     (count idx)))
 
+(defn- core-instance-index
+  "The core `ansatz-instance-index` (populated by `a/init!` from the store's
+   `instances.tsv` — Lean's full registry — or name-based discovery), if loaded."
+  []
+  (some-> (try (requiring-resolve 'ansatz.core/ansatz-instance-index)
+               (catch Throwable _ nil))
+          deref    ; var → the atom
+          deref))  ; atom → the index map
+
 (defn- instance-index
   "Cached typeclass instance index for `env`: `build-instance-index` (local
-   decls) merged with any loaded Lean instance TSV (`load-instance-index!`).
-   Empty for a bare lazy PSS env → synthesis falls back to on-demand discovery."
+   decls) merged with the core store-loaded registry (`a/init!`'s
+   `<store>/instances.tsv`) and any explicitly-loaded TSV (`load-instance-index!`).
+   Empty for a bare lazy PSS env with no TSV → falls back to on-demand discovery."
   [env]
   (or (.get inst-index-cache env)
       (let [idx (merge-with (comp vec concat)
                             (try (inst/build-instance-index env) (catch Throwable _ {}))
+                            (or (core-instance-index) {})
                             @loaded-instance-index)]
         (.put inst-index-cache env idx) idx)))
 
