@@ -77,6 +77,7 @@
 ;; wandler-facing handle, swapped/reset by the runtime).
 (def ansatz-env state/ansatz-env)
 (def ansatz-instance-index state/ansatz-instance-index)
+(def ansatz-discr-trie state/ansatz-discr-trie)
 
 ;; Extensible registries — declared early so the elaboration/codegen layers can reference them.
 ;; Lean 4 equivalents: @[tactic], @[simproc], elab_rules
@@ -184,9 +185,20 @@
      (reset! ansatz-instance-index idx)
      (when (resolve 'ansatz.core/synth-cache)
        (reset! @(resolve 'ansatz.core/synth-cache) {}))
+     ;; Recall disc-tree: load the store's `discr-keys.ndjson.gz` artifact if
+     ;; present (fast — the keying was amortized offline by ansatz.recall/
+     ;; dump-discr-keys!). Enables mathlib-scale recall without per-boot re-keying.
+     (reset! ansatz-discr-trie
+             (when store-path
+               (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
+                 (when (.exists gz)
+                   (when *verbose* (println "Loading recall disc-tree from" (.getPath gz) "..."))
+                   ((requiring-resolve 'ansatz.recall/load-discr-trie) (.getPath gz))))))
      (when *verbose*
        (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
-                (count idx) "classes indexed")))))
+                (count idx) "classes indexed"
+                (when @ansatz-discr-trie
+                  (str ", recall trie loaded")))))))
 
 (clojure.core/defn- init!*
   [store-path branch]

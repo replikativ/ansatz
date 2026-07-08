@@ -33,7 +33,9 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
-            [ansatz.tactic.instance :as inst]))
+            [ansatz.tactic.instance :as inst]
+            [ansatz.tactic.discr-tree :as dt]
+            [ansatz.recall :as recall]))
 
 ;; ============================================================
 ;; Search state
@@ -925,3 +927,45 @@
                 (all (prove g)
                      (fn [s2] ((k) (set-overlay-value s2 name (zonk s2 g)))))))
        s))))
+
+;; ============================================================
+;; recall — candidate provider backed by the store's loaded recall disc-tree
+;; (ansatz.recall via a/init!): specificity-ranked structural recall + kernel
+;; defeq confirmation, per goal. Candidates come from the LIBRARY, not a list.
+;; ============================================================
+
+(defn applies?
+  "Kernel-defeq CONFIRM: does lemma `cname`'s conclusion unify with a goal of
+   type `gty` (in `lctx`)? Filters a disc-tree recall's structural over-approx."
+  [env lctx gty cname]
+  (boolean (first (run 1 (state env :lctx lctx)
+                       (fresh gty (fn [g] (applyo g cname (fn [_] succeed))))))))
+
+(defn- store-recall-trie
+  "The recall disc-tree a/init! loaded from the store (ansatz.core/
+   ansatz-discr-trie), or nil."
+  []
+  (some-> (try (requiring-resolve 'ansatz.core/ansatz-discr-trie)
+               (catch Throwable _ nil))
+          deref deref))
+
+(defn recall-provider
+  "A candidate provider `(state, goal) → [[w name] …]` for proveo/expro/inhabito,
+   backed by the store's loaded recall disc-tree: SPECIFICITY-ranked structural
+   recall (over-approximate, µs) THEN kernel-defeq CONFIRM (`applies?`) — so
+   candidates come from the whole library, ranked, confirmed. `limit` caps the
+   confirmed set. Returns [] if no recall trie is loaded (bare env)."
+  ([env] (recall-provider env 80))
+  ([env limit]
+   (fn [s g]
+     (if-let [trie (store-recall-trie)]
+       (let [gty (mvar-type s g)
+             lctx (:lctx s)
+             ranked (->> (dt/trie-match-scored trie (recall/query-key gty))
+                         (reduce (fn [m [nm sc]] (assoc m nm (max (long sc) (get m nm 0)))) {})
+                         (sort-by (comp - val)))]
+         (->> ranked
+              (filter (fn [[nm _]] (applies? env lctx gty nm)))
+              (take limit)
+              (mapv (fn [[nm sc]] [(double (inc (long sc))) nm]))))
+       []))))

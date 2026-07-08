@@ -8,3 +8,6 @@
   ansatz-env (atom nil))
 (defonce ^{:doc "The current instance index (name → instances), as an atom."}
   ansatz-instance-index (atom nil))
+(defonce ^{:doc "The current recall discrimination-tree (conclusion-key → decl-name), as an
+                 atom. nil until a store's discr-keys.ndjson.gz is loaded (see ansatz.recall)."}
+  ansatz-discr-trie (atom nil))
