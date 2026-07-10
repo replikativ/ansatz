@@ -235,6 +235,14 @@
                    (recur (into rest-todo (reverse (cons (e/proj-struct head) args)))
                           (conj! keys k)))
 
+               ;; MVar application → single ★, args dropped (Lean pushArgs: an
+               ;; mvar-headed app is one wildcard subtree). Falling to other-key
+               ;; instead made every lemma with an applied-mvar position (e.g.
+               ;; the `m β` type arg of ALL monadic lemmas) unreachable: OTHER
+               ;; matches neither a concrete query key nor the star-skip path.
+                 (e/mvar? head)
+                 (recur rest-todo (conj! keys star-key))
+
                ;; Other head (lambda application, etc.)
                  :else
                  (recur rest-todo (conj! keys other-key))))
