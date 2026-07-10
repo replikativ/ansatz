@@ -75,7 +75,11 @@
 ;; ============================================================
 
 (defn- tc-error! [msg data]
-  (throw (ex-info (str "Type error: " msg) (merge {:kind :type-error} data))))
+  ;; construct ExceptionInfo directly: clojure.core/ex-info's elide-top-frames
+  ;; MATERIALIZES the full stack (getStackTrace) on every throw — measurable on
+  ;; the search-time failure path, where inference failures are control flow.
+  (throw (clojure.lang.ExceptionInfo. (str "Type error: " msg)
+                                      (merge {:kind :type-error} data))))
 
 ;; ============================================================
 ;; Type inference
