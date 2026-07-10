@@ -1686,13 +1686,15 @@
                         env (env/check-constant env nc-ci)]
                     env)
                   (catch Exception e
-                    (println "⚠ noConfusion skipped for" ind-name-str "—" (.getMessage e)
-                             "(auxiliary only; the inductive + recursor are kernel-checked)")
+                    (when @(requiring-resolve 'ansatz.core/*verbose*)
+                      (println "⚠ noConfusion skipped for" ind-name-str "—" (.getMessage e)
+                               "(auxiliary only; the inductive + recursor are kernel-checked)"))
                     env))
                 env)]
       ;; Update global env atom with the new env
       (reset! @(requiring-resolve 'ansatz.core/ansatz-env) env)
 
-      (println "✓ inductive" ind-name-str "defined:"
-               (count ctors) "constructors, recursor, casesOn, recOn")
+      (when @(requiring-resolve 'ansatz.core/*verbose*)
+        (println "✓ inductive" ind-name-str "defined:"
+                 (count ctors) "constructors, recursor, casesOn, recOn"))
       env)))
