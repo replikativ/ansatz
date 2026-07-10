@@ -77,6 +77,7 @@
 ;; wandler-facing handle, swapped/reset by the runtime).
 (def ansatz-env state/ansatz-env)
 (def ansatz-instance-index state/ansatz-instance-index)
+(def ansatz-discr-trie state/ansatz-discr-trie)
 
 ;; Extensible registries — declared early so the elaboration/codegen layers can reference them.
 ;; Lean 4 equivalents: @[tactic], @[simproc], elab_rules
@@ -157,37 +158,55 @@
    the instance index. `store-path` is the store dir (for store-local attrs + the
    complete instances.tsv) or nil for the bundled in-memory tier (→ name-based
    instance discovery from the env)."
-  [env store-path]
-  (reset! ansatz-env env)
-  (attrs/load-bundled-attrs!)              ;; inherit Lean's Init @[simp]/@[csimp]/@[extern]
-  (when store-path
-    (attrs/load-store-attrs! store-path))  ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside
-  (matchers/load-bundled-matchers!)        ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
-  ;; Build instance index: from the store's complete TSV when present, else name-based discovery (~200ms).
-  (let [tsv-candidates (when store-path
-                         ["resources/instances.tsv" "instances.tsv"
-                          (str store-path "/instances.tsv")])
-        tsv-path (some (fn [p] (let [f (clojure.java.io/file p)]
-                                 (when (.exists f) (.getPath f))))
-                       tsv-candidates)
-        load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-        build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-        idx (if tsv-path
-              (do (when *verbose* (println "Loading instance registry from" tsv-path "..."))
-                  (load-tsv tsv-path))
-              (build-fn env))]
-    (reset! ansatz-instance-index idx)
-    (when (resolve 'ansatz.core/synth-cache)
-      (reset! @(resolve 'ansatz.core/synth-cache) {}))
-    (when *verbose*
-      (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
-               (count idx) "classes indexed"))))
+  ([env store-path] (setup-env! env store-path nil))
+  ([env store-path attr-present?]
+   (reset! ansatz-env env)
+   ;; inherit Lean's Init @[simp]/@[csimp]/@[extern] (cheap presence when external)
+   (attrs/load-bundled-attrs! {:present? attr-present?})
+   (when store-path
+     ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside. The cheap
+     ;; PSS-membership `attr-present?` keeps this from hydrating every named
+     ;; declaration (minutes for Mathlib's ~93k attrs; seconds with it).
+     (attrs/load-store-attrs! store-path {:present? attr-present?}))
+   (matchers/load-bundled-matchers!)        ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
+   ;; Build instance index: from the store's complete TSV when present, else name-based discovery (~200ms).
+   (let [tsv-candidates (when store-path
+                          ["resources/instances.tsv" "instances.tsv"
+                           (str store-path "/instances.tsv")])
+         tsv-path (some (fn [p] (let [f (clojure.java.io/file p)]
+                                  (when (.exists f) (.getPath f))))
+                        tsv-candidates)
+         load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
+         build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
+         idx (if tsv-path
+               (do (when *verbose* (println "Loading instance registry from" tsv-path "..."))
+                   (load-tsv tsv-path))
+               (build-fn env))]
+     (reset! ansatz-instance-index idx)
+     (when (resolve 'ansatz.core/synth-cache)
+       (reset! @(resolve 'ansatz.core/synth-cache) {}))
+     ;; Recall disc-tree: load the store's `discr-keys.ndjson.gz` artifact if
+     ;; present (fast — the keying was amortized offline by ansatz.recall/
+     ;; dump-discr-keys!). Enables mathlib-scale recall without per-boot re-keying.
+     (reset! ansatz-discr-trie
+             (when store-path
+               (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
+                 (when (.exists gz)
+                   (when *verbose* (println "Loading recall disc-tree from" (.getPath gz) "..."))
+                   ((requiring-resolve 'ansatz.recall/load-discr-trie) (.getPath gz))))))
+     (when *verbose*
+       (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
+                (count idx) "classes indexed"
+                (when @ansatz-discr-trie
+                  (str ", recall trie loaded")))))))
 
 (clojure.core/defn- init!*
   [store-path branch]
   (let [sm (storage/open-store store-path)
-        env (storage/load-env sm branch)]
-    (setup-env! env store-path)))
+        env (storage/load-env sm branch)
+        ;; cheap PSS-membership presence for the attrs import (see setup-env!)
+        present? (storage/contains-name-checker sm branch)]
+    (setup-env! env store-path present?)))
 
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
 
