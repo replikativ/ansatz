@@ -1,6 +1,7 @@
 (ns ansatz.tactic.decide-test
   "Tests for instance resolution and the decide tactic."
   (:require [clojure.test :refer [deftest testing is]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -10,22 +11,14 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.instance :as instance]
             [ansatz.tactic.decide :as decide]
-            [ansatz.surface.elaborate :as elab]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.surface.elaborate :as elab])
   (:import [ansatz.kernel TypeChecker]))
 
 ;; ============================================================
 ;; Environment helpers
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (:env result))))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- require-env []
   (or @init-medium-env

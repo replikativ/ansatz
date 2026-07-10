@@ -2,23 +2,16 @@
   "Tests for new core tactics: induction, have, revert, exfalso, subst, clear,
    and tactic combinators."
   (:require [clojure.test :refer [deftest testing is]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.extract :as extract]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.extract :as extract]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (:env result))))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- require-env []
   (or @init-medium-env

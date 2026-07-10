@@ -5,12 +5,11 @@
    Each proof is checked with the AUTHORITATIVE check-constant (env/verifies?)."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.attrs :as attrs]
             [ansatz.matchers :as matchers]
             [ansatz.tactic.basic :as basic]
@@ -18,10 +17,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]))
 
-(def ^:private full
-  (delay (let [f "test-data/init.ndjson"]
-           (when (.exists (java.io.File. f))
-             (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private full test-env/init-full-env)
 
 (defn- with-env [t]
   (when @full

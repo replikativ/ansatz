@@ -2,6 +2,7 @@
   "Edge case tests for the simp tactic: perm detection, prop-true,
    discrimination tree matching, and proof construction."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as shared-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -9,16 +10,10 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.basic :as basic]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.basic :as basic])
   (:import [ansatz.kernel ConstantInfo]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private test-env shared-env/init-medium-env)
 
 (defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
 

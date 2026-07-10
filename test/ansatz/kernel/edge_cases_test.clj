@@ -2,21 +2,16 @@
   "Tests for kernel edge cases: proof irrelevance, eta reduction,
    deep WHNF, K-recursors, universe levels."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as shared-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.kernel.reduce :as red])
   (:import [ansatz.kernel ConstantInfo TypeChecker Env]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private test-env shared-env/init-medium-env)
 
 (defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
 

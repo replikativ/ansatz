@@ -2,19 +2,14 @@
   "Phase 1 of the wandler reimpl: the owned algebraic spine verifies end-to-end."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.expr :as e]
             [ansatz.codegen :as cg]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.prelude.algebra :as alg]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- with-env [t]
   (when-let [e @init-medium-env] (reset! a/ansatz-env e))

@@ -1,26 +1,20 @@
 (ns ansatz.tactic.instance-test
   "Tests for typeclass instance synthesis."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as shared-env]
             [ansatz.tactic.instance :as inst]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.tc :as tc]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.kernel.tc :as tc])
   (:import [ansatz.kernel ConstantInfo]))
 
 ;; ============================================================
 ;; Environment setup
 ;; ============================================================
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)]
-          (:env (replay/replay (:decls st))))))))
+(def ^:private test-env shared-env/init-medium-env)
 
 (defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
 

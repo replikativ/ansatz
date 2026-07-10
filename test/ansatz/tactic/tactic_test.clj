@@ -1,6 +1,7 @@
 (ns ansatz.tactic.tactic-test
   "Tests for the tactic layer: proof states, tactics, extraction, verification."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -10,9 +11,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.search :as search]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.search :as search])
   (:import [ansatz.kernel Env TypeChecker ConstantInfo Name]))
 
 ;; ============================================================
@@ -29,12 +28,7 @@
 
 (def ^:private init-medium-env
   "Lazily loaded init-medium environment."
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (:env result))))))
+  test-env/init-medium-env)
 
 (defn- require-init-medium []
   (let [env @init-medium-env]

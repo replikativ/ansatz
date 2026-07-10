@@ -1,26 +1,19 @@
 (ns ansatz.surface.elaborate-test
   "Tests for the elaboration function."
   (:require [clojure.test :refer [deftest testing is]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.surface.elaborate :as elab]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.surface.elaborate :as elab]))
 
 ;; ============================================================
 ;; Environment helpers
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (:env result))))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- require-init-medium []
   (or @init-medium-env

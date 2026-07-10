@@ -3,9 +3,8 @@
    Uses init-medium.ndjson (2997 declarations, ~1.5s load)."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.export.storage :as storage]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]))
@@ -14,13 +13,7 @@
 ;; Environment setup
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              env (:env (replay/replay (:decls st)))]
-          env)))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- require-env []
   (or @init-medium-env

@@ -4,16 +4,12 @@
    issue) including the Lean-idiom controlled-rw proof of foldl_assoc."
   (:require [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.prelude.algebra :as alg]))
 
-(def ^:private full
-  (delay (let [f "test-data/init.ndjson"]
-           (when (.exists (java.io.File. f))
-             (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private full test-env/init-full-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full) (alg/install-classes!)) (t))
 (use-fixtures :once with-env)
 (defn- vrf? [s] (let [ci (env/lookup (a/env) (name/from-string s))]

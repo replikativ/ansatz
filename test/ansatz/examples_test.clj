@@ -4,22 +4,17 @@
    GD convergence tests require Mathlib store (skipped if unavailable)."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.name :as name]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.name :as name]))
 
 ;; ============================================================
 ;; Environment setup (init-medium for RB tree, Mathlib for GD)
 ;; ============================================================
 
-(def ^:private init-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private init-env test-env/init-medium-env)
 
 (def ^:private baseline-state
   (delay

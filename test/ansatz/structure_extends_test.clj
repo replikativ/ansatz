@@ -4,20 +4,15 @@
    free), inherited accessors are generated, child axioms may reference parent ops (resolved to
    subobject projections, Lean's `fromSubobject`), and BOTH levels admit verified instances with
    the child built compositionally from the parent instance (the distributivity proof checks
-   through the subobject projection by defeq)."
+  through the subobject projection by defeq)."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
-            [ansatz.kernel.expr :as e]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.expr :as e]))
 
-(def ^:private init-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private init-env test-env/init-medium-env)
 
 (defn- with-init-env [f]
   (when-let [env @init-env]

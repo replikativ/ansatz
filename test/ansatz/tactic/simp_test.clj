@@ -1,6 +1,7 @@
 (ns ansatz.tactic.simp-test
   "Tests for enhanced simp tactic and norm_cast."
   (:require [clojure.test :refer [deftest testing is]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -10,17 +11,9 @@
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.norm-cast :as nc]
-            [ansatz.tactic.extract :as extract]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.extract :as extract]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (:env result))))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- require-env []
   (or @init-medium-env

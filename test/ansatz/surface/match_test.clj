@@ -1,6 +1,7 @@
 (ns ansatz.surface.match-test
   "Tests for match expression compilation and theorem/def macros."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -12,22 +13,14 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.repl :as repl]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.repl :as repl])
   (:import [ansatz.kernel TypeChecker]))
 
 ;; ============================================================
 ;; Test environment
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (:env result))))))
+(def ^:private init-medium-env test-env/init-medium-env)
 
 (defn- require-env []
   (let [env @init-medium-env]

@@ -1,8 +1,9 @@
 (ns ansatz.tactic.error-test
   "Tests for tactic error handling, edge cases, and error message quality.
    Verifies that wrong tactics, unsolvable goals, and type errors
-   produce actionable error messages."
+  produce actionable error messages."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
+            [ansatz.test-env :as shared-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -10,15 +11,9 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.simp :as simp]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.simp :as simp]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private test-env shared-env/init-medium-env)
 
 (defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
 
