@@ -84,6 +84,63 @@
       (.newLine w))))
 
 ;; ============================================================
+;; Policy-search trace serialization
+;; ============================================================
+
+(defn- jsonable
+  "Convert search records to values accepted by clojure.data.json."
+  [x]
+  (cond
+    (nil? x) nil
+    (or (string? x) (number? x) (true? x) (false? x)) x
+    (keyword? x) (clojure.core/name x)
+    (symbol? x) (str x)
+    (instance? ansatz.kernel.Expr x) (e/->string x)
+    (map? x) (into {}
+                   (map (fn [[k v]]
+                          [(cond
+                             (keyword? k) (clojure.core/name k)
+                             (string? k) k
+                             :else (str k))
+                           (jsonable v)]))
+                   x)
+    (sequential? x) (mapv jsonable x)
+    :else (str x)))
+
+(defn serialize-search-transition
+  "Serialize one policy-search transition. The result contains no live proof
+   states or function values and can be stored as JSON/EDN/Datahike data."
+  [transition]
+  (jsonable transition))
+
+(defn serialize-search-result
+  "Serialize a policy-search result without live proof-state objects. Proof terms
+   are rendered as strings when present."
+  [result]
+  (jsonable
+   (cond-> (select-keys result [:status :expanded :summary :path :verification
+                                :nodes :transitions])
+     (:proof result) (assoc :proof (:proof result)))))
+
+(defn write-search-result-ndjson
+  "Append one policy-search result as a single NDJSON line."
+  [path result]
+  (with-open [w (BufferedWriter. (FileWriter. (str path) true))]
+    (.write w (json/write-str (serialize-search-result result)))
+    (.newLine w)))
+
+(defn write-search-transitions-ndjson
+  "Write search transitions as one NDJSON line per transition. Accepts either a
+   full search result or a seq of transition records."
+  [path result-or-transitions]
+  (let [transitions (or (:transitions result-or-transitions)
+                        result-or-transitions)]
+    (with-open [w (BufferedWriter. (FileWriter. (str path)))]
+      (doseq [transition transitions]
+        (.write w (json/write-str (serialize-search-transition transition)))
+        (.newLine w)))))
+
+;; ============================================================
 ;; Goal prompt formatting (for LLM consumption)
 ;; ============================================================
 
