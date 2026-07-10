@@ -2,12 +2,12 @@
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/data.json {:mvn/version "2.5.1"}
         org.replikativ/persistent-sorted-set {:mvn/version "0.4.126"}
-        org.replikativ/konserve {:mvn/version "0.9.345"
+        org.replikativ/konserve {:mvn/version "0.9.350"
                                  :exclusions [org.clojure/clojurescript
                                               com.github.pkpkpk/cljs-node-io
                                               com.github.pkpkpk/fress
                                               org.clojars.mmb90/cljs-cache]}
-        org.replikativ/hasch {:mvn/version "0.3.96"
+        org.replikativ/hasch {:mvn/version "0.4.98"
                               :exclusions [org.clojure/clojurescript
                                            com.cognitect/transit-cljs]}
         org.clojure/core.cache {:mvn/version "1.1.234"}}
