@@ -193,7 +193,14 @@
                (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
                  (when (.exists gz)
                    (when *verbose* (println "Loading recall disc-tree from" (.getPath gz) "..."))
-                   ((requiring-resolve 'ansatz.recall/load-discr-trie) (.getPath gz))))))
+                   ;; a truncated/corrupt artifact (e.g. an interrupted dump) must
+                   ;; degrade to "no recall trie", never kill init!
+                   (try ((requiring-resolve 'ansatz.recall/load-discr-trie) (.getPath gz))
+                        (catch Throwable t
+                          (println "WARN: recall disc-tree unreadable, skipping"
+                                   "(re-dump with scripts/dump_recall_keys.clj):"
+                                   (.getMessage t))
+                          nil))))))
      (when *verbose*
        (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
                 (count idx) "classes indexed"

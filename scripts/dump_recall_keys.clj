@@ -19,8 +19,11 @@
       ctx (storage/prepare-verify (storage/open-store store-path) store-name)
       order (:decl-order ctx)
       path (str store-path "/discr-keys.ndjson.gz")
+      tmp (str path ".tmp")
       _ (println "Dumping recall keys for" (count order) "decls (useful-filtered) ->" path)
       t0 (System/nanoTime)
-      n (recall/dump-discr-keys! order (:resolve-fn ctx) path)]
+      n (recall/dump-discr-keys! order (:resolve-fn ctx) tmp)]
+  ;; write-then-rename: a crashed/killed dump must not destroy the artifact
+  (.renameTo (java.io.File. tmp) (java.io.File. path))
   (println "Wrote" n "keys in" (quot (- (System/nanoTime) t0) 1000000000) "s")
   (shutdown-agents))
