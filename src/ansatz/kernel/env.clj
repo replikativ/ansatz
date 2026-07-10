@@ -10,7 +10,8 @@
    ConstantInfo variants:
      :axiom, :def, :thm, :opaque, :quot, :induct, :ctor, :recursor"
   (:require [ansatz.kernel.name :as name])
-  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Name TypeChecker]))
+  (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Name TypeChecker]
+           [java.util.concurrent TimeoutException]))
 
 ;; ============================================================
 ;; Tag keyword mapping
@@ -121,6 +122,114 @@
   (^Env [^Env env ^ConstantInfo ci fuel]
    (TypeChecker/checkConstantReplace env ci fuel)))
 
+(def ^:private default-verifies-fuel
+  "Fuel used by `verifies-report`/`verifies?`, matching the Java TypeChecker default."
+  5000000)
+
+(def ^:private default-verifies-stack-size
+  "64MB stack for diagnostic proof checks that exercise deep isDefEq recursion."
+  (* 64 1024 1024))
+
+(defn- run-with-stack
+  [f stack-size timeout-ms]
+  (let [result (promise)
+        error (promise)
+        t (Thread. nil
+                   (fn []
+                     (try
+                       (deliver result (f))
+                       (catch Throwable ex
+                         (deliver error ex))))
+                   "ansatz-verifies"
+                   (long stack-size))]
+    (.setDaemon t true)
+    (.start t)
+    (try
+      (if (and timeout-ms (pos? timeout-ms))
+        (.join t (long timeout-ms))
+        (.join t))
+      (catch InterruptedException _
+        (.interrupt t)
+        (.join t 5000)
+        (throw (InterruptedException. "Interrupted while waiting for verifier thread"))))
+    (when (.isAlive t)
+      (.interrupt t)
+      (.join t 5000)
+      (throw (TimeoutException. (str "Proof check timed out after " timeout-ms "ms"))))
+    (when (realized? error)
+      (throw @error))
+    @result))
+
+(defn- throwable-message [^Throwable ex]
+  (str (.getName (class ex)) ": " (.getMessage ex)))
+
+(defn- fuel-exceeded-message? [msg]
+  (and (string? msg)
+       (or (.contains msg "fuel exhausted")
+           (.contains msg "WHNF reduction fuel exhausted"))))
+
+(defn verifies-report
+  "AUTHORITATIVE proof-check diagnostic. Returns a map instead of hiding checker
+   errors:
+
+     {:ok? true, :status :ok, :fuel-used n, :elapsed-ms n, :stats {...}}
+     {:ok? false, :status :error/:fuel-exceeded/:timeout/:invalid-input, ...}
+
+   Options:
+     :fuel       reducer/typechecker fuel, 0 means unlimited
+     :timeout-ms wall-clock timeout; timed-out worker is interrupted
+     :stack-size verifier thread stack size in bytes"
+  ([^Env env goal proof]
+   (verifies-report env goal proof nil))
+  ([^Env env goal proof {:keys [fuel timeout-ms stack-size]
+                         :or {fuel default-verifies-fuel
+                              timeout-ms 0
+                              stack-size default-verifies-stack-size}}]
+   (let [t0 (System/nanoTime)
+         elapsed-ms (fn [] (/ (- (System/nanoTime) t0) 1e6))]
+     (cond
+       (nil? goal)
+       {:ok? false :status :invalid-input :error "nil goal" :elapsed-ms (elapsed-ms)}
+
+       (nil? proof)
+       {:ok? false :status :invalid-input :error "nil proof" :elapsed-ms (elapsed-ms)}
+
+       :else
+       (let [ci (mk-thm (name/from-string "__verifies_chk__") [] goal proof)]
+         (try
+           (let [^objects result
+                 (run-with-stack
+                  #(TypeChecker/checkConstantFuelStats env ci (long fuel))
+                  stack-size
+                  timeout-ms)
+                 fuel-used (aget result 0)
+                 stats (aget result 1)
+                 error (aget result 3)
+                 elapsed (elapsed-ms)]
+             (if error
+               {:ok? false
+                :status (if (fuel-exceeded-message? error) :fuel-exceeded :error)
+                :error error
+                :fuel-used fuel-used
+                :elapsed-ms elapsed
+                :stats stats}
+               {:ok? true
+                :status :ok
+                :fuel-used fuel-used
+                :elapsed-ms elapsed
+                :stats stats}))
+           (catch TimeoutException ex
+             {:ok? false
+              :status :timeout
+              :error (.getMessage ex)
+              :elapsed-ms (elapsed-ms)})
+           (catch Throwable ex
+             (let [msg (throwable-message ex)]
+               {:ok? false
+                :status (if (fuel-exceeded-message? msg) :fuel-exceeded :error)
+                :error msg
+                :elapsed-ms (elapsed-ms)}))))))))
+
 (defn verifies?
   "AUTHORITATIVE proof check: true iff `proof` fully kernel-checks as a proof of `goal`
    (both must be CLOSED — no free fvars). Runs the Java kernel `checkConstant` on a
@@ -133,12 +242,10 @@
    axiom-shaped declaration that `check-constant` would accept WITHOUT a proof, so a
    caller passing `(when (solved? ps) (extract …))` that yields nil on failure would
    otherwise get a false-positive 'verified'."
-  [^Env env goal proof]
-  (boolean
-   (and (some? goal) (some? proof)
-        (try (check-constant env (mk-thm (name/from-string "__verifies_chk__") [] goal proof))
-             true
-             (catch Throwable _ false)))))
+  ([^Env env goal proof]
+   (:ok? (verifies-report env goal proof)))
+  ([^Env env goal proof opts]
+   (:ok? (verifies-report env goal proof opts))))
 
 (defn check-inductive-bundle
   "Type-check and add a mutual inductive bundle through the Java kernel bundle checker."

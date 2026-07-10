@@ -5,6 +5,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
+            [ansatz.test-env :as test-env]
             [ansatz.export.parser :refer [parse-ndjson-file]]
             [ansatz.export.replay :as replay])
   (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo
@@ -439,16 +440,13 @@
 
 (deftest reject-ill-typed-definition-test
   (testing "checkConstant rejects definitions whose body only typechecks in infer-only mode"
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parse-ndjson-file f)
-              env (:env (replay/replay (:decls st)))
-              nat (e/const' (name/from-string "Nat") [])
-              body (e/app (e/const' (name/from-string "Nat.succ") [])
-                          (e/const' (name/from-string "True.intro") []))
-              ci (env/mk-def (name/from-string "bad") [] nat body)]
-          (is (thrown? Exception
-                       (TypeChecker/checkConstant env ci 1000000))))))))
+    (when-let [kenv @test-env/init-medium-env]
+      (let [nat (e/const' (name/from-string "Nat") [])
+            body (e/app (e/const' (name/from-string "Nat.succ") [])
+                        (e/const' (name/from-string "True.intro") []))
+            ci (env/mk-def (name/from-string "bad") [] nat body)]
+        (is (thrown? Exception
+                     (TypeChecker/checkConstant kenv ci 1000000)))))))
 
 (deftest reject-safe-use-of-unsafe-test
   (testing "safe declarations cannot depend on unsafe constants"
@@ -460,6 +458,24 @@
                                :safety :safe)]
       (is (thrown? Exception
                    (TypeChecker/checkConstant env safe-def 1000000))))))
+
+(deftest verifies-report-test
+  (testing "verifies-report returns checker diagnostics instead of hiding failures"
+    (let [p-name (name/from-string "P")
+          h-name (name/from-string "hP")
+          p (e/const' p-name [])
+          h (e/const' h-name [])
+          env (-> (Env.)
+                  (TypeChecker/checkConstant (env/mk-axiom p-name [] prop) 1000000)
+                  (TypeChecker/checkConstant (env/mk-axiom h-name [] p) 1000000))
+          ok-report (env/verifies-report env p h {:fuel 1000000 :timeout-ms 5000})
+          bad-report (env/verifies-report env p p {:fuel 1000000 :timeout-ms 5000})]
+      (is (:ok? ok-report))
+      (is (= :ok (:status ok-report)))
+      (is (number? (:fuel-used ok-report)))
+      (is (false? (:ok? bad-report)))
+      (is (= :error (:status bad-report)))
+      (is (string? (:error bad-report))))))
 
 (deftest universe-parameter-admission-test
   (testing "checkConstant rejects declaration types that mention undeclared universe params"
