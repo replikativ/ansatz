@@ -23,6 +23,9 @@
    :whnf-cache (atom {})
    :def-eq-cache (atom #{})
    :def-neq-cache (atom #{})
+   ;; per-lctx Java TypeChecker instances (lazy) — the kernel defeq with
+   ;; lazyDeltaReduction + failure caches; see ansatz.meta/java-kernel-defeq.
+   :java-tc-cache (atom {})
    :infer-cache (java.util.IdentityHashMap.)})
 
 (defn- lctx-max-id

@@ -1038,13 +1038,40 @@
   [^ansatz.kernel.Expr expr]
   (.hasMVar expr))
 
+(defn- java-tc-for
+  "The Java kernel TypeChecker for `st`'s env+lctx, cached on the tc-state.
+   This is the mathlib-proven defeq: whnfCore + lazyDeltaReduction (unfold by
+   definitional height, same-head isDefEqArgs first) + failure caches — vs the
+   Clojure tc's naive whnf-both-sides, which cliffs exponentially on deep
+   definition stacks (multi-minute single confirms observed in E0). Returns nil
+   when the lctx has non-`:local` entries (let-bindings) the public TC API
+   cannot register — callers then fall back to the Clojure tc."
+  ^ansatz.kernel.TypeChecker [st]
+  (let [cache (:java-tc-cache st)
+        lctx (:lctx st)]
+    (or (when cache (get @cache lctx))
+        (when (every? (fn [[_ d]] (= :local (:tag d))) lctx)
+          (let [tc (ansatz.kernel.TypeChecker. (:env st))]
+            (doseq [[id d] lctx]
+              (.addLocal tc (long id) (str (or (:name d) "x")) (:type d)))
+            (when cache (swap! cache assoc lctx tc))
+            tc)))))
+
+(defn- kernel-defeq?
+  "Decide mvar-free defeq via the Java kernel TC when available (fast path),
+   else the Clojure tc. A type error on either path means 'not equal here'."
+  [st a b]
+  (if-let [jtc (java-tc-for st)]
+    (try (.isDefEq jtc a b)
+         (catch Exception _ false))
+    (try (tc/is-def-eq st a b)
+         (catch clojure.lang.ExceptionInfo _ false))))
+
 (defn- closed-kernel-defeq
   [mctx st a b]
   (when (and (closed-expr? mctx a)
              (closed-expr? mctx b))
-    (try
-      (when (tc/is-def-eq st a b) mctx)
-      (catch clojure.lang.ExceptionInfo _ nil))))
+    (when (kernel-defeq? st a b) mctx)))
 
 (defn- closed-kernel-defeq-zonked
   "Like `closed-kernel-defeq` but assumes `a`/`b` are already zonked, so it uses
@@ -1052,9 +1079,7 @@
   [mctx st a b]
   (when (and (not (zonked-has-mvar? a))
              (not (zonked-has-mvar? b)))
-    (try
-      (when (tc/is-def-eq st a b) mctx)
-      (catch clojure.lang.ExceptionInfo _ nil))))
+    (when (kernel-defeq? st a b) mctx)))
 
 (defn- is-def-eq-core
   [mctx st bound a b]
