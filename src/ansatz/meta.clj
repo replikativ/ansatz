@@ -286,10 +286,20 @@
                                    {:mvar-id id
                                     :unassigned-expr-mvars (unassigned-expr-mvars mctx type)
                                     :unassigned-level-mvars (unassigned-level-mvars mctx type)}))
+      ;; value+type are closed here (guarded above) — gate via the Java kernel
+      ;; TC (lazyDeltaReduction defeq). The Clojure tc's whnf-both-sides defeq
+      ;; made EVERY unification assignment a potential exponential cliff on
+      ;; mathlib-deep types (multi-minute confirms observed in E0).
       (let [lctx (instantiate-lctx-mvars mctx (:lctx decl))
-            st (tc/mk-tc-state-with-locals env lctx)
-            inferred (tc/infer-type st value)]
-        (when-not (tc/is-def-eq st inferred type)
+            jtc (ansatz.kernel.TypeChecker. env)
+            _ (doseq [[fid d] lctx]
+                (when (:type d)
+                  (.addLocal jtc (long fid) (str (or (:name d) "x")) (:type d))))
+            [inferred ok?] (try
+                             (let [inferred (.inferType jtc value)]
+                               [inferred (.isDefEq jtc inferred type)])
+                             (catch Exception e [(.getMessage e) false]))]
+        (when-not ok?
           (checked-assignment-error! "assignment type mismatch"
                                      {:mvar-id id
                                       :expected type
@@ -854,9 +864,8 @@
         b (zonk-expr mctx b)]
     (and (closed-expr? mctx a)
          (closed-expr? mctx b)
-         (try
-           (tc/is-def-eq st a b)
-           (catch clojure.lang.ExceptionInfo _ false)))))
+         (try (tc/is-def-eq st a b)
+              (catch Exception _ false)))))
 
 (defn- mvar-head-stuck?
   [mctx expr]
@@ -1038,40 +1047,13 @@
   [^ansatz.kernel.Expr expr]
   (.hasMVar expr))
 
-(defn- java-tc-for
-  "The Java kernel TypeChecker for `st`'s env+lctx, cached on the tc-state.
-   This is the mathlib-proven defeq: whnfCore + lazyDeltaReduction (unfold by
-   definitional height, same-head isDefEqArgs first) + failure caches — vs the
-   Clojure tc's naive whnf-both-sides, which cliffs exponentially on deep
-   definition stacks (multi-minute single confirms observed in E0). Returns nil
-   when the lctx has non-`:local` entries (let-bindings) the public TC API
-   cannot register — callers then fall back to the Clojure tc."
-  ^ansatz.kernel.TypeChecker [st]
-  (let [cache (:java-tc-cache st)
-        lctx (:lctx st)]
-    (or (when cache (get @cache lctx))
-        (when (every? (fn [[_ d]] (= :local (:tag d))) lctx)
-          (let [tc (ansatz.kernel.TypeChecker. (:env st))]
-            (doseq [[id d] lctx]
-              (.addLocal tc (long id) (str (or (:name d) "x")) (:type d)))
-            (when cache (swap! cache assoc lctx tc))
-            tc)))))
-
-(defn- kernel-defeq?
-  "Decide mvar-free defeq via the Java kernel TC when available (fast path),
-   else the Clojure tc. A type error on either path means 'not equal here'."
-  [st a b]
-  (if-let [jtc (java-tc-for st)]
-    (try (.isDefEq jtc a b)
-         (catch Exception _ false))
-    (try (tc/is-def-eq st a b)
-         (catch clojure.lang.ExceptionInfo _ false))))
-
 (defn- closed-kernel-defeq
   [mctx st a b]
   (when (and (closed-expr? mctx a)
              (closed-expr? mctx b))
-    (when (kernel-defeq? st a b) mctx)))
+    (try
+      (when (tc/is-def-eq st a b) mctx)
+      (catch Exception _ nil))))
 
 (defn- closed-kernel-defeq-zonked
   "Like `closed-kernel-defeq` but assumes `a`/`b` are already zonked, so it uses
@@ -1079,7 +1061,9 @@
   [mctx st a b]
   (when (and (not (zonked-has-mvar? a))
              (not (zonked-has-mvar? b)))
-    (when (kernel-defeq? st a b) mctx)))
+    (try
+      (when (tc/is-def-eq st a b) mctx)
+      (catch Exception _ nil))))
 
 (defn- is-def-eq-core
   [mctx st bound a b]

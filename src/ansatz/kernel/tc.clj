@@ -8,7 +8,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel Name ConstantInfo Env]))
+  (:import [ansatz.kernel Name ConstantInfo Env TypeChecker]))
 
 ;; ============================================================
 ;; Type checker state
@@ -24,8 +24,12 @@
    :def-eq-cache (atom #{})
    :def-neq-cache (atom #{})
    ;; per-lctx Java TypeChecker instances (lazy) — the kernel defeq with
-   ;; lazyDeltaReduction + failure caches; see ansatz.meta/java-kernel-defeq.
+   ;; lazyDeltaReduction + failure caches (see `java-tc`).
    :java-tc-cache (atom {})
+   ;; instance-synthesis memo (goal-type → instance-term|nil), Lean's
+   ;; synthInstance cache: failures memoize too, collapsing the repeated
+   ;; exploration of the same class goal across candidates.
+   :synth-memo (atom {})
    :infer-cache (java.util.IdentityHashMap.)})
 
 (defn- lctx-max-id
@@ -88,7 +92,7 @@
 ;; Type inference
 ;; ============================================================
 
-(declare infer-type is-def-eq is-def-eq* ensure-sort ensure-pi try-eta)
+(declare infer-type is-def-eq is-def-eq* is-def-eq-fallback ensure-sort ensure-pi try-eta)
 
 (defn infer-type
   "Infer the type of expression e in type checker state st."
@@ -245,8 +249,38 @@
           (is-def-eq st tt ts))))
     (catch Exception _ false)))
 
+(defn java-tc
+  "The Java kernel TypeChecker for `st`'s env+lctx, cached on the tc-state
+   (`:java-tc-cache`, keyed by lctx). This is the mathlib-proven defeq:
+   whnfCore + lazyDeltaReduction (unfold by definitional height, same-head
+   isDefEqArgs first) + failure caches. Returns nil when the lctx has
+   non-`:local` entries (let-bindings), which the public TC API cannot
+   register — callers then use the Clojure fallback."
+  ^TypeChecker [st]
+  (let [cache (:java-tc-cache st)
+        lctx (:lctx st)]
+    (or (when cache (get @cache lctx))
+        (when (every? (fn [[_ d]] (= :local (:tag d))) lctx)
+          (let [tc (TypeChecker. ^Env (:env st))]
+            (doseq [[id d] lctx]
+              (when (:type d)
+                (.addLocal tc (long id) (str (or (:name d) "x")) (:type d))))
+            (when cache (swap! cache assoc lctx tc))
+            tc)))))
+
 (defn is-def-eq
-  "Check definitional equality of two expressions."
+  "Check definitional equality of two expressions. Delegates to the Java
+   kernel TypeChecker (lazy delta reduction) whenever the lctx permits — the
+   Clojure implementation below is a naive whnf-both-sides check that cliffs
+   exponentially on deep Mathlib definition stacks (E0: multi-minute single
+   candidate confirms in instance synthesis); it remains as the fallback for
+   let-binding lctxs."
+  [st t s]
+  (if-let [jtc (java-tc st)]
+    (.isDefEq jtc t s)
+    (is-def-eq-fallback st t s)))
+
+(defn- is-def-eq-fallback
   [st t s]
   (or (identical? t s)
       (= t s)
