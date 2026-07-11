@@ -286,10 +286,20 @@
                                    {:mvar-id id
                                     :unassigned-expr-mvars (unassigned-expr-mvars mctx type)
                                     :unassigned-level-mvars (unassigned-level-mvars mctx type)}))
+      ;; value+type are closed here (guarded above) — gate via the Java kernel
+      ;; TC (lazyDeltaReduction defeq). The Clojure tc's whnf-both-sides defeq
+      ;; made EVERY unification assignment a potential exponential cliff on
+      ;; mathlib-deep types (multi-minute confirms observed in E0).
       (let [lctx (instantiate-lctx-mvars mctx (:lctx decl))
-            st (tc/mk-tc-state-with-locals env lctx)
-            inferred (tc/infer-type st value)]
-        (when-not (tc/is-def-eq st inferred type)
+            jtc (ansatz.kernel.TypeChecker. env)
+            _ (doseq [[fid d] lctx]
+                (when (:type d)
+                  (.addLocal jtc (long fid) (str (or (:name d) "x")) (:type d))))
+            [inferred ok?] (try
+                             (let [inferred (.inferType jtc value)]
+                               [inferred (.isDefEq jtc inferred type)])
+                             (catch Exception e [(.getMessage e) false]))]
+        (when-not ok?
           (checked-assignment-error! "assignment type mismatch"
                                      {:mvar-id id
                                       :expected type
@@ -854,9 +864,8 @@
         b (zonk-expr mctx b)]
     (and (closed-expr? mctx a)
          (closed-expr? mctx b)
-         (try
-           (tc/is-def-eq st a b)
-           (catch clojure.lang.ExceptionInfo _ false)))))
+         (try (tc/is-def-eq st a b)
+              (catch Exception _ false)))))
 
 (defn- mvar-head-stuck?
   [mctx expr]
@@ -1044,7 +1053,7 @@
              (closed-expr? mctx b))
     (try
       (when (tc/is-def-eq st a b) mctx)
-      (catch clojure.lang.ExceptionInfo _ nil))))
+      (catch Exception _ nil))))
 
 (defn- closed-kernel-defeq-zonked
   "Like `closed-kernel-defeq` but assumes `a`/`b` are already zonked, so it uses
@@ -1054,7 +1063,7 @@
              (not (zonked-has-mvar? b)))
     (try
       (when (tc/is-def-eq st a b) mctx)
-      (catch clojure.lang.ExceptionInfo _ nil))))
+      (catch Exception _ nil))))
 
 (defn- is-def-eq-core
   [mctx st bound a b]

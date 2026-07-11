@@ -190,7 +190,18 @@
 (defn- whnf [st expr]
   (#'tc/cached-whnf st expr))
 
-(declare synthesize*)
+(declare synthesize* synthesize-uncached*)
+
+(defn- rigid-fvar-mismatch?
+  "A candidate result-arg with a CONST head can never be defeq to a goal arg
+   whose head is a (rigid, :local) fvar: closed registry terms cannot reduce
+   to a stuck fvar application. Cheap sound pre-filter before defeq/recursive
+   synthesis — kills e.g. every concrete `MetricSpace ℝ`-style leaf against an
+   `fvar-applied` subject like `m β` without a kernel call (E0 cliff)."
+  [r g]
+  (let [[rh _] (e/get-app-fn-args r)
+        [gh _] (e/get-app-fn-args g)]
+    (and (e/const? rh) (e/fvar? gh))))
 
 (defn- try-candidate
   "Try a single candidate instance against a goal type.
@@ -251,9 +262,33 @@
                                    (when @ok
                                      (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
                                        (swap! s assoc (e/fvar-id r) g)
-                                       (when-not (try (tc/is-def-eq st r g) (catch Exception _ false))
+                                       (when-not (and (not (rigid-fvar-mismatch? r g))
+                                                      (try (tc/is-def-eq st r g) (catch Exception _ false)))
                                          (reset! ok false)))))
-                                 (when @ok @s))))]
+                                 (when @ok @s)))
+                            ;; LENIENT positional match — DERIVED instances. Same head +
+                            ;; arity; fill ONLY the pattern-fvar positions and SKIP the
+                            ;; rest. A derived instance's result args are PROJECTIONS
+                            ;; (`AddCommMonoid.toAdd α ?fv`) that are not structurally
+                            ;; equal to the goal's DIRECT instances (`instAddNat`) but ARE
+                            ;; defeq once ?fv is synthesized. So we don't require those
+                            ;; positions to match here — the instance fvars get filled by
+                            ;; recursive synthesis and the final is-def-eq below GATES
+                            ;; soundness. (Only fires when the earlier, stricter matches
+                            ;; failed, so ordinary instances are unaffected.)
+                             (when (and (e/const? rh) (e/const? gh)
+                                        (= (e/const-name rh) (e/const-name gh))
+                                        (= (count ra) (count ga)))
+                               (let [s (atom {}) ok (atom true)]
+                                 (doseq [[r g] (map vector ra ga)]
+                                   (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
+                                     (swap! s assoc (e/fvar-id r) g)
+                                     ;; skipped positions are gated by the final
+                                     ;; is-def-eq — but a rigid const-vs-fvar head
+                                     ;; mismatch can never pass it: fail fast.
+                                     (when (rigid-fvar-mismatch? r g)
+                                       (reset! ok false))))
+                                 (when (and @ok (seq @s)) @s))))]
         ;; Try to fill all arguments
           (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
                 ;; registers these as instances whose structure argument is an instance subgoal,
@@ -397,9 +432,22 @@
           candidate-names)))
 
 (defn synthesize*
-  "Synthesis with depth limit and backtracking.
+  "Synthesis with depth limit and backtracking, memoized on the tc-state
+   (`:synth-memo`, Lean's synthInstance cache — failures memoize too, which is
+   what collapses the repeated exploration of an unsatisfiable class goal
+   across hundreds of candidate chains).
    Uses the pre-built index when available, falls back to on-demand
    candidate discovery for PSS environments."
+  [st env index goal-type depth]
+  (let [memo (:synth-memo st)]
+    (if-let [hit (when memo (find @memo goal-type))]
+      (val hit)
+      (let [result (synthesize-uncached* st env index goal-type depth)]
+        (when (and memo (not (> depth config/*max-synth-depth*)))
+          (swap! memo assoc goal-type result))
+        result))))
+
+(defn- synthesize-uncached*
   [st env index goal-type depth]
   (when-not (> depth config/*max-synth-depth*)  ;; configurable depth limit
   ;; Get the goal's head class name (try raw, then WHNF)
