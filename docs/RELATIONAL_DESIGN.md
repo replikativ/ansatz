@@ -112,10 +112,41 @@ Three system findings, each fixed or pinned before the solve-rate mattered:
 
    **Consequence for the plan:** the move set must carry the closers before
    the measure (#2) can matter — you cannot rank candidates for an
-   `Eq`-by-`rfl` goal that has zero applicable moves. `rflo` (Eq/Iff/HEq by
-   definitional reflexivity, kernel-gated) is the first closer wired in;
-   `simpo`/`omegao`/`intro` (proof-state bridge to the existing tactics)
-   are the next build and the expected bulk of the aesop-parity gap.
+   `Eq`-by-`rfl` goal that has zero applicable moves.
+
+### E0, third pass: the tactic bridge — 3 → 12 proved
+
+Wired the existing tactics as relational moves. The bridge is a repackaging,
+not a translation: the tactic proof-state's `:meta-mctx` IS the rel state's
+`:mctx` (both `ansatz.meta`), and a rel goal mvar already carries its
+type+lctx there, so `tactico-close` packages the rel goal as a one-goal
+proof-state, runs the tactic (`omega`/`decide`/`simp`), and threads the
+closed metacontext back. `rflo` closes Eq/Iff/HEq by definitional
+reflexivity directly.
+
+Two fixes fell out:
+- **`certify` universe bug (load-bearing).** `certify` declared `[]`
+  universe params, so EVERY universe-polymorphic goal was rejected as
+  `undefined universe level parameter u_N` — silently failing all
+  polymorphic closes (they showed as `cert-failed`). `collect-level-params`
+  (Lean's `collectLevelParams`) collects them from goal+proof. This alone
+  converted 7 cert-failed → proved.
+- **simp at Mathlib scale.** The inherited `@[simp]` corpus is ~90k lemmas
+  that simp resolves+keys from PSS on EVERY call (~the recall-dump cost per
+  simp). `:core-only?` restricts to the 40-lemma hand-curated set as a
+  stopgap; a cached SimpTheorems index is the real fix. `simpo`'s bridged
+  proof term is also malformed on non-trivial goals — dropped from the move
+  set pending a proof-term fix.
+
+Result with the sound closers (`rflo`/`omega`/`decide`) + recall + the
+universe fix: **12 proved / 17 exhausted / 18 timeout / 0 cert-failed** —
+vs `aesop` 20/50. From 3/50 (15% of aesop) to 12/50 (60%), soundly. The
+remaining gap is now concrete: (a) a **cached full-`@[simp]` index with a
+correct bridged proof** — the classification put 25 of 46 unsolved in
+simp/Iff territory; (b) the **measure** to cut the 18 timeouts (search is
+still ~uniform-cost — the ProbLog/best-first thesis is untested); (c) ~11
+hard domain proofs. A minor harness bug (the deadline exception leaks as
+`error` on 3 cases) remains.
 
 ### Recall projection (B+G) — validated
 
