@@ -78,6 +78,7 @@
 (def ansatz-env state/ansatz-env)
 (def ansatz-instance-index state/ansatz-instance-index)
 (def ansatz-discr-trie state/ansatz-discr-trie)
+(def ansatz-simp-trie state/ansatz-simp-trie)
 
 ;; Extensible registries — declared early so the elaboration/codegen layers can reference them.
 ;; Lean 4 equivalents: @[tactic], @[simproc], elab_rules
@@ -199,6 +200,20 @@
                         (catch Throwable t
                           (println "WARN: recall disc-tree unreadable, skipping"
                                    "(re-dump with scripts/dump_recall_keys.clj):"
+                                   (.getMessage t))
+                          nil))))))
+     ;; Persistent @[simp] index: load the store's `simp-keys.ndjson.gz` if
+     ;; present so simp serves the ~90k inherited @[simp] corpus lazily instead
+     ;; of resolving+keying it per call (ansatz.simp-index/dump-simp-keys!).
+     (reset! ansatz-simp-trie
+             (when store-path
+               (let [gz (clojure.java.io/file store-path "simp-keys.ndjson.gz")]
+                 (when (.exists gz)
+                   (when *verbose* (println "Loading simp index from" (.getPath gz) "..."))
+                   (try ((requiring-resolve 'ansatz.simp-index/load-simp-trie) (.getPath gz))
+                        (catch Throwable t
+                          (println "WARN: simp index unreadable, skipping"
+                                   "(re-dump with scripts/dump_simp_keys.clj):"
                                    (.getMessage t))
                           nil))))))
      (when *verbose*

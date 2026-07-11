@@ -11,3 +11,8 @@
 (defonce ^{:doc "The current recall discrimination-tree (conclusion-key → decl-name), as an
                  atom. nil until a store's discr-keys.ndjson.gz is loaded (see ansatz.recall)."}
   ansatz-discr-trie (atom nil))
+(defonce ^{:doc "The current SIMP index disc-tree (LHS-key → simp-lemma-name), as an atom.
+                 nil until a store's simp-keys.ndjson.gz is loaded (see ansatz.simp-index).
+                 When set, simp draws @[simp] candidates from it lazily instead of resolving+
+                 keying the whole ~90k corpus per call."}
+  ansatz-simp-trie (atom nil))

@@ -45,6 +45,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
+            [ansatz.state :as state]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.decide :as decide-tac]
             [ansatz.tactic.instance :as inst]
@@ -548,13 +549,49 @@
    (let [sorted (sort-by (comp - :priority) lemmas)]
      (dt/make-simp-tree st env sorted))))
 
+;; ---- persistent @[simp] index (ansatz.simp-index): when a store's
+;; simp-keys artifact is loaded into state/ansatz-simp-trie, simp draws the
+;; ~90k inherited @[simp] candidates from it LAZILY — key the subterm, get
+;; candidate names, resolve+extract only the matching handful (cached) —
+;; instead of resolving+keying the whole corpus per call. ----
+
+;; name-str → extracted simp rules, process-global (a lemma's rules are stable
+;; for a session). Populated lazily from the simp-trie candidates.
+(defonce ^:private ext-rule-cache (atom {}))
+
+(defn- edn-safe-query-keys
+  "expr->keys with :const key names stringified — matches the encoding
+   ansatz.simp-index stores, so trie-match compares equal."
+  [st env expr]
+  (mapv (fn [k] (if (instance? ansatz.kernel.Name (:name k))
+                  (update k :name name/->string) k))
+        (dt/expr->keys st env expr)))
+
+(defn- ext-rules-for [env name-str]
+  (if-let [hit (find @ext-rule-cache name-str)]
+    (val hit)
+    (let [rules (or (try (when-let [ci (env/lookup env (name/from-string name-str))]
+                           (extract-simp-lemma env ci 1000))
+                         (catch Throwable _ nil))
+                    [])]
+      (swap! ext-rule-cache assoc name-str (vec rules))
+      (vec rules))))
+
 (defn- lookup-lemmas
   "Look up candidate lemmas from the discrimination tree.
    Flattens the query expression to keys and walks the trie,
    exploring both exact matches and star (wildcard) branches.
-   With st/env: filters instance-implicit args for correct matching."
+   With st/env: filters instance-implicit args for correct matching.
+   When the persistent simp-trie is loaded, ALSO returns the inherited
+   @[simp] candidates for `expr`, resolved lazily."
   ([lemma-index expr] (dt/lookup-simp-tree lemma-index expr))
-  ([st env lemma-index expr] (dt/lookup-simp-tree st env lemma-index expr)))
+  ([st env lemma-index expr]
+   (let [eager (dt/lookup-simp-tree st env lemma-index expr)]
+     (if-let [trie @state/ansatz-simp-trie]
+       (let [names (distinct (dt/trie-match trie (edn-safe-query-keys st env expr)))
+             ext (mapcat #(ext-rules-for env %) names)]
+         (concat eager ext))
+       eager))))
 
 ;; ============================================================
 ;; Pattern matching for rewrite rules
@@ -2926,9 +2963,13 @@
          ;; resolve+key ALL of them from PSS on EVERY call (~the recall-dump cost
          ;; per simp) — so a full-set simp needs a cached SimpTheorems index
          ;; (follow-up); until then :core-only? is the fast, usable subset.
+         ;; When the persistent simp-trie is loaded, the inherited @[simp]
+         ;; extension is served LAZILY by lookup-lemmas — do NOT eagerly
+         ;; resolve+key the whole ~90k corpus here (the per-call cliff).
          all-names (cond
                      (:only? opts) (distinct (concat simp-only-builtins name-args))
-                     (:core-only? opts) (distinct (concat default-simp-lemmas name-args))
+                     (or (:core-only? opts) @state/ansatz-simp-trie)
+                     (distinct (concat default-simp-lemmas name-args))
                      :else (distinct (concat default-simp-lemmas
                                              (env/get-extension env :simp-lemmas #{})
                                              name-args)))
@@ -3087,11 +3128,13 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          env (or (ensure-ble-eq (:env ps)) (:env ps))
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
-         all-names (if (:only? opts)
-                     (distinct (concat simp-only-builtins lemma-names))
-                     (distinct (concat default-simp-lemmas
-                                       (env/get-extension env :simp-lemmas #{})
-                                       lemma-names)))]
+         all-names (cond
+                     (:only? opts) (distinct (concat simp-only-builtins lemma-names))
+                     @state/ansatz-simp-trie
+                     (distinct (concat default-simp-lemmas lemma-names))
+                     :else (distinct (concat default-simp-lemmas
+                                             (env/get-extension env :simp-lemmas #{})
+                                             lemma-names)))]
      ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
        ;; corruption from full simp on hypothesis types. Non-def-eq changes
