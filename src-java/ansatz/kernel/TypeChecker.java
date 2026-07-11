@@ -1081,6 +1081,14 @@ public final class TypeChecker {
     private boolean isDefEqCore(Expr t, Expr s) {
         boolean doEmit = traceWriter != null;
         isDefEqCalls++;
+        // Cooperative cancellation (Lean's check_system): periodically honor a
+        // thread interrupt so a search harness can abort a runaway kernel call
+        // (deep definitional-equality on a hopeless candidate) by interrupting
+        // the worker thread. Cheap: a masked counter test, polled ~every 8192
+        // isDefEq calls.
+        if ((isDefEqCalls & 0x1FFF) == 0 && Thread.currentThread().isInterrupted()) {
+            throw new KernelInterruptedException("isDefEq interrupted after " + isDefEqCalls + " calls");
+        }
         if (isDefEqDepth < isDefEqDepthHist.length) isDefEqDepthHist[isDefEqDepth]++;
         // Capture a sample of expression shapes for diagnostics (only non-pointer-equal pairs)
         if (diagCaptures.size() < DIAG_CAPTURE_LIMIT && isDefEqDepth >= DIAG_CAPTURE_MIN_DEPTH && !t.isEqp(s)) {

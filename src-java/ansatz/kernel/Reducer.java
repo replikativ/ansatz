@@ -52,6 +52,7 @@ public final class Reducer {
     long projCount;      // projection reduction (counted externally in whnfCoreImpl)
     long whnfCalls;      // total whnf() calls
     long whnfCoreCacheHits;  // whnfCore cache hits
+    long whnfCoreCalls;      // whnfCoreImpl invocations (for cooperative-cancel poll)
     long whnfCacheHits;      // whnf cache hits
     long internHits;         // result intern hits (pointer sharing)
     int whnfDepth;           // current recursion depth
@@ -1666,6 +1667,12 @@ public final class Reducer {
      * Nat.succ folding removed (handled by whnfLoop/reduce_nat instead).
      */
     private Expr whnfCoreImpl(Expr e, boolean cheapRec, boolean cheapProj) {
+        // Cooperative cancellation: delta-unfolding of well-founded/recursive
+        // definitions can loop long without touching isDefEq, so poll the thread
+        // interrupt here too (masked counter, ~every 8192 reductions).
+        if ((++whnfCoreCalls & 0x1FFF) == 0 && Thread.currentThread().isInterrupted()) {
+            throw new KernelInterruptedException("whnfCore interrupted after " + whnfCoreCalls + " calls");
+        }
         switch (e.tag) {
             case Expr.BVAR: case Expr.SORT: case Expr.MVAR: case Expr.LAM: case Expr.FORALL:
             case Expr.CONST: case Expr.LIT_NAT: case Expr.LIT_STR:

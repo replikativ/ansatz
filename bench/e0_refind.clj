@@ -79,25 +79,28 @@
         s1 (first (r/run 1 s0 (r/fresh concl (fn [g] (fn [s] (r/unit (assoc s ::g g)))))))
         g (::g s1)
         t0 (System/nanoTime)
-        ;; arm the deadline BEFORE any provider work — the confirm loop is the
-        ;; expensive part and must be bounded too (it throws past-deadline, so
-        ;; the search aborts cleanly instead of surviving as a hot thread).
+        ;; deadline throws in `moves` (Clojure-side abort between kernel calls);
+        ;; a single runaway kernel call (deep defeq) is aborted by interrupting
+        ;; the worker thread — the Java kernel now polls Thread.isInterrupted().
         deadline (atom (+ t0 (* TIMEOUT-MS 1000000)))
         provider (provider-for nm deadline)
         moves (fn [s g]
                 {:leaves [[8 (r/assumptiono g)]]
                  :refiners (vec (for [[w cn] (provider s g)]
                                   [w (fn [g k] (r/applyo g cn k))]))})
-        [sol timed-out? n-cands]
-        (try (let [nc (count (provider s1 g))]
-               [(first (r/bestfirst g moves DEPTH s1 :max-nodes MAX-NODES :limit 1)) false nc])
-             (catch clojure.lang.ExceptionInfo ex
-               (if (::deadline (ex-data ex)) [nil true nil] (throw ex))))
+        n-cands (try (count (provider s1 g)) (catch Throwable _ nil))
+        fut (future (try {:sol (first (r/bestfirst g moves DEPTH s1 :max-nodes MAX-NODES :limit 1))}
+                         (catch Throwable t {:err t})))
+        outcome (deref fut TIMEOUT-MS ::timeout)
+        _ (when (= outcome ::timeout)
+            (future-cancel fut))            ; interrupts the worker → kernel unwinds
         ms (quot (- (System/nanoTime) t0) 1000000)]
     (cond
-      timed-out? {:name nm :status :timeout :ms ms :candidates n-cands}
-      (nil? sol) {:name nm :status :exhausted :ms ms :candidates n-cands}
-      :else (let [cert (r/certify sol g)]
+      (= outcome ::timeout) {:name nm :status :timeout :ms ms :candidates n-cands}
+      (:err outcome) {:name nm :status :error :ms ms :candidates n-cands
+                      :error (str (type (:err outcome)) ": " (.getMessage ^Throwable (:err outcome)))}
+      (nil? (:sol outcome)) {:name nm :status :exhausted :ms ms :candidates n-cands}
+      :else (let [cert (r/certify (:sol outcome) g)]
               {:name nm :status (if (:ok? cert) :proved :cert-failed)
                :ms ms :candidates n-cands}))))
 
