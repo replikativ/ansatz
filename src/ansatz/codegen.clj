@@ -208,16 +208,19 @@
                        {:extern cn}))))
 
 (clojure.core/defn- csimp-target
-  "Lean @[csimp]: a kernel-proven `f = g` registered as f→g in the :csimp env extension (by a/csimp,
-   or inherited from Lean via ansatz.attrs) licenses the COMPILER to emit g wherever f appears — g is
-   the faster/runnable equivalent, justified by the proof. Return g when head `h` has such a
-   replacement AND g is lowerable here; else nil (fall back to f unchanged). The lowerability guard is
-   essential: inherited compiler-internal targets (Nat.rec→Nat.recCompiled, List.length→List.lengthTR)
-   are NOT in the store and must not replace a working head with an unrunnable one."
+  "Lean @[csimp] f→g: return g only when codegen can actually LOWER it as a head
+   (builtin / registered / arity-registry / ctor / .rec recursor / :abbrev def); else nil (keep f).
+   The full Mathlib store exports compiler-internal targets (Nat.rec→Nat.recCompiled,
+   List.length→List.lengthTR) as plain decls, which a bare env/lookup let through — emitting an
+   unrunnable symbol (ClassNotFoundException on recursive a/defn)."
   [env h]
   (when-let [g (get (env/get-extension env :csimp {}) h)]
     (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
-              (some? (env/lookup env (name/from-string g))))
+              (contains? @arity-registry g)
+              (when-let [ci (env/lookup env (name/from-string g))]
+                (or (.isCtor ^ConstantInfo ci)
+                    (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
+                    (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci)))))
       g)))
 
 (def ^:private match-aux-re #"\.match_\d+$")
