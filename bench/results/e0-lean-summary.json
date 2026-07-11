@@ -1,0 +1,26 @@
+{
+ "aesop_solved": [
+  "Array.back?_attach",
+  "Cardinal.lift_mk_shrink''",
+  "CategoryTheory.Discrete.opposite_functor_obj_as",
+  "Commute.units_inv_left_iff",
+  "List.foldlM_pure",
+  "List.prefix_concat",
+  "MeasurableEquiv.symm_symm",
+  "Multiset.coe_add",
+  "NNReal.coe_lt_one",
+  "Nat.cast_ofNat",
+  "Nat.minFac_eq_two_iff",
+  "Num.add_of_nat",
+  "Ordering.lt_beq_eq",
+  "Primrec.to\u2082",
+  "Set.mem_Ioi",
+  "Set.subset_range_of_surjective",
+  "Std.DHashMap.Internal.toListModel_replicate_nil",
+  "Subalgebra.add_mem",
+  "TopologicalSpace.Compacts.coe_bot",
+  "instIsEmptyFalse"
+ ],
+ "aesop_rate": 20,
+ "exact?_solved": 48
+}

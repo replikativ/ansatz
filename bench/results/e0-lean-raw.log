@@ -1,0 +1,409 @@
+Try this:
+  [apply] exact fun {α} {β} {σ} [Primcodable α] [Primcodable β] [Primcodable σ] {f} hf => Primrec.to₂ hf
+Try this:
+  [apply] exact fun {m} {β} {α} [Monad m] [LawfulMonad m] {f} {b} {l} => List.foldlM_pure
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:18:93: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:18:90: error: unsolved goals
+C : Type u_1
+inst : CategoryTheory.Category.{u_2, u_1} C
+I : CategoryTheory.MorphismProperty C
+inst_1 : I.HasSmallObjectArgument
+⊢ I.rlp.llp =
+    ((CategoryTheory.MorphismProperty.coproducts.{u_3, u_2, u_1} I).pushouts.transfiniteCompositionsOfShape
+        I.smallObjectκ.ord.ToType).retracts
+Try this:
+  [apply] exact fun {C} [CategoryTheory.Category.{u_2, u_1} C] I [I.HasSmallObjectArgument] =>
+    CategoryTheory.MorphismProperty.llp_rlp_of_hasSmallObjectArgument' I
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:23:64: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:23:61: error: unsolved goals
+α : Type u_1
+inst : Lean.Grind.Ring α
+a : α
+b : ℤ
+c : α
+⊢ a * (↑b * c) = ↑b * (a * c)
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:25:64: error: `exact?` could not close the goal. Try `apply?` to see partial suggestions.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:28:68: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:28:65: error: unsolved goals
+R : Type u_1
+inst : CommRing R
+W' : WeierstrassCurve.Projective R
+⊢ W'.Equation ![0, 1, 0]
+Try this:
+  [apply] exact fun {R} [CommRing R] {W'} => WeierstrassCurve.Projective.equation_zero
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:33:69: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:33:66: error: unsolved goals
+α : Type u_1
+β : α → Type u_2
+cmp : α → α → Ordering
+t₁ t₂ : Std.DTreeMap.Raw α β cmp
+inst : Std.TransCmp cmp
+h₁ : t₁.WF
+h₂ : t₂.WF
+k : α
+h : k ∈ t₂
+⊢ (t₁ \ t₂).getKey? k = none
+Try this:
+  [apply] exact fun {α} {β} {cmp} {t₁ t₂} [Std.TransCmp cmp] h₁ h₂ {k} h =>
+    Std.DTreeMap.Raw.getKey?_diff_of_mem_right h₁ h₂ h
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:38:101: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:38:98: error: unsolved goals
+C : Type u_1
+inst : CategoryTheory.Category.{u_2, u_1} C
+inst_1 : CategoryTheory.Limits.HasStrongEpiMonoFactorisations C
+⊢ CategoryTheory.Limits.HasStrongEpiImages C
+Try this:
+  [apply] exact fun {C} [CategoryTheory.Category.{u_2, u_1} C]
+      [CategoryTheory.Limits.HasStrongEpiMonoFactorisations C] =>
+    CategoryTheory.Limits.hasStrongEpiImages_of_hasStrongEpiMonoFactorisations
+Try this:
+  [apply] exact fun n => Nat.minFac_eq_two_iff n
+Try this:
+  [apply] exact fun {α} {β} {c} => Std.DHashMap.Internal.toListModel_replicate_nil
+Try this:
+  [apply] exact fun {α} a l => List.prefix_concat a l
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:58:56: error: (deterministic) timeout at `whnf`, maximum number of heartbeats (200000) has been reached
+
+Note: Use `set_option maxHeartbeats <num>` to set the limit.
+
+Hint: Additional diagnostic information may be available using the `set_option diagnostics true` command.
+Try this:
+  [apply] exact fun R [Ring R] [IsSemisimpleRing R] => IsSemisimpleModule.jacobson_eq_bot R R
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:63:78: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:63:75: error: unsolved goals
+α : Type
+inst : Hashable α
+inst_1 : DecidableEq α
+⊢ Std.Sat.AIG.LawfulOperator α Std.Sat.AIG.BinaryInput Std.Sat.AIG.mkOrCached
+Try this:
+  [apply] exact fun {α} [Hashable α] [DecidableEq α] => Std.Sat.AIG.instLawfulOperatorBinaryInputMkOrCached
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:68:45: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:68:42: error: unsolved goals
+H : Type u_1
+inst : TopologicalSpace H
+inst_1 : CommGroup H
+inst_2 : PartialOrder H
+inst_3 : IsOrderedMonoid H
+inst_4 : ContinuousInv H
+a : H
+⊢ Filter.Tendsto Inv.inv (nhdsWithin a (Set.Iio a)) (nhdsWithin a⁻¹ (Set.Ioi a⁻¹))
+Try this:
+  [apply] exact fun {H} [TopologicalSpace H] [CommGroup H] [PartialOrder H] [IsOrderedMonoid H] [ContinuousInv H] {a} =>
+    tendsto_inv_nhdsLT
+Try this:
+  [apply] exact fun {R} {A} [CommSemiring R] [Semiring A] [Algebra R A] S {x y} hx hy => Subalgebra.add_mem S hx hy
+Try this:
+  [apply] exact instIsEmptyFalse
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:83:75: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:83:72: error: unsolved goals
+C : Type u_1
+inst : CategoryTheory.Category.{u_2, u_1} C
+D : Type u_3
+inst_1 : CategoryTheory.Category.{u_4, u_3} D
+F : CategoryTheory.Functor C D
+inst_2 : CategoryTheory.CreatesColimitsOfSize.{u_5, u_6, u_2, u_4, u_1, u_3} F
+⊢ CategoryTheory.Limits.ReflectsColimitsOfSize.{u_5, u_6, u_2, u_4, u_1, u_3} F
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:85:75: error: found a proof, but the corresponding tactic failed:
+  (expose_names; exact fun {C} [CategoryTheory.Category.{u_2, u_1} C] {D} [CategoryTheory.Category.{u_4, u_3} D] F
+      [CategoryTheory.CreatesColimitsOfSize.{u_5, u_6, u_2, u_4, u_1, u_3} F] =>
+    CategoryTheory.Limits.reflectsColimitsOfSize_of_univLE F)
+
+It may be possible to correct this proof by adding type annotations, explicitly specifying implicit arguments, or eliminating unnecessary function abstractions.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:88:52: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:88:49: error: unsolved goals
+α : Type u_1
+inst : TopologicalSpace α
+inst_1 : LinearOrder α
+inst_2 : OrderTopology α
+a w : α
+h : a < w
+⊢ (nhdsWithin a (Set.Ici a)).HasBasis (fun u => a < u) fun u => Set.Ico a u
+Try this:
+  [apply] exact fun {α} [TopologicalSpace α] [LinearOrder α] [OrderTopology α] {a} ha => nhdsGE_basis_of_exists_gt ha
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:93:61: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:93:58: error: unsolved goals
+ι : Type u_1
+α : Type u_2
+inst : Preorder α
+inst_1 : TopologicalSpace α
+inst_2 : BoundedLENhdsClass α
+f : Filter ι
+u : ι → α
+a : α
+inst_3 : f.NeBot
+h : Filter.Tendsto u f (nhds a)
+⊢ Filter.IsCoboundedUnder (fun x1 x2 => x2 ≤ x1) f u
+Try this:
+  [apply] exact fun {ι} {α} [Preorder α] [TopologicalSpace α] [BoundedLENhdsClass α] {f} {u} {a} [f.NeBot] h =>
+    Filter.Tendsto.isCoboundedUnder_ge h
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:98:56: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:98:53: error: unsolved goals
+R : Type u_1
+inst : CommMonoid R
+R' : Type u_2
+inst_1 : CommRing R'
+R'' : Type u_3
+inst_2 : CommRing R''
+f : R' →+* R''
+hf : Function.Injective ⇑f
+⊢ Function.Injective fun x => x.ringHomComp f
+Try this:
+  [apply] exact fun {R} [CommMonoid R] {R'} [CommRing R'] {R''} [CommRing R''] {f} hf =>
+    MulChar.injective_ringHomComp hf
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:103:56: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:103:53: error: unsolved goals
+case inl
+a b c : ENNReal
+a_1 : a - b < c
+h_1 : ¬a = ⊤
+⊢ a < b + c
+
+case inr
+a b c : ENNReal
+a_1 : a - b < c
+h_2 : ¬b = ⊤
+⊢ a < b + c
+Try this:
+  [apply] exact fun {a b c} h a_1 => ENNReal.lt_add_of_sub_lt_left h a_1
+Try this:
+  [apply] exact fun {α} [TopologicalSpace α] => TopologicalSpace.Compacts.coe_bot
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:113:59: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:113:56: error: unsolved goals
+ctx : Nat.Linear.Context
+m₁ m₂ : Nat.Linear.Poly
+h : Nat.Linear.Poly.denote_le ctx (m₁, m₂)
+⊢ Nat.Linear.Poly.denote_le ctx (m₁.cancel m₂)
+Try this:
+  [apply] exact fun {ctx} {m₁ m₂} h => Nat.Linear.Poly.denote_le_cancel h
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:118:73: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:118:70: error: unsolved goals
+R : Type u_1
+inst : CommRing R
+⊢ Algebra.IsStandardSmoothOfRelativeDimension 0 R R
+Try this:
+  [apply] exact fun R [CommRing R] => Algebra.IsStandardSmoothOfRelativeDimension.id R
+Try this:
+  [apply] exact fun {M} [Monoid M] {a} {u} => Commute.units_inv_left_iff
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:128:50: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:128:47: error: unsolved goals
+𝕜 : Type u_1
+E : Type u_2
+inst : Semiring 𝕜
+inst_1 : PartialOrder 𝕜
+inst_2 : AddCommGroup E
+inst_3 : Module 𝕜 E
+inst_4 : TopologicalSpace E
+s : Set E
+⊢ s ⊆ (closedConvexHull 𝕜) s
+Try this:
+  [apply] exact fun {𝕜} {E} [Semiring 𝕜] [PartialOrder 𝕜] [AddCommGroup E] [Module 𝕜 E] [TopologicalSpace E] {s} =>
+    subset_closedConvexHull
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:133:49: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:133:46: error: unsolved goals
+case mp
+ι : Type u_1
+α : Type u_2
+inst : SemilatticeSup α
+a : α
+inst_1 : OrderBot α
+s : Finset ι
+f : ι → α
+ha : SupPrime a
+a_1 : a ≤ s.sup f
+⊢ ∃ i ∈ s, a ≤ f i
+
+case mpr
+ι : Type u_1
+α : Type u_2
+inst : SemilatticeSup α
+a : α
+inst_1 : OrderBot α
+s : Finset ι
+f : ι → α
+ha : SupPrime a
+w : ι
+left : w ∈ s
+right : a ≤ f w
+⊢ a ≤ s.sup f
+Try this:
+  [apply] exact fun {ι} {α} [SemilatticeSup α] {a} [OrderBot α] {s} {f} ha => SupPrime.le_finset_sup ha
+Try this:
+  [apply] exact fun {r} => NNReal.coe_lt_one
+Try this:
+  [apply] exact fun m n => Num.add_of_nat m n
+Try this:
+  [apply] exact fun {R} {n} [NatCast R] [n.AtLeastTwo] => Nat.cast_ofNat
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:153:40: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:153:37: error: unsolved goals
+a : ℚ
+⊢ a.floor = a.num / ↑a.den
+Try this:
+  [apply] exact fun a => Rat.floor_def a
+Try this:
+  [apply] exact fun {α} {xs} => Array.back?_attach
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:163:54: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:163:51: error: unsolved goals
+case mp
+n a : ℕ
+ha : 0 < a
+a_1 : ¬a ∣ n
+⊢ ∃ k, a * k < n ∧ n < a * (k + 1)
+
+case mpr.h
+n a : ℕ
+ha : 0 < a
+w : ℕ
+left : a * w < n
+right : n < a * (w + 1)
+a_1 : a ∣ n
+⊢ False
+Try this:
+  [apply] exact fun n {a} ha => Nat.not_dvd_iff_lt_mul_succ n ha
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:168:64: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:168:61: error: unsolved goals
+Ω : Type u_1
+β : Type u_2
+ι : Type u_3
+inst : Nonempty ι
+inst_1 : LinearOrder ι
+u : ι → Ω → β
+τ : Ω → WithTop ι
+i : ι
+ω : Ω
+h : ↑i ≤ τ ω
+⊢ MeasureTheory.stoppedProcess u τ i ω = u i ω
+Try this:
+  [apply] exact fun {Ω} {β} {ι} [Nonempty ι] [LinearOrder ι] {u} {τ} {i} {ω} h =>
+    MeasureTheory.stoppedProcess_eq_of_le h
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:173:51: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:173:48: error: unsolved goals
+R : Type u_1
+inst : CommRing R
+f g : Polynomial R
+hf : f.Separable
+hg : g.Separable
+h : IsCoprime f g
+⊢ (f * g).Separable
+Try this:
+  [apply] exact fun {R} [CommRing R] {f g} hf hg h => Polynomial.Separable.mul hf hg h
+Try this:
+  [apply] exact fun α X => CategoryTheory.Discrete.opposite_functor_obj_as α X
+Try this:
+  [apply] exact fun {α} [Preorder α] {b x} => Set.mem_Ioi
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:188:60: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:188:57: error: unsolved goals
+α : Type u_1
+G : Type u_2
+inst : NormedAddCommGroup G
+inst_1 : NormedSpace ℝ G
+m : MeasurableSpace α
+μ : MeasureTheory.Measure α
+β : Type u_3
+f : β → α → G
+s : Set β
+b : β
+⊢ ∫ (y : α), s.indicator (fun x => f x y) b ∂μ = s.indicator (fun x => ∫ (y : α), f x y ∂μ) b
+Try this:
+  [apply] exact fun α G [NormedAddCommGroup G] [NormedSpace ℝ G] {m} {μ} {β} f s b =>
+    MeasureTheory.integral_indicator₂ α G f s b
+Try this:
+  [apply] exact fun {α} s t => Multiset.coe_add s t
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:198:79: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:198:76: error: unsolved goals
+ι : Type u_1
+C : Type u_2
+inst : CategoryTheory.Category.{u_3, u_2} C
+inst_1 : CategoryTheory.Limits.HasZeroMorphisms C
+c : ComplexShape ι
+inst_2 : CategoryTheory.CategoryWithHomology C
+⊢ (HomologicalComplex.quasiIso C c).IsStableUnderRetracts
+Try this:
+  [apply] exact fun {ι} {C} [CategoryTheory.Category.{u_3, u_2} C] [CategoryTheory.Limits.HasZeroMorphisms C] {c}
+      [CategoryTheory.CategoryWithHomology C] =>
+    HomologicalComplex.instIsStableUnderRetractsQuasiIso
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:203:50: error: tactic 'aesop' failed, made no progress
+Initial goal:
+  ⊢ StarOrderedRing ℕ
+Try this:
+  [apply] exact Nat.instStarOrderedRing
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:208:52: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:208:49: error: unsolved goals
+M : Type u_1
+inst : AddMonoid M
+l : List M
+y : M
+h : ∀ x ∈ l, AddCommute y x
+⊢ AddCommute y l.sum
+Try this:
+  [apply] exact fun {M} [AddMonoid M] l y h => AddCommute.list_sum_right l y h
+Try this:
+  [apply] exact Ordering.lt_beq_eq
+Try this:
+  [apply] exact fun {α} {β} [MeasurableSpace α] [MeasurableSpace β] e => MeasurableEquiv.symm_symm e
+Try this:
+  [apply] exact fun {α} {β} {f} h s => Set.subset_range_of_surjective h s
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:228:44: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:228:41: error: unsolved goals
+α : Type u_1
+β : Type u_2
+f : α → β
+s t : Set α
+h : Disjoint (f '' s) (f '' t)
+⊢ Disjoint s t
+Try this:
+  [apply] exact fun {α} {β} {f} {s t} h => Disjoint.of_image h
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:233:56: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:233:53: error: unsolved goals
+α : Type u_1
+inst : PseudoEMetricSpace α
+⊢ (uniformity α).HasBasis (fun ε => 0 < ε) fun ε => {p | edist p.1 p.2 < ↑ε}
+Try this:
+  [apply] exact fun {α} [PseudoEMetricSpace α] => uniformity_basis_edist_nnreal
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:238:68: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:238:65: error: unsolved goals
+k : ℕ
+⊢ 2 * k ^ 2 < 2 ^ (2 * k)
+Try this:
+  [apply] exact fun k => Nat.two_mul_sq_add_one_le_two_pow_two_mul k
+Try this:
+  [apply] exact fun α [Small.{u_2, max u_1 u_2} α] => Cardinal.lift_mk_shrink'' α
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:248:80: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:248:77: error: unsolved goals
+case mp
+K : Type u_1
+inst : DivisionRing K
+inst_1 : LinearOrder K
+inst_2 : FloorRing K
+v : K
+n : ℕ
+ifp_succ_n : GenContFract.IntFractPair K
+a : GenContFract.IntFractPair.stream v (n + 1) = some ifp_succ_n
+⊢ ∃ ifp_n,
+    GenContFract.IntFractPair.stream v n = some ifp_n ∧
+      ¬ifp_n.fr = 0 ∧ GenContFract.IntFractPair.of ifp_n.fr⁻¹ = ifp_succ_n
+
+case mpr
+K : Type u_1
+inst : DivisionRing K
+inst_1 : LinearOrder K
+inst_2 : FloorRing K
+v : K
+n : ℕ
+w : GenContFract.IntFractPair K
+left : GenContFract.IntFractPair.stream v n = some w
+left_1 : ¬w.fr = 0
+⊢ GenContFract.IntFractPair.stream v (n + 1) = some (GenContFract.IntFractPair.of w.fr⁻¹)
+Try this:
+  [apply] exact fun {K} [DivisionRing K] [LinearOrder K] [FloorRing K] {v} {n} {ifp_succ_n} =>
+    GenContFract.IntFractPair.succ_nth_stream_eq_some_iff
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:253:20: warning: `ProbabilityTheory.isProbabilityMeasureGamma` has been deprecated: Use `ProbabilityTheory.isProbabilityMeasure_gammaMeasure` instead
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:253:70: warning: aesop: failed to prove the goal after exhaustive search.
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:253:67: error: unsolved goals
+a r : ℝ
+ha : 0 < a
+hr : 0 < r
+⊢ MeasureTheory.IsProbabilityMeasure (ProbabilityTheory.gammaMeasure a r)
+/home/christian-weilbach/Development/ansatz-rel/bench/e0_lean.lean:255:20: warning: `ProbabilityTheory.isProbabilityMeasureGamma` has been deprecated: Use `ProbabilityTheory.isProbabilityMeasure_gammaMeasure` instead
+Try this:
+  [apply] exact fun {a r} ha hr => ProbabilityTheory.isProbabilityMeasure_gammaMeasure ha hr
+LEAN-DONE exit=1

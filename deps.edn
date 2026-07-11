@@ -20,6 +20,19 @@
                  cheshire/cheshire {:mvn/version "5.11.0"}}
           :ns-default build}
 
+  ;; EXPERIMENTAL: the datahike relational projection/recall layer (ansatz.datalog).
+  ;; Kept on its own source path so the core build never sees it — opt in with
+  ;; `-M:datahike…`. Pins an unreleased datahike branch (feat/background-gc) by
+  ;; git sha; drop to a :mvn/version once that branch releases. KNOWN QUIRK:
+  ;; that branch's build.clj references a nonexistent b/javadoc, so `clj -X:deps
+  ;; prep` fails on a fresh checkout — build datahike's target/classes once
+  ;; (clj -T:build compile-java in a checkout, or copy them into the gitlib)
+  ;; until the build.clj fix lands upstream.
+  :datahike {:extra-paths ["src-datahike" "test-datahike"]
+             :extra-deps {io.replikativ/datahike
+                          {:git/url "https://github.com/replikativ/datahike"
+                           :git/sha "e6d85f6039b1cb0c4af85f86c08c150f7f5226d6"}}}
+
   ;; Tests
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
