@@ -140,13 +140,37 @@ Two fixes fell out:
 
 Result with the sound closers (`rflo`/`omega`/`decide`) + recall + the
 universe fix: **12 proved / 17 exhausted / 18 timeout / 0 cert-failed** —
-vs `aesop` 20/50. From 3/50 (15% of aesop) to 12/50 (60%), soundly. The
-remaining gap is now concrete: (a) a **cached full-`@[simp]` index with a
-correct bridged proof** — the classification put 25 of 46 unsolved in
-simp/Iff territory; (b) the **measure** to cut the 18 timeouts (search is
-still ~uniform-cost — the ProbLog/best-first thesis is untested); (c) ~11
-hard domain proofs. A minor harness bug (the deadline exception leaks as
-`error` on 3 cases) remains.
+vs `aesop` 20/50. From 3/50 (15% of aesop) to 12/50 (60%), soundly.
+
+### E0, fourth pass: the persistent @[simp] index
+
+Built the cached full-`@[simp]` index (ansatz.simp-index): dump `name →
+LHS-key` once offline (90,328 keys, 3.1MB, ~31 min), load a compact
+`key → name` trie at boot (low memory — no 90k CIs in heap), and serve the
+inherited corpus LAZILY at simp time (candidate names by the goal-subterm
+key, rule resolved+extracted+cached on demand). The 90k-rebuild-per-call
+cliff is gone; the trie loads in seconds and interactive proving fits a
+modest heap.
+
+E0 with full simp: **13 proved / 10 exhausted / 25 timeout / 2 cert-failed**
+— BUT this run was measured under heavy CPU contention (an unrelated app at
+load ~17), which inflated timeouts and starved two fast-provers that had
+proved in <1 s the run before. Net of the artifact: full simp genuinely
+ADDS ~3 simp-closable proofs (Commute.units_inv_left_iff,
+Nat.minFac_eq_two_iff, DHashMap…replicate_nil). Two lessons:
+
+1. **cert-failed returns (2):** simp's bridged proof term IS malformed on
+   some goals — so `simpo` needs a cheap per-close certify gate (simp closes
+   rarely, so gating just its closes is affordable, unlike the all-closer
+   gate that stalled the search).
+2. **Granularity:** full simp as a per-node LEAF is expensive even with the
+   lazy index — simp is a whole simplification traversal, so trying it at
+   every search node competes with the time budget. simp likely belongs as
+   selective/top-goal preprocessing, not a per-node move.
+
+Remaining gap: fix the 2 cert-failed (gate); apply simp selectively; a clean
+(uncontended) re-run for the true number; and the still-untested **measure**
+to cut the timeouts (the ProbLog/best-first thesis) + ~11 hard domain proofs.
 
 ### Recall projection (B+G) — validated
 
