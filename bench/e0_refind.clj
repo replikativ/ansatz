@@ -84,11 +84,18 @@
         ;; the worker thread — the Java kernel now polls Thread.isInterrupted().
         deadline (atom (+ t0 (* TIMEOUT-MS 1000000)))
         provider (provider-for nm deadline)
-        ;; move set = closing tactics (leaves) ∪ recalled-lemma application
-        ;; (refiners). rfl is the first wired closer; simp/omega/intro follow.
+        ;; move set = closing tactics (leaves: assumption, rfl, simp, omega,
+        ;; decide — existing tactics wired as relational moves) ∪ recalled-lemma
+        ;; application (refiners).
+        ;; simpo omitted for now: its bridged proof term is malformed on
+        ;; non-trivial goals (surfaces as cert-failed); rflo/omega/decide are
+        ;; sound. simp needs both a cached full @[simp] index and a proof-term
+        ;; fix — the next build.
         moves (fn [s g]
                 {:leaves [[8 (r/assumptiono g)]
-                          [7 (r/rflo g)]]
+                          [7 (r/rflo g)]
+                          [6 (r/omegao g)]
+                          [5 (r/decideo g)]]
                  :refiners (vec (for [[w cn] (provider s g)]
                                   [w (fn [g k] (r/applyo g cn k))]))})
         n-cands (try (count (provider s1 g)) (catch Throwable _ nil))

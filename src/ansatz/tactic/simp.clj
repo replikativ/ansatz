@@ -2920,11 +2920,18 @@
          name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
          ;; Lean 4 `simp only`: start from `simpOnlyBuiltins` (reflexive closers) + the user
          ;; lemmas ONLY — the default @[simp] corpus and @[simp]-extension are excluded.
-         all-names (if (:only? opts)
-                     (distinct (concat simp-only-builtins name-args))
-                     (distinct (concat default-simp-lemmas
-                                       (env/get-extension env :simp-lemmas #{})
-                                       name-args)))
+         ;; :core-only? uses the hand-curated core set (default-simp-lemmas, ~40)
+         ;; WITHOUT the inherited @[simp] extension. At Mathlib scale that
+         ;; extension is ~90k lemmas and `make-simp-lemmas`/`build-lemma-index`
+         ;; resolve+key ALL of them from PSS on EVERY call (~the recall-dump cost
+         ;; per simp) — so a full-set simp needs a cached SimpTheorems index
+         ;; (follow-up); until then :core-only? is the fast, usable subset.
+         all-names (cond
+                     (:only? opts) (distinct (concat simp-only-builtins name-args))
+                     (:core-only? opts) (distinct (concat default-simp-lemmas name-args))
+                     :else (distinct (concat default-simp-lemmas
+                                             (env/get-extension env :simp-lemmas #{})
+                                             name-args)))
          lemmas (make-simp-lemmas env all-names)
          ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
          term-lemmas (vec (mapcat (fn [t]

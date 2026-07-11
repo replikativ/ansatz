@@ -35,6 +35,9 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.instance :as inst]
             [ansatz.tactic.discr-tree :as dt]
+            [ansatz.tactic.simp :as simp]
+            [ansatz.tactic.omega :as omega]
+            [ansatz.tactic.decide :as decide]
             [ansatz.recall :as recall]))
 
 ;; ============================================================
@@ -574,6 +577,54 @@
                       nil)]
           (if proof ((assigno g proof) s) mzero))))))
 
+;; ============================================================
+;; Tactic bridge — run an ansatz.tactic.* tactic as a relational move.
+;; The tactic proof-state's `:meta-mctx` IS the rel state's `:mctx` (both are
+;; ansatz.meta contexts), and a rel goal mvar carries its type+lctx in that
+;; context — so bridging is a repackaging, not a translation. The tactic writes
+;; a proof TERM into the shared context; `certify` still kernel-checks it.
+;; ============================================================
+
+(defn tactico-close
+  "Leaf move: close goal `g` ENTIRELY with tactic `tac` (a fn
+   proof-state → proof-state, e.g. ansatz.tactic.omega/omega). Packages the rel
+   state as a one-goal proof-state, runs the tactic, and — iff it assigned `g`
+   and left NO open sub-goals — threads the updated metacontext back. A tactic
+   throw or non-closing result is `mzero`. Soundness backstop: the FINAL
+   solution is `certify`-checked by the caller; a tactic that emits a
+   malformed proof term surfaces as a rejected solution there. (An in-search
+   per-close certify gate is too expensive — it runs full check-constant per
+   node and stalls the search; verification belongs at the solution boundary.)"
+  [g tac]
+  (fn [s]
+    (let [gid (e/mvar-id g)
+          ps {:env (:env s) :meta-mctx (:mctx s)
+              :goals [gid] :next-id (:next-id s)}
+          ps' (try (tac ps) (catch Throwable _ nil))]
+      (if (and ps'
+               (empty? (:goals ps'))
+               (meta/expr-assigned? (:meta-mctx ps') gid))
+        (unit (assoc s :mctx (:meta-mctx ps') :next-id (:next-id ps')))
+        mzero))))
+
+(defn simpo
+  "Relational `simp` closer: close `g` if simp simplifies it to a closed goal
+   (e.g. `True`, or a decidable prop simp's `decide?` discharges). Uses the
+   hand-curated core simp set (`:core-only?`) — the full inherited @[simp]
+   corpus is ~90k lemmas that simp currently resolves+keys PER CALL (needs a
+   cached index; see simp/:core-only?), so the core set is the usable default
+   at Mathlib scale."
+  ([g] (simpo g []))
+  ([g lemma-names] (tactico-close g (fn [ps] (simp/simp ps lemma-names {:core-only? true})))))
+
+(defn omegao
+  "Relational `omega` closer: linear Nat/Int arithmetic (=, ≤, <, dvd-ground)."
+  [g] (tactico-close g omega/omega))
+
+(defn decideo
+  "Relational `decide` closer: decidable propositions that evaluate to true."
+  [g] (tactico-close g decide/decide))
+
 (defn assigno
   "Directly assign a GOAL metavariable `g := v` via the checked-assignment
    (tactic/`exact`) path — after unifying v's inferred type with g's declared
@@ -886,6 +937,39 @@
           [(:env s) []]
           (:overlay s)))
 
+(defn- level-params-in-level
+  "Named universe params (e.g. u_1) appearing in a Level."
+  [l acc]
+  (case (lvl/tag l)
+    :param (conj acc (lvl/param-name l))
+    :succ (level-params-in-level (lvl/succ-pred l) acc)
+    :max (level-params-in-level (lvl/max-rhs l) (level-params-in-level (lvl/max-lhs l) acc))
+    :imax (level-params-in-level (lvl/imax-rhs l) (level-params-in-level (lvl/imax-lhs l) acc))
+    acc))
+
+(defn collect-level-params
+  "The named universe parameters an `expr` references (Sort levels + Const level
+   args). A universe-POLYMORPHIC proof/goal must DECLARE these for
+   `check-constant`, else the kernel rejects it with 'undefined universe level
+   parameter'. (Lean's `collectLevelParams`.)"
+  [expr]
+  (let [acc (volatile! #{})
+        add-level (fn [l] (vswap! acc into (level-params-in-level l #{})))]
+    (letfn [(go [e]
+                (when (and e (e/has-level-param-flag e))
+                  (case (e/tag e)
+                    :sort (add-level (e/sort-level e))
+                    :const (doseq [l (e/const-levels e)] (add-level l))
+                    :app (do (go (e/app-fn e)) (go (e/app-arg e)))
+                    :lam (do (go (e/lam-type e)) (go (e/lam-body e)))
+                    :forall (do (go (e/forall-type e)) (go (e/forall-body e)))
+                    :let (do (go (e/let-type e)) (go (e/let-value e)) (go (e/let-body e)))
+                    :proj (go (e/proj-struct e))
+                    :mdata (go (e/mdata-expr e))
+                    nil)))]
+      (go expr))
+    (vec @acc)))
+
 (defn certify
   "The kernel disposes: zonk the solution for hole `g`, close it over the
    ambient hypotheses, and STRICT-check it with the TRUSTED Java kernel
@@ -920,10 +1004,16 @@
          ;; a DEF `__certify__ : goal := proof`, checkConstant re-checking every
          ;; argument. (A THM/`verifies?` would reject a value hole whose type is
          ;; not a Prop, e.g. ?x : Nat.)
+         ;; DECLARE the universe params the (polymorphic) goal/proof reference —
+         ;; without this every universe-polymorphic goal is rejected as
+         ;; 'undefined universe level parameter u_N'.
          :ok? (boolean
                (try (env/check-constant
                      env
-                     (env/mk-def (name/from-string "__certify__") [] goal proof))
+                     (env/mk-def (name/from-string "__certify__")
+                                 (distinct (concat (collect-level-params goal)
+                                                   (collect-level-params proof)))
+                                 goal proof))
                     true
                     (catch Throwable _ false)))}))))
 
