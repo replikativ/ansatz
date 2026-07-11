@@ -73,6 +73,50 @@ generates the port list*, classifying every failure into missing-tactic
 (port from `../lean4`) vs missing-capability (fix the relational layer),
 not just a scoreboard.
 
+### E0, second pass: recall breadth, abortability, and the move-set gap
+
+Three system findings, each fixed or pinned before the solve-rate mattered:
+
+1. **Recall breadth (fixed).** v1 eagerly kernel-confirmed the top-150
+   structural candidates per goal, then branched 40-wide — timeout 47/50.
+   But the eager confirm is *redundant*: best-first runs `applyo` to expand
+   each candidate, which performs the identical unification. Fix:
+   `recall-provider` returns a small (12) specificity prefix, unconfirmed;
+   `applyo` confirms lazily in measure order. Search now TERMINATES.
+2. **Abortability (fixed).** Timeout cases spawned CPU-bound kernel calls
+   that survived `future-cancel` and pinned the machine (load 22). The Java
+   kernel now polls `Thread.isInterrupted()` in `isDefEqCore`/`whnfCoreImpl`
+   (Lean's `check_system`); the harness aborts a runaway node by
+   interrupting the worker. Load stays flat; benchmarks are now reliable.
+3. **The move-set gap (the real finding).** Clean full E0 with both fixes:
+   **3 proved, 27 exhausted, 19 timeout, 1 cert-failed** — vs `aesop` 20/50.
+   Classifying the 46 unsolved by conclusion head:
+
+   | count | family | closer it needs |
+   |------:|--------|-----------------|
+   | 18 | `Eq` | `rfl` / `simp` |
+   | 11 | domain-structure (Filter/CategoryTheory/Measure…) | genuinely hard |
+   | 7 | `Iff` | constructor / `simp` |
+   | 4 | apply-ish | recall + measure |
+   | 3 | set/logic | `intro` + unfold |
+   | 3 | order/arith | `omega` |
+
+   **~35 of 46 need closing tactics we ALREADY HAVE — `rfl`, `simp`,
+   `omega`, `decide`, `intro` — but that were never wired into the
+   relational move set** (`{assumption, apply-recalled-lemma}` only). That
+   is why aesop (which runs simp+intro+apply+rfl) gets 20 and we get 3. The
+   gap is INTEGRATION, not porting: wiring each existing tactic as a weighted
+   relational leaf is exactly the mixture-of-provers design. Only ~4 are
+   pure recall-ranking targets (where the measure, #2, is the lever) and
+   ~11 are hard domain proofs.
+
+   **Consequence for the plan:** the move set must carry the closers before
+   the measure (#2) can matter — you cannot rank candidates for an
+   `Eq`-by-`rfl` goal that has zero applicable moves. `rflo` (Eq/Iff/HEq by
+   definitional reflexivity, kernel-gated) is the first closer wired in;
+   `simpo`/`omegao`/`intro` (proof-state bridge to the existing tactics)
+   are the next build and the expected bulk of the aesop-parity gap.
+
 ### Recall projection (B+G) — validated
 
 Persistent disc-key artifact (348,654 useful-decl conclusion keys, ~16MB):

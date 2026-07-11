@@ -545,6 +545,35 @@
                      (=== g (e/fvar fid)))))
        s))))
 
+(declare assigno)
+
+(defn rflo
+  "Relational `rfl`: close `g` when its conclusion is a reflexive relation
+   (Eq / Iff / HEq) whose sides are DEFINITIONALLY equal. Builds the refl proof
+   and fills via the exact path, so the kernel's is-def-eq is the gate — this
+   closes exactly the `by rfl` goals (computational equalities), and nothing
+   else. A leaf move: cheap, no library recall, no proof-state bridge."
+  [g]
+  (fn [s]
+    (let [gty (meta/zonk-expr (:mctx s) (mvar-type s g))
+          [h args] (e/get-app-fn-args gty)]
+      (if-not (e/const? h)
+        mzero
+        (let [nm (name/->string (e/const-name h))
+              lv (e/const-levels h)
+              proof (case nm
+                      "Eq" (when (= 3 (count args)) ; Eq.{u} A a b → Eq.refl.{u} A a
+                             (reduce e/app (e/const' (name/from-string "Eq.refl") lv)
+                                     [(nth args 0) (nth args 1)]))
+                      "Iff" (when (= 2 (count args)) ; Iff a b → Iff.refl a
+                              (e/app (e/const' (name/from-string "Iff.refl") [])
+                                     (nth args 0)))
+                      "HEq" (when (= 4 (count args)) ; HEq.{u} A a B b → HEq.refl.{u} A a
+                              (reduce e/app (e/const' (name/from-string "HEq.refl") lv)
+                                      [(nth args 0) (nth args 1)]))
+                      nil)]
+          (if proof ((assigno g proof) s) mzero))))))
+
 (defn assigno
   "Directly assign a GOAL metavariable `g := v` via the checked-assignment
    (tactic/`exact`) path — after unifying v's inferred type with g's declared

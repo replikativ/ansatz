@@ -84,8 +84,11 @@
         ;; the worker thread — the Java kernel now polls Thread.isInterrupted().
         deadline (atom (+ t0 (* TIMEOUT-MS 1000000)))
         provider (provider-for nm deadline)
+        ;; move set = closing tactics (leaves) ∪ recalled-lemma application
+        ;; (refiners). rfl is the first wired closer; simp/omega/intro follow.
         moves (fn [s g]
-                {:leaves [[8 (r/assumptiono g)]]
+                {:leaves [[8 (r/assumptiono g)]
+                          [7 (r/rflo g)]]
                  :refiners (vec (for [[w cn] (provider s g)]
                                   [w (fn [g k] (r/applyo g cn k))]))})
         n-cands (try (count (provider s1 g)) (catch Throwable _ nil))
