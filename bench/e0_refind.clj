@@ -84,16 +84,14 @@
         ;; the worker thread — the Java kernel now polls Thread.isInterrupted().
         deadline (atom (+ t0 (* TIMEOUT-MS 1000000)))
         provider (provider-for nm deadline)
-        ;; move set = closing tactics (leaves: assumption, rfl, simp, omega,
-        ;; decide — existing tactics wired as relational moves) ∪ recalled-lemma
-        ;; application (refiners).
-        ;; simpo omitted for now: its bridged proof term is malformed on
-        ;; non-trivial goals (surfaces as cert-failed); rflo/omega/decide are
-        ;; sound. simp needs both a cached full @[simp] index and a proof-term
-        ;; fix — the next build.
+        ;; closers (leaves) ∪ recalled-lemma application (refiners). simpo now
+        ;; draws the full @[simp] corpus from the persistent index (lazy); the
+        ;; harness certify gates every solution, so a bad simp proof surfaces
+        ;; as a rejected solution, never an unsound one.
         moves (fn [s g]
                 {:leaves [[8 (r/assumptiono g)]
                           [7 (r/rflo g)]
+                          [6 (r/simpo g)]
                           [6 (r/omegao g)]
                           [5 (r/decideo g)]]
                  :refiners (vec (for [[w cn] (provider s g)]
@@ -107,6 +105,10 @@
         ms (quot (- (System/nanoTime) t0) 1000000)]
     (cond
       (= outcome ::timeout) {:name nm :status :timeout :ms ms :candidates n-cands}
+      ;; the provider's deadline throw inside the search is a timeout, not an error
+      (and (:err outcome) (instance? clojure.lang.ExceptionInfo (:err outcome))
+           (::deadline (ex-data (:err outcome))))
+      {:name nm :status :timeout :ms ms :candidates n-cands}
       (:err outcome) {:name nm :status :error :ms ms :candidates n-cands
                       :error (str (type (:err outcome)) ": " (.getMessage ^Throwable (:err outcome)))}
       (nil? (:sol outcome)) {:name nm :status :exhausted :ms ms :candidates n-cands}
