@@ -198,8 +198,10 @@ public final class Env {
     }
 
     /**
-     * Return all constants currently in locals + shared cache.
-     * For non-PSS envs, this is all declarations.
+     * Return the per-context local constants (the session overlay).
+     * Declarations reachable only through externalLookup (e.g. a PSS
+     * store) are NOT included; for non-PSS envs, where every addition
+     * lands in locals, this is all declarations.
      */
     public java.util.Collection<ConstantInfo> allConstants() {
         java.util.ArrayList<ConstantInfo> result = new java.util.ArrayList<>();
