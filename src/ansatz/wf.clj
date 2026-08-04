@@ -1308,15 +1308,35 @@
                 (when (verbose?)
                   (println (str "  ⚠ equation theorem generation failed: " (.getMessage e)))))))
 
+        ;; Unified direct-recursion emitter (storedef): `body-ansatz` above already IS the
+        ;; direct-recursion term (self-calls as the axiom const), so emit it with `recur`
+        ;; at tail self-calls — a tail-recursive accumulator defn becomes a real loop
+        ;; regardless of the WF/fuel encoding, which stays the kernel-proven artifact.
+        ;; Falls back to compiling the encoding on any failure.
+        direct-fn (try
+                    (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                          emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
+                          emitted (emit @ansatz-env (str fn-name) body-ansatz
+                                        {:erased (or erased 0) :arity (or arity n)})]
+                      (when emitted
+                        (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                        (:fn emitted)))
+                    (catch Exception ex
+                      (when (verbose?)
+                        (println "  direct-recursion emitter unavailable ("
+                                 (.getMessage ex) ") — compiling the WF encoding"))
+                      nil))
         ;; Compile to Clojure — uncurry for multi-arg
-        clj-form (ansatz->clj @ansatz-env final-body [])
+        clj-form (when-not direct-fn (ansatz->clj @ansatz-env final-body []))
         ;; The compiled form is curried: (fn [p1] (fn [p2] ... body ...))
         ;; Wrap in uncurried version: (fn [p1 p2 ...] ((curried p1) p2) ...)
         ;; For multi-arg: create a function that accepts both curried and uncurried calls.
         ;; Curried: ((f x) y) — needed when called from other compiled code
         ;; Uncurried: (f x y) — needed for ergonomic Clojure usage
-        clj-fn (if (<= n 1)
-                 (eval clj-form)
+        clj-fn (cond
+                 direct-fn direct-fn
+                 (<= n 1) (eval clj-form)
+                 :else
                  (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) pairs)
                        curried-call (reduce (fn [f s] (list f s))
                                             (list clj-form (first param-syms))
