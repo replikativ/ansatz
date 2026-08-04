@@ -80,8 +80,11 @@
 
 (def ^:private builtin-app
   (merge
-   ;; n-ary arithmetic / comparison saturating to a bare op
-   {"Nat.add"  (bi-nary '+)  "Nat.mul"  (bi-nary '*)  "Nat.div" (bi-nary 'quot)
+   ;; n-ary arithmetic / comparison saturating to a bare op. Nat add/mul/succ use the
+   ;; auto-promoting variants (+'/*'/inc'): with literals now emitted as longs, results
+   ;; promote to bigint on overflow instead of throwing — full unbounded-Nat semantics at
+   ;; ~3% over raw long ops (sub/div/mod/comparisons can't overflow from Nat inputs).
+   {"Nat.add"  (bi-nary '+') "Nat.mul"  (bi-nary '*') "Nat.div" (bi-nary 'quot)
     "Nat.max"  (bi-nary 'max) "Nat.min" (bi-nary 'min)
     "Nat.blt"  (bi-nary '<)  "Nat.ble"  (bi-nary '<=) "Nat.beq" (bi-nary '==)
     "Float.add" (bi-nary '+) "Float.sub" (bi-nary '-) "Float.mul" (bi-nary '*) "Float.div" (bi-nary '/)}
@@ -93,8 +96,8 @@
     "Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
-    "HAdd.hAdd" (bi-nary2 (fn [x y] (list '+ x y)) 4)
-    "HMul.hMul" (bi-nary2 (fn [x y] (list '* x y)) 4)
+    "HAdd.hAdd" (bi-nary2 (fn [x y] (list '+' x y)) 4)
+    "HMul.hMul" (bi-nary2 (fn [x y] (list '*' x y)) 4)
     "HSub.hSub" (bi-nary2 (fn [x y] (list 'max 0 (list '- x y))) 4)
     "HDiv.hDiv" (bi-nary2 (fn [x y] (list 'quot x y)) 4)
     "HPow.hPow" (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))) 4)}
@@ -102,7 +105,7 @@
    {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
-   {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc (nth ca 0)))
+   {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
     "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
@@ -187,7 +190,7 @@
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
-   "Nat.add" '+ "Nat.mul" '* "Nat.succ" 'inc "Nat.div" 'quot
+   "Nat.add" '+' "Nat.mul" '*' "Nat.succ" 'inc' "Nat.div" 'quot
    "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
    "Nat.sub" '(fn [a b] (max 0 (- a b)))
    ;; Unit/PUnit's single value → nil (the unit thunks an unfolded match auxiliary applies its branches to).
@@ -207,21 +210,38 @@
                             "lowering — register one via the codegen-registry to run it")
                        {:extern cn}))))
 
+(def ^:dynamic *compile-store-defs*
+  "Kill switch for equation-driven runtime compilation of plain store defs
+   (ansatz.codegen.storedef). When false, plain non-abbrev store heads fall through to the
+   pre-existing behavior (bare symbol / extern throw)."
+  true)
+
+(clojure.core/defn- storedef-compile!
+  "Bridge to ansatz.codegen.storedef/compile-store-def! (requiring-resolve breaks the
+   namespace cycle). Returns the {:arity :erased :sym} registry entry or nil; memoized
+   over there, so repeated attempts on uncompilable heads are cheap."
+  [env ^String cname]
+  ((requiring-resolve 'ansatz.codegen.storedef/compile-store-def!) env cname))
+
 (clojure.core/defn- csimp-target
   "Lean @[csimp] f→g: return g only when codegen can actually LOWER it as a head
-   (builtin / registered / arity-registry / ctor / .rec recursor / :abbrev def); else nil (keep f).
-   The full Mathlib store exports compiler-internal targets (Nat.rec→Nat.recCompiled,
-   List.length→List.lengthTR) as plain decls, which a bare env/lookup let through — emitting an
-   unrunnable symbol (ClassNotFoundException on recursive a/defn)."
+   (builtin / registered / arity-registry / ctor / .rec recursor / :abbrev def — or, last
+   resort, g compiles right now from its exported equation lemmas via storedef); else nil
+   (keep f). The full Mathlib store exports compiler-internal targets (Nat.rec→Nat.recCompiled)
+   as plain decls, which a bare env/lookup let through — emitting an unrunnable symbol.
+   An f that already has a NATIVE lowering keeps it: a csimp swap must not hijack e.g.
+   List.length → count into a compiled loop."
   [env h]
   (when-let [g (get (env/get-extension env :csimp {}) h)]
-    (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
-              (contains? @arity-registry g)
-              (when-let [ci (env/lookup env (name/from-string g))]
-                (or (.isCtor ^ConstantInfo ci)
-                    (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
-                    (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci)))))
-      g)))
+    (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h))
+      (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
+                (contains? @arity-registry g)
+                (when-let [ci (env/lookup env (name/from-string g))]
+                  (or (.isCtor ^ConstantInfo ci)
+                      (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
+                      (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))))
+                (when *compile-store-defs* (some? (storedef-compile! env g))))
+        g))))
 
 (def ^:private match-aux-re #"\.match_\d+$")
 (clojure.core/defn- match-aux?
@@ -351,7 +371,12 @@
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
   (cond
-    (e/lit-nat? expr) (e/lit-nat-val expr)
+    ;; Nat literal: kernel Nats are BigInteger — emit a primitive long when it fits, so
+    ;; literals don't seed accumulator chains with bigint arithmetic (~40% on hot loops).
+    ;; The arithmetic builtins are auto-promoting (+'/*'/inc'), so unbounded-Nat semantics
+    ;; are preserved: results overflow INTO bigint instead of starting there.
+    (e/lit-nat? expr) (let [^java.math.BigInteger v (e/lit-nat-val expr)]
+                        (if (< (.bitLength v) 63) (.longValue v) v))
     (e/lit-str? expr) (e/lit-str-val expr)
     (e/bvar? expr) (let [i (e/bvar-idx expr)]
                      (if (< i (count names))
@@ -636,9 +661,12 @@
 
                               :else
                               (list 'throw (list 'ex-info "unsupported rec pattern" {})))]
-                    ;; Wrap in letfn only if recursive, otherwise just inline
+                    ;; Wrap in letfn only if the emitted body actually SELF-RECURSES (an IH
+                    ;; landed in it) — a casesOn-derived dispatch never uses its IHs, and the
+                    ;; `let` form keeps downstream self-calls (storedef recur) in tail position.
                         (let [rec-result
-                              (if has-rec
+                              (if (and has-rec
+                                       (some #(= self-sym %) (tree-seq coll? seq body)))
                                 (list 'letfn [(list self-sym [t-sym] body)]
                                       (list self-sym major))
                               ;; Non-recursive: just apply directly
@@ -691,13 +719,33 @@
                           (when (and (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))
                                      (some? (.value ^ConstantInfo ci)))
                             (ansatz->clj env (beta-apply (.value ^ConstantInfo ci) args) names))))
+            ;; Plain (non-abbrev) recursive/wrapper store def: compile it from its exported
+            ;; equation lemma (f.eq_def) or non-recursive value (ansatz.codegen.storedef),
+            ;; which interns + registers {:arity :erased :sym}, then re-dispatch (hits the
+            ;; :sym-aware registry path below). Memoized; failure falls through unchanged.
+                      (when (and *compile-store-defs* (not (contains? @arity-registry h)))
+                        (when (storedef-compile! env h)
+                          (ansatz->clj env expr names)))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
-                      (let [{:keys [arity erased]} (get @arity-registry h)]
-                        (if (and arity (> arity 1) (>= (count ca) (+ arity erased)))
+                      (let [{:keys [arity erased sym]} (get @arity-registry h)]
+                        (cond
+                    ;; storedef entry (qualified var, flat multi-arity incl. 1): flat call
+                    ;; over the runtime window; over-application re-applies the extras.
+                          (and arity sym (>= (count ca) (+ arity erased)))
+                          (reduce (fn [f a] (list f a))
+                                  (apply list sym (subvec ca erased (+ erased arity)))
+                                  (subvec ca (+ erased arity)))
+                    ;; storedef entry, partial application: drop the erased prefix (or the
+                    ;; whole given prefix when even that is partial) and curry the runtime
+                    ;; args — the var's partial-arity methods return closures.
+                          (and arity sym)
+                          (reduce (fn [f a] (list f a)) sym
+                                  (subvec ca (min erased (count ca))))
+                          (and arity (> arity 1) (>= (count ca) (+ arity erased)))
                     ;; FAP (full application): flat multi-arg call, skip erased prefix
-                          (let [rt-args (subvec ca erased (+ erased arity))]
-                            (apply list (symbol h) rt-args))
+                          (apply list (symbol h) (subvec ca erased (+ erased arity)))
+                          :else
                     ;; Curried (unknown arity, single-arg, or partial application)
                           (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))
         (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
@@ -731,10 +779,21 @@
                                 :else (symbol cn)))
                             (if-let [cg (get @codegen-registry cn)]
                               (cg env expr names)
-                              (or (extern-unhandled-form env cn) (symbol cn))))
+                              ;; VALUE position (fold step, comparator): a storedef-compiled
+                              ;; var supports curried application via its partial-arity
+                              ;; methods — emit the qualified symbol. @[extern] primitives
+                              ;; keep their explanatory throw BEFORE any compile attempt
+                              ;; (native reps — String — may not match the Lean reference
+                              ;; body), mirroring the app-position ordering.
+                              (or (:sym (get @arity-registry cn))
+                                  (extern-unhandled-form env cn)
+                                  (when *compile-store-defs*
+                                    (:sym (storedef-compile! env cn)))
+                                  (symbol cn))))
                           (if-let [cg (get @codegen-registry cn)]
                             (cg env expr names)
-                            (or (extern-unhandled-form env cn) (symbol cn))))))
+                            (or (:sym (get @arity-registry cn))
+                                (extern-unhandled-form env cn) (symbol cn))))))
     ;; Projection: Expr.proj type-name idx struct
     ;; For structures with defrecord: keyword access (:field-name struct)
     ;; For others: (nth struct idx)

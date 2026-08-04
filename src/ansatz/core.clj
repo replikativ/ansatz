@@ -1189,10 +1189,24 @@
     (swap! ansatz-env env/add-constant ax)
     (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
     (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
-    ;; codegen the recursive body; self-calls compile to (fn-name …) and resolve at call time
-    (let [clj-form (ansatz->clj @ansatz-env body-ansatz [])
-          clj-fn (if (<= n 1)
-                   (eval clj-form)
+    ;; codegen the recursive body — body-ansatz already IS the direct-recursion term
+    ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
+    ;; `recur` at tail self-calls, named self-call otherwise, flat + curried methods.
+    ;; Fallback: the classic curried-wrapper path (self-calls resolve via the var).
+    (let [direct-fn (try
+                      (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                            emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
+                            emitted (emit @ansatz-env (str fn-name) body-ansatz
+                                          {:erased (or erased 0) :arity (or arity n)})]
+                        (when emitted
+                          (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                          (:fn emitted)))
+                      (catch Exception _ nil))
+          clj-form (when-not direct-fn (ansatz->clj @ansatz-env body-ansatz []))
+          clj-fn (cond
+                   direct-fn direct-fn
+                   (<= n 1) (eval clj-form)
+                   :else
                    (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) (vec pairs))
                          curried-call (reduce (fn [f s] (list f s))
                                               (list clj-form (first param-syms)) (rest param-syms))]
@@ -1954,16 +1968,45 @@
                         (when *verbose* (println "  eq" (inc i) "gen failed:" (.getMessage e)))))))))
             (catch Exception ex
               (when *verbose* (println "  eq-gen outer:" (.getMessage ex)))))
+        ;; Unified direct-recursion emitter: for a TOP-LEVEL match that actually recurses,
+        ;; re-elaborate the SAME surface body against the just-verified env so self-calls
+        ;; stay applications of the constant (the runtime analogue of Lean compiling
+        ;; `f._unsafe_rec` — the kernel keeps the recursor encoding proven above), and emit
+        ;; through storedef: `recur` at tail self-calls (a tail-recursive accumulator defn
+        ;; becomes a real loop — no more closure cascade / 20k-frame stack bound), named
+        ;; self-call otherwise, flat + curried methods. Falls back to the classic path on
+        ;; any failure; non-recursive bodies keep the optimizer-seam path below.
+        direct-fn (when top-match?
+                    (try
+                      (let [direct (binding [surface-match/*use-cases-on?* true]
+                                     (build-telescope-fvar @ansatz-env pairs ret-type-form body-form))]
+                        (when (mentions-const? direct cname)
+                          (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                                emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
+                                emitted (emit @ansatz-env (str fn-name) direct
+                                              {:erased (or erased 0) :arity (or arity n)})]
+                            (when emitted
+                              (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                              (when *verbose* (println "✓" fn-name ":" (pr-str (:fn-form emitted))))
+                              (:fn emitted)))))
+                      (catch Exception ex
+                        (when *verbose*
+                          (println "  direct-recursion emitter unavailable ("
+                                   (.getMessage ex) ") — classic codegen path"))
+                        nil)))
         ;; Optimizer seam: a runtime (wandler) may rewrite the body to a kernel-EQUAL, faster term
         ;; just for codegen — the original stays the proven definition in the env. The hook
         ;; receives (env name term) so the runtime can key its explain/plan reports.
-        runtime-body (if-let [opt @optimize-hook]
-                       (or (opt @ansatz-env (str fn-name) body-ansatz) body-ansatz)
-                       body-ansatz)
+        runtime-body (when-not direct-fn
+                       (if-let [opt @optimize-hook]
+                         (or (opt @ansatz-env (str fn-name) body-ansatz) body-ansatz)
+                         body-ansatz))
         ;; Compile to Clojure — uncurry multi-arg functions for flat calls
-        clj-form (ansatz->clj @ansatz-env runtime-body [])
-        clj-fn (if (<= n 1)
-                 (eval clj-form)
+        clj-form (when-not direct-fn (ansatz->clj @ansatz-env runtime-body []))
+        clj-fn (cond
+                 direct-fn direct-fn
+                 (<= n 1) (eval clj-form)
+                 :else
                  ;; Multi-arg: support both flat (f x y) and curried ((f x) y) calls
                  (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) (vec pairs))
                        curried-call (reduce (fn [f s] (list f s))
@@ -1978,7 +2021,7 @@
                                    curried-call
                                    (reverse (rest param-syms)))))
                        (~param-syms ~curried-call)))))]
-    (when *verbose* (println "✓" fn-name ":" (pr-str clj-form)))
+    (when (and *verbose* (not direct-fn)) (println "✓" fn-name ":" (pr-str clj-form)))
     clj-fn))
 
 (clojure.core/defn prove-theorem

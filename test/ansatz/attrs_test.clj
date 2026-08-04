@@ -57,7 +57,7 @@
         lower   (fn [nm] (cg/ansatz->clj e (expr/const' (name/from-string nm) []) []))
         throw?  (fn [form] (and (seq? form) (= 'throw (first form))))]
     (is (seq externs) "the inherited @[extern] set is populated")
-    (is (= '+ (lower "Nat.add")) "an extern WITH a builtin still lowers to its Clojure op (builtin wins)")
+    (is (= '+' (lower "Nat.add")) "an extern WITH a builtin still lowers to its Clojure op (builtin wins)")
     (is (pos? (count (filter #(throw? (lower %)) externs)))
         "an @[extern] primitive with NO ansatz runtime lowers to an explanatory throw, not a bare symbol")))
 
