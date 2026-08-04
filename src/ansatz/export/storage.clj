@@ -270,7 +270,9 @@
 
 ;; Ansatz element handlers — the kernel's domain types (Name/Level/Expr/…). These
 ;; are element-agnostic to the PSS node codec: a leaf's `keys` recurse through them.
-(def ^:private ansatz-element-write-handlers
+;; Public: embedders can reuse them to build their own Fressian codecs over
+;; kernel values (e.g. exporting ConstantInfos outside the PSS store).
+(def ansatz-element-write-handlers
   {Name
    {"" (reify WriteHandler (write [_ w v] (write-name w v)))}
 
@@ -289,7 +291,7 @@
    CIShell
    {"" (reify WriteHandler (write [_ w v] (write-ci-shell w v)))}})
 
-(def ^:private ansatz-element-read-handlers
+(def ansatz-element-read-handlers
   {"ansatz.Name"
    (reify ReadHandler (read [_ r t c] (read-name r t c)))
 
