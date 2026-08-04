@@ -147,3 +147,34 @@
       (testing "precise scalars unchanged (still sharp native types)"
         (is (re-find #"Nat"    (e/->string (ansatz.malli/schema->type-expr [:int {:min 0}]))))
         (is (re-find #"String" (e/->string (ansatz.malli/schema->type-expr :string))))))))
+
+(deftest test-collection-and-map-schema-shapes
+  ;; the compound/regex collection schemas carto's own m/=> annotations exercise: [:map-of],
+  ;; the [:* …]/[:+ …]/[:? …] regex-sequence family, and a fieldless [:map] (was: throw).
+  @booted
+  (binding [a/*verbose* false]
+    (let [->s  (fn [s] (e/->string (ansatz.malli/schema->type-expr s)))
+          opq? (fn [s] (= "Opaque" (let [[h _] (e/get-app-fn-args (ansatz.malli/schema->type-expr s))]
+                                     (and (e/const? h) (name/->string (e/const-name h))))))]
+      (testing "[:map-of K V] -> association List of key/value Prods"
+        (is (re-find #"List.*Prod.*String.*Nat" (->s [:map-of :string :int])))
+        (is (re-find #"List.*Prod.*String.*List.*Nat" (->s [:map-of :string [:sequential :int]]))))
+      (testing "regex-sequence element schemas: :* / :+ -> List, :? -> Option"
+        (is (re-find #"List.*Nat"    (->s [:* :int])))
+        (is (re-find #"List.*String" (->s [:+ :string])))
+        (is (re-find #"Option.*Nat"  (->s [:? :int]))))
+      (testing "a fieldless map (bare :map, [:map], map?) carries as gradual Opaque"
+        (is (opq? :map)   "bare :map -> Opaque")
+        (is (opq? [:map]) "[:map] with no entries -> Opaque")
+        (is (opq? 'map?)  "map? predicate -> Opaque"))
+      (testing "a [:map] WITH fields still synthesizes a named record (not Opaque)"
+        (is (re-find #"MalliRec" (->s [:map [:status :keyword] [:n :int]]))))
+      (testing "carto's own [:=> [:cat :string [:sequential :string] [:* :any]] :map] fully translates"
+        (let [sig (ansatz.malli/fn-schema->signature
+                   [:=> [:cat :string [:sequential :string] [:* :any]] :map])
+              tx  (fn [marker] (e/->string (ansatz.malli/schema->type-expr (second marker))))]
+          (is (= 3 (count (:param-types sig))))
+          (is (= ["String" "(List.{0} String)" "(List.{0} Opaque)"]
+                 (mapv tx (:param-types sig)))
+              "string + list-of-string + variadic [:* :any] rest-arg")
+          (is (= "Opaque" (tx (:ret-type sig))) ":map return carries as Opaque"))))))

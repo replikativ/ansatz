@@ -175,6 +175,9 @@
         :string (kconst "String")
         :double (kconst "Float")
         :nil (kconst "Unit")
+        ;; a fieldless map declares no accessible fields → the gradual Opaque carrier
+        ;; (a [:map [:k T] …] WITH fields synthesizes a record instead, in the vector case).
+        :map (ensure-opaque!)
         ;; opaque scalars (keyword/uuid/symbol/any) — no sharp native rep; the gradual `Opaque` carrier
         ;; (carry + group-by/join key via `=`, no other ops). Registered schemas still take precedence.
         (:keyword :symbol :uuid :any :some :qualified-keyword :qualified-symbol)
@@ -189,7 +192,7 @@
         (nat-int? pos-int?) (kconst "Nat")
         boolean? (kconst "Bool")
         string? (kconst "String")
-        (keyword? symbol? uuid? any? some? ident? simple-keyword? qualified-keyword?)
+        (keyword? symbol? uuid? any? some? ident? simple-keyword? qualified-keyword? map?)
         (ensure-opaque!)
         (throw (ex-info (str "ansatz.malli: unsupported predicate schema " f) {:form f})))
 
@@ -202,16 +205,26 @@
           ;; which licenses certified DISTINCT-removal downstream.
           :set (ksubtype-nodup (schema->type-expr (first more)))
           :maybe (koption (schema->type-expr (first more)))
+          ;; regex-sequence element schemas: :* / :+ collect into a List (the :+ non-empty
+          ;; invariant is not carried), :? is an Option — the natural type of a variadic tail.
+          (:* :+) (klist (schema->type-expr (first more)))
+          :? (koption (schema->type-expr (first more)))
+          ;; [:map-of K V] → an association List of key/value Prods; keys and values keep
+          ;; their sharp element types (the kernel has no native finite-map).
+          :map-of (klist (kprod (schema->type-expr (first more))
+                                (schema->type-expr (second more))))
           :tuple (kprods (map schema->type-expr more))
           ;; [:map [:k T] …] → a synthesized named-field structure: keyword access in
           ;; bodies elaborates to kernel projections, runtime values are plain maps.
           ;; (:optional entry props are accepted; the field type is the entry schema —
-          ;; optionality is not yet modeled as Option.)
-          :map (ensure-record!
-                (mapv (fn [entry]
-                        [(name (first entry))
-                         (schema->type-expr (if (= 3 (count entry)) (nth entry 2) (nth entry 1)))])
-                      more))
+          ;; optionality is not yet modeled as Option.) A fieldless [:map] carries as Opaque.
+          :map (if (seq more)
+                 (ensure-record!
+                  (mapv (fn [entry]
+                          [(name (first entry))
+                           (schema->type-expr (if (= 3 (count entry)) (nth entry 2) (nth entry 1)))])
+                        more))
+                 (ensure-opaque!))
           ;; [:int {:min n :max m}] — {:min 0} is definitionally Nat; positive lower /
           ;; any upper bound becomes a Subtype refinement (max m ⇒ v < m+1)
           :int (let [mn (:min props) mx (:max props)
