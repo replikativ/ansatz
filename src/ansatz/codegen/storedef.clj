@@ -76,14 +76,14 @@
   [ex]
   (let [acc (java.util.HashSet.)]
     (letfn [(go [^ansatz.kernel.Expr x]
-              (cond
-                (e/const? x) (.add acc (name/->string (e/const-name x)))
-                (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
-                (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
-                (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x)))
-                (e/let? x) (do (go (e/let-type x)) (go (e/let-value x)) (go (e/let-body x)))
-                (e/proj? x) (go (cast ansatz.kernel.Expr (.o1 x)))
-                :else nil))]
+                (cond
+                  (e/const? x) (.add acc (name/->string (e/const-name x)))
+                  (e/app? x) (do (go (e/app-fn x)) (go (e/app-arg x)))
+                  (e/lam? x) (do (go (e/lam-type x)) (go (e/lam-body x)))
+                  (e/forall? x) (do (go (e/forall-type x)) (go (e/forall-body x)))
+                  (e/let? x) (do (go (e/let-type x)) (go (e/let-value x)) (go (e/let-body x)))
+                  (e/proj? x) (go (cast ansatz.kernel.Expr (.o1 x)))
+                  :else nil))]
       (go ex))
     (set acc)))
 
