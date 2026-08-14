@@ -120,11 +120,21 @@
      :nat-le                 (n "Nat.le")
      :bool-name              (n "Bool")
      :bool-true              (n "Bool.true")
+     :bool-false             (n "Bool.false")
+     ;; Bool→Prop bridge (see `bool-cmp-bridge`): `grind`/`simp` case-split a
+     ;; `Nat.ble`/`Nat.blt` discriminant through `Bool.rec` and hand omega a
+     ;; BOOLEAN equation rather than an arithmetic one.
+     :nat-ble                (n "Nat.ble")
+     :nat-blt                (n "Nat.blt")
+     :nat-le-of-ble-eq-true  (n "Nat.le_of_ble_eq_true")     ;; ble n m = true → n ≤ m
+     :nat-not-le-of-not-ble  (n "Nat.not_le_of_not_ble_eq_true") ;; ¬(ble n m = true) → ¬(n ≤ m)
+     :bool-noconfusion       (n "Bool.noConfusion")
      :option-name            (n "Option")
      :option-some            (n "Option.some")
      :option-none            (n "Option.none")
      ;; Conversion lemmas (Nat → Int, hypothesis proof chain)
      :int-ofnat              (n "Int.ofNat")
+     :int-negsucc            (n "Int.negSucc")
      :int-ofnat-le           (n "Int.ofNat_le")
      :int-ofnat-lt           (n "Int.ofNat_lt")
      :int-sub-nonneg-of-le   (n "Int.sub_nonneg_of_le")
@@ -208,6 +218,20 @@
      ;; Int.ofNat cast lemma
      :int-ofnat-eq-zero      (n "Int.ofNat.eq_def")   ;; helper
      :nat-cast-nonneg        (n "Int.natCast_nonneg")
+     ;; min / max (see `reify-min-max`). There is no `Nat.min_def` in the bundled
+     ;; slice, so we do not lean on per-type `min_def` lemmas at all: both `Min Nat`
+     ;; and `Min Int` are `minOfLe`/`maxOfLe` instances, whose field is literally
+     ;; `fun a b => ite (a ≤ b) a b`, so `if_pos`/`if_neg` prove the branch equations
+     ;; for ANY such instance once we read the LE and Decidable arguments off it.
+     :min-name               (n "Min.min")
+     :max-name               (n "Max.max")
+     :min-of-le              (n "minOfLe")
+     :max-of-le              (n "maxOfLe")
+     :if-pos                 (n "if_pos")   ;; (c) (inst) (hc : c) (α) (t e) : ite α c inst t e = t
+     :if-neg                 (n "if_neg")   ;; (c) (inst) (hc : ¬c) (α) (t e) : ite α c inst t e = e
+     :decidable-em           (n "Decidable.em") ;; (p) [Decidable p] : p ∨ ¬p
+     :or-inl                 (n "Or.inl")
+     :or-inr                 (n "Or.inr")
      ;; Bmod (hard equality) support
      :bmod-sat               (n "Lean.Omega.bmod_sat")
      :bmod-coeffs            (n "Lean.Omega.bmod_coeffs")
@@ -728,6 +752,40 @@
 ;; reify-term returns [atom-table linear-combo eval-proof-fn]
 ;; where eval-proof-fn : atoms-expr → proof of (lc.eval atoms = int-version-of-expr)
 
+(defn- ground-int-val
+  "The integer VALUE of a ground literal, seeing THROUGH the two `Int` constructors.
+
+   `e/lit-nat?` alone only recognises the raw `Nat` literal, so every `Int` literal —
+   which is always spelled `Int.ofNat k` or `Int.negSucc k` — used to look like an
+   opaque term at the ground-operand checks in `reify-term` below. That is what made
+   `x / (3 : Int)` reify as an unconstrained atom instead of a quotient with bounds.
+
+   Returns a Long, or nil when the expression is not a ground literal."
+  [expr]
+  (cond
+    (e/lit-nat? expr) (long (e/lit-nat-val expr))
+    (e/app? expr)
+    (let [[h as] (e/get-app-fn-args expr)]
+      (when (and (e/const? h) (= 1 (count as)) (e/lit-nat? (first as)))
+        (let [k (long (e/lit-nat-val (first as)))
+              cn (name/->string (e/const-name h))]
+          (cond
+            (= cn "Int.ofNat") k
+            ;; Int.negSucc k denotes -(k+1)
+            (= cn "Int.negSucc") (- (- k) 1)
+            :else nil))))
+    :else nil))
+
+(defn- ground-nat-val
+  "`ground-int-val` restricted to NON-NEGATIVE values.
+
+   Used wherever the value feeds a `Nat`-flavoured computation (`quot`, `mod`, the
+   `0 < k` divisor test): `Int` division floors while Clojure's `quot` truncates, so
+   folding a negative ground quotient here would be quietly wrong."
+  [expr]
+  (when-let [v (ground-int-val expr)]
+    (when (>= v 0) v)))
+
 (defn- try-match-head [st expr]
   (let [[head args] (e/get-app-fn-args expr)]
     (if (e/const? head)
@@ -768,7 +826,8 @@
   "Head constants `reify-term` can decompose. Used to decide when to STOP delta-unfolding."
   (into #{} (map omega-names)
         [:nat-add :nat-sub :nat-mul :nat-div :nat-mod :nat-succ :nat-zero
-         :hadd :hsub :hmul :hdiv :hmod :ofnat :neg-name :int-ofnat]))
+         :hadd :hsub :hmul :hdiv :hmod :ofnat :neg-name :int-ofnat :int-negsucc
+         :min-name :max-name]))
 
 (defn- delta-step
   "One DELTA step at the head: unfold the head constant's value and beta-reduce the
@@ -853,14 +912,19 @@
                         guard in Nat.div fails, so this needs no rewrite lemma)
      a, b both literal → the computed quotient."
   [st table expr a b type-name]
-  (let [a-whnf (#'tc/cached-whnf st a)
-        b-whnf (#'tc/cached-whnf st b)]
+  (let [av (ground-nat-val (#'tc/cached-whnf st a))
+        bv (ground-nat-val (#'tc/cached-whnf st b))]
     (cond
-      (and (e/lit-nat? b-whnf) (zero? (e/lit-nat-val b-whnf)))
+      ;; NAT only: `Nat.div n 0` reduces to `0` because the `0 < b` guard fails before
+      ;; the recursion, so the rfl eval proof holds definitionally. `Int.ediv x 0` is
+      ;; STUCK for symbolic x (ediv matches on both arguments) — `= 0` there is a
+      ;; theorem, not a defeq, and asserting it by rfl would build a proof the kernel
+      ;; rejects. An Int zero divisor stays an atom.
+      (and (= bv 0) (= type-name (:nat-name omega-names)))
       (let [lc (mk-lc 0)] [table lc (mk-eval-rfl-proof lc)])
 
-      (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-      (let [lc (mk-lc (quot (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf)))]
+      (and av bv (pos? bv))
+      (let [lc (mk-lc (quot av bv))]
         [table lc (mk-eval-rfl-proof lc)])
 
       :else
@@ -868,7 +932,7 @@
             ;; Only a positive LITERAL divisor gets bounds: for a symbolic divisor
             ;; the quotient is a plain opaque atom (Lean does the same — a symbolic
             ;; divisor would need the `b = 0` case split, which we do not do).
-            table' (if (and (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
+            table' (if (and bv (pos? bv))
                      (assoc-in table' [:div-atoms idx]
                                {:a a :b b :type-name type-name :expr expr})
                      table')]
@@ -890,9 +954,9 @@
    bounds it depends on need `Int.mul_ediv_self_le`, absent from init-medium.) The
    Nat path deliberately does NOT come here; see `reify-mod-atom`."
   [st table a b mk-div mk-mul]
-  (let [b-whnf (#'tc/cached-whnf st b)]
-    (when (and (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
-      (let [k (e/lit-nat-val b-whnf)
+  (let [bv (ground-nat-val (#'tc/cached-whnf st b))]
+    (when (and bv (pos? bv))
+      (let [k bv
             [table' lc-a prf-a] (reify-term st table a)
             div-expr (mk-div a b)
             [table'' lc-div prf-div] (reify-term st table' div-expr)
@@ -925,19 +989,66 @@
    is a theorem (`Nat.mod_zero`), not a definitional equality. It is tagged like any
    other literal divisor and `add-div-bounds` states the right lemma for it."
   [st table expr a b]
-  (let [a-whnf (#'tc/cached-whnf st a)
-        b-whnf (#'tc/cached-whnf st b)]
+  (let [av (ground-nat-val (#'tc/cached-whnf st a))
+        bv (ground-nat-val (#'tc/cached-whnf st b))]
     (cond
-      (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
-      (let [lc (mk-lc (mod (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf)))]
+      (and av bv (pos? bv))
+      (let [lc (mk-lc (mod av bv))]
         [table lc (mk-eval-rfl-proof lc)])
 
       :else
       (let [[table' idx] (intern-atom table st expr)
-            table' (if (e/lit-nat? b-whnf)
+            table' (if bv
                      (assoc-in table' [:mod-atoms idx] {:a a :b b :expr expr})
                      table')]
         [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))))
+
+(defn- minmax-instance-parts
+  "Read the `LE` instance and the decidable relation off a `Min`/`Max` instance.
+
+   Every standard instance — `instMinNat`, `Int.instMin`, … — is built as
+   `minOfLe α le dec` / `maxOfLe α le dec`, whose field is literally
+   `fun a b => ite (a ≤ b) …`; delta-step the instance until that head appears and
+   return `[le-inst dec-rel]`. Returns nil for an instance we do not recognise, in
+   which case the min/max stays a plain opaque atom (exactly the previous behaviour).
+
+   Reading the parts off the instance rather than hard-coding `Nat.decLe`/`Int.decLe`
+   is what lets `if_pos`/`if_neg` prove the branch equations WITHOUT a per-type
+   `min_def` lemma — there is no `Nat.min_def` in the bundled slice."
+  [st inst wanted]
+  (loop [x inst, fuel 6]
+    (let [[head args] (e/get-app-fn-args x)]
+      (cond
+        (and (e/const? head) (= (e/const-name head) wanted) (= 3 (count args)))
+        [(nth args 1) (nth args 2)]
+
+        (or (zero? fuel) (not (e/const? head))) nil
+
+        :else
+        (when-let [x' (delta-step st x)]
+          (when-not (identical? x' x)
+            (recur x' (dec fuel))))))))
+
+(defn- reify-min-max
+  "Reify `min a b` / `max a b` as an atom TAGGED for a case split.
+
+   lean4 rewrites through `Int.min_def`/`Int.max_def` when `splitMinMax` is on and
+   otherwise atomises with the one-sided bounds `min_le_left`/`le_max_left`
+   (Frontend.lean:211-220, OmegaM.lean:226-229). We take the splitting route, which
+   is the complete one: `add-minmax-dichotomies` queues
+       (a ≤ b ∧ min a b = a) ∨ (¬(a ≤ b) ∧ min a b = b)
+   so the solver sees both the ordering fact and the value of the atom in each branch.
+   The one-sided bounds are implied by that, so nothing is lost."
+  [st table expr alpha inst a b min?]
+  (let [[table' idx] (intern-atom table st expr)
+        parts (minmax-instance-parts
+               st inst (if min? (:min-of-le omega-names) (:max-of-le omega-names)))
+        table' (if parts
+                 (assoc-in table' [:minmax-atoms idx]
+                           {:expr expr :alpha alpha :a a :b b :min? min?
+                            :le-inst (first parts) :dec-rel (second parts)})
+                 table')]
+    [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))
 
 (defn- reify-term
   "Reify a Ansatz term into a LinearCombo (dense coefficients).
@@ -967,10 +1078,10 @@
                   a (nth args 4) b (nth args 5)]
               (if (and (e/const? alpha) (= (e/const-name alpha) (:nat-name omega-names)))
                 ;; Nat subtraction: ground → max(0,a-b); else atom + dichotomy tag
-                (let [a-whnf (#'tc/cached-whnf st a)
-                      b-whnf (#'tc/cached-whnf st b)]
-                  (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-                    (let [lc (mk-lc (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
+                (let [av (ground-nat-val (#'tc/cached-whnf st a))
+                      bv (ground-nat-val (#'tc/cached-whnf st b))]
+                  (if (and av bv)
+                    (let [lc (mk-lc (max 0 (- av bv)))]
                       [table lc (mk-eval-rfl-proof lc)])
                     (let [[table' idx] (intern-atom table st expr)
                           table' (assoc-in table' [:nat-sub-atoms idx] {:a a :b b})]
@@ -988,10 +1099,10 @@
 
             ;; Nat.sub a b → ground or atom with dichotomy tag
             (and (= head-name (:nat-sub omega-names)) (= 2 (count args)))
-            (let [a-whnf (#'tc/cached-whnf st (nth args 0))
-                  b-whnf (#'tc/cached-whnf st (nth args 1))]
-              (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-                (let [lc (mk-lc (max 0 (- (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf))))]
+            (let [av (ground-nat-val (#'tc/cached-whnf st (nth args 0)))
+                  bv (ground-nat-val (#'tc/cached-whnf st (nth args 1)))]
+              (if (and av bv)
+                (let [lc (mk-lc (max 0 (- av bv)))]
                   [table lc (mk-eval-rfl-proof lc)])
                 (let [[table' idx] (intern-atom table st expr)
                       table' (assoc-in table' [:nat-sub-atoms idx]
@@ -1077,6 +1188,24 @@
             (and (= head-name (:neg-name omega-names)) (= 3 (count args)))
             (let [[table' lc prf] (reify-term st table (nth args 2))]
               [table' (lc-negate lc) (mk-neg-eval-proof lc prf)])
+
+            ;; Int.negSucc k → the constant -(k+1). `Int.negSucc` is the ONLY spelling
+            ;; a negative Int literal has, and without this clause every one of them
+            ;; degraded to an opaque atom (`delta-to-arithmetic` cannot rescue it —
+            ;; negSucc is a constructor, so it has no value to unfold).
+            (and (= head-name (:int-negsucc omega-names)) (= 1 (count args))
+                 (some? (ground-int-val expr)))
+            (let [lc (mk-lc (ground-int-val expr))]
+              [table lc (mk-eval-rfl-proof lc)])
+
+            ;; Min.min α inst a b / Max.max α inst a b → atom + case-split facts
+            (and (= head-name (:min-name omega-names)) (= 4 (count args)))
+            (reify-min-max st table expr (nth args 0) (nth args 1)
+                           (nth args 2) (nth args 3) true)
+
+            (and (= head-name (:max-name omega-names)) (= 4 (count args)))
+            (reify-min-max st table expr (nth args 0) (nth args 1)
+                           (nth args 2) (nth args 3) false)
 
             ;; Nat.zero → 0
             (and (e/const? head) (= head-name (:nat-zero omega-names)) (= 0 (count args)))
@@ -1810,6 +1939,64 @@
           [table problem]
           (:nat-sub-atoms table)))
 
+(defn- mk-minmax-dichotomy
+  "Build the case split that pins down a `min`/`max` atom.
+
+   With `P := a ≤ b`, `dec : Decidable P` and the atom `m := min a b` (whose instance
+   field is `ite α P dec a b`), the disjunction is
+
+       (P ∧ m = a) ∨ (¬P ∧ m = b)          -- for min
+       (P ∧ m = b) ∨ (¬P ∧ m = a)          -- for max  (maxOfLe swaps the ite branches)
+
+   proved by `Or.elim (Decidable.em P dec)` with `if_pos`/`if_neg` supplying the
+   equation in each branch. Both halves are stated over the ORIGINAL `Min.min …`
+   spelling, def-eq to the `ite`, so the kernel accepts them and `reify-prop`'s `And`
+   handler feeds the ordering fact and the value equation to the solver separately."
+  [{:keys [expr alpha a b min? le-inst dec-rel]}]
+  (let [P      (e/app* (e/const' (:le-name omega-names) [lvl/zero]) alpha le-inst a b)
+        not-P  (e/app (e/const' (:not-name omega-names) []) P)
+        dec    (e/app* dec-rel a b)
+        ;; the `ite α P dec t e` branches of minOfLe / maxOfLe
+        [t-br e-br] (if min? [a b] [b a])
+        eq-of  (fn [rhs] (e/app* (e/const' (:eq-name omega-names) [u1]) alpha expr rhs))
+        eq-t   (eq-of t-br)
+        eq-e   (eq-of e-br)
+        left-type  (e/app* (e/const' (:and-name omega-names) []) P eq-t)
+        right-type (e/app* (e/const' (:and-name omega-names) []) not-P eq-e)
+        or-type    (e/app* (e/const' (:or-name omega-names) []) left-type right-type)
+        ;; if_pos/if_neg : (c) (inst) (h) (α) (t e) → ite α c inst t e = t / = e
+        mk-if  (fn [k h] (e/app* (e/const' (k omega-names) [u1]) P dec h alpha t-br e-br))
+        left-lam
+        (e/lam "h_le" P
+               (e/app* (e/const' (:or-inl omega-names) []) left-type right-type
+                       (e/app* (e/const' (:and-intro omega-names) []) P eq-t
+                               (e/bvar 0) (mk-if :if-pos (e/bvar 0))))
+               :default)
+        right-lam
+        (e/lam "h_gt" not-P
+               (e/app* (e/const' (:or-inr omega-names) []) left-type right-type
+                       (e/app* (e/const' (:and-intro omega-names) []) not-P eq-e
+                               (e/bvar 0) (mk-if :if-neg (e/bvar 0))))
+               :default)
+        or-proof (e/app* (e/const' (:or-elim omega-names) [])
+                         P not-P or-type
+                         (e/app* (e/const' (:decidable-em omega-names) []) P dec)
+                         left-lam right-lam)]
+    {:or-proof or-proof :left-type left-type :right-type right-type}))
+
+(defn- add-minmax-dichotomies
+  "Queue one `mk-minmax-dichotomy` per min/max atom. IDEMPOTENT
+   (:minmax-dichotomies-added), for the same reason `add-nat-sub-dichotomies` is:
+   a min/max can first surface while reifying a disjunction branch."
+  [table problem]
+  (reduce (fn [[table problem] [idx info]]
+            (if (contains? (:minmax-dichotomies-added table) idx)
+              [table problem]
+              [(update table :minmax-dichotomies-added (fnil conj #{}) idx)
+               (queue-disjunction problem (mk-minmax-dichotomy info))]))
+          [table problem]
+          (:minmax-atoms table)))
+
 (defn- add-nat-sub-equality
   "Add Nat.sub equality constraint for a dichotomy branch.
    For left branch (b ≤ a): add Eq Int ↑(a-b) (↑a - ↑b) via Int.ofNat_sub
@@ -1853,6 +2040,68 @@
                             int-type nat-sub-int zero-int)]
         (reify-prop st table problem eq-type congr-proof)))))
 
+(defn- mk-not-eq-true-of-eq-false
+  "From `h : b = false` build `¬(b = true)`, i.e.
+     fun (ht : b = true) => Bool.noConfusion (Eq.trans (Eq.symm h) ht : false = true)"
+  [b-expr h]
+  (let [bool-t (e/const' (:bool-name omega-names) [])
+        b-true (e/const' (:bool-true omega-names) [])
+        b-false (e/const' (:bool-false omega-names) [])
+        eq-b-true (e/app* (e/const' (:eq-name omega-names) [u1]) bool-t b-expr b-true)
+        symm-h (e/app* (e/const' (:eq-symm omega-names) [u1]) bool-t b-expr b-false h)
+        trans (e/app* (e/const' (:eq-trans omega-names) [u1])
+                      bool-t b-false b-expr b-true symm-h (e/bvar 0))]
+    (e/lam "h_true" eq-b-true
+           (e/app* (e/const' (:bool-noconfusion omega-names) [lvl/zero])
+                   (e/const' (:false-name omega-names) [])
+                   b-false b-true trans)
+           :default)))
+
+(defn- bool-cmp-bridge
+  "The Bool→Prop bridge: turn a BOOLEAN comparison equation into the arithmetic Prop
+   it denotes, together with a proof of that Prop. Returns [prop proof] or nil.
+
+     Nat.ble a b = true   →  a ≤ b       (Nat.le_of_ble_eq_true)
+     Nat.ble a b = false  →  ¬(a ≤ b)    (Nat.not_le_of_not_ble_eq_true)
+     Nat.blt a b = v      →  the same, at `Nat.ble (a+1) b` — `Nat.blt` is *defined*
+                             as `Nat.ble (Nat.succ a) b`, so the very same `h` proves
+                             the `ble` form and `Nat.succ a ≤ b` IS `a < b`.
+
+   This is where our frontend deliberately goes beyond lean4's. lean4's `addFact`
+   drops these on the floor — its `Eq α x y` match has no `Bool` case, it falls
+   through to `pure (p, 0)` (Frontend.lean:441-448) — because a `simp` pre-pass has
+   already rewritten `Nat.ble a b = true` to `a ≤ b` via `Nat.ble_eq`. We have no
+   such pre-pass, and `grind`/`simp` case-splitting a `Nat.ble` discriminant through
+   `Bool.rec` hands omega exactly this shape (it is what the insertion-sort
+   preservation proofs hit), so the bridge lives in the reifier instead."
+  [st args hyp-proof]
+  (when hyp-proof
+    (let [lhs (nth args 1)
+          rhs-w (#'tc/cached-whnf st (nth args 2))
+          [lh la] (e/get-app-fn-args lhs)
+          lh-name (when (e/const? lh) (e/const-name lh))
+          rhs-name (when (e/const? rhs-w) (e/const-name rhs-w))
+          true? (= rhs-name (:bool-true omega-names))
+          false? (= rhs-name (:bool-false omega-names))
+          ble? (= lh-name (:nat-ble omega-names))
+          blt? (= lh-name (:nat-blt omega-names))]
+      (when (and (or ble? blt?) (= 2 (count la)) (or true? false?))
+        ;; `Nat.blt a b` unfolds to `Nat.ble (Nat.succ a) b`; state everything over
+        ;; the `ble` operands so one code path serves both.
+        (let [a (if blt? (e/app (e/const' (:nat-succ omega-names) []) (nth la 0)) (nth la 0))
+              b (nth la 1)
+              nat-t (e/const' (:nat-name omega-names) [])
+              le-prop (e/app* (e/const' (:le-name omega-names) [lvl/zero])
+                              nat-t (e/const' (:inst-le-nat omega-names) []) a b)]
+          (if true?
+            [le-prop (e/app* (e/const' (:nat-le-of-ble-eq-true omega-names) [])
+                             a b hyp-proof)]
+            (let [ble-expr (e/app* (e/const' (:nat-ble omega-names) []) a b)
+                  not-ble (mk-not-eq-true-of-eq-false ble-expr hyp-proof)]
+              [(e/app (e/const' (:not-name omega-names) []) le-prop)
+               (e/app* (e/const' (:nat-not-le-of-not-ble omega-names) [])
+                       a b not-ble)])))))))
+
 (defn- reify-prop
   "Reify a Ansatz proposition into constraints added to the problem.
    hyp-proof is the Ansatz proof term for the hypothesis (an fvar or nil for backward compat).
@@ -1862,8 +2111,16 @@
     (if-not matched
       ;; No const head — try forall (implication)
       (reify-prop-forall st table problem prop hyp-proof)
-      (let [[head-name head-levels args] matched]
+      (let [[head-name head-levels args] matched
+            ;; Eq Bool (Nat.ble a b) true/false (and Nat.blt) — the Bool→Prop bridge.
+            ;; Taken BEFORE the general Eq case, which would try to reify `Nat.ble a b`
+            ;; as an arithmetic term and reject it as an atom of non-arithmetic type.
+            bridged (when (and (= head-name (:eq-name omega-names)) (= 3 (count args)))
+                      (bool-cmp-bridge st args hyp-proof))]
         (cond
+          bridged
+          (reify-prop st table problem (first bridged) (second bridged))
+
           ;; Eq _ a b → a - b = 0
           (and (= head-name (:eq-name omega-names)) (= 3 (count args)))
           (let [type-arg (nth args 0)
@@ -2893,7 +3150,8 @@
   ;; unconstrained atom. `add-div-bounds` is idempotent, so re-running is safe.
   (let [problem (add-nat-nonnegativity st table problem)
         [table problem] (add-div-bounds st table problem)
-        [table problem] (add-nat-sub-dichotomies table problem)]
+        [table problem] (add-nat-sub-dichotomies table problem)
+        [table problem] (add-minmax-dichotomies table problem)]
     (let [[table result] (run-omega-solver table problem)]
       (when (System/getProperty "omega.trace")
         (println (str "  solver: possible=" (:possible result)
@@ -2995,7 +3253,8 @@
           ;; can intern a truncated subtraction hiding in the dividend, and that
           ;; sub-atom still needs its dichotomy.
           [table' bounded-problem] (add-div-bounds st table nn-problem)
-          [table'' ready-problem] (add-nat-sub-dichotomies table' bounded-problem)]
+          [table'' sub-problem] (add-nat-sub-dichotomies table' bounded-problem)
+          [table'' ready-problem] (add-minmax-dichotomies table'' sub-problem)]
       (omega-impl st table'' ready-problem 0))))
 
 (declare build-false-proof-from-result)
@@ -3055,6 +3314,89 @@
           proof-term
           (reverse fvar-infos)))
 
+(defn- reconstruction-available?
+  "The full reconstruction references Lean.Omega.* constants (Init.Omega). On a
+   reduced init they are absent and no proof can be built."
+  [env]
+  (some? (kenv/lookup env (name/from-string "Lean.Omega.LinearCombo.coordinate_eval"))))
+
+(defn- prepare-goal
+  "Shared front half of omega: strip ∀ binders, normalise bare `Nat.lt`/`Nat.le`,
+   and set up the by_contra hypothesis. Returns the map both the proving entry point
+   (`omega`) and the decide-only one (`decides?`) work from."
+  [env goal-type lctx]
+  (let [st (tc/attach-lctx (tc/mk-tc-state env) lctx)
+        ;; Pass the UN-WHNF'd goal-type: strip-forall-binders WHNFs internally only to
+        ;; find ∀ binders and deliberately returns the un-WHNF'd comparison, so
+        ;; negate-goal sees `LE.le`/`LT.lt` (handled) rather than the unfolded
+        ;; `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
+        [inner-goal fvar-infos lctx-with-intros] (strip-forall-binders st goal-type lctx)
+        ;; Bare `Nat.lt a b` / `Nat.le a b` goals (e.g. from instantiating a relation
+        ;; variable with Nat.lt) → the LT.lt/LE.le instance spelling negate-goal handles.
+        ;; Defeq, so the by_contra proof still checks against the original goal type.
+        inner-goal
+        (let [[h as] (e/get-app-fn-args inner-goal)
+              nat-c (e/const' (name/from-string "Nat") [])]
+          (if (and (e/const? h) (= 2 (count as)))
+            (case (name/->string (e/const-name h))
+              "Nat.lt" (e/app* (e/const' (:lt-name omega-names) [lvl/zero]) nat-c
+                               (e/const' (name/from-string "instLTNat") [])
+                               (nth as 0) (nth as 1))
+              "Nat.le" (e/app* (e/const' (:le-name omega-names) [lvl/zero]) nat-c
+                               (e/const' (name/from-string "instLENat") [])
+                               (nth as 0) (nth as 1))
+              inner-goal)
+            inner-goal))
+        st-intros (tc/attach-lctx st lctx-with-intros)
+        inner-whnf (#'tc/cached-whnf st-intros inner-goal)
+        is-false-goal (and (e/const? inner-whnf)
+                           (= (e/const-name inner-whnf) (:false-name omega-names)))
+        neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
+        neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
+        neg-type (when-not is-false-goal
+                   (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
+        lctx' (if neg-hyp-fvar-id
+                (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
+                lctx-with-intros)]
+    {:st (tc/attach-lctx st lctx')
+     :lctx lctx'
+     :inner-goal inner-goal
+     :fvar-infos fvar-infos
+     :neg-hyp-fvar-id neg-hyp-fvar-id
+     :neg-hyp-proof neg-hyp-proof
+     :neg-type neg-type
+     :is-false-goal is-false-goal}))
+
+(defn- run-check
+  "Run `omega-check` on a prepared goal, absorbing the ::direct-false:: short-circuit.
+   Returns the solver result map, or nil when no contradiction was derivable."
+  [{:keys [st inner-goal lctx neg-hyp-proof]}]
+  (try
+    (omega-check st inner-goal lctx neg-hyp-proof)
+    (catch clojure.lang.ExceptionInfo ex
+      (if (= "::direct-false::" (.getMessage ex))
+        {:direct-false (:direct-false (ex-data ex))
+         :atom-table (:atom-table (ex-data ex))}
+        (throw ex)))))
+
+(defn decides?
+  "DECIDE-ONLY omega: reify the goal and hypotheses, build the constraint system and
+   run the solver — but do NOT construct a proof term. True iff omega found the
+   negated goal contradictory, i.e. iff `omega` would have something to certify.
+
+   Cheap, because proof construction in this engine is LAZY: `reify-term` returns a
+   thunk that is only applied once an atoms-expression is supplied, and the whole of
+   `extract-proof` is skipped. Everything before that is shared with the real tactic,
+   which is the point — a caller that only needs a yes/no gets exactly the answer the
+   proving engine would give, instead of a second, weaker procedure's guess.
+
+   This is what `ansatz.tactic.simp`'s discharger uses; it replaced the proof-free
+   duplicate that used to live in `ansatz.tactic.omega`."
+  [env goal-type lctx]
+  (try
+    (some? (run-check (prepare-goal env goal-type lctx)))
+    (catch Exception _ false)))
+
 (defn omega
   "Close the current goal using the omega decision procedure with proof term construction.
 
@@ -3087,55 +3429,13 @@
                                    (nth args 0) (nth args 1))]
             (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
                 (proof/record-tactic :omega [] (:id goal))))
-          ;; The full reconstruction references Lean.Omega.* constants (Init.Omega);
-          ;; if the env lacks them (a reduced init), DECLINE so omega falls through to
-          ;; simpler strategies rather than committing a proof that fails at kernel
-          ;; check.
-          (let [_ (when-not (kenv/lookup env (name/from-string "Lean.Omega.LinearCombo.coordinate_eval"))
+          ;; If the env lacks Init.Omega, DECLINE rather than commit a proof that
+          ;; fails at kernel check.
+          (let [_ (when-not (reconstruction-available? env)
                     (tactic-error! "omega: Lean.Omega.* reconstruction constants unavailable" {}))
-                ;; Pass the UN-WHNF'd goal-type: strip-forall-binders WHNFs internally
-                ;; only to find ∀ binders and deliberately returns the un-WHNF'd
-                ;; comparison, so negate-goal sees `LE.le`/`LT.lt` (handled) rather than
-                ;; the unfolded `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
-                [inner-goal fvar-infos lctx-with-intros]
-                (strip-forall-binders st goal-type (:lctx goal))
-                ;; Bare `Nat.lt a b` / `Nat.le a b` goals (e.g. from instantiating a relation
-                ;; variable with Nat.lt) → the LT.lt/LE.le instance spelling negate-goal handles.
-                ;; Defeq, so the by_contra proof still checks against the original goal type.
-                inner-goal
-                (let [[h as] (e/get-app-fn-args inner-goal)
-                      nat-c (e/const' (name/from-string "Nat") [])]
-                  (if (and (e/const? h) (= 2 (count as)))
-                    (case (name/->string (e/const-name h))
-                      "Nat.lt" (e/app* (e/const' (:lt-name omega-names) [lvl/zero]) nat-c
-                                       (e/const' (name/from-string "instLTNat") [])
-                                       (nth as 0) (nth as 1))
-                      "Nat.le" (e/app* (e/const' (:le-name omega-names) [lvl/zero]) nat-c
-                                       (e/const' (name/from-string "instLENat") [])
-                                       (nth as 0) (nth as 1))
-                      inner-goal)
-                    inner-goal))
-                st-intros (tc/attach-lctx st lctx-with-intros)
-                inner-whnf (#'tc/cached-whnf st-intros inner-goal)
-                is-false-goal (and (e/const? inner-whnf)
-                                   (= (e/const-name inner-whnf) (:false-name omega-names)))]
-            ;; Try omega with by_contra structure for non-False inner goals
-            (let [neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
-                  neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
-                  neg-type (when-not is-false-goal
-                             (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
-                  lctx' (if neg-hyp-fvar-id
-                          (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
-                          lctx-with-intros)
-                  st' (tc/attach-lctx st lctx')
-                  ;; Run omega, handling direct-false short-circuit
-                  result (try
-                           (omega-check st' inner-goal lctx' neg-hyp-proof)
-                           (catch clojure.lang.ExceptionInfo ex
-                             (if (= "::direct-false::" (.getMessage ex))
-                               {:direct-false (:direct-false (ex-data ex))
-                                :atom-table (:atom-table (ex-data ex))}
-                               (throw ex))))]
+                prepared (prepare-goal env goal-type (:lctx goal))
+                {:keys [inner-goal fvar-infos neg-hyp-fvar-id neg-type is-false-goal]} prepared]
+            (let [result (run-check prepared)]
               (if-not result
                 (tactic-error! "omega failed — could not derive contradiction"
                                {:goal goal-type})
@@ -3191,24 +3491,9 @@
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         env (:env ps)
-        st (tc/mk-tc-state env)
-        st (assoc st :lctx (:lctx goal))
-        goal-type (:type goal)
-        goal-whnf (#'tc/cached-whnf st goal-type)
-        [inner-goal fvar-infos lctx-with-intros]
-        (strip-forall-binders st goal-whnf (:lctx goal))
-        st-intros (tc/attach-lctx st lctx-with-intros)
-        inner-whnf (#'tc/cached-whnf st-intros inner-goal)
-        is-false-goal (and (e/const? inner-whnf)
-                           (= (e/const-name inner-whnf) (:false-name omega-names)))
-        neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
-        neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
-        neg-type (when-not is-false-goal
-                   (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
-        lctx' (if neg-hyp-fvar-id
-                (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
-                lctx-with-intros)
-        st' (tc/attach-lctx st lctx')
+        {:keys [inner-goal fvar-infos neg-hyp-fvar-id neg-hyp-proof is-false-goal]
+         st' :st lctx' :lctx}
+        (prepare-goal env (:type goal) (:lctx goal))
         ;; Reify: collect hypotheses, negate goal, add bounds
         table (mk-atom-table)
         problem (mk-problem)
@@ -3219,7 +3504,8 @@
                        negated)
         nn-problem (add-nat-nonnegativity st' table base-problem)
         [table bounded-problem] (add-div-bounds st' table nn-problem)
-        [table ready-problem] (add-nat-sub-dichotomies table bounded-problem)]
+        [table sub-problem] (add-nat-sub-dichotomies table bounded-problem)
+        [table ready-problem] (add-minmax-dichotomies table sub-problem)]
     {:st st'
      :table table
      :problem ready-problem

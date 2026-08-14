@@ -105,6 +105,18 @@
 (defn- n-ne [a b] (e/app* (e/const' (name/from-string "Ne") [u1]) NAT a b))
 (defn- i-ne [a b] (e/app* (e/const' (name/from-string "Ne") [u1]) INT a b))
 
+;; --- min / max ---
+(defn- nmin [a b] (e/app* (c1 "Min.min") NAT (c "instMinNat") a b))
+(defn- imin [a b] (e/app* (c1 "Min.min") INT (c "Int.instMin") a b))
+(defn- imax [a b] (e/app* (c1 "Max.max") INT (c "Int.instMax") a b))
+
+;; --- Bool comparisons (the Bool→Prop bridge) ---
+(defn- b= [lhs rhs] (e/app* (e/const' (name/from-string "Eq") [u1]) (c "Bool") lhs rhs))
+(defn- ble [a b] (e/app* (c "Nat.ble") a b))
+(defn- blt [a b] (e/app* (c "Nat.blt") a b))
+(def ^:private BTRUE  (c "Bool.true"))
+(def ^:private BFALSE (c "Bool.false"))
+
 ;; ============================================================
 ;; Goal assembly
 ;; ============================================================
@@ -469,17 +481,19 @@
 ;; Int
 ;; ============================================================
 
-;; ── The Int literal gap ──────────────────────────────────────────────────────────────
-;; `reify-term` recognises a ground operand only via `e/lit-nat?`. An Int literal is
-;; `Int.ofNat k` / `Int.negSucc k` — a CONSTRUCTOR application, never a `lit-nat` — so
-;; every negative Int literal and every Int scalar multiplication (`2 * x` over Int)
-;; degrades to an opaque atom. Folding them needs Int-level scale/negate eval proofs;
-;; `mk-scale-eval-proof`'s bridge is built from Nat.mul_succ/Nat.mul_comm and is
-;; Nat-only. This is the single blocker behind most of the `gap`s below and is out of
-;; scope here (the Int path also lacks `Int.mul_ediv_self_le` in init-medium).
-(def ^:private int-lit-gap
-  "Int literals (Int.ofNat k / Int.negSucc k) are not recognised as ground operands by
-   reify-term, so negative literals and Int scalar multiplication become opaque atoms")
+;; ── Int literals ─────────────────────────────────────────────────────────────────────
+;; `reify-term` used to recognise a ground operand only via `e/lit-nat?`. An Int literal
+;; is `Int.ofNat k` / `Int.negSucc k` — a CONSTRUCTOR application, never a `lit-nat` — so
+;; every negative literal degraded to an opaque atom. `ground-int-val` now sees through
+;; both constructors and `Int.negSucc k` reifies as the constant -(k+1), which promoted
+;; five entries below from `gap` to `proves`.
+;;
+;; What is still missing is Int SCALAR MULTIPLICATION: folding `2 * x` over Int needs an
+;; Int-level scale eval proof, and `mk-scale-eval-proof`'s bridge is built out of
+;; Nat.mul_succ/Nat.mul_comm and is Nat-only. Same for `Neg.neg` applied to a literal.
+(def ^:private int-mul-gap
+  "Int scalar multiplication / literal negation needs an Int-level scale eval proof;
+   mk-scale-eval-proof's Nat.mul_succ/Nat.mul_comm bridge is Nat-only")
 
 (deftest corpus-int-linear
   (testing "lean4 omega.lean — Int linear fragment"
@@ -496,23 +510,23 @@
     (proves "(7:Int) < 0 → False"
             (ex [] (fn [] {:hyps [(i< (ilit 7) (ilit 0))] :concl FALSE})))
     ;; L12
-    (gap "0 ≤ x → x ≤ -1 → False" int-lit-gap
-         (ex [["x" INT]] (fn [x] {:hyps [(i<= (ilit 0) x) (i<= x (ilit -1))] :concl FALSE})))
+    (proves "0 ≤ x → x ≤ -1 → False"
+            (ex [["x" INT]] (fn [x] {:hyps [(i<= (ilit 0) x) (i<= x (ilit -1))] :concl FALSE})))
     ;; L106 / L108 — ground Int subtraction
     (proves "(7:Int) - 14 = 0 → False"
             (ex [] (fn [] {:hyps [(i= (i- (ilit 7) (ilit 14)) (ilit 0))] :concl FALSE})))
     (proves "(14:Int) - 7 ≤ 0 → False"
             (ex [] (fn [] {:hyps [(i<= (i- (ilit 14) (ilit 7)) (ilit 0))] :concl FALSE})))
     ;; L113 / L115 — Neg.neg
-    (gap "-(7:Int) = 0 → False" int-lit-gap
+    (gap "-(7:Int) = 0 → False" int-mul-gap
          (ex [] (fn [] {:hyps [(i= (ineg (ilit 7)) (ilit 0))] :concl FALSE})))
-    (gap "-(-7:Int) ≤ 0 → False" int-lit-gap
+    (gap "-(-7:Int) ≤ 0 → False" int-mul-gap
          (ex [] (fn [] {:hyps [(i<= (ineg (ilit -7)) (ilit 0))] :concl FALSE})))
     ;; L121 — gcd tightening (2 ∤ 1), reached without any Int literal folding
     (proves "x + x + 1 = 0 → False"
             (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i+ x x) (ilit 1)) (ilit 0))] :concl FALSE})))
     ;; L123
-    (gap "2*x + 1 = 0 → False" int-lit-gap
+    (gap "2*x + 1 = 0 → False" int-mul-gap
          (ex [["x" INT]] (fn [x] {:hyps [(i= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
                                   :concl FALSE})))
     ;; L125 / L127
@@ -520,26 +534,26 @@
             (ex [["x" INT] ["y" INT]]
                 (fn [x y] {:hyps [(i= (i+ (i+ (i+ (i+ x x) y) y) (ilit 1)) (ilit 0))] :concl FALSE})))
     ;; L129
-    (gap "0 ≤ -7 + x → 0 ≤ 3 - x → False" int-lit-gap
-         (ex [["x" INT]]
-             (fn [x] {:hyps [(i<= (ilit 0) (i+ (ilit -7) x))
-                             (i<= (ilit 0) (i- (ilit 3) x))]
-                      :concl FALSE})))
+    (proves "0 ≤ -7 + x → 0 ≤ 3 - x → False"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit 0) (i+ (ilit -7) x))
+                                (i<= (ilit 0) (i- (ilit 3) x))]
+                         :concl FALSE})))
     ;; L133 / L135
-    (gap "0 ≤ 2*x + 1 → 2*x + 1 ≤ 0 → False" int-lit-gap
+    (gap "0 ≤ 2*x + 1 → 2*x + 1 ≤ 0 → False" int-mul-gap
          (ex [["x" INT]]
              (fn [x] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
                              (i<= (i+ (i* (ilit 2) x) (ilit 1)) (ilit 0))]
                       :concl FALSE})))
     ;; L137 — equality hypothesis chaining
-    (gap "0 ≤ 2*x+1 → x = y → 2*y+1 ≤ 0 → False" int-lit-gap
+    (gap "0 ≤ 2*x+1 → x = y → 2*y+1 ≤ 0 → False" int-mul-gap
          (ex [["x" INT] ["y" INT]]
              (fn [x y] {:hyps [(i<= (ilit 0) (i+ (i* (ilit 2) x) (ilit 1)))
                                (i= x y)
                                (i<= (i+ (i* (ilit 2) y) (ilit 1)) (ilit 0))]
                         :concl FALSE})))
     ;; L145
-    (gap "1 ≤ -3*x → 1 ≤ 2*x → False" int-lit-gap
+    (gap "1 ≤ -3*x → 1 ≤ 2*x → False" int-mul-gap
          (ex [["x" INT]]
              (fn [x] {:hyps [(i<= (ilit 1) (i* (ilit -3) x))
                              (i<= (ilit 1) (i* (ilit 2) x))]
@@ -552,11 +566,11 @@
             (ex [["b" INT]]
                 (fn [b] {:hyps [(i< (i+ (ilit 3) b) (i+ b (ilit 2)))] :concl FALSE})))
     ;; L246
-    (gap "a > 0 → b > 5 → c < -10 → a + b - c < 3 → False" int-lit-gap
-         (ex [["a" INT] ["b" INT] ["c" INT]]
-             (fn [a b c] {:hyps [(i< (ilit 0) a) (i< (ilit 5) b) (i< c (ilit -10))
-                                 (i< (i- (i+ a b) c) (ilit 3))]
-                          :concl FALSE})))
+    (proves "a > 0 → b > 5 → c < -10 → a + b - c < 3 → False"
+            (ex [["a" INT] ["b" INT] ["c" INT]]
+                (fn [a b c] {:hyps [(i< (ilit 0) a) (i< (ilit 5) b) (i< c (ilit -10))
+                                    (i< (i- (i+ a b) c) (ilit 3))]
+                             :concl FALSE})))
     ;; L249 — double negation of an order fact
     (proves "b > 0 → ¬(b ≥ 0) → False"
             (ex [["b" INT]]
@@ -566,16 +580,16 @@
             (ex [["x" INT] ["y" INT]]
                 (fn [x y] {:hyps [(i< x y) (p-not (p-not (i< y x)))] :concl FALSE})))
     ;; L174 — conjunction in a hypothesis
-    (gap "(x > 0 ∧ x < -1) → False" int-lit-gap
-         (ex [["x" INT]]
-             (fn [x] {:hyps [(p-and (i< (ilit 0) x) (i< x (ilit -1)))] :concl FALSE})))
+    (proves "(x > 0 ∧ x < -1) → False"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(p-and (i< (ilit 0) x) (i< x (ilit -1)))] :concl FALSE})))
     ;; L213 — the product A*B is atomised, then scaled
-    (gap "0 < A*B → 0 < 8*(A*B)" int-lit-gap
+    (gap "0 < A*B → 0 < 8*(A*B)" int-mul-gap
          (ex [["A" INT] ["B" INT]]
              (fn [A B] {:hyps [(i< (ilit 0) (i* A B))]
                         :concl (i< (ilit 0) (i* (ilit 8) (i* A B)))})))
     ;; L265
-    (gap "0 ≤ a → 0*0 ≤ 2*a" int-lit-gap
+    (gap "0 ≤ a → 0*0 ≤ 2*a" int-mul-gap
          (ex [["a" INT]]
              (fn [a] {:hyps [(i<= (ilit 0) a)]
                       :concl (i<= (i* (ilit 0) (ilit 0)) (i* (ilit 2) a))})))
@@ -602,8 +616,8 @@
                 (fn [x] {:hyps [(i< (ilit 7) x)]
                          :concl (p-or (i< x (ilit 0)) (i< (ilit 3) x))})))
     ;; L329 — implication goal (introduced by `ex` as a hypothesis)
-    (gap "a > 0 → a > -1" int-lit-gap
-         (ex [["a" INT]] (fn [a] {:hyps [(i< (ilit 0) a)] :concl (i< (ilit -1) a)})))
+    (proves "a > 0 → a > -1"
+            (ex [["a" INT]] (fn [a] {:hyps [(i< (ilit 0) a)] :concl (i< (ilit -1) a)})))
     ;; L332
     (proves "x + 1 ≤ y → ¬(y + 1 ≤ x)"
             (ex [["x" INT] ["y" INT]]
@@ -700,3 +714,155 @@
              (ex [["a" NAT]] (fn [a] {:hyps [] :concl (n= (nmod a (nlit 3)) (nlit 0))})))
     (rejects "a < a / 3 * 3"
              (ex [["a" NAT]] (fn [a] {:hyps [] :concl (n< a (n* (ndiv a (nlit 3)) (nlit 3)))})))))
+
+;; ============================================================
+;; min / max  (lean4 Frontend.lean:211-220, OmegaM.lean:226-229)
+;; ============================================================
+;;
+;; Neither omega implementation used to handle `Min.min`/`Max.max` at all — they
+;; reached the solver as opaque atoms, so `n ≤ max n m` was unprovable. lean4 either
+;; rewrites through `Int.min_def`/`Int.max_def` (splitMinMax) or atomises with the
+;; one-sided `min_le_left`/`le_max_left` facts. We take the splitting route: the atom
+;; is tied down by the disjunction (a ≤ b ∧ m = a) ∨ (¬(a ≤ b) ∧ m = b), proved from
+;; `Decidable.em` + `if_pos`/`if_neg` on the instance's own `ite`. That is complete,
+;; so the one-sided bounds fall out of it too.
+;;
+;; NOTE on instances: the bundled slice exports `instMinNat` and `Int.instMin` /
+;; `Int.instMax`, but NOT `instMaxNat`. Nat `max` is therefore spelled with the bare
+;; `maxOfLe` instance below — which doubles as a check that we read the LE and
+;; Decidable arguments off whatever instance we are handed rather than hard-coding
+;; `Nat.decLe`.
+
+(def ^:private nat-max-inst
+  (e/app* (e/const' (name/from-string "maxOfLe") [lvl/zero])
+          NAT (c "instLENat") (c "Nat.decLe")))
+(defn- nmax' [a b] (e/app* (c1 "Max.max") NAT nat-max-inst a b))
+
+(deftest corpus-minmax
+  (testing "min/max over Nat"
+    (proves "min a b ≤ a"
+            (ex [["a" NAT] ["b" NAT]] (fn [a b] {:hyps [] :concl (n<= (nmin a b) a)})))
+    (proves "min a b ≤ b"
+            (ex [["a" NAT] ["b" NAT]] (fn [a b] {:hyps [] :concl (n<= (nmin a b) b)})))
+    (proves "a ≤ max a b"
+            (ex [["a" NAT] ["b" NAT]] (fn [a b] {:hyps [] :concl (n<= a (nmax' a b))})))
+    (proves "b ≤ max a b"
+            (ex [["a" NAT] ["b" NAT]] (fn [a b] {:hyps [] :concl (n<= b (nmax' a b))})))
+    ;; needs the SPLIT, not just the one-sided bounds
+    (proves "min a b + max a b = a + b"
+            (ex [["a" NAT] ["b" NAT]]
+                (fn [a b] {:hyps [] :concl (n= (n+ (nmin a b) (nmax' a b)) (n+ a b))})))
+    (proves "a ≤ b → min a b = a"
+            (ex [["a" NAT] ["b" NAT]]
+                (fn [a b] {:hyps [(n<= a b)] :concl (n= (nmin a b) a)})))
+    (proves "a ≤ b → max a b = b"
+            (ex [["a" NAT] ["b" NAT]]
+                (fn [a b] {:hyps [(n<= a b)] :concl (n= (nmax' a b) b)})))
+    ;; the downstream shape this was added for: clamping a retarget / quorum bound
+    ;; (stated as two goals rather than one conjunction: negating a conjunctive GOAL
+    ;; needs `not_and_or`, which the bundled slice does not carry — see
+    ;; ansatz.tactic.omega-constants-test)
+    (proves "1 ≤ max n 1"
+            (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n<= (nlit 1) (nmax' n (nlit 1)))})))
+    (proves "n ≤ max n 1"
+            (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n<= n (nmax' n (nlit 1)))})))
+    (proves "min n 100 ≤ 100"
+            (ex [["n" NAT]] (fn [n] {:hyps [] :concl (n<= (nmin n (nlit 100)) (nlit 100))})))
+    ;; ground min/max folds through the same split
+    (proves "min 3 7 = 3"
+            (ex [] (fn [] {:hyps [] :concl (n= (nmin (nlit 3) (nlit 7)) (nlit 3))})))
+    (proves "max 3 7 = 7"
+            (ex [] (fn [] {:hyps [] :concl (n= (nmax' (nlit 3) (nlit 7)) (nlit 7))}))))
+  (testing "min/max over Int"
+    (proves "min a b ≤ a  (Int)"
+            (ex [["a" INT] ["b" INT]] (fn [a b] {:hyps [] :concl (i<= (imin a b) a)})))
+    (proves "b ≤ max a b  (Int)"
+            (ex [["a" INT] ["b" INT]] (fn [a b] {:hyps [] :concl (i<= b (imax a b))})))
+    (proves "a ≤ c → b ≤ c → max a b ≤ c  (Int)"
+            (ex [["a" INT] ["b" INT] ["c" INT]]
+                (fn [a b c] {:hyps [(i<= a c) (i<= b c)] :concl (i<= (imax a b) c)}))))
+  (testing "min/max facts that are FALSE must still be refused"
+    (rejects "min a b = a"
+             (ex [["a" NAT] ["b" NAT]] (fn [a b] {:hyps [] :concl (n= (nmin a b) a)})))
+    (rejects "a ≤ min a b"
+             (ex [["a" NAT] ["b" NAT]] (fn [a b] {:hyps [] :concl (n<= a (nmin a b))})))))
+
+;; ============================================================
+;; The Bool → Prop bridge
+;; ============================================================
+;;
+;; `grind`/`simp` case-split a `Nat.ble`/`Nat.blt` discriminant through `Bool.rec` and
+;; hand omega a BOOLEAN equation. lean4's own `addFact` drops these (its `Eq α x y`
+;; match has no `Bool` case — Frontend.lean:441-448); its omega only ever sees them
+;; because a `simp` pre-pass has already rewritten `Nat.ble a b = true` to `a ≤ b`.
+;; We do that rewrite inside the reifier instead, with an explicit proof term.
+;;
+;; This is the ONLY thing the ~440 lines of hand-rolled proof-shape fallbacks that
+;; used to sit in ansatz.tactic.omega were still doing: with them spliced out, the
+;; whole suite lost exactly three tests, all insertion-sort proofs with the goal shape
+;; `hc : Nat.ble x y = false ⊢ y ≤ x`.
+
+(deftest corpus-bool-bridge
+  (testing "Nat.ble"
+    (proves "Nat.ble x y = true → x ≤ y"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(b= (ble x y) BTRUE)] :concl (n<= x y)})))
+    ;; THE isort shape: Bool.rec's false branch, goal with the operands swapped
+    (proves "Nat.ble x y = false → y ≤ x"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(b= (ble x y) BFALSE)] :concl (n<= y x)})))
+    (proves "Nat.ble x y = false → y < x"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(b= (ble x y) BFALSE)] :concl (n< y x)})))
+    ;; (`ble x y = true` and `ble y x = false` are CONSISTENT — both hold when x < y;
+    ;; the contradiction needs the strict comparison on one side)
+    (proves "Nat.ble x y = true → Nat.blt y x = true → False"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(b= (ble x y) BTRUE) (b= (blt y x) BTRUE)] :concl FALSE})))
+    ;; combined with ordinary arithmetic facts
+    (proves "Nat.ble x y = false → x ≤ z → y < z + 1"
+            (ex [["x" NAT] ["y" NAT] ["z" NAT]]
+                (fn [x y z] {:hyps [(b= (ble x y) BFALSE) (n<= x z)]
+                             :concl (n< y (n+ z (nlit 1)))}))))
+  (testing "Nat.blt"
+    (proves "Nat.blt x y = true → x < y"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(b= (blt x y) BTRUE)] :concl (n< x y)})))
+    (proves "Nat.blt x y = false → y ≤ x"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(b= (blt x y) BFALSE)] :concl (n<= y x)}))))
+  (testing "the bridge must not manufacture facts"
+    (rejects "Nat.ble x y = true → y ≤ x"
+             (ex [["x" NAT] ["y" NAT]]
+                 (fn [x y] {:hyps [(b= (ble x y) BTRUE)] :concl (n<= y x)})))
+    (rejects "Nat.ble x y = false → x ≤ y"
+             (ex [["x" NAT] ["y" NAT]]
+                 (fn [x y] {:hyps [(b= (ble x y) BFALSE)] :concl (n<= x y)})))))
+
+;; ============================================================
+;; Int literals
+;; ============================================================
+;;
+;; `Int.negSucc k` is the only spelling a negative Int literal has, and it is a
+;; CONSTRUCTOR application — never an `e/lit-nat?` — so it used to reach the solver as
+;; an opaque atom. `ground-int-val` now sees through both `Int.ofNat` and `Int.negSucc`.
+
+(deftest corpus-int-literals
+  (testing "negative literals are constants, not atoms"
+    (proves "(-1 : Int) < 0"
+            (ex [] (fn [] {:hyps [] :concl (i< (ilit -1) (ilit 0))})))
+    (proves "(-5 : Int) ≤ -3"
+            (ex [] (fn [] {:hyps [] :concl (i<= (ilit -5) (ilit -3))})))
+    (proves "x ≤ -3 → x ≤ -1"
+            (ex [["x" INT]] (fn [x] {:hyps [(i<= x (ilit -3))] :concl (i<= x (ilit -1))})))
+    ;; (an Int EQUALITY goal would need `Int.lt_or_gt_of_ne`, absent from the bundled
+    ;; slice — see ansatz.tactic.omega-constants-test; the inequality says as much here)
+    (proves "-4 ≤ x → x ≤ -4 → 0 ≤ x + 4"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit -4) x) (i<= x (ilit -4))]
+                         :concl (i<= (ilit 0) (i+ x (ilit 4)))})))
+    (proves "0 ≤ x + (-3) → 3 ≤ x"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i<= (ilit 0) (i+ x (ilit -3)))] :concl (i<= (ilit 3) x)})))
+    (rejects "x ≤ -3 → -1 ≤ x"
+             (ex [["x" INT]] (fn [x] {:hyps [(i<= x (ilit -3))] :concl (i<= (ilit -1) x)})))))
