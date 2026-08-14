@@ -139,7 +139,17 @@
      :nat-le-of-not-lt       (n "Nat.le_of_not_lt")
      :nat-lt-of-not-le       (n "Nat.lt_of_not_le")
      :nat-zero-le            (n "Nat.zero_le")
+     ;; Classical.propDecidable is NONCOMPUTABLE (it is defined through the
+     ;; `Classical.choice` axiom), so `decide p (Classical.propDecidable p)` is
+     ;; STUCK — it never reduces to `Bool.true` and the kernel rejects any
+     ;; `Eq.refl Bool Bool.true` offered as a proof of `decide p = true`.
+     ;; It is therefore only usable where the INSTANCE itself is the payload
+     ;; (`Decidable.byContradiction`), never under `of_decide_eq_true`; those
+     ;; sites must use a computable instance (`Nat.decLt`, `Nat.decLe`, …).
      :classical-prop-dec     (n "Classical.propDecidable")
+     :nat-dec-lt             (n "Nat.decLt")
+     :nat-dec-le             (n "Nat.decLe")
+     :of-decide-eq-true      (n "of_decide_eq_true")
      :decidable-by-contra    (n "Decidable.byContradiction")
      :absurd                 (n "absurd")
      :int-inst-le            (n "Int.instLEInt")
@@ -188,6 +198,8 @@
      ;; Div/mod bounds
      :nat-div-mul-le-self    (n "Nat.div_mul_le_self")     ;; (m n) → m / n * n ≤ m
      :nat-mod-lt             (n "Nat.mod_lt")              ;; (x y) → 0 < y → x % y < y
+     :nat-mod-add-div        (n "Nat.mod_add_div")         ;; (m k) → m % k + k * (m / k) = m
+     :nat-mod-zero           (n "Nat.mod_zero")            ;; (a) → a % 0 = a
      :int-mul-ediv-self-le   (n "Int.mul_ediv_self_le")    ;; (x k) → k ≠ 0 → k*(x/k) ≤ x
      :int-lt-mul-ediv-self-add (n "Int.lt_mul_ediv_self_add") ;; (x k) → 0 < k → x < k*(x/k)+k
      ;; Dvd proof terms
@@ -586,8 +598,10 @@
 (defn- mk-right-mul-expand
   "Build proof: HMul var (OfNat k) = var + var + ... + var (k times).
    Returns {:proof Expr, :lhs Expr (the HMul), :rhs Expr (the add chain)}.
-   Uses Nat.mul_one for k=1, Nat.mul_two for k=2,
-   Nat.mul_succ var (k-1) + recursive proof for k>=3."
+   Uses Nat.mul_one for k=1 and Nat.mul_succ var (k-1) + a recursive proof for
+   k>=2. (k=2 deliberately has NO special case: the obvious `Nat.mul_two` is not
+   part of the bundled Init slice, and the generic Nat.mul_succ chain proves it
+   just as well — `var * 2 ≡ var * succ 1 = var * 1 + var = var + var`.)"
   [var-nat k]
   (let [lhs (mk-nat-hmul var-nat (mk-nat-ofnat-lit k))]
     (cond
@@ -596,13 +610,6 @@
       {:proof (e/app (e/const' (name/from-string "Nat.mul_one") []) var-nat)
        :lhs lhs
        :rhs var-nat}
-
-      (== k 2)
-      ;; Nat.mul_two var : var * 2 = var + var
-      (let [rhs (mk-nat-hadd var-nat var-nat)]
-        {:proof (e/app (e/const' (name/from-string "Nat.mul_two") []) var-nat)
-         :lhs lhs
-         :rhs rhs})
 
       :else
       ;; Nat.mul_succ var (k-1) : var * succ(k-1) = var * (k-1) + var
@@ -732,6 +739,159 @@
 
 (declare reify-term)
 
+;; ------------------------------------------------------------
+;; Division / modulo, shared by all four spellings
+;; ------------------------------------------------------------
+;;
+;; Lean's frontend (Lean/Elab/Tactic/Omega/Frontend.lean) treats the two
+;; operators asymmetrically, and we mirror that exactly:
+;;
+;;   x / k  for a positive literal k  →  a fresh ATOM q, plus the two facts
+;;          `k*q ≤ x` and `x < k*q + k` attached by `analyzeAtom`
+;;          (Lean/Elab/Tactic/Omega/OmegaM.lean). Those two are added later, by
+;;          `add-div-bounds`; here we only intern the atom and TAG it.
+;;   x % k  is never atomised BY LEAN — it is rewritten `x % k = x - k * (x / k)`
+;;          (`Int.emod_def`), so there is no separate remainder variable: `r` is
+;;          eliminated by the rewrite and `0 ≤ r < k` falls out of the two div
+;;          bounds above. We DO atomise it on the Nat path and tie it back down with
+;;          `Nat.mod_add_div`, because that rewrite is a theorem about casts rather
+;;          than a definitional equality here — see `reify-mod-atom` for why, and
+;;          note the solver eliminates the extra variable by substitution anyway.
+;;
+;; The ansatz surface elaborates `Nat.div`/`Nat.mod` BARE (ansatz.surface.ingest),
+;; while Lean's own library carries the `HDiv.hDiv`/`HMod.hMod` typeclass spelling,
+;; so all four spellings must reach the same code. They must also be handled
+;; PRE-WHNF: `Nat.div` is well-founded-recursive, so WHNF unfolds it into a stuck
+;; `Nat.div.go`/`Decidable.rec` blob whose head is no longer `Nat.div`.
+
+(defn- mk-hdiv-expr
+  "Rebuild `a / b` in the HDiv.hDiv spelling, given the element-type arguments of
+   the application we are rewriting (`T0 T1 T2` = args 0..2)."
+  [st T0 T1 T2 a b]
+  (let [tw (#'tc/cached-whnf st T0)
+        tn (when (e/const? tw) (e/const-name tw))]
+    (e/app* (e/const' (:hdiv omega-names) [lvl/zero lvl/zero lvl/zero])
+            T0 T1 T2
+            (e/app* (e/const' (name/from-string "instHDiv") [lvl/zero])
+                    T0 (if (= tn (:nat-name omega-names))
+                         (e/const' (name/from-string "Nat.instDiv") [])
+                         (e/const' (name/from-string "Int.instDiv") [])))
+            a b)))
+
+(defn- mk-hmul-expr
+  "Rebuild `a * b` in the HMul.hMul spelling — the shape `mk-scale-eval-proof`'s
+   Nat.mul_succ/Nat.mul_comm bridge is stated in."
+  [st T0 T1 T2 a b]
+  (let [tw (#'tc/cached-whnf st T0)
+        tn (when (e/const? tw) (e/const-name tw))]
+    (e/app* (e/const' (:hmul omega-names) [lvl/zero lvl/zero lvl/zero])
+            T0 T1 T2
+            (e/app* (e/const' (name/from-string "instHMul") [lvl/zero])
+                    T0 (if (= tn (:nat-name omega-names))
+                         (e/const' (name/from-string "instMulNat") [])
+                         (e/const' (name/from-string "Int.instMul") [])))
+            a b)))
+
+(defn- reify-div-atom
+  "Reify a division `a / b` (in ANY spelling) into a LinearCombo.
+
+   `expr` is the ORIGINAL, un-WHNF'd division expression and is interned verbatim
+   — `intern-atom` keys on `cached-whnf`, which agrees for `Nat.div a b` and
+   `HDiv.hDiv … a b` (both reduce to the same stuck `Nat.div.go` blob), so the two
+   spellings share one atom index. The tagged `:expr` is the spelling
+   `add-div-bounds` will re-state the bounds over, so it must stay faithful.
+
+   Literal divisors are folded away instead of atomised:
+     b = 0     → 0     (`Nat.div n 0` reduces to 0 definitionally — the `0 < b`
+                        guard in Nat.div fails, so this needs no rewrite lemma)
+     a, b both literal → the computed quotient."
+  [st table expr a b type-name]
+  (let [a-whnf (#'tc/cached-whnf st a)
+        b-whnf (#'tc/cached-whnf st b)]
+    (cond
+      (and (e/lit-nat? b-whnf) (zero? (e/lit-nat-val b-whnf)))
+      (let [lc (mk-lc 0)] [table lc (mk-eval-rfl-proof lc)])
+
+      (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
+      (let [lc (mk-lc (quot (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf)))]
+        [table lc (mk-eval-rfl-proof lc)])
+
+      :else
+      (let [[table' idx] (intern-atom table st expr)
+            ;; Only a positive LITERAL divisor gets bounds: for a symbolic divisor
+            ;; the quotient is a plain opaque atom (Lean does the same — a symbolic
+            ;; divisor would need the `b = 0` case split, which we do not do).
+            table' (if (and (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
+                     (assoc-in table' [:div-atoms idx]
+                               {:a a :b b :type-name type-name :expr expr})
+                     table')]
+        [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))))
+
+(defn- reify-mod-decomp
+  "Reify an INT remainder `a % b` by rewriting it to `a - b * (a / b)` (Lean's
+   `Int.emod_def`). `mk-div` rebuilds the quotient in the SAME spelling as the
+   input; `mk-mul` rebuilds the product in the HMul spelling that
+   `mk-scale-eval-proof`'s bridge is stated in.
+
+   Returns nil (caller falls through) when `b` is not a positive literal.
+
+   NOTE — this is the INT path only, and it is currently DEAD on the bundled init
+   slice: the eval proof it builds claims `lc.eval = ↑a - ↑(b*(a/b))`, whereas the
+   surrounding constraint proof needs `lc.eval = ↑(a % b)`. Those are equal by
+   `Int.emod_def` but NOT definitionally, so the bridge still has to be built and
+   spliced in before this can certify. (It never fired before either — the Int div
+   bounds it depends on need `Int.mul_ediv_self_le`, absent from init-medium.) The
+   Nat path deliberately does NOT come here; see `reify-mod-atom`."
+  [st table a b mk-div mk-mul]
+  (let [b-whnf (#'tc/cached-whnf st b)]
+    (when (and (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
+      (let [k (e/lit-nat-val b-whnf)
+            [table' lc-a prf-a] (reify-term st table a)
+            div-expr (mk-div a b)
+            [table'' lc-div prf-div] (reify-term st table' div-expr)
+            lc-bq (lc-scale lc-div k)
+            mul-expr (mk-mul b div-expr)
+            prf-bq (mk-scale-eval-proof lc-div k prf-div div-expr mul-expr :left)]
+        [table'' (lc-sub lc-a lc-bq) (mk-sub-eval-proof lc-a lc-bq prf-a prf-bq)]))))
+
+(defn- reify-mod-atom
+  "Reify a NAT remainder `a % b` (in ANY spelling) as its own omega atom `r`,
+   tagged for fact generation.
+
+   This DIVERGES from lean4, which never atomises `%`: its frontend rewrites
+   `a % b = a - b * (a / b)` (`Int.emod_def`) so the remainder is eliminated and
+   `0 ≤ r < b` falls out of the two quotient bounds. We cannot reproduce that here
+   because the reconstruction needs the cast bridge `↑(a % b) = ↑a - ↑(b*(a/b))`,
+   which is a THEOREM (`Nat.mod_add_div`), not a definitional equality — an eval
+   proof that simply asserts it is rejected by the kernel.
+
+   So we keep the remainder as a variable and tie it down with the very lemma that
+   bridge would have needed, stated over the ORIGINAL terms where `reify-prop` can
+   certify it (see `add-div-bounds`):
+       r + b*q = a   (Nat.mod_add_div)
+   The solver then eliminates `r` by substitution, reaching exactly Lean's
+   constraint set with one redundant variable.
+
+   A fully ground remainder folds to its value. A literal ZERO divisor does NOT
+   fold: unlike `Nat.div n 0` (which reduces to `0` because the guard fails before
+   the recursion), `Nat.mod n 0` stays stuck on `Nat.rec` over `n`, so `n % 0 = n`
+   is a theorem (`Nat.mod_zero`), not a definitional equality. It is tagged like any
+   other literal divisor and `add-div-bounds` states the right lemma for it."
+  [st table expr a b]
+  (let [a-whnf (#'tc/cached-whnf st a)
+        b-whnf (#'tc/cached-whnf st b)]
+    (cond
+      (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
+      (let [lc (mk-lc (mod (e/lit-nat-val a-whnf) (e/lit-nat-val b-whnf)))]
+        [table lc (mk-eval-rfl-proof lc)])
+
+      :else
+      (let [[table' idx] (intern-atom table st expr)
+            table' (if (e/lit-nat? b-whnf)
+                     (assoc-in table' [:mod-atoms idx] {:a a :b b :expr expr})
+                     table')]
+        [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)]))))
+
 (defn- reify-term
   "Reify a Ansatz term into a LinearCombo (dense coefficients).
    Returns [atom-table linear-combo eval-proof-fn] where
@@ -838,58 +998,33 @@
                   [table' result-lc (mk-scale-eval-proof lc-a k prf-a (nth args 4) expr :right)])
                 :else nil))  ;; fall through to WHNF path
 
-            ;; HDiv.hDiv _ _ _ _ a b → intern as atom, tag for bounds generation
+            ;; HDiv.hDiv _ _ _ _ a b → atom + div-bounds tag
             (and (= head-name (:hdiv omega-names)) (= 6 (count args)))
-            (let [type-arg (nth args 0)
-                  type-whnf (#'tc/cached-whnf st type-arg)
-                  type-name (when (e/const? type-whnf) (e/const-name type-whnf))
-                  a-arg (nth args 4) b-arg (nth args 5)
-                  b-whnf (#'tc/cached-whnf st b-arg)
-                  [table' idx] (intern-atom table st expr)
-                  ;; Tag div atoms for bounds generation (only for literal divisor > 0)
-                  table' (if (and (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
-                           (assoc-in table' [:div-atoms idx]
-                                     {:a a-arg :b b-arg :type-name type-name :expr expr})
-                           table')]
-              [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)])
+            (let [type-whnf (#'tc/cached-whnf st (nth args 0))
+                  type-name (when (e/const? type-whnf) (e/const-name type-whnf))]
+              (reify-div-atom st table expr (nth args 4) (nth args 5) type-name))
 
-            ;; HMod.hMod _ _ _ _ a b → decompose to a - b*(a/b) if b is ground
+            ;; Nat.div a b (BARE) → same, in the spelling the ansatz surface emits.
+            ;; Must be handled here, pre-WHNF: Nat.div is well-founded-recursive and
+            ;; WHNF turns it into a stuck Nat.div.go blob with a non-arithmetic head.
+            (and (= head-name (:nat-div omega-names)) (= 2 (count args)))
+            (reify-div-atom st table expr (nth args 0) (nth args 1) (:nat-name omega-names))
+
+            ;; HMod.hMod _ _ _ _ a b → Nat: atom + Nat.mod_add_div; Int: emod_def
             (and (= head-name (:hmod omega-names)) (= 6 (count args)))
-            (let [b-whnf (#'tc/cached-whnf st (nth args 5))]
-              (when (and (e/lit-nat? b-whnf) (pos? (e/lit-nat-val b-whnf)))
-                ;; a % b = a - b * (a / b)
-                ;; Reify a, create div atom for a/b, compute a - b*div_atom
-                (let [a-arg (nth args 4) b-arg (nth args 5)
-                      [table' lc-a prf-a] (reify-term st table a-arg)
-                      ;; Build the div expression with same type args
-                      div-expr (e/app* (e/const' (:hdiv omega-names) [lvl/zero lvl/zero lvl/zero])
-                                       (nth args 0) (nth args 1) (nth args 2)
-                                       (e/app* (e/const' (name/from-string "instHDiv") [lvl/zero])
-                                               (nth args 0)
-                                               ;; Need type-specific div instance
-                                               (let [type-whnf (#'tc/cached-whnf st (nth args 0))
-                                                     tn (when (e/const? type-whnf) (e/const-name type-whnf))]
-                                                 (if (= tn (:nat-name omega-names))
-                                                   (e/const' (name/from-string "Nat.instDiv") [])
-                                                   (e/const' (name/from-string "Int.instDiv") []))))
-                                       a-arg b-arg)
-                      [table'' lc-div prf-div] (reify-term st table' div-expr)
-                      k (e/lit-nat-val b-whnf)
-                      lc-bq (lc-scale lc-div k)
-                      ;; Build b * div_expr as the "original" Nat mul expression
-                      mul-expr (e/app* (e/const' (:hmul omega-names) [lvl/zero lvl/zero lvl/zero])
-                                       (nth args 0) (nth args 1) (nth args 2)
-                                       (e/app* (e/const' (name/from-string "instHMul") [lvl/zero])
-                                               (nth args 0)
-                                               (let [type-whnf (#'tc/cached-whnf st (nth args 0))
-                                                     tn (when (e/const? type-whnf) (e/const-name type-whnf))]
-                                                 (if (= tn (:nat-name omega-names))
-                                                   (e/const' (name/from-string "instMulNat") [])
-                                                   (e/const' (name/from-string "Int.instMul") []))))
-                                       b-arg div-expr)
-                      prf-bq (mk-scale-eval-proof lc-div k prf-div div-expr mul-expr :left)
-                      result-lc (lc-sub lc-a lc-bq)]
-                  [table'' result-lc (mk-sub-eval-proof lc-a lc-bq prf-a prf-bq)])))
+            (let [T0 (nth args 0) T1 (nth args 1) T2 (nth args 2)
+                  tw (#'tc/cached-whnf st T0)
+                  tn (when (e/const? tw) (e/const-name tw))]
+              (if (= tn (:nat-name omega-names))
+                (reify-mod-atom st table expr (nth args 4) (nth args 5))
+                (reify-mod-decomp st table (nth args 4) (nth args 5)
+                                  (fn [a b] (mk-hdiv-expr st T0 T1 T2 a b))
+                                  (fn [b d] (mk-hmul-expr st T0 T1 T2 b d)))))
+
+            ;; Nat.mod a b (BARE) → same atom as the HMod spelling above
+            ;; (`intern-atom` keys on cached-whnf, which agrees for both).
+            (and (= head-name (:nat-mod omega-names)) (= 2 (count args)))
+            (reify-mod-atom st table expr (nth args 0) (nth args 1))
 
             ;; Neg.neg α inst a → -a (pre-WHNF to avoid unfolding)
             (and (= head-name (:neg-name omega-names)) (= 3 (count args)))
@@ -987,26 +1122,15 @@
                       (let [[table' idx] (intern-atom table st expr-whnf)]
                         [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)])))
 
-              ;; Ground div/mod
+              ;; Div/mod reached only through WHNF (an unusual spelling). Route through
+              ;; the same helpers as the pre-WHNF clauses so every spelling decides
+              ;; identically — in particular so a symbolic divisor still gets bounds.
                   (and (= head-name (:nat-div omega-names)) (= 2 (count args)))
-                  (let [a-whnf (#'tc/cached-whnf st (nth args 0))
-                        b-whnf (#'tc/cached-whnf st (nth args 1))]
-                    (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-                      (let [bv (e/lit-nat-val b-whnf)
-                            lc (mk-lc (if (zero? bv) 0 (quot (e/lit-nat-val a-whnf) bv)))]
-                        [table lc (mk-eval-rfl-proof lc)])
-                      (let [[table' idx] (intern-atom table st expr-whnf)]
-                        [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)])))
+                  (reify-div-atom st table expr-whnf (nth args 0) (nth args 1)
+                                  (:nat-name omega-names))
 
                   (and (= head-name (:nat-mod omega-names)) (= 2 (count args)))
-                  (let [a-whnf (#'tc/cached-whnf st (nth args 0))
-                        b-whnf (#'tc/cached-whnf st (nth args 1))]
-                    (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-                      (let [bv (e/lit-nat-val b-whnf)
-                            lc (mk-lc (if (zero? bv) (e/lit-nat-val a-whnf) (mod (e/lit-nat-val a-whnf) bv)))]
-                        [table lc (mk-eval-rfl-proof lc)])
-                      (let [[table' idx] (intern-atom table st expr-whnf)]
-                        [table' (lc-coordinate idx) (mk-coordinate-eval-proof idx)])))
+                  (reify-mod-atom st table expr-whnf (nth args 0) (nth args 1))
 
               ;; OfNat.ofNat _ n _ → n
                   (and (= head-name (:ofnat omega-names)) (>= (count args) 2))
@@ -1325,40 +1449,24 @@
                               m-nat i-nat x-coeffs)})
 
     :negate
-    ;; Positivize (mirror lean4 positivize_sat): from inner proof of `s.sat' x v = true`
-    ;; build `(neg s).sat' (neg x) v = true` via Constraint.neg_sat + IntList.dot_neg_left.
-    ;;   neg_sat s (dot x v) pi : sat (neg s) (-(dot x v)) = true
-    ;;   dot_neg_left x v       : dot (neg x) v = -(dot x v)
-    ;; rewrite the argument of `sat (neg s) ·` from `-(dot x v)` to `dot (neg x) v`.
+    ;; Positivize — lean4's `positivize_sat` verbatim:
+    ;;   positivize_sat : s.sat' x v → (positivizeConstraint s x).sat' (positivizeCoeffs s x) v
+    ;; The `:negate` node is emitted by `positivize-fact` exactly when x's leading
+    ;; coefficient is negative, which is precisely when `positivizeConstraint`/
+    ;; `positivizeCoeffs` negate — so the reconstructed constraint agrees with the
+    ;; solver's model by construction.
+    ;;
+    ;; (This used to be hand-rolled from `Constraint.neg_sat` + `IntList.dot_neg_left`,
+    ;; which produced a `Constraint.sat`-shaped statement rather than a `sat'`-shaped
+    ;; one and left every parent step to close the gap by unfolding.)
     (let [inner (extract-proof (:inner justification) atoms-expr assumptions num-vars)
           s-in  (:constraint-ansatz inner)
           x-in  (:coeffs-ansatz inner)
-          pi    (:proof inner)
-          bool-type (e/const' (:bool-name omega-names) [])
-          bool-true (e/const' (:bool-true omega-names) [])
-          dot-x   (e/app* (e/const' (:int-list-dot omega-names) []) x-in atoms-expr)
-          neg-s   (e/app (e/const' (:constraint-neg omega-names) []) s-in)
-          neg-x   (e/app (e/const' (:intlist-neg omega-names) []) x-in)
-          ;; h2 : sat (neg s) (-(dot x v)) = true
-          h2 (e/app* (e/const' (:constraint-neg-sat omega-names) []) s-in dot-x pi)
-          neg-dot  (e/app* (e/const' (:neg-name omega-names) [lvl/zero])
-                           int-type (e/const' (:int-inst-neg omega-names) []) dot-x)
-          dot-negx (e/app* (e/const' (:int-list-dot omega-names) []) neg-x atoms-expr)
-          ;; dot_neg_left x v : dot (neg x) v = -(dot x v)    (a = dot-negx, b = neg-dot)
-          dnl      (e/app* (e/const' (:intlist-dot-neg-left omega-names) []) x-in atoms-expr)
-          dnl-symm (e/app* (e/const' (:eq-symm omega-names) [u1]) int-type dot-negx neg-dot dnl)
-          sat-fn   (e/app (e/const' (:constraint-sat omega-names) []) neg-s)
-          ;; congrArg (sat (neg s)) dnl-symm : sat(neg s)(-(dot x v)) = sat(neg s)(dot (neg x) v)
-          c1 (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
-                     int-type bool-type neg-dot dot-negx sat-fn dnl-symm)
-          sat-negdot  (e/app sat-fn neg-dot)
-          sat-dotnegx (e/app sat-fn dot-negx)
-          c1-symm (e/app* (e/const' (:eq-symm omega-names) [u1]) bool-type sat-negdot sat-dotnegx c1)
-          result  (e/app* (e/const' (name/from-string "Eq.trans") [u1])
-                          bool-type sat-dotnegx sat-negdot bool-true c1-symm h2)]
-      {:proof result
-       :constraint-ansatz neg-s
-       :coeffs-ansatz neg-x})
+          proof (e/app* (e/const' (:positivize-sat omega-names) [])
+                        s-in x-in atoms-expr (:proof inner))]
+      {:proof proof
+       :constraint-ansatz (e/app* (e/const' (:positivize-constraint omega-names) []) s-in x-in)
+       :coeffs-ansatz (e/app* (e/const' (:positivize-coeffs omega-names) []) s-in x-in)})
 
     :normalize
     ;; gcd=0 normalization (lean4 normalize_sat): from inner `s.sat' x v = true` build
@@ -1630,11 +1738,21 @@
      :nat-sub-info {:atom-idx atom-idx :nat-a nat-a :nat-b nat-b}}))
 
 (defn- add-nat-sub-dichotomies
-  "For each Nat.sub atom in the table, queue a dichotomy disjunction."
-  [problem table]
-  (reduce (fn [problem [idx {:keys [a b]}]]
-            (queue-disjunction problem (mk-nat-sub-dichotomy table idx a b)))
-          problem
+  "For each Nat.sub atom in the table, queue a dichotomy disjunction. Returns
+   [table problem].
+
+   IDEMPOTENT (:sub-dichotomies-added), because it has to run more than once: a
+   truncated subtraction can first appear INSIDE a quotient — `(n-1)/3` reifies to
+   a single opaque quotient atom, and the `n-1` sub-atom only gets interned later,
+   while `add-div-bounds` reifies `Nat.div_mul_le_self (n-1) 3`. A single up-front
+   pass therefore misses exactly the dichotomy that goal needs."
+  [table problem]
+  (reduce (fn [[table problem] [idx {:keys [a b]}]]
+            (if (contains? (:sub-dichotomies-added table) idx)
+              [table problem]
+              [(update table :sub-dichotomies-added (fnil conj #{}) idx)
+               (queue-disjunction problem (mk-nat-sub-dichotomy table idx a b))]))
+          [table problem]
           (:nat-sub-atoms table)))
 
 (defn- add-nat-sub-equality
@@ -2520,102 +2638,191 @@
    (:idx->expr table)))
 
 (defn- add-div-bounds
-  "For each div atom (x/k with literal k > 0), add bounds:
-   Nat: (x/k)*k ≤ x  via Nat.div_mul_le_self
-   Int: k*(x/k) ≤ x  via Int.mul_ediv_self_le (needs k ≠ 0)
-        x < k*(x/k)+k via Int.lt_mul_ediv_self_add (needs 0 < k)
-   Feeds through reify-prop for proper proof construction."
+  "Attach the facts that pin down division/modulo atoms — our equivalent of Lean's
+   `analyzeAtom` (Lean/Elab/Tactic/Omega/OmegaM.lean).
+
+   For a quotient atom q = x/k with a literal k > 0:
+     Nat: q*k ≤ x   via Nat.div_mul_le_self
+          x % k < k via Nat.mod_lt        (this interns the remainder atom)
+     Int: k*q ≤ x   via Int.mul_ediv_self_le    (needs k ≠ 0)
+          x < k*q+k via Int.lt_mul_ediv_self_add (needs 0 < k)
+   For a remainder atom r = x % k with a literal k > 0:
+     Nat: r + k*q = x via Nat.mod_add_div       (this interns the quotient atom)
+
+   The Nat quotient and remainder facts are mutually completing: whichever of `/`
+   and `%` the goal mentions, the other atom is interned while reifying the first
+   one's facts and picked up on the next iteration of the fixpoint loop below.
+   Together they give the solver exactly Lean's pair `k*q ≤ x < k*q + k`.
+
+   Everything is stated over the ORIGINAL terms and fed through `reify-prop`, so
+   each fact carries a real, kernel-checkable proof.
+
+   IDEMPOTENT: processed indices are recorded in the table under
+   :div-bounds-added / :mod-bounds-added and skipped. This matters because the
+   function runs once up front in `omega-check` and again from `omega-impl` for
+   every disjunction branch — a quotient that only shows up while reifying a branch
+   hypothesis used to reach the solver as an unconstrained atom.
+
+   NOTE (Int): `Int.mul_ediv_self_le` / `Int.lt_mul_ediv_self_add` are not part of
+   the bundled init-medium slice, so the Int branch throws there and is caught
+   below — Int quotients degrade to unconstrained atoms rather than failing the
+   whole tactic."
   [st table problem]
-  (reduce
-   (fn [[table problem] [idx {:keys [a b type-name expr]}]]
-     (try
-       (let [nat-type (e/const' (:nat-name omega-names) [])
-             k-whnf (#'tc/cached-whnf st b)]
-         (if (= type-name (:nat-name omega-names))
+  (letfn
+   [(add-mod-one [[table problem] [_idx {:keys [a b]}]]
+      (try
+        (let [nat-type (e/const' (:nat-name omega-names) [])
+              hbin (fn [op inst x y]
+                     (e/app* (e/const' (op omega-names) [lvl/zero lvl/zero lvl/zero])
+                             nat-type nat-type nat-type
+                             (e/app* (e/const' (name/from-string inst) [lvl/zero])
+                                     nat-type (e/const' (name/from-string
+                                                         (case inst
+                                                           "instHMod" "Nat.instMod"
+                                                           "instHMul" "instMulNat"
+                                                           "instHAdd" "instAddNat")) []))
+                             x y))
+              mod-expr (hbin :hmod "instHMod" a b)
+              div-expr (mk-hdiv-expr st nat-type nat-type nat-type a b)
+              k-whnf (#'tc/cached-whnf st b)
+              zero-divisor? (and (e/lit-nat? k-whnf) (zero? (e/lit-nat-val k-whnf)))
+              ;; k = 0 : Nat.mod_zero a  : a % 0 = a
+              ;;         (Nat.mod_add_div would state `a % 0 + 0 * (a / 0) = a`, whose
+              ;;          `0 * (a / 0)` is STUCK — Nat.mul recurses on its second argument —
+              ;;          so its eval proof cannot be bridged.)
+              ;; k > 0 : Nat.mod_add_div a k : a % k + k * (a / k) = a
+              eq-type (e/app* (e/const' (:eq-name omega-names) [u1])
+                              nat-type
+                              (if zero-divisor?
+                                mod-expr
+                                (hbin :hadd "instHAdd" mod-expr (hbin :hmul "instHMul" b div-expr)))
+                              a)
+              eq-proof (if zero-divisor?
+                         (e/app (e/const' (:nat-mod-zero omega-names) []) a)
+                         (e/app* (e/const' (:nat-mod-add-div omega-names) []) a b))]
+          (reify-prop st table problem eq-type eq-proof))
+        (catch Exception _ [table problem])))
+    (add-one [[table problem] [idx {:keys [a b type-name expr]}]]
+      ;; Mark FIRST: reifying the bounds can itself intern atoms, and a re-entrant
+      ;; visit of the same index would duplicate the constraints.
+      (let [table (update table :div-bounds-added (fnil conj #{}) idx)]
+        (try
+          (let [nat-type (e/const' (:nat-name omega-names) [])
+                k-whnf (#'tc/cached-whnf st b)]
+            (if (= type-name (:nat-name omega-names))
            ;; Nat: Nat.div_mul_le_self m n : m / n * n ≤ m
            ;; This is LE.le Nat instLENat (HMul ... (HDiv ... a b) b) a
-           (let [div-mul (e/app* (e/const' (:hmul omega-names) [lvl/zero lvl/zero lvl/zero])
-                                 nat-type nat-type nat-type
-                                 (e/app* (e/const' (name/from-string "instHMul") [lvl/zero])
-                                         nat-type (e/const' (name/from-string "instMulNat") []))
-                                 expr b)
-                 le-type (e/app* (e/const' (:le-name omega-names) [lvl/zero])
-                                 nat-type (e/const' (:inst-le-nat omega-names) [])
-                                 div-mul a)
-                 le-proof (e/app* (e/const' (:nat-div-mul-le-self omega-names) []) a b)
-                 [table' problem'] (reify-prop st table problem le-type le-proof)
-                 ;; Also add upper bound: a % k < k  via Nat.mod_lt a (pos-proof : 0 < k)
-                 ;; This gives the constraint: a - k*(a/k) < k, i.e., a - k*q < k
-                 k-val (e/lit-nat-val k-whnf)
-                 mod-expr (e/app* (e/const' (:hmod omega-names) [lvl/zero lvl/zero lvl/zero])
-                                  nat-type nat-type nat-type
-                                  (e/app* (e/const' (name/from-string "instHMod") [lvl/zero])
-                                          nat-type (e/const' (name/from-string "Nat.instMod") []))
-                                  a b)
-                 lt-type (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
-                                 nat-type (e/const' (:inst-lt-nat omega-names) [])
-                                 mod-expr b)
-                 ;; Proof: Nat.mod_lt a (pos : 0 < k)
-                 ;; Need to construct 0 < k proof. For ground k, use decide.
-                 pos-prop (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
-                                  nat-type (e/const' (:inst-lt-nat omega-names) [])
-                                  (e/lit-nat 0) b)
-                 pos-dec (e/app (e/const' (:classical-prop-dec omega-names) []) pos-prop)
-                 pos-refl (e/app* (e/const' (:eq-refl omega-names) [(lvl/succ lvl/zero)])
-                                  (e/const' (:bool-name omega-names) [])
-                                  (e/const' (:bool-true omega-names) []))
-                 pos-proof (e/app* (e/const' (name/from-string "of_decide_eq_true") [])
-                                   pos-prop pos-dec pos-refl)
-                 lt-proof (e/app* (e/const' (:nat-mod-lt omega-names) []) a b pos-proof)]
-             (reify-prop st table' problem' lt-type lt-proof))
+              (let [div-mul (e/app* (e/const' (:hmul omega-names) [lvl/zero lvl/zero lvl/zero])
+                                    nat-type nat-type nat-type
+                                    (e/app* (e/const' (name/from-string "instHMul") [lvl/zero])
+                                            nat-type (e/const' (name/from-string "instMulNat") []))
+                                    expr b)
+                    le-type (e/app* (e/const' (:le-name omega-names) [lvl/zero])
+                                    nat-type (e/const' (:inst-le-nat omega-names) [])
+                                    div-mul a)
+                    le-proof (e/app* (e/const' (:nat-div-mul-le-self omega-names) []) a b)
+                    [table' problem'] (reify-prop st table problem le-type le-proof)
+                 ;; Also add the upper bound `a % k < k` via Nat.mod_lt. Reifying it interns
+                 ;; the remainder atom r, which `add-mod-one` then ties to a and q with
+                 ;; Nat.mod_add_div — together they say `a < k*q + k`.
+                    mod-expr (e/app* (e/const' (:hmod omega-names) [lvl/zero lvl/zero lvl/zero])
+                                     nat-type nat-type nat-type
+                                     (e/app* (e/const' (name/from-string "instHMod") [lvl/zero])
+                                             nat-type (e/const' (name/from-string "Nat.instMod") []))
+                                     a b)
+                    lt-type (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
+                                    nat-type (e/const' (:inst-lt-nat omega-names) [])
+                                    mod-expr b)
+                 ;; Proof: Nat.mod_lt a (pos : 0 < k).
+                 ;; `k` is a literal here, so `0 < k` is proved by kernel evaluation:
+                 ;;   of_decide_eq_true (0 < k) (Nat.decLt 0 k) (Eq.refl Bool Bool.true)
+                 ;; The instance MUST be the computable `Nat.decLt` — with
+                 ;; `Classical.propDecidable` the `decide` application is stuck on the
+                 ;; `Classical.choice` axiom, never reduces to `Bool.true`, and the
+                 ;; kernel rejects the `Eq.refl` (see :classical-prop-dec above).
+                    pos-prop (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
+                                     nat-type (e/const' (:inst-lt-nat omega-names) [])
+                                     (e/lit-nat 0) b)
+                    pos-dec (e/app* (e/const' (:nat-dec-lt omega-names) []) (e/lit-nat 0) b)
+                    pos-refl (e/app* (e/const' (:eq-refl omega-names) [(lvl/succ lvl/zero)])
+                                     (e/const' (:bool-name omega-names) [])
+                                     (e/const' (:bool-true omega-names) []))
+                    pos-proof (e/app* (e/const' (:of-decide-eq-true omega-names) [])
+                                      pos-prop pos-dec pos-refl)
+                    lt-proof (e/app* (e/const' (:nat-mod-lt omega-names) []) a b pos-proof)]
+                (reify-prop st table' problem' lt-type lt-proof))
            ;; Int: feed bounds through reify-prop
            ;; Int.mul_ediv_self_le {x k} (h : k ≠ 0) : k*(x/k) ≤ x
            ;; Int.lt_mul_ediv_self_add {x k} (h : 0 < k) : x < k*(x/k)+k
-           (let [k-int (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat (e/lit-nat-val k-whnf)))
+              (let [k-int (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat (e/lit-nat-val k-whnf)))
                  ;; For Int, k needs to be Int literal, build ne-proof and pos-proof via decide
-                 ne-zero-prop (e/app* (e/const' (:ne-name omega-names) [u1])
-                                      int-type k-int
-                                      (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)))
-                 ;; Use of_decide_eq_true for ground propositions
-                 ne-dec (e/app (e/const' (:classical-prop-dec omega-names) []) ne-zero-prop)
-                 ne-refl (e/app* (e/const' (:eq-refl omega-names) [(lvl/succ lvl/zero)])
-                                 (e/const' (:bool-name omega-names) [])
-                                 (e/const' (:bool-true omega-names) []))
-                 ne-proof (e/app* (e/const' (name/from-string "of_decide_eq_true") [])
-                                  ne-zero-prop ne-dec ne-refl)
+                    ne-zero-prop (e/app* (e/const' (:ne-name omega-names) [u1])
+                                         int-type k-int
+                                         (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)))
+                 ;; Use of_decide_eq_true for ground propositions — again with a
+                 ;; COMPUTABLE instance: Ne x y ≡ ¬(x = y), so
+                 ;; instDecidableNot (Int.decEq k 0) : Decidable (k ≠ 0).
+                    ne-dec (e/app* (e/const' (name/from-string "instDecidableNot") [])
+                                   (e/app* (e/const' (:eq-name omega-names) [u1])
+                                           int-type k-int
+                                           (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)))
+                                   (e/app* (e/const' (name/from-string "Int.decEq") [])
+                                           k-int
+                                           (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0))))
+                    ne-refl (e/app* (e/const' (:eq-refl omega-names) [(lvl/succ lvl/zero)])
+                                    (e/const' (:bool-name omega-names) [])
+                                    (e/const' (:bool-true omega-names) []))
+                    ne-proof (e/app* (e/const' (:of-decide-eq-true omega-names) [])
+                                     ne-zero-prop ne-dec ne-refl)
                  ;; k*(x/k) ≤ x
-                 mul-div (e/app* (e/const' (:hmul omega-names) [lvl/zero lvl/zero lvl/zero])
-                                 int-type int-type int-type
-                                 (e/app* (e/const' (name/from-string "instHMul") [lvl/zero])
-                                         int-type (e/const' (name/from-string "Int.instMul") []))
-                                 k-int expr)
-                 le-type (e/app* (e/const' (:le-name omega-names) [lvl/zero])
-                                 int-type (e/const' (:int-inst-le omega-names) [])
-                                 mul-div a)
-                 le-proof (e/app* (e/const' (:int-mul-ediv-self-le omega-names) [])
-                                  a k-int ne-proof)
-                 [table' problem'] (reify-prop st table problem le-type le-proof)
+                    mul-div (e/app* (e/const' (:hmul omega-names) [lvl/zero lvl/zero lvl/zero])
+                                    int-type int-type int-type
+                                    (e/app* (e/const' (name/from-string "instHMul") [lvl/zero])
+                                            int-type (e/const' (name/from-string "Int.instMul") []))
+                                    k-int expr)
+                    le-type (e/app* (e/const' (:le-name omega-names) [lvl/zero])
+                                    int-type (e/const' (:int-inst-le omega-names) [])
+                                    mul-div a)
+                    le-proof (e/app* (e/const' (:int-mul-ediv-self-le omega-names) [])
+                                     a k-int ne-proof)
+                    [table' problem'] (reify-prop st table problem le-type le-proof)
                  ;; x < k*(x/k) + k
-                 pos-prop (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
-                                  int-type (e/const' (:int-inst-lt omega-names) [])
-                                  (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)) k-int)
-                 pos-dec (e/app (e/const' (:classical-prop-dec omega-names) []) pos-prop)
-                 pos-proof (e/app* (e/const' (name/from-string "of_decide_eq_true") [])
-                                   pos-prop pos-dec ne-refl)
-                 mul-div-plus-k (e/app* (e/const' (:hadd omega-names) [lvl/zero lvl/zero lvl/zero])
-                                        int-type int-type int-type
-                                        (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
-                                                int-type (e/const' (name/from-string "Int.instAdd") []))
-                                        mul-div k-int)
-                 lt-type (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
-                                 int-type (e/const' (:int-inst-lt omega-names) [])
-                                 a mul-div-plus-k)
-                 lt-proof (e/app* (e/const' (:int-lt-mul-ediv-self-add omega-names) [])
-                                  a k-int pos-proof)]
-             (reify-prop st table' problem' lt-type lt-proof))))
-       (catch Exception _ [table problem])))
-   [table problem]
-   (:div-atoms table)))
+                    pos-prop (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
+                                     int-type (e/const' (:int-inst-lt omega-names) [])
+                                     (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)) k-int)
+                    pos-dec (e/app* (e/const' (name/from-string "Int.decLt") [])
+                                    (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0))
+                                    k-int)
+                    pos-proof (e/app* (e/const' (:of-decide-eq-true omega-names) [])
+                                      pos-prop pos-dec ne-refl)
+                    mul-div-plus-k (e/app* (e/const' (:hadd omega-names) [lvl/zero lvl/zero lvl/zero])
+                                           int-type int-type int-type
+                                           (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
+                                                   int-type (e/const' (name/from-string "Int.instAdd") []))
+                                           mul-div k-int)
+                    lt-type (e/app* (e/const' (:lt-name omega-names) [lvl/zero])
+                                    int-type (e/const' (:int-inst-lt omega-names) [])
+                                    a mul-div-plus-k)
+                    lt-proof (e/app* (e/const' (:int-lt-mul-ediv-self-add omega-names) [])
+                                     a k-int pos-proof)]
+                (reify-prop st table' problem' lt-type lt-proof))))
+          (catch Exception _ [table problem]))))]
+    ;; Reifying one atom's facts surfaces further atoms (the quotient of a remainder
+    ;; and vice versa, or a quotient inside a dividend), so iterate to a fixpoint
+    ;; rather than making a single pass.
+    (loop [table table, problem problem, fuel 8]
+      (let [div-pending (remove (fn [[idx _]] (contains? (:div-bounds-added table) idx))
+                                (:div-atoms table))
+            mod-pending (remove (fn [[idx _]] (contains? (:mod-bounds-added table) idx))
+                                (:mod-atoms table))]
+        (if (or (and (empty? div-pending) (empty? mod-pending)) (zero? fuel))
+          [table problem]
+          (let [table (reduce (fn [t [idx _]]
+                                (update t :mod-bounds-added (fnil conj #{}) idx))
+                              table mod-pending)
+                [table' problem'] (reduce add-one [table problem] div-pending)
+                [table'' problem''] (reduce add-mod-one [table' problem'] mod-pending)]
+            (recur table'' problem'' (dec fuel))))))))
 
 (defn- omega-impl
   "Recursive omega implementation: run solver, then process disjunctions.
@@ -2624,8 +2831,14 @@
   [st table problem depth]
   (when (> depth 10)
     (throw (ex-info "omega: disjunction depth exceeded" {})))
-  ;; Ensure Nat nonnegativity for any atoms added during disjunction branch processing
-  (let [problem (add-nat-nonnegativity st table problem)]
+  ;; Ensure Nat nonnegativity AND division bounds for any atoms discovered while
+  ;; reifying a disjunction branch hypothesis. `add-nat-nonnegativity` was already
+  ;; re-run per branch; `add-div-bounds` was not, so a quotient that only appears
+  ;; inside a branch (e.g. under a Nat.sub dichotomy) used to reach the solver as an
+  ;; unconstrained atom. `add-div-bounds` is idempotent, so re-running is safe.
+  (let [problem (add-nat-nonnegativity st table problem)
+        [table problem] (add-div-bounds st table problem)
+        [table problem] (add-nat-sub-dichotomies table problem)]
     (let [[table result] (run-omega-solver table problem)]
       (when (System/getProperty "omega.trace")
         (println (str "  solver: possible=" (:possible result)
@@ -2723,9 +2936,12 @@
                         ;; No disjunction — negated IS the problem with constraints added
                          negated)
           nn-problem (add-nat-nonnegativity st table base-problem)
-          dichotomy-problem (add-nat-sub-dichotomies nn-problem table)
-          [table' ready-problem] (add-div-bounds st table dichotomy-problem)]
-      (omega-impl st table' ready-problem 0))))
+          ;; div/mod facts BEFORE the Nat.sub dichotomies: reifying `x/k`'s bounds
+          ;; can intern a truncated subtraction hiding in the dividend, and that
+          ;; sub-atom still needs its dichotomy.
+          [table' bounded-problem] (add-div-bounds st table nn-problem)
+          [table'' ready-problem] (add-nat-sub-dichotomies table' bounded-problem)]
+      (omega-impl st table'' ready-problem 0))))
 
 (declare build-false-proof-from-result)
 
@@ -2947,8 +3163,8 @@
                        (queue-disjunction problem (:disjunction negated))
                        negated)
         nn-problem (add-nat-nonnegativity st' table base-problem)
-        dichotomy-problem (add-nat-sub-dichotomies nn-problem table)
-        [table ready-problem] (add-div-bounds st' table dichotomy-problem)]
+        [table bounded-problem] (add-div-bounds st' table nn-problem)
+        [table ready-problem] (add-nat-sub-dichotomies table bounded-problem)]
     {:st st'
      :table table
      :problem ready-problem
