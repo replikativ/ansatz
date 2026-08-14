@@ -180,8 +180,11 @@
      ;; Int negation lemmas (Iffs, use with Iff.mp)
      :int-not-lt             (n "Int.not_lt")   ;; ¬(a < b) ↔ (b ≤ a)
      :int-not-le             (n "Int.not_le")   ;; ¬(a ≤ b) ↔ (b < a)
-     ;; ¬(P ∧ Q) → ¬P ∨ ¬Q
-     :not-and-or             (n "not_and_or")
+     ;; ¬(P ∧ Q) → ¬P ∨ ¬Q. Lean core spells this `Classical.not_and_iff_not_or_not`
+     ;; ({a b : Prop}, no instance) — `not_and_or` is the MATHLIB name and does not
+     ;; exist in Init. The `Decidable.` variant would additionally want a
+     ;; `[Decidable a]`; the Classical one is the drop-in.
+     :not-and-or             (n "Classical.not_and_iff_not_or_not")
      ;; ¬(P ∨ Q) → ¬P ∧ ¬Q
      :not-or                 (n "not_or")
      :and-left               (n "And.left")
@@ -197,11 +200,17 @@
      :int-emod-pos-of-not-dvd (n "Int.emod_pos_of_not_dvd")   ;; ¬(a ∣ b) → a = 0 ∨ 0 < b % a
      ;; Iff
      :iff-name               (n "Iff")
-     :dec-not-iff            (n "Decidable.not_iff") ;; {b a} [dec a] : ¬(a ↔ b) ↔ (¬a ↔ b)
-     :iff-iff-and-or         (n "iff_iff_and_or_not_and_not") ;; (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q))
+     :dec-not-iff            (n "Decidable.not_iff") ;; {b} {a} [dec b] : ¬(a ↔ b) ↔ (¬a ↔ b)
+     ;; (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q)). Core has ONLY the Decidable form —
+     ;; `Decidable.iff_iff_and_or_not_and_not {a b : Prop} [Decidable b]` — so unlike
+     ;; the ∧/→ cases there is no instance-free drop-in and the call site must supply
+     ;; a `Decidable Q`. (`iff_iff_and_or_not_and_not` is the Mathlib name.)
+     :iff-iff-and-or         (n "Decidable.iff_iff_and_or_not_and_not")
      ;; Implication
      :not-or-of-imp          (n "Decidable.not_or_of_imp") ;; (P → Q) → ¬P ∨ Q
-     :not-imp                (n "not_imp")                 ;; ¬(P → Q) ↔ (P ∧ ¬Q)
+     ;; ¬(P → Q) ↔ (P ∧ ¬Q). Core name is `Classical.not_imp` ({a b : Prop}, no
+     ;; instance); bare `not_imp` is Mathlib's.
+     :not-imp                (n "Classical.not_imp")
      ;; Neg.neg
      :neg-name               (n "Neg.neg")
      :int-inst-neg           (n "Int.instNegInt")
@@ -215,8 +224,12 @@
      ;; Dvd proof terms
      :nat-mod-eq-zero-of-dvd (n "Nat.mod_eq_zero_of_dvd")  ;; m ∣ n → n % m = 0
      :nat-emod-pos-of-not-dvd (n "Nat.emod_pos_of_not_dvd") ;; ¬(m ∣ n) → 0 < n % m
-     ;; Int.ofNat cast lemma
-     :int-ofnat-eq-zero      (n "Int.ofNat.eq_def")   ;; helper
+     ;; Int.ofNat cast lemma. `Int.ofNat` is a CONSTRUCTOR, so it has no `.eq_def`
+     ;; equation lemma — the old `Int.ofNat.eq_def` spelling could never resolve in any
+     ;; store. The real core constant is `Int.ofNat_eq_natCast (n : Nat) : Int.ofNat n = ↑n`.
+     ;; Currently unreferenced (`nat-to-int` builds the cast directly); kept so the name
+     ;; in this table is the one that exists.
+     :int-ofnat-eq-natcast   (n "Int.ofNat_eq_natCast")
      :nat-cast-nonneg        (n "Int.natCast_nonneg")
      ;; min / max (see `reify-min-max`). There is no `Nat.min_def` in the bundled
      ;; slice, so we do not lean on per-type `min_def` lemmas at all: both `Min Nat`
@@ -1623,13 +1636,18 @@
           p-eq-prop (e/app* (e/const' (:eq-name omega-names) [u1])
                             int-type get-vi bmod-div)
           p-refl (e/app* (e/const' (:eq-refl omega-names) [u1]) int-type get-vi)
-          ;; bmod result: (exact (bmod r m)).sat' (bmod_coeffs m i x) v
+          ;; bmod result: (exact (Int.bmod r m)).sat' (bmod_coeffs m i x) v
           new-r (int-bmod r m)]
       {:proof (e/app* (e/const' (:bmod-sat omega-names) [])
                       m-nat r-int i-nat x-coeffs atoms-expr
                       h-le p-refl (:proof inner-r))
-       :constraint-ansatz (to-lean-constraint (constraint-exact (- new-r)))
-       :coeffs-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Coeffs.bmod_coeffs") [])
+       :constraint-ansatz (to-lean-constraint (constraint-exact new-r))
+       ;; `Lean.Omega.bmod_coeffs (m i : Nat) (x : Coeffs) : Coeffs` — the name
+       ;; `bmod_sat`'s own conclusion uses. It is NOT in the `Coeffs` namespace
+       ;; (`Lean.Omega.Coeffs.bmod_coeffs` does not exist), and naming it wrongly here
+       ;; made every bmod justification build an unresolvable term, which the caller
+       ;; swallowed — the whole hard-equality route was dead.
+       :coeffs-ansatz (e/app* (e/const' (:bmod-coeffs omega-names) [])
                               m-nat i-nat x-coeffs)})
 
     :negate
@@ -2381,7 +2399,8 @@
 (defn- reify-prop-forall
   "Handle forall-based propositions that try-match-head can't detect:
    - P → Q (implication): convert to ¬P ∨ Q via Decidable.not_or_of_imp
-   - P ↔ Q (Iff): convert to (P ∧ Q) ∨ (¬P ∧ ¬Q) via iff_iff_and_or_not_and_not"
+   - P ↔ Q (Iff): convert to (P ∧ Q) ∨ (¬P ∧ ¬Q) via
+     Decidable.iff_iff_and_or_not_and_not"
   [st table problem prop hyp-proof]
   (let [whnf (#'tc/cached-whnf st prop)]
     (cond
@@ -2426,7 +2445,7 @@
 
 (defn- reify-prop-iff
   "Handle positive Iff: (P ↔ Q) → (P ∧ Q) ∨ (¬P ∧ ¬Q)
-   via Iff.mp iff_iff_and_or_not_and_not"
+   via Iff.mp Decidable.iff_iff_and_or_not_and_not"
   [st table problem prop hyp-proof]
   (let [matched (try-match-head st prop)
         [head-name _head-levels args] matched]
@@ -2438,15 +2457,21 @@
             ;; (P ∧ Q) ∨ (¬P ∧ ¬Q)
             left-type (e/app* (e/const' (:and-name omega-names) []) p-arg q-arg)
             right-type (e/app* (e/const' (:and-name omega-names) []) not-p not-q)
-            ;; iff_iff_and_or_not_and_not {P Q : Prop} : (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q))
-            ;; Takes only 2 implicit args, no Decidable instances
+            ;; Decidable.iff_iff_and_or_not_and_not {P Q : Prop} [Decidable Q] :
+            ;;   (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q))
+            ;; Core carries only the Decidable form, so the instance is explicit here.
+            ;; `Classical.propDecidable` is fine: the instance is consumed inside the
+            ;; lemma's own proof, never under an `of_decide_eq_true` where its
+            ;; noncomputability would leave `decide` stuck (see :classical-prop-dec).
             iff-prop (e/app* (e/const' (:iff-name omega-names) []) p-arg q-arg)
             or-type (e/app* (e/const' (:or-name omega-names) []) left-type right-type)
             or-proof (when hyp-proof
                        (e/app* (e/const' (:iff-mp omega-names) [])
                                iff-prop or-type
                                (e/app* (e/const' (:iff-iff-and-or omega-names) [])
-                                       p-arg q-arg)
+                                       p-arg q-arg
+                                       (e/app (e/const' (:classical-prop-dec omega-names) [])
+                                              q-arg))
                                hyp-proof))]
         [table (queue-disjunction problem
                                   {:or-proof or-proof
@@ -2679,14 +2704,16 @@
                 proof-fn (mk-ineq-proof-fn pushed-proof gt-a gt-b diff diff-prf type-name)]
             [table'' (add-inequality problem (:const diff) (:coeffs diff) proof-fn)])
 
-          ;; Goal: And P Q → ¬(P ∧ Q): split into ¬P ∨ ¬Q via not_and_or
+          ;; Goal: And P Q → ¬(P ∧ Q): split into ¬P ∨ ¬Q via
+          ;; Classical.not_and_iff_not_or_not
           (and (= head-name (:and-name omega-names)) (= 2 (count args)))
           (let [p-arg (nth args 0) q-arg (nth args 1)
                 not-const (e/const' (:not-name omega-names) [])
-                ;; ¬P and ¬Q types (using Not constant for consistency with not_and_or)
+                ;; ¬P and ¬Q types (Not constant, matching the lemma's statement)
                 not-p (e/app not-const p-arg)
                 not-q (e/app not-const q-arg)
-                ;; Iff.mp (@not_and_or P Q) hyp-proof : ¬P ∨ ¬Q
+                ;; Iff.mp (@Classical.not_and_iff_not_or_not P Q) hyp-proof : ¬P ∨ ¬Q
+                ;; (implicit {a b : Prop} only — no Decidable argument)
                 and-pq (e/app* (e/const' (:and-name omega-names) []) p-arg q-arg)
                 neg-and (e/app not-const and-pq)
                 or-neg (e/app* (e/const' (:or-name omega-names) []) not-p not-q)
@@ -2743,8 +2770,14 @@
               [table'' problem'']))
 
           ;; Goal: Iff P Q → ¬(P ↔ Q): convert to (¬P ↔ Q) via Decidable.not_iff
-          ;; then feed as positive Iff hypothesis
-          ;; Decidable.not_iff {Q P} [dec P] : ¬(P ↔ Q) ↔ (¬P ↔ Q)
+          ;; then feed as positive Iff hypothesis.
+          ;; Decidable.not_iff : {b : Prop} → {a : Prop} → [Decidable b] →
+          ;;                     (¬(a ↔ b) ↔ (¬a ↔ b))
+          ;; so applied as `@Decidable.not_iff Q P (inst : Decidable Q)` — note the
+          ;; instance is on the SECOND-applied proposition (`b`, i.e. Q), not on P.
+          ;; This used to pass `Decidable P` and had never been caught, because
+          ;; `Decidable.not_iff` was absent from the previous bundled store and this
+          ;; whole branch died at constant lookup before the kernel could object.
           (and (= head-name (:iff-name omega-names)) (= 2 (count args)))
           (let [p-arg (nth args 0) q-arg (nth args 1)
                 not-const (e/const' (:not-name omega-names) [])
@@ -2758,7 +2791,7 @@
                                             neg-iff not-p-iff-q
                                             (e/app* (e/const' (:dec-not-iff omega-names) [])
                                                     q-arg p-arg
-                                                    (e/app (e/const' (:classical-prop-dec omega-names) []) p-arg))
+                                                    (e/app (e/const' (:classical-prop-dec omega-names) []) q-arg))
                                             hyp-proof))]
             ;; Feed (¬P ↔ Q) as a positive Iff through reify-prop-iff
             (reify-prop-iff st table problem not-p-iff-q not-p-iff-q-proof))
@@ -2843,7 +2876,7 @@
 
 (defn- negate-goal-forall
   "Handle negation of forall-based goals that try-match-head can't detect:
-   ¬(P → Q) → P ∧ ¬Q via not_imp"
+   ¬(P → Q) → P ∧ ¬Q via Classical.not_imp"
   [st table problem goal-type hyp-proof]
   (let [whnf (#'tc/cached-whnf st goal-type)]
     (if (and (e/forall? whnf) (= :default (e/forall-info whnf)))
@@ -2860,14 +2893,14 @@
         (if is-dependent
           ;; Dependent forall — not an implication, bail
           [table problem]
-          ;; ¬(P → Q): gives P ∧ ¬Q via Iff.mp not_imp
-          ;; not_imp {P Q : Prop} : ¬(P → Q) ↔ (P ∧ ¬Q) — no Decidable needed
+          ;; ¬(P → Q): gives P ∧ ¬Q via Iff.mp Classical.not_imp
+          ;; Classical.not_imp {P Q : Prop} : ¬(P → Q) ↔ (P ∧ ¬Q) — no Decidable needed
           (let [not-const (e/const' (:not-name omega-names) [])
                 not-q (e/app not-const q-type)
                 imp-prop (e/forall' "_" p-type (e/abstract1 q-type fv-id) :default)
                 neg-imp (e/app not-const imp-prop)
                 and-type (e/app* (e/const' (:and-name omega-names) []) p-type not-q)
-                ;; Iff.mp (not_imp) hyp : P ∧ ¬Q
+                ;; Iff.mp (Classical.not_imp) hyp : P ∧ ¬Q
                 and-proof (when hyp-proof
                             (e/app* (e/const' (:iff-mp omega-names) [])
                                     neg-imp and-type
@@ -2949,6 +2982,12 @@
    problem
    (:idx->expr table)))
 
+(def ^:dynamic *strict-div-bounds*
+  "When true, `add-div-bounds` rethrows instead of quietly degrading a quotient to an
+   unconstrained atom. Tests and debugging only — the tactic must stay total in normal
+   use, because plenty of divisors genuinely cannot be bounded."
+  false)
+
 (defn- add-div-bounds
   "Attach the facts that pin down division/modulo atoms — our equivalent of Lean's
    `analyzeAtom` (Lean/Elab/Tactic/Omega/OmegaM.lean).
@@ -2975,10 +3014,16 @@
    every disjunction branch — a quotient that only shows up while reifying a branch
    hypothesis used to reach the solver as an unconstrained atom.
 
-   NOTE (Int): `Int.mul_ediv_self_le` / `Int.lt_mul_ediv_self_add` are not part of
-   the bundled init-medium slice, so the Int branch throws there and is caught
-   below — Int quotients degrade to unconstrained atoms rather than failing the
-   whole tactic."
+   NOTE (Int): `Int.mul_ediv_self_le` / `Int.lt_mul_ediv_self_add` ARE in the bundled
+   store, so the Int branch is live. It still runs under the `try` below: a divisor
+   that is not a ground non-negative literal, or an unexpected spelling, degrades the
+   quotient to an unconstrained atom rather than failing the whole tactic.
+
+   Bind `*strict-div-bounds*` to rethrow instead of degrading. Both of the bugs this
+   function has shipped — a missing store constant, then an Int divisor read as a raw
+   Nat literal — presented identically to a divisor omega legitimately declines to
+   bound, i.e. as `could not derive contradiction` with no clue attached. Reach for
+   this before concluding that a lemma is absent."
   [st table problem]
   (letfn
    [(add-mod-one [[table problem] [_idx {:keys [a b]}]]
@@ -3013,14 +3058,15 @@
                          (e/app (e/const' (:nat-mod-zero omega-names) []) a)
                          (e/app* (e/const' (:nat-mod-add-div omega-names) []) a b))]
           (reify-prop st table problem eq-type eq-proof))
-        (catch Exception _ [table problem])))
+        (catch Exception ex
+          (when *strict-div-bounds* (throw ex))
+          [table problem])))
     (add-one [[table problem] [idx {:keys [a b type-name expr]}]]
       ;; Mark FIRST: reifying the bounds can itself intern atoms, and a re-entrant
       ;; visit of the same index would duplicate the constraints.
       (let [table (update table :div-bounds-added (fnil conj #{}) idx)]
         (try
-          (let [nat-type (e/const' (:nat-name omega-names) [])
-                k-whnf (#'tc/cached-whnf st b)]
+          (let [nat-type (e/const' (:nat-name omega-names) [])]
             (if (= type-name (:nat-name omega-names))
            ;; Nat: Nat.div_mul_le_self m n : m / n * n ≤ m
            ;; This is LE.le Nat instLENat (HMul ... (HDiv ... a b) b) a
@@ -3066,8 +3112,17 @@
            ;; Int: feed bounds through reify-prop
            ;; Int.mul_ediv_self_le {x k} (h : k ≠ 0) : k*(x/k) ≤ x
            ;; Int.lt_mul_ediv_self_add {x k} (h : 0 < k) : x < k*(x/k)+k
-              (let [k-int (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat (e/lit-nat-val k-whnf)))
-                 ;; For Int, k needs to be Int literal, build ne-proof and pos-proof via decide
+              (let [;; Use the divisor EXACTLY as the goal spells it. `reify-div-atom` only
+                    ;; tags an atom when `ground-int-val b` is a positive literal, so `b` is
+                    ;; ground here — but it may be `Int.ofNat 2`, `@OfNat.ofNat Int 2 _`, …,
+                    ;; and only the goal's own spelling keeps `k * expr` reifying against the
+                    ;; same atom as `expr`. The previous `(e/lit-nat-val k-whnf)` assumed a
+                    ;; RAW Nat literal, which an Int divisor never is: it returned nil, the
+                    ;; whole branch threw into the `catch` below, and every Int quotient
+                    ;; silently reached the solver unconstrained. That looked exactly like the
+                    ;; missing-lemma gap it was blamed on.
+                    k-int b
+                 ;; ne-proof and pos-proof for the two side conditions, via decide
                     ne-zero-prop (e/app* (e/const' (:ne-name omega-names) [u1])
                                          int-type k-int
                                          (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)))
@@ -3118,7 +3173,9 @@
                     lt-proof (e/app* (e/const' (:int-lt-mul-ediv-self-add omega-names) [])
                                      a k-int pos-proof)]
                 (reify-prop st table' problem' lt-type lt-proof))))
-          (catch Exception _ [table problem]))))]
+          (catch Exception ex
+            (when *strict-div-bounds* (throw ex))
+            [table problem]))))]
     ;; Reifying one atom's facts surfaces further atoms (the quotient of a remainder
     ;; and vice versa, or a quotient inside a dividend), so iterate to a fixpoint
     ;; rather than making a single pass.

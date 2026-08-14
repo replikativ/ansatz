@@ -62,10 +62,11 @@
    "Nat.mul_two"])
 
 (def ^:private core-spellings
-  "omega_proof.clj also references five names that do not exist in Lean core's `Init` under
-   those spellings — they are Mathlib spellings or typos (`not_and_or`, `not_imp`,
-   `iff_iff_and_or_not_and_not`, `Int.ofNat.eq_def`, `Lean.Omega.Coeffs.bmod_coeffs`). The
-   store ships the correct core constants, so fixing those references is a pure rename."
+  "omega_proof.clj USED to reference five names that do not exist in Lean core's `Init`
+   under those spellings — Mathlib spellings or typos (`not_and_or`, `not_imp`,
+   `iff_iff_and_or_not_and_not`, `Int.ofNat.eq_def`, `Lean.Omega.Coeffs.bmod_coeffs`). It
+   now names the core constants below; `ansatz.tactic.omega-constants-test` is what pins
+   that down, and this list keeps the store side of the bargain."
   ["Decidable.not_and_iff_not_or_not"
    "Classical.not_and_iff_not_or_not"
    "Classical.not_imp"

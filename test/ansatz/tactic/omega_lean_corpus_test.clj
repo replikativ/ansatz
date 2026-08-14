@@ -9,10 +9,11 @@
    proof-producing engine (`ansatz.tactic.omega-proof/omega`) directly would hide
    the front-end gate, which is exactly where regressions live.
 
-   Environment: the bundled `init-medium` slice (2997 declarations), NOT Mathlib.
-   omega's proof reconstruction depends on `Init.Omega`, so the whole corpus must
-   run on the bundled env; anything that needs a constant absent from init-medium
-   is called out explicitly below rather than silently skipped.
+   Environment: the Init tier ansatz SHIPS — resources/ansatz/init-medium.ndjson.gz,
+   the dependency closure of scripts/init-store-roots.txt — NOT Mathlib, and NOT a
+   `test-data/` fixture. omega's proof reconstruction depends on `Init.Omega`, so the
+   whole corpus must run on that env; anything it still cannot decide is called out
+   explicitly below rather than silently skipped.
 
    Out of scope here (matching what the tactic does not implement): `Fin`,
    `BitVec`, `min`/`max`, if-then-else splitting, `Int.natAbs`, `Int.toNat`,
@@ -33,15 +34,16 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.omega :as omega]))
+            [ansatz.tactic.omega :as omega]
+            ;; for *strict-div-bounds* — see int-div-bounds-are-emitted
+            [ansatz.tactic.omega-proof :as omega-proof]))
 
 ;; ============================================================
 ;; Environment
 ;; ============================================================
 
 (defn- require-env []
-  (or @test-env/init-medium-env
-      (throw (ex-info "init-medium.ndjson / init-medium-store not found — cannot run the omega corpus" {}))))
+  @test-env/bundled-init-env)
 
 ;; ============================================================
 ;; Expression builders
@@ -102,6 +104,8 @@
 (defn- p-not [p] (e/app (c "Not") p))
 (defn- p-and [p q] (e/app* (c "And") p q))
 (defn- p-or  [p q] (e/app* (c "Or") p q))
+(defn- p-imp [p q] (e/arrow p q))
+(defn- p-iff [p q] (e/app* (c "Iff") p q))
 (defn- n-ne [a b] (e/app* (e/const' (name/from-string "Ne") [u1]) NAT a b))
 (defn- i-ne [a b] (e/app* (e/const' (name/from-string "Ne") [u1]) INT a b))
 
@@ -223,11 +227,10 @@
                 (fn [x y] {:hyps [(n= (n+ (n* (nlit 2) x) (n* (nlit 4) y)) (nlit 5))] :concl FALSE})))
     ;; L48 / L50 — nested ground multiplication. 6x + 7y = 5 needs integrality; see
     ;; corpus-nat-integrality below.
-    (gap "2*(3*x) + y*7 = 5 → False"
-         "hard-equality elimination needs Lean.Omega.bmod_* / Coeffs.bmod_coeffs (absent from init-medium)"
-         (ex [["x" NAT] ["y" NAT]]
-             (fn [x y] {:hyps [(n= (n+ (n* (nlit 2) (n* (nlit 3) x)) (n* y (nlit 7))) (nlit 5))]
-                        :concl FALSE})))
+    (proves "2*(3*x) + y*7 = 5 → False"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(n= (n+ (n* (nlit 2) (n* (nlit 3) x)) (n* y (nlit 7))) (nlit 5))]
+                           :concl FALSE})))
     ;; L52
     (proves "x < 0 → False"
             (ex [["x" NAT]] (fn [x] {:hyps [(n< x (nlit 0))] :concl FALSE})))
@@ -320,21 +323,54 @@
 
 (deftest corpus-nat-integrality
   (testing "lean4 omega.lean — entries needing INTEGER (not rational) reasoning"
-    ;; L45 / L47 — the real relaxation of 6x+7y=5 is satisfiable (x=5/6), so deciding
-    ;; it needs the `bmod` "shadow" elimination. `Lean.Omega.bmod_sat`,
-    ;; `Lean.Omega.Coeffs.bmod_coeffs` and friends are NOT in init-medium (they live
-    ;; further into Init.Omega), so the justification cannot be certified here even
-    ;; though the solver finds it. This is a STORE gap, not a tactic gap.
-    (gap "6*x + 7*y = 5 → False"
-         "hard-equality elimination needs Lean.Omega.bmod_* (absent from init-medium)"
-         (ex [["x" NAT] ["y" NAT]]
-             (fn [x y] {:hyps [(n= (n+ (n* (nlit 6) x) (n* (nlit 7) y)) (nlit 5))]
-                        :concl FALSE})))
-    (gap "x*6 + y*7 = 5 → False"
-         "hard-equality elimination needs Lean.Omega.bmod_* (absent from init-medium)"
-         (ex [["x" NAT] ["y" NAT]]
-             (fn [x y] {:hyps [(n= (n+ (n* x (nlit 6)) (n* y (nlit 7))) (nlit 5))]
-                        :concl FALSE})))))
+    ;; L45 / L47 — the real relaxation of 6x+7y=5 is satisfiable (x = 5/6), so deciding
+    ;; it needs `bmod` ("balanced mod") hard-equality elimination: an equality none of
+    ;; whose coefficients is ±1 cannot be removed by substitution, so `solve-hard-equality`
+    ;; introduces a fresh atom `bmod_div_term m x v` and a smaller equality in its place,
+    ;; and `Lean.Omega.bmod_sat` certifies the step.
+    (proves "6*x + 7*y = 5 → False"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(n= (n+ (n* (nlit 6) x) (n* (nlit 7) y)) (nlit 5))]
+                           :concl FALSE})))
+    (proves "x*6 + y*7 = 5 → False"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(n= (n+ (n* x (nlit 6)) (n* y (nlit 7))) (nlit 5))]
+                           :concl FALSE})))
+    ;; NOT from lean4's corpus. `m = minNatAbs + 1` is EVEN here (min |coeff| = 3), and
+    ;; `Int.bmod`'s range is asymmetric for even m — `-Int.bmod (-r) m ≠ Int.bmod r m`
+    ;; when `r ≡ m/2`. The bmod step used to negate `r`, which is why this needs its own
+    ;; entry rather than riding on the two odd-m cases above. It also takes TWO hard
+    ;; equalities (m = 4, then m = 3), so it exercises the loop, not just one step.
+    (proves "3*x + 5*y = 4 → False  (even bmod modulus, two hard-equality rounds)"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(n= (n+ (n* (nlit 3) x) (n* (nlit 5) y)) (nlit 4))]
+                           :concl FALSE})))))
+
+(deftest hard-equality-actually-fires
+  (testing "the bmod route is what decides 6x+7y=5 — not some other elimination"
+    ;; Without this, `corpus-nat-integrality` above would still pass if the solver
+    ;; happened to find a rational refutation, and the bmod proof path could rot
+    ;; unnoticed exactly as it did before. `solve-hard-equality` is private, so reach
+    ;; it through its Var.
+    (let [v (ns-resolve 'ansatz.tactic.omega.fm 'solve-hard-equality)
+          orig @v
+          calls (atom [])]
+      (with-redefs-fn {v (fn [table problem coeffs-key f g]
+                           (let [fact (get-in problem [:constraints coeffs-key])]
+                             (swap! calls conj [(vec (:coeffs fact))
+                                                (:lower (:constraint fact))]))
+                           (orig table problem coeffs-key f g))}
+        (fn []
+          (is (= :ok (run-omega
+                      (ex [["x" NAT] ["y" NAT]]
+                          (fn [x y] {:hyps [(n= (n+ (n* (nlit 6) x) (n* (nlit 7) y)) (nlit 5))]
+                                     :concl FALSE}))))
+              "6x + 7y = 5 → False, kernel-checked")))
+      (is (= [[[6 7] 5]] (mapv (fn [[cs l]] [(mapv long cs) (long l)]) @calls))
+          (str "solve-hard-equality must run exactly once, on the coefficients [6 7] "
+               "with r = 5 — `r` is the constraint's own bound, in dot-product units, "
+               "NOT its negation (that mismatch is what `bmod_sat` rejected). Saw: "
+               (pr-str @calls))))))
 
 ;; ============================================================
 ;; Nat — division and modulo (the feature under test)
@@ -594,13 +630,13 @@
              (fn [a] {:hyps [(i<= (ilit 0) a)]
                       :concl (i<= (i* (ilit 0) (ilit 0)) (i* (ilit 2) a))})))
     ;; L207 — an Int EQUALITY goal; by_contra needs the ≠ → disjunction lemma
-    (gap "v0 + v1 + c = 10 → v0 + 5 + (v1 - 3) + (c - 2) = 10"
-         "Int equality goals need Int.lt_or_gt_of_ne (absent from init-medium)"
-         (ex [["v0" INT] ["v1" INT] ["c" INT]]
-             (fn [v0 v1 c]
-               {:hyps [(i= (i+ (i+ v0 v1) c) (ilit 10))]
-                :concl (i= (i+ (i+ (i+ v0 (ilit 5)) (i- v1 (ilit 3))) (i- c (ilit 2)))
-                           (ilit 10))})))
+    ;; (Int.lt_or_gt_of_ne)
+    (proves "v0 + v1 + c = 10 → v0 + 5 + (v1 - 3) + (c - 2) = 10"
+            (ex [["v0" INT] ["v1" INT] ["c" INT]]
+                (fn [v0 v1 c]
+                  {:hyps [(i= (i+ (i+ v0 v1) c) (ilit 10))]
+                   :concl (i= (i+ (i+ (i+ v0 (ilit 5)) (i- v1 (ilit 3))) (i- c (ilit 2)))
+                              (ilit 10))})))
     ;; L84 — mixed Nat/Int
     (proves "0 < x → x + ↑y ≤ 0 → False"
             (ex [["x" INT] ["y" NAT]]
@@ -623,11 +659,12 @@
             (ex [["x" INT] ["y" INT]]
                 (fn [x y] {:hyps [(i<= (i+ x (ilit 1)) y)]
                            :concl (p-not (i<= (i+ y (ilit 1)) x))})))
-    ;; L226 — conjunction goal
-    (gap "a ≤ b → b ≤ a → a ≤ b ∧ b ≤ a"
-         "negating a conjunction goal needs not_and_or (absent from init-medium)"
-         (ex [["a" INT] ["b" INT]]
-             (fn [a b] {:hyps [(i<= a b) (i<= b a)] :concl (p-and (i<= a b) (i<= b a))})))
+    ;; L226 — conjunction goal. Negating it needs ¬(P∧Q) → ¬P ∨ ¬Q, which Lean core
+    ;; spells `Classical.not_and_iff_not_or_not` (`not_and_or` is the Mathlib name and
+    ;; resolves nowhere).
+    (proves "a ≤ b → b ≤ a → a ≤ b ∧ b ≤ a"
+            (ex [["a" INT] ["b" INT]]
+                (fn [a b] {:hyps [(i<= a b) (i<= b a)] :concl (p-and (i<= a b) (i<= b a))})))
     ;; L267 / L269 — `≠` goal
     (proves "x < y → x ≠ y"
             (ex [["x" INT] ["y" INT]] (fn [x y] {:hyps [(i< x y)] :concl (i-ne x y)})))
@@ -645,17 +682,24 @@
                          (i= (s a b c d (i* (ilit 2) e)) (ilit 8))]
                   :concl (i= e (ilit 3))}))))))
 
+(def ^:private int-div-gap
+  "Int division bounds are EMITTED and kernel-checkable now — `Int.mul_ediv_self_le`
+   and `Int.lt_mul_ediv_self_add` are in the bundled store and `add-div-bounds` states
+   both over the goal's own divisor spelling (see int-div-bounds-are-emitted below).
+   They are still useless to the solver, for the same reason as `int-mul-gap`: the
+   bounds are stated as `k * (x / k)`, and Int scalar multiplication reifies as a fresh
+   opaque atom `z` instead of `k · q`, so what reaches the solver is `0 ≤ x - z ≤ k-1`
+   — true, certified, and saying nothing about `q`. Unblocking these needs an Int-level
+   scale eval proof, not a lemma.")
+
 (deftest corpus-int-div
-  (testing "lean4 omega.lean — Int division (the Int branch of add-div-bounds is dead:
-            Int.mul_ediv_self_le / Int.lt_mul_ediv_self_add are absent from init-medium)"
+  (testing "lean4 omega.lean — Int division"
     ;; L222
-    (gap "ε > 0 → ε / 2 < ε"
-         "Int div bounds need Int.mul_ediv_self_le / Int.lt_mul_ediv_self_add"
+    (gap "ε > 0 → ε / 2 < ε" int-div-gap
          (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
                                    :concl (i< (idiv ee (ilit 2)) ee)})))
     ;; L17
-    (gap "2 * (x / 2) > x → False"
-         "Int div bounds need Int.mul_ediv_self_le / Int.lt_mul_ediv_self_add"
+    (gap "2 * (x / 2) > x → False" int-div-gap
          (ex [["x" INT]] (fn [x] {:hyps [(i< x (i* (ilit 2) (idiv x (ilit 2))))]
                                   :concl FALSE})))
     ;; L15
@@ -669,9 +713,101 @@
                 (fn [a b c] {:hyps [(i< (idiv (ilit 32) a) b) (i< b c)]
                              :concl (i< (idiv (ilit 32) a) c)})))))
 
+(deftest int-div-bounds-are-emitted
+  (testing "add-div-bounds' Int branch runs and produces certified facts"
+    ;; The Int branch spent two releases inert, first because `Int.mul_ediv_self_le` /
+    ;; `Int.lt_mul_ediv_self_add` were missing from the store, then because it read the
+    ;; divisor with `e/lit-nat-val` — which is nil for `Int.ofNat 2` — and threw straight
+    ;; into a bare `catch`. Both failures looked identical from outside: a quotient
+    ;; reaching the solver unconstrained. `*strict-div-bounds*` makes them visible.
+    (let [v (ns-resolve 'ansatz.tactic.omega-proof 'add-div-bounds)
+          orig @v
+          deltas (atom [])
+          example (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
+                                            :concl (i< (idiv ee (ilit 2)) ee)}))]
+      (with-redefs-fn {v (fn [st table problem]
+                           (let [[t p] (orig st table problem)]
+                             (swap! deltas conj
+                                    [(count (:div-atoms table))
+                                     (- (count (:constraints p))
+                                        (count (:constraints problem)))])
+                             [t p]))}
+        (fn []
+          (binding [omega-proof/*strict-div-bounds* true]
+            ;; NOT `:ok` — the goal is still undecided (see int-div-gap). The point is
+            ;; that stating the bounds neither throws nor silently no-ops.
+            (is (not= :ok (run-omega example))
+                "still blocked on Int scalar multiplication, not on a missing lemma"))))
+      (is (= [1] (distinct (map first @deltas)))
+          "the Int quotient must be tagged as a div atom")
+      (is (pos? (reduce + (map second @deltas)))
+          (str "add-div-bounds must ADD constraints for the Int quotient. Zero means the "
+               "branch threw into its `catch` again — run with *strict-div-bounds* true "
+               "to see why. Saw: " (pr-str @deltas))))))
+
 ;; ============================================================
 ;; Negative tests — lean4's `fail_if_success omega`
 ;; ============================================================
+
+;; ============================================================
+;; Logical connectives — the propositional plumbing around the arithmetic
+;; ============================================================
+
+(deftest corpus-connectives
+  (testing "∧ / → / ↔ in both hypothesis and goal position"
+    ;; Each of these routes through one core lemma that omega used to name WRONGLY —
+    ;; with a Mathlib spelling that resolves in no Lean core store. Every one of them
+    ;; failed by omega quietly declining the goal, never by an error naming the constant.
+    ;;
+    ;;   ¬(P ∧ Q) → ¬P ∨ ¬Q     Classical.not_and_iff_not_or_not   (was `not_and_or`)
+    ;;   ¬(P → Q) → P ∧ ¬Q      Classical.not_imp                  (was `not_imp`)
+    ;;   (P ↔ Q) → …            Decidable.iff_iff_and_or_not_and_not
+    ;;                                        (was `iff_iff_and_or_not_and_not`; the core
+    ;;                                         lemma additionally takes a `[Decidable Q]`)
+    ;;   ¬(P ↔ Q) → (¬P ↔ Q)    Decidable.not_iff — present all along, but applied with
+    ;;                          its instance on the wrong proposition, which only became
+    ;;                          reachable once the store carried the lemma at all.
+
+    ;; ¬(P ∧ Q): conjunction GOAL, over Nat as well as the Int entry at L226 above
+    (proves "a ≤ b → b ≤ a → a ≤ b ∧ b ≤ a  (Nat)"
+            (ex [["a" NAT] ["b" NAT]]
+                (fn [a b] {:hyps [(n<= a b) (n<= b a)] :concl (p-and (n<= a b) (n<= b a))})))
+
+    ;; ¬(P → Q): implication GOAL. `ex` would intro a leading hypothesis, so the
+    ;; implication has to sit inside the conclusion to reach negate-goal-forall.
+    (proves "x > 7 → ((x < 3) → (x < 1))"
+            (ex [["x" NAT]]
+                (fn [x] {:hyps [(n< (nlit 7) x)]
+                         :concl (p-imp (n< x (nlit 3)) (n< x (nlit 1)))})))
+    (proves "x > 7 → ((x < 3) → (x < 1))  (Int)"
+            (ex [["x" INT]]
+                (fn [x] {:hyps [(i< (ilit 7) x)]
+                         :concl (p-imp (i< x (ilit 3)) (i< x (ilit 1)))})))
+
+    ;; P → Q as a HYPOTHESIS: Decidable.not_or_of_imp, ¬P ∨ Q, then a disjunction split
+    (proves "(x < 3 → y < 3) → x < 1 → y > 5 → False"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(p-imp (n< x (nlit 3)) (n< y (nlit 3)))
+                                  (n< x (nlit 1)) (n< (nlit 5) y)]
+                           :concl FALSE})))
+
+    ;; P ↔ Q as a HYPOTHESIS: (P∧Q) ∨ (¬P∧¬Q), then a disjunction split. Both branches
+    ;; must refute, so this really does traverse the Iff expansion.
+    (proves "(x < 3 ↔ y < 3) → x < 1 → y > 5 → False"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(p-iff (n< x (nlit 3)) (n< y (nlit 3)))
+                                  (n< x (nlit 1)) (n< (nlit 5) y)]
+                           :concl FALSE})))
+
+    ;; P ↔ Q as a GOAL: ¬(P ↔ Q) → (¬P ↔ Q) via Decidable.not_iff, then the Iff
+    ;; expansion above. Applying that lemma's `[Decidable b]` to P rather than Q made
+    ;; the kernel reject the term outright.
+    (proves "x = y → (x < 3 ↔ y < 3)"
+            (ex [["x" NAT] ["y" NAT]]
+                (fn [x y] {:hyps [(n= x y)] :concl (p-iff (n< x (nlit 3)) (n< y (nlit 3)))})))
+    (proves "x = y → (x < 3 ↔ y < 3)  (Int)"
+            (ex [["x" INT] ["y" INT]]
+                (fn [x y] {:hyps [(i= x y)] :concl (p-iff (i< x (ilit 3)) (i< y (ilit 3)))})))))
 
 (deftest corpus-negative
   (testing "lean4 omega.lean — goals omega must REFUSE"
