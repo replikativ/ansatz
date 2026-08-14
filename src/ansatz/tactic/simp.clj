@@ -852,9 +852,12 @@
           ;; Lean 4 doesn't do this in dischargeDefault?, but it's essential for
           ;; our use case (inductive proofs with arithmetic side conditions).
           (try
-            (let [omega-check (requiring-resolve 'ansatz.tactic.omega/omega-check)
-                  omega-st (tc/attach-lctx (tc/mk-tc-state env) (:lctx st))]
-              (when (omega-check omega-st obligation-type (:lctx st))
+            ;; `omega-proof/decides?` runs the REAL engine's reifier and solver and
+            ;; skips only the proof extraction — so this filter agrees with the tactic
+            ;; by construction. (It used to call a second, proof-free omega whose
+            ;; verdicts could silently disagree with it.)
+            (let [omega-decides? (requiring-resolve 'ansatz.tactic.omega-proof/decides?)]
+              (when (omega-decides? env obligation-type (:lctx st))
                 ;; Omega says provable — try decide to certify the proof term
                 (let [inst-index (if-let [idx (:inst-index config)]
                                    (if (instance? clojure.lang.Delay idx) @idx idx)

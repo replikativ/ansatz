@@ -3314,6 +3314,89 @@
           proof-term
           (reverse fvar-infos)))
 
+(defn- reconstruction-available?
+  "The full reconstruction references Lean.Omega.* constants (Init.Omega). On a
+   reduced init they are absent and no proof can be built."
+  [env]
+  (some? (kenv/lookup env (name/from-string "Lean.Omega.LinearCombo.coordinate_eval"))))
+
+(defn- prepare-goal
+  "Shared front half of omega: strip ∀ binders, normalise bare `Nat.lt`/`Nat.le`,
+   and set up the by_contra hypothesis. Returns the map both the proving entry point
+   (`omega`) and the decide-only one (`decides?`) work from."
+  [env goal-type lctx]
+  (let [st (tc/attach-lctx (tc/mk-tc-state env) lctx)
+        ;; Pass the UN-WHNF'd goal-type: strip-forall-binders WHNFs internally only to
+        ;; find ∀ binders and deliberately returns the un-WHNF'd comparison, so
+        ;; negate-goal sees `LE.le`/`LT.lt` (handled) rather than the unfolded
+        ;; `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
+        [inner-goal fvar-infos lctx-with-intros] (strip-forall-binders st goal-type lctx)
+        ;; Bare `Nat.lt a b` / `Nat.le a b` goals (e.g. from instantiating a relation
+        ;; variable with Nat.lt) → the LT.lt/LE.le instance spelling negate-goal handles.
+        ;; Defeq, so the by_contra proof still checks against the original goal type.
+        inner-goal
+        (let [[h as] (e/get-app-fn-args inner-goal)
+              nat-c (e/const' (name/from-string "Nat") [])]
+          (if (and (e/const? h) (= 2 (count as)))
+            (case (name/->string (e/const-name h))
+              "Nat.lt" (e/app* (e/const' (:lt-name omega-names) [lvl/zero]) nat-c
+                               (e/const' (name/from-string "instLTNat") [])
+                               (nth as 0) (nth as 1))
+              "Nat.le" (e/app* (e/const' (:le-name omega-names) [lvl/zero]) nat-c
+                               (e/const' (name/from-string "instLENat") [])
+                               (nth as 0) (nth as 1))
+              inner-goal)
+            inner-goal))
+        st-intros (tc/attach-lctx st lctx-with-intros)
+        inner-whnf (#'tc/cached-whnf st-intros inner-goal)
+        is-false-goal (and (e/const? inner-whnf)
+                           (= (e/const-name inner-whnf) (:false-name omega-names)))
+        neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
+        neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
+        neg-type (when-not is-false-goal
+                   (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
+        lctx' (if neg-hyp-fvar-id
+                (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
+                lctx-with-intros)]
+    {:st (tc/attach-lctx st lctx')
+     :lctx lctx'
+     :inner-goal inner-goal
+     :fvar-infos fvar-infos
+     :neg-hyp-fvar-id neg-hyp-fvar-id
+     :neg-hyp-proof neg-hyp-proof
+     :neg-type neg-type
+     :is-false-goal is-false-goal}))
+
+(defn- run-check
+  "Run `omega-check` on a prepared goal, absorbing the ::direct-false:: short-circuit.
+   Returns the solver result map, or nil when no contradiction was derivable."
+  [{:keys [st inner-goal lctx neg-hyp-proof]}]
+  (try
+    (omega-check st inner-goal lctx neg-hyp-proof)
+    (catch clojure.lang.ExceptionInfo ex
+      (if (= "::direct-false::" (.getMessage ex))
+        {:direct-false (:direct-false (ex-data ex))
+         :atom-table (:atom-table (ex-data ex))}
+        (throw ex)))))
+
+(defn decides?
+  "DECIDE-ONLY omega: reify the goal and hypotheses, build the constraint system and
+   run the solver — but do NOT construct a proof term. True iff omega found the
+   negated goal contradictory, i.e. iff `omega` would have something to certify.
+
+   Cheap, because proof construction in this engine is LAZY: `reify-term` returns a
+   thunk that is only applied once an atoms-expression is supplied, and the whole of
+   `extract-proof` is skipped. Everything before that is shared with the real tactic,
+   which is the point — a caller that only needs a yes/no gets exactly the answer the
+   proving engine would give, instead of a second, weaker procedure's guess.
+
+   This is what `ansatz.tactic.simp`'s discharger uses; it replaced the proof-free
+   duplicate that used to live in `ansatz.tactic.omega`."
+  [env goal-type lctx]
+  (try
+    (some? (run-check (prepare-goal env goal-type lctx)))
+    (catch Exception _ false)))
+
 (defn omega
   "Close the current goal using the omega decision procedure with proof term construction.
 
@@ -3346,55 +3429,13 @@
                                    (nth args 0) (nth args 1))]
             (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
                 (proof/record-tactic :omega [] (:id goal))))
-          ;; The full reconstruction references Lean.Omega.* constants (Init.Omega);
-          ;; if the env lacks them (a reduced init), DECLINE so omega falls through to
-          ;; simpler strategies rather than committing a proof that fails at kernel
-          ;; check.
-          (let [_ (when-not (kenv/lookup env (name/from-string "Lean.Omega.LinearCombo.coordinate_eval"))
+          ;; If the env lacks Init.Omega, DECLINE rather than commit a proof that
+          ;; fails at kernel check.
+          (let [_ (when-not (reconstruction-available? env)
                     (tactic-error! "omega: Lean.Omega.* reconstruction constants unavailable" {}))
-                ;; Pass the UN-WHNF'd goal-type: strip-forall-binders WHNFs internally
-                ;; only to find ∀ binders and deliberately returns the un-WHNF'd
-                ;; comparison, so negate-goal sees `LE.le`/`LT.lt` (handled) rather than
-                ;; the unfolded `Nat.le`/`Nat.lt` (not handled) — needed for succ goals.
-                [inner-goal fvar-infos lctx-with-intros]
-                (strip-forall-binders st goal-type (:lctx goal))
-                ;; Bare `Nat.lt a b` / `Nat.le a b` goals (e.g. from instantiating a relation
-                ;; variable with Nat.lt) → the LT.lt/LE.le instance spelling negate-goal handles.
-                ;; Defeq, so the by_contra proof still checks against the original goal type.
-                inner-goal
-                (let [[h as] (e/get-app-fn-args inner-goal)
-                      nat-c (e/const' (name/from-string "Nat") [])]
-                  (if (and (e/const? h) (= 2 (count as)))
-                    (case (name/->string (e/const-name h))
-                      "Nat.lt" (e/app* (e/const' (:lt-name omega-names) [lvl/zero]) nat-c
-                                       (e/const' (name/from-string "instLTNat") [])
-                                       (nth as 0) (nth as 1))
-                      "Nat.le" (e/app* (e/const' (:le-name omega-names) [lvl/zero]) nat-c
-                                       (e/const' (name/from-string "instLENat") [])
-                                       (nth as 0) (nth as 1))
-                      inner-goal)
-                    inner-goal))
-                st-intros (tc/attach-lctx st lctx-with-intros)
-                inner-whnf (#'tc/cached-whnf st-intros inner-goal)
-                is-false-goal (and (e/const? inner-whnf)
-                                   (= (e/const-name inner-whnf) (:false-name omega-names)))]
-            ;; Try omega with by_contra structure for non-False inner goals
-            (let [neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
-                  neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
-                  neg-type (when-not is-false-goal
-                             (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
-                  lctx' (if neg-hyp-fvar-id
-                          (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
-                          lctx-with-intros)
-                  st' (tc/attach-lctx st lctx')
-                  ;; Run omega, handling direct-false short-circuit
-                  result (try
-                           (omega-check st' inner-goal lctx' neg-hyp-proof)
-                           (catch clojure.lang.ExceptionInfo ex
-                             (if (= "::direct-false::" (.getMessage ex))
-                               {:direct-false (:direct-false (ex-data ex))
-                                :atom-table (:atom-table (ex-data ex))}
-                               (throw ex))))]
+                prepared (prepare-goal env goal-type (:lctx goal))
+                {:keys [inner-goal fvar-infos neg-hyp-fvar-id neg-type is-false-goal]} prepared]
+            (let [result (run-check prepared)]
               (if-not result
                 (tactic-error! "omega failed — could not derive contradiction"
                                {:goal goal-type})
@@ -3450,24 +3491,9 @@
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         env (:env ps)
-        st (tc/mk-tc-state env)
-        st (assoc st :lctx (:lctx goal))
-        goal-type (:type goal)
-        goal-whnf (#'tc/cached-whnf st goal-type)
-        [inner-goal fvar-infos lctx-with-intros]
-        (strip-forall-binders st goal-whnf (:lctx goal))
-        st-intros (tc/attach-lctx st lctx-with-intros)
-        inner-whnf (#'tc/cached-whnf st-intros inner-goal)
-        is-false-goal (and (e/const? inner-whnf)
-                           (= (e/const-name inner-whnf) (:false-name omega-names)))
-        neg-hyp-fvar-id (when-not is-false-goal (long (System/nanoTime)))
-        neg-hyp-proof (when neg-hyp-fvar-id (e/fvar neg-hyp-fvar-id))
-        neg-type (when-not is-false-goal
-                   (e/arrow inner-goal (e/const' (:false-name omega-names) [])))
-        lctx' (if neg-hyp-fvar-id
-                (red/lctx-add-local lctx-with-intros neg-hyp-fvar-id "h_neg" neg-type)
-                lctx-with-intros)
-        st' (tc/attach-lctx st lctx')
+        {:keys [inner-goal fvar-infos neg-hyp-fvar-id neg-hyp-proof is-false-goal]
+         st' :st lctx' :lctx}
+        (prepare-goal env (:type goal) (:lctx goal))
         ;; Reify: collect hypotheses, negate goal, add bounds
         table (mk-atom-table)
         problem (mk-problem)
@@ -3478,7 +3504,8 @@
                        negated)
         nn-problem (add-nat-nonnegativity st' table base-problem)
         [table bounded-problem] (add-div-bounds st' table nn-problem)
-        [table ready-problem] (add-nat-sub-dichotomies table bounded-problem)]
+        [table sub-problem] (add-nat-sub-dichotomies table bounded-problem)
+        [table ready-problem] (add-minmax-dichotomies table sub-problem)]
     {:st st'
      :table table
      :problem ready-problem
