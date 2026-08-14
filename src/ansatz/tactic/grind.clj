@@ -28,6 +28,7 @@
             [ansatz.tactic.grind.egraph :as eg]
             [ansatz.tactic.grind.proof :as egproof]
             [ansatz.tactic.grind.ematch :as ematch]
+            [ansatz.surface.ingest :as ingest]
             [ansatz.config :as config]))
 
 ;; ============================================================
@@ -397,6 +398,96 @@
     (try (basic/all-goals ps simp-one)
          (catch clojure.lang.ExceptionInfo _ ps))))
 
+;; ============================================================
+;; Bool → Prop goal bridge
+;; ============================================================
+
+(def ^:private bool-name (name/from-string "Bool"))
+(def ^:private bool-true-name (name/from-string "Bool.true"))
+(def ^:private iff-name (name/from-string "Iff"))
+(def ^:private iff-mp-name (name/from-string "Iff.mp"))
+(def ^:private coe-iff-coe-name (name/from-string "Bool.coe_iff_coe"))
+
+(defn- bool-ctor?
+  "Is this expression literally `Bool.true` / `Bool.false`?"
+  [expr]
+  (and (e/const? expr)
+       (contains? #{"Bool.true" "Bool.false"} (name/->string (e/const-name expr)))))
+
+(defn- try-bool-eq-to-iff
+  "The Bool→Prop GOAL bridge — the goal-side mirror of the hypothesis-side bridge omega
+   already carries (omega_proof/bool-cmp-bridge).
+
+   A goal `(a : Bool) = b` has no propositional structure, so nothing in Lean's Boolean
+   simp set can see into it: `Bool.or_eq_true`, `Bool.and_eq_true`, `Nat.blt_eq`,
+   `Nat.beq_eq` and friends are all stated about `_ = true`, and every arithmetic decision
+   procedure wants a Prop. That is why a Boolean-returning predicate is unprovable while
+   the same content stated as a Prop proves in milliseconds.
+
+   `Bool.coe_iff_coe : (a = true ↔ b = true) ↔ (a = b)` is the bridge; its forward
+   direction turns the goal into that Iff, after which simp's Bool→Prop lemmas decompose
+   both sides into ordinary arithmetic propositions and the rest of grind takes over.
+   Fires only on a genuine Bool equality that is not ALREADY in that normal form: a goal
+   `e = true` is exactly what the Bool simp set is stated about, so bridging it would just
+   re-derive `e = true ↔ true = true` and bounce back. `e = false` and `e₁ = e₂` are the
+   shapes with no propositional handle, and those are the ones this fires on."
+  [ps]
+  (let [goal (proof/current-goal ps)
+        [h args] (e/get-app-fn-args (:type goal))
+        bool-true? (fn [x] (and (e/const? x) (= bool-true-name (e/const-name x))))]
+    (when (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count args))
+               (let [[th ta] (e/get-app-fn-args (nth args 0))]
+                 (and (e/const? th) (= bool-name (e/const-name th)) (empty? ta)))
+               (not (bool-true? (nth args 1)))
+               (not (bool-true? (nth args 2)))
+               (not (and (bool-ctor? (nth args 1)) (bool-ctor? (nth args 2))))
+               (env/lookup (:env ps) coe-iff-coe-name)
+               (env/lookup (:env ps) iff-mp-name))
+      (let [a (nth args 1)
+            b (nth args 2)
+            bool-ty (e/const' bool-name [])
+            eq-true (fn [x] (e/app* (e/const' eq-name [(lvl/succ lvl/zero)])
+                                    bool-ty x (e/const' bool-true-name [])))
+            iff-goal (e/app* (e/const' iff-name []) (eq-true a) (eq-true b))
+            ;; Iff.mp {A B} : (A ↔ B) → A → B, with A the coerced Iff and B the Bool equality.
+            bridge (e/app* (e/const' iff-mp-name [])
+                           iff-goal (:type goal)
+                           (e/app* (e/const' coe-iff-coe-name []) a b))]
+        (basic/apply-tac ps bridge)))))
+
+(defn- const-names-in
+  "Every constant name (as a string) occurring in `expr`."
+  [expr]
+  (let [acc (volatile! #{})]
+    ((fn walk [^ansatz.kernel.Expr x]
+       (case (e/tag x)
+         :const (vswap! acc conj (name/->string (e/const-name x)))
+         :app (do (walk (e/app-fn x)) (walk (e/app-arg x)))
+         :lam (do (walk (e/lam-type x)) (walk (e/lam-body x)))
+         :forall (do (walk (e/forall-type x)) (walk (e/forall-body x)))
+         :let (do (walk (e/let-type x)) (walk (e/let-value x)) (walk (e/let-body x)))
+         :mdata (walk (e/mdata-expr x))
+         :proj (walk (e/proj-struct x))
+         nil))
+     expr)
+    @acc))
+
+(defn- goal-ansatz-defs
+  "The ansatz-DEFINED functions the goal mentions. `a/defn` registers every function it
+   compiles in `ingest/arity-registry`, which is exactly the set of names that are *ours*
+   rather than Lean's — so this cannot pick up `Bool.or` or `Nat.blt`, whose applications
+   are the shape the Boolean simp lemmas match and must NOT be unfolded.
+
+   `(grind)` with no arguments otherwise leaves a user's own predicate opaque: simp only
+   unfolds names it was handed, so `(grind)` on `lexgt h r s h r s = false` never sees past
+   `lexgt`. Handing it the definitions the goal names is the ansatz analogue of Lean's
+   `@[grind]` attribute on a definition."
+  [goal]
+  (let [reg @ingest/arity-registry]
+    (if (empty? reg)
+      []
+      (vec (filter #(contains? reg %) (const-names-in (:type goal)))))))
+
 (defn- changed?
   "Check if a tactic result shows meaningful progress."
   [ps result]
@@ -632,6 +723,14 @@
         ;; Arithmetic
        (try-with-progress #(let [f (requiring-resolve 'ansatz.tactic.omega/omega)] (f ps)))
        (try-with-progress #(let [f (requiring-resolve 'ansatz.tactic.ring/ring)] (f ps)))
+        ;; Bool→Prop goal bridge, then simp so the Boolean simp set decomposes both sides.
+        ;; After the solvers (rfl/omega/… decide the easy Bool equalities more cheaply) and
+        ;; before splitting, which would otherwise case-split a goal the bridge turns into
+        ;; ordinary arithmetic.
+       (try-with-progress #(when-let [bridged (try-bool-eq-to-iff ps)]
+                             (simp-normalize bridged
+                                             (distinct (concat lemma-names
+                                                               (goal-ansatz-defs goal))))))
         ;; Case split (Lean 4: splitNext) — then simp as post-processing on ALL branches
        (when-let [split-result (try-case-split ps 0 lemma-names already-split)]
          (simp-normalize split-result lemma-names))
