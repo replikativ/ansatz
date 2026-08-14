@@ -256,7 +256,9 @@
         new-r (int-bmod r m)]
     {:tag :bmod :inner j :m m :r r :i i
      :orig-coeffs orig-coeffs
-     :constraint (constraint-exact (-' new-r))
+     ;; `exact (Int.bmod r m)` — exactly `Justification.bmod`'s index in lean4
+     ;; (Core.lean:58). `r` is already in dot-product units (see `solve-hard-equality`).
+     :constraint (constraint-exact new-r)
      :coeffs new-coeffs}))
 
 ;; ============================================================

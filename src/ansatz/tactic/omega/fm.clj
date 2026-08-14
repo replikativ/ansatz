@@ -77,7 +77,16 @@
   [table problem coeffs-key build-bmod-expr-fn build-atoms-expr-fn]
   (let [fact (get-in problem [:constraints coeffs-key])
         coeffs (:coeffs fact)
-        r (-' (:lower (:constraint fact)))
+        ;; `r` is the value of the dot product `coeffs · atoms`, i.e. the constraint's
+        ;; own bound — the same `r` as lean4's `dealWithHardEquality`
+        ;; (Core.lean:340, `some ⟨some r, some r'⟩`). It is NOT negated: `add-equality`
+        ;; already stores `constraint-exact (- const)`, so `:lower` is in dot-product
+        ;; units. Negating it here made the bmod step disagree with the justification
+        ;; it was supposed to certify (`bmod_sat` wants `(exact r).sat' x v`, and the
+        ;; inner proof has exactly `exact (:lower …)`), and — for EVEN `m`, where
+        ;; `Int.bmod` is asymmetric — also made the new constraint numerically wrong
+        ;; while the coefficients were bmod'd unnegated.
+        r (:lower (:constraint fact))
         m (+' (p/min-nat-abs coeffs) 1)
         i (:num-vars problem)
         bmod-div-expr (build-bmod-expr-fn m coeffs table)
@@ -90,7 +99,7 @@
         padded-coeffs (vec (concat bmod-cs (repeat (- (inc i) (count bmod-cs)) 0)))
         new-coeffs (assoc padded-coeffs i m)
         new-r (p/int-bmod r m)
-        new-constraint (p/constraint-exact (-' new-r))
+        new-constraint (p/constraint-exact new-r)
         new-j (p/justification-bmod (:justification fact) m r i)
         new-fact (p/mk-fact new-coeffs new-constraint new-j)
         problem (update problem :num-vars inc)]

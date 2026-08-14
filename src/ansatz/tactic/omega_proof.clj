@@ -1636,13 +1636,18 @@
           p-eq-prop (e/app* (e/const' (:eq-name omega-names) [u1])
                             int-type get-vi bmod-div)
           p-refl (e/app* (e/const' (:eq-refl omega-names) [u1]) int-type get-vi)
-          ;; bmod result: (exact (bmod r m)).sat' (bmod_coeffs m i x) v
+          ;; bmod result: (exact (Int.bmod r m)).sat' (bmod_coeffs m i x) v
           new-r (int-bmod r m)]
       {:proof (e/app* (e/const' (:bmod-sat omega-names) [])
                       m-nat r-int i-nat x-coeffs atoms-expr
                       h-le p-refl (:proof inner-r))
-       :constraint-ansatz (to-lean-constraint (constraint-exact (- new-r)))
-       :coeffs-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Coeffs.bmod_coeffs") [])
+       :constraint-ansatz (to-lean-constraint (constraint-exact new-r))
+       ;; `Lean.Omega.bmod_coeffs (m i : Nat) (x : Coeffs) : Coeffs` — the name
+       ;; `bmod_sat`'s own conclusion uses. It is NOT in the `Coeffs` namespace
+       ;; (`Lean.Omega.Coeffs.bmod_coeffs` does not exist), and naming it wrongly here
+       ;; made every bmod justification build an unresolvable term, which the caller
+       ;; swallowed — the whole hard-equality route was dead.
+       :coeffs-ansatz (e/app* (e/const' (:bmod-coeffs omega-names) [])
                               m-nat i-nat x-coeffs)})
 
     :negate
