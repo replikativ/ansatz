@@ -226,30 +226,55 @@
         (let [[table' idx] (intern-atom table st expr)]
           [table' (lc-var idx)])))
 
-    ;; Nat.div / HDiv — ground only
+    ;; Nat.div / HDiv — ground folds to a constant; a positive LITERAL divisor makes the
+    ;; quotient a fresh atom `q` and RECORDS the dividend's linear combo so `omega-check`
+    ;; can emit Lean's two bounds `k*q ≤ a` and `a < k*q + k` (analyzeAtom). Without those
+    ;; the negated goal of any symbolic-division statement is trivially satisfiable and this
+    ;; pre-filter reports a bogus counterexample.
     (or (= head-name nat-div-name) (= head-name hdiv-name))
     (let [[a b] (if (= head-name hdiv-name)
                   [(nth args 4) (nth args 5)]
                   [(nth args 0) (nth args 1)])
           a-whnf (#'tc/cached-whnf st a)
-          b-whnf (#'tc/cached-whnf st b)]
-      (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-        (let [bv (e/lit-nat-val b-whnf)]
-          [table (mk-lc (if (zero? bv) 0 (quot (e/lit-nat-val a-whnf) bv)))])
+          b-whnf (#'tc/cached-whnf st b)
+          bv (when (e/lit-nat? b-whnf) (e/lit-nat-val b-whnf))]
+      (cond
+        ;; a / 0 = 0 (definitional: the `0 < b` guard in Nat.div fails)
+        (= bv 0) [table (mk-lc 0)]
+        (and (e/lit-nat? a-whnf) bv) [table (mk-lc (quot (e/lit-nat-val a-whnf) bv))]
+        :else
         (let [[table' idx] (intern-atom table st expr)]
-          [table' (lc-var idx)])))
+          (if bv
+            (let [[table'' lc-a] (reify-term st table' a)]
+              [(assoc-in table'' [:div-atoms idx] {:k bv :lc-a lc-a}) (lc-var idx)])
+            [table' (lc-var idx)]))))
 
-    ;; Nat.mod / HMod — ground only
+    ;; Nat.mod / HMod — ground folds; otherwise rewritten `a % k = a - k*(a/k)` exactly as
+    ;; lean4's frontend does (Int.emod_def), so the remainder never becomes an atom and its
+    ;; 0 ≤ r < k falls out of the quotient's bounds.
     (or (= head-name nat-mod-name) (= head-name hmod-name))
     (let [[a b] (if (= head-name hmod-name)
                   [(nth args 4) (nth args 5)]
                   [(nth args 0) (nth args 1)])
           a-whnf (#'tc/cached-whnf st a)
-          b-whnf (#'tc/cached-whnf st b)]
-      (if (and (e/lit-nat? a-whnf) (e/lit-nat? b-whnf))
-        (let [bv (e/lit-nat-val b-whnf)]
-          [table (mk-lc (if (zero? bv) (e/lit-nat-val a-whnf)
-                            (mod (e/lit-nat-val a-whnf) bv)))])
+          b-whnf (#'tc/cached-whnf st b)
+          bv (when (e/lit-nat? b-whnf) (e/lit-nat-val b-whnf))]
+      (cond
+        ;; a % 0 = a (definitional)
+        (= bv 0) (reify-term st table a)
+        (and (e/lit-nat? a-whnf) bv) [table (mk-lc (mod (e/lit-nat-val a-whnf) bv))]
+        bv (let [div-expr (if (= head-name hmod-name)
+                            (e/app* (e/const' hdiv-name [lvl/zero lvl/zero lvl/zero])
+                                    (nth args 0) (nth args 1) (nth args 2)
+                                    (e/app* (e/const' (name/from-string "instHDiv") [lvl/zero])
+                                            (nth args 0)
+                                            (e/const' (name/from-string "Nat.instDiv") []))
+                                    a b)
+                            (e/app* (e/const' nat-div-name []) a b))
+                 [table' lc-a] (reify-term st table a)
+                 [table'' lc-div] (reify-term st table' div-expr)]
+             [table'' (lc-sub lc-a (lc-scale lc-div bv))])
+        :else
         (let [[table' idx] (intern-atom table st expr)]
           [table' (lc-var idx)])))
 
@@ -689,6 +714,22 @@
      [table constraints]
      (:idx->expr table))))
 
+(defn- add-div-bound-constraints
+  "For every quotient atom `q = a / k` (k a positive literal) recorded during reification,
+   add the two facts lean4's `analyzeAtom` attaches to it:
+     k*q ≤ a        →  a - k*q ≥ 0
+     a < k*q + k    →  k*q + k - a - 1 ≥ 0
+   Without them the decision procedure treats `⌊a/k⌋` as an unconstrained variable and any
+   goal that genuinely depends on the floor comes back satisfiable."
+  [table constraints]
+  (reduce (fn [cs [idx {:keys [k lc-a]}]]
+            (let [kq (lc-scale (lc-var idx) k)]
+              (conj cs
+                    (mk-geq (lc-sub lc-a kq))
+                    (mk-geq (lc-add (lc-sub (lc-add kq (mk-lc k)) lc-a) (mk-lc -1))))))
+          constraints
+          (:div-atoms table)))
+
 (defn- negate-goal
   "Negate the goal to get constraints for the Omega test.
    If goal is P, we assume ¬P and try to derive False."
@@ -802,7 +843,9 @@
         ;; Add Nat non-negativity constraints
         [table hyp-constraints] (add-nat-nonnegativity st table
                                                        (into (vec hyp-constraints)
-                                                             plain-constraints))]
+                                                             plain-constraints))
+        ;; …and the division bounds for every quotient atom interned above
+        hyp-constraints (add-div-bound-constraints table hyp-constraints)]
     (if (empty? disjunctions)
       ;; No disjunctions — solve directly
       (let [all-constraints (into (vec hyp-constraints) plain-constraints)]
@@ -879,12 +922,17 @@
                     (tactic-error! "No goals" {}))
                 env (:env ps)
                 st (tc/mk-tc-state env)
-                st (assoc st :lctx (:lctx goal))]
-            ;; Check if omega can solve this
-            (when-not (omega-check st (:type goal) (:lctx goal))
-              (tactic-error! "omega failed — could not derive contradiction from linear constraints"
-                             {:goal (:type goal)
-                              :hint "Ensure goal involves only linear arithmetic (=, ≤, <, ≥, >) on Nat/Int"}))
+                st (assoc st :lctx (:lctx goal))
+                ;; Run the fast pre-filter. It is ADVISORY, not a gate: this decision
+                ;; procedure is proof-free and deliberately weak (it under-approximates —
+                ;; disjunctive hypotheses, `Neg.neg`, `Int.ofNat` literals and symbolic
+                ;; division all degrade to opaque atoms), so a `:sat` verdict must NOT veto
+                ;; the real, proof-producing engine in ansatz.tactic.omega-proof below.
+                ;; Erroring out here used to make every such goal unprovable even though
+                ;; Strategy 0 could certify it. All the verdict decides now is WHICH message
+                ;; we report if every strategy fails.
+                gate-ok? (try (omega-check st (:type goal) (:lctx goal))
+                              (catch Exception _ false))]
             ;; Omega says it's provable. Try decide to certify.
             (try
               (decide-tac/decide ps)
@@ -1345,7 +1393,12 @@
                              (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term lt-proof})
                                  (proof/record-tactic :omega [:lt-via-succ-le] (:id goal))))))))
                    (catch Exception _ nil))
-                 ;; All fallbacks failed
+                 ;; All fallbacks failed. Report which kind of failure it was: the
+                 ;; pre-filter found a contradiction but nothing could certify it, or the
+                 ;; pre-filter could not even find one.
                  (tactic-error!
-                  "omega: found contradiction but cannot certify (non-ground goal)"
-                  {:goal (:type goal)})))))))))
+                  (if gate-ok?
+                    "omega: found contradiction but cannot certify (non-ground goal)"
+                    "omega failed — could not derive contradiction from linear constraints")
+                  {:goal (:type goal)
+                   :hint "Ensure goal involves only linear arithmetic (=, ≤, <, ≥, >) on Nat/Int"})))))))))
