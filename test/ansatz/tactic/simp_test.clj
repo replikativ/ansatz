@@ -558,8 +558,16 @@
                   :to-unfold #{} :discharge-depth 0}
           result (#'simp/simp-expr* st env lemma-index hyp-type config)
           simplified (:expr result)
-          [head args] (e/get-app-fn-args simplified)]
-      ;; Check the Eq type parameter is NOT True
-      (when (and (e/const? head) (= 3 (count args)))
+          [head args] (e/get-app-fn-args simplified)
+          head-name (when (e/const? head) (name/->string (e/const-name head)))]
+      ;; `Nat.ble_eq : (Nat.ble x y = true) = (x ≤ y)` is the WHOLE point of the rewrite, so
+      ;; the expected outcome is the Prop `x ≤ y`. (The bundled store did not carry
+      ;; `Nat.ble_eq` until the Boolean simp set was shipped, so this used to leave the
+      ;; hypothesis untouched and the check below was the only thing running.)
+      (is (contains? #{"LE.le" "Eq"} head-name)
+          (str "expected the Nat.ble hypothesis to rewrite to `x ≤ y`, or to be left as the "
+               "original Eq — got " head-name))
+      ;; Whichever it is, simp must not have corrupted an Eq's TYPE parameter into `True`.
+      (when (and (= "Eq" head-name) (= 3 (count args)))
         (is (not= (first args) (e/const' (name/from-string "True") []))
             "Eq type param should not be corrupted to True")))))
