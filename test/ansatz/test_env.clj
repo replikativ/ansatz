@@ -19,10 +19,18 @@
       (~125× faster than verifying). Used when the store is absent (e.g. CI).
 
    The returned Env is immutable, so tests freely build on it; nil if neither the
-   store nor the NDJSON is present, so integration tests skip."
+   store nor the NDJSON is present, so integration tests skip.
+
+   `bundled-init-env` is different in kind and is what most tests should use: it is
+   the store ansatz SHIPS (resources/ansatz/init-medium.ndjson.gz, on the classpath),
+   so it is always available — no test-data fixture, and identical in CI and on a
+   developer box. The `test-data/*` fixtures above are whatever that machine happens
+   to have lying around, which is how the omega suite spent a release asserting
+   against a stale 2997-declaration slice."
   (:require [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
-            [ansatz.export.storage :as storage]))
+            [ansatz.export.storage :as storage]
+            [clojure.java.io :as io]))
 
 (defn- store-env [store-dir branch]
   (when (.exists (java.io.File. store-dir))
@@ -40,6 +48,23 @@
              (ndjson-env "test-data/init.ndjson"))))
 
 (def init-medium-env
-  "Medium Init slice (2997 declarations). nil if `init-medium.ndjson` is absent."
+  "Medium Init slice from `test-data/`. nil if that fixture is absent — which it is on
+   CI and on a fresh clone. Prefer `bundled-init-env`."
   (delay (or (store-env "test-data/init-medium-store" "init")
              (ndjson-env "test-data/init-medium.ndjson"))))
+
+(def bundled-init-env
+  "The Init tier ansatz ships in the jar: `resources/ansatz/init-medium.ndjson.gz`,
+   the transitive dependency closure of `scripts/init-store-roots.txt`, replayed in
+   TRUST mode. This is exactly the environment `ansatz.core/load-init!` gives a
+   library user, so a tactic that works here works out of the box.
+
+   Never nil: the resource is on the classpath by construction. Loaded once."
+  (delay
+    (let [res (io/resource "ansatz/init-medium.ndjson.gz")]
+      (when-not res
+        (throw (ex-info "bundled Init export missing from the classpath"
+                        {:resource "ansatz/init-medium.ndjson.gz"})))
+      (let [ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+                     (slurp in))]
+        (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false))))))
