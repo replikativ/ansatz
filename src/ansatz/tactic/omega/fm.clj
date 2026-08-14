@@ -167,11 +167,22 @@
         (reduce (fn [p [lb-fact b]]
                   (reduce (fn [p [ub-fact a]]
                             (let [nb (-' b)
+                                  ;; Length must be max(|f|,|g|), NOT num-vars: the proof
+                                  ;; reconstructs this step with lean4's `Coeffs.combo`, whose
+                                  ;; `IntList.add` is a zipWithAll and so yields exactly
+                                  ;; max(|f|,|g|). Padding to num-vars here makes our model's
+                                  ;; coefficient vector longer than the one in the proof TYPE;
+                                  ;; the values agree but the two `List Int`s are not
+                                  ;; definitionally equal (`dot` on the longer list leaves
+                                  ;; stuck `0 * vᵢ` summands), and `combine_sat'` — which forces
+                                  ;; one `x` on both premises — is rejected by the kernel.
+                                  ;; `solve-easy-equality` already does it this way.
                                   new-coeffs (vec (map-indexed
                                                    (fn [idx _]
                                                      (+' (*' a (get (:coeffs lb-fact) idx 0))
                                                          (*' nb (get (:coeffs ub-fact) idx 0))))
-                                                   (range (:num-vars problem))))
+                                                   (range (max (count (:coeffs lb-fact))
+                                                               (count (:coeffs ub-fact))))))
                                   new-s (p/constraint-combo a (:constraint lb-fact)
                                                             nb (:constraint ub-fact))
                                   new-j (p/justification-combo a (:justification lb-fact)

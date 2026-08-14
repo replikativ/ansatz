@@ -892,48 +892,69 @@
               ps' (omega-proof/omega ps)]
           (is (proof/solved? ps') "Negated Iff should be solved"))))))
 
+;; Division / modulo run on the BUNDLED init-medium env, not Mathlib: omega's proof
+;; reconstruction only needs Init.Omega, and these are the acceptance tests for symbolic
+;; div/mod support — hiding them behind a Mathlib store meant nobody ever ran them.
+;; They also go through `prove-and-verify`, so the proof term is re-checked by the STRICT
+;; kernel checker rather than merely reported as `solved?`.
 (deftest test-omega-proof-div-bounds
-  (testing "omega-proof with division bounds"
-    (when-let [env (require-mathlib-env)]
+  (testing "omega-proof with division bounds (bundled init-medium env)"
+    (let [env (require-env)]
       (testing "a / 3 * 3 <= a (Nat.div_mul_le_self)"
-        (let [goal-type (e/forall' "a" (mk-nat)
-                                   (mk-le-prop (mk-hmul (mk-hdiv (e/bvar 0) (n 3)) (n 3))
-                                               (e/bvar 0))
-                                   :default)
-              ps (first (proof/start-proof env goal-type))
-              ps' (omega-proof/omega ps)]
-          (is (proof/solved? ps') "div-mul-le-self should be proved")))
+        (prove-and-verify env
+                          (e/forall' "a" (mk-nat)
+                                     (mk-le-prop (mk-hmul (mk-hdiv (e/bvar 0) (n 3)) (n 3))
+                                                 (e/bvar 0))
+                                     :default)
+                          omega-proof/omega))
 
       (testing "a < (a / 3 + 1) * 3 (upper bound on div)"
-        (let [goal-type (e/forall' "a" (mk-nat)
-                                   (mk-lt-prop (e/bvar 0)
-                                               (mk-hmul (mk-hadd (mk-hdiv (e/bvar 0) (n 3)) (n 1))
-                                                        (n 3)))
-                                   :default)
-              ps (first (proof/start-proof env goal-type))
-              ps' (omega-proof/omega ps)]
-          (is (proof/solved? ps') "div upper bound should be proved"))))))
+        (prove-and-verify env
+                          (e/forall' "a" (mk-nat)
+                                     (mk-lt-prop (e/bvar 0)
+                                                 (mk-hmul (mk-hadd (mk-hdiv (e/bvar 0) (n 3)) (n 1))
+                                                          (n 3)))
+                                     :default)
+                          omega-proof/omega)))))
 
 (deftest test-omega-proof-mod-decomposition
-  (testing "omega-proof with mod decomposition (a % k -> a - k*(a/k))"
-    (when-let [env (require-mathlib-env)]
+  (testing "omega-proof with mod facts (bundled init-medium env)"
+    (let [env (require-env)]
       (testing "a % 3 < 3"
-        (let [goal-type (e/forall' "a" (mk-nat)
-                                   (mk-lt-prop (mk-hmod (e/bvar 0) (n 3)) (n 3))
-                                   :default)
-              ps (first (proof/start-proof env goal-type))
-              ps' (omega-proof/omega ps)]
-          (is (proof/solved? ps') "mod < k should be proved")))
+        (prove-and-verify env
+                          (e/forall' "a" (mk-nat)
+                                     (mk-lt-prop (mk-hmod (e/bvar 0) (n 3)) (n 3))
+                                     :default)
+                          omega-proof/omega))
 
       (testing "a % 3 + a / 3 * 3 = a"
-        (let [goal-type (e/forall' "a" (mk-nat)
-                                   (mk-eq (mk-hadd (mk-hmod (e/bvar 0) (n 3))
-                                                   (mk-hmul (mk-hdiv (e/bvar 0) (n 3)) (n 3)))
-                                          (e/bvar 0))
-                                   :default)
-              ps (first (proof/start-proof env goal-type))
-              ps' (omega-proof/omega ps)]
-          (is (proof/solved? ps') "mod + div*k = a should be proved"))))))
+        (prove-and-verify env
+                          (e/forall' "a" (mk-nat)
+                                     (mk-eq (mk-hadd (mk-hmod (e/bvar 0) (n 3))
+                                                     (mk-hmul (mk-hdiv (e/bvar 0) (n 3)) (n 3)))
+                                            (e/bvar 0))
+                                     :default)
+                          omega-proof/omega)))))
+
+(deftest test-omega-div-spelling-shares-one-atom
+  (testing "bare `Nat.div a 3` and `HDiv.hDiv Nat Nat Nat instHDiv a 3` intern to the SAME
+            omega atom — the ansatz surface emits the bare spelling while Lean's own library
+            carries the typeclass one, and two atoms for one quotient would leave each of them
+            with only half the bounds"
+    (let [env (require-env)
+          a (e/fvar 424242)
+          bare (e/app* (e/const' (name/from-string "Nat.div") []) a (n 3))
+          tc-st (-> (tc/mk-tc-state env)
+                    (tc/attach-lctx (red/lctx-add-local nil 424242 "a" (mk-nat))))
+          reify-term (var-get #'omega-proof/reify-term)
+          table0 ((var-get #'omega-proof/mk-atom-table))
+          [t1 lc1 _] (reify-term tc-st table0 bare)
+          [t2 lc2 _] (reify-term tc-st t1 (mk-hdiv a (n 3)))]
+      (is (= 1 (:next-idx t2))
+          "the two spellings must share one atom index, not allocate two")
+      (is (= lc1 lc2) "both spellings must reify to the same linear combination")
+      (is (contains? (:div-atoms t2) 0)
+          "the shared atom must be tagged for div-bounds generation"))))
 
 (deftest test-omega-proof-int-negation
   (testing "omega-proof with Neg.neg (Int negation): -a + a = 0"

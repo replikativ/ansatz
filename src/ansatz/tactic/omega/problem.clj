@@ -282,13 +282,41 @@
 ;; Tidy: normalize constraint/coefficients by GCD
 ;; ============================================================
 
+(defn positivize-fact
+  "Mirror lean4 positivizeConstraint: if the leading (first non-zero) coefficient is
+   negative, negate the coeffs and flip+negate the constraint so the leading coeff is
+   positive. This lets opposite-sign bounds on the SAME variable share a coeffs-key and
+   COMBINE into an isImpossible constraint (caught at insertion) — instead of being
+   Fourier-Motzkin-combo'd into a zero-coefficient one-sided constraint that would need a
+   synthetic `dot zeros v = 0` fact (`:trivial-zero` / `dot_of_left_zero`). No-op when the
+   leading coeff is already non-negative. Records a :negate justification (Constraint.neg_sat)."
+  [{:keys [coeffs constraint] :as fact}]
+  (let [lead (some (fn [c] (when-not (zero? c) c)) coeffs)]
+    (if (and lead (neg? lead))
+      (let [neg-coeffs (mapv -' coeffs)
+            neg-constraint (constraint-negate constraint)]
+        (mk-fact neg-coeffs neg-constraint
+                 (justification-negate (:justification fact) neg-constraint neg-coeffs)))
+      fact)))
+
 (defn tidy-fact
-  "Tidy a fact: divide constraint and coefficients by GCD of coefficients.
-   Returns the fact unchanged if GCD <= 1.
+  "Tidy a fact: POSITIVIZE, then divide constraint and coefficients by the GCD of the
+   coefficients. Returns the fact unchanged if neither step does anything.
    Records a :tidy justification node for proof term construction via tidy_sat.
-   Uses floor division (matching Lean's Int.div) for constraint bounds."
-  [{:keys [coeffs constraint justification] :as fact}]
-  (let [g (gcd-list coeffs)]
+   Uses floor division (matching Lean's Int.div) for constraint bounds.
+
+   The positivize step must come FIRST and must happen HERE, because the `:tidy`
+   justification is reconstructed with lean4's `tidyConstraint`/`tidyCoeffs`, and
+   lean4 defines `tidy = positivize ∘ normalize` (Init/Omega/Constraint.lean:341).
+   Positivizing afterwards instead (as `add-constraint` does for facts that never
+   pass through here) makes our model disagree with the reconstruction whenever the
+   leading coefficient is negative: we would compute `neg (x / g)` while the kernel
+   computes `(neg x) / g` and then negates it AGAIN for our `:negate` node. The
+   resulting `Constraint.isImpossible` then evaluates to `false` and the kernel
+   rejects the certificate."
+  [fact]
+  (let [{:keys [coeffs constraint justification] :as fact} (positivize-fact fact)
+        g (gcd-list coeffs)]
     (cond
       ;; gcd=0 ⟺ all coefficients zero (lean4 normalize? zero-gcd case): the constraint is
       ;; `lower ≤ 0 ≤ upper`. If unsatisfiable at 0 → Constraint.impossible ({1,0}); the
@@ -315,23 +343,6 @@
                                      (floor-div (long u) (long g)))}
             new-j (justification-tidy justification new-constraint new-coeffs)]
         (mk-fact new-coeffs new-constraint new-j)))))
-
-(defn positivize-fact
-  "Mirror lean4 positivizeConstraint: if the leading (first non-zero) coefficient is
-   negative, negate the coeffs and flip+negate the constraint so the leading coeff is
-   positive. This lets opposite-sign bounds on the SAME variable share a coeffs-key and
-   COMBINE into an isImpossible constraint (caught at insertion) — instead of being
-   Fourier-Motzkin-combo'd into a zero-coefficient one-sided constraint that would need a
-   synthetic `dot zeros v = 0` fact (`:trivial-zero` / `dot_of_left_zero`). No-op when the
-   leading coeff is already non-negative. Records a :negate justification (Constraint.neg_sat)."
-  [{:keys [coeffs constraint] :as fact}]
-  (let [lead (some (fn [c] (when-not (zero? c) c)) coeffs)]
-    (if (and lead (neg? lead))
-      (let [neg-coeffs (mapv -' coeffs)
-            neg-constraint (constraint-negate constraint)]
-        (mk-fact neg-coeffs neg-constraint
-                 (justification-negate (:justification fact) neg-constraint neg-coeffs)))
-      fact)))
 
 ;; ============================================================
 ;; Coefficients utilities
