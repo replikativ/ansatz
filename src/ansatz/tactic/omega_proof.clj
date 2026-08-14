@@ -2982,6 +2982,12 @@
    problem
    (:idx->expr table)))
 
+(def ^:dynamic *strict-div-bounds*
+  "When true, `add-div-bounds` rethrows instead of quietly degrading a quotient to an
+   unconstrained atom. Tests and debugging only — the tactic must stay total in normal
+   use, because plenty of divisors genuinely cannot be bounded."
+  false)
+
 (defn- add-div-bounds
   "Attach the facts that pin down division/modulo atoms — our equivalent of Lean's
    `analyzeAtom` (Lean/Elab/Tactic/Omega/OmegaM.lean).
@@ -3008,10 +3014,16 @@
    every disjunction branch — a quotient that only shows up while reifying a branch
    hypothesis used to reach the solver as an unconstrained atom.
 
-   NOTE (Int): `Int.mul_ediv_self_le` / `Int.lt_mul_ediv_self_add` are not part of
-   the bundled init-medium slice, so the Int branch throws there and is caught
-   below — Int quotients degrade to unconstrained atoms rather than failing the
-   whole tactic."
+   NOTE (Int): `Int.mul_ediv_self_le` / `Int.lt_mul_ediv_self_add` ARE in the bundled
+   store, so the Int branch is live. It still runs under the `try` below: a divisor
+   that is not a ground non-negative literal, or an unexpected spelling, degrades the
+   quotient to an unconstrained atom rather than failing the whole tactic.
+
+   Bind `*strict-div-bounds*` to rethrow instead of degrading. Both of the bugs this
+   function has shipped — a missing store constant, then an Int divisor read as a raw
+   Nat literal — presented identically to a divisor omega legitimately declines to
+   bound, i.e. as `could not derive contradiction` with no clue attached. Reach for
+   this before concluding that a lemma is absent."
   [st table problem]
   (letfn
    [(add-mod-one [[table problem] [_idx {:keys [a b]}]]
@@ -3046,14 +3058,15 @@
                          (e/app (e/const' (:nat-mod-zero omega-names) []) a)
                          (e/app* (e/const' (:nat-mod-add-div omega-names) []) a b))]
           (reify-prop st table problem eq-type eq-proof))
-        (catch Exception _ [table problem])))
+        (catch Exception ex
+          (when *strict-div-bounds* (throw ex))
+          [table problem])))
     (add-one [[table problem] [idx {:keys [a b type-name expr]}]]
       ;; Mark FIRST: reifying the bounds can itself intern atoms, and a re-entrant
       ;; visit of the same index would duplicate the constraints.
       (let [table (update table :div-bounds-added (fnil conj #{}) idx)]
         (try
-          (let [nat-type (e/const' (:nat-name omega-names) [])
-                k-whnf (#'tc/cached-whnf st b)]
+          (let [nat-type (e/const' (:nat-name omega-names) [])]
             (if (= type-name (:nat-name omega-names))
            ;; Nat: Nat.div_mul_le_self m n : m / n * n ≤ m
            ;; This is LE.le Nat instLENat (HMul ... (HDiv ... a b) b) a
@@ -3099,8 +3112,17 @@
            ;; Int: feed bounds through reify-prop
            ;; Int.mul_ediv_self_le {x k} (h : k ≠ 0) : k*(x/k) ≤ x
            ;; Int.lt_mul_ediv_self_add {x k} (h : 0 < k) : x < k*(x/k)+k
-              (let [k-int (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat (e/lit-nat-val k-whnf)))
-                 ;; For Int, k needs to be Int literal, build ne-proof and pos-proof via decide
+              (let [;; Use the divisor EXACTLY as the goal spells it. `reify-div-atom` only
+                    ;; tags an atom when `ground-int-val b` is a positive literal, so `b` is
+                    ;; ground here — but it may be `Int.ofNat 2`, `@OfNat.ofNat Int 2 _`, …,
+                    ;; and only the goal's own spelling keeps `k * expr` reifying against the
+                    ;; same atom as `expr`. The previous `(e/lit-nat-val k-whnf)` assumed a
+                    ;; RAW Nat literal, which an Int divisor never is: it returned nil, the
+                    ;; whole branch threw into the `catch` below, and every Int quotient
+                    ;; silently reached the solver unconstrained. That looked exactly like the
+                    ;; missing-lemma gap it was blamed on.
+                    k-int b
+                 ;; ne-proof and pos-proof for the two side conditions, via decide
                     ne-zero-prop (e/app* (e/const' (:ne-name omega-names) [u1])
                                          int-type k-int
                                          (e/app (e/const' (:int-ofnat omega-names) []) (e/lit-nat 0)))
@@ -3151,7 +3173,9 @@
                     lt-proof (e/app* (e/const' (:int-lt-mul-ediv-self-add omega-names) [])
                                      a k-int pos-proof)]
                 (reify-prop st table' problem' lt-type lt-proof))))
-          (catch Exception _ [table problem]))))]
+          (catch Exception ex
+            (when *strict-div-bounds* (throw ex))
+            [table problem]))))]
     ;; Reifying one atom's facts surfaces further atoms (the quotient of a remainder
     ;; and vice versa, or a quotient inside a dividend), so iterate to a fixpoint
     ;; rather than making a single pass.
