@@ -2678,22 +2678,39 @@
 ;; Public API
 ;; ============================================================
 
+(def default-simp-priority
+  "Lean's `eval_prio default`: the priority a @[simp] lemma has unless the attribute says
+   otherwise. `build-lemma-index` and `rewriteUsingIndex?` both order candidates by
+   descending priority, so this is the number everything else is relative to."
+  1000)
+
 (defn make-simp-lemmas
   "Create simp lemma entries from a list of constant names.
-   Flattens vector returns from extract-simp-lemma (e.g. And splitting)."
+   Flattens vector returns from extract-simp-lemma (e.g. And splitting).
+
+   Honours Lean's per-lemma @[simp] PRIORITY, inherited via the env's :simp-priorities
+   extension (ansatz.attrs). This is not a nicety: `Bool.false_eq : (false = b) = (b = false)`
+   and `Bool.true_eq : (true = b) = (b = true)` rewrite each other's output and are confluent
+   only because Lean marks them `@[simp low]`, letting `Bool.false_eq_true`/`Bool.true_eq_false`
+   (default priority, both collapsing to `False`) fire first. At a flat priority simp
+   oscillates between the two orientations until it hits its step limit."
   [env lemma-names]
-  (vec (mapcat (fn [n]
-                 (let [cname (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
-                       ci (env/lookup env cname)]
-                   (when ci (extract-simp-lemma env ci 1000))))
-               lemma-names)))
+  (let [prios (env/get-extension env :simp-priorities {})]
+    (vec (mapcat (fn [n]
+                   (let [cname (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
+                         ci (env/lookup env cname)]
+                     (when ci
+                       (extract-simp-lemma env ci (get prios (name/->string cname)
+                                                       default-simp-priority)))))
+                 lemma-names))))
 
 (def ^:private simp-only-builtins
   "Lean 4's `simpOnlyBuiltins` (Elab/Tactic/Simp.lean): the ONLY lemmas `simp only` starts
    with — the reflexive closers — before adding the user-given lemmas. No default @[simp] set,
-   no simprocs. `eq_self_iff_true` is ansatz's `eq_self`; `iff_self` closes `P ↔ P` (tolerated
-   absent in an Init-only env, like the other names)."
-  ["eq_self_iff_true" "iff_self"])
+   no simprocs. Lean core spells them `eq_self : (a = a) = True` and `iff_self : (p ↔ p) = True`
+   (`eq_self_iff_true` is the MATHLIB name and resolves against nothing on the Init tier — it was
+   spelled that way here, and `simp only` therefore started with an empty lemma set)."
+  ["eq_self" "iff_self"])
 
 (def ^:private default-simp-lemmas
   "Default simp lemma names (commonly used in Lean 4 Init)."
@@ -2707,8 +2724,8 @@
    ;; Nat.ble → ≤ conversion (Lean 4: @[simp] ble_eq in Init/Data/Nat/Basic.lean)
    ;; Connects boolean Nat.ble to propositional ≤
    "Nat.ble_eq"
-   ;; Eq
-   "eq_self_iff_true"
+   ;; Eq  (Lean core's name; `eq_self_iff_true` is Mathlib's and resolved against nothing)
+   "eq_self"
    ;; List
    "List.length_nil" "List.length_cons"
    ;; if/then/else
@@ -2728,7 +2745,12 @@
 (defn- ensure-ble-eq
   "Derive Nat.ble_eq if not already in env.
    Lean 4: @[simp] theorem ble_eq : (Nat.ble x y = true) = (x ≤ y)
-   Proof: propext (Iff.intro Nat.le_of_ble_eq_true Nat.ble_eq_true_of_le)"
+   Proof: propext (Iff.intro Nat.le_of_ble_eq_true Nat.ble_eq_true_of_le)
+
+   The bundled Init tier now SHIPS `Nat.ble_eq` (it is a root in scripts/init-store-roots.txt
+   and pinned by ansatz.tactic.tactic-constants-test), so this is a no-op there. It stays for
+   stores that predate that — a tier built without it would otherwise lose the Bool→Prop
+   bridge for `≤` entirely, which is why it was written in the first place."
   [env]
   (let [ble-eq-name (name/from-string "Nat.ble_eq")]
     (when-not (env/lookup env ble-eq-name)
