@@ -8,6 +8,9 @@
    the env, so version drift degrades gracefully (an absent lemma is simply skipped). The attributes
    become env EXTENSIONS (Lean's EnvironmentExtension), so they branch with the env:
      simp → :simp-lemmas   unfold → :simp-unfold   csimp → :csimp   extern → :extern
+   plus :simp-priorities — {name → priority} for the @[simp] lemmas whose priority is NOT
+   Lean's default (`@[simp low]` / `@[simp high]`). Priority is not decoration: `Bool.false_eq`
+   and `Bool.true_eq` are confluent only because they are low.
    The tactic / optimizer / codegen layers can then consult the inherited set instead of hand-curating."
   (:require [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -19,6 +22,12 @@
   "Attribute kind (NDJSON \"kind\") → the Env extension key its entries accumulate into."
   {"simp" :simp-lemmas, "unfold" :simp-unfold, "extern" :extern, "csimp" :csimp, "impl" :implemented-by})
 
+(def default-simp-priority
+  "Lean's `eval_prio default` — the priority every @[simp] lemma has unless it says otherwise.
+   ansatz's simp uses the same number (see ansatz.tactic.simp/make-simp-lemmas), so only the
+   entries that DIFFER need carrying in the :simp-priorities extension."
+  1000)
+
 (def ^:private map-kinds
   "Kinds that carry a \"target\" (the replacement / impl decl) — stored as a {name → target} map.
    The rest are stored as sets of names."
@@ -26,7 +35,8 @@
 
 (defn- parse-line [l]
   (when-let [[_ k n] (re-find #"\"kind\":\"([^\"]+)\"[^}]*\"name\":\"([^\"]+)\"" l)]
-    [k n (second (re-find #"\"target\":\"([^\"]+)\"" l))]))
+    [k n (second (re-find #"\"target\":\"([^\"]+)\"" l))
+     (some-> (second (re-find #"\"prio\":(\d+)" l)) parse-long)]))
 
 (defn import-attrs
   "Return [env' stats] where env' is `env` with the attributes from `ndjson` (a file path, or a seq
@@ -42,12 +52,20 @@
          ;; like Mathlib's ~93k attrs the difference is minutes vs seconds.
          present? (or present?
                       (fn [n] (some? (env/lookup env (name/from-string n)))))]
-     (reduce (fn [[e stats] [k n target]]
+     (reduce (fn [[e stats] [k n target prio]]
                (if-let [ext-key (kind->ext k)]
                  (if (present? n)
-                   [(if (map-kinds k)
-                      (env/update-extension e ext-key {} assoc n target)
-                      (env/update-extension e ext-key #{} conj n))
+                   [(cond-> (if (map-kinds k)
+                              (env/update-extension e ext-key {} assoc n target)
+                              (env/update-extension e ext-key #{} conj n))
+                      ;; Lean's simp PRIORITY, when the corpus records it. Only the
+                      ;; non-default ones are worth carrying, and they are load-bearing:
+                      ;; `Bool.false_eq`/`Bool.true_eq` are `@[simp low]` and rewrite each
+                      ;; other's output, so at equal priority simp oscillates between
+                      ;; `(false = true)` and `(true = false)` instead of letting
+                      ;; `Bool.false_eq_true` (default priority) collapse it to `False`.
+                      (and (= "simp" k) prio (not= prio default-simp-priority))
+                      (env/update-extension :simp-priorities {} assoc n prio))
                     (update stats ext-key (fnil inc 0))]
                    [e (update stats :skipped (fnil inc 0))])
                  [e stats]))

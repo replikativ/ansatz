@@ -12,7 +12,7 @@
 -- Then (a/init! "mathlib") inherits Mathlib's full @[simp] set (intersected with the store).
 --
 -- Lines:
---   {"kind":"simp","name":"Nat.add_zero"}            -- a @[simp] lemma
+--   {"kind":"simp","name":"Nat.add_zero","prio":1000}  -- a @[simp] lemma (with its priority)
 --   {"kind":"unfold","name":"id"}                    -- a @[simp] def to unfold
 --   {"kind":"csimp","name":"f","target":"g"}         -- @[csimp] f = g (compiler replacement)
 --   {"kind":"extern","name":"Nat.add"}               -- @[extern] (externally implemented)
@@ -20,11 +20,21 @@
 import Lean
 open Lean Meta Compiler
 
-def emit (kind : String) (name : Name) (target : Option Name := none) : IO Unit := do
+def emit (kind : String) (name : Name) (target : Option Name := none)
+    (prio : Option Nat := none) : IO Unit := do
   let base := "{\"kind\":\"" ++ kind ++ "\",\"name\":\"" ++ toString name ++ "\""
-  IO.println (match target with
-    | some t => base ++ ",\"target\":\"" ++ toString t ++ "\"}"
-    | none   => base ++ "}")
+  let base := match target with
+    | some t => base ++ ",\"target\":\"" ++ toString t ++ "\""
+    | none   => base
+  -- The PRIORITY is load-bearing, not decoration: several of Lean's Bool lemmas are
+  -- confluent only because they are `@[simp low]`. `Bool.false_eq : (false = b) = (b = false)`
+  -- and `Bool.true_eq : (true = b) = (b = true)` rewrite each other's results, and only their
+  -- low priority keeps `Bool.false_eq_true` / `Bool.true_eq_false` (default priority, both
+  -- rewriting to `False`) winning first. A consumer that drops the priority loops.
+  let base := match prio with
+    | some p => base ++ ",\"prio\":" ++ toString p
+    | none   => base
+  IO.println (base ++ "}")
 
 -- scoped extensions (simp, csimp): getState only sees activated scopes, which importModules does
 -- not activate — so fold the raw per-module imported entries instead.
@@ -41,7 +51,7 @@ def dumpAttrs : CoreM Unit := do
   foldModuleEntries simpExt.ext fun entry => do
     match (match entry with | .global e => some e | .scoped _ e => some e) with
     | some (.thm t) => match t.origin with
-      | .decl n _ _ => emit "simp" n
+      | .decl n _ _ => emit "simp" n (prio := some t.priority)
       | _ => pure ()
     | some (.toUnfold n) => emit "unfold" n
     | _ => pure ()
