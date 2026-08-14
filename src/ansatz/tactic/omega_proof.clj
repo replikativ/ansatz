@@ -764,6 +764,53 @@
 ;; PRE-WHNF: `Nat.div` is well-founded-recursive, so WHNF unfolds it into a stuck
 ;; `Nat.div.go`/`Decidable.rec` blob whose head is no longer `Nat.div`.
 
+(def ^:private arithmetic-heads
+  "Head constants `reify-term` can decompose. Used to decide when to STOP delta-unfolding."
+  (into #{} (map omega-names)
+        [:nat-add :nat-sub :nat-mul :nat-div :nat-mod :nat-succ :nat-zero
+         :hadd :hsub :hmul :hdiv :hmod :ofnat :neg-name :int-ofnat]))
+
+(defn- delta-step
+  "One DELTA step at the head: unfold the head constant's value and beta-reduce the
+   application (beta/iota/proj only — `whnf-no-delta` — so no further definitions are
+   unfolded). Returns nil if the head is not a constant with a value."
+  [st expr]
+  (let [[head args] (e/get-app-fn-args expr)]
+    (when (e/const? head)
+      (when-let [ci (kenv/lookup (:env st) (e/const-name head))]
+        (when-let [value (kenv/get-value ci)]
+          (let [subst (into {} (map vector (vec (.levelParams ci)) (e/const-levels head)))
+                body (e/instantiate-level-params value subst)]
+            (red/whnf-no-delta (:env st) (apply e/app* body args) (:lctx st))))))))
+
+(defn- delta-to-arithmetic
+  "Unfold definitions at the head ONE STEP AT A TIME until an arithmetic head appears;
+   return that term, or nil if none appears within `fuel` steps.
+
+   ansatz's omega is delta-transparent — a goal stated over a user `a/defn` such as
+   `byz-tolerance n = (n-1)/3` must still be decided — but a single `whnf` blows straight
+   PAST `Nat.div`: it is well-founded-recursive, so whnf keeps going into a stuck
+   `Nat.div.go`/`Decidable.rec` blob whose head is no longer arithmetic, and the quotient
+   is silently lost to an opaque atom. Stepping one definition at a time and re-checking
+   the head after each step stops exactly at `Nat.div` (see the hazard note in
+   ansatz.tactic.omega `full-whnf-nat-lit`).
+
+   Never unfolds a head that is ALREADY arithmetic, so `Nat.div`/`Nat.add`/… are safe."
+  ([st expr] (delta-to-arithmetic st expr 8))
+  ([st expr fuel]
+   (loop [e expr, fuel fuel]
+     (let [head (e/get-app-fn e)]
+       (cond
+         (and (e/const? head) (contains? arithmetic-heads (e/const-name head)))
+         (when-not (identical? e expr) e)   ;; nil if no unfolding was needed
+
+         (or (zero? fuel) (not (e/const? head))) nil
+
+         :else
+         (if-let [e' (delta-step st e)]
+           (if (identical? e' e) nil (recur e' (dec fuel)))
+           nil))))))
+
 (defn- mk-hdiv-expr
   "Rebuild `a / b` in the HDiv.hDiv spelling, given the element-type arguments of
    the application we are rewriting (`T0 T1 T2` = args 0..2)."
@@ -1034,7 +1081,15 @@
             ;; Nat.zero → 0
             (and (e/const? head) (= head-name (:nat-zero omega-names)) (= 0 (count args)))
             (let [lc (mk-lc 0)]
-              [table lc (mk-eval-rfl-proof lc)]))))
+              [table lc (mk-eval-rfl-proof lc)])
+
+            ;; A USER DEFINITION wrapping arithmetic (`byz-tolerance n = (n-1)/3`):
+            ;; delta-unfold one step at a time until an arithmetic head appears, then
+            ;; reify THAT. The blanket `whnf` below would unfold past `Nat.div` into a
+            ;; stuck brecOn blob and lose the quotient. Def-eq, so the proof still checks.
+            (and (e/const? head) (not (contains? arithmetic-heads head-name)))
+            (when-let [unfolded (delta-to-arithmetic st expr)]
+              (reify-term st table unfolded)))))
       (let [expr-whnf (#'tc/cached-whnf st expr)
             N (:nat-name omega-names)]
         (cond

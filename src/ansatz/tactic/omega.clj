@@ -287,6 +287,35 @@
     (let [[table' idx] (intern-atom table st expr)]
       [table' (lc-var idx)])))
 
+(defn- delta-to-arithmetic
+  "Unfold definitions at the head ONE STEP AT A TIME (delta only; beta/iota/proj in
+   between) until an arithmetic head appears; return that term, or nil.
+
+   A goal stated over a user `a/defn` (`byz-tolerance n = (n-1)/3`) must still reify as
+   arithmetic, but the blanket `whnf` in phase 2 below blows straight PAST `Nat.div` into
+   a stuck `Nat.div.go`/`brecOn` blob whose head is no longer arithmetic — see
+   `full-whnf-nat-lit`. Stepping one definition at a time stops exactly at `Nat.div`."
+  ([st expr] (delta-to-arithmetic st expr 8))
+  ([st expr fuel]
+   (loop [e expr, fuel fuel]
+     (let [head (e/get-app-fn e)]
+       (cond
+         (and (e/const? head) (contains? arithmetic-heads (e/const-name head)))
+         (when-not (identical? e expr) e)
+
+         (or (zero? fuel) (not (e/const? head))) nil
+
+         :else
+         (let [[_ args] (e/get-app-fn-args e)
+               ci (env/lookup (:env st) (e/const-name head))
+               value (some-> ci env/get-value)]
+           (if-not value
+             nil
+             (let [subst (into {} (map vector (vec (.levelParams ci)) (e/const-levels head)))
+                   body (e/instantiate-level-params value subst)
+                   e' (red/whnf-no-delta (:env st) (apply e/app* body args) (:lctx st))]
+               (if (identical? e' e) nil (recur e' (dec fuel)))))))))))
+
 (defn- full-whnf-nat-lit
   "Full (delta) whnf fallback: if `expr` reduces to a Nat literal/zero, return
    its numeric value; else nil. Used before interning a stuck term as an opaque
@@ -317,48 +346,53 @@
   (let [pre-matched (when (e/app? expr) (try-match-head-raw expr))]
     (if (and pre-matched (contains? arithmetic-heads (first pre-matched)))
       (reify-arithmetic st table expr pre-matched)
-      ;; Phase 2: WHNF and try again (handles Nat.succ, Nat.zero, literals)
-      (let [expr-whnf (#'tc/cached-whnf st expr)]
-        (cond
+      ;; Phase 1b: a user definition wrapping arithmetic — delta-step down to the
+      ;; arithmetic head before phase 2's whnf can blow past it.
+      (if-let [unfolded (and (e/const? (e/get-app-fn expr))
+                             (delta-to-arithmetic st expr))]
+        (reify-term st table unfolded)
+        ;; Phase 2: WHNF and try again (handles Nat.succ, Nat.zero, literals)
+        (let [expr-whnf (#'tc/cached-whnf st expr)]
+          (cond
           ;; Nat literal
-          (e/lit-nat? expr-whnf)
-          [table (mk-lc (e/lit-nat-val expr-whnf))]
+            (e/lit-nat? expr-whnf)
+            [table (mk-lc (e/lit-nat-val expr-whnf))]
 
           ;; Nat.zero constructor
-          (and (e/const? expr-whnf)
-               (= (e/const-name expr-whnf) nat-zero-name))
-          [table (mk-lc 0)]
+            (and (e/const? expr-whnf)
+                 (= (e/const-name expr-whnf) nat-zero-name))
+            [table (mk-lc 0)]
 
           ;; Application — check for arithmetic ops on WHNF result
-          (e/app? expr-whnf)
-          (let [matched (try-match-head st expr-whnf)]
-            (if (and matched (contains? arithmetic-heads (first matched)))
-              (reify-arithmetic st table expr-whnf matched)
+            (e/app? expr-whnf)
+            (let [matched (try-match-head st expr-whnf)]
+              (if (and matched (contains? arithmetic-heads (first matched)))
+                (reify-arithmetic st table expr-whnf matched)
               ;; Unknown application — try full whnf for a literal, else atom
-              (if-let [n (full-whnf-nat-lit st expr-whnf)]
-                [table (mk-lc n)]
-                (let [[table' idx] (intern-atom table st expr-whnf)]
-                  [table' (lc-var idx)]))))
+                (if-let [n (full-whnf-nat-lit st expr-whnf)]
+                  [table (mk-lc n)]
+                  (let [[table' idx] (intern-atom table st expr-whnf)]
+                    [table' (lc-var idx)]))))
 
           ;; Free variable — intern as atom
-          (e/fvar? expr-whnf)
-          (let [[table' idx] (intern-atom table st expr-whnf)]
-            [table' (lc-var idx)])
+            (e/fvar? expr-whnf)
+            (let [[table' idx] (intern-atom table st expr-whnf)]
+              [table' (lc-var idx)])
 
           ;; Constant — check for Nat.zero, else atom
-          (e/const? expr-whnf)
-          (if (= (e/const-name expr-whnf) nat-zero-name)
-            [table (mk-lc 0)]
-            (let [[table' idx] (intern-atom table st expr-whnf)]
-              [table' (lc-var idx)]))
+            (e/const? expr-whnf)
+            (if (= (e/const-name expr-whnf) nat-zero-name)
+              [table (mk-lc 0)]
+              (let [[table' idx] (intern-atom table st expr-whnf)]
+                [table' (lc-var idx)]))
 
           ;; Anything else (e.g. a stuck `proj` like the OfNat instance field) —
           ;; try full whnf for a literal, else intern as atom
-          :else
-          (if-let [n (full-whnf-nat-lit st expr-whnf)]
-            [table (mk-lc n)]
-            (let [[table' idx] (intern-atom table st expr-whnf)]
-              [table' (lc-var idx)])))))))
+            :else
+            (if-let [n (full-whnf-nat-lit st expr-whnf)]
+              [table (mk-lc n)]
+              (let [[table' idx] (intern-atom table st expr-whnf)]
+                [table' (lc-var idx)]))))))))
 
 ;; ============================================================
 ;; Reification: Ansatz propositions → constraints

@@ -27,6 +27,7 @@
   (:require [clojure.test :refer [deftest testing is]]
             [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.tactic.proof :as proof]
@@ -416,6 +417,35 @@
                 (fn [n] {:hyps []
                          :concl (n< (n+ n (ndiv (n- n (nlit 1)) (nlit 3)))
                                     (n* (nlit 2) (n+ (ndiv (n* (nlit 2) n) (nlit 3)) (nlit 1))))})))))
+
+(deftest quorum-intersection-through-definitions
+  (testing "the acceptance case as it is actually WRITTEN — the statement is stated over two
+            `a/defn` definitions, so omega has to delta-step THROUGH them to see the divisions
+            at all. A blanket whnf would unfold straight past Nat.div into a stuck brecOn blob
+            and atomise the quotient."
+    (let [nat-arrow-nat (e/forall' "n" NAT NAT :default)
+          mk-fn (fn [nm body-fn]
+                  (env/mk-def (name/from-string nm) [] nat-arrow-nat
+                              (e/lam "n" NAT (body-fn (e/bvar 0)) :default)))
+          ;; quorum-size n   = (2 * n) / 3 + 1
+          ;; byz-tolerance n = (n - 1) / 3
+          env (-> (require-env)
+                  (env/check-constant
+                   (mk-fn "corpus.quorumSize"
+                          (fn [n] (n+ (ndiv (n* (nlit 2) n) (nlit 3)) (nlit 1)))))
+                  (env/check-constant
+                   (mk-fn "corpus.byzTolerance"
+                          (fn [n] (ndiv (n- n (nlit 1)) (nlit 3))))))
+          call (fn [nm x] (e/app (c nm) x))
+          [goal names] (ex [["n" NAT]]
+                           (fn [n] {:hyps []
+                                    :concl (n< (n+ n (call "corpus.byzTolerance" n))
+                                               (n* (nlit 2) (call "corpus.quorumSize" n)))}))]
+      (is (= :ok (let [[ps _] (proof/start-proof env goal)
+                       ps (basic/intros ps names)
+                       ps (omega/omega ps)]
+                   (if (proof/solved? ps) (do (extract/verify ps) :ok) :unsolved)))
+          "n + byzTolerance n < 2 * quorumSize n"))))
 
 (deftest div-of-truncated-sub
   (testing "a quotient whose DIVIDEND is a truncated subtraction (the sharp case)"
