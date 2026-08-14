@@ -1078,6 +1078,37 @@
                                            (build more) (elab-term est e) (elab-term est t))))))]
                      (build (rest sexpr)))
 
+        ;; `and` / `or` are NOT macroexpanded (see ingest/no-expand-macros): Clojure expands
+        ;; them to `(let [x c] (if x x d))`, which elaborates to a `Bool.rec` tree with the
+        ;; discriminant DUPLICATED into the branch. That tree is not headed by `Bool.or` /
+        ;; `Bool.and`, so Lean's entire Boolean simp set — `Bool.or_eq_true`,
+        ;; `Bool.and_eq_true`, `Bool.or_eq_false_iff`, … , every one of which is stated about
+        ;; the FUNCTION applications — has nothing to match, and simp is left structurally
+        ;; unfolding the tree instead. Nesting multiplies it. Lean's `||`/`&&` are functions;
+        ;; emit the same functions here so the standard lemmas apply, and the compiled output
+        ;; is unchanged (ansatz.codegen lowers Bool.or/Bool.and straight back to Clojure's
+        ;; `or`/`and`, short-circuiting included).
+        ;;   (and) → true · (or) → false · (and x) → x · n-ary folds left, as Lean's infixl
+        ;;   `&&`/`||` do (Bool.and/Bool.or are associative, so this only fixes the shape).
+            ("and" "or") (let [or? (= "or" (str head))
+                               args (rest sexpr)
+                               op (name/from-string (if or? "Bool.or" "Bool.and"))]
+                           (cond
+                             ;; No Bool.or/Bool.and in this env (a minimal test env): fall back
+                             ;; to Clojure's expansion rather than failing to elaborate at all.
+                             (nil? (env/lookup (:env est) op))
+                             (elab-term est (macroexpand-1 sexpr))
+
+                             (empty? args)
+                             (e/const' (name/from-string (if or? "Bool.false" "Bool.true")) [])
+
+                             (= 1 (count args)) (elab-term est (first args))
+
+                             :else
+                             (reduce (fn [acc f] (e/app* (e/const' op []) acc (elab-term est f)))
+                                     (elab-term est (first args))
+                                     (rest args))))
+
         ;; `bif` — Lean's boolean-`if` notation, the escape to the `cond` CONSTANT
         ;; (cond.{u} {α : Type u} (c : Bool) (a b : α) : α). The surface `cond` is overloaded as
         ;; Clojure-style clause-cond (above), so a lemma statement that needs the literal `cond`
