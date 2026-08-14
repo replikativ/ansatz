@@ -180,8 +180,11 @@
      ;; Int negation lemmas (Iffs, use with Iff.mp)
      :int-not-lt             (n "Int.not_lt")   ;; ¬(a < b) ↔ (b ≤ a)
      :int-not-le             (n "Int.not_le")   ;; ¬(a ≤ b) ↔ (b < a)
-     ;; ¬(P ∧ Q) → ¬P ∨ ¬Q
-     :not-and-or             (n "not_and_or")
+     ;; ¬(P ∧ Q) → ¬P ∨ ¬Q. Lean core spells this `Classical.not_and_iff_not_or_not`
+     ;; ({a b : Prop}, no instance) — `not_and_or` is the MATHLIB name and does not
+     ;; exist in Init. The `Decidable.` variant would additionally want a
+     ;; `[Decidable a]`; the Classical one is the drop-in.
+     :not-and-or             (n "Classical.not_and_iff_not_or_not")
      ;; ¬(P ∨ Q) → ¬P ∧ ¬Q
      :not-or                 (n "not_or")
      :and-left               (n "And.left")
@@ -197,11 +200,17 @@
      :int-emod-pos-of-not-dvd (n "Int.emod_pos_of_not_dvd")   ;; ¬(a ∣ b) → a = 0 ∨ 0 < b % a
      ;; Iff
      :iff-name               (n "Iff")
-     :dec-not-iff            (n "Decidable.not_iff") ;; {b a} [dec a] : ¬(a ↔ b) ↔ (¬a ↔ b)
-     :iff-iff-and-or         (n "iff_iff_and_or_not_and_not") ;; (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q))
+     :dec-not-iff            (n "Decidable.not_iff") ;; {b} {a} [dec b] : ¬(a ↔ b) ↔ (¬a ↔ b)
+     ;; (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q)). Core has ONLY the Decidable form —
+     ;; `Decidable.iff_iff_and_or_not_and_not {a b : Prop} [Decidable b]` — so unlike
+     ;; the ∧/→ cases there is no instance-free drop-in and the call site must supply
+     ;; a `Decidable Q`. (`iff_iff_and_or_not_and_not` is the Mathlib name.)
+     :iff-iff-and-or         (n "Decidable.iff_iff_and_or_not_and_not")
      ;; Implication
      :not-or-of-imp          (n "Decidable.not_or_of_imp") ;; (P → Q) → ¬P ∨ Q
-     :not-imp                (n "not_imp")                 ;; ¬(P → Q) ↔ (P ∧ ¬Q)
+     ;; ¬(P → Q) ↔ (P ∧ ¬Q). Core name is `Classical.not_imp` ({a b : Prop}, no
+     ;; instance); bare `not_imp` is Mathlib's.
+     :not-imp                (n "Classical.not_imp")
      ;; Neg.neg
      :neg-name               (n "Neg.neg")
      :int-inst-neg           (n "Int.instNegInt")
@@ -215,8 +224,12 @@
      ;; Dvd proof terms
      :nat-mod-eq-zero-of-dvd (n "Nat.mod_eq_zero_of_dvd")  ;; m ∣ n → n % m = 0
      :nat-emod-pos-of-not-dvd (n "Nat.emod_pos_of_not_dvd") ;; ¬(m ∣ n) → 0 < n % m
-     ;; Int.ofNat cast lemma
-     :int-ofnat-eq-zero      (n "Int.ofNat.eq_def")   ;; helper
+     ;; Int.ofNat cast lemma. `Int.ofNat` is a CONSTRUCTOR, so it has no `.eq_def`
+     ;; equation lemma — the old `Int.ofNat.eq_def` spelling could never resolve in any
+     ;; store. The real core constant is `Int.ofNat_eq_natCast (n : Nat) : Int.ofNat n = ↑n`.
+     ;; Currently unreferenced (`nat-to-int` builds the cast directly); kept so the name
+     ;; in this table is the one that exists.
+     :int-ofnat-eq-natcast   (n "Int.ofNat_eq_natCast")
      :nat-cast-nonneg        (n "Int.natCast_nonneg")
      ;; min / max (see `reify-min-max`). There is no `Nat.min_def` in the bundled
      ;; slice, so we do not lean on per-type `min_def` lemmas at all: both `Min Nat`
@@ -2381,7 +2394,8 @@
 (defn- reify-prop-forall
   "Handle forall-based propositions that try-match-head can't detect:
    - P → Q (implication): convert to ¬P ∨ Q via Decidable.not_or_of_imp
-   - P ↔ Q (Iff): convert to (P ∧ Q) ∨ (¬P ∧ ¬Q) via iff_iff_and_or_not_and_not"
+   - P ↔ Q (Iff): convert to (P ∧ Q) ∨ (¬P ∧ ¬Q) via
+     Decidable.iff_iff_and_or_not_and_not"
   [st table problem prop hyp-proof]
   (let [whnf (#'tc/cached-whnf st prop)]
     (cond
@@ -2426,7 +2440,7 @@
 
 (defn- reify-prop-iff
   "Handle positive Iff: (P ↔ Q) → (P ∧ Q) ∨ (¬P ∧ ¬Q)
-   via Iff.mp iff_iff_and_or_not_and_not"
+   via Iff.mp Decidable.iff_iff_and_or_not_and_not"
   [st table problem prop hyp-proof]
   (let [matched (try-match-head st prop)
         [head-name _head-levels args] matched]
@@ -2438,15 +2452,21 @@
             ;; (P ∧ Q) ∨ (¬P ∧ ¬Q)
             left-type (e/app* (e/const' (:and-name omega-names) []) p-arg q-arg)
             right-type (e/app* (e/const' (:and-name omega-names) []) not-p not-q)
-            ;; iff_iff_and_or_not_and_not {P Q : Prop} : (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q))
-            ;; Takes only 2 implicit args, no Decidable instances
+            ;; Decidable.iff_iff_and_or_not_and_not {P Q : Prop} [Decidable Q] :
+            ;;   (P ↔ Q) ↔ ((P∧Q)∨(¬P∧¬Q))
+            ;; Core carries only the Decidable form, so the instance is explicit here.
+            ;; `Classical.propDecidable` is fine: the instance is consumed inside the
+            ;; lemma's own proof, never under an `of_decide_eq_true` where its
+            ;; noncomputability would leave `decide` stuck (see :classical-prop-dec).
             iff-prop (e/app* (e/const' (:iff-name omega-names) []) p-arg q-arg)
             or-type (e/app* (e/const' (:or-name omega-names) []) left-type right-type)
             or-proof (when hyp-proof
                        (e/app* (e/const' (:iff-mp omega-names) [])
                                iff-prop or-type
                                (e/app* (e/const' (:iff-iff-and-or omega-names) [])
-                                       p-arg q-arg)
+                                       p-arg q-arg
+                                       (e/app (e/const' (:classical-prop-dec omega-names) [])
+                                              q-arg))
                                hyp-proof))]
         [table (queue-disjunction problem
                                   {:or-proof or-proof
@@ -2679,14 +2699,16 @@
                 proof-fn (mk-ineq-proof-fn pushed-proof gt-a gt-b diff diff-prf type-name)]
             [table'' (add-inequality problem (:const diff) (:coeffs diff) proof-fn)])
 
-          ;; Goal: And P Q → ¬(P ∧ Q): split into ¬P ∨ ¬Q via not_and_or
+          ;; Goal: And P Q → ¬(P ∧ Q): split into ¬P ∨ ¬Q via
+          ;; Classical.not_and_iff_not_or_not
           (and (= head-name (:and-name omega-names)) (= 2 (count args)))
           (let [p-arg (nth args 0) q-arg (nth args 1)
                 not-const (e/const' (:not-name omega-names) [])
-                ;; ¬P and ¬Q types (using Not constant for consistency with not_and_or)
+                ;; ¬P and ¬Q types (Not constant, matching the lemma's statement)
                 not-p (e/app not-const p-arg)
                 not-q (e/app not-const q-arg)
-                ;; Iff.mp (@not_and_or P Q) hyp-proof : ¬P ∨ ¬Q
+                ;; Iff.mp (@Classical.not_and_iff_not_or_not P Q) hyp-proof : ¬P ∨ ¬Q
+                ;; (implicit {a b : Prop} only — no Decidable argument)
                 and-pq (e/app* (e/const' (:and-name omega-names) []) p-arg q-arg)
                 neg-and (e/app not-const and-pq)
                 or-neg (e/app* (e/const' (:or-name omega-names) []) not-p not-q)
@@ -2743,8 +2765,14 @@
               [table'' problem'']))
 
           ;; Goal: Iff P Q → ¬(P ↔ Q): convert to (¬P ↔ Q) via Decidable.not_iff
-          ;; then feed as positive Iff hypothesis
-          ;; Decidable.not_iff {Q P} [dec P] : ¬(P ↔ Q) ↔ (¬P ↔ Q)
+          ;; then feed as positive Iff hypothesis.
+          ;; Decidable.not_iff : {b : Prop} → {a : Prop} → [Decidable b] →
+          ;;                     (¬(a ↔ b) ↔ (¬a ↔ b))
+          ;; so applied as `@Decidable.not_iff Q P (inst : Decidable Q)` — note the
+          ;; instance is on the SECOND-applied proposition (`b`, i.e. Q), not on P.
+          ;; This used to pass `Decidable P` and had never been caught, because
+          ;; `Decidable.not_iff` was absent from the previous bundled store and this
+          ;; whole branch died at constant lookup before the kernel could object.
           (and (= head-name (:iff-name omega-names)) (= 2 (count args)))
           (let [p-arg (nth args 0) q-arg (nth args 1)
                 not-const (e/const' (:not-name omega-names) [])
@@ -2758,7 +2786,7 @@
                                             neg-iff not-p-iff-q
                                             (e/app* (e/const' (:dec-not-iff omega-names) [])
                                                     q-arg p-arg
-                                                    (e/app (e/const' (:classical-prop-dec omega-names) []) p-arg))
+                                                    (e/app (e/const' (:classical-prop-dec omega-names) []) q-arg))
                                             hyp-proof))]
             ;; Feed (¬P ↔ Q) as a positive Iff through reify-prop-iff
             (reify-prop-iff st table problem not-p-iff-q not-p-iff-q-proof))
@@ -2843,7 +2871,7 @@
 
 (defn- negate-goal-forall
   "Handle negation of forall-based goals that try-match-head can't detect:
-   ¬(P → Q) → P ∧ ¬Q via not_imp"
+   ¬(P → Q) → P ∧ ¬Q via Classical.not_imp"
   [st table problem goal-type hyp-proof]
   (let [whnf (#'tc/cached-whnf st goal-type)]
     (if (and (e/forall? whnf) (= :default (e/forall-info whnf)))
@@ -2860,14 +2888,14 @@
         (if is-dependent
           ;; Dependent forall — not an implication, bail
           [table problem]
-          ;; ¬(P → Q): gives P ∧ ¬Q via Iff.mp not_imp
-          ;; not_imp {P Q : Prop} : ¬(P → Q) ↔ (P ∧ ¬Q) — no Decidable needed
+          ;; ¬(P → Q): gives P ∧ ¬Q via Iff.mp Classical.not_imp
+          ;; Classical.not_imp {P Q : Prop} : ¬(P → Q) ↔ (P ∧ ¬Q) — no Decidable needed
           (let [not-const (e/const' (:not-name omega-names) [])
                 not-q (e/app not-const q-type)
                 imp-prop (e/forall' "_" p-type (e/abstract1 q-type fv-id) :default)
                 neg-imp (e/app not-const imp-prop)
                 and-type (e/app* (e/const' (:and-name omega-names) []) p-type not-q)
-                ;; Iff.mp (not_imp) hyp : P ∧ ¬Q
+                ;; Iff.mp (Classical.not_imp) hyp : P ∧ ¬Q
                 and-proof (when hyp-proof
                             (e/app* (e/const' (:iff-mp omega-names) [])
                                     neg-imp and-type
