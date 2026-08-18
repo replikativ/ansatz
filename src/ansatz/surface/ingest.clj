@@ -48,10 +48,18 @@
 
 ;; ── Macroexpand-by-default policy ───────────────────────────────────────────────────────
 (defonce ^{:doc "Macros NOT to auto-expand (ansatz has a better typed handler). By unqualified
-   name. Only SEMANTIC mismatches belong here, not naming accidents: `cond` because Clojure's
-   :else/truthy semantics differ from the elaborator's typed cond handling."}
+   name. Only SEMANTIC mismatches belong here, not naming accidents:
+     `cond`      — Clojure's :else/truthy semantics differ from the elaborator's typed cond.
+     `and`/`or`  — Clojure expands them to `(let [x c] (if x x d))`, i.e. a `Bool.rec` tree with
+                   the discriminant duplicated into a branch. Lean's `&&`/`||` are the FUNCTIONS
+                   `Bool.and`/`Bool.or`, and every Boolean simp lemma (`Bool.or_eq_true`,
+                   `Bool.and_eq_true`, `Bool.or_eq_false_iff`, …) is stated about those
+                   applications — none of them can match a raw `Bool.rec` tree, which is what
+                   made Boolean-returning functions unprovable. The elaborator emits the
+                   functions instead; codegen lowers them straight back to Clojure's `or`/`and`,
+                   so compiled output (short-circuiting included) is unchanged."}
   no-expand-macros
-  (atom '#{cond}))
+  (atom '#{cond and or}))
 
 (defn expand-macro?
   "Should the elaborator macroexpand-1 this list head? True iff it resolves to a macro and is
