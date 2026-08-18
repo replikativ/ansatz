@@ -1020,7 +1020,7 @@
         ;; Type-directed arithmetic: infer the first operand's type head and pick the matching
         ;; kernel op from the core-lift table (Nat.add / Int.add / …), defaulting to Nat when
         ;; the head isn't listed. Picking the concrete op avoids HAdd's output-param synthesis.
-            ("+" "-" "*")
+            ("+" "-" "*" "quot" "rem")
             (let [op (str head)]
               (if (>= (count sexpr) 3)
                 (let [a*    (elab-term est (nth sexpr 1))

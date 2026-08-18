@@ -78,7 +78,16 @@
   "op-name → {operand-type-head → kernel constant}. Type-directed +/-/* lift."
   {"+" {"Nat" "Nat.add", "Int" "Int.add"}
    "-" {"Nat" "Nat.sub", "Int" "Int.sub"}
-   "*" {"Nat" "Nat.mul", "Int" "Int.mul"}})
+   "*" {"Nat" "Nat.mul", "Int" "Int.mul"}
+   ;; `quot`/`rem`, NOT `/`. Clojure's `/` on integers is Ratio division --
+   ;; `(/ 7 3)` is `7/3` -- while `Nat.div` is floor division. Lifting `/`
+   ;; would make a verified definition mean something different from the
+   ;; Clojure it erases to, which is the one thing that must never happen.
+   ;; `quot` IS truncating integer division, and on Nat that is floor division,
+   ;; so the surface spelling and the emitted code agree. Codegen already
+   ;; emits `quot` for `Nat.div`.
+   "quot" {"Nat" "Nat.div", "Int" "Int.tdiv"}
+   "rem" {"Nat" "Nat.mod", "Int" "Int.tmod"}})
 
 ;; ── Parameter metadata parsing ──────────────────────────────────────────────────────────
 (defn binder-type
