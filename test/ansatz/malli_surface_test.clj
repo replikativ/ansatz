@@ -178,3 +178,48 @@
                  (mapv tx (:param-types sig)))
               "string + list-of-string + variadic [:* :any] rest-arg")
           (is (= "Opaque" (tx (:ret-type sig))) ":map return carries as Opaque"))))))
+;; ── differential lane past Nat / Bool / (List Nat) ───────────────────────────────────────
+
+(m/=> msf-echo [:=> [:cat :string] :string])
+(m/=> msf-pair-sum [:=> [:cat [:map [:a :int] [:b :int]]] :int])
+
+(deftest test-differential-lane-carries-strings
+  (testing "a String argument and result round-trip through the codec, so check-verified!
+            can compare them instead of throwing on (long \"…\")"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-echo"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-echo [s] s))))
+      (let [r ((requiring-resolve 'ansatz.malli/check-verified!)
+               'ansatz.malli-surface-test 'msf-echo :runs 10)]
+        (is (= 10 (:ok r)) "10/10 generated strings agree runtime vs kernel")))))
+
+(deftest test-differential-lane-carries-map-records
+  (testing "a named-field [:map] argument rides its synthesized record through the codec:
+            the type layer already built MalliRec_a_b, and the lane can now encode a value
+            into its constructor and read the result back"
+    @booted
+    (binding [a/*verbose* false]
+      (when-not (env/lookup (a/env) (name/from-string "msf-pair-sum"))
+        (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+          (eval '(ansatz.core/defn msf-pair-sum [p] (+ (:a p) (:b p))))))
+      (let [r ((requiring-resolve 'ansatz.malli/check-verified!)
+               'ansatz.malli-surface-test 'msf-pair-sum :runs 10)]
+        (is (= 10 (:ok r)) "10/10 generated records agree runtime vs kernel")))))
+
+(deftest test-differential-lane-refuses-what-it-cannot-carry
+  (testing "a shape the codec cannot round-trip is refused at GENERATION, where the message
+            names the gap — not later, where an ill-typed term reads as a divergence"
+    @booted
+    (let [gen (deref (requiring-resolve 'ansatz.malli/gen-schema))]
+      (is (thrown? clojure.lang.ExceptionInfo (gen [:map]))
+          "a fieldless [:map] is the Opaque carrier and has no values to generate")
+      (is (thrown? clojure.lang.ExceptionInfo (gen [:enum :a :b]))
+          "keyword enum members are not literals the codec carries")
+      (is (thrown? clojure.lang.ExceptionInfo (gen :uuid)))
+      (testing "and the shapes it CAN carry are accepted"
+        (is (some? (gen :string)))
+        (is (some? (gen [:map [:a :int]])))
+        (is (some? (gen [:maybe :int])))
+        (is (some? (gen [:sequential :boolean])))))))

@@ -51,6 +51,21 @@
 (defn- klist [a] (e/app (e/const' (nm "List") [lvl/zero]) a))
 (defn- koption [a] (e/app (e/const' (nm "Option") [lvl/zero]) a))
 (defn- kprod [a b] (e/app* (e/const' (nm "Prod") [lvl/zero lvl/zero]) a b))
+(declare schema->type-expr)
+
+(defn- map-entry-schema
+  "The value schema of a [:map …] entry, which is [k T] or [k props T]."
+  [entry]
+  (if (= 3 (count entry)) (nth entry 2) (nth entry 1)))
+
+(defn- record-entries
+  "[:map …] entries as `ensure-record!` wants them: [[field-name field-type-Expr] …].
+
+   One definition: the type layer synthesizes the record from this, and the differential
+   codec names its constructor from this, so the two cannot disagree about field order."
+  [more]
+  (mapv (fn [entry] [(name (first entry)) (schema->type-expr (map-entry-schema entry))]) more))
+
 (defn- record-type-name
   "Deterministic structure name for [:map …] entries [[field-name type-Expr] …]: field
    names for readability + a short hash of the field types for collision safety, so the
@@ -219,11 +234,7 @@
           ;; (:optional entry props are accepted; the field type is the entry schema —
           ;; optionality is not yet modeled as Option.) A fieldless [:map] carries as Opaque.
           :map (if (seq more)
-                 (ensure-record!
-                  (mapv (fn [entry]
-                          [(name (first entry))
-                           (schema->type-expr (if (= 3 (count entry)) (nth entry 2) (nth entry 1)))])
-                        more))
+                 (ensure-record! (record-entries more))
                  (ensure-opaque!))
           ;; [:int {:min n :max m}] — {:min 0} is definitionally Nat; positive lower /
           ;; any upper bound becomes a Subtype refinement (max m ⇒ v < m+1)
@@ -301,62 +312,158 @@
 ;; inputs from the schema, run the COMPILED runtime and the KERNEL evaluator, compare.
 
 (defn- gen-schema
-  "Clamp a schema for generation under the v1 Nat-centric mapping (small non-negative ints,
-   short lists) so kernel whnf stays cheap and values stay in Nat."
+  "Clamp a schema for generation so kernel whnf stays cheap: small non-negative ints,
+   short lists and short strings.
+
+   Covers exactly the shapes `encode-val`/`decode-val` can carry across the boundary.
+   A shape the codec cannot round-trip must throw HERE rather than generate a value the
+   kernel will reject later, where the failure reads as a divergence rather than a gap."
   [f]
   (let [f (if (m/schema? f) (m/form f) f)]
     (cond
       (contains? #{:int 'int? 'integer? :nat-int 'nat-int?} f) [:int {:min 0 :max 25}]
       (contains? #{:boolean 'boolean?} f) :boolean
+      (contains? #{:string 'string?} f) [:string {:max 6}]
       (vector? f)
       (let [[tag & more] f
             [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
         (case tag
           (:sequential :vector) [:sequential {:max 6} (gen-schema (first more))]
           :int [:int {:min (max 0 (or (:min props) 0)) :max (min 25 (or (:max props) 25))}]
-          (throw (ex-info "differential lane: unsupported generator schema (v1: ints/bools/lists)"
-                          {:form f}))))
+          :string [:string {:min (or (:min props) 0) :max (min 6 (or (:max props) 6))}]
+          :maybe [:maybe (gen-schema (first more))]
+          ;; a homogeneous string/int/bool enum generates its own members unchanged —
+          ;; they are already literals the codec carries.
+          :enum (if (every? (some-fn string? int? boolean?) more)
+                  (into [:enum] more)
+                  (throw (ex-info "differential lane: only string/int/bool enum members carry"
+                                  {:form f})))
+          ;; [:map [:k T] …] rides the synthesized record; a FIELDLESS map is the Opaque
+          ;; carrier, which has no values to generate.
+          :map (if (seq more)
+                 (into [:map] (map (fn [entry]
+                                     [(first entry) (gen-schema (map-entry-schema entry))]))
+                       more)
+                 (throw (ex-info "differential lane: a fieldless [:map] carries as Opaque"
+                                 {:form f})))
+          (throw (ex-info "differential lane: unsupported generator schema" {:form f}))))
       :else (throw (ex-info "differential lane: unsupported generator schema" {:form f})))))
 
+(defn- unprop
+  "A schema form's children with a leading property map dropped."
+  [more]
+  (if (map? (first more)) (rest more) more))
+
 (defn- encode-val
-  "Clojure value → kernel Expr (v1: Nat / Bool / List Nat)."
-  [v]
-  (cond
-    (integer? v) (e/lit-nat (long v))
-    (boolean? v) (kconst (if v "Bool.true" "Bool.false"))
-    (or (nil? v) (sequential? v))
-    (reduce (fn [acc x] (e/app* (e/const' (nm "List.cons") [lvl/zero]) (kconst "Nat")
-                                (encode-val x) acc))
-            (e/app (e/const' (nm "List.nil") [lvl/zero]) (kconst "Nat"))
-            (reverse v))
-    :else (throw (ex-info "differential lane: unencodable value" {:value v}))))
+  "Clojure value → kernel Expr, directed by the SCHEMA the value belongs to.
+
+   The schema is required, not a convenience: a List's element type is an explicit kernel
+   argument, and a record's fields have a declared order its constructor expects. Encoding
+   from the value alone can only guess the element type, and the guess was always `Nat` —
+   so a list of anything else produced an ill-typed term."
+  [schema v]
+  (let [f (if (m/schema? schema) (m/form schema) schema)]
+    (cond
+      (contains? #{:int 'int? 'integer? :nat-int 'nat-int?} f) (e/lit-nat (long v))
+      (contains? #{:boolean 'boolean?} f) (kconst (if v "Bool.true" "Bool.false"))
+      (contains? #{:string 'string?} f) (e/lit-str v)
+
+      (vector? f)
+      (let [[tag & more] f
+            more (unprop more)]
+        (case tag
+          :int (e/lit-nat (long v))
+          :string (e/lit-str v)
+          :boolean (kconst (if v "Bool.true" "Bool.false"))
+
+          (:sequential :vector)
+          (let [el (first more)
+                elt (schema->type-expr el)]
+            (reduce (fn [acc x]
+                      (e/app* (e/const' (nm "List.cons") [lvl/zero]) elt (encode-val el x) acc))
+                    (e/app (e/const' (nm "List.nil") [lvl/zero]) elt)
+                    (reverse v)))
+
+          :maybe
+          (let [el (first more)
+                elt (schema->type-expr el)]
+            (if (nil? v)
+              (e/app (e/const' (nm "Option.none") [lvl/zero]) elt)
+              (e/app* (e/const' (nm "Option.some") [lvl/zero]) elt (encode-val el v))))
+
+          ;; an enum's members ARE literals of their scalar type, which is what
+          ;; schema->type-expr already gives the enum.
+          :enum (cond (string? v)  (e/lit-str v)
+                      (boolean? v) (kconst (if v "Bool.true" "Bool.false"))
+                      (integer? v) (e/lit-nat (long v))
+                      :else (throw (ex-info "differential lane: unencodable enum member"
+                                            {:form f :value v})))
+
+          ;; [:map [:k T] …] → the synthesized record's constructor, fields applied in
+          ;; DECLARED order. ensure-record! is idempotent, so this is also what makes the
+          ;; type available when the record was not reached through a signature.
+          :map
+          (let [entries (record-entries more)
+                tname   (record-type-name entries)]
+            (ensure-record! entries)
+            (reduce (fn [acc entry]
+                      (e/app acc (encode-val (map-entry-schema entry) (get v (first entry)))))
+                    (kconst (str tname ".mk"))
+                    more))
+
+          (throw (ex-info "differential lane: unencodable schema" {:form f :value v}))))
+
+      :else (throw (ex-info "differential lane: unencodable schema" {:form f :value v})))))
 
 (defn- decode-val
-  "whnf'd kernel Expr → Clojure value (v1: Nat literals / Bool / List)."
-  [x]
-  (let [[h as] (e/get-app-fn-args x)]
+  "whnf'd kernel Expr → Clojure value, directed by the schema it should inhabit.
+
+   The schema supplies what the term cannot: a record's field NAMES (the constructor
+   carries positions only) and the element schema to decode a list's tail against."
+  [schema x]
+  (let [f      (if (m/schema? schema) (m/form schema) schema)
+        [h as] (e/get-app-fn-args x)
+        hname  (when (e/const? h) (name/->string (e/const-name h)))
+        child  (fn [] (first (unprop (rest f))))]
     (cond
       (e/lit-nat? x) (e/lit-nat-val x)
-      (and (e/const? h) (= "Bool.true" (name/->string (e/const-name h)))) true
-      (and (e/const? h) (= "Bool.false" (name/->string (e/const-name h)))) false
-      (and (e/const? h) (= "List.nil" (name/->string (e/const-name h)))) ()
-      (and (e/const? h) (= "List.cons" (name/->string (e/const-name h))) (= 3 (count as)))
-      (cons (decode-val (nth as 1)) (decode-val (nth as 2)))
+      (e/lit-str? x) (e/lit-str-val x)
+      (= "Bool.true" hname) true
+      (= "Bool.false" hname) false
+      (= "List.nil" hname) ()
+      (and (= "List.cons" hname) (= 3 (count as)))
+      (cons (decode-val (child) (nth as 1)) (decode-val f (nth as 2)))
+      (= "Option.none" hname) nil
+      (and (= "Option.some" hname) (= 2 (count as)))
+      (decode-val (child) (nth as 1))
+      ;; <MalliRec_…>.mk applied to its fields, in the schema's declared order
+      (and hname (str/ends-with? hname ".mk") (vector? f) (= :map (first f)))
+      (let [entries (unprop (rest f))]
+        (into {} (map-indexed (fn [i entry]
+                                [(first entry)
+                                 (decode-val (map-entry-schema entry) (nth as i))])
+                              entries)))
       :else (throw (ex-info "differential lane: undecodable kernel value"
-                            {:value (e/->string x)})))))
+                            {:form f :value (e/->string x)})))))
 
 (defn check-verified!
   "The differential check for an a/defn'd function with a malli schema: generate `runs`
    inputs from the (clamped) schema, run the compiled runtime and the kernel evaluator,
    compare. Returns {:runs n :ok n} or throws on the first divergence — a divergence means
    an ELABORATION bug (well-typed but source-unfaithful), the exact class the kernel cannot
-   see. v1 scope: Nat / Bool / (List Nat) arguments and results."
+   see. Scope: whatever `gen-schema` will clamp and the codec will carry — Nat, Bool,
+   String, Option, homogeneous lists of those, and named-field [:map] records."
   [ns-sym fn-sym & {:keys [runs] :or {runs 25}}]
   (let [schema (get-in (m/function-schemas) [ns-sym fn-sym :schema])
         _ (when-not schema (throw (ex-info "check-verified!: no m/=> schema registered"
                                            {:ns ns-sym :fn fn-sym})))
         f (if (m/schema? schema) (m/form schema) schema)
-        arg-schemas (mapv gen-schema (rest (second f)))
+        ;; the DECLARED argument schemas type the kernel term; the clamped ones only
+        ;; bound generation. They are not interchangeable: [:int {:min 0 :max 25}]
+        ;; elaborates to a Subtype, while the function's signature was built from :int.
+        arg-forms (vec (rest (second f)))
+        out-form (nth f 2)
+        arg-schemas (mapv gen-schema arg-forms)
         the-fn @(ns-resolve ns-sym fn-sym)
         env ((requiring-resolve 'ansatz.core/env))
         cname (name/from-string (name fn-sym))
@@ -365,9 +472,12 @@
     (dotimes [_ runs]
       (let [args (mapv mg/generate arg-schemas)
             rt-val (apply the-fn args)
-            k-app (reduce e/app (e/const' cname []) (mapv encode-val args))
-            k-val (decode-val (.whnf red k-app))]
-        (when (not= (long k-val) (long rt-val))
+            k-app (reduce e/app (e/const' cname [])
+                          (mapv encode-val arg-forms args))
+            k-val (decode-val out-form (.whnf red k-app))]
+        ;; structural =, not (long …): the lane now carries strings, options, lists and
+        ;; records, and coercing those to long throws where it should compare.
+        (when-not (= k-val rt-val)
           (throw (ex-info "DIFFERENTIAL DIVERGENCE: compiled runtime ≠ kernel evaluation"
                           {:fn fn-sym :args args :runtime rt-val :kernel k-val})))))
     {:runs runs :ok runs}))
