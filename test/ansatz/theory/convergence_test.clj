@@ -9,15 +9,21 @@
 ;; Mathlib environment
 ;; ============================================================
 
+(def ^:private mathlib-store
+  ;; ansatz.store/resolve-existing is the ONE definition of where stores live
+  ;; ($ANSATZ_STORE_DIR -> $XDG_DATA_HOME/ansatz/stores -> legacy /var/tmp/ansatz-<name>).
+  ;; Probing a hardcoded path here re-implements a fossilised copy of it, and the suite
+  ;; then reports itself skipped while a perfectly good store sits at the other location.
+  (delay ((requiring-resolve 'ansatz.store/resolve-existing) "mathlib")))
+
 (def ^:private mathlib-available?
   (delay
     (try
-      (let [store-path "/var/tmp/ansatz-mathlib"]
-        (when (.exists (java.io.File. store-path))
-          (binding [a/*verbose* false]
-            (a/init! store-path "mathlib"))
-          ;; Verify env is usable (may fail if store was serialized with old class names)
-          (some? (ansatz.kernel.env/lookup (a/env) (ansatz.kernel.name/from-string "Nat")))))
+      (when-let [store-path @mathlib-store]
+        (binding [a/*verbose* false]
+          (a/init! (str store-path) "mathlib"))
+        ;; Verify env is usable (may fail if store was serialized with old class names)
+        (some? (ansatz.kernel.env/lookup (a/env) (ansatz.kernel.name/from-string "Nat"))))
       (catch Exception _ false))))
 
 (defmacro ^:private when-mathlib [& body]

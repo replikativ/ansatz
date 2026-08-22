@@ -1004,12 +1004,13 @@
 ;; GD convergence examples (requires Mathlib)
 ;; ============================================================
 
+(def ^:private mathlib-store
+  ;; Resolve through ansatz.store rather than a hardcoded path -- see the note in
+  ;; ansatz.theory.convergence-test.
+  (delay ((requiring-resolve 'ansatz.store/resolve-existing) "mathlib")))
+
 (def ^:private mathlib-available?
-  (delay
-    (try
-      (let [store-path "/var/tmp/ansatz-mathlib"]
-        (.exists (java.io.File. store-path)))
-      (catch Exception _ false))))
+  (delay (some? @mathlib-store)))
 
 (defmacro ^:private when-mathlib [& body]
   `(if @mathlib-available?
@@ -1017,7 +1018,7 @@
            saved-idx# @a/ansatz-instance-index]
        (try
          (binding [a/*verbose* false]
-           (a/init! "/var/tmp/ansatz-mathlib" "mathlib")
+           (a/init! (str @mathlib-store) "mathlib")
            ~@body)
          (finally
            (reset! a/ansatz-env saved-env#)
