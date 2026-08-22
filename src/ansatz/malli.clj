@@ -121,6 +121,46 @@
         (reset! (deref (requiring-resolve 'ansatz.core/ansatz-env)) env2))))
   (kconst "Opaque"))
 
+(defn- enum-members
+  "An [:enum …] form's members, with a leading property map dropped."
+  [more]
+  (vec (if (map? (first more)) (rest more) more)))
+
+(defn- enum-type-name
+  "Deterministic kernel type name for keyword enum `members`: sanitized member names for
+   readability + a short hash of the member vector, so the same enum always names the same
+   type (idempotent synthesis) and a reordering names a different one."
+  [members]
+  (str "MalliEnum_"
+       (str/join "_" (map (fn [k] (str/replace (subs (str k) 1) #"[^A-Za-z0-9]" "_")) members))
+       "_" (format "%x" (bit-and (hash (vec members)) 0xffffff))))
+
+(defn ensure-enum!
+  "Synthesize (idempotently) a closed inductive for a KEYWORD [:enum …]'s `members` into the
+   global env — one nullary constructor `c<i>` per member, in DECLARED order — plus a
+   `DecidableEq` instance so members compare. Registers a codegen lowering per constructor,
+   so the compiled runtime yields the keyword the schema declares. Returns the type's const
+   Expr.
+
+   One definition: the type layer synthesizes the inductive from `enum-type-name`, and the
+   differential codec names its constructors from the same fn, so the two cannot disagree
+   about which constructor is which member."
+  [members]
+  (let [members (vec members)
+        tname   (enum-type-name members)
+        env0    ((requiring-resolve 'ansatz.core/env))]
+    (when-not (env/lookup env0 (nm tname))
+      (let [ctors (mapv (fn [i] [(symbol (str "c" i)) []]) (range (count members)))
+            env1  (inductive/define-inductive env0 tname [] ctors)
+            env2  (env/add-constant env1
+                                    (env/mk-axiom (nm (str "instDecidableEq" tname)) []
+                                                  (e/app (e/const' (nm "DecidableEq") [u1])
+                                                         (kconst tname))))]
+        (reset! (deref (requiring-resolve 'ansatz.core/ansatz-env)) env2)
+        (swap! (deref (requiring-resolve 'ansatz.core/codegen-registry))
+               into (map-indexed (fn [i mbr] [(str tname ".c" i) (fn [_ _ _] mbr)]) members))))
+    (kconst tname)))
+
 (defn- kprods
   "Right-nested Prod over component types (records/tuples as anonymous products)."
   [ts]
@@ -256,10 +296,12 @@
           :double (kconst "Float")
           ;; [:enum v…] → the members' scalar type (string→String, int→Nat, bool→Bool); a
           ;; keyword/heterogeneous enum carries as the gradual Opaque (carry + key, no literal compare).
-          :enum (let [v (first more)]
-                  (cond (string? v) (kconst "String")
+          :enum (let [ms (enum-members more)
+                      v  (first ms)]
+                  (cond (string? v)  (kconst "String")
                         (int? v)     (kconst "Nat")
                         (boolean? v) (kconst "Bool")
+                        (every? keyword? ms) (ensure-enum! ms)
                         :else        (ensure-opaque!)))
           :ref (if-let [r (deref-registry f)]
                  (schema->type-expr r)
@@ -313,7 +355,7 @@
 
 (defn- gen-schema
   "Clamp a schema for generation so kernel whnf stays cheap: small non-negative ints,
-   short lists and short strings.
+   short lists, short strings and small maps.
 
    Covers exactly the shapes `encode-val`/`decode-val` can carry across the boundary.
    A shape the codec cannot round-trip must throw HERE rather than generate a value the
@@ -324,6 +366,11 @@
       (contains? #{:int 'int? 'integer? :nat-int 'nat-int?} f) [:int {:min 0 :max 25}]
       (contains? #{:boolean 'boolean?} f) :boolean
       (contains? #{:string 'string?} f) [:string {:max 6}]
+      ;; a bare :keyword is an OPEN set, so it has no closed kernel carrier — it types as
+      ;; Opaque, which is an axiom with no constructors and therefore no value to encode.
+      (contains? #{:keyword 'keyword? :symbol 'symbol? :uuid 'uuid? :any 'any?} f)
+      (throw (ex-info "differential lane: an open scalar carries as Opaque, which has no closed values"
+                      {:form f}))
       (vector? f)
       (let [[tag & more] f
             [props more] (if (map? (first more)) [(first more) (rest more)] [nil more])]
@@ -332,11 +379,17 @@
           :int [:int {:min (max 0 (or (:min props) 0)) :max (min 25 (or (:max props) 25))}]
           :string [:string {:min (or (:min props) 0) :max (min 6 (or (:max props) 6))}]
           :maybe [:maybe (gen-schema (first more))]
+          ;; [:tuple A B …] rides a right-nested Prod; each component clamps on its own.
+          :tuple (into [:tuple] (map gen-schema) more)
+          ;; [:map-of K V] rides a List of Prod pairs — kept short for the same reason lists are.
+          :map-of [:map-of {:max 4} (gen-schema (first more)) (gen-schema (second more))]
           ;; a homogeneous string/int/bool enum generates its own members unchanged —
-          ;; they are already literals the codec carries.
-          :enum (if (every? (some-fn string? int? boolean?) more)
+          ;; they are already literals the codec carries. A homogeneous KEYWORD enum is a
+          ;; closed set, so it rides the inductive `ensure-enum!` synthesizes.
+          :enum (if (or (every? (some-fn string? int? boolean?) more)
+                        (every? keyword? more))
                   (into [:enum] more)
-                  (throw (ex-info "differential lane: only string/int/bool enum members carry"
+                  (throw (ex-info "differential lane: only homogeneous string/int/bool/keyword enum members carry"
                                   {:form f})))
           ;; [:map [:k T] …] rides the synthesized record; a FIELDLESS map is the Opaque
           ;; carrier, which has no values to generate.
@@ -391,11 +444,49 @@
               (e/app (e/const' (nm "Option.none") [lvl/zero]) elt)
               (e/app* (e/const' (nm "Option.some") [lvl/zero]) elt (encode-val el v))))
 
-          ;; an enum's members ARE literals of their scalar type, which is what
-          ;; schema->type-expr already gives the enum.
+          ;; [:tuple A B …] → right-nested Prod.mk, matching the type layer's `kprods`.
+          ;; A 1-tuple IS its component; a 0-tuple is Unit.
+          :tuple
+          (let [enc (fn enc [ss xs]
+                      (case (count ss)
+                        0 (kconst "Unit.unit")
+                        1 (encode-val (first ss) (first xs))
+                        (e/app* (e/const' (nm "Prod.mk") [lvl/zero lvl/zero])
+                                (schema->type-expr (first ss))
+                                (kprods (map schema->type-expr (rest ss)))
+                                (encode-val (first ss) (first xs))
+                                (enc (rest ss) (rest xs)))))]
+            (enc (vec more) (vec v)))
+
+          ;; [:map-of K V] → a List of Prod pairs. Entries are emitted in a deterministic
+          ;; order so the same map always encodes to the same term.
+          :map-of
+          (let [[k-s v-s] (vec more)
+                kt (schema->type-expr k-s)
+                vt (schema->type-expr v-s)
+                pt (kprod kt vt)]
+            (reduce (fn [acc [k x]]
+                      (e/app* (e/const' (nm "List.cons") [lvl/zero]) pt
+                              (e/app* (e/const' (nm "Prod.mk") [lvl/zero lvl/zero]) kt vt
+                                      (encode-val k-s k) (encode-val v-s x))
+                              acc))
+                    (e/app (e/const' (nm "List.nil") [lvl/zero]) pt)
+                    (reverse (sort-by (comp pr-str first) v))))
+
+          ;; a string/int/bool enum's members ARE literals of their scalar type, which is
+          ;; what schema->type-expr already gives the enum. A keyword member is a
+          ;; constructor of the inductive ensure-enum! synthesizes, named by its position.
           :enum (cond (string? v)  (e/lit-str v)
                       (boolean? v) (kconst (if v "Bool.true" "Bool.false"))
                       (integer? v) (e/lit-nat (long v))
+                      (keyword? v)
+                      (let [ms (enum-members more)
+                            i  (.indexOf ^java.util.List ms v)]
+                        (when (neg? i)
+                          (throw (ex-info "differential lane: value is not a member of the enum"
+                                          {:form f :value v})))
+                        (ensure-enum! ms)
+                        (kconst (str (enum-type-name ms) ".c" i)))
                       :else (throw (ex-info "differential lane: unencodable enum member"
                                             {:form f :value v})))
 
@@ -418,33 +509,93 @@
 (defn- decode-val
   "whnf'd kernel Expr → Clojure value, directed by the schema it should inhabit.
 
+   `whnf` is applied at EVERY descent, not only at the top: whnf is WEAK head normal form,
+   so a constructor application's arguments come back unreduced. Without this a function
+   that BUILDS a compound result from computed parts is undecodable.
+
    The schema supplies what the term cannot: a record's field NAMES (the constructor
-   carries positions only) and the element schema to decode a list's tail against."
-  [schema x]
-  (let [f      (if (m/schema? schema) (m/form schema) schema)
+   carries positions only), the element schema to decode a list's tail against, and which
+   of the several shapes that share a kernel representation this one is — a `[:tuple A B]`
+   and a two-field record are both Prod-shaped, and a `[:map-of K V]` and a
+   `[:sequential [:tuple K V]]` are the same List of pairs."
+  [whnf schema x]
+  (let [x      (whnf x)
+        f      (if (m/schema? schema) (m/form schema) schema)
         [h as] (e/get-app-fn-args x)
         hname  (when (e/const? h) (name/->string (e/const-name h)))
-        child  (fn [] (first (unprop (rest f))))]
+        child  (fn [] (first (unprop (rest f))))
+        tag    (when (vector? f) (first f))
+        undecodable (fn [t] (throw (ex-info "differential lane: undecodable kernel value"
+                                            {:form f :value (e/->string t)})))]
     (cond
+      ;; ── schema-decided shapes, checked before the term-directed cases ───────────────
+      ;; [:tuple A B …] rides a right-nested Prod.mk; a 1-tuple IS its component.
+      (= :tuple tag)
+      (let [ss (vec (unprop (rest f)))]
+        (case (count ss)
+          0 []
+          1 [(decode-val whnf (first ss) x)]
+          (if (and (= "Prod.mk" hname) (= 4 (count as)))
+            (into [(decode-val whnf (first ss) (nth as 2))]
+                  (decode-val whnf (into [:tuple] (rest ss)) (nth as 3)))
+            (undecodable x))))
+
+      ;; [:map-of K V] rides a List of Prod pairs. Duplicate keys would collapse silently
+      ;; into one entry, hiding a kernel result a Clojure map cannot represent, so they
+      ;; throw rather than decode.
+      (= :map-of tag)
+      (let [[k-s v-s] (vec (unprop (rest f)))
+            pairs (loop [t x acc []]
+                    (let [t (whnf t)
+                          [th tas] (e/get-app-fn-args t)
+                          tn (when (e/const? th) (name/->string (e/const-name th)))]
+                      (cond
+                        (= "List.nil" tn) acc
+                        (and (= "List.cons" tn) (= 3 (count tas)))
+                        (let [pair (whnf (nth tas 1))
+                              [ph pas] (e/get-app-fn-args pair)
+                              pn (when (e/const? ph) (name/->string (e/const-name ph)))]
+                          (when-not (and (= "Prod.mk" pn) (= 4 (count pas)))
+                            (undecodable pair))
+                          (recur (nth tas 2)
+                                 (conj acc [(decode-val whnf k-s (nth pas 2))
+                                            (decode-val whnf v-s (nth pas 3))])))
+                        :else (undecodable t))))]
+        (when-not (= (count pairs) (count (set (map first pairs))))
+          (throw (ex-info "differential lane: duplicate keys in a [:map-of …] kernel result"
+                          {:form f :keys (mapv first pairs)})))
+        (into {} pairs))
+
+      ;; a keyword [:enum …] rides the inductive ensure-enum! synthesized: the constructor
+      ;; suffix is the member's DECLARED position, which is the only thing the term carries.
+      (and (= :enum tag) (every? keyword? (enum-members (rest f))))
+      (let [ms  (enum-members (rest f))
+            dot (when hname (str/last-index-of hname "."))
+            idx (when dot (parse-long (subs hname (inc (inc dot)))))]
+        (if (and idx (< -1 idx (count ms))
+                 (= hname (str (enum-type-name ms) ".c" idx)))
+          (nth ms idx)
+          (undecodable x)))
+
+      ;; ── term-directed cases ────────────────────────────────────────────────────────
       (e/lit-nat? x) (e/lit-nat-val x)
       (e/lit-str? x) (e/lit-str-val x)
       (= "Bool.true" hname) true
       (= "Bool.false" hname) false
       (= "List.nil" hname) ()
       (and (= "List.cons" hname) (= 3 (count as)))
-      (cons (decode-val (child) (nth as 1)) (decode-val f (nth as 2)))
+      (cons (decode-val whnf (child) (nth as 1)) (decode-val whnf f (nth as 2)))
       (= "Option.none" hname) nil
       (and (= "Option.some" hname) (= 2 (count as)))
-      (decode-val (child) (nth as 1))
+      (decode-val whnf (child) (nth as 1))
       ;; <MalliRec_…>.mk applied to its fields, in the schema's declared order
       (and hname (str/ends-with? hname ".mk") (vector? f) (= :map (first f)))
       (let [entries (unprop (rest f))]
         (into {} (map-indexed (fn [i entry]
                                 [(first entry)
-                                 (decode-val (map-entry-schema entry) (nth as i))])
+                                 (decode-val whnf (map-entry-schema entry) (nth as i))])
                               entries)))
-      :else (throw (ex-info "differential lane: undecodable kernel value"
-                            {:form f :value (e/->string x)})))))
+      :else (undecodable x))))
 
 (defn check-verified!
   "The differential check for an a/defn'd function with a malli schema: generate `runs`
@@ -452,7 +603,8 @@
    compare. Returns {:runs n :ok n} or throws on the first divergence — a divergence means
    an ELABORATION bug (well-typed but source-unfaithful), the exact class the kernel cannot
    see. Scope: whatever `gen-schema` will clamp and the codec will carry — Nat, Bool,
-   String, Option, homogeneous lists of those, and named-field [:map] records."
+   String, Option, homogeneous lists of those, named-field [:map] records, [:tuple …],
+   [:map-of K V] and homogeneous keyword [:enum …]."
   [ns-sym fn-sym & {:keys [runs] :or {runs 25}}]
   (let [schema (get-in (m/function-schemas) [ns-sym fn-sym :schema])
         _ (when-not schema (throw (ex-info "check-verified!: no m/=> schema registered"
@@ -468,13 +620,14 @@
         env ((requiring-resolve 'ansatz.core/env))
         cname (name/from-string (name fn-sym))
         tc (doto (ansatz.kernel.TypeChecker. env) (.setFuel 200000000))
-        red (.getReducer tc)]
+        red (.getReducer tc)
+        whnf (fn [t] (.whnf red t))]
     (dotimes [_ runs]
       (let [args (mapv mg/generate arg-schemas)
             rt-val (apply the-fn args)
             k-app (reduce e/app (e/const' cname [])
                           (mapv encode-val arg-forms args))
-            k-val (decode-val out-form (.whnf red k-app))]
+            k-val (decode-val whnf out-form k-app)]
         ;; structural =, not (long …): the lane now carries strings, options, lists and
         ;; records, and coercing those to long throws where it should compare.
         (when-not (= k-val rt-val)

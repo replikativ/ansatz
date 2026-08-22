@@ -140,10 +140,15 @@
         (ansatz.malli/ensure-opaque!)
         (is (some? (env/lookup (a/env) (name/from-string "Opaque"))) "Opaque : Type")
         (is (some? (env/lookup (a/env) (name/from-string "instDecidableEqOpaque"))) "DecidableEq Opaque"))
-      (testing "[:enum ...] maps to its members' type (string->String, int->Nat, keyword->Opaque)"
+      (testing "[:enum ...] maps to its members' type (string->String, int->Nat); a keyword
+                enum is a CLOSED set, so it synthesizes an inductive rather than carrying as Opaque"
         (is (re-find #"String" (e/->string (ansatz.malli/schema->type-expr [:enum "x" "y"]))))
         (is (re-find #"Nat"    (e/->string (ansatz.malli/schema->type-expr [:enum 1 2]))))
-        (is (opq? (ansatz.malli/schema->type-expr [:enum :a :b]))))
+        (is (re-find #"MalliEnum_a_b" (e/->string (ansatz.malli/schema->type-expr [:enum :a :b]))))
+        (is (not (opq? (ansatz.malli/schema->type-expr [:enum :a :b])))
+            "a closed member set is an ADT, not the gradual carrier")
+        (is (opq? (ansatz.malli/schema->type-expr [:enum :a "b"]))
+            "a HETEROGENEOUS enum still has no single sharp type"))
       (testing "precise scalars unchanged (still sharp native types)"
         (is (re-find #"Nat"    (e/->string (ansatz.malli/schema->type-expr [:int {:min 0}]))))
         (is (re-find #"String" (e/->string (ansatz.malli/schema->type-expr :string))))))))
@@ -215,11 +220,87 @@
     (let [gen (deref (requiring-resolve 'ansatz.malli/gen-schema))]
       (is (thrown? clojure.lang.ExceptionInfo (gen [:map]))
           "a fieldless [:map] is the Opaque carrier and has no values to generate")
-      (is (thrown? clojure.lang.ExceptionInfo (gen [:enum :a :b]))
-          "keyword enum members are not literals the codec carries")
       (is (thrown? clojure.lang.ExceptionInfo (gen :uuid)))
+      (testing "an OPEN scalar has no closed carrier: Opaque is an axiom with no constructors,
+                so there is no value to encode and the refusal says so"
+        (doseq [s [:keyword :symbol :any 'keyword? 'any?]]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no closed values" (gen s))
+              (str s " is an open set"))))
+      (is (thrown? clojure.lang.ExceptionInfo (gen [:enum :a "b"]))
+          "a HETEROGENEOUS enum has no single carrier")
       (testing "and the shapes it CAN carry are accepted"
         (is (some? (gen :string)))
         (is (some? (gen [:map [:a :int]])))
         (is (some? (gen [:maybe :int])))
-        (is (some? (gen [:sequential :boolean])))))))
+        (is (some? (gen [:sequential :boolean])))
+        (is (some? (gen [:tuple :int :string])))
+        (is (some? (gen [:map-of :string :int])))
+        (is (some? (gen [:enum :a :b]))
+            "a homogeneous keyword enum is a closed set and rides its synthesized inductive")))))
+
+(defn- msf-verify
+  "Define `form` in this namespace once (the kernel env is global, so a redefinition is a
+   hard error) and run the differential check over it."
+  [fn-sym form runs]
+  (binding [a/*verbose* false]
+    (when-not (env/lookup (a/env) (name/from-string (name fn-sym)))
+      (binding [*ns* (find-ns 'ansatz.malli-surface-test)]
+        (eval form)))
+    ((requiring-resolve 'ansatz.malli/check-verified!)
+     'ansatz.malli-surface-test fn-sym :runs runs)))
+
+(deftest test-differential-lane-carries-tuples
+  (testing "a [:tuple A B …] rides a right-nested Prod both ways — the subject CONSTRUCTS its
+            result, so a carry-only codec would not see it"
+    @booted
+    (m/=> msf-tuple-swap [:=> [:cat [:tuple :int :string]] [:tuple :string :int]])
+    (let [r (msf-verify 'msf-tuple-swap
+                        '(ansatz.core/defn msf-tuple-swap [p]
+                           (Prod.mk String Nat (Prod.snd Nat String p) (Prod.fst Nat String p)))
+                        10)]
+      (is (= 10 (:ok r)) "10/10 generated tuples agree runtime vs kernel"))
+    (is (= ["hi" 7] ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-tuple-swap)) [7 "hi"]))
+        "the compiled runtime takes and returns a plain Clojure vector")))
+
+(deftest test-differential-lane-carries-map-of
+  (testing "a [:map-of K V] rides a List of key/value Prods"
+    @booted
+    (m/=> msf-mapof-len [:=> [:cat [:map-of :string :int]] :int])
+    (let [r (msf-verify 'msf-mapof-len
+                        '(ansatz.core/defn msf-mapof-len [mm] (List.length (Prod String Nat) mm))
+                        10)]
+      (is (= 10 (:ok r)) "10/10 generated maps agree runtime vs kernel"))
+    (is (= 3 (clojure.core/long ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-mapof-len))
+                                 {"a" 1 "b" 2 "c" 3})))
+        "the compiled runtime takes a plain Clojure map")))
+
+(deftest test-differential-lane-carries-keyword-enums
+  (testing "a homogeneous keyword [:enum …] rides the inductive ensure-enum! synthesizes, and
+            the compiled runtime yields the KEYWORD the schema declares"
+    @booted
+    (m/=> msf-enum-pick [:=> [:cat :boolean [:enum :a :b :c] [:enum :a :b :c]] [:enum :a :b :c]])
+    (let [r (msf-verify 'msf-enum-pick
+                        '(ansatz.core/defn msf-enum-pick [b x y] (if b x y))
+                        12)]
+      (is (= 12 (:ok r)) "12/12 generated members agree runtime vs kernel"))
+    (let [f (deref (ns-resolve 'ansatz.malli-surface-test 'msf-enum-pick))]
+      (is (= :a (f true :a :c)))
+      (is (= :c (f false :a :c))))
+    (testing "ensure-enum! is idempotent and ORDER-sensitive — a reordering is a different type"
+      (is (= (e/->string (ansatz.malli/ensure-enum! [:a :b]))
+             (e/->string (ansatz.malli/ensure-enum! [:a :b]))))
+      (is (not= (e/->string (ansatz.malli/ensure-enum! [:a :b]))
+                (e/->string (ansatz.malli/ensure-enum! [:b :a])))))))
+
+(deftest test-decode-reduces-at-every-descent
+  (testing "whnf is WEAK head normal form, so a constructor's ARGUMENTS come back unreduced.
+            A subject that builds a compound result from a COMPUTED part is the case that
+            catches a decoder which only reduces the top of the term."
+    @booted
+    (m/=> msf-computed-head [:=> [:cat [:sequential :int]] [:sequential :int]])
+    (let [r (msf-verify 'msf-computed-head
+                        '(ansatz.core/defn msf-computed-head [l] (cons (+ (List.length Nat l) 1) l))
+                        10)]
+      (is (= 10 (:ok r)) "10/10 agree; before the fix this threw 'undecodable kernel value'"))
+    (is (= [3 7 8] (vec ((deref (ns-resolve 'ansatz.malli-surface-test 'msf-computed-head)) [7 8])))
+        "the head is the computed length + 1")))
