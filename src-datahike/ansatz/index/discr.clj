@@ -27,7 +27,7 @@
             [hasch.core :as hasch]
             [clojure.edn :as edn])
   (:import [ansatz.kernel Name]
-           [java.util.concurrent ConcurrentHashMap]))
+           [java.util Collections LinkedHashMap Map]))
 
 ;; ============================================================
 ;; Keys
@@ -105,8 +105,20 @@
   "konserve key of a persisted chunk."
   [addr] [:ansatz.index/discr-node addr])
 
+(def chunk-cache-size
+  "Loaded chunks kept resident (LRU). A proving session walks a few hundred; a full
+   import touches every chunk every commit, which is why the cache is also RESET at
+   flush — superseded chunk versions must not stay resident (an unbounded map keyed by
+   content address leaked every version of every chunk and blew a 4 GB heap at 180k keys)."
+  4096)
+
+(defn- new-cache ^Map []
+  (Collections/synchronizedMap
+   (proxy [LinkedHashMap] [256 (float 0.75) true]
+     (removeEldestEntry [_] (> (.size ^Map this) chunk-cache-size)))))
+
 (defn- load-chunk
-  [store ^ConcurrentHashMap cache addr]
+  [store ^Map cache addr]
   (or (.get cache addr)
       (do (when (nil? store)
             (throw (ex-info "discr-tree: persisted chunk reached without a store" {:addr addr})))
@@ -233,7 +245,7 @@
 ;; The index
 ;; ============================================================
 
-;; state: {:root node | [:ref addr], :store konserve | nil, :cache ConcurrentHashMap addr → node}
+;; state: {:root node | [:ref addr], :store konserve | nil, :cache LRU Map addr → chunk}
 (defrecord DiscrTreeIndex [state attrs]
   sec/ISecondaryIndex
   (-search [_ query-spec entity-filter]
@@ -264,14 +276,16 @@
           ctx (assoc (ctx-of st) :store store)
           root (resolve-child ctx (:root st))
           addr (flush-node ctx root)]
-      (swap! state assoc :root [:ref addr] :store store)
+      ;; drop every resident chunk: superseded versions are garbage from here on and the
+      ;; new root's chunks reload on demand
+      (swap! state assoc :root [:ref addr] :store store :cache (new-cache))
       {:type :ansatz.index/discr-tree :branch branch :root addr :merkle-root addr}))
   (-sec-restore [_ store key-map]
-    (->DiscrTreeIndex (atom {:root [:ref (:root key-map)] :store store :cache (ConcurrentHashMap.)})
+    (->DiscrTreeIndex (atom {:root [:ref (:root key-map)] :store store :cache (new-cache)})
                       attrs))
   (-sec-branch [_ store _from-branch _new-branch]
     ;; nodes are content-addressed and immutable: the fork shares the root
-    (->DiscrTreeIndex (atom (assoc @state :store store :cache (ConcurrentHashMap.))) attrs))
+    (->DiscrTreeIndex (atom (assoc @state :store store :cache (new-cache))) attrs))
   (-sec-mark [_]
     (let [st @state ctx (ctx-of st)]
       (set (map node-key (all-addrs ctx (:root st) #{})))))
@@ -283,7 +297,7 @@
   "Factory for register-index-type!: (config db) → an empty DiscrTreeIndex (a skeleton when
    `db` is nil; datahike then calls -sec-restore with the stored key-map)."
   [config _db]
-  (->DiscrTreeIndex (atom {:root empty-node :store nil :cache (ConcurrentHashMap.)})
+  (->DiscrTreeIndex (atom {:root empty-node :store nil :cache (new-cache)})
                     (set (:attrs config))))
 
 (defonce register!
