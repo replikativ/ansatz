@@ -583,6 +583,12 @@ public final class TypeChecker {
     // Local context management
     // ============================================================
 
+    /** Public entry for callers that check open terms under known free variables
+     *  (the nested-inductive parameter context, lean4#14577). */
+    public void addLocal(long id, Object name, Expr type) {
+        lctxAddLocal(id, name, type);
+    }
+
     private void lctxAddLocal(long id, Object name, Expr type) {
         reserveLocalId(id);
         lctx.put(id, new Object[]{0, name, type});

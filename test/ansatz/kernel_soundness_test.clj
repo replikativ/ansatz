@@ -469,7 +469,7 @@
   (testing "a well-typed phantom argument is accepted on the nested path"
     (is (nil? (bundle-rejection @phantom-env (nesting-bundle (c "Bool.true") 1))))))
 
-(deftest ^:wip pr14577-nested-phantom-parameter-argument-is-type-checked
+(deftest pr14577-nested-phantom-parameter-argument-is-type-checked
   (testing "upstream leanprover/lean4#14577 — `KsL (KsE w) Nat.zero` passes a Nat where KsL expects a
    Bool; the argument is dropped by nested elimination and must still be rejected"
     (is (some? (bundle-rejection @phantom-env (nesting-bundle (c "Nat.zero") 1)))
