@@ -1,0 +1,44 @@
+# Lean Kernel Arena checker definition for Ansatz.
+# Copy to `checkers/ansatz.yaml` in https://github.com/leanprover/lean-kernel-arena
+# (schema: schemas/checker.json there). Pin `rev` to the release being entered.
+description: |
+  **Ansatz** — an independent Lean 4 kernel written in Java and Clojure
+  (Clojure is the host language; the type checker, reducer and inductive
+  checker are plain Java). Ansatz exists to give Clojure programs a
+  Lean-4/Mathlib-checked verification layer, so its kernel is exercised
+  day to day on Init and Mathlib exports rather than written for the arena.
+
+  Design notes relevant to the arena:
+
+  - Every declaration is admitted through the strict path
+    (`checkConstant` / `checkInductiveBundle`): inductive groups are
+    re-derived — recursor types and iota rules are generated from the
+    inductive declaration and compared against the exported ones — so
+    lies about `k`, `numFields`, rules, orphan or extra recursors and
+    constructors are rejected rather than trusted.
+  - Quotient primitives are validated against the kernel-expected types.
+  - Nat and String literal extensions, structure/unit eta, K-like reduction,
+    proof irrelevance, lazy delta with reducibility hints, a union-find
+    definitional-equality cache.
+  - Nested inductives are checked through the auxiliary mutual translation.
+  - Per-declaration reduction fuel (20M steps); exhaustion is reported as
+    *declined*, never as rejected.
+
+  Exit codes follow the arena convention; the reason is printed to stderr.
+  Unknown export records or a format other than 3.x are declined.
+url: https://github.com/replikativ/ansatz
+ref: main
+# Requires a JDK (21+) and the Clojure CLI (`clojure`) on the arena host;
+# neither is in the arena's flake yet.
+build: clojure -T:build javac
+run: clojure -J-Xmx8g -M:arena "$IN"
+threads: 1
+# Full-library exports are not attempted yet (memory/time); the arena's
+# correctness corpus is the target of this entry. `perf/app-lam` (a DAG of
+# shared applications under binders) exhausts the heap in this version.
+declines:
+  - mathlib
+  - std
+  - cslib
+  - cedar
+  - perf/app-lam
