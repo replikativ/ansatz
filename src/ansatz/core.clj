@@ -164,11 +164,15 @@
    ;; inherit Lean's Init @[simp]/@[csimp]/@[extern] (cheap presence when external)
    (attrs/load-bundled-attrs! {:present? attr-present?})
    (when store-path
-     ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside. The cheap
-     ;; PSS-membership `attr-present?` keeps this from hydrating every named
-     ;; declaration (minutes for Mathlib's ~93k attrs; seconds with it).
-     (attrs/load-store-attrs! store-path {:present? attr-present?}))
-   (matchers/load-bundled-matchers!)        ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
+     ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside. That corpus was dumped
+     ;; from the SAME export that built the store, so every name in it is present by
+     ;; construction: skip the presence probe (93k PSS membership walks = 19.9 s on Mathlib;
+     ;; 0.4 s without). make-simp-lemmas tolerates a stale name (a missing decl is skipped).
+     (attrs/load-store-attrs! store-path {:present? (constantly true)}))
+   ;; inherit Lean's Match.MatcherInfo (for the `split` tactic). The bundled corpus is Init's,
+   ;; intersected with the loaded store through the cheap membership checker — resolving
+   ;; each matcher through env/lookup instead was a full hydration per matcher (27.9 s).
+   (matchers/load-bundled-matchers! {:present? attr-present?})
    ;; Build instance index: from the store's complete TSV when present, else name-based discovery (~200ms).
    (let [tsv-candidates (when store-path
                           ["resources/instances.tsv" "instances.tsv"
