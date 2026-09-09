@@ -95,15 +95,13 @@
 
 (def ^:private empty-node {:values [] :children {} :n 0})
 
-(def chunk-max-values
+(def ^:dynamic chunk-max-values
   "A subtree with at most this many stored values is persisted whole as one chunk.
-   Measured on Mathlib at 2,000: median chunk 2 KB, tens of thousands of chunks, and a
-   broad query paid per-file overhead thousands of times (6 s cold). 20,000 keeps chunks in
-   the tens-to-hundreds of KB, an order of magnitude fewer files, and wide nodes (the root,
-   `Eq`) are the only multi-MB values — loaded once and cached."
+   Dynamic so tests can force the large-node/bucket paths on small data."
   20000)
 
 (defn- ref? [c] (and (vector? c) (= :ref (first c))))
+(defn- bref? [c] (and (vector? c) (= :bref (first c))))
 
 (defn node-key
   "konserve key of a persisted chunk."
@@ -132,34 +130,60 @@
             (.put cache addr n)
             n))))
 
+;; ---- children: node | [:ref addr] | [:bref i] ------------------------------------------
+;;
+;; A persisted LARGE node keeps its small children in K sibling BUCKET chunks, assigned by
+;; key hash: the node's own chunk holds `k → [:bref i]` plus `:buckets {i → addr}` and
+;; `:nb K`; a bucket chunk is `{k → inline subtree}`. A lookup loads the node and ONE
+;; bucket; a flush rewrites only the buckets whose children changed. (Inlining small
+;; children into the parent instead made an 18 MB root on Mathlib, and reffing each one
+;; separately made 21k files — buckets bound both.)
+
+(defn- child-of
+  "Resolve the child at key `k` of an in-memory or loaded `node`, or nil."
+  [{:keys [store cache]} node k]
+  (let [c (get (:children node) k)]
+    (cond (nil? c) nil
+          (ref? c) (load-chunk store cache (second c))
+          (bref? c) (let [addr (get-in node [:buckets (second c)])]
+                      (when addr (get (load-chunk store cache addr) k)))
+          :else c)))
+
 (defn- resolve-child
-  "A child is an in-memory node or a `[:ref addr]`; return the node."
+  "A child value that is a `[:ref addr]`; return the node (used for the root)."
   [{:keys [store cache]} c]
   (if (ref? c) (load-chunk store cache (second c)) c))
 
+(defn- mark-dirty-bucket [node c]
+  (if (bref? c) (update node :dirty-buckets (fnil conj #{}) (second c)) node))
+
 (defn- insert
   "Path-copying insert: nodes along the path become in-memory (dirty) nodes; untouched
-   siblings stay as refs. `:n` counts stored values beneath a node."
+   siblings stay as refs / in their buckets. `:n` counts stored values beneath a node."
   [ctx node keys eid]
   (let [node (update node :n (fnil inc 0))]
     (if (empty? keys)
       (update node :values (fnil conj []) eid)
       (let [k (first keys)
-            child (resolve-child ctx (get (:children node) k empty-node))]
-        (assoc-in node [:children k] (insert ctx child (rest keys) eid))))))
+            c (get (:children node) k)
+            child (or (child-of ctx node k) empty-node)]
+        (-> (mark-dirty-bucket node c)
+            (assoc-in [:children k] (insert ctx child (rest keys) eid)))))))
 
 (defn- remove-eid
   "Path-copying removal; prunes nodes left with no values and no children."
   [ctx node keys eid]
   (if (empty? keys)
-    (let [vs (vec (remove #(= (long %) (long eid)) (:values node)))]
-      (-> node (assoc :values vs) (update :n (fnil #(max 0 (- % (- (count (:values node)) (count vs)))) 0))))
-    (let [k (first keys)]
-      (if-let [c (get (:children node) k)]
-        (let [child (resolve-child ctx c)
-              child' (remove-eid ctx child (rest keys) eid)
+    (let [vs (vec (remove #(= (long %) (long eid)) (:values node)))
+          removed (- (count (:values node)) (count vs))]
+      (-> node (assoc :values vs) (update :n (fnil #(max 0 (- % removed)) 0))))
+    (let [k (first keys)
+          c (get (:children node) k)]
+      (if-let [child (child-of ctx node k)]
+        (let [child' (remove-eid ctx child (rest keys) eid)
               removed (- (or (:n child) 0) (or (:n child') 0))
-              node' (update node :n (fnil #(max 0 (- % removed)) 0))]
+              node' (-> (mark-dirty-bucket node c)
+                        (update :n (fnil #(max 0 (- % removed)) 0)))]
           (if (and (empty? (:values child')) (empty? (:children child')))
             (update node' :children dissoc k)
             (assoc-in node' [:children k] child')))
@@ -179,75 +203,97 @@
   "Lean's getMatchLoop over lazily loaded chunks: at each level explore the stored-star
    branch (skipping a full subterm of the query), the exact key, and — when the query key is
    itself a star — every child."
-  [ctx node keys]
-  (if (empty? keys)
+  [ctx node ks]
+  (if (empty? ks)
     (:values node [])
-    (let [k (first keys)
-          rest-keys (rest keys)
+    (let [k (first ks)
+          rest-keys (rest ks)
           children (:children node {})
-          star-results (when-let [c (get children star-key)]
-                         (match ctx (resolve-child ctx c) (skip-subtree keys)))
-          exact-results (when (not= k star-key)
-                          (when-let [c (get children k)]
-                            (match ctx (resolve-child ctx c) rest-keys)))
+          star-results (when (contains? children star-key)
+                         (match ctx (child-of ctx node star-key) (skip-subtree ks)))
+          exact-results (when (and (not= k star-key) (contains? children k))
+                          (match ctx (child-of ctx node k) rest-keys))
           all-results (when (= k star-key)
-                        (mapcat (fn [[ck c]]
+                        (mapcat (fn [ck]
                                   (when (not= ck star-key)
-                                    (match ctx (resolve-child ctx c) rest-keys)))
-                                children))]
+                                    (match ctx (child-of ctx node ck) rest-keys)))
+                                (clojure.core/keys children)))]
       (into [] (concat star-results exact-results all-results)))))
 
 (defn- inline-whole
-  "A small subtree as a self-contained value: every ref beneath it loaded and inlined."
+  "A small subtree as a self-contained value: every ref/bucket beneath it resolved and
+   inlined; bucket bookkeeping dropped."
   [ctx node]
-  (assoc node :children
-         (reduce-kv (fn [m k c] (assoc m k (inline-whole ctx (resolve-child ctx c))))
-                    {} (:children node))))
+  {:values (vec (:values node))
+   :n (or (:n node) 0)
+   :children (reduce (fn [m k] (assoc m k (inline-whole ctx (child-of ctx node k))))
+                     {} (keys (:children node)))})
 
 (defn- write-chunk! [store value]
   (let [addr (hasch/uuid value)]
     (k/assoc store (node-key addr) value {:sync? true})
     addr))
 
+(defn- bucket-of [k nb] (mod (Math/abs (long (hash k))) nb))
+
 (defn- flush-node
   "Persist a node and return its content address.
 
    A subtree of at most chunk-max-values stored values is written WHOLE as one chunk. A
-   larger node PACKS: its small children (each ≤ chunk-max-values) are inlined into the
-   node's own chunk, in key order, until the chunk's running value count reaches the cap;
-   every remaining child — the big ones, and small ones past the budget — is written as
-   [:ref addr] by the same rule. Without packing, a wide node (the root has thousands of
-   head symbols; `Eq` thousands of types) refs out every tiny child separately and the
-   long tail of small subtrees becomes thousands of 2 KB chunks. Children that are
-   already refs stay refs (structural sharing across commits and branches)."
+   larger node: children that are themselves large (in memory and > cap, or already
+   [:ref …]) are written as refs; small children go to K sibling buckets by key hash —
+   only buckets holding a changed child are rewritten (old contents merged), the rest keep
+   their address. The node's own chunk holds the refs, `k → [:bref i]`, `:buckets` and
+   `:nb`. K is fixed at the node's first large flush (`:nb`)."
   [ctx node]
   (let [store (:store ctx)
         n (or (:n node) 0)]
     (if (<= n chunk-max-values)
       (write-chunk! store (inline-whole ctx node))
-      (let [ordered (sort-by (comp pr-str key) (:children node))
-            children'
-            (loop [[[k c] & more] ordered, budget (- chunk-max-values (count (:values node))), acc (transient {})]
-              (if (nil? k)
-                (persistent! acc)
-                (let [child (if (ref? c) nil (resolve-child ctx c))
-                      cn (if child (or (:n child) 0) Long/MAX_VALUE)]
-                  (if (and child (<= cn chunk-max-values) (<= cn budget))
-                    (recur more (- budget cn) (assoc! acc k (inline-whole ctx child)))
-                    (recur more budget (assoc! acc k (if (ref? c) c [:ref (flush-node ctx c)])))))))]
-        (write-chunk! store (assoc node :children children'))))))
+      (let [children (:children node)
+            in-mem (into {} (filter (fn [[_ c]] (and (map? c))) children))
+            small-mem (into {} (filter (fn [[_ c]] (<= (or (:n c) 0) chunk-max-values)) in-mem))
+            big-mem (apply dissoc in-mem (keys small-mem))
+            nb (or (:nb node)
+                   (max 1 (int (Math/ceil (/ (double (reduce + (map :n (vals small-mem))))
+                                             (double chunk-max-values))))))
+            old-buckets (or (:buckets node) {})
+            ;; buckets to rewrite: those of changed small children + those flagged by
+            ;; modification/removal of a formerly bucketed child
+            dirty (into (or (:dirty-buckets node) #{})
+                        (map #(bucket-of % nb) (keys small-mem)))
+            live-keys (set (keys children))
+            buckets' (reduce (fn [bs i]
+                               (let [base (if-let [a (get old-buckets i)]
+                                            (load-chunk store (:cache ctx) a) {})
+                                     ;; drop entries whose key left this node or became big/in-memory
+                                     base (into {} (filter (fn [[k _]] (and (contains? live-keys k)
+                                                                             (bref? (get children k))))
+                                                           base))
+                                     mine (into {} (filter (fn [[k _]] (= i (bucket-of k nb))) small-mem))
+                                     merged (reduce-kv (fn [m k c] (assoc m k (inline-whole ctx c))) base mine)]
+                                 (if (empty? merged)
+                                   (dissoc bs i)
+                                   (assoc bs i (write-chunk! store merged)))))
+                             old-buckets dirty)
+            children' (reduce-kv (fn [m k c]
+                                   (assoc m k (cond (contains? small-mem k) [:bref (bucket-of k nb)]
+                                                    (contains? big-mem k)   [:ref (flush-node ctx c)]
+                                                    :else c)))   ; [:ref …] or [:bref …] unchanged
+                                 {} children)]
+        (write-chunk! store {:values (vec (:values node)) :n n :children children'
+                             :buckets buckets' :nb nb})))))
 
 (defn- all-addrs
-  "Every persisted chunk address reachable from `child` (loads the whole trie — GC only)."
-  [ctx child acc]
-  (if (ref? child)
-    (let [addr (second child)]
-      (if (contains? acc addr)
-        acc
-        (reduce (fn [a c] (all-addrs ctx c a))
-                (conj acc addr)
-                (vals (:children (resolve-child ctx child))))))
-    (reduce (fn [a c] (all-addrs ctx c a)) acc (vals (:children child)))))
+  "Every persisted chunk address reachable from a resolved node (GC only)."
+  [ctx node acc]
+  (let [acc (into acc (vals (:buckets node)))]
+    (reduce-kv (fn [a _ c]
+                 (if (ref? c)
+                   (let [addr (second c)]
+                     (if (contains? a addr) a (all-addrs ctx (resolve-child ctx c) (conj a addr))))
+                   (if (map? c) (all-addrs ctx c a) a)))
+               acc (:children node))))
 
 (defn- eids->bitset
   [eids entity-filter]
@@ -306,8 +352,9 @@
     ;; nodes are content-addressed and immutable: the fork shares the root
     (->DiscrTreeIndex (atom (assoc @state :store store :cache (new-cache))) attrs))
   (-sec-mark [_]
-    (let [st @state ctx (ctx-of st)]
-      (set (map node-key (all-addrs ctx (:root st) #{})))))
+    (let [st @state ctx (ctx-of st) root (:root st)]
+      (set (map node-key (all-addrs ctx (resolve-child ctx root)
+                                    (if (ref? root) #{(second root)} #{}))))))
 
   clojure.lang.IDeref
   (deref [_] @state))
@@ -319,7 +366,8 @@
   ;; from the root address through the store and return every chunk's konserve key.
   [key-map store]
   (if-let [root (:root key-map)]
-    (set (map node-key (all-addrs {:store store :cache (new-cache)} [:ref root] #{})))
+    (let [ctx {:store store :cache (new-cache)}]
+      (set (map node-key (all-addrs ctx (resolve-child ctx [:ref root]) #{root}))))
     #{}))
 
 (defn make-index

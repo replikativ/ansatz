@@ -133,3 +133,42 @@
             (is (= 2 (count (dti/search-eids (index-of @conn) (dti/query-key (nle (hole) (hole))))))
                 "the index still answers after GC")))
         (finally (d/release conn))))))
+
+(defn- head-const [i] (e/const' (name/from-string (str "K" i)) []))
+
+(deftest wide-node-persists-in-buckets
+  (testing "a large node keeps its small children in sibling BUCKET chunks; lookups and
+            star queries resolve through a restored skeleton; marks include the buckets"
+    (binding [dti/chunk-max-values 3]
+      (let [cfg (fresh-cfg)
+            _ (d/create-database cfg)
+            conn (d/connect cfg)
+            store (:store @conn)]
+        (try
+          ;; 40 distinct head symbols, one lemma each → root n=40 > 3, every child small
+          (let [ix (reduce (fn [ix i]
+                             (sec/-transact ix {:datom [(+ 100 i) :decl/dt-key (dti/conclusion-key (head-const i)) 1]
+                                                :added? true}))
+                           (dti/make-index {:attrs [:decl/dt-key]} nil)
+                           (range 40))
+                key-map (sec/-sec-flush ix store "main")
+                restored (sec/-sec-restore (dti/make-index {:attrs [:decl/dt-key]} nil) store key-map)
+                root-chunk (k/get store (dti/node-key (:root key-map)) nil {:sync? true})]
+            (is (= :ansatz.index/discr-tree (:type key-map)))
+            (is (pos? (count (:buckets root-chunk))) "the root chunk carries bucket addresses")
+            (is (every? #(= :bref (first %)) (vals (:children root-chunk))) "small children live in buckets")
+            (is (= #{117} (set (dti/search-eids restored (dti/query-key (head-const 17))))) "exact lookup through one bucket")
+            (is (= (set (range 100 140)) (set (dti/search-eids restored [{:tag :star}]))) "a star at the root explores every bucket")
+            (is (= #{} (set (dti/search-eids restored (dti/query-key (head-const 99))))))
+            (let [marks (sec/-sec-mark restored)]
+              (is (> (count marks) (count (:buckets root-chunk))) "marks cover root + buckets")
+              (is (= marks (sec/mark-from-key-map key-map store))))
+            (testing "a later insert rewrites the node and ONE bucket, keeps the others"
+              (let [ix2 (sec/-transact restored {:datom [200 :decl/dt-key (dti/conclusion-key (head-const 5)) 2] :added? true})
+                    key-map2 (sec/-sec-flush ix2 store "main")
+                    root2 (k/get store (dti/node-key (:root key-map2)) nil {:sync? true})
+                    changed (count (filter (fn [[i a]] (not= a (get (:buckets root-chunk) i))) (:buckets root2)))]
+                (is (= 1 changed))
+                (is (= #{105 200} (set (dti/search-eids (sec/-sec-restore (dti/make-index {:attrs [:decl/dt-key]} nil) store key-map2)
+                                                        (dti/query-key (head-const 5)))))))))
+          (finally (d/release conn)))))))
