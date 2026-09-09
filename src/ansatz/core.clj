@@ -195,6 +195,7 @@
      ;; reads it until a recall query asks — the durable datahike index
      ;; (ansatz.index.discr, :datahike alias) is the persisted replacement.
      (reset! ansatz-discr-trie nil)
+     (reset! (deref (requiring-resolve 'ansatz.recall/store-path)) store-path)
      (reset! (deref (requiring-resolve 'ansatz.recall/discr-keys-path))
              (when store-path
                (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
