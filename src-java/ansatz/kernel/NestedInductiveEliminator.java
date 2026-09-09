@@ -183,6 +183,12 @@ public final class NestedInductiveEliminator {
                 ctorList.toArray(new ConstantInfo[0]),
                 new ConstantInfo[0]);
 
+            Object[] paramNames = new Object[paramBinders.length];
+            Expr[] paramTypes = new Expr[paramBinders.length];
+            for (int i = 0; i < paramBinders.length; i++) {
+                paramNames[i] = paramBinders[i].name;
+                paramTypes[i] = paramBinders[i].type;
+            }
             return new NestedElimResult(
                 auxBundle,
                 params,
@@ -190,7 +196,9 @@ public final class NestedInductiveEliminator {
                 auxRecToRestoredRec,
                 auxPrefixToRestoredPrefix,
                 nestedKeys,
-                auxNames);
+                auxNames,
+                paramNames,
+                paramTypes);
         }
 
         private Expr replaceAllNested(ParamBinder[] localBinders, Expr[] localParams, Expr e,

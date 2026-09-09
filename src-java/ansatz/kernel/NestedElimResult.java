@@ -29,12 +29,28 @@ public final class NestedElimResult {
     public final ArrayList<Expr> nestedKeys;
     public final ArrayList<Name> auxNames;
 
+    /** The inductive parameters as a local context: names/types of `params` (fvars), in
+     *  order, so the replaced nested applications can be type checked (lean4#14577). */
+    public final Object[] paramNames;
+    public final Expr[] paramTypes;
+
     public NestedElimResult(InductiveBundle auxBundle, Expr[] params,
             HashMap<Name, Expr> auxToNested,
             HashMap<Name, Name> auxRecToRestoredRec,
             HashMap<Name, Name> auxPrefixToRestoredPrefix,
             ArrayList<Expr> nestedKeys,
             ArrayList<Name> auxNames) {
+        this(auxBundle, params, auxToNested, auxRecToRestoredRec, auxPrefixToRestoredPrefix,
+             nestedKeys, auxNames, null, null);
+    }
+
+    public NestedElimResult(InductiveBundle auxBundle, Expr[] params,
+            HashMap<Name, Expr> auxToNested,
+            HashMap<Name, Name> auxRecToRestoredRec,
+            HashMap<Name, Name> auxPrefixToRestoredPrefix,
+            ArrayList<Expr> nestedKeys,
+            ArrayList<Name> auxNames,
+            Object[] paramNames, Expr[] paramTypes) {
         this.auxBundle = auxBundle;
         this.params = params != null ? params : new Expr[0];
         this.auxToNested = auxToNested != null ? auxToNested : new HashMap<>();
@@ -42,6 +58,8 @@ public final class NestedElimResult {
         this.auxPrefixToRestoredPrefix = auxPrefixToRestoredPrefix != null ? auxPrefixToRestoredPrefix : new HashMap<>();
         this.nestedKeys = nestedKeys != null ? nestedKeys : new ArrayList<>();
         this.auxNames = auxNames != null ? auxNames : new ArrayList<>();
+        this.paramNames = paramNames != null ? paramNames : new Object[this.params.length];
+        this.paramTypes = paramTypes != null ? paramTypes : new Expr[this.params.length];
     }
 
     public Expr restoreNested(Expr e) {
