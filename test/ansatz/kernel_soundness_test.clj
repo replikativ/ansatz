@@ -172,7 +172,7 @@
 ;; That is the pre-#14806 design verbatim. The identity/structural failure caches
 ;; (:1812-1856) are pair-keyed and fine; the exposure is the positive cache.
 
-(deftest ^:wip pr14806-defeq-cache-is-order-independent
+(deftest pr14806-defeq-cache-is-order-independent
   (testing "upstream leanprover/lean4#14806 — after ksA ≡ ksB and ksB ≡ 7 were recorded on ONE
    checker, `ksG ksA =?= ksG 7` must still be false (a fresh checker says false). The beta redex
    on the left forces the post-whnf_core quick check (use_hash=false), which walks the two

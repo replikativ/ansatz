@@ -7,7 +7,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.export.parser :refer [parse-ndjson-file]]
             [ansatz.export.replay :as replay])
-  (:import [ansatz.kernel TypeChecker Reducer EquivManager Expr Env ConstantInfo
+  (:import [ansatz.kernel TypeChecker Reducer LeanExprKey Expr Env ConstantInfo
             ConstantInfo$RecursorRule Name Level]
            [java.io StringWriter]))
 
@@ -182,14 +182,16 @@
       (is (nil? (.tryReduceNatExpr reducer expr)))
       (is (= 1 (get (.getStats reducer) "whnf-calls"))))))
 
-(deftest equiv-manager-lean-semantics-test
-  (testing "equivalence uses syntactic level equality, not pointer identity"
+(deftest quick-defeq-structural-equality-lean-semantics-test
+  ;; lean4#14806 deleted equiv_manager: quick_is_def_eq is `t == s || succeeded_before(t, s)`,
+  ;; where `==` is Lean's structural expression equality. Ours is LeanExprKey equality
+  ;; (TypeChecker.structurallyEqual), so these pin the same Lean semantics against it.
+  (testing "structural equality uses syntactic level equality, not pointer identity"
     (let [u (name/from-string "u")
           l1 (lvl/param u)
-          l2 (lvl/param u)
-          em (EquivManager.)]
+          l2 (lvl/param u)]
       (is (not (identical? l1 l2)))
-      (is (.isEquiv em (Expr/sort l1 true) (Expr/sort l2 true)))))
+      (is (.equals (LeanExprKey. (Expr/sort l1 true)) (LeanExprKey. (Expr/sort l2 true))))))
 
   (testing "constant universe arguments are compared structurally"
     (let [u (name/from-string "u")
@@ -197,30 +199,30 @@
           l1 (lvl/param u)
           l2 (lvl/param u)
           c1 (Expr/mkConst cname (object-array [l1]) true)
-          c2 (Expr/mkConst cname (object-array [l2]) true)
-          em (EquivManager.)]
-      (is (.isEquiv em c1 c2))))
+          c2 (Expr/mkConst cname (object-array [l2]) true)]
+      (is (.equals (LeanExprKey. c1) (LeanExprKey. c2)))))
 
-  (testing "equivalence ignores binder names and binder info"
+  (testing "structural equality ignores binder names and binder info"
     (let [lhs (e/forall' "x" prop prop :default)
-          rhs (e/forall' "y" prop prop :implicit)
-          em (EquivManager.)]
-      (is (.isEquiv em lhs rhs))))
+          rhs (e/forall' "y" prop prop :implicit)]
+      (is (.equals (LeanExprKey. lhs) (LeanExprKey. rhs)))))
 
-  (testing "equivalence ignores metadata payloads"
+  (testing "metadata payloads: structurally distinct (Lean's expr_eq_fn compares the mdata
+   kvmap), definitionally equal (whnf_core strips mdata). Ignoring mdata was a property of the
+   deleted union-find walk, not of `==`."
     (let [lhs (e/mdata {:source "left"} prop)
-          rhs (e/mdata {:source "right"} prop)
-          em (EquivManager.)]
-      (is (.isEquiv em lhs rhs))))
+          rhs (e/mdata {:source "right"} prop)]
+      (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs))))
+      (is (.isDefEq (mk-tc) lhs rhs))))
 
-  (testing "the core equivalence relation ignores projection structure names"
+  (testing "definitional equality of projections is name-blind on the same struct (Lean is_def_eq_proj)"
     (let [struct (e/fvar 1)
           lhs (e/proj (name/from-string "S1") 0 struct)
-          rhs (e/proj (name/from-string "S2") 0 struct)
-          em (EquivManager.)]
-      ;; Lean's expression hash includes the projection structure name, so
-      ;; callers that enable hash fast-rejection may reject this before core.
-      (is (.isEquiv em lhs rhs false)))))
+          rhs (e/proj (name/from-string "S2") 0 struct)]
+      ;; Lean's expression hash includes the projection structure name, so structural
+      ;; equality (and the quick path) rejects this; the full is_def_eq accepts it.
+      (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs))))
+      (is (.isDefEq (mk-tc) lhs rhs)))))
 
 (deftest level-constructor-lean-semantics-test
   (testing "mk_max preserves Lean's syntactic level shape"
@@ -247,9 +249,8 @@
           rhs-level (Level/max (Level/succ v) (Level/succ u))
           lhs (Expr/mkConst cname (object-array [lhs-level]) true)
           rhs (Expr/mkConst cname (object-array [rhs-level]) true)
-          em (EquivManager.)
           tc (mk-tc)]
-      (is (not (.isEquiv em lhs rhs)))
+      (is (not (.equals (LeanExprKey. lhs) (LeanExprKey. rhs))))
       (is (.isDefEq tc lhs rhs)))))
 
 (deftest lazy-delta-same-definition-uses-declaration-identity-test

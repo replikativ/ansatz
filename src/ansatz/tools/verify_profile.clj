@@ -25,7 +25,7 @@
       (str/starts-with? c "ansatz.kernel.Inductive") :kernel.inductive
       (str/starts-with? c "ansatz.kernel.LeanExprKey") :kernel.expr-key
       (str/starts-with? c "ansatz.kernel.Expr") :kernel.expr
-      (str/starts-with? c "ansatz.kernel.EquivManager") :kernel.equiv
+      (str/starts-with? c "ansatz.kernel.LeanExprKey") :kernel.equiv
       (str/starts-with? c "ansatz.export.storage") :storage
       (str/starts-with? c "konserve.") :storage.konserve
       (str/includes? c "persistent_sorted_set") :storage.pss
