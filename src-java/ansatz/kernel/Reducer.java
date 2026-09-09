@@ -1313,21 +1313,35 @@ public final class Reducer {
         if (inferFn != null && !isConstructorApp(major)) {
             Name majorInductName = getMajorInductName(ci);
             if (majorInductName != null && isStructureLike(majorInductName)) {
+                // Lean's to_cnstr_when_structure takes the is_prop callback (lean4#14807): the
+                // structure's sort must whnf to a SORT, and a STUCK sort is a "type expected"
+                // error — it must NOT read as "not a Prop" and license the eta-expansion (that is
+                // arena rec-of-subst-prop: a Type field escapes a Prop-only structure). Only the
+                // inference itself stays guarded; the verdict on the sort is raised OUTSIDE the
+                // try so the catch cannot swallow it.
+                Expr majorType = null;
+                Expr typeOfType = null;
                 try {
-                    Expr majorType = whnf(inferFn.infer(major));
-                    Expr typeHead = getAppFn(majorType);
+                    Expr mt = whnf(inferFn.infer(major));
+                    Expr typeHead = getAppFn(mt);
                     if (typeHead.tag == Expr.CONST && typeHead.o0.equals(majorInductName)) {
-                        // Check it's not a Prop (Lean 4 line 70-71)
-                        Expr typeOfType = whnf(inferFn.infer(majorType));
-                        if (!(typeOfType.tag == Expr.SORT && Level.simplify((Level) typeOfType.o0).tag == Level.ZERO)) {
-                            // Expand: Ctor(params, proj(I, 0, e), ..., proj(I, n-1, e))
-                            major = expandEtaStruct(majorInductName, majorType, major);
-                            fnArgs = getAppFnArgs(major);
-                            ctorHead = (Expr) fnArgs[0];
-                            ctorArgs = (Expr[]) fnArgs[1];
-                        }
+                        majorType = mt;
+                        typeOfType = whnf(inferFn.infer(mt));
                     }
                 } catch (Exception ignored) {}
+                if (majorType != null) {
+                    if (typeOfType.tag != Expr.SORT) {
+                        throw new RuntimeException("Type error: type expected, got " + typeOfType
+                            + " (structure eta on a stuck sort — lean4#14807)");
+                    }
+                    if (!Level.isZero((Level) typeOfType.o0)) {
+                        // Expand: Ctor(params, proj(I, 0, e), ..., proj(I, n-1, e))
+                        major = expandEtaStruct(majorInductName, majorType, major);
+                        fnArgs = getAppFnArgs(major);
+                        ctorHead = (Expr) fnArgs[0];
+                        ctorArgs = (Expr[]) fnArgs[1];
+                    }
+                }
             }
         }
 

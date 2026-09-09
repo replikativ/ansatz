@@ -550,11 +550,21 @@ public final class TypeChecker {
 
     /**
      * Return true iff e is a proposition (its type is Prop).
-     * Matches Lean 4's type_checker::is_prop.
+     * Lean 4 master (type_checker.cpp, lean4#14807):
+     *   is_prop(e) = is_zero(sort_level(ensure_sort_core(infer_type(e), e)))
+     * The type of e must whnf to a SORT; anything else is a "type expected" ERROR, not
+     * "not a Prop". The pre-fix syntactic test (tag==SORT && level==ZERO) answered false on a
+     * STUCK sort, which let data be projected out of / eliminated from a proposition whose
+     * sort only reduces under one of two definitionally-equal spellings (arena
+     * proj-of-subst-prop, rec-of-subst-prop). Level.isZero normalizes (max/imax), matching
+     * Lean's is_zero rather than a syntactic ZERO tag.
      */
     private boolean isProp(Expr e) {
         Expr t = whnf(inferTypeOnly(e));
-        return t.tag == Expr.SORT && ((Level) t.o0).tag == Level.ZERO;
+        if (t.tag != Expr.SORT) {
+            throw new RuntimeException("Type error: type expected, got " + t + " (is_prop on a stuck sort — lean4#14807)");
+        }
+        return Level.isZero((Level) t.o0);
     }
 
     // ============================================================

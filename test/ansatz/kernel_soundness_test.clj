@@ -281,7 +281,7 @@
     (let [stuck (whnf env (e/app (c "ksGate") (c "ksWitness")))]
       (is (not (e/sort? stuck)) "the sort of `KsOwner ksWitness` is stuck: K-reduction needs ksA ≡ 7"))))
 
-(deftest ^:wip pr14807-no-data-projection-out-of-a-stuck-sort-proposition
+(deftest pr14807-no-data-projection-out-of-a-stuck-sort-proposition
   (testing "upstream leanprover/lean4#14807 — `fun (p : ksProposition) => p.1 : Bool` extracts the
    Bool field of a proof (ksProposition : Prop). is_prop must be decided by ensure_sort, which
    fails on the stuck sort, instead of answering 'not a Prop'."
@@ -312,7 +312,7 @@
         {:keys [results]} (replay/replay decls :verify? true)]
     (:name (first (filter #(= :error (:status %)) results)))))
 
-(deftest ^:wip pr14807-arena-proj-of-subst-prop-is-rejected
+(deftest pr14807-arena-proj-of-subst-prop-is-rejected
   (testing "lean-kernel-arena tests/proj-of-subst-prop: the projection out of `PR14806Subst.proposition`
    (or the `inconsistent` theorem built from it) must be rejected"
     (let [bad (arena-first-error "test-data/arena/proj-of-subst-prop.ndjson")]
@@ -320,7 +320,7 @@
       (is (or (nil? bad) (re-find #"^PR14806Subst\.|^inconsistent$" bad))
           (str "the rejection must be inside the exploit, not the Init closure: " bad)))))
 
-(deftest ^:wip pr14807-arena-rec-of-subst-prop-is-rejected
+(deftest pr14807-arena-rec-of-subst-prop-is-rejected
   (testing "lean-kernel-arena tests/rec-of-subst-prop (leanprover/lean4#14847): eliminating the
    proposition `Issue.Owner gateWitness` with its own recursor must not hand out the Type field"
     (let [bad (arena-first-error "test-data/arena/rec-of-subst-prop.ndjson")]
