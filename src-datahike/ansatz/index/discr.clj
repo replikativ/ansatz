@@ -5,11 +5,12 @@
 ;; matches every lemma that could unify, in microseconds, before any defeq is attempted.
 ;;
 ;; Today that trie is rebuilt in RAM at every boot (49.9 s for Mathlib's 348,654 keys).
-;; Here it is a persistent structure over konserve: each trie node is a content-addressed
-;; konserve value `{:values [eid …] :children {key → [:ref addr] | node}}`, loaded on first
-;; touch, path-copied on insert, flushed bottom-up at commit. Restoring on `connect` is one
-;; root address; the first query faults in only the nodes it walks. Branching shares nodes
-;; by address (`-sec-branch` is O(1)); GC marks by walking from the root.
+;; Here it is a persistent structure over konserve: the trie is cut into size-bounded
+;; CHUNKS, each a content-addressed konserve value (a subtree stored whole, or a node whose
+;; children are `[:ref addr]`), loaded on first touch, path-copied on insert, flushed
+;; bottom-up at commit. Restoring on `connect` is one root address; a query faults in only
+;; the chunks it walks. Branching shares chunks by address (`-sec-branch` is O(1)); GC
+;; marks by walking from the root.
 ;;
 ;; datahike wiring (no datahike patch): registered through the public
 ;; `register-index-type!`, declared in the schema as
@@ -75,54 +76,77 @@
           :else [])))
 
 ;; ============================================================
-;; Persistent trie over konserve-addressed nodes
+;; Persistent trie over konserve-addressed CHUNKS
 ;; ============================================================
+;;
+;; One konserve value per trie node is far too fine: Mathlib's 348,654 keys make millions
+;; of nodes, i.e. millions of files and fsyncs on a filestore (the first 20k-key batch
+;; wrote 45,617 files before this was chunked). Instead a node is persisted in one of two
+;; forms, decided by the number of stored values beneath it (`:n`, maintained on insert):
+;;
+;;   small subtree (n ≤ chunk-max-values) → stored WHOLE: children inline, plain nested maps
+;;   large node                            → stored with children as [:ref addr], each child
+;;                                           flushed recursively by the same rule
+;;
+;; So the persisted trie is a tree of bounded-size chunks: connect loads the root chunk,
+;; a query loads the one or two chunks it walks, a flush rewrites only the chunks on the
+;; paths that changed (untouched children stay refs), and the in-memory matcher never
+;; sees the difference because a loaded chunk's children are ordinary maps.
 
-(def ^:private empty-node {:values [] :children {}})
+(def ^:private empty-node {:values [] :children {} :n 0})
+
+(def chunk-max-values
+  "A subtree with at most this many stored values is persisted whole as one chunk."
+  2000)
 
 (defn- ref? [c] (and (vector? c) (= :ref (first c))))
 
 (defn node-key
-  "konserve key of a persisted trie node."
+  "konserve key of a persisted chunk."
   [addr] [:ansatz.index/discr-node addr])
 
-(defn- load-node
+(defn- load-chunk
   [store ^ConcurrentHashMap cache addr]
   (or (.get cache addr)
       (do (when (nil? store)
-            (throw (ex-info "discr-tree: persisted node reached without a store" {:addr addr})))
+            (throw (ex-info "discr-tree: persisted chunk reached without a store" {:addr addr})))
           (let [n (k/get store (node-key addr) nil {:sync? true})]
             (when (nil? n)
-              (throw (ex-info "discr-tree: persisted node missing" {:addr addr})))
+              (throw (ex-info "discr-tree: persisted chunk missing" {:addr addr})))
             (.put cache addr n)
             n))))
 
 (defn- resolve-child
   "A child is an in-memory node or a `[:ref addr]`; return the node."
   [{:keys [store cache]} c]
-  (if (ref? c) (load-node store cache (second c)) c))
+  (if (ref? c) (load-chunk store cache (second c)) c))
 
 (defn- insert
   "Path-copying insert: nodes along the path become in-memory (dirty) nodes; untouched
-   siblings stay as refs."
+   siblings stay as refs. `:n` counts stored values beneath a node."
   [ctx node keys eid]
-  (if (empty? keys)
-    (update node :values (fnil conj []) eid)
-    (let [k (first keys)
-          child (resolve-child ctx (get (:children node) k empty-node))]
-      (assoc-in node [:children k] (insert ctx child (rest keys) eid)))))
+  (let [node (update node :n (fnil inc 0))]
+    (if (empty? keys)
+      (update node :values (fnil conj []) eid)
+      (let [k (first keys)
+            child (resolve-child ctx (get (:children node) k empty-node))]
+        (assoc-in node [:children k] (insert ctx child (rest keys) eid))))))
 
 (defn- remove-eid
   "Path-copying removal; prunes nodes left with no values and no children."
   [ctx node keys eid]
   (if (empty? keys)
-    (update node :values (fn [vs] (vec (remove #(= (long %) (long eid)) vs))))
+    (let [vs (vec (remove #(= (long %) (long eid)) (:values node)))]
+      (-> node (assoc :values vs) (update :n (fnil #(max 0 (- % (- (count (:values node)) (count vs)))) 0))))
     (let [k (first keys)]
       (if-let [c (get (:children node) k)]
-        (let [child' (remove-eid ctx (resolve-child ctx c) (rest keys) eid)]
+        (let [child (resolve-child ctx c)
+              child' (remove-eid ctx child (rest keys) eid)
+              removed (- (or (:n child) 0) (or (:n child') 0))
+              node' (update node :n (fnil #(max 0 (- % removed)) 0))]
           (if (and (empty? (:values child')) (empty? (:children child')))
-            (update node :children dissoc k)
-            (assoc-in node [:children k] child')))
+            (update node' :children dissoc k)
+            (assoc-in node' [:children k] child')))
         node))))
 
 (defn- skip-subtree
@@ -136,7 +160,7 @@
         (if (zero? n) r (recur (skip-subtree r) (dec n)))))))
 
 (defn- match
-  "Lean's getMatchLoop over lazily loaded nodes: at each level explore the stored-star
+  "Lean's getMatchLoop over lazily loaded chunks: at each level explore the stored-star
    branch (skipping a full subterm of the query), the exact key, and — when the query key is
    itself a star — every child."
   [ctx node keys]
@@ -157,19 +181,33 @@
                                 children))]
       (into [] (concat star-results exact-results all-results)))))
 
-(defn- flush-node
-  "Persist a node and its dirty descendants; return the node's content address. Children
-   that are already refs are untouched (structural sharing across commits and branches)."
-  [store node]
-  (let [children' (reduce-kv (fn [m k c] (assoc m k (if (ref? c) c [:ref (flush-node store c)])))
-                             {} (:children node))
-        persisted {:values (vec (:values node)) :children children'}
-        addr (hasch/uuid persisted)]
-    (k/assoc store (node-key addr) persisted {:sync? true})
+(defn- inline-whole
+  "A small subtree as a self-contained value: every ref beneath it loaded and inlined."
+  [ctx node]
+  (assoc node :children
+         (reduce-kv (fn [m k c] (assoc m k (inline-whole ctx (resolve-child ctx c))))
+                    {} (:children node))))
+
+(defn- write-chunk! [store value]
+  (let [addr (hasch/uuid value)]
+    (k/assoc store (node-key addr) value {:sync? true})
     addr))
 
+(defn- flush-node
+  "Persist a node and return its content address. A subtree of at most chunk-max-values
+   stored values is written WHOLE as one chunk; a larger node is written with its children
+   as refs, each child flushed by the same rule. Children that are already refs are
+   untouched (structural sharing across commits and branches)."
+  [ctx node]
+  (let [store (:store ctx)]
+    (if (<= (or (:n node) 0) chunk-max-values)
+      (write-chunk! store (inline-whole ctx node))
+      (let [children' (reduce-kv (fn [m k c] (assoc m k (if (ref? c) c [:ref (flush-node ctx c)])))
+                                 {} (:children node))]
+        (write-chunk! store (assoc node :children children'))))))
+
 (defn- all-addrs
-  "Every persisted node address reachable from `child` (loads the whole trie — GC only)."
+  "Every persisted chunk address reachable from `child` (loads the whole trie — GC only)."
   [ctx child acc]
   (if (ref? child)
     (let [addr (second child)]
@@ -225,7 +263,7 @@
     (let [st @state
           ctx (assoc (ctx-of st) :store store)
           root (resolve-child ctx (:root st))
-          addr (flush-node store root)]
+          addr (flush-node ctx root)]
       (swap! state assoc :root [:ref addr] :store store)
       {:type :ansatz.index/discr-tree :branch branch :root addr :merkle-root addr}))
   (-sec-restore [_ store key-map]
