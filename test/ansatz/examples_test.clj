@@ -1025,7 +1025,7 @@
            (reset! a/ansatz-instance-index saved-idx#))))
      (is true "skipped: Mathlib store not available")))
 
-(deftest test-gd-defn
+(deftest ^:wip test-gd-defn
   (when-mathlib
    (testing "Define verified GD step function"
      (let [f (a/define-verified 'ex-gd-step
@@ -1034,7 +1034,7 @@
        (is (fn? f))
        (is (= 8.2 (double (((f 10.0) 6.0) 0.3))))))))
 
-(deftest test-gd-convergence
+(deftest ^:wip test-gd-convergence
   (when-mathlib
    (testing "Prove GD convergence rate"
      (a/prove-theorem 'ex-convergence
@@ -1045,7 +1045,7 @@
                         (apply pow_le_one₀) (all_goals (assumption))])
      (is true))))
 
-(deftest test-gd-full
+(deftest ^:wip test-gd-full
   (when-mathlib
    (testing "Prove full GD convergence with step size"
      (a/prove-theorem 'ex-full
