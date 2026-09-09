@@ -199,11 +199,20 @@
              (when store-path
                (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
                  (when (.exists gz) (.getPath gz)))))
+     ;; Persistent @[simp] index, likewise: RECORD the store's `simp-keys.ndjson.gz` if present;
+     ;; simp loads the trie on its first call and serves the inherited @[simp] corpus from it
+     ;; lazily (ansatz.simp-index) instead of hydrating all ~91k names per call.
+     ((requiring-resolve 'ansatz.simp-index/reset-index!)
+      (when store-path
+        (let [gz (clojure.java.io/file store-path "simp-keys.ndjson.gz")]
+          (when (.exists gz) (.getPath gz)))))
      (when *verbose*
        (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
                 (count idx) "classes indexed"
                 (when @(deref (requiring-resolve 'ansatz.recall/discr-keys-path))
-                  (str ", recall keys available (trie loads on demand)")))))))
+                  (str ", recall keys available (trie loads on demand)"))
+                (when @(deref (requiring-resolve 'ansatz.simp-index/simp-keys-path))
+                  (str ", simp keys available (index loads on first simp)")))))))
 
 (clojure.core/defn- simp-attr-names
   "Names carrying a simp-family attribute in this store's attrs sidecar, or nil when the
