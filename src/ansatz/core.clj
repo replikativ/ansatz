@@ -207,10 +207,30 @@
                 (when @ansatz-discr-trie
                   (str ", recall trie loaded")))))))
 
+(clojure.core/defn- simp-attr-names
+  "Names carrying a simp-family attribute in this store's attrs sidecar, or nil when the
+   store has none. Read cheaply (93k JSON lines) so a :defs-only loader can keep the
+   PROOFS of exactly these theorems: simp derives a lemma's rfl-flag from its proof at
+   registration (ansatz.tactic.simp/is-rfl-proof?) until that flag is an import-time fact."
+  [store-path]
+  (let [f (clojure.java.io/file store-path "attrs.ndjson.gz")]
+    (when (.exists f)
+      (with-open [in (java.util.zip.GZIPInputStream. (clojure.java.io/input-stream f))]
+        (into #{}
+              (keep (fn [line]
+                      (let [m ((requiring-resolve 'clojure.data.json/read-str) line :key-fn keyword)]
+                        (when (#{"simp" "csimp"} (:kind m))
+                          (ansatz.kernel.name/from-string (:name m))))))
+              (line-seq (clojure.java.io/reader in)))))))
+
 (clojure.core/defn- init!*
   [store-path branch]
   (let [sm (storage/open-store store-path)
-        env (storage/load-env sm branch)
+        ;; A proving session never reads a theorem's body (theorems are opaque to the
+        ;; kernel, lean4#12973), so skip resolving them: :defs-only. Bodies of @[simp]
+        ;; theorems are kept for simp's rfl-flag derivation.
+        keep (simp-attr-names store-path)
+        env (storage/load-env sm branch :value-policy :defs-only :keep-value? keep)
         ;; cheap PSS-membership presence for the attrs import (see setup-env!)
         present? (storage/contains-name-checker sm branch)]
     (setup-env! env store-path present?)))

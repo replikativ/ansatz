@@ -677,8 +677,11 @@
    The returned lookup function is intentionally unrestricted. Callers that
    need admission-order visibility must wrap it before installing it into Env.
    Keeping this state shared avoids duplicate expression/name/level resolver
-   caches between staged verifier lookup and declaration fetch."
-  [store-map branch-name]
+   caches between staged verifier lookup and declaration fetch.
+
+   :value-policy :full (default) | :defs-only, and :keep-value? (name → bool) —
+   see resolve-ci-shell. Verification must use :full."
+  [store-map branch-name & {:keys [value-policy keep-value?] :or {value-policy :full}}]
   (let [{:keys [storage store]} store-map
         branch-meta (store-get store [:branches branch-name])]
     (when (nil? branch-meta)
@@ -704,7 +707,7 @@
                         (when result
                           (let [entry (nth result 1)]
                             (if dag?
-                              (resolve-ci-shell entry resolve-expr-fn)
+                              (resolve-ci-shell entry resolve-expr-fn value-policy keep-value?)
                               entry)))))]
       {:branch-meta branch-meta
        :lookup-ci lookup-ci})))
@@ -721,8 +724,11 @@
    Optional :visible? predicate restricts external lookup. Verification uses
    this to model Lean admission order: a declaration can only see admitted
    earlier declarations."
-  [store-map branch-name & {:keys [visible? loader]}]
-  (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name))]
+  [store-map branch-name & {:keys [visible? loader value-policy keep-value?]
+                            :or {value-policy :full}}]
+  (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name
+                                                                  :value-policy value-policy
+                                                                  :keep-value? keep-value?))]
     (let [^Env env (Env.)]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
             env (if visible?
@@ -942,12 +948,25 @@
               l))))))
 
 (defn resolve-ci-shell
-  "Resolve a CI-shell map to a full ConstantInfo by resolving expression IDs."
-  [ci-shell resolve-expr-fn]
+  "Resolve a CI-shell map to a full ConstantInfo by resolving expression IDs.
+
+   `value-policy` (default :full): :defs-only skips the VALUE of theorems and opaques
+   (tags 2/3). After admission the kernel never reads a theorem body — lean4#12973 made
+   theorems opaque to delta and `ConstantInfo.getValue` is DEF-only — so a proving session
+   skips the largest thing in the store (median proof 3,790 chars vs 709 for the statement,
+   67 ms vs ~4 ms per cold lookup). `keep-value?` (name → bool) overrides :defs-only for
+   individual names; verification and `prepare-verify` use :full."
+  ([ci-shell resolve-expr-fn] (resolve-ci-shell ci-shell resolve-expr-fn :full nil))
+  ([ci-shell resolve-expr-fn value-policy keep-value?]
   (let [m (if (instance? CIShell ci-shell) (.data ^CIShell ci-shell) ci-shell)
         tag (int (:tag m))
         type-expr (resolve-expr-fn (:type-id m))
-        lps (into-array Object (:lps m))]
+        lps (into-array Object (:lps m))
+        ;; THM (2) / OPAQUE (3) bodies are skipped under :defs-only unless kept by name
+        skip-value? (and (= value-policy :defs-only)
+                         (or (= tag 2) (= tag 3))
+                         (not (and keep-value? (keep-value? (:name m)))))
+        resolve-value (fn [id] (when-not skip-value? (resolve-expr-fn id)))]
     (case tag
       ;; AXIOM
       0 (ConstantInfo/mkAxiom (:name m) lps type-expr
@@ -967,11 +986,11 @@
                               (into-array Object (:all m))))
       ;; THM
       2 (ConstantInfo/mkThm (:name m) lps type-expr
-                            (resolve-expr-fn (:value-id m))
+                            (resolve-value (:value-id m))
                             (into-array Object (:all m)))
       ;; OPAQUE
       3 (ConstantInfo/mkOpaque (:name m) lps type-expr
-                               (resolve-expr-fn (:value-id m))
+                               (resolve-value (:value-id m))
                                (into-array Object (:all m))
                                (boolean (:unsafe? m)))
       ;; QUOT
@@ -1006,7 +1025,7 @@
                                    (int (:num-minors m))
                                    (into-array ConstantInfo$RecursorRule rules)
                                    (boolean (:is-k m))
-                                   (boolean (:is-unsafe m)))))))
+                                   (boolean (:is-unsafe m))))))))
 
 ;; ============================================================
 ;; Branching
