@@ -20,6 +20,15 @@
                  cheshire/cheshire {:mvn/version "5.11.0"}}
           :ns-default build}
 
+  ;; datahike-backed indices (optional module; own src path so the core build never sees it).
+  ;; datahike pins newer konserve/persistent-sorted-set than ansatz's own store does; the
+  ;; ansatz store has been verified to open under those, so they are overridden here rather
+  ;; than juggled. Point at the released datahike once its version is known.
+  :datahike {:extra-paths ["src-datahike" "test-datahike"]
+             :extra-deps {org.replikativ/datahike {:local/root "../datahike"}}
+             :override-deps {org.replikativ/konserve {:mvn/version "0.9.372"}
+                             org.replikativ/persistent-sorted-set {:mvn/version "0.5.140"}}}
+
   ;; Tests
   :test {:extra-paths ["test"]
          :extra-deps {io.github.cognitect-labs/test-runner
