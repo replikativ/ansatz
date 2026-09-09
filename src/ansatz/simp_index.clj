@@ -25,23 +25,26 @@
   (:import [ansatz.kernel Name ConstantInfo]
            [java.util.zip GZIPInputStream GZIPOutputStream]))
 
-(defonce simp-keys-path
-  ^{:doc "Path of the current store's simp-keys.ndjson.gz (set by ansatz.core/init!), or nil.
-          The trie itself is built on first demand — see ensure-simp-trie!."}
-  (atom nil))
+(def extension-key
+  "The Env extension carrying the store's simp-keys artifact path (set by ansatz.core/init!).
+   It rides on the immutable Env like the attrs extensions do, so an env built any other way
+   (replay, a test fixture's `reset!`) has NO index and stays on the eager path — the index can
+   never leak from one store's env into another's."
+  :simp-keys-path)
+
+(defn index-path
+  "The simp-keys artifact path recorded on `env`, or nil."
+  [env] (env/get-extension env extension-key nil))
+
+(defn with-index-path
+  "`env` with its simp-keys artifact path set (nil clears it)."
+  [env path] (env/update-extension env extension-key nil (constantly path)))
 
 (defonce ^:private rule-cache
-  ^{:doc "name-str → vector of extracted simp rules, for the lazily-served corpus. A lemma's
-          rules are stable for a store; cleared whenever the index is re-pointed."}
-  (atom {}))
-
-(defn reset-index!
-  "Point the index at `path` (or nil: no artifact) and drop the trie and rule cache — called by
-   ansatz.core/init! for every store switch so nothing from a previous store survives."
-  [path]
-  (reset! simp-keys-path path)
-  (reset! state/ansatz-simp-trie nil)
-  (reset! rule-cache {}))
+  ^{:doc "{:path p :rules {name-str → [rules]}}: extracted rules for the lazily-served corpus,
+          valid for the artifact they were resolved against (a lemma's rules are stable for a
+          store); dropped when the path changes."}
+  (atom nil))
 
 (def ^:private extract-simp-lemma
   "simp's private CI → simp-rule extractor, resolved once on first use (var-accessed: this leaf
@@ -105,20 +108,22 @@
             (line-seq r))))
 
 (defn ensure-simp-trie!
-  "The simp trie for the current store, built on FIRST use and cached in
-   ansatz.state/ansatz-simp-trie; nil when the store has no keys artifact (the eager path then
-   serves the inherited set). A truncated/corrupt artifact degrades to nil, never throws."
-  []
-  (or @state/ansatz-simp-trie
-      (when-let [p @simp-keys-path]
+  "The simp trie for `env`'s store, built on FIRST use and cached in
+   ansatz.state/ansatz-simp-trie (keyed by the artifact path, so switching stores reloads);
+   nil when the env records no artifact (the eager path then serves the inherited set). A
+   truncated/corrupt artifact degrades to nil for the session, never throws."
+  [env]
+  (when-let [p (index-path env)]
+    (let [{:keys [path trie]} @state/ansatz-simp-trie]
+      (if (= path p)
+        trie
         (let [trie (try (load-simp-trie p)
                         (catch Throwable t
                           (println "WARN: simp index unreadable, skipping"
                                    "(re-dump with scripts/dump_simp_keys.clj):" (.getMessage t))
                           nil))]
-          (when (nil? trie) (reset! simp-keys-path nil))
-          (reset! state/ansatz-simp-trie trie)
-          trie))))
+          (reset! state/ansatz-simp-trie {:path p :trie trie})
+          trie)))))
 
 ;; ---- lookup side: candidate names by goal-subterm key, lazy rule resolution ----
 
@@ -136,19 +141,21 @@
 
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority
-   (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized for the
-   session. A name that fails to resolve or extract memoizes as [] so it is tried once."
+   (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized per artifact.
+   A name that fails to resolve or extract memoizes as [] so it is tried once."
   [env name-str]
-  (if-let [hit (find @rule-cache name-str)]
-    (val hit)
-    (let [prio (get (env/get-extension env :simp-priorities {}) name-str @default-simp-priority)
-          rules (or (try (when-let [ci (env/lookup env (nm/from-string name-str))]
-                           (@extract-simp-lemma env ci prio))
-                         (catch Throwable _ nil))
-                    [])
-          rules (vec rules)]
-      (swap! rule-cache assoc name-str rules)
-      rules)))
+  (let [p (index-path env)
+        cache (let [c @rule-cache] (if (= (:path c) p) c (reset! rule-cache {:path p :rules {}})))]
+    (if-let [hit (find (:rules cache) name-str)]
+      (val hit)
+      (let [prio (get (env/get-extension env :simp-priorities {}) name-str @default-simp-priority)
+            rules (or (try (when-let [ci (env/lookup env (nm/from-string name-str))]
+                             (@extract-simp-lemma env ci prio))
+                           (catch Throwable _ nil))
+                      [])
+            rules (vec rules)]
+        (swap! rule-cache (fn [c] (if (= (:path c) p) (assoc-in c [:rules name-str] rules) c)))
+        rules))))
 
 (defn candidate-rules
   "Every rule of every lemma in `trie` whose LHS structurally matches `expr` — the lazily-served

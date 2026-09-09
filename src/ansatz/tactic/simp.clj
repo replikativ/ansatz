@@ -2963,7 +2963,7 @@
          ;; served LAZILY from `lookup-lemmas` and is NOT put through the eager per-call work below
          ;; (resolve+extract+key, equation-theorem probe, unfold probe — ~91k hydrations per call
          ;; on Mathlib). Without one (the bundled Init tiers) it stays eager.
-         ext-trie (when-not (:only? opts) (si/ensure-simp-trie!))
+         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
          all-names (if (:only? opts)
                      (distinct (concat simp-only-builtins name-args))
                      (distinct (concat default-simp-lemmas
@@ -3126,7 +3126,7 @@
          env (or (ensure-ble-eq (:env ps)) (:env ps))
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; the inherited @[simp] extension: lazy via the persistent index when present (see simp)
-         ext-trie (when-not (:only? opts) (si/ensure-simp-trie!))
+         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
          all-names (if (:only? opts)
                      (distinct (concat simp-only-builtins lemma-names))
                      (distinct (concat default-simp-lemmas
