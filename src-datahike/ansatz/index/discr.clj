@@ -210,16 +210,31 @@
     addr))
 
 (defn- flush-node
-  "Persist a node and return its content address. A subtree of at most chunk-max-values
-   stored values is written WHOLE as one chunk; a larger node is written with its children
-   as refs, each child flushed by the same rule. Children that are already refs are
-   untouched (structural sharing across commits and branches)."
+  "Persist a node and return its content address.
+
+   A subtree of at most chunk-max-values stored values is written WHOLE as one chunk. A
+   larger node PACKS: its small children (each ≤ chunk-max-values) are inlined into the
+   node's own chunk, in key order, until the chunk's running value count reaches the cap;
+   every remaining child — the big ones, and small ones past the budget — is written as
+   [:ref addr] by the same rule. Without packing, a wide node (the root has thousands of
+   head symbols; `Eq` thousands of types) refs out every tiny child separately and the
+   long tail of small subtrees becomes thousands of 2 KB chunks. Children that are
+   already refs stay refs (structural sharing across commits and branches)."
   [ctx node]
-  (let [store (:store ctx)]
-    (if (<= (or (:n node) 0) chunk-max-values)
+  (let [store (:store ctx)
+        n (or (:n node) 0)]
+    (if (<= n chunk-max-values)
       (write-chunk! store (inline-whole ctx node))
-      (let [children' (reduce-kv (fn [m k c] (assoc m k (if (ref? c) c [:ref (flush-node ctx c)])))
-                                 {} (:children node))]
+      (let [ordered (sort-by (comp pr-str key) (:children node))
+            children'
+            (loop [[[k c] & more] ordered, budget (- chunk-max-values (count (:values node))), acc (transient {})]
+              (if (nil? k)
+                (persistent! acc)
+                (let [child (if (ref? c) nil (resolve-child ctx c))
+                      cn (if child (or (:n child) 0) Long/MAX_VALUE)]
+                  (if (and child (<= cn chunk-max-values) (<= cn budget))
+                    (recur more (- budget cn) (assoc! acc k (inline-whole ctx child)))
+                    (recur more budget (assoc! acc k (if (ref? c) c [:ref (flush-node ctx c)])))))))]
         (write-chunk! store (assoc node :children children'))))))
 
 (defn- all-addrs
