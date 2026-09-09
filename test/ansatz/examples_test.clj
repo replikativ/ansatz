@@ -299,12 +299,14 @@
               @seen)
             "Ackermann is encoded with the general WellFounded.fix (lexicographic relation)")
         ;; computes the Ackermann values
-        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
-              ack (fn [m n] (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-ack") [])
-                                                         (e/lit-nat m) (e/lit-nat n)))))]
-          (is (= "3" (ack 1 1)) "ack 1 1 = 3")
-          (is (= "7" (ack 2 2)) "ack 2 2 = 7")
-          (is (= "61" (ack 3 3)) "ack 3 3 = 61"))
+        ;; Evaluated through the COMPILED runtime, not kernel whnf: a WF-defined function does not
+        ;; reduce definitionally -- Acc.rec needs the accessibility THEOREM unfolded to Acc.intro,
+        ;; and theorems are opaque to the kernel (lean4#12973) -- exactly as in Lean, where this
+        ;; equation is not `rfl` either. The kernel VERIFIES the definition; the runtime computes it.
+        (let [ack (fn [m n] (long (@(resolve 'ex-ack) m n)))]
+          (is (= 3 (ack 1 1)) "ack 1 1 = 3")
+          (is (= 7 (ack 2 2)) "ack 2 2 = 7")
+          (is (= 61 (ack 3 3)) "ack 3 3 = 61"))
         ;; the three textbook defining equations
         (is (some? (env/lookup (a/env) (name/from-string "ex-ack.eq_1"))) "ack 0 n = n+1")
         (is (some? (env/lookup (a/env) (name/from-string "ex-ack.eq_2"))) "ack (m+1) 0 = ack m 1")
@@ -413,10 +415,13 @@
                           (zero (match b Nat Nat (zero 0) (succ [j] (+ 1 (recur a j)))))
                           (succ [i] (+ 1 (recur i n))))))))
       (is (some? (env/lookup (a/env) (name/from-string "ex-lexloop"))) "lex loop verified")
-      (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))
-            run1 (fn [f k] (e/->string (.whnf r (e/app (e/const' (name/from-string f) []) (e/lit-nat k)))))]
-        (is (= "15" (run1 "ex-sumloop" 5)) "sum 1..5 = 15")
-        (is (= "4" (run1 "ex-lexloop" 2)) "lexloop 2 = 4 (hand-checked)")))))
+      ;; Evaluated through the COMPILED runtime, not kernel whnf: a WF-defined function does not
+      ;; reduce definitionally -- Acc.rec needs the accessibility THEOREM unfolded to Acc.intro,
+      ;; and theorems are opaque to the kernel (lean4#12973) -- exactly as in Lean, where this
+      ;; equation is not `rfl` either. The kernel VERIFIES the definition; the runtime computes it.
+      (let [run1 (fn [f k] (long (@(resolve (symbol f)) k)))]
+        (is (= 15 (run1 "ex-sumloop" 5)) "sum 1..5 = 15")
+        (is (= 4 (run1 "ex-lexloop" 2)) "lexloop 2 = 4 (hand-checked)")))))
 
 (deftest test-wf-fix-three-arg-three-tuple-lex
   (testing "N-ary: a 3-arg function with a 3-tuple lexicographic measure is kernel-enforced
@@ -433,9 +438,12 @@
       (let [ci (env/lookup (a/env) (name/from-string "ex-lex3"))]
         (is (some? ci) "3-arg 3-tuple lex function defined")
         ;; lower components may INCREASE when a higher one drops — only lex can verify this
-        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))]
-          (is (= "13" (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-lex3") [])
-                                                   (e/lit-nat 1) (e/lit-nat 1) (e/lit-nat 1)))))
+        ;; Evaluated through the COMPILED runtime, not kernel whnf: a WF-defined function does not
+        ;; reduce definitionally -- Acc.rec needs the accessibility THEOREM unfolded to Acc.intro,
+        ;; and theorems are opaque to the kernel (lean4#12973) -- exactly as in Lean, where this
+        ;; equation is not `rfl` either. The kernel VERIFIES the definition; the runtime computes it.
+        (let []
+          (is (= 13 (long (@(resolve 'ex-lex3) 1 1 1)))
               "lex3 1 1 1 = 13 (hand-checked: 4 + f(0,0,9) = 4 + 9)"))
         (is (some? (env/lookup (a/env) (name/from-string "ex-lex3.eq_1"))) "leaf equations generated")))))
 
@@ -452,9 +460,12 @@
                                          (succ [j] (ex-ack-auto k (ex-ack-auto (Nat.succ k) j)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-ack-auto"))]
         (is (some? ci) "unannotated Ackermann auto-verified via the guessed lex measure")
-        (let [r (.getReducer (doto (ansatz.kernel.TypeChecker. (a/env)) (.setFuel 200000000)))]
-          (is (= "61" (e/->string (.whnf r (e/app* (e/const' (name/from-string "ex-ack-auto") [])
-                                                   (e/lit-nat 3) (e/lit-nat 3)))))
+        ;; Evaluated through the COMPILED runtime, not kernel whnf: a WF-defined function does not
+        ;; reduce definitionally -- Acc.rec needs the accessibility THEOREM unfolded to Acc.intro,
+        ;; and theorems are opaque to the kernel (lean4#12973) -- exactly as in Lean, where this
+        ;; equation is not `rfl` either. The kernel VERIFIES the definition; the runtime computes it.
+        (let []
+          (is (= 61 (long (@(resolve 'ex-ack-auto) 3 3)))
               "ack-auto 3 3 = 61"))))))
 
 ;; ============================================================

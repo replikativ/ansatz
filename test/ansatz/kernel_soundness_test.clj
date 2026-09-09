@@ -400,7 +400,7 @@
 ;; behavioral divergence: opacity is the premise of the hot/cold term split in
 ;; .internal/MATHLIB_CATALOGUE.md. Being fixed on the main line; pinned here.
 
-(deftest ^:wip pr12973-theorems-are-not-delta-unfolded
+(deftest pr12973-theorems-are-not-delta-unfolded
   (testing "upstream leanprover/lean4#12973 — whnf of a theorem constant is the constant itself"
     (let [env (admit @E (env/mk-thm (n "ksThm") [] (c "True") (c "True.intro")))]
       (is (e/const? (whnf env (c "Nat.zero_add"))) "EXPOSED: imported theorem body unfolds (getValue returns THM values)")

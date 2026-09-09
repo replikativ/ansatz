@@ -174,12 +174,15 @@ public final class ConstantInfo {
 
     /**
      * Get the definition value for delta reduction.
-     * Lean 4's has_value() returns true for both definitions and theorems,
-     * and the kernel unfolds both during whnf/lazy_delta_reduction.
-     * Returns null for axioms, inductives, constructors, and opaques.
+     * Lean 4's kernel `has_value()` is `is_definition()` only: theorems are OPAQUE to
+     * whnf/lazy_delta_reduction (lean4#12973, 2026-03 — "Theorems used to be like that
+     * [unfoldable]; now they are treated like opaque declarations"). A theorem's body is
+     * read exactly once, when the theorem itself is checked; after admission nothing in
+     * the kernel looks at it. That is what lets a store skip resolving theorem bodies for
+     * proving sessions. Returns null for theorems, axioms, inductives, constructors, opaques.
      */
     public Expr getValue() {
-        return (tag == DEF || tag == THM) ? value : null;
+        return tag == DEF ? value : null;
     }
 
     /**

@@ -2867,6 +2867,9 @@
         st (mk-tc ps (:lctx goal))
         def-name (name/from-string def-name-str)
         ^ConstantInfo ci (env/lookup! (:env ps) def-name)
+        ;; theorems are opaque to `unfold`/`delta` (lean4#12973) — the same refusal Lean gives
+        _ (when (.isThm ci)
+            (tactic-error! (str "unfold: " def-name-str " is a theorem; theorems are not unfoldable") {}))
         _ (when-not (.value ci)
             (tactic-error! (str "unfold: " def-name-str " has no definition value") {}))
         def-val (.value ci)

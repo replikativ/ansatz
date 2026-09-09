@@ -2016,7 +2016,9 @@
         (let [hname (e/const-name head)]
           (when (contains? to-unfold (name/->string hname))
             (when-let [^ConstantInfo ci (env/lookup env hname)]
-              (when (or (.isDef ci) (.isThm ci))
+              ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
+              ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)
+              (when (.isDef ci)
                 (when-let [value (.value ci)]
                   (let [levels (e/const-levels head)
                         lparams (vec (.levelParams ci))
