@@ -11,3 +11,7 @@
 (defonce ^{:doc "The current recall discrimination-tree (conclusion-key → decl-name), as an
                  atom. nil until a store's discr-keys.ndjson.gz is loaded (see ansatz.recall)."}
   ansatz-discr-trie (atom nil))
+(defonce ^{:doc "The loaded @[simp] LHS disc-tree as {:path artifact :trie (LHS-key → lemma-name)},
+                 as an atom. nil until an env carrying a simp-keys artifact path first runs simp
+                 (see ansatz.simp-index); keyed by path so a store switch reloads."}
+  ansatz-simp-trie (atom nil))

@@ -48,6 +48,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.decide :as decide-tac]
             [ansatz.tactic.instance :as inst]
+            [ansatz.simp-index :as si]
             [ansatz.config :as config])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -552,9 +553,19 @@
   "Look up candidate lemmas from the discrimination tree.
    Flattens the query expression to keys and walks the trie,
    exploring both exact matches and star (wildcard) branches.
-   With st/env: filters instance-implicit args for correct matching."
+   With st/env: filters instance-implicit args for correct matching.
+   With `config`: when the call carries the store's persistent @[simp] index (`:ext-trie`,
+   ansatz.simp-index), ALSO returns the inherited @[simp] candidates for `expr`, each lemma
+   resolved+extracted on first match and cached — the ~91k-name Mathlib corpus is never
+   keyed eagerly. Nil `:ext-trie` (simp only, a store without the artifact, the expression-level
+   API) means the eager index is the whole candidate set, as before."
   ([lemma-index expr] (dt/lookup-simp-tree lemma-index expr))
-  ([st env lemma-index expr] (dt/lookup-simp-tree st env lemma-index expr)))
+  ([st env lemma-index expr] (dt/lookup-simp-tree st env lemma-index expr))
+  ([st env lemma-index expr config]
+   (let [eager (dt/lookup-simp-tree st env lemma-index expr)]
+     (if-let [trie (:ext-trie config)]
+       (concat eager (si/candidate-rules trie st env expr))
+       eager))))
 
 ;; ============================================================
 ;; Pattern matching for rewrite rules
@@ -945,7 +956,7 @@
   [st env lemma-index expr config]
   (let [;; Disc tree candidates + direct equation theorem lookup by head constant.
         ;; Direct lookup avoids disc tree star-arity mismatch for equation theorems.
-        dt-candidates (lookup-lemmas st env lemma-index expr)
+        dt-candidates (lookup-lemmas st env lemma-index expr config)
         head-fn (e/get-app-fn expr)
         eqn-candidates (when (e/const? head-fn)
                          (when-let [eqns (find-eqn-theorems env (e/const-name head-fn))]
@@ -2633,7 +2644,7 @@
                      (= (name/->string (e/const-name expr)) "Bool")
                      (not (identical? (:expr result) expr)))
             ;; Find which lemma matched via disc tree
-            (let [dt-cands (lookup-lemmas st env lemma-index expr)
+            (let [dt-cands (lookup-lemmas st env lemma-index expr config)
                   matching (filter (fn [l]
                                      (match-lemma st (:lhs-pattern l) expr (:num-params l)))
                                    dt-cands)]
@@ -2947,10 +2958,16 @@
          name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
          ;; Lean 4 `simp only`: start from `simpOnlyBuiltins` (reflexive closers) + the user
          ;; lemmas ONLY — the default @[simp] corpus and @[simp]-extension are excluded.
+         ;; Otherwise the inherited @[simp] extension is part of the default set. When the store
+         ;; has a persistent simp index (ansatz.simp-index, loaded on first use) that extension is
+         ;; served LAZILY from `lookup-lemmas` and is NOT put through the eager per-call work below
+         ;; (resolve+extract+key, equation-theorem probe, unfold probe — ~91k hydrations per call
+         ;; on Mathlib). Without one (the bundled Init tiers) it stays eager.
+         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
          all-names (if (:only? opts)
                      (distinct (concat simp-only-builtins name-args))
                      (distinct (concat default-simp-lemmas
-                                       (env/get-extension env :simp-lemmas #{})
+                                       (when-not ext-trie (env/get-extension env :simp-lemmas #{}))
                                        name-args)))
          lemmas (make-simp-lemmas env all-names)
          ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
@@ -2990,6 +3007,7 @@
                  :cache (atom {})
                  :to-unfold to-unfold
                  :discharge-depth 0
+                 :ext-trie ext-trie
                  ;; Lazy instance index for TC synthesis in discharge
                  :inst-index (delay (inst/build-instance-index env))}
          result (simp-expr* st env lemma-index (:type goal) config)]
@@ -3107,10 +3125,12 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          env (or (ensure-ble-eq (:env ps)) (:env ps))
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
+         ;; the inherited @[simp] extension: lazy via the persistent index when present (see simp)
+         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
          all-names (if (:only? opts)
                      (distinct (concat simp-only-builtins lemma-names))
                      (distinct (concat default-simp-lemmas
-                                       (env/get-extension env :simp-lemmas #{})
+                                       (when-not ext-trie (env/get-extension env :simp-lemmas #{}))
                                        lemma-names)))]
      ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
@@ -3161,7 +3181,7 @@
                       config {:max-depth 20 :single-pass? false :decide? true
                               :max-steps (atom 0) :cache (atom {})
                               :to-unfold to-unfold :discharge-depth 0
-                              :inst-index inst-index}
+                              :ext-trie ext-trie :inst-index inst-index}
                       result (simp-expr* st env lemma-index (:type decl) config)]
                   (if (or (identical? (:expr result) (:type decl))
                           (= (:expr result) (:type decl)))
