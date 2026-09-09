@@ -25,7 +25,12 @@ public final class TypeChecker {
 
     private final Env env;
     private final Reducer reducer;
-    private final EquivManager eqvManager;
+    // lean4#14806: successful is_def_eq results are a hash-ordered PAIR cache (identity +
+    // structural), mirroring the failure cache below. NOT a union-find: is_def_eq is a sound
+    // but incomplete semi-decision procedure and therefore not transitive, so an equivalence
+    // closure of successes made the answer depend on query order (that was EquivManager).
+    private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> successIdentityCache;
+    private final HashMap<LeanExprKey, HashMap<LeanExprKey, Boolean>> successStructuralCache;
     private final IdentityHashMap<Expr, Expr> inferIdentityCache;      // exact object fast path
     private final HashMap<LeanExprKey, Expr> inferStructuralCache;     // Lean expr_map equality, identity fast path above
     private final IdentityHashMap<Expr, Expr> inferOnlyIdentityCache;  // exact object fast path
@@ -41,7 +46,7 @@ public final class TypeChecker {
     // isDefEq diagnostic counters
     long isDefEqCalls;
     long isDefEqQuickHits;    // pointer equality or hash mismatch
-    long isDefEqEquivHits;    // EquivManager hits
+    long isDefEqEquivHits;    // success-cache hits (was EquivManager hits)
     long isDefEqProofIrrelHits;
     long[] isDefEqDepthHist = new long[500]; // histogram: calls at each depth
     // Per-step resolution counters for depth >= STEP_DIAG_DEPTH
@@ -225,7 +230,7 @@ public final class TypeChecker {
                 "\",\"d\":" + isDefEqDepth +
                 ",\"l\":\"" + jsonEscLimit(l, 4000) +
                 "\",\"r\":\"" + jsonEscLimit(r, 4000) +
-                "\"," + eqvManager.debugStateJson(lhs, rhs) + "}\n");
+                "\",\"success_cached\":" + succeededBefore(lhs, rhs) + "}\n");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
@@ -447,7 +452,8 @@ public final class TypeChecker {
         this.definitionSafety = definitionSafety;
         this.allowedLevelParams = mkAllowedLevelParamSet(allowedLevelParams);
         this.reducer = new Reducer(env);
-        this.eqvManager = new EquivManager();
+        this.successIdentityCache = new IdentityHashMap<>(256);
+        this.successStructuralCache = new HashMap<>(256);
         this.inferIdentityCache = new IdentityHashMap<>(1024);
         this.inferStructuralCache = new HashMap<>(1024);
         this.inferOnlyIdentityCache = new IdentityHashMap<>(1024);
@@ -1089,14 +1095,14 @@ public final class TypeChecker {
      * Public entry point — records successful equivalences.
      */
     public boolean isDefEq(Expr t, Expr s) {
-        // Lean only records successful equivalences at the public is_def_eq
-        // wrapper. Internal is_def_eq_core calls must not pollute the global
-        // equivalence manager, or later quick checks can succeed too early.
+        // A successful result is cached as a PAIR (lean4#14806 cache_success), never as an
+        // equivalence class: is_def_eq is not transitive, so closing successes under
+        // transitivity made later answers depend on which pairs were asked first.
         boolean result = isDefEqCore(t, s);
         if (result) {
-            emitEquivTrace("add_equiv.before", t, s);
-            eqvManager.addEquiv(t, s);
-            emitEquivTrace("add_equiv.after", t, s);
+            emitEquivTrace("cache_success.before", t, s);
+            cacheSuccess(t, s);
+            emitEquivTrace("cache_success.after", t, s);
         }
         return result;
     }
@@ -1150,9 +1156,14 @@ public final class TypeChecker {
     }
 
     private int quickIsDefEq(Expr t, Expr s, boolean useHash) {
-        // Lean's quick_is_def_eq calls is_equiv(t, s, use_hash) which does
-        // deep structural comparison with union-find merging.
-        if (eqvManager.isEquiv(t, s, useHash)) return 1;
+        // Lean (post-#14806): `if (t == s || succeeded_before(t, s)) return l_true;` —
+        // pointer or structural equality, or a previously SUCCESSFUL pair. No union-find,
+        // no merging, no transitive closure. `useHash` is retained for call-site
+        // compatibility; structural equality checks the hash first regardless.
+        if (t == s || succeededBefore(t, s) || structurallyEqual(t, s)) {
+            isDefEqEquivHits++;
+            return 1;
+        }
         if (t.tag == s.tag) {
             switch (t.tag) {
                 case Expr.LAM: case Expr.FORALL:
@@ -1298,7 +1309,7 @@ public final class TypeChecker {
         }
         if (!whnfChanged
             && (tn.tag == Expr.PROJ || sn.tag == Expr.PROJ)
-            && eqvManager.isKnownEquiv(tn, sn)
+            && succeededBefore(tn, sn)
             && !hasZeroFieldStructureType(tn)
             && !hasZeroFieldStructureType(sn)) {
             // Lean can observe a pointer change from whnf_core around projection
@@ -1829,6 +1840,61 @@ public final class TypeChecker {
             if (!Level.eq((Level) a[i], (Level) b[i])) return false;
         }
         return true;
+    }
+
+    /** Structural equality with a hash pre-check — Lean's `t == s` on expr. */
+    private static boolean structurallyEqual(Expr t, Expr s) {
+        return LeanExprKey.hashExpr(t) == LeanExprKey.hashExpr(s)
+            && new LeanExprKey(t).equals(new LeanExprKey(s));
+    }
+
+    private boolean succeededBeforeIdentity(Expr t, Expr s) {
+        IdentityHashMap<Expr, Boolean> inner = successIdentityCache.get(t);
+        return inner != null && Boolean.TRUE.equals(inner.get(s));
+    }
+
+    private boolean succeededBeforeStructural(Expr t, Expr s) {
+        HashMap<LeanExprKey, Boolean> inner = successStructuralCache.get(new LeanExprKey(t));
+        return inner != null && Boolean.TRUE.equals(inner.get(new LeanExprKey(s)));
+    }
+
+    /** lean4#14806 succeeded_before: hash-ordered pair lookup, symmetric on a hash tie. */
+    private boolean succeededBefore(Expr t, Expr s) {
+        int cmp = Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s));
+        if (cmp < 0) {
+            return succeededBeforeIdentity(t, s) || succeededBeforeStructural(t, s);
+        } else if (cmp > 0) {
+            return succeededBeforeIdentity(s, t) || succeededBeforeStructural(s, t);
+        } else {
+            return succeededBeforeIdentity(t, s) || succeededBeforeIdentity(s, t)
+                || succeededBeforeStructural(t, s) || succeededBeforeStructural(s, t);
+        }
+    }
+
+    private void cacheSuccessOrdered(Expr t, Expr s) {
+        IdentityHashMap<Expr, Boolean> identityInner = successIdentityCache.get(t);
+        if (identityInner == null) {
+            identityInner = new IdentityHashMap<>(4);
+            successIdentityCache.put(t, identityInner);
+        }
+        identityInner.put(s, Boolean.TRUE);
+
+        LeanExprKey tKey = new LeanExprKey(t);
+        HashMap<LeanExprKey, Boolean> structuralInner = successStructuralCache.get(tKey);
+        if (structuralInner == null) {
+            structuralInner = new HashMap<>(4);
+            successStructuralCache.put(tKey, structuralInner);
+        }
+        structuralInner.put(new LeanExprKey(s), Boolean.TRUE);
+    }
+
+    /** lean4#14806 cache_success: one ordered pair, never an equivalence class. */
+    private void cacheSuccess(Expr t, Expr s) {
+        if (Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s)) <= 0) {
+            cacheSuccessOrdered(t, s);
+        } else {
+            cacheSuccessOrdered(s, t);
+        }
     }
 
     private boolean failedBeforeIdentity(Expr t, Expr s) {

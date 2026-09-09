@@ -10,15 +10,15 @@ import java.util.Objects;
  * Lean's structural expression equality ignores binder names/info for lambdas,
  * Pis, and lets, but it still compares metadata payloads and projection
  * structure names. This is intentionally different from both Java Expr.equals
- * and EquivManager's broader equivalence relation.
+ * and the (pair-keyed, lean4#14806) is_def_eq success/failure caches.
  */
-final class LeanExprKey {
+public final class LeanExprKey {
     final Expr expr;
     private final int hash;
     private static final ThreadLocal<IdentityHashMap<Expr, Integer>> HASH_CACHE =
         ThreadLocal.withInitial(() -> new IdentityHashMap<>(16384));
 
-    LeanExprKey(Expr expr) {
+    public LeanExprKey(Expr expr) {
         this.expr = expr;
         this.hash = hashExpr(expr);
     }

@@ -1677,7 +1677,7 @@ public final class Reducer {
         HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, headLevels);
         // Deep re-intern: definition values from ENV were created before enableIntern().
         // Without this, their non-interned sub-expressions pollute all expression trees,
-        // breaking IdentityHashMap-based caches (inferCache, eqvManager, whnfCache).
+        // breaking IdentityHashMap-based caches (inferCache, the defeq success/failure caches, whnfCache).
         Expr result = Expr.deepReIntern(internResult(instantiateLevelParams(value, subst)));
         cachePut(unfoldIdentityCache, unfoldStructuralCache, head, result);
         return result;
