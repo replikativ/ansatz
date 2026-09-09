@@ -353,20 +353,24 @@
         (is (= Name/BOOL_FALSE (.o0 ^Expr result)))))))
 
 (deftest nat-pow-exponent-bound-test
-  (testing "native Nat.pow reduces exponents up to Lean's ReducePowMaxExp (1<<24)"
+  (testing "native Nat.pow / shiftLeft are bounded by the RESULT size (lean4#14849), estimated before evaluating"
     (let [r (mk-reducer (Env.))
           pow (e/const' Name/NAT_POW [])
           reduce-pow (fn [base exp]
                        (.tryReduceNatExpr r (e/app (e/app pow (e/lit-nat base)) (e/lit-nat exp))))]
       (is (= (e/lit-nat 1024) (reduce-pow 2 10)))
-      (is (= (e/lit-nat 1) (reduce-pow 1 16777216)))  ;; at the bound
-      ;; Past the bound the kernel MUST NOT native-reduce: b.intValue() would
-      ;; truncate the exponent mod 2^32, making `2^(2^32)` reduce to `2^0 = 1`
-      ;; — an unsound result. Refuse (nil) so structural unfolding handles it.
-      (is (nil? (reduce-pow 2 4294967296)))   ;; 2^32 : intValue would be 0
-      (is (nil? (reduce-pow 2 4294967299)))   ;; 2^32+3 : intValue would be 3
-      (is (nil? (.tryReduceNatExpr r (e/app (e/app (e/const' Name/NAT_SHIFT_LEFT [])
-                                                   (e/lit-nat 1)) (e/lit-nat 4294967296))))))))
+      (is (= (e/lit-nat 1) (reduce-pow 1 16777216)))
+      (is (= (e/lit-nat 1) (reduce-pow 1 4294967296)) "base 1 is exact for any exponent")
+      ;; An over-limit result is a PROMPT kernel error (Lean's check_nat_size), not a
+      ;; structural fallback that burns fuel. The old intValue() truncation hazard
+      ;; (`2^(2^32)` computing as `2^0`) is closed by construction: the size estimate
+      ;; bitLength(base) * exp is checked first, and within 128 MB the exponent fits an
+      ;; int exactly (intValueExact).
+      (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.pow`" (reduce-pow 2 4294967296)))
+      (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.pow`" (reduce-pow 2 4294967299)))
+      (is (thrown-with-msg? RuntimeException #"refused to evaluate `Nat.shiftLeft`"
+                            (.tryReduceNatExpr r (e/app (e/app (e/const' Name/NAT_SHIFT_LEFT [])
+                                                               (e/lit-nat 1)) (e/lit-nat 4294967296))))))))
 
 ;; ============================================================
 ;; App spine utilities

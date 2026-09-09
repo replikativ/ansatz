@@ -547,17 +547,20 @@
 
 (def ^:private pow-max-exp (bit-shift-left 1 24))
 
-(deftest pr14849-current-native-reduction-boundary
-  (testing "native pow/shiftLeft up to the 1<<24 exponent bound (Lean's pre-fix ReducePowMaxExp)"
+(deftest pr14849-native-reduction-within-the-size-bound
+  (testing "pow/shiftLeft evaluate natively whenever the RESULT fits the size bound (lean4#14849):
+   the guard is a size estimate checked before evaluating, not the pre-fix 1<<24 exponent cap"
     (let [r (reduce-nat-binop Name/NAT_POW 2 pow-max-exp)]
       (is (e/lit-nat? r))
       (is (= (inc pow-max-exp) (.bitLength ^BigInteger (e/lit-nat-val r)))))
-    (is (e/lit-nat? (reduce-nat-binop Name/NAT_SHIFT_LEFT 1 pow-max-exp))))
-  (testing "past the bound native reduction is refused (null → structural fallback), not an error"
-    (is (nil? (reduce-nat-binop Name/NAT_POW 2 (inc pow-max-exp))))
-    (is (nil? (reduce-nat-binop Name/NAT_SHIFT_LEFT 1 (inc pow-max-exp))))))
+    (let [r (reduce-nat-binop Name/NAT_POW 2 (inc pow-max-exp))]
+      (is (e/lit-nat? r) "past the old 1<<24 exponent cap but a 2 MB result: computed exactly")
+      (is (= (+ 2 pow-max-exp) (.bitLength ^BigInteger (e/lit-nat-val r)))))
+    (is (e/lit-nat? (reduce-nat-binop Name/NAT_SHIFT_LEFT 1 (inc pow-max-exp))))
+    (is (= 1 (e/lit-nat-val (reduce-nat-binop Name/NAT_POW 1 4294967296))) "base 1 is exact for any exponent")
+    (is (= 0 (e/lit-nat-val (reduce-nat-binop Name/NAT_POW 0 4294967296))) "base 0 is exact for any exponent")))
 
-(deftest ^:wip pr14849-oversized-numerals-are-rejected-promptly
+(deftest pr14849-oversized-numerals-are-rejected-promptly
   (testing "upstream leanprover/lean4#14849 — `2 ^ 4294967296` (exponent does not fit 32 bits) and
    `2 ^ (2^31)` (result over 128 MB) are prompt kernel errors, not a structural fallback"
     (is (thrown? Exception (reduce-nat-binop Name/NAT_POW 2 4294967296))

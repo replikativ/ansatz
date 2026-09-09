@@ -1101,15 +1101,51 @@ public final class Reducer {
     // genuinely huge exponents then fuel-exhaust structurally and are rejected.
     private static final BigInteger REDUCE_POW_MAX_EXP = BigInteger.valueOf(1L << 24);
 
+    /**
+     * lean4#14849: the largest `Nat` numeral the kernel will build, in bytes. Lean's
+     * g_nat_max_size -- LEAN_NAT_MAX_SIZE, default 128 MB. Checked on literals (TypeChecker,
+     * LIT_NAT) and on every native-arithmetic RESULT here; for pow/shiftLeft the size is
+     * estimated BEFORE evaluating (bitLength(a) * b), so an adversarial `2 ^ (2 ^ 40)` is a
+     * prompt kernel error rather than an allocation or a fuel-burning structural fallback.
+     */
+    public static final long NAT_MAX_BYTES = natMaxBytes();
+    private static long natMaxBytes() {
+        String v = System.getProperty("ansatz.kernel.natMaxBytes");
+        if (v == null) v = System.getenv("LEAN_NAT_MAX_SIZE");
+        if (v != null) { try { return Long.parseLong(v.trim()); } catch (NumberFormatException ignored) {} }
+        return 128L * 1024 * 1024;
+    }
+    /** Throw Lean's kernel exception when a numeral of `bits` bits exceeds NAT_MAX_BYTES. */
+    static void checkNatBits(long bits, String what) {
+        long bytes = bits == Long.MAX_VALUE ? Long.MAX_VALUE : (bits + 7) / 8;   // round UP, as mpz sizes do
+        if (bytes > NAT_MAX_BYTES) {
+            throw new RuntimeException("the kernel refused " + what + " because its size ("
+                + bytes + " bytes) exceeds the maximum " + NAT_MAX_BYTES
+                + " bytes; increase LEAN_NAT_MAX_SIZE / -Dansatz.kernel.natMaxBytes to allow it (lean4#14849)");
+        }
+    }
+    public static void checkNatSize(BigInteger n) { checkNatBits(n.bitLength(), "a `Nat` numeral"); }
+    private static Expr natResult(BigInteger n) { checkNatSize(n); return Expr.litNat(n); }
+
     private static Expr reduceNatBinop(Name op, BigInteger a, BigInteger b) {
-        if (op == Name.NAT_ADD) return Expr.litNat(a.add(b));
+        if (op == Name.NAT_ADD) return natResult(a.add(b));
         if (op == Name.NAT_SUB) return Expr.litNat(a.subtract(b).max(BIG_ZERO));
-        if (op == Name.NAT_MUL) return Expr.litNat(a.multiply(b));
+        if (op == Name.NAT_MUL) return natResult(a.multiply(b));
         if (op == Name.NAT_DIV) return Expr.litNat(b.signum() == 0 ? BIG_ZERO : a.divide(b));
         if (op == Name.NAT_MOD) return Expr.litNat(b.signum() == 0 ? a : a.mod(b));
         if (op == Name.NAT_POW) {
-            if (b.compareTo(REDUCE_POW_MAX_EXP) > 0) return null; // refuse: structural fallback
-            return Expr.litNat(a.pow(b.intValue()));
+            // Bases 0 and 1 cannot grow: exact for ANY exponent.
+            if (a.bitLength() <= 1) {
+                return Expr.litNat(a.signum() == 0 ? (b.signum() == 0 ? BigInteger.ONE : BIG_ZERO) : BigInteger.ONE);
+            }
+            // Lean (lean4#14849): check_nat_size(bitLength(a) * b) BEFORE evaluating, so a huge
+            // exponent is a prompt kernel error, not an allocation. Within the bound the
+            // exponent is at most NAT_MAX_BYTES*8 / 2, which fits an int exactly.
+            if (b.bitLength() > 62) checkNatBits(Long.MAX_VALUE, "to evaluate `Nat.pow`");
+            long est = Math.multiplyHigh((long) a.bitLength(), b.longValue()) != 0
+                       ? Long.MAX_VALUE : (long) a.bitLength() * b.longValue();
+            checkNatBits(est, "to evaluate `Nat.pow`");
+            return natResult(a.pow(b.intValueExact()));
         }
         if (op == Name.NAT_GCD) return Expr.litNat(a.gcd(b));
         if (op == Name.NAT_BEQ) return a.equals(b) ? mkBoolTrue() : mkBoolFalse();
@@ -1118,8 +1154,11 @@ public final class Reducer {
         if (op == Name.NAT_LOR) return Expr.litNat(a.or(b));
         if (op == Name.NAT_XOR) return Expr.litNat(a.xor(b));
         if (op == Name.NAT_SHIFT_LEFT) {
-            if (b.compareTo(REDUCE_POW_MAX_EXP) > 0) return null; // same truncation risk + size cap
-            return Expr.litNat(a.shiftLeft(b.intValue()));
+            // Estimate first: bitLength(a) + b bits (Lean checks before shifting, lean4#14849).
+            if (a.signum() == 0) return Expr.litNat(BIG_ZERO);           // exact for ANY amount
+            if (b.bitLength() > 62) checkNatBits(Long.MAX_VALUE, "to evaluate `Nat.shiftLeft`");
+            checkNatBits((long) a.bitLength() + b.longValue(), "to evaluate `Nat.shiftLeft`");
+            return natResult(a.shiftLeft(b.intValueExact()));          // bounded ⇒ fits an int
         }
         if (op == Name.NAT_SHIFT_RIGHT) {
             // intValue() would truncate a >2^31 amount, and a wrapped-negative
