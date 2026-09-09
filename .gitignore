@@ -12,6 +12,7 @@ target/
 test-data/*
 !test-data/Nat.add_succ.ndjson
 !test-data/lean-sources/
+!test-data/arena/
 
 # Generated resources (reproducible via setup-mathlib.sh)
 resources/instances.tsv

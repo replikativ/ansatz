@@ -350,7 +350,8 @@
     (let [decls (parse-inductive st (get obj "inductive"))]
       (update st :decls into decls))
 
-    :else st))
+    :else (throw (ex-info (str "Unknown export record: " (pr-str (keys obj)))
+                          {:keys (keys obj)}))))
 
 ;; ============================================================
 ;; Line dispatch
@@ -496,7 +497,8 @@
     (let [decls (parse-inductive-raw st (get obj "inductive"))]
       (update st :decls into decls))
 
-    :else st))
+    :else (throw (ex-info (str "Unknown export record: " (pr-str (keys obj)))
+                          {:keys (keys obj)}))))
 
 (defn- parse-line-raw [st obj]
   (cond

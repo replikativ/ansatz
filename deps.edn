@@ -57,6 +57,13 @@
   :outdated {:extra-deps {com.github.liquidz/antq {:mvn/version "2.10.1241"}}
              :main-opts ["-m" "antq.core"]}
 
+  ;; Lean Kernel Arena entry (https://arena.lean-lang.org/): one export in, exit code out.
+  ;; `clojure -M:arena <export.ndjson>` or `IN=<export.ndjson> clojure -M:arena`.
+  ;; Heap is left to the caller (`clojure -J-Xmx8g -M:arena …`); the checker
+  ;; runs its own 64MB-stack thread, so no -Xss is needed.
+  :arena {:jvm-opts ["--enable-native-access=ALL-UNNAMED" "-XX:+UseParallelGC"]
+          :main-opts ["-m" "ansatz.tools.arena-check"]}
+
   ;; REPL
   :repl {:extra-paths ["test"]
          :extra-deps {nrepl/nrepl {:mvn/version "1.3.0"}

@@ -1,0 +1,4 @@
+{"meta":{"exporter":{"name":"handcrafted","version":"0.1.0"},"format":{"version":"3.1.0"},"lean":{"githash":"2fcce7258eeb6e324366bc25f9058293b04b7547","version":"4.29.1"}}}
+{"in":2,"str":{"pre":0,"str":"foo"}}
+{"ie":4,"sort":0}
+{"axiom":{"isUnsafe":false,"levelParams":[],"name":2,"type":4}}
