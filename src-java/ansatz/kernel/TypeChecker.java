@@ -931,6 +931,8 @@ public final class TypeChecker {
             }
 
             case Expr.LIT_NAT:
+                // lean4#14849: a literal larger than LEAN_NAT_MAX_SIZE is refused at inference
+                Reducer.checkNatSize((java.math.BigInteger) e.o0);
                 result = Expr.mkConst(Name.NAT, clojure.lang.PersistentVector.EMPTY, false);
                 break;
 
