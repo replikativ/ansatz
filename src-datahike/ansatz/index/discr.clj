@@ -96,8 +96,12 @@
 (def ^:private empty-node {:values [] :children {} :n 0})
 
 (def chunk-max-values
-  "A subtree with at most this many stored values is persisted whole as one chunk."
-  2000)
+  "A subtree with at most this many stored values is persisted whole as one chunk.
+   Measured on Mathlib at 2,000: median chunk 2 KB, tens of thousands of chunks, and a
+   broad query paid per-file overhead thousands of times (6 s cold). 20,000 keeps chunks in
+   the tens-to-hundreds of KB, an order of magnitude fewer files, and wide nodes (the root,
+   `Eq`) are the only multi-MB values — loaded once and cached."
+  20000)
 
 (defn- ref? [c] (and (vector? c) (= :ref (first c))))
 
@@ -292,6 +296,16 @@
 
   clojure.lang.IDeref
   (deref [_] @state))
+
+(defmethod sec/mark-from-key-map :ansatz.index/discr-tree
+  ;; GC's mark phase works from the stored key-map, without an index instance
+  ;; (gc.cljc: `(sec/mark-from-key-map key-map store)`). The multimethod's default is #{},
+  ;; which would let the sweep delete every live chunk of this index. Walk the chunk tree
+  ;; from the root address through the store and return every chunk's konserve key.
+  [key-map store]
+  (if-let [root (:root key-map)]
+    (set (map node-key (all-addrs {:store store :cache (new-cache)} [:ref root] #{})))
+    #{}))
 
 (defn make-index
   "Factory for register-index-type!: (config db) → an empty DiscrTreeIndex (a skeleton when
