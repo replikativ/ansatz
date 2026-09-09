@@ -934,6 +934,11 @@ public final class TypeChecker {
                 if (head.tag != Expr.CONST) {
                     throw new RuntimeException("Type error: Projection target not an inductive");
                 }
+                // Lean infer_proj (type_checker.cpp:278-280): the projection's structure name must be
+                // the head of the projected term's type (leanprover/lean4#14631 / #14632).
+                if (!head.o0.equals(e.o0)) {
+                    throw new RuntimeException("Type error: invalid projection: " + e.o0 + " is not the structure of the projected term (" + head.o0 + ")");
+                }
                 ConstantInfo indCi = env.lookupOrThrow((Name) head.o0);
                 if (!indCi.isInduct()) {
                     throw new RuntimeException("Type error: Projection target not an inductive");
