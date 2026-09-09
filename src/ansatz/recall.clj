@@ -67,6 +67,28 @@
              n))))
      0 decl-names)))
 
+(defonce discr-keys-path
+  ^{:doc "Path of the current store's discr-keys.ndjson.gz (set by ansatz.core/init!),
+          or nil. The trie itself is built on first demand — see ensure-discr-trie!."}
+  (atom nil))
+
+(declare load-discr-trie)
+
+(defn ensure-discr-trie!
+  "The recall trie for the current store, built on FIRST use (~50 s for Mathlib) and
+   cached in ansatz.state/ansatz-discr-trie; nil when the store has no keys artifact.
+   Boot never pays for it. A truncated/corrupt artifact degrades to nil, never throws."
+  []
+  (or @(deref (requiring-resolve 'ansatz.state/ansatz-discr-trie))
+      (when-let [p @discr-keys-path]
+        (let [trie (try (load-discr-trie p)
+                        (catch Throwable t
+                          (println "WARN: recall disc-tree unreadable, skipping"
+                                   "(re-dump with scripts/dump_recall_keys.clj):" (.getMessage t))
+                          nil))]
+          (reset! (deref (requiring-resolve 'ansatz.state/ansatz-discr-trie)) trie)
+          trie))))
+
 (defn load-discr-trie
   "Read a discr-keys NDJSON.gz and build the disc-tree — fast (trie-insert only;
    the expensive keying was done at dump time). Returns the trie."

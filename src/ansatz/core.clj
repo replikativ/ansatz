@@ -185,27 +185,21 @@
      (reset! ansatz-instance-index idx)
      (when (resolve 'ansatz.core/synth-cache)
        (reset! @(resolve 'ansatz.core/synth-cache) {}))
-     ;; Recall disc-tree: load the store's `discr-keys.ndjson.gz` artifact if
-     ;; present (fast — the keying was amortized offline by ansatz.recall/
-     ;; dump-discr-keys!). Enables mathlib-scale recall without per-boot re-keying.
-     (reset! ansatz-discr-trie
+     ;; Recall disc-tree: RECORD where the store's `discr-keys.ndjson.gz` artifact is; it is
+     ;; loaded on first demand (ansatz.recall/ensure-discr-trie!), never at boot. Building
+     ;; the trie for Mathlib's 348,654 keys costs ~50 s and nothing on the proving path
+     ;; reads it until a recall query asks — the durable datahike index
+     ;; (ansatz.index.discr, :datahike alias) is the persisted replacement.
+     (reset! ansatz-discr-trie nil)
+     (reset! (deref (requiring-resolve 'ansatz.recall/discr-keys-path))
              (when store-path
                (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
-                 (when (.exists gz)
-                   (when *verbose* (println "Loading recall disc-tree from" (.getPath gz) "..."))
-                   ;; a truncated/corrupt artifact (e.g. an interrupted dump) must
-                   ;; degrade to "no recall trie", never kill init!
-                   (try ((requiring-resolve 'ansatz.recall/load-discr-trie) (.getPath gz))
-                        (catch Throwable t
-                          (println "WARN: recall disc-tree unreadable, skipping"
-                                   "(re-dump with scripts/dump_recall_keys.clj):"
-                                   (.getMessage t))
-                          nil))))))
+                 (when (.exists gz) (.getPath gz)))))
      (when *verbose*
        (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
                 (count idx) "classes indexed"
-                (when @ansatz-discr-trie
-                  (str ", recall trie loaded")))))))
+                (when @(deref (requiring-resolve 'ansatz.recall/discr-keys-path))
+                  (str ", recall keys available (trie loads on demand)")))))))
 
 (clojure.core/defn- simp-attr-names
   "Names carrying a simp-family attribute in this store's attrs sidecar, or nil when the
