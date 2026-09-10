@@ -1,7 +1,7 @@
 (ns ansatz.export.codec-test
-  "The CBOR (boring) store codec: every kernel value round-trips as the Fressian handlers write
-   it, a PSS index persists and restores through it, and — the migration claim — a store written
-   with one codec still reads under the other, because konserve dispatches on each blob's header."
+  "The CBOR (boring) store codec — the only codec of store format 1: every kernel value
+   round-trips, a PSS index persists and restores through it, and node addresses are content
+   hashes (the same library imported twice has the same roots)."
   (:require [clojure.test :refer [deftest is testing]]
             [boring.core :as boring]
             [org.replikativ.persistent-sorted-set :as pss]
@@ -98,8 +98,8 @@
 
 ;; ---- through the actual store ----
 
-(defn- write-store! [dir codec entries]
-  (let [sm (storage/open-store dir {:codec codec})
+(defn- write-store! [dir entries]
+  (let [sm (storage/open-store dir)
         st (:storage sm)
         pss (reduce conj (pss/sorted-set* {:cmp storage/id-cmp :storage st
                                            :branching-factor 8 :ref-type :weak})
@@ -109,8 +109,8 @@
     (storage/close-store sm)
     root))
 
-(defn- read-store [dir codec root ids]
-  (let [sm (storage/open-store dir {:codec codec})
+(defn- read-store [dir root ids]
+  (let [sm (storage/open-store dir)
         p (pss/restore-by storage/id-cmp root (:storage sm))]
     (mapv (fn [i] (nth (pss/lookup p [(long i) nil]) 1)) ids)))
 
@@ -118,19 +118,20 @@
   (vec (for [i (range 200)] [(long i) (nm/from-string (str "Some.Long.Namespace.decl_" i))])))
 
 (deftest pss-index-persists-through-the-cbor-codec
-  (testing "a PSS whose leaves hold kernel Names stores and restores under :codec :boring"
+  (testing "a PSS whose leaves hold kernel Names stores and restores"
     (let [dir (tmp-dir "boring")
-          root (write-store! dir :boring entries)]
+          root (write-store! dir entries)]
       (is (= [(nm/from-string "Some.Long.Namespace.decl_0")
               (nm/from-string "Some.Long.Namespace.decl_137")]
-             (read-store dir :boring root [0 137]))))))
+             (read-store dir root [0 137])))
+      (is (.isDirectory (storage/blobs-dir dir)) "blobs live under <store>/blobs"))))
 
-(deftest blob-headers-make-the-migration-incremental
-  (testing "konserve dispatches per blob, so a Fressian store reads under :boring and back"
-    (let [dir (tmp-dir "mixed")
-          root (write-store! dir :fressian entries)]
-      (is (= [(nm/from-string "Some.Long.Namespace.decl_42")]
-             (read-store dir :boring root [42]))
-          "existing Fressian blobs still decode when the store writes CBOR")
-      (is (= [(nm/from-string "Some.Long.Namespace.decl_42")]
-             (read-store dir :fressian root [42]))))))
+(deftest node-addresses-are-content-hashes
+  (testing "the same entries imported twice yield the same root — addresses are a function
+            of content, not of the run"
+    (let [root-a (write-store! (tmp-dir "ca-a") entries)
+          root-b (write-store! (tmp-dir "ca-b") entries)]
+      (is (= root-a root-b))))
+  (testing "and a different library yields a different root"
+    (is (not= (write-store! (tmp-dir "ca-c") entries)
+              (write-store! (tmp-dir "ca-d") (conj entries [(long 200) (nm/from-string "Extra")]))))))
