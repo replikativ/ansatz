@@ -25,7 +25,6 @@
             [ansatz.tactic.simp :as simp]
             [ansatz.tactic.omega :as omega]
             [ansatz.tactic.ac :as ac]
-            [ansatz.export.storage :as storage]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.tactic.instance :as instance]
@@ -236,14 +235,21 @@
 
 (clojure.core/defn- init!*
   [store-path branch]
-  (let [sm (storage/open-store store-path)
+  ;; The store layer (ansatz.export.storage -> konserve -> core.async) is resolved HERE, not
+  ;; required by this namespace: loading it from source costs ~16 s, and the zero-config
+  ;; path (`load-init!`, the bundled Init tier) never needs it. Only a store-backed `init!`
+  ;; pays for it, once.
+  (let [open-store (requiring-resolve 'ansatz.export.storage/open-store)
+        load-env (requiring-resolve 'ansatz.export.storage/load-env)
+        contains-name-checker (requiring-resolve 'ansatz.export.storage/contains-name-checker)
+        sm (open-store store-path)
         ;; A proving session never reads a theorem's body (theorems are opaque to the
         ;; kernel, lean4#12973), so skip resolving them: :defs-only. Bodies of @[simp]
         ;; theorems are kept for simp's rfl-flag derivation.
         keep (simp-attr-names store-path)
-        env (storage/load-env sm branch :value-policy :defs-only :keep-value? keep)
+        env (load-env sm branch :value-policy :defs-only :keep-value? keep)
         ;; cheap PSS-membership presence for the attrs import (see setup-env!)
-        present? (storage/contains-name-checker sm branch)]
+        present? (contains-name-checker sm branch)]
     (setup-env! env store-path present?)))
 
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
