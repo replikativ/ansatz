@@ -26,14 +26,17 @@ Run the setup script (clones lean4export + mathlib4, exports, imports):
 
 Or manually:
 ```bash
-./scripts/setup-mathlib.sh /var/tmp/ansatz-mathlib
+./scripts/setup-mathlib.sh /path/to/a/durable/dir/mathlib   # never /tmp or /var/tmp (systemd-tmpfiles erodes them)
 ```
 
 ## REPL Workflow (Mathlib)
 
 The full Mathlib store lives in the durable store root (`~/.local/share/ansatz/stores/mathlib`,
-648,612 declarations); `(a/init! "mathlib")` resolves it there (legacy `/var/tmp/ansatz-mathlib`
-is also found, but /var/tmp erodes — see ansatz.store).
+648,612 declarations); `(a/init! "mathlib")` resolves it there (`$ANSATZ_STORE_DIR` overrides the
+root — see ansatz.store). A store is versioned by its `manifest.edn` (`:store/format`); `init!`
+refuses another format and there is NO migration: re-run `./scripts/setup-mathlib.sh`, which runs
+Lean for the inputs and then `ansatz.import` (one pass produces the complete store). Node blobs
+are content-addressed, so the same export always yields the same store.
 
 ### Setup
 ```clojure

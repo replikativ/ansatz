@@ -239,12 +239,19 @@ Ansatz needs a store of Lean 4 Mathlib declarations. There's a one-command setup
 ```
 
 This clones `lean4export` and `mathlib4` (if not present), exports Mathlib to NDJSON
-with `mdata` preserved,
-generates the instance registry, and imports into an Ansatz store under the durable
+with `mdata` preserved, dumps the instance registry and the `@[simp]`/`@[csimp]`/`@[extern]`
+attributes from the same toolchain, and runs the importer (`ansatz.import`), which produces a
+**complete** store in one pass — the declaration trees, the attributes, the instance index,
+the matcher corpus, the recall keys, the `@[simp]` index and the catalogue — under the durable
 store root (`$ANSATZ_STORE_DIR` → `$XDG_DATA_HOME/ansatz/stores` → `~/.local/share/ansatz/stores`;
-pass an explicit directory as the first argument to override). Takes ~20 minutes on first run.
-Avoid `/tmp`/`/var/tmp` for stores — `systemd-tmpfiles` erodes them; pre-existing legacy
-stores at `/var/tmp/ansatz-<name>` are still found automatically when loading.
+pass an explicit directory as the first argument to override). The export takes ~5 minutes, the
+import on the order of an hour (the keying passes use every core).
+Avoid `/tmp`/`/var/tmp` for stores — `systemd-tmpfiles` erodes them.
+
+A store is versioned by its `manifest.edn` (`:store/format`, provenance — Lean toolchain,
+library and `lean4export` revisions — and an inventory of what it holds). `init!` refuses a store
+of another format and says so; there is no migration step, ever: re-run the setup script. Node
+blobs are content-addressed, so re-importing the same export yields the same store.
 
 To re-check an imported store through the kernel:
 
@@ -285,13 +292,14 @@ lake env ../lean4export/.lake/build/bin/lean4export --export-mdata Mathlib > ../
 lake env lean DumpInstances.lean   # produces instances.tsv
 cp instances.tsv ../ansatz/resources/instances.tsv
 
-# 4. Import into Ansatz store (~15 min)
+# 4. Dump the attributes (co-generated with the export)
+lake env lean --run ../ansatz/scripts/dump_attrs.lean Mathlib | gzip -c > ../ansatz/test-data/mathlib-attrs.ndjson.gz
+
+# 5. Import — one command, complete store (~1 h; keying runs on every core)
 cd ../ansatz
-clj -M -e '
-(require (quote [ansatz.export.storage :as s]))
-(def store (s/open-store ((requiring-resolve (quote ansatz.store/store-dir)) "mathlib")))
-(s/import-ndjson-streaming! store "test-data/mathlib.ndjson" "mathlib" :verbose? true)
-'
+clj -J-Xmx8g -M:datahike -m ansatz.import "$(clj -M -e '(print ((requiring-resolve (quote ansatz.store/store-dir)) "mathlib"))')" \
+    test-data/mathlib.ndjson mathlib test-data/mathlib-attrs.ndjson.gz resources/instances.tsv \
+    "lean/toolchain=$(cat ../mathlib4/lean-toolchain)" "library/rev=$(git -C ../mathlib4 rev-parse HEAD)"
 ```
 
 ### Setup CSLib Store (Verified Algorithms)

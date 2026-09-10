@@ -28,6 +28,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 DEFAULT_ROOT="${ANSATZ_STORE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/ansatz/stores}"
 STORE_DIR="${1:-$DEFAULT_ROOT/cslib}"
 PARENT_DIR="$(dirname "$PROJECT_DIR")"
+LIB_DIR="$PARENT_DIR/cslib"
 
 echo "=== Ansatz CSLib Setup ==="
 echo "Project:  $PROJECT_DIR"
@@ -111,66 +112,53 @@ else
 fi
 
 # ============================================================
-# Step 5: Import into Ansatz store
+# Step 5: Dump Lean attributes (co-generated with the export)
 # ============================================================
+# @[simp]/@[csimp]/@[extern] are NOT in the kernel export — dump them from the SAME library +
+# toolchain that produced $NDJSON. The importer folds them into the store; the raw file is kept
+# under <store>/inputs/ for regeneration. Co-generating here means the attrs can never drift
+# from the store across a toolchain bump.
 
-echo ""
-echo ">>> Importing into Ansatz PSS filestore at $STORE_DIR..."
-echo "    This takes ~2-5 minutes."
-
-cd "$PROJECT_DIR"
-
-# Compile Java kernel first
-clj -T:build javac 2>/dev/null || true
-
-clj -M -e "
-(require '[ansatz.export.storage :as s])
-(println \"Opening store at $STORE_DIR ...\")
-(def store (s/open-store \"$STORE_DIR\"))
-(println \"Starting import...\")
-(time (s/import-ndjson-streaming! store \"$NDJSON\" \"cslib\" :verbose? true))
-(println \"Done.\")
-"
-
-# ============================================================
-# Step 6: Dump Lean attributes ALONGSIDE the store (co-generated)
-# ============================================================
-# @[simp]/@[csimp]/@[extern] are NOT in the kernel export — dump them from the SAME cslib +
-# toolchain that produced $NDJSON, into the store dir. ansatz.core/init! auto-loads
-# <store>/attrs.ndjson.gz (ansatz.attrs/load-store-attrs!). Co-generating here means the attrs can
-# never drift from the store across a toolchain bump.
-
-ATTRS_GZ="$STORE_DIR/attrs.ndjson.gz"
+ATTRS_GZ="$PROJECT_DIR/test-data/cslib-attrs.ndjson.gz"
 if [ -f "$ATTRS_GZ" ]; then
     echo ""
-    echo ">>> attrs.ndjson.gz already present ($(zcat "$ATTRS_GZ" | wc -l) lines). Delete it to re-dump."
+    echo ">>> attrs already dumped at $ATTRS_GZ ($(zcat "$ATTRS_GZ" | wc -l) lines). Delete it to re-dump."
 else
     echo ""
-    echo ">>> Dumping CSLib @[simp]/@[csimp]/@[extern] into $ATTRS_GZ ..."
-    cd "$PARENT_DIR/cslib"
+    echo ">>> Dumping Cslib @[simp]/@[csimp]/@[extern] into $ATTRS_GZ ..."
+    cd "$LIB_DIR"
     lake env lean --run "$PROJECT_DIR/scripts/dump_attrs.lean" Cslib | gzip -c > "$ATTRS_GZ"
-    echo "    Wrote $(zcat "$ATTRS_GZ" | wc -l) attribute lines (toolchain $(cat "$PARENT_DIR/cslib/lean-toolchain"))"
+    echo "    Wrote $(zcat "$ATTRS_GZ" | wc -l) attribute lines"
+fi
+
+# ============================================================
+# Step 6: Import — ONE command produces the complete store
+# ============================================================
+# Blobs, attributes, instances, matchers, recall keys, @[simp] keys + trie, the catalogue
+# (when datahike is on the classpath), the inputs, and the manifest LAST (ansatz.import).
+# The keying passes run on every core; Mathlib takes on the order of an hour.
+
+if [ -f "$STORE_DIR/manifest.edn" ]; then
+    echo ""
+    echo ">>> Store already complete at $STORE_DIR (manifest present). Delete it to re-import."
+else
+    echo ""
+    echo ">>> Importing into $STORE_DIR ..."
+    cd "$PROJECT_DIR"
+    clj -T:build javac 2>/dev/null || true
+    TOOLCHAIN="$(cat "$LIB_DIR/lean-toolchain" 2>/dev/null || echo unknown)"
+    LIB_REV="$(git -C "$LIB_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
+    EXPORT_REV="$(git -C "$PARENT_DIR/lean4export" rev-parse HEAD 2>/dev/null || echo unknown)"
+    clj -J-Xmx8g -M:datahike -m ansatz.import "$STORE_DIR" "$NDJSON" "cslib" "$ATTRS_GZ" "-" \
+        "lean/toolchain=$TOOLCHAIN" "library/rev=$LIB_REV" "lean4export/rev=$EXPORT_REV"
 fi
 
 echo ""
-echo "=== CSLib Setup Complete ==="
+echo "=== Setup Complete ==="
 echo ""
 echo "Store: $STORE_DIR ($(du -sh "$STORE_DIR" | cut -f1))"
 echo ""
 echo "To use in Clojure:"
 echo "  (require '[ansatz.core :as a])"
-echo "  (a/init! \"$STORE_DIR\" \"cslib\")"
-echo ""
-echo "Available verified algorithms:"
-echo "  - MergeSort (correctness + O(n log n) complexity proof)"
-echo "  - Automata (DFA, NFA, ε-NFA, Büchi, powerset construction)"
-echo "  - Lambda Calculus (untyped, STLC, System F-sub, confluence proofs)"
-echo "  - Combinatory Logic (SKI, bracket abstraction)"
-echo "  - LTS (bisimulation, simulation, trace equivalence)"
-echo "  - Turing Machines (single-tape, polynomial time)"
-echo "  - Linear Logic (CLL, cut elimination)"
-echo ""
-echo "Example:"
-echo "  (def ci (env/lookup (a/env) (name/from-string \"Cslib.Algorithms.Lean.TimeM.mergeSort_correct\")))"
-echo "  ;; => theorem: mergeSort produces a sorted permutation of the input"
+echo "  (a/init! \"cslib\")"
 echo ""

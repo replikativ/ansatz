@@ -152,86 +152,44 @@
    (init!* store-path branch)))
 
 (clojure.core/defn- setup-env!
-  "Install global proof state from an already-loaded `env`: reset the env atom,
-   inherit Lean's bundled @[simp]/@[csimp]/@[extern] + Match.MatcherInfo, and build
-   the instance index. `store-path` is the store dir (for store-local attrs + the
-   complete instances.tsv) or nil for the bundled in-memory tier (→ name-based
-   instance discovery from the env)."
-  ([env store-path] (setup-env! env store-path nil))
-  ([env store-path attr-present?]
+  "Install global proof state from an already-loaded `env`: reset the env atom, inherit the
+   attributes, matchers and instance index, and point the derived-state readers at the store.
+
+   Two sources. `derived` — the store's `[:derived <branch> k]` blobs, computed once by the
+   importer (ansatz.import) — is the store path: nothing is parsed at start. nil is the
+   bundled in-memory tier (load-init!): Lean's Init attributes and matchers come from the jar's
+   resources, intersected with the env through `attr-present?`, and instances by name-based
+   discovery over the env."
+  ([env] (setup-env! env nil nil nil))
+  ([env store attr-present? derived]
    (reset! ansatz-env env)
-   ;; inherit Lean's Init @[simp]/@[csimp]/@[extern] (cheap presence when external)
-   (attrs/load-bundled-attrs! {:present? attr-present?})
-   (when store-path
-     ;; + this store's OWN attrs (e.g. Mathlib) if dumped alongside. That corpus was dumped
-     ;; from the SAME export that built the store, so every name in it is present by
-     ;; construction: skip the presence probe (93k PSS membership walks = 19.9 s on Mathlib;
-     ;; 0.4 s without). make-simp-lemmas tolerates a stale name (a missing decl is skipped).
-     (attrs/load-store-attrs! store-path {:present? (constantly true)}))
-   ;; inherit Lean's Match.MatcherInfo (for the `split` tactic). The bundled corpus is Init's,
-   ;; intersected with the loaded store through the cheap membership checker — resolving
-   ;; each matcher through env/lookup instead was a full hydration per matcher (27.9 s).
-   (matchers/load-bundled-matchers! {:present? attr-present?})
-   ;; Build instance index: from the store's complete TSV when present, else name-based discovery (~200ms).
-   (let [tsv-candidates (when store-path
-                          ["resources/instances.tsv" "instances.tsv"
-                           (str store-path "/instances.tsv")])
-         tsv-path (some (fn [p] (let [f (clojure.java.io/file p)]
-                                  (when (.exists f) (.getPath f))))
-                        tsv-candidates)
-         load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-         build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-         idx (if tsv-path
-               (do (when *verbose* (println "Loading instance registry from" tsv-path "..."))
-                   (load-tsv tsv-path))
-               (build-fn env))]
+   (reset! state/ansatz-store store)
+   (if derived
+     (do (when-let [t (:attrs derived)] (attrs/install-tuples! t))
+         (matchers/install! (or (:matchers derived) {})))
+     (do (attrs/load-bundled-attrs! {:present? attr-present?})
+         (matchers/load-bundled-matchers! {:present? attr-present?})))
+   (let [idx (or (:instances derived)
+                 ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) env))]
      (reset! ansatz-instance-index idx)
      (when (resolve 'ansatz.core/synth-cache)
        (reset! @(resolve 'ansatz.core/synth-cache) {}))
-     ;; Recall disc-tree: RECORD where the store's `discr-keys.ndjson.gz` artifact is; it is
-     ;; loaded on first demand (ansatz.recall/ensure-discr-trie!), never at boot. Building
-     ;; the trie for Mathlib's 348,654 keys costs ~50 s and nothing on the proving path
-     ;; reads it until a recall query asks — the durable datahike index
-     ;; (ansatz.index.discr, :datahike alias) is the persisted replacement.
+     ;; Recall: served from the store's catalogue, else from a trie built on first demand
+     ;; from its derived recall keys — never at boot (ansatz.recall).
      (reset! ansatz-discr-trie nil)
-     (reset! (deref (requiring-resolve 'ansatz.recall/store-path)) store-path)
-     (reset! (deref (requiring-resolve 'ansatz.recall/discr-keys-path))
-             (when store-path
-               (let [gz (clojure.java.io/file store-path "discr-keys.ndjson.gz")]
-                 (when (.exists gz) (.getPath gz)))))
-     ;; Persistent @[simp] index, likewise: RECORD the store's `simp-keys.ndjson.gz` if present;
-     ;; simp loads the trie on its first call and serves the inherited @[simp] corpus from it
-     ;; lazily (ansatz.simp-index) instead of hydrating all ~91k names per call.
-     ;; Recorded ON THE ENV (an extension), not process-globally: an env built any other way
-     ;; (replay, a test's `reset!`) must never inherit another store's index.
+     (reset! (deref (requiring-resolve 'ansatz.recall/store-path)) (:store-path store))
+     ;; The @[simp] index: recorded ON THE ENV (an extension) as {:store-path :branch}, not
+     ;; process-globally — an env built any other way (replay, a test's `reset!`) must never
+     ;; inherit another store's index. simp loads the store's trie blob on its first call.
      (swap! ansatz-env (fn [e]
-                         ((requiring-resolve 'ansatz.simp-index/with-index-path)
-                          e (when store-path
-                              (let [gz (clojure.java.io/file store-path "simp-keys.ndjson.gz")]
-                                (when (.exists gz) (.getPath gz)))))))
+                         ((requiring-resolve 'ansatz.simp-index/with-index-source)
+                          e (when (and store (:simp-trie derived))
+                              (select-keys store [:store-path :branch])))))
      (when *verbose*
        (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
                 (count idx) "classes indexed"
-                (when @(deref (requiring-resolve 'ansatz.recall/discr-keys-path))
-                  (str ", recall keys available (trie loads on demand)"))
-                (when ((requiring-resolve 'ansatz.simp-index/index-path) @ansatz-env)
-                  (str ", simp keys available (index loads on first simp)")))))))
-
-(clojure.core/defn- simp-attr-names
-  "Names carrying a simp-family attribute in this store's attrs sidecar, or nil when the
-   store has none. Read cheaply (93k JSON lines) so a :defs-only loader can keep the
-   PROOFS of exactly these theorems: simp derives a lemma's rfl-flag from its proof at
-   registration (ansatz.tactic.simp/is-rfl-proof?) until that flag is an import-time fact."
-  [store-path]
-  (let [f (clojure.java.io/file store-path "attrs.ndjson.gz")]
-    (when (.exists f)
-      (with-open [in (java.util.zip.GZIPInputStream. (clojure.java.io/input-stream f))]
-        (into #{}
-              (keep (fn [line]
-                      (let [m ((requiring-resolve 'clojure.data.json/read-str) line :key-fn keyword)]
-                        (when (#{"simp" "csimp"} (:kind m))
-                          (ansatz.kernel.name/from-string (:name m))))))
-              (line-seq (clojure.java.io/reader in)))))))
+                (when (:recall-keys derived) ", recall keys")
+                (when (:simp-trie derived) ", simp index"))))))
 
 (clojure.core/defn- init!*
   [store-path branch]
@@ -239,18 +197,25 @@
   ;; required by this namespace: loading it from source costs ~16 s, and the zero-config
   ;; path (`load-init!`, the bundled Init tier) never needs it. Only a store-backed `init!`
   ;; pays for it, once.
+  ((requiring-resolve 'ansatz.store/check-format!) store-path)
   (let [open-store (requiring-resolve 'ansatz.export.storage/open-store)
         load-env (requiring-resolve 'ansatz.export.storage/load-env)
-        contains-name-checker (requiring-resolve 'ansatz.export.storage/contains-name-checker)
+        read-derived (requiring-resolve 'ansatz.export.storage/read-derived)
         sm (open-store store-path)
+        kstore (:store sm)
+        derived (into {} (map (fn [k] [k (read-derived kstore branch k)]))
+                      [:attrs :instances :matchers])
+        ;; the big ones are read on demand by their consumers; record only that they exist
+        derived (reduce (fn [m k] (assoc m k (some? (read-derived kstore branch k))))
+                        derived [:recall-keys :simp-trie])
         ;; A proving session never reads a theorem's body (theorems are opaque to the
         ;; kernel, lean4#12973), so skip resolving them: :defs-only. Bodies of @[simp]
         ;; theorems are kept for simp's rfl-flag derivation.
-        keep (simp-attr-names store-path)
-        env (load-env sm branch :value-policy :defs-only :keep-value? keep)
-        ;; cheap PSS-membership presence for the attrs import (see setup-env!)
-        present? (contains-name-checker sm branch)]
-    (setup-env! env store-path present?)))
+        keep (into #{} (comp (filter (fn [[k _ _ _]] (contains? #{"simp" "csimp"} k)))
+                             (map (fn [[_ n _ _]] (ansatz.kernel.name/from-string n))))
+                   (:attrs derived))
+        env (load-env sm branch :value-policy :defs-only :keep-value? keep)]
+    (setup-env! env {:store-map sm :store-path store-path :branch branch} nil derived)))
 
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
 
@@ -267,7 +232,7 @@
 
 (clojure.core/defn- init!-bundled-medium! []
   (if-let [env (bundled-medium-env)]
-    (do (setup-env! env nil)
+    (do (setup-env! env)
         (println (str "Ansatz: loaded the bundled medium Init tier ("
                       (.size ^ansatz.kernel.Env @ansatz-env) " declarations, TRUST mode).\n"
                       "  For the full Init or Mathlib, build a durable store and call "

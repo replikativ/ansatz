@@ -3,7 +3,7 @@
    about declarations — today `:decl/name`, the conclusion disc-tree key (`:decl/dt-key`) and
    the @[simp] LHS keys (`:decl/simp-key`, many) — with the DURABLE disc-tree secondary index
    (ansatz.index.discr) as two instances: `:idx/dt` for recall, `:idx/simp` for simp. Built
-   ONCE from the store's key sidecars in a single transaction (scripts/build_catalogue.clj);
+   ONCE by the importer (ansatz.import) from the recall and simp keys in a single transaction;
    afterwards a fresh process `connect`s in ~130 ms and answers structural queries from
    persisted chunks — nothing is rebuilt per session. The in-memory tries (ansatz.recall,
    ansatz.simp-index) remain the fallback when a store has no catalogue.
@@ -12,9 +12,7 @@
    ansatz.recall reaches this namespace by `requiring-resolve` and degrades when absent."
   (:require [datahike.api :as d]
             [ansatz.index.discr :as dti]
-            [clojure.java.io :as io]
-            [clojure.edn :as edn])
-  (:import [java.util.zip GZIPInputStream]))
+            [clojure.java.io :as io]))
 
 (defn catalogue-dir ^java.io.File [store-path] (io/file store-path "catalogue"))
 
@@ -39,32 +37,33 @@
   [{:db/ident :idx/dt :db.secondary/type :ansatz.index/discr-tree :db.secondary/attrs [:decl/dt-key]}
    {:db/ident :idx/simp :db.secondary/type :ansatz.index/discr-tree :db.secondary/attrs [:decl/simp-key]}])
 
-(defn- read-keys
-  "`{:name :key}` NDJSON.gz lines → seq of [name key-string]; nil when the file is absent."
-  [^java.io.File f]
-  (when (.exists f)
-    (with-open [r (io/reader (GZIPInputStream. (io/input-stream f)))]
-      (doall (map (fn [l] (let [{:keys [name key]} (edn/read-string l)] [name key])) (line-seq r))))))
-
 (defn entities
-  "Merge the recall and simp key sidecars into one entity map per declaration name."
-  [discr-keys simp-keys]
-  (let [by-name (reduce (fn [m [n k]] (assoc m n {:decl/name n :decl/dt-key k})) {} discr-keys)
+  "Merge the recall and simp key entries (`[name key-str]`) into one entity map per name."
+  [recall-keys simp-keys]
+  (let [by-name (reduce (fn [m [n k]] (assoc m n {:decl/name n :decl/dt-key k})) {} recall-keys)
         by-name (reduce (fn [m [n k]] (update m n (fn [e] (-> (or e {:decl/name n})
                                                             (update :decl/simp-key (fnil conj #{}) k)))))
                         by-name simp-keys)]
     (vec (vals by-name))))
 
 (defn build!
-  "Build (or REBUILD) the catalogue of the store at `store-path` from its `discr-keys.ndjson.gz`
-   and `simp-keys.ndjson.gz` sidecars in ONE transaction, so the durable index is flushed once
-   (no stale chunk versions). Returns {:entities n :dt-keys n :simp-keys n :elapsed-ms n}."
-  [store-path]
+  "Build (or REBUILD) the catalogue of the store at `store-path` from its recall and simp key
+   entries in ONE transaction, so the durable index is flushed once (no stale chunk versions).
+   Takes the entries as data — `{:recall-keys [[name key] …] :simp-keys [[name key] …]}` — as
+   the importer passes them; with `:branch` alone, reads the store's derived blobs.
+   Returns {:entities n :dt-keys n :simp-keys n :elapsed-ms n}."
+  [store-path {:keys [branch recall-keys simp-keys] :or {branch "main"}}]
   (let [cfg (config store-path)
         t0 (System/nanoTime)
-        discr (read-keys (io/file store-path "discr-keys.ndjson.gz"))
-        simp (read-keys (io/file store-path "simp-keys.ndjson.gz"))
-        ents (entities discr simp)]
+        [recall-keys simp-keys]
+        (if (or recall-keys simp-keys)
+          [recall-keys simp-keys]
+          (let [open-store (requiring-resolve 'ansatz.export.storage/open-store)
+                read-derived (requiring-resolve 'ansatz.export.storage/read-derived)
+                sm (open-store store-path)]
+            [(read-derived (:store sm) branch :recall-keys)
+             (read-derived (:store sm) branch :simp-keys)]))
+        ents (entities recall-keys simp-keys)]
     (when (d/database-exists? cfg) (d/delete-database cfg))
     (d/create-database cfg)
     (let [conn (d/connect cfg)]
@@ -72,7 +71,7 @@
         (d/transact conn schema-tx)
         (d/transact conn index-tx)
         (d/transact conn {:tx-data ents})
-        {:entities (count ents) :dt-keys (count discr) :simp-keys (count simp)
+        {:entities (count ents) :dt-keys (count recall-keys) :simp-keys (count simp-keys)
          :elapsed-ms (quot (- (System/nanoTime) t0) 1000000)}
         (finally (d/release conn))))))
 

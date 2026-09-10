@@ -15,3 +15,7 @@
                  as an atom. nil until an env carrying a simp-keys artifact path first runs simp
                  (see ansatz.simp-index); keyed by path so a store switch reloads."}
   ansatz-simp-trie (atom nil))
+(defonce ^{:doc "The current store, as {:store-map <ansatz.export.storage map> :store-path p :branch b},
+                 or nil for the bundled in-memory tier. Set by ansatz.core/init!; the derived
+                 state readers (simp index, recall) go through it."}
+  ansatz-store (atom nil))

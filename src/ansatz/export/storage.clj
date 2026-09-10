@@ -1,28 +1,35 @@
 ;; PSS-backed persistent store for Ansatz kernel.
-
 (ns ansatz.export.storage
   "Durable persistence for Ansatz kernel state using PSS + konserve.
-
    Four PSS indices store names, levels, expressions, and environment
    declarations. Branching (forking) copies only root addresses — O(1)
    with full structural sharing.
 
-   Storage stack: PSS → CachedStorage (IStorage) → konserve filestore."
+   Storage stack: PSS → CachedStorage (IStorage) → konserve filestore at `<store>/blobs`.
+
+   STORE FORMAT 1 (see ansatz.store/store-format): every PSS node is one CBOR blob
+   (ansatz.export.codec) written as BINARY under a CONTENT ADDRESS — the SHA-256 of its
+   bytes as a UUID — so an identical node has one address everywhere: two imports of the
+   same library produce the same roots, an unchanged subtree costs nothing across library
+   versions, and a store can be mirrored or served remotely by address. Non-node values
+   (branch metadata, decl-order chunks, derived state) go through konserve's boring
+   serializer over the same tag registry. There is no Fressian and no legacy reader: a
+   store of another format is refused at open, and the answer is to re-import
+   (ansatz.import), not to migrate."
   (:require [konserve.core :as k]
             [ansatz.export.codec :as codec]
+            [boring.core :as boring]
             [konserve.filestore :as fs]
             [konserve.serializers :as ser]
-            [clojure.core.cache.wrapped :as cache]
+            [clojure.java.io :as io]
             [org.replikativ.persistent-sorted-set :as pss]
-            [org.replikativ.persistent-sorted-set.fressian :as pss-fress]
             [ansatz.kernel.name :as ansatz-name]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
   (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker InductiveBundle]
            [ansatz.export.types CIShell]
            [org.replikativ.persistent_sorted_set PersistentSortedSet IStorage Leaf Branch Settings RefType]
-           [org.fressian Writer Reader]
-           [org.fressian.handlers WriteHandler ReadHandler]
+           [java.security MessageDigest]
            [java.util UUID List ArrayList]))
 
 ;; ============================================================
@@ -49,439 +56,100 @@
       default)))
 
 ;; ============================================================
-;; Fressian handlers for Ansatz types
-;; ============================================================
-
-(defn- write-name [^Writer writer ^Name n]
-  (.writeTag writer "ansatz.Name" 1)
-  (case (int (.tag n))
-    0 (.writeList writer [(int 0)])
-    1 (.writeList writer [(int 1) (.prefix n) (.str n)])
-    2 (.writeList writer [(int 2) (.prefix n) (.num n)])))
-
-(defn- read-name [^Reader reader _tag _cnt]
-  (let [parts (.readObject reader)
-        tag (int (nth parts 0))]
-    (case tag
-      0 Name/ANONYMOUS_NAME
-      1 (Name/mkStr (nth parts 1) (nth parts 2))
-      2 (Name/mkNum (nth parts 1) (long (nth parts 2))))))
-
-(defn- write-level [^Writer writer ^Level l]
-  (.writeTag writer "ansatz.Level" 1)
-  (case (int (.tag l))
-    0 (.writeList writer [(int 0)])
-    1 (.writeList writer [(int 1) (.o0 l)])
-    2 (.writeList writer [(int 2) (.o0 l) (.o1 l)])
-    3 (.writeList writer [(int 3) (.o0 l) (.o1 l)])
-    4 (.writeList writer [(int 4) (.o0 l)])))
-
-(defn- read-level [^Reader reader _tag _cnt]
-  (let [parts (.readObject reader)
-        tag (int (nth parts 0))]
-    (case tag
-      0 Level/ZERO_LEVEL
-      1 (Level/succ (nth parts 1))
-      2 (Level/max (nth parts 1) (nth parts 2))
-      3 (Level/imax (nth parts 1) (nth parts 2))
-      4 (Level/param (nth parts 1)))))
-
-(defn- write-expr [^Writer writer ^Expr e]
-  (.writeTag writer "ansatz.Expr" 1)
-  (let [tag (int (.tag e))]
-    (case tag
-      0  (.writeList writer [0 (.longVal e)])                              ;; BVAR
-      1  (.writeList writer [1 (.o0 e)])                                   ;; SORT
-      2  (.writeList writer [2 (.o0 e) (.o1 e)])                           ;; CONST
-      3  (.writeList writer [3 (.o0 e) (.o1 e)])                           ;; APP
-      4  (.writeList writer [4 (.o0 e) (.o1 e) (.o2 e) (.o3 e)])          ;; LAM
-      5  (.writeList writer [5 (.o0 e) (.o1 e) (.o2 e) (.o3 e)])          ;; FORALL
-      6  (.writeList writer [6 (.o0 e) (.o1 e) (.o2 e) (.o3 e)])          ;; LET
-      7  (.writeList writer [7 (.o0 e)])                                   ;; LIT_NAT
-      8  (.writeList writer [8 (.o0 e)])                                   ;; LIT_STR
-      9  (.writeList writer [9 (.o0 e) (.o1 e)])                           ;; MDATA
-      10 (.writeList writer [10 (.o0 e) (.longVal e) (.o1 e)])             ;; PROJ
-      11 (.writeList writer [11 (.longVal e)]))))                          ;; FVAR
-
-(defn- read-expr [^Reader reader _tag _cnt]
-  (let [parts (.readObject reader)
-        tag (int (nth parts 0))]
-    (case tag
-      0  (Expr/bvar (long (nth parts 1)))
-      1  (let [l (nth parts 1)] (Expr/sort l (Level/hasParam l)))
-      2  (let [n (nth parts 1)
-               ls (nth parts 2)
-               hp (some #(Level/hasParam %) ls)]
-           (Expr/mkConst n ls (boolean hp)))
-      3  (Expr/app (nth parts 1) (nth parts 2))
-      4  (Expr/lam (nth parts 1) (nth parts 2) (nth parts 3) (nth parts 4))
-      5  (Expr/forall (nth parts 1) (nth parts 2) (nth parts 3) (nth parts 4))
-      6  (Expr/mkLet (nth parts 1) (nth parts 2) (nth parts 3) (nth parts 4))
-      7  (Expr/litNat (nth parts 1))
-      8  (Expr/litStr (nth parts 1))
-      9  (Expr/mdata (nth parts 1) (nth parts 2))
-      10 (Expr/proj (nth parts 1) (long (nth parts 2)) (nth parts 3))
-      11 (Expr/fvar (long (nth parts 1))))))
-
-(defn- write-recursor-rule [^Writer writer ^ConstantInfo$RecursorRule r]
-  (.writeTag writer "ansatz.RecursorRule" 1)
-  (.writeList writer [(.ctor r) (int (.nfields r)) (.rhs r)]))
-
-(defn- read-recursor-rule [^Reader reader _tag _cnt]
-  (let [parts (.readObject reader)]
-    (ConstantInfo$RecursorRule. (nth parts 0) (int (nth parts 1)) (nth parts 2))))
-
-(defn- write-ci [^Writer writer ^ConstantInfo ci]
-  (.writeTag writer "ansatz.ConstantInfo" 1)
-  (let [tag (int (.tag ci))
-        base [tag (.name ci) (vec (.levelParams ci)) (.type ci)]]
-    (case tag
-      0 (.writeList writer (conj base (.isUnsafe ci)))                ;; AXIOM
-      1 (.writeList writer (conj base (.value ci) (int (.hints ci))   ;; DEF
-                                 (int (.safety ci)) (vec (.all ci))))
-      2 (.writeList writer (conj base (.value ci) (vec (.all ci))))   ;; THM
-      3 (.writeList writer (conj base (.value ci) (vec (.all ci))     ;; OPAQUE
-                                 (.isUnsafe ci)))
-      4 (.writeList writer (conj base (.quotKind ci)))                ;; QUOT
-      5 (.writeList writer (conj base (int (.numParams ci))           ;; INDUCT
-                                 (int (.numIndices ci))
-                                 (vec (.all ci))
-                                 (vec (.ctors ci))
-                                 (int (.numNested ci))
-                                 (.isRec ci) (.isReflexive ci) (.isUnsafe ci)))
-      6 (.writeList writer (conj base (.inductName ci)                ;; CTOR
-                                 (int (.cidx ci))
-                                 (int (.numParams ci))
-                                 (int (.numFields ci))
-                                 (.isUnsafe ci)))
-      7 (.writeList writer (conj base (vec (.all ci))                 ;; RECURSOR
-                                 (int (.numParams ci))
-                                 (int (.numIndices ci))
-                                 (int (.numMotives ci))
-                                 (int (.numMinors ci))
-                                 (vec (.rules ci))
-                                 (.isK ci) (.isUnsafe ci))))))
-
-(defn- read-ci [^Reader reader _tag _cnt]
-  (let [parts (.readObject reader)
-        tag (int (nth parts 0))
-        name (nth parts 1)
-        lps (into-array Object (nth parts 2))
-        type (nth parts 3)]
-    (case tag
-      0 (ConstantInfo/mkAxiom name lps type (boolean (nth parts 4)))
-      1 (ConstantInfo/mkDef name lps type (nth parts 4)
-                            (int (nth parts 5)) (byte (int (nth parts 6)))
-                            (into-array Object (nth parts 7)))
-      2 (ConstantInfo/mkThm name lps type (nth parts 4)
-                            (into-array Object (nth parts 5)))
-      3 (ConstantInfo/mkOpaque name lps type (nth parts 4)
-                               (into-array Object (nth parts 5))
-                               (boolean (nth parts 6)))
-      4 (ConstantInfo/mkQuot name lps type (nth parts 4))
-      5 (ConstantInfo/mkInduct name lps type
-                               (int (nth parts 4)) (int (nth parts 5))
-                               (into-array Object (nth parts 6))
-                               (into-array Name (nth parts 7))
-                               (int (nth parts 8))
-                               (boolean (nth parts 9))
-                               (boolean (nth parts 10))
-                               (boolean (nth parts 11)))
-      6 (ConstantInfo/mkCtor name lps type
-                             (nth parts 4) (int (nth parts 5))
-                             (int (nth parts 6)) (int (nth parts 7))
-                             (boolean (nth parts 8)))
-      7 (ConstantInfo/mkRecursor name lps type
-                                 (into-array Object (nth parts 4))
-                                 (int (nth parts 5)) (int (nth parts 6))
-                                 (int (nth parts 7)) (int (nth parts 8))
-                                 (into-array ConstantInfo$RecursorRule (nth parts 9))
-                                 (boolean (nth parts 10))
-                                 (boolean (nth parts 11))))))
-
-;; ============================================================
-;; CI-shell Fressian handlers
-;; ============================================================
-
-(defn- write-ci-shell [^Writer writer ^CIShell shell]
-  (.writeTag writer "ansatz.CIShell" 1)
-  (let [m (.data shell)
-        tag (int (:tag m))]
-    (case tag
-      0 (.writeList writer [tag (:name m) (:lps m) (:type-id m) (:unsafe? m)])
-      1 (.writeList writer [tag (:name m) (:lps m) (:type-id m)
-                            (:value-id m) (:hints m) (:safety m) (:all m)])
-      2 (.writeList writer [tag (:name m) (:lps m) (:type-id m)
-                            (:value-id m) (:all m)])
-      3 (.writeList writer [tag (:name m) (:lps m) (:type-id m)
-                            (:value-id m) (:all m) (:unsafe? m)])
-      4 (.writeList writer [tag (:name m) (:lps m) (:type-id m) (:quot-kind m)])
-      5 (.writeList writer [tag (:name m) (:lps m) (:type-id m)
-                            (:num-params m) (:num-indices m)
-                            (:all m) (:ctors m) (:num-nested m)
-                            (:is-rec m) (:is-reflexive m) (:is-unsafe m)])
-      6 (.writeList writer [tag (:name m) (:lps m) (:type-id m)
-                            (:induct-name m) (:cidx m)
-                            (:num-params m) (:num-fields m) (:is-unsafe m)])
-      7 (.writeList writer [tag (:name m) (:lps m) (:type-id m)
-                            (:all m) (:num-params m) (:num-indices m)
-                            (:num-motives m) (:num-minors m)
-                            (:rules m) (:is-k m) (:is-unsafe m)]))))
-
-(defn- read-ci-shell [^Reader reader _tag _cnt]
-  (let [parts (.readObject reader)
-        tag (int (nth parts 0))
-        name (nth parts 1)
-        lps (nth parts 2)
-        type-id (int (nth parts 3))]
-    (CIShell.
-     (case tag
-       0 {:tag 0 :name name :lps lps :type-id type-id
-          :unsafe? (boolean (nth parts 4))}
-       1 {:tag 1 :name name :lps lps :type-id type-id
-          :value-id (int (nth parts 4))
-          :hints (nth parts 5) :safety (nth parts 6) :all (nth parts 7)}
-       2 {:tag 2 :name name :lps lps :type-id type-id
-          :value-id (int (nth parts 4)) :all (nth parts 5)}
-       3 {:tag 3 :name name :lps lps :type-id type-id
-          :value-id (int (nth parts 4)) :all (nth parts 5)
-          :unsafe? (boolean (nth parts 6))}
-       4 {:tag 4 :name name :lps lps :type-id type-id
-          :quot-kind (nth parts 4)}
-       5 {:tag 5 :name name :lps lps :type-id type-id
-          :num-params (int (nth parts 4)) :num-indices (int (nth parts 5))
-          :all (nth parts 6) :ctors (nth parts 7)
-          :num-nested (int (nth parts 8))
-          :is-rec (boolean (nth parts 9))
-          :is-reflexive (boolean (nth parts 10))
-          :is-unsafe (boolean (nth parts 11))}
-       6 {:tag 6 :name name :lps lps :type-id type-id
-          :induct-name (nth parts 4) :cidx (int (nth parts 5))
-          :num-params (int (nth parts 6)) :num-fields (int (nth parts 7))
-          :is-unsafe (boolean (nth parts 8))}
-       7 {:tag 7 :name name :lps lps :type-id type-id
-          :all (nth parts 4) :num-params (int (nth parts 5))
-          :num-indices (int (nth parts 6)) :num-motives (int (nth parts 7))
-          :num-minors (int (nth parts 8)) :rules (nth parts 9)
-          :is-k (boolean (nth parts 10)) :is-unsafe (boolean (nth parts 11))}))))
-
-;; ============================================================
-;; PSS node Fressian handlers
-;; ============================================================
-
-;; Ansatz element handlers — the kernel's domain types (Name/Level/Expr/…). These
-;; are element-agnostic to the PSS node codec: a leaf's `keys` recurse through them.
-;; Public: embedders can reuse them to build their own Fressian codecs over
-;; kernel values (e.g. exporting ConstantInfos outside the PSS store).
-(def ansatz-element-write-handlers
-  {Name
-   {"" (reify WriteHandler (write [_ w v] (write-name w v)))}
-
-   Level
-   {"" (reify WriteHandler (write [_ w v] (write-level w v)))}
-
-   Expr
-   {"" (reify WriteHandler (write [_ w v] (write-expr w v)))}
-
-   ConstantInfo
-   {"" (reify WriteHandler (write [_ w v] (write-ci w v)))}
-
-   ConstantInfo$RecursorRule
-   {"" (reify WriteHandler (write [_ w v] (write-recursor-rule w v)))}
-
-   CIShell
-   {"" (reify WriteHandler (write [_ w v] (write-ci-shell w v)))}})
-
-(def ansatz-element-read-handlers
-  {"ansatz.Name"
-   (reify ReadHandler (read [_ r t c] (read-name r t c)))
-
-   "ansatz.Level"
-   (reify ReadHandler (read [_ r t c] (read-level r t c)))
-
-   "ansatz.Expr"
-   (reify ReadHandler (read [_ r t c] (read-expr r t c)))
-
-   "ansatz.ConstantInfo"
-   (reify ReadHandler (read [_ r t c] (read-ci r t c)))
-
-   "ansatz.RecursorRule"
-   (reify ReadHandler (read [_ r t c] (read-recursor-rule r t c)))
-
-   "ansatz.CIShell"
-   (reify ReadHandler (read [_ r t c] (read-ci-shell r t c)))})
-
-;; Legacy (pre-canonical) ansatz PSS node read handlers. Ansatz's OLD Leaf wrote a
-;; BARE keys-List (tag "pss.Leaf"), NOT a {:keys …} map — so unlike proximum/stratum
-;; it is NOT a subset of the canonical map and CANNOT be read by the canonical reader.
-;; We keep these so existing stores load without migration; new writes use the
-;; canonical pss/leaf + pss/branch tags (see make-write-handlers).
-(defn- legacy-node-read-handlers [settings-atom]
-  {"pss.Leaf"
-   (reify ReadHandler
-     (read [_ reader _tag _cnt]
-       (let [keys (.readObject reader)]
-         (Leaf. ^List keys ^Settings @settings-atom))))
-
-   "pss.Branch"
-   (reify ReadHandler
-     (read [_ reader _tag _cnt]
-       (let [{:keys [keys level addresses]} (.readObject reader)]
-         (Branch. (int level)
-                  ^List keys
-                  ^List addresses
-                  ^Settings @settings-atom))))})
-
-(defn- make-write-handlers
-  "Canonical PSS node + root write handlers (pss/leaf, pss/branch, pss/set) merged
-   with ansatz's element handlers. New stores write the canonical, cross-tool wire
-   form shared by datahike/proximum/stratum/yggdrasil."
-  []
-  (pss-fress/canonical-write-handlers
-   {:element-write-handlers ansatz-element-write-handlers}))
-
-(defn- make-read-handlers
-  "Canonical PSS read handlers (pss/leaf, pss/branch, pss/set) + ansatz element
-   handlers, UNION the legacy node read handlers so pre-canonical stores still load.
-   Nodes self-describe their branching-factor; :default-bf only backstops pre-bf
-   blobs. The root handler resolves its storage via storage-atom (circular ref);
-   ansatz normally reconstructs roots lexically via pss/restore-by, so it is inert
-   for ansatz's own stores but present for cross-tool root blobs."
-  [settings-atom storage-atom]
-  (merge
-   (pss-fress/canonical-read-handlers
-    {:resolve-storage       (fn [_] @storage-atom)
-     :default-bf            512
-     :ref-type              :weak
-     :element-read-handlers ansatz-element-read-handlers})
-   (legacy-node-read-handlers settings-atom)))
-
-;; ============================================================
 ;; CachedStorage (IStorage implementation)
 ;; ============================================================
 
-(deftype CachedStorage [store cache pending-writes freed-addresses freelist settings-atom]
+(defn content-address
+  "The address of a node blob: its SHA-256, folded to a UUID. Deterministic in the bytes, so
+   identical nodes coincide and a store's roots are a function of its content."
+  ^UUID [^bytes bs]
+  (let [d (.digest (MessageDigest/getInstance "SHA-256") bs)
+        bb (java.nio.ByteBuffer/wrap d)]
+    (UUID. (.getLong bb) (.getLong bb))))
+
+(defn- read-blob ^bytes [store address]
+  (k/bget store address
+          (fn [{:keys [input-stream]}] (.readAllBytes ^java.io.InputStream input-stream))
+          {:sync? true}))
+
+;; PSS calls `store` bottom-up — a Branch stores its dirty children first, then itself — so a
+;; node's child addresses are settled when it is encoded here, and its own address can be its
+;; content hash. Nodes are ENCODED ONCE: the bytes are hashed for the address and kept as the
+;; pending write (flush-writes! puts them as binary blobs, bypassing konserve's serializer).
+;; No address reuse and no freelist: with content addresses an address is owned by its
+;; bytes, never by a tree, so a node "freed" by one tree may still be another's.
+(deftype CachedStorage [store registry pending-writes settings-atom]
   IStorage
   (store [_ node]
-    (let [;; Reuse a freed address if available, else generate new UUID
-          reused (loop []
-                   (let [current @freelist]
-                     (if (empty? current)
-                       nil
-                       (let [addr (peek current)]
-                         (if (compare-and-set! freelist current (pop current))
-                           addr
-                           (recur))))))
-          address (or reused (UUID/randomUUID))]
-      (when reused
-        (cache/evict cache address))
-      (swap! pending-writes conj [address node])
-      (cache/miss cache address node)
+    (let [^bytes bs (boring/encode node {:registry registry})
+          address (content-address bs)]
+      (swap! pending-writes conj [address bs])
       address))
 
   (restore [_ address]
-    (if-let [cached (cache/lookup cache address)]
-      (do (cache/hit cache address) cached)
-      (let [node (k/get store address nil {:sync? true})]
-        (when (nil? node)
-          (throw (ex-info "Node not found in storage" {:address address})))
-        (cache/miss cache address node)
-        node)))
+    (let [bs (read-blob store address)]
+      (when (nil? bs)
+        (throw (ex-info "Node not found in storage" {:address address})))
+      (boring/decode bs {:registry registry})))
 
-  (accessed [_ address]
-    (cache/hit cache address)
-    nil)
-
-  (markFreed [_ address]
-    (when address
-      (swap! freed-addresses conj address)))
-
-  (isFreed [_ address]
-    (boolean (some #{address} @freed-addresses))))
+  (accessed [_ _address] nil)
+  (markFreed [_ _address] nil)
+  (isFreed [_ _address] false))
 
 (defn flush-writes!
-  "Flush all pending writes to konserve.
-   Writes in parallel batches for filestore."
+  "Write every pending node blob to konserve (binary, already encoded), in parallel batches."
   [storage]
   (let [^CachedStorage cs storage
         writes @(.pending-writes cs)
         kstore (.store cs)]
     (reset! (.pending-writes cs) [])
     (when (seq writes)
-      (let [batch-size 64]
-        (doseq [batch (partition-all batch-size writes)]
-          (let [futures (mapv (fn [[addr node]]
-                                (future (k/assoc kstore addr node {:sync? true})))
-                              batch)]
-            (doseq [f futures] @f)))))))
-
-(defn gc-freed!
-  "Recycle freed addresses to the freelist and evict them from cache.
-   Freed addresses will be reused by subsequent store calls, avoiding disk bloat.
-   For bulk imports with no concurrent readers, call after each flush."
-  [storage]
-  (let [^CachedStorage cs storage
-        freed (loop []
-                (let [current @(.freed-addresses cs)]
-                  (if (compare-and-set! (.freed-addresses cs) current [])
-                    current
-                    (recur))))]
-    (when (seq freed)
-      ;; Evict from cache to prevent stale reads
-      (doseq [addr freed]
-        (cache/evict (.cache cs) addr))
-      ;; Add to freelist for reuse
-      (swap! (.freelist cs) into freed)
-      (count freed))))
+      (doseq [batch (partition-all 64 writes)]
+        (let [futures (mapv (fn [[addr ^bytes bs]]
+                              (future (k/bassoc kstore addr bs {:sync? true})))
+                            batch)]
+          (doseq [f futures] @f))))))
 
 ;; ============================================================
 ;; Store lifecycle
 ;; ============================================================
 
-(def ^:private codec->serializer
-  {:fressian :FressianSerializer
-   :boring :BoringSerializer})
+(defn blobs-dir
+  "The konserve directory of the store at `store-path`: `<store>/blobs`. Nothing but blobs
+   lives there — konserve treats every file in its directory as a blob (its `keys` and GC
+   walk them), so the manifest, catalogue and inputs are siblings, never children."
+  ^java.io.File [store-path] (io/file store-path "blobs"))
 
 (defn open-store
-  "Open a persistent store backed by a konserve filestore at dir-path.
-   Returns a store map with :store (konserve), :storage (CachedStorage),
-   and :settings-atom.
+  "Open the store rooted at `store-path` (creating `<store>/blobs` if absent). Returns
+   {:store konserve, :storage CachedStorage, :settings-atom, :path}.
 
-   `:codec` chooses how NEW blobs are WRITTEN — `:fressian` (default, blob-header byte 1) or
-   `:boring` (CBOR, byte 3; ansatz.export.codec). Both are always available for READING:
-   konserve records the serializer in every blob's header and dispatches on it, so an existing
-   Fressian store opens unchanged under either setting and a store may hold both. That is what
-   makes the migration incremental — a converted store is simply one whose blobs have all been
-   rewritten (scripts/convert_store.clj)."
-  ([dir-path] (open-store dir-path {}))
-  ([dir-path {:keys [codec] :or {codec :fressian}}]
-   (let [serializer (or (codec->serializer codec)
-                        (throw (ex-info "unknown store codec" {:codec codec
-                                                               :known (set (keys codec->serializer))})))
-         settings-atom (atom nil)
+   Opening does NOT check the manifest — `ansatz.store/check-format!` does, and `init!` calls
+   it; the importer opens a store that has no manifest yet.
+
+   `:sync-blob?` (default true) fsyncs each blob write. An import turns it off: a crashed
+   import is simply re-run, and the manifest is written last."
+  ([store-path] (open-store store-path {}))
+  ([store-path {:keys [sync-blob?] :or {sync-blob? true}}]
+   (let [dir (blobs-dir store-path)
+         _ (.mkdirs dir)
+         settings-atom (atom (Settings. 64 RefType/WEAK))
          storage-atom (atom nil)
-         read-handlers (make-read-handlers settings-atom storage-atom)
-         write-handlers (make-write-handlers)
+         ;; the PSS root handler resolves its storage through a write-once cell, as the
+         ;; storage does not exist until the store is open
+         registry (codec/registry (fn [_] @storage-atom))
          kstore (fs/connect-fs-store
-                 dir-path
+                 (.getPath dir)
                  :opts {:sync? true}
-                 :config {:sync-blob? true
-                          :encoding {:serializer serializer
-                                     :serializers
-                                     {:FressianSerializer (ser/fressian-serializer
-                                                           read-handlers write-handlers)
-                                      ;; The PSS root handler resolves its storage through the
-                                      ;; same write-once cell the Fressian one uses.
-                                      :BoringSerializer (ser/boring-serializer
-                                                         (codec/registry (fn [_] @storage-atom)))}}})
-         lru-cache (cache/lru-cache-factory {} :threshold 4096)
-         cached (->CachedStorage kstore lru-cache (atom []) (atom []) (atom []) settings-atom)
-         settings (Settings. 64 RefType/WEAK)]
-     (reset! settings-atom settings)
+                 :config {:sync-blob? sync-blob?
+                          :encoding {:serializer :BoringSerializer
+                                     :serializers {:BoringSerializer (ser/boring-serializer registry)}}})
+         cached (->CachedStorage kstore registry (atom []) settings-atom)]
      (reset! storage-atom cached)
      {:store kstore
       :storage cached
-      :settings-atom settings-atom})))
+      :settings-atom settings-atom
+      :path store-path})))
 
 (defn close-store
   "Close the store, flushing pending writes."
@@ -551,7 +219,6 @@
             ;; Store all in-memory nodes so weak refs can release them
             (pss/store pss')
             (flush-writes! storage)
-            (gc-freed! storage)
             (System/gc)
             (when log-writer
               (let [rt (Runtime/getRuntime)
@@ -562,7 +229,6 @@
           (recur pss' (inc i)))
         (let [root (pss/store pss)]
           (flush-writes! storage)
-          (gc-freed! storage)
           (log! log-writer (str "  " label " done: " @cnt " entries in "
                                 (- (System/currentTimeMillis) t0) "ms, root: " root))
           [root @cnt])))))
@@ -658,6 +324,15 @@
   [store k]
   (k/get store k nil {:sync? true}))
 
+(defn derived-key
+  "konserve key of a piece of DERIVED state for a branch — attrs, instances, matchers, recall
+   keys, simp keys, the simp trie: everything `init!` used to re-derive from sidecar files at
+   every start, computed once by the importer."
+  [branch-name k] [:derived branch-name k])
+
+(defn write-derived! [store branch-name k v] (k/assoc store (derived-key branch-name k) v {:sync? true}))
+(defn read-derived [store branch-name k] (k/get store (derived-key branch-name k) nil {:sync? true}))
+
 (defn store-multi-put
   "Batch put key-value pairs to the konserve filestore."
   [store entries]
@@ -731,6 +406,25 @@
                               entry)))))]
       {:branch-meta branch-meta
        :lookup-ci lookup-ci})))
+
+(defn branch-resolver
+  "An UNRESTRICTED `(fn [name-str] ConstantInfo|nil)` over a branch, with its own resolver
+   caches — one per thread when resolving in parallel (the name/level caches are not
+   thread-safe). Options as branch-loader: :value-policy :full|:defs-only, :keep-value?."
+  [store-map branch-name & {:keys [value-policy keep-value?] :or {value-policy :full}}]
+  (let [{:keys [lookup-ci]} (branch-loader store-map branch-name
+                                           :value-policy value-policy :keep-value? keep-value?)]
+    (fn [name-str] (lookup-ci (ansatz-name/from-string name-str)))))
+
+(defn load-decl-order
+  "The branch's declarations in export (admission) order, as name strings."
+  [store-map branch-name]
+  (let [{:keys [store]} store-map
+        branch-meta (store-get store [:branches branch-name])]
+    (when branch-meta
+      (if-let [num-chunks (:decl-order-chunks branch-meta)]
+        (into [] (mapcat (fn [i] (store-get store [:decl-order branch-name i]))) (range num-chunks))
+        (store-get store [:decl-order branch-name])))))
 
 (defn load-env
   "Load an Env from a persisted branch.
@@ -978,74 +672,74 @@
    individual names; verification and `prepare-verify` use :full."
   ([ci-shell resolve-expr-fn] (resolve-ci-shell ci-shell resolve-expr-fn :full nil))
   ([ci-shell resolve-expr-fn value-policy keep-value?]
-  (let [m (if (instance? CIShell ci-shell) (.data ^CIShell ci-shell) ci-shell)
-        tag (int (:tag m))
-        type-expr (resolve-expr-fn (:type-id m))
-        lps (into-array Object (:lps m))
+   (let [m (if (instance? CIShell ci-shell) (.data ^CIShell ci-shell) ci-shell)
+         tag (int (:tag m))
+         type-expr (resolve-expr-fn (:type-id m))
+         lps (into-array Object (:lps m))
         ;; THM (2) / OPAQUE (3) bodies are skipped under :defs-only unless kept by name
-        skip-value? (and (= value-policy :defs-only)
-                         (or (= tag 2) (= tag 3))
-                         (not (and keep-value? (keep-value? (:name m)))))
-        resolve-value (fn [id] (when-not skip-value? (resolve-expr-fn id)))]
-    (case tag
+         skip-value? (and (= value-policy :defs-only)
+                          (or (= tag 2) (= tag 3))
+                          (not (and keep-value? (keep-value? (:name m)))))
+         resolve-value (fn [id] (when-not skip-value? (resolve-expr-fn id)))]
+     (case tag
       ;; AXIOM
-      0 (ConstantInfo/mkAxiom (:name m) lps type-expr
-                              (boolean (:unsafe? m)))
-      ;; DEF
-      1 (let [h (let [hints (:hints m)]
-                  (cond
-                    (= hints :opaque) ConstantInfo/HINTS_OPAQUE
-                    (= hints :abbrev) ConstantInfo/HINTS_ABBREV
-                    (map? hints) (:regular hints)
-                    :else ConstantInfo/HINTS_OPAQUE))
-              s (case (:safety m)
-                  :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
-          (ConstantInfo/mkDef (:name m) lps type-expr
-                              (resolve-expr-fn (:value-id m))
-                              (int h) s
-                              (into-array Object (:all m))))
-      ;; THM
-      2 (ConstantInfo/mkThm (:name m) lps type-expr
-                            (resolve-value (:value-id m))
-                            (into-array Object (:all m)))
-      ;; OPAQUE
-      3 (ConstantInfo/mkOpaque (:name m) lps type-expr
-                               (resolve-value (:value-id m))
-                               (into-array Object (:all m))
+       0 (ConstantInfo/mkAxiom (:name m) lps type-expr
                                (boolean (:unsafe? m)))
+      ;; DEF
+       1 (let [h (let [hints (:hints m)]
+                   (cond
+                     (= hints :opaque) ConstantInfo/HINTS_OPAQUE
+                     (= hints :abbrev) ConstantInfo/HINTS_ABBREV
+                     (map? hints) (:regular hints)
+                     :else ConstantInfo/HINTS_OPAQUE))
+               s (case (:safety m)
+                   :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
+           (ConstantInfo/mkDef (:name m) lps type-expr
+                               (resolve-expr-fn (:value-id m))
+                               (int h) s
+                               (into-array Object (:all m))))
+      ;; THM
+       2 (ConstantInfo/mkThm (:name m) lps type-expr
+                             (resolve-value (:value-id m))
+                             (into-array Object (:all m)))
+      ;; OPAQUE
+       3 (ConstantInfo/mkOpaque (:name m) lps type-expr
+                                (resolve-value (:value-id m))
+                                (into-array Object (:all m))
+                                (boolean (:unsafe? m)))
       ;; QUOT
-      4 (ConstantInfo/mkQuot (:name m) lps type-expr (:quot-kind m))
+       4 (ConstantInfo/mkQuot (:name m) lps type-expr (:quot-kind m))
       ;; INDUCT
-      5 (ConstantInfo/mkInduct (:name m) lps type-expr
-                               (int (:num-params m)) (int (:num-indices m))
-                               (into-array Object (:all m))
-                               (into-array Name (:ctors m))
-                               (int (:num-nested m))
-                               (boolean (:is-rec m))
-                               (boolean (:is-reflexive m))
-                               (boolean (:is-unsafe m)))
+       5 (ConstantInfo/mkInduct (:name m) lps type-expr
+                                (int (:num-params m)) (int (:num-indices m))
+                                (into-array Object (:all m))
+                                (into-array Name (:ctors m))
+                                (int (:num-nested m))
+                                (boolean (:is-rec m))
+                                (boolean (:is-reflexive m))
+                                (boolean (:is-unsafe m)))
       ;; CTOR
-      6 (ConstantInfo/mkCtor (:name m) lps type-expr
-                             (:induct-name m)
-                             (int (:cidx m))
-                             (int (:num-params m))
-                             (int (:num-fields m))
-                             (boolean (:is-unsafe m)))
+       6 (ConstantInfo/mkCtor (:name m) lps type-expr
+                              (:induct-name m)
+                              (int (:cidx m))
+                              (int (:num-params m))
+                              (int (:num-fields m))
+                              (boolean (:is-unsafe m)))
       ;; RECURSOR
-      7 (let [rules (mapv (fn [r]
-                            (ConstantInfo$RecursorRule.
-                             (:ctor r) (int (:nfields r))
-                             (resolve-expr-fn (:rhs-id r))))
-                          (:rules m))]
-          (ConstantInfo/mkRecursor (:name m) lps type-expr
-                                   (into-array Object (:all m))
-                                   (int (:num-params m))
-                                   (int (:num-indices m))
-                                   (int (:num-motives m))
-                                   (int (:num-minors m))
-                                   (into-array ConstantInfo$RecursorRule rules)
-                                   (boolean (:is-k m))
-                                   (boolean (:is-unsafe m))))))))
+       7 (let [rules (mapv (fn [r]
+                             (ConstantInfo$RecursorRule.
+                              (:ctor r) (int (:nfields r))
+                              (resolve-expr-fn (:rhs-id r))))
+                           (:rules m))]
+           (ConstantInfo/mkRecursor (:name m) lps type-expr
+                                    (into-array Object (:all m))
+                                    (int (:num-params m))
+                                    (int (:num-indices m))
+                                    (int (:num-motives m))
+                                    (int (:num-minors m))
+                                    (into-array ConstantInfo$RecursorRule rules)
+                                    (boolean (:is-k m))
+                                    (boolean (:is-unsafe m))))))))
 
 ;; ============================================================
 ;; Branching

@@ -61,20 +61,23 @@
     (is (pos? (count (filter #(throw? (lower %)) externs)))
         "an @[extern] primitive with NO ansatz runtime lowers to an explanatory throw, not a bare symbol")))
 
-(deftest store-local-attrs-load
-  ;; A store larger than the bundled Init (e.g. Mathlib) carries its OWN attrs.ndjson in the store
-  ;; dir; init! loads it via attrs/load-store-attrs! (additive over the bundled Init). Simulate with
-  ;; a temp dir holding a one-present + one-absent line.
-  (let [dir (doto (io/file (System/getProperty "java.io.tmpdir")
-                           (str "ansatz-store-attrs-" (System/nanoTime)))
-              (.mkdirs))]
-    (spit (io/file dir "attrs.ndjson")
-          (str "{\"kind\":\"simp\",\"name\":\"Nat.add_zero\"}\n"
-               "{\"kind\":\"simp\",\"name\":\"Totally.Bogus.Absent\"}\n"))
-    (let [stats (attrs/load-store-attrs! (.getPath dir))]
-      (is (pos? (:simp-lemmas stats)) "the store-local simp lemma is loaded")
-      (is (pos? (:skipped stats)) "the absent name is skipped (intersected with the store)")
-      (is (contains? (env/get-extension (a/env) :simp-lemmas #{}) "Nat.add_zero")
-          "the store-local lemma lands in the global env's :simp-lemmas"))
-    (is (nil? (attrs/load-store-attrs! (str (.getPath dir) "-nope")))
-        "no store-local attrs file → nil (graceful — bundled Init still applies)")))
+(deftest attr-corpus-file-to-tuples-to-env
+  ;; A store's attrs corpus (scripts/dump_attrs.lean output) is read ONCE by the importer into
+  ;; `[kind name target prio]` tuples, filtered to the store's names, and persisted; a session
+  ;; installs the tuples with no presence probe. Simulate with a tiny gzipped corpus.
+  (let [dir (doto (java.io.File/createTempFile "ansatz-attrs" "") .delete .mkdirs)
+        gz (java.io.File. dir "attrs.ndjson.gz")]
+    (with-open [w (java.io.OutputStreamWriter. (java.util.zip.GZIPOutputStream. (io/output-stream gz)))]
+      (.write w "{\"kind\":\"simp\",\"name\":\"Nat.add_zero\"}\n")
+      (.write w "{\"kind\":\"simp\",\"name\":\"Bool.false_eq\",\"prio\":100}\n")
+      (.write w "{\"kind\":\"csimp\",\"name\":\"Nat.succ\",\"target\":\"Nat.add\"}\n"))
+    (let [tuples (attrs/read-attr-file (.getPath gz))]
+      (is (= 3 (count tuples)))
+      (is (= ["simp" "Bool.false_eq" nil 100] (second tuples)) "priority is carried")
+      (let [stats (attrs/install-tuples! tuples)]
+        (is (= 2 (:simp-lemmas stats)))
+        (is (contains? (env/get-extension (a/env) :simp-lemmas #{}) "Nat.add_zero"))
+        (is (= 100 (get (env/get-extension (a/env) :simp-priorities {}) "Bool.false_eq")))
+        (is (= "Nat.add" (get (env/get-extension (a/env) :csimp {}) "Nat.succ")))))
+    (is (nil? (attrs/read-attr-file (str (.getPath dir) "-nope/attrs.ndjson.gz")))
+        "a missing corpus reads as nil")))

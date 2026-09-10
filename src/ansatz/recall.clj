@@ -1,19 +1,16 @@
 (ns ansatz.recall
   "Persistent RECALL projection: the disc-tree keying of a store's declaration
-   CONCLUSIONS, dumped once as a store artifact (`<store>/discr-keys.ndjson.gz`)
-   and rebuilt fast on boot — so mathlib-scale recall costs seconds, not the
-   ~13 min of re-keying every session (each key forces the decl's type DAG out
-   of PSS). Mirrors the attrs/instances/matchers store-artifact pattern. A
-   dependency-light leaf (dt + kernel only); consumers read the loaded trie
-   from ansatz.state/ansatz-discr-trie."
+   CONCLUSIONS, computed once by the importer (ansatz.import) into the store's derived
+   `:recall-keys` blob — each key forces the decl's type DAG out of PSS, ~1-2 h for Mathlib
+   serially, minutes in parallel — and served at query time from the store's catalogue
+   (ansatz.catalogue, the durable disc-tree index) or, without one, from an in-memory trie
+   built on first use. A dependency-light leaf (dt + kernel only)."
   (:require [ansatz.tactic.discr-tree :as dt]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as nm]
             [clojure.string :as str]
-            [clojure.java.io :as io]
             [clojure.edn :as edn])
-  (:import [ansatz.kernel ConstantInfo Name]
-           [java.util.zip GZIPInputStream GZIPOutputStream]))
+  (:import [ansatz.kernel ConstantInfo Name]))
 
 (defn- edn-safe-keys
   "Make a disc-tree key-path EDN-round-trippable: a :const key's `:name` is a
@@ -49,28 +46,27 @@
   [name-str]
   (not (some #(str/includes? name-str %) auto-gen-substrings)))
 
-(defn dump-discr-keys!
-  "Compute the conclusion disc-tree key for every USEFUL decl in `decl-names`
-   (resolved via `resolve-fn : name-str → ConstantInfo|nil`) and write
-   NDJSON.gz `{:name :key}` to `path`. This is the one-time, type-forcing keying
-   pass — amortized into a store artifact. Returns the number of keys written."
-  [decl-names resolve-fn path & {:keys [max-key-len] :or {max-key-len 120}}]
-  (with-open [w (io/writer (GZIPOutputStream. (io/output-stream (io/file path))))]
-    (reduce
-     (fn [n nam]
-       (if-not (useful? nam)
-         n
-         (let [ci (try (resolve-fn nam) (catch Throwable _ nil))
-               ks (when ci (try (decl-key (.type ^ConstantInfo ci)) (catch Throwable _ nil)))]
-           (if (and ks (< (count ks) max-key-len))
-             (do (.write w (pr-str {:name nam :key (pr-str ks)})) (.write w "\n") (inc n))
-             n))))
-     0 decl-names)))
+(defn decl-keys
+  "The recall entries `[name key-str]` for the USEFUL declarations in `decl-names` (resolved
+   via `resolve-fn : name-str → ConstantInfo|nil`; a nil or a failing keying is skipped, as is
+   a key longer than `max-key-len`). The one-time, type-forcing keying pass the importer runs
+   — in parallel, one resolver per worker."
+  [decl-names resolve-fn & {:keys [max-key-len] :or {max-key-len 120}}]
+  (into []
+        (keep (fn [nam]
+                (when (useful? nam)
+                  (let [ci (try (resolve-fn nam) (catch Throwable _ nil))
+                        ks (when ci (try (decl-key (.type ^ConstantInfo ci)) (catch Throwable _ nil)))]
+                    (when (and ks (< (count ks) max-key-len))
+                      [nam (pr-str ks)])))))
+        decl-names))
 
-(defonce discr-keys-path
-  ^{:doc "Path of the current store's discr-keys.ndjson.gz (set by ansatz.core/init!),
-          or nil. The trie itself is built on first demand — see ensure-discr-trie!."}
-  (atom nil))
+(defn build-discr-trie
+  "The recall disc-tree from `[name key-str]` entries — trie-insert only; the expensive keying
+   was done at import."
+  [entries]
+  (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
+          dt/empty-trie entries))
 
 (defonce store-path
   ^{:doc "Path of the current store (set by ansatz.core/init!), or nil. When the store carries a
@@ -78,33 +74,21 @@
           answered from its persisted disc-tree index instead of the in-memory trie."}
   (atom nil))
 
-(declare load-discr-trie)
+(defn- current-store []
+  @(deref (requiring-resolve 'ansatz.state/ansatz-store)))
 
 (defn ensure-discr-trie!
-  "The recall trie for the current store, built on FIRST use (~50 s for Mathlib) and
-   cached in ansatz.state/ansatz-discr-trie; nil when the store has no keys artifact.
-   Boot never pays for it. A truncated/corrupt artifact degrades to nil, never throws."
+  "The recall trie for the current store, built on FIRST use from its derived `:recall-keys`
+   blob (~50 s for Mathlib — the catalogue is the fast path; this is the fallback) and cached
+   in ansatz.state/ansatz-discr-trie; nil for the bundled tier or a store without keys."
   []
   (or @(deref (requiring-resolve 'ansatz.state/ansatz-discr-trie))
-      (when-let [p @discr-keys-path]
-        (let [trie (try (load-discr-trie p)
-                        (catch Throwable t
-                          (println "WARN: recall disc-tree unreadable, skipping"
-                                   "(re-dump with scripts/dump_recall_keys.clj):" (.getMessage t))
-                          nil))]
+      (when-let [{:keys [store-map branch]} (current-store)]
+        (let [read-derived (requiring-resolve 'ansatz.export.storage/read-derived)
+              trie (when-let [entries (read-derived (:store store-map) branch :recall-keys)]
+                     (build-discr-trie entries))]
           (reset! (deref (requiring-resolve 'ansatz.state/ansatz-discr-trie)) trie)
           trie))))
-
-(defn load-discr-trie
-  "Read a discr-keys NDJSON.gz and build the disc-tree — fast (trie-insert only;
-   the expensive keying was done at dump time). Returns the trie."
-  [path]
-  (with-open [r (io/reader (GZIPInputStream. (io/input-stream (io/file path))))]
-    (reduce (fn [trie line]
-              (let [{:keys [name key]} (edn/read-string line)]
-                (dt/trie-insert trie (edn/read-string key) name)))
-            dt/empty-trie
-            (line-seq r))))
 
 ;; ---- recall: durable catalogue first, in-memory trie as the fallback ----
 
@@ -119,8 +103,8 @@
 (defn recall-names
   "Declarations whose CONCLUSION structurally matches `goal-type` (holes → stars), deduped.
    Served from the store's persisted catalogue index when it has one (a ~130 ms connect on
-   first use), else from the in-memory trie built on first use from the keys sidecar; nil when
-   the store has neither."
+   first use), else from the in-memory trie built on first use from the store's recall keys;
+   nil when the current env has neither."
   [goal-type]
   (let [k (query-key goal-type)]
     (if-let [db (catalogue-db)]

@@ -1,5 +1,5 @@
 (ns ansatz.catalogue-test
-  "The store catalogue (ansatz.catalogue): built once from the key sidecars into a datahike DB
+  "The store catalogue (ansatz.catalogue): built once by the importer from the key entries into a datahike DB
    with the durable disc-tree index as two instances (`:idx/dt` recall, `:idx/simp` simp
    LHS), connected — not rebuilt — by later processes, and reached from ansatz.recall with the
    in-memory trie as the fallback."
@@ -9,6 +9,7 @@
             [ansatz.catalogue :as cat]
             [ansatz.recall :as recall]
             [ansatz.state :as state]
+            [ansatz.export.storage :as storage]
             [ansatz.index.discr :as dti]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -23,31 +24,25 @@
   (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) (nat) a b))
 (defn- hole [] (e/mvar 900001))
 
-(defn- write-keys! [^java.io.File f rows]
-  (with-open [w (io/writer (GZIPOutputStream. (io/output-stream f)))]
-    (doseq [[n k] rows] (.write w (pr-str {:name n :key k})) (.write w "\n"))))
-
 (defn- fresh-store-dir []
   (let [d (java.io.File/createTempFile "ansatz-store" "")]
     (.delete d) (.mkdirs d) (.deleteOnExit d)
     d))
 
-(defn- sidecars! [dir]
-  ;; recall keys: conclusions; simp keys: LHS patterns — deliberately overlapping names
-  (write-keys! (io/file dir "discr-keys.ndjson.gz")
-               [["le_a" (dti/conclusion-key (nle (e/lit-nat 1) (e/lit-nat 2)))]
-                ["zero_le" (dti/conclusion-key (nle (e/lit-nat 0) (hole)))]
-                ["eq_a" (dti/conclusion-key (eqp (e/lit-nat 3) (e/lit-nat 3)))]])
-  (write-keys! (io/file dir "simp-keys.ndjson.gz")
-               [["zero_le" (dti/conclusion-key (nle (e/lit-nat 0) (hole)))]
-                ["and_split" (dti/conclusion-key (eqp (hole) (e/lit-nat 7)))]
-                ["and_split" (dti/conclusion-key (eqp (e/lit-nat 7) (hole)))]]))
+(def ^:private recall-entries
+  [["le_a" (dti/conclusion-key (nle (e/lit-nat 1) (e/lit-nat 2)))]
+   ["zero_le" (dti/conclusion-key (nle (e/lit-nat 0) (hole)))]
+   ["eq_a" (dti/conclusion-key (eqp (e/lit-nat 3) (e/lit-nat 3)))]])
+
+(def ^:private simp-entries
+  [["zero_le" (dti/conclusion-key (nle (e/lit-nat 0) (hole)))]
+   ["and_split" (dti/conclusion-key (eqp (hole) (e/lit-nat 7)))]
+   ["and_split" (dti/conclusion-key (eqp (e/lit-nat 7) (hole)))]])
 
 (deftest build-connect-and-query-both-indices
   (let [dir (fresh-store-dir) p (.getPath dir)]
-    (sidecars! dir)
-    (testing "one entity per name, keys merged from both sidecars"
-      (let [stats (cat/build! p)]
+    (testing "one entity per name, keys merged from both sources"
+      (let [stats (cat/build! p {:branch "main" :recall-keys recall-entries :simp-keys simp-entries})]
         (is (= 4 (:entities stats)))
         (is (= 3 (:dt-keys stats)))
         (is (= 3 (:simp-keys stats)))))
@@ -65,24 +60,28 @@
           (is (= #{} (set (cat/simp-lemma-names db (dti/query-key (nle (e/lit-nat 1) (e/lit-nat 2))))))
               "the recall index does not leak into the simp index")
           (is (vector? (:root @(get (:secondary-indices db) :idx/dt))) "restored from a persisted root")
-          (finally (d/release conn)))))))
+          (finally (d/release conn)))))
+    (testing "the catalogue lives beside the blobs, never inside the konserve dir"
+      (is (.isDirectory (io/file dir "catalogue")))
+      (is (not (.exists (io/file dir "blobs" "catalogue")))))))
 
 (deftest recall-prefers-the-catalogue-and-falls-back-to-the-trie
-  (let [dir (fresh-store-dir) p (.getPath dir)]
-    (sidecars! dir)
+  (let [dir (fresh-store-dir) p (.getPath dir)
+        sm (storage/open-store p)]
+    (storage/write-derived! (:store sm) "main" :recall-keys recall-entries)
     (try
-      (testing "no catalogue → the in-memory trie from the keys sidecar"
+      (testing "no catalogue → the in-memory trie from the store's derived recall keys"
         (reset! recall/store-path p)
-        (reset! recall/discr-keys-path (.getPath (io/file dir "discr-keys.ndjson.gz")))
+        (reset! state/ansatz-store {:store-map sm :store-path p :branch "main"})
         (reset! state/ansatz-discr-trie nil)
         (is (= #{"zero_le"} (set (recall/recall-names (nle (e/lit-nat 0) (e/lit-nat 5))))))
         (is (some? @state/ansatz-discr-trie) "the trie was built on demand"))
       (testing "with a catalogue → the persisted index, trie untouched"
-        (cat/build! p)
+        (cat/build! p {:branch "main"})     ; from the store's derived blobs this time
         (reset! state/ansatz-discr-trie nil)
         (is (= #{"zero_le"} (set (recall/recall-names (nle (e/lit-nat 0) (e/lit-nat 5))))))
         (is (nil? @state/ansatz-discr-trie) "no trie was built"))
       (finally
         (reset! recall/store-path nil)
-        (reset! recall/discr-keys-path nil)
+        (reset! state/ansatz-store nil)
         (reset! state/ansatz-discr-trie nil)))))

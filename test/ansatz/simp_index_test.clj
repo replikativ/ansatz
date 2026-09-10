@@ -1,95 +1,56 @@
 (ns ansatz.simp-index-test
-  "The persistent @[simp] index (ansatz.simp-index): dump a store's @[simp] LHS keys once, load
-   the `key → name` trie on first demand, and let simp serve the inherited corpus lazily —
-   candidate names by disc-tree key, rules resolved+extracted only for the handful that match —
-   instead of hydrating every name on every call. Exercised on the bundled Init tier with a
-   temp artifact so the test needs no Mathlib store."
+  "The @[simp] LHS index (ansatz.simp-index) at the unit level: keying agrees between the
+   stored and query sides, rules resolve lazily at their inherited priority and memoize, and
+   the index source rides on the Env — an env built without `init!` has none. The store-backed
+   path (trie blob loaded on first simp) is exercised end to end in ansatz.import-test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
             [ansatz.simp-index :as si]
-            [ansatz.state :as state]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.simp :as simp]))
 
-(defn- point-index-at!
-  "Record `path` (or nil) as the global env's simp-keys artifact — what init! does for a store."
-  [path]
-  (swap! state/ansatz-env si/with-index-path path)
-  (reset! state/ansatz-simp-trie nil))
-
 (use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
 
-(defn- dump-inherited-set!
-  "Dump the loaded env's whole inherited @[simp] set (a few hundred names on the bundled tier)
-   to a fresh temp artifact; returns [path key-count]."
+(defn- inherited-entries
+  "Key the loaded env's whole inherited @[simp] set in-process (what the importer does)."
   []
   (let [env (a/env)
-        names (sort (env/get-extension env :simp-lemmas #{}))
-        f (java.io.File/createTempFile "simp-keys" ".ndjson.gz")]
-    (.deleteOnExit f)
-    [(.getPath f) (si/dump-simp-keys! names env #(env/lookup env (name/from-string %)) (.getPath f))]))
+        names (sort (env/get-extension env :simp-lemmas #{}))]
+    (si/lemma-keys names env #(env/lookup env (name/from-string %)))))
 
 (defn- lhs-of [env lemma]
   (:lhs-pattern (first (@#'simp/extract-simp-lemma env (env/lookup env (name/from-string lemma)) 1000))))
 
-(deftest dump-load-and-candidates
-  (testing "stored LHS keys round-trip through EDN and match the query keying"
-    (let [[path n] (dump-inherited-set!)
+(deftest keys-and-candidates
+  (testing "stored LHS keys match the query keying"
+    (let [entries (inherited-entries)
           env (a/env)
           st (tc/mk-tc-state env)
-          trie (si/load-simp-trie path)]
-      (is (> n 100) "the inherited corpus, not the hand-curated core")
+          trie (si/build-simp-trie entries)]
+      (is (> (count entries) 100) "the inherited corpus, not the hand-curated core")
       (is (some #{"Nat.add_zero"} (si/candidate-names trie st env (lhs-of env "Nat.add_zero")))
-          "a lemma's own LHS finds it (keys agree between dump and query)")
-      (is (some #{"Option.some.injEq"} (si/candidate-names trie st env (lhs-of env "Option.some.injEq")))
-          "and one outside the hand-curated set")
+          "a lemma's own LHS finds it")
+      (is (some #{"Option.some.injEq"} (si/candidate-names trie st env (lhs-of env "Option.some.injEq"))))
       (is (not-any? #{"Option.some.injEq"} (si/candidate-names trie st env (lhs-of env "Nat.add_zero")))
-          "the trie discriminates")
-      (testing "rules resolve lazily, at the lemma's inherited priority, and memoize"
-        (point-index-at! path)
-        (try
-          (let [env (a/env)
-                rules (si/rules-for env "Option.some.injEq")]
-            (is (seq rules))
-            (is (= "Option.some.injEq" (name/->string (:name (first rules)))))
-            (is (= simp/default-simp-priority (:priority (first rules))))
-            (is (identical? rules (si/rules-for env "Option.some.injEq")) "memoized"))
-          (is (= [] (si/rules-for env "No.Such.Lemma")) "a bad name is tolerated (and memoized as empty)")
-          (finally (point-index-at! nil)))))))
+          "the trie discriminates"))))
 
-(deftest simp-serves-the-inherited-set-lazily
-  (testing "with the index recorded, (simp) closes a goal that only the inherited set can, and the
-            trie was loaded on that first call — not at init"
-    (let [[path _] (dump-inherited-set!)]
-      (point-index-at! path)
-      (try
-        (is (nil? @state/ansatz-simp-trie) "nothing loaded before the first simp")
-        ;; Option.some.injEq is @[simp] in Lean but NOT hand-curated (see attrs-test); with the
-        ;; extension excluded from the eager set this closes ONLY through the lazy path.
-        (a/prove-theorem 'opt-inj-lazy '[a :- Nat, b :- Nat]
-                         '(= Prop (= (Option Nat) (Option.some a) (Option.some b)) (= Nat a b)) '[(simp)])
-        (is (some? (env/lookup (a/env) (name/from-string "opt-inj-lazy"))))
-        (is (some? (:trie @state/ansatz-simp-trie)) "the trie was built on demand by simp")
-        (finally (point-index-at! nil))))))
+(deftest rules-resolve-lazily-at-inherited-priority
+  (let [env (si/with-index-source (a/env) {:store-path "/nowhere" :branch "x"})]
+    (let [rules (si/rules-for env "Option.some.injEq")]
+      (is (seq rules))
+      (is (= "Option.some.injEq" (name/->string (:name (first rules)))))
+      (is (= simp/default-simp-priority (:priority (first rules))))
+      (is (identical? rules (si/rules-for env "Option.some.injEq")) "memoized"))
+    (is (= [] (si/rules-for env "No.Such.Lemma")) "a bad name is tolerated (and memoized as empty)")))
 
-(deftest a-missing-artifact-keeps-the-eager-path
-  (testing "no path recorded on the env → no trie, and the extension is still on by default (eager)"
-    (point-index-at! nil)
+(deftest the-index-source-rides-on-the-env
+  (testing "an env built without init! has no source and no trie; a source naming a store that
+            is not the current one yields no trie either (no leak across stores)"
+    (is (nil? (si/index-source (a/env))))
     (is (nil? (si/ensure-simp-trie! (a/env))))
-    (a/prove-theorem 'opt-inj-eager '[a :- Nat, b :- Nat]
-                     '(= Prop (= (Option Nat) (Option.some a) (Option.some b)) (= Nat a b)) '[(simp)])
-    (is (some? (env/lookup (a/env) (name/from-string "opt-inj-eager"))))
-    (is (nil? @state/ansatz-simp-trie))))
-
-(deftest an-env-built-without-init-never-inherits-another-store-index
-  (testing "the index rides on the Env: a replayed env carries no path even while another env in
-            the process does (this is how a Mathlib index once leaked into an Init test env)"
-    (let [[path _] (dump-inherited-set!)
-          indexed (si/with-index-path (a/env) path)]
-      (is (= path (si/index-path indexed)))
-      (is (nil? (si/index-path (a/env))) "the original env is untouched (immutable)")
-      (is (nil? (si/ensure-simp-trie! (a/env))))
-      (is (some? (si/ensure-simp-trie! indexed)))
-      (reset! state/ansatz-simp-trie nil))))
+    (let [indexed (si/with-index-source (a/env) {:store-path "/nowhere" :branch "x"})]
+      (is (= {:store-path "/nowhere" :branch "x"} (si/index-source indexed)))
+      (is (nil? (si/index-source (a/env))) "the original env is untouched (immutable)")
+      (is (nil? (si/ensure-simp-trie! indexed)) "not the current store → no trie"))))

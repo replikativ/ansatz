@@ -1,6 +1,7 @@
 (ns ansatz.simp-index
-  "Persistent @[simp] index: the disc-tree LHS keying of a store's @[simp] lemma corpus, dumped
-   once as a store artifact (`<store>/simp-keys.ndjson.gz`) and rebuilt on first demand.
+  "Persistent @[simp] index: the disc-tree LHS keying of a store's @[simp] lemma corpus, computed
+   once by the importer into the store's derived `:simp-keys`/`:simp-trie` blobs and loaded on
+   first demand.
 
    At Mathlib scale the inherited @[simp] set is ~91k names, and without this `simp` resolved
    (hydrated from PSS), extracted and keyed ALL of them — plus an equation-theorem probe and an
@@ -20,30 +21,28 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
             [ansatz.state :as state]
-            [clojure.java.io :as io]
             [clojure.edn :as edn])
-  (:import [ansatz.kernel Name ConstantInfo]
-           [java.util.zip GZIPInputStream GZIPOutputStream]))
+  (:import [ansatz.kernel Name ConstantInfo]))
 
 (def extension-key
-  "The Env extension carrying the store's simp-keys artifact path (set by ansatz.core/init!).
-   It rides on the immutable Env like the attrs extensions do, so an env built any other way
-   (replay, a test fixture's `reset!`) has NO index and stays on the eager path — the index can
-   never leak from one store's env into another's."
-  :simp-keys-path)
+  "The Env extension naming the store whose derived simp index serves this env:
+   `{:store-path p :branch b}`, set by ansatz.core/init!. It rides on the immutable Env like
+   the attrs extensions do, so an env built any other way (replay, a test fixture's `reset!`)
+   has NO index and stays on the eager path — the index can never leak from one store's env
+   into another's."
+  :simp-index)
 
-(defn index-path
-  "The simp-keys artifact path recorded on `env`, or nil."
+(defn index-source
+  "The `{:store-path :branch}` recorded on `env`, or nil."
   [env] (env/get-extension env extension-key nil))
 
-(defn with-index-path
-  "`env` with its simp-keys artifact path set (nil clears it)."
-  [env path] (env/update-extension env extension-key nil (constantly path)))
+(defn with-index-source
+  "`env` with its simp-index source set (nil clears it)."
+  [env source] (env/update-extension env extension-key nil (constantly source)))
 
 (defonce ^:private rule-cache
-  ^{:doc "{:path p :rules {name-str → [rules]}}: extracted rules for the lazily-served corpus,
-          valid for the artifact they were resolved against (a lemma's rules are stable for a
-          store); dropped when the path changes."}
+  ^{:doc "{:path source :rules {name-str → [rules]}}: extracted rules for the lazily-served
+          corpus, valid for the store they were resolved against; dropped when it changes."}
   (atom nil))
 
 (def ^:private extract-simp-lemma
@@ -73,57 +72,46 @@
        (filter seq)
        vec))
 
-(defn dump-simp-keys!
-  "Compute the LHS disc-tree key(s) for every @[simp] lemma in `names` (resolved via
-   `resolve-fn : name-str → ConstantInfo|nil`) and write NDJSON.gz `{:name :key}` (one line per
-   rule) to `path`. The one-time, type-forcing keying pass — amortized into a store artifact.
-   Returns the number of keys written."
-  [names env resolve-fn path & {:keys [max-key-len] :or {max-key-len 120}}]
+(defn lemma-keys
+  "The simp entries `[name key-str]` — one per rule — for every @[simp] lemma in `names`,
+   resolved via `resolve-fn : name-str → ConstantInfo|nil` (a nil or a failing keying is
+   skipped, as is a key longer than `max-key-len`). The one-time, type-forcing keying pass
+   the importer runs. Lemmas' rfl-flags come from their PROOFS, so the resolver must keep
+   theorem values for these names (:keep-value?)."
+  [names env resolve-fn & {:keys [max-key-len] :or {max-key-len 120}}]
   (let [st (tc/mk-tc-state env)]
-    (with-open [w (io/writer (GZIPOutputStream. (io/output-stream (io/file path))))]
-      (reduce
-       (fn [n nam]
-         (let [ci (try (resolve-fn nam) (catch Throwable _ nil))
-               ks (when ci (try (lemma-lhs-keys st env ci) (catch Throwable _ nil)))]
-           (reduce (fn [n k]
-                     (if (< (count k) max-key-len)
-                       (do (.write w (pr-str {:name nam :key (pr-str k)}))
-                           (.write w "\n")
-                           (inc n))
-                       n))
-                   n
-                   (or ks []))))
-       0 names))))
+    (into []
+          (mapcat (fn [nam]
+                    (let [ci (try (resolve-fn nam) (catch Throwable _ nil))
+                          ks (when ci (try (lemma-lhs-keys st env ci) (catch Throwable _ nil)))]
+                      (keep (fn [k] (when (< (count k) max-key-len) [nam (pr-str k)])) ks))))
+          names)))
 
-(defn load-simp-trie
-  "Read a simp-keys NDJSON.gz and build the `LHS-key → name` disc-tree — trie-insert only, the
-   expensive keying was done at dump time (~6 s for Mathlib's 90k keys, dominated by EDN
-   parsing). The trie values are lemma NAME strings; simp resolves+extracts rules on demand."
-  [path]
-  (with-open [r (io/reader (GZIPInputStream. (io/input-stream (io/file path))))]
-    (reduce (fn [trie line]
-              (let [{:keys [name key]} (edn/read-string line)]
-                (dt/trie-insert trie (edn/read-string key) name)))
-            dt/empty-trie
-            (line-seq r))))
+(defn build-simp-trie
+  "The `LHS-key → name` disc-tree from `[name key-str]` entries — trie-insert only. The
+   importer persists the RESULT as the store's `:simp-trie` blob, so a session loads a trie
+   (hundreds of ms) instead of rebuilding it (6 s for Mathlib's 90k keys)."
+  [entries]
+  (reduce (fn [trie [nam k]] (dt/trie-insert trie (edn/read-string k) nam))
+          dt/empty-trie entries))
 
 (defn ensure-simp-trie!
-  "The simp trie for `env`'s store, built on FIRST use and cached in
-   ansatz.state/ansatz-simp-trie (keyed by the artifact path, so switching stores reloads);
-   nil when the env records no artifact (the eager path then serves the inherited set). A
-   truncated/corrupt artifact degrades to nil for the session, never throws."
+  "The simp trie for `env`'s store: the store's derived `:simp-trie` blob, loaded on FIRST
+   use and cached in ansatz.state/ansatz-simp-trie keyed by store — so switching stores
+   reloads; nil when the env records no source or the current store is a different one (the
+   eager path then serves the inherited set)."
   [env]
-  (when-let [p (index-path env)]
-    (let [{:keys [path trie]} @state/ansatz-simp-trie]
-      (if (= path p)
-        trie
-        (let [trie (try (load-simp-trie p)
-                        (catch Throwable t
-                          (println "WARN: simp index unreadable, skipping"
-                                   "(re-dump with scripts/dump_simp_keys.clj):" (.getMessage t))
-                          nil))]
-          (reset! state/ansatz-simp-trie {:path p :trie trie})
-          trie)))))
+  (when-let [{:keys [store-path branch] :as src} (index-source env)]
+    (let [{cur-path :store-path cur-branch :branch store-map :store-map}
+          @(deref (requiring-resolve 'ansatz.state/ansatz-store))]
+      (when (and store-map (= cur-path store-path) (= cur-branch branch))
+        (let [{:keys [source trie]} @state/ansatz-simp-trie]
+          (if (= source src)
+            trie
+            (let [trie ((requiring-resolve 'ansatz.export.storage/read-derived)
+                        (:store store-map) branch :simp-trie)]
+              (reset! state/ansatz-simp-trie {:source src :trie trie})
+              trie)))))))
 
 ;; ---- lookup side: candidate names by goal-subterm key, lazy rule resolution ----
 
@@ -141,10 +129,10 @@
 
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority
-   (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized per artifact.
+   (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized per store.
    A name that fails to resolve or extract memoizes as [] so it is tried once."
   [env name-str]
-  (let [p (index-path env)
+  (let [p (index-source env)
         cache (let [c @rule-cache] (if (= (:path c) p) c (reset! rule-cache {:path p :rules {}})))]
     (if-let [hit (find (:rules cache) name-str)]
       (val hit)
