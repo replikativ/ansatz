@@ -1,8 +1,14 @@
 {:paths ["src" "classes" "resources"]
  :deps {org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/data.json {:mvn/version "2.5.1"}
-        org.replikativ/persistent-sorted-set {:mvn/version "0.4.126"}
-        org.replikativ/konserve {:mvn/version "0.9.350"
+        ;; 0.5.x carries `org.replikativ.persistent-sorted-set.cbor` — the canonical PSS node
+        ;; handlers ansatz.export.codec installs on its boring registry. Reads of existing
+        ;; Fressian stores are unchanged (the legacy node handlers still apply).
+        org.replikativ/persistent-sorted-set {:mvn/version "0.5.144"}
+        org.replikativ/boring {:mvn/version "0.1.27"}
+        ;; 0.9.372 carries the boring (CBOR) serializer, id 3 — see ansatz.export.codec. It is
+        ;; also what datahike and konserve-lmdb pin, so the :datahike alias no longer overrides.
+        org.replikativ/konserve {:mvn/version "0.9.372"
                                  :exclusions [org.clojure/clojurescript
                                               com.github.pkpkpk/cljs-node-io
                                               com.github.pkpkpk/fress
@@ -21,13 +27,10 @@
           :ns-default build}
 
   ;; datahike-backed indices (optional module; own src path so the core build never sees it).
-  ;; datahike pins newer konserve/persistent-sorted-set than ansatz's own store does; the
-  ;; ansatz store has been verified to open under those, so they are overridden here rather
-  ;; than juggled. Point at the released datahike once its version is known.
+  ;; Core now pins the same konserve/persistent-sorted-set datahike does, so nothing is
+  ;; overridden. Point at the released datahike once its version is known.
   :datahike {:extra-paths ["src-datahike" "test-datahike"]
-             :extra-deps {org.replikativ/datahike {:local/root "../datahike"}}
-             :override-deps {org.replikativ/konserve {:mvn/version "0.9.372"}
-                             org.replikativ/persistent-sorted-set {:mvn/version "0.5.140"}}}
+             :extra-deps {org.replikativ/datahike {:local/root "../datahike"}}}
 
   ;; Tests
   :test {:extra-paths ["test"]

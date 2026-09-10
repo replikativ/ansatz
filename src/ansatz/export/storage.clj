@@ -9,6 +9,7 @@
 
    Storage stack: PSS → CachedStorage (IStorage) → konserve filestore."
   (:require [konserve.core :as k]
+            [ansatz.export.codec :as codec]
             [konserve.filestore :as fs]
             [konserve.serializers :as ser]
             [clojure.core.cache.wrapped :as cache]
@@ -437,31 +438,50 @@
 ;; Store lifecycle
 ;; ============================================================
 
+(def ^:private codec->serializer
+  {:fressian :FressianSerializer
+   :boring :BoringSerializer})
+
 (defn open-store
   "Open a persistent store backed by a konserve filestore at dir-path.
    Returns a store map with :store (konserve), :storage (CachedStorage),
-   and :settings-atom."
-  [dir-path]
-  (let [settings-atom (atom nil)
-        storage-atom (atom nil)
-        read-handlers (make-read-handlers settings-atom storage-atom)
-        write-handlers (make-write-handlers)
-        kstore (fs/connect-fs-store
-                dir-path
-                :opts {:sync? true}
-                :config {:sync-blob? true}
-                :serializers {:FressianSerializer
-                              (ser/fressian-serializer
-                               read-handlers
-                               write-handlers)})
-        lru-cache (cache/lru-cache-factory {} :threshold 4096)
-        cached (->CachedStorage kstore lru-cache (atom []) (atom []) (atom []) settings-atom)
-        settings (Settings. 64 RefType/WEAK)]
-    (reset! settings-atom settings)
-    (reset! storage-atom cached)
-    {:store kstore
-     :storage cached
-     :settings-atom settings-atom}))
+   and :settings-atom.
+
+   `:codec` chooses how NEW blobs are WRITTEN — `:fressian` (default, blob-header byte 1) or
+   `:boring` (CBOR, byte 3; ansatz.export.codec). Both are always available for READING:
+   konserve records the serializer in every blob's header and dispatches on it, so an existing
+   Fressian store opens unchanged under either setting and a store may hold both. That is what
+   makes the migration incremental — a converted store is simply one whose blobs have all been
+   rewritten (scripts/convert_store.clj)."
+  ([dir-path] (open-store dir-path {}))
+  ([dir-path {:keys [codec] :or {codec :fressian}}]
+   (let [serializer (or (codec->serializer codec)
+                        (throw (ex-info "unknown store codec" {:codec codec
+                                                               :known (set (keys codec->serializer))})))
+         settings-atom (atom nil)
+         storage-atom (atom nil)
+         read-handlers (make-read-handlers settings-atom storage-atom)
+         write-handlers (make-write-handlers)
+         kstore (fs/connect-fs-store
+                 dir-path
+                 :opts {:sync? true}
+                 :config {:sync-blob? true
+                          :encoding {:serializer serializer
+                                     :serializers
+                                     {:FressianSerializer (ser/fressian-serializer
+                                                           read-handlers write-handlers)
+                                      ;; The PSS root handler resolves its storage through the
+                                      ;; same write-once cell the Fressian one uses.
+                                      :BoringSerializer (ser/boring-serializer
+                                                         (codec/registry (fn [_] @storage-atom)))}}})
+         lru-cache (cache/lru-cache-factory {} :threshold 4096)
+         cached (->CachedStorage kstore lru-cache (atom []) (atom []) (atom []) settings-atom)
+         settings (Settings. 64 RefType/WEAK)]
+     (reset! settings-atom settings)
+     (reset! storage-atom cached)
+     {:store kstore
+      :storage cached
+      :settings-atom settings-atom})))
 
 (defn close-store
   "Close the store, flushing pending writes."
