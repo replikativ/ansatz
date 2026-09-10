@@ -65,21 +65,21 @@
    `:matcher-info` extension (name→info map), keeping only matchers present as constants in `env`."
   ([env ndjson] (import-matchers env ndjson {}))
   ([env ndjson {:keys [present?]}]
-  (let [lines (if (sequential? ndjson) ndjson (str/split-lines (slurp ndjson)))
+   (let [lines (if (sequential? ndjson) ndjson (str/split-lines (slurp ndjson)))
         ;; Presence via env/lookup RESOLVES the declaration — on a PSS-backed store that is
         ;; a full hydration per matcher (27.9 s for the bundled corpus against Mathlib). Callers
         ;; pass the cheap PSS-membership checker (storage/contains-name-checker) instead.
-        present? (or present?
-                     (fn [n] (some? (env/lookup env (name/from-string n)))))]
-    (reduce (fn [[e stats] line]
-              (if-let [[nm info] (try (parse-info line) (catch Throwable _ nil))]
-                (if (present? nm)
-                  [(env/update-extension e :matcher-info {} assoc nm info)
-                   (update stats :loaded (fnil inc 0))]
-                  [e (update stats :skipped (fnil inc 0))])
-                [e stats]))
-            [env {}]
-            lines))))
+         present? (or present?
+                      (fn [n] (some? (env/lookup env (name/from-string n)))))]
+     (reduce (fn [[e stats] line]
+               (if-let [[nm info] (try (parse-info line) (catch Throwable _ nil))]
+                 (if (present? nm)
+                   [(env/update-extension e :matcher-info {} assoc nm info)
+                    (update stats :loaded (fnil inc 0))]
+                   [e (update stats :skipped (fnil inc 0))])
+                 [e stats]))
+             [env {}]
+             lines))))
 
 (defn import-matchers!
   "Load matcher-info from `ndjson` into the GLOBAL env (atomically). Returns the load stats."
@@ -88,7 +88,6 @@
    (let [stats (atom nil)]
      (swap! state/ansatz-env (fn [e] (let [[e' s] (import-matchers e ndjson opts)] (reset! stats s) e')))
      @stats)))
-
 
 (defn load-bundled-matchers!
   "Import the bundled Init matcher-info corpus (gzipped NDJSON from scripts/dump_matchers.lean) into

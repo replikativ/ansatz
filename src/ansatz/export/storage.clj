@@ -672,74 +672,74 @@
    individual names; verification and `prepare-verify` use :full."
   ([ci-shell resolve-expr-fn] (resolve-ci-shell ci-shell resolve-expr-fn :full nil))
   ([ci-shell resolve-expr-fn value-policy keep-value?]
-  (let [m (if (instance? CIShell ci-shell) (.data ^CIShell ci-shell) ci-shell)
-        tag (int (:tag m))
-        type-expr (resolve-expr-fn (:type-id m))
-        lps (into-array Object (:lps m))
+   (let [m (if (instance? CIShell ci-shell) (.data ^CIShell ci-shell) ci-shell)
+         tag (int (:tag m))
+         type-expr (resolve-expr-fn (:type-id m))
+         lps (into-array Object (:lps m))
         ;; THM (2) / OPAQUE (3) bodies are skipped under :defs-only unless kept by name
-        skip-value? (and (= value-policy :defs-only)
-                         (or (= tag 2) (= tag 3))
-                         (not (and keep-value? (keep-value? (:name m)))))
-        resolve-value (fn [id] (when-not skip-value? (resolve-expr-fn id)))]
-    (case tag
+         skip-value? (and (= value-policy :defs-only)
+                          (or (= tag 2) (= tag 3))
+                          (not (and keep-value? (keep-value? (:name m)))))
+         resolve-value (fn [id] (when-not skip-value? (resolve-expr-fn id)))]
+     (case tag
       ;; AXIOM
-      0 (ConstantInfo/mkAxiom (:name m) lps type-expr
-                              (boolean (:unsafe? m)))
-      ;; DEF
-      1 (let [h (let [hints (:hints m)]
-                  (cond
-                    (= hints :opaque) ConstantInfo/HINTS_OPAQUE
-                    (= hints :abbrev) ConstantInfo/HINTS_ABBREV
-                    (map? hints) (:regular hints)
-                    :else ConstantInfo/HINTS_OPAQUE))
-              s (case (:safety m)
-                  :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
-          (ConstantInfo/mkDef (:name m) lps type-expr
-                              (resolve-expr-fn (:value-id m))
-                              (int h) s
-                              (into-array Object (:all m))))
-      ;; THM
-      2 (ConstantInfo/mkThm (:name m) lps type-expr
-                            (resolve-value (:value-id m))
-                            (into-array Object (:all m)))
-      ;; OPAQUE
-      3 (ConstantInfo/mkOpaque (:name m) lps type-expr
-                               (resolve-value (:value-id m))
-                               (into-array Object (:all m))
+       0 (ConstantInfo/mkAxiom (:name m) lps type-expr
                                (boolean (:unsafe? m)))
+      ;; DEF
+       1 (let [h (let [hints (:hints m)]
+                   (cond
+                     (= hints :opaque) ConstantInfo/HINTS_OPAQUE
+                     (= hints :abbrev) ConstantInfo/HINTS_ABBREV
+                     (map? hints) (:regular hints)
+                     :else ConstantInfo/HINTS_OPAQUE))
+               s (case (:safety m)
+                   :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
+           (ConstantInfo/mkDef (:name m) lps type-expr
+                               (resolve-expr-fn (:value-id m))
+                               (int h) s
+                               (into-array Object (:all m))))
+      ;; THM
+       2 (ConstantInfo/mkThm (:name m) lps type-expr
+                             (resolve-value (:value-id m))
+                             (into-array Object (:all m)))
+      ;; OPAQUE
+       3 (ConstantInfo/mkOpaque (:name m) lps type-expr
+                                (resolve-value (:value-id m))
+                                (into-array Object (:all m))
+                                (boolean (:unsafe? m)))
       ;; QUOT
-      4 (ConstantInfo/mkQuot (:name m) lps type-expr (:quot-kind m))
+       4 (ConstantInfo/mkQuot (:name m) lps type-expr (:quot-kind m))
       ;; INDUCT
-      5 (ConstantInfo/mkInduct (:name m) lps type-expr
-                               (int (:num-params m)) (int (:num-indices m))
-                               (into-array Object (:all m))
-                               (into-array Name (:ctors m))
-                               (int (:num-nested m))
-                               (boolean (:is-rec m))
-                               (boolean (:is-reflexive m))
-                               (boolean (:is-unsafe m)))
+       5 (ConstantInfo/mkInduct (:name m) lps type-expr
+                                (int (:num-params m)) (int (:num-indices m))
+                                (into-array Object (:all m))
+                                (into-array Name (:ctors m))
+                                (int (:num-nested m))
+                                (boolean (:is-rec m))
+                                (boolean (:is-reflexive m))
+                                (boolean (:is-unsafe m)))
       ;; CTOR
-      6 (ConstantInfo/mkCtor (:name m) lps type-expr
-                             (:induct-name m)
-                             (int (:cidx m))
-                             (int (:num-params m))
-                             (int (:num-fields m))
-                             (boolean (:is-unsafe m)))
+       6 (ConstantInfo/mkCtor (:name m) lps type-expr
+                              (:induct-name m)
+                              (int (:cidx m))
+                              (int (:num-params m))
+                              (int (:num-fields m))
+                              (boolean (:is-unsafe m)))
       ;; RECURSOR
-      7 (let [rules (mapv (fn [r]
-                            (ConstantInfo$RecursorRule.
-                             (:ctor r) (int (:nfields r))
-                             (resolve-expr-fn (:rhs-id r))))
-                          (:rules m))]
-          (ConstantInfo/mkRecursor (:name m) lps type-expr
-                                   (into-array Object (:all m))
-                                   (int (:num-params m))
-                                   (int (:num-indices m))
-                                   (int (:num-motives m))
-                                   (int (:num-minors m))
-                                   (into-array ConstantInfo$RecursorRule rules)
-                                   (boolean (:is-k m))
-                                   (boolean (:is-unsafe m))))))))
+       7 (let [rules (mapv (fn [r]
+                             (ConstantInfo$RecursorRule.
+                              (:ctor r) (int (:nfields r))
+                              (resolve-expr-fn (:rhs-id r))))
+                           (:rules m))]
+           (ConstantInfo/mkRecursor (:name m) lps type-expr
+                                    (into-array Object (:all m))
+                                    (int (:num-params m))
+                                    (int (:num-indices m))
+                                    (int (:num-motives m))
+                                    (int (:num-minors m))
+                                    (into-array ConstantInfo$RecursorRule rules)
+                                    (boolean (:is-k m))
+                                    (boolean (:is-unsafe m))))))))
 
 ;; ============================================================
 ;; Branching
