@@ -27,6 +27,26 @@
             :basis basis
             :javac-opts ["-source" "11" "-target" "11"]}))
 
+(def aot-excluded
+  "Namespaces that must load from SOURCE, not be compiled into the jar: they require an
+   OPTIONAL dependency that is not on the library's own classpath (ansatz.malli loads lazily
+   when malli is on the consumer's)."
+  '#{ansatz.malli})
+
+(defn- aot-namespaces
+  "Every namespace under src/, minus `aot-excluded`."
+  []
+  (->> (file-seq (java.io.File. "src"))
+       (filter #(.endsWith (.getName ^java.io.File %) ".clj"))
+       (map #(-> (.getPath ^java.io.File %) (subs 4)
+                 (clojure.string/replace #"\.clj$" "")
+                 (clojure.string/replace "/" ".")
+                 (clojure.string/replace "_" "-")
+                 symbol))
+       (remove aot-excluded)
+       sort
+       vec))
+
 (defn jar [_]
   (javac nil)
   (b/write-pom {:class-dir class-dir
@@ -51,6 +71,16 @@
                              [:email "ch_weil@topiq.es"]]]]})
   (b/copy-dir {:src-dirs ["src" "classes" "resources"]
                :target-dir class-dir})
+  ;; AOT-compile ansatz's OWN namespaces into the jar. Loading them from source costs ~7.5 s
+  ;; of every startup (39k lines); as classes, ~1 s. `:filter-nses` keeps it clean: only
+  ;; `ansatz.*` classes are written, never a dependency's — a library that ships compiled
+  ;; classes of its dependencies shadows whatever version the user resolved. (konserve and
+  ;; core.async, the other ~16 s, load from source until they ship their own classes; the
+  ;; zero-config path no longer loads them at all — see ansatz.core/init!*.)
+  (b/compile-clj {:basis basis
+                  :class-dir class-dir
+                  :ns-compile (aot-namespaces)
+                  :filter-nses '[ansatz]})
   (b/jar {:class-dir class-dir
           :jar-file jar-file}))
 
