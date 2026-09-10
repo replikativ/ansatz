@@ -34,6 +34,32 @@
                              :unit-thunk (:unitThunk a)})
                     (:alts j))}])))
 
+(def ^:private bundled-resource "ansatz/init-matchers.ndjson.gz")
+
+(defn parse-matcher-lines
+  "NDJSON lines → {matcher-name-str → MatcherInfo map}, no presence filtering."
+  [lines]
+  (into {} (keep (fn [line] (try (parse-info line) (catch Throwable _ nil))) lines)))
+
+(defn install
+  "`env` with an already-filtered {name → info} map (a store's derived `:matchers` blob) in
+   its :matcher-info extension."
+  [env m]
+  (env/update-extension env :matcher-info {} merge m))
+
+(defn install!
+  "install into the GLOBAL env."
+  [m]
+  (swap! state/ansatz-env install m)
+  (count m))
+
+(defn bundled-matchers
+  "The bundled Init matcher corpus as {name → info}, or nil if the resource is absent."
+  []
+  (when-let [res (io/resource bundled-resource)]
+    (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+      (parse-matcher-lines (str/split-lines (slurp in))))))
+
 (defn import-matchers
   "Return [env' stats]: `env` with matcher-info from `ndjson` (path or seq of lines) loaded into the
    `:matcher-info` extension (name→info map), keeping only matchers present as constants in `env`."
@@ -63,7 +89,6 @@
      (swap! state/ansatz-env (fn [e] (let [[e' s] (import-matchers e ndjson opts)] (reset! stats s) e')))
      @stats)))
 
-(def ^:private bundled-resource "ansatz/init-matchers.ndjson.gz")
 
 (defn load-bundled-matchers!
   "Import the bundled Init matcher-info corpus (gzipped NDJSON from scripts/dump_matchers.lean) into

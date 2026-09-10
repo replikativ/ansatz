@@ -324,6 +324,15 @@
   [store k]
   (k/get store k nil {:sync? true}))
 
+(defn derived-key
+  "konserve key of a piece of DERIVED state for a branch — attrs, instances, matchers, recall
+   keys, simp keys, the simp trie: everything `init!` used to re-derive from sidecar files at
+   every start, computed once by the importer."
+  [branch-name k] [:derived branch-name k])
+
+(defn write-derived! [store branch-name k v] (k/assoc store (derived-key branch-name k) v {:sync? true}))
+(defn read-derived [store branch-name k] (k/get store (derived-key branch-name k) nil {:sync? true}))
+
 (defn store-multi-put
   "Batch put key-value pairs to the konserve filestore."
   [store entries]
@@ -397,6 +406,25 @@
                               entry)))))]
       {:branch-meta branch-meta
        :lookup-ci lookup-ci})))
+
+(defn branch-resolver
+  "An UNRESTRICTED `(fn [name-str] ConstantInfo|nil)` over a branch, with its own resolver
+   caches — one per thread when resolving in parallel (the name/level caches are not
+   thread-safe). Options as branch-loader: :value-policy :full|:defs-only, :keep-value?."
+  [store-map branch-name & {:keys [value-policy keep-value?] :or {value-policy :full}}]
+  (let [{:keys [lookup-ci]} (branch-loader store-map branch-name
+                                           :value-policy value-policy :keep-value? keep-value?)]
+    (fn [name-str] (lookup-ci (ansatz-name/from-string name-str)))))
+
+(defn load-decl-order
+  "The branch's declarations in export (admission) order, as name strings."
+  [store-map branch-name]
+  (let [{:keys [store]} store-map
+        branch-meta (store-get store [:branches branch-name])]
+    (when branch-meta
+      (if-let [num-chunks (:decl-order-chunks branch-meta)]
+        (into [] (mapcat (fn [i] (store-get store [:decl-order branch-name i]))) (range num-chunks))
+        (store-get store [:decl-order branch-name])))))
 
 (defn load-env
   "Load an Env from a persisted branch.

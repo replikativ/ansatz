@@ -21,6 +21,7 @@
    default) for their dynamically-loaded Ansatz code to find the same stores the setup
    scripts wrote."
   (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [clojure.string :as str]))
 
 (defn- non-empty [s] (when (and s (not (str/blank? s))) s))
@@ -72,3 +73,50 @@
         candidates (cons (store-dir nm)
                          (for [r legacy-roots] (.getPath (io/file r (str "ansatz-" nm)))))]
     (some (fn [p] (when (non-empty-dir? (io/file p)) p)) candidates)))
+
+;; ============================================================
+;; Store format + manifest
+;; ============================================================
+
+(def store-format
+  "The on-disk format this build reads and writes. Bumped on ANY incompatible change to the
+   blob encoding, the tree layout or the derived state. There is no migration: a store of
+   another format is refused at open and re-imported from the Lean export (ansatz.import),
+   which is cheaper than maintaining compatibility code and is what the format is designed
+   around (content-addressed blobs make re-import produce the same store for the same input)."
+  1)
+
+(defn manifest-file ^java.io.File [store-path] (io/file store-path "manifest.edn"))
+
+(defn read-manifest
+  "The store's manifest map, or nil when there is none (an unfinished import, or a pre-format
+   store)."
+  [store-path]
+  (let [f (manifest-file store-path)]
+    (when (.exists f)
+      (edn/read-string (slurp f)))))
+
+(defn write-manifest!
+  "Write the manifest LAST: it is what marks an import complete."
+  [store-path m]
+  (spit (manifest-file store-path)
+        (with-out-str (clojure.pprint/pprint m))))
+
+(defn check-format!
+  "The manifest of the store at `store-path`, or an exception saying to re-import. `init!`
+   calls this before opening a store."
+  [store-path]
+  (let [m (read-manifest store-path)
+        f (:store/format m)]
+    (cond
+      (nil? m)
+      (throw (ex-info (str "No store manifest at " store-path " — either the import did not "
+                           "finish or this is a store from before format " store-format
+                           ". Re-import it: ./scripts/setup-<name>.sh, or (ansatz.import/import! ...).")
+                      {:store store-path :expected store-format}))
+      (not= f store-format)
+      (throw (ex-info (str "Store " store-path " is format " f ", this ansatz reads format "
+                           store-format ". There is no migration — re-import it: "
+                           "./scripts/setup-<name>.sh, or (ansatz.import/import! ...).")
+                      {:store store-path :found f :expected store-format}))
+      :else m)))
