@@ -72,6 +72,12 @@
           or nil. The trie itself is built on first demand — see ensure-discr-trie!."}
   (atom nil))
 
+(defonce store-path
+  ^{:doc "Path of the current store (set by ansatz.core/init!), or nil. When the store carries a
+          catalogue (`<store>/catalogue`, ansatz.catalogue on the :datahike alias) recall is
+          answered from its persisted disc-tree index instead of the in-memory trie."}
+  (atom nil))
+
 (declare load-discr-trie)
 
 (defn ensure-discr-trie!
@@ -99,3 +105,25 @@
                 (dt/trie-insert trie (edn/read-string key) name)))
             dt/empty-trie
             (line-seq r))))
+
+;; ---- recall: durable catalogue first, in-memory trie as the fallback ----
+
+(defn- catalogue-db
+  "The current store's catalogue DB, or nil: no store, no catalogue, or datahike not on the
+   classpath (ansatz.catalogue lives under the :datahike alias)."
+  []
+  (when-let [p @store-path]
+    (try ((requiring-resolve 'ansatz.catalogue/current-db) p)
+         (catch java.io.FileNotFoundException _ nil))))
+
+(defn recall-names
+  "Declarations whose CONCLUSION structurally matches `goal-type` (holes → stars), deduped.
+   Served from the store's persisted catalogue index when it has one (a ~130 ms connect on
+   first use), else from the in-memory trie built on first use from the keys sidecar; nil when
+   the store has neither."
+  [goal-type]
+  (let [k (query-key goal-type)]
+    (if-let [db (catalogue-db)]
+      ((requiring-resolve 'ansatz.catalogue/recall-names) db k)
+      (when-let [trie (ensure-discr-trie!)]
+        (distinct (dt/trie-match trie k))))))
