@@ -143,15 +143,22 @@
 (defn candidates
   "Shape + vocabulary, no kernel: the declarations whose conclusion structurally matches
    `goal-type`, ranked by how many of the goal's constants their statement also mentions.
-   Returns [{:name :shared :score :kind} …], best first.
+   Returns [{:name :specificity :shared :score :kind} …], most specific first.
 
    The shape index OVER-APPROXIMATES by design — a star-headed stored key matches anything, so
    a Mathlib goal recalls ~5,500 declarations. Scoring therefore asks the database for a COUNT
    per candidate against the goal's constants (one bounded join), never for the candidates'
    mention lists: pulling every mention of every hit cost seconds and dominated the search."
-  [db goal-type & {:keys [limit] :or {limit 200}}]
+  [db goal-type & {:keys [limit rank-pool] :or {limit 200 rank-pool 400}}]
   (let [ix (get (:secondary-indices db) :idx/dt)
-        eids (vec (dti/search-eids ix (recall/query-key goal-type)))
+        ;; SPECIFICITY first (Lean's DiscrTree order): the tree matches ~5,500 declarations for
+        ;; a Mathlib goal, most of them only through stars. Ranking by how much CONCRETE
+        ;; structure a stored pattern matched puts the plausible ones in front, and lets the
+        ;; vocabulary join — and the kernel confirmation after it — see a few hundred rather
+        ;; than thousands.
+        scored (take rank-pool (dti/search-scored ix (recall/query-key goal-type)))
+        eids (mapv first scored)
+        spec (into {} scored)
         gc (into [] (keep #(eid db %)) (goal-consts goal-type))
         shared (when (and (seq eids) (seq gc))
                  (into {} (d/q '[:find ?d (count ?c) :in $ [?d ...] [?c ...] :where [?d :decl/mentions ?c]]
@@ -160,8 +167,10 @@
     (->> (d/q '[:find ?d ?n ?k :in $ [?d ...] :where [?d :decl/name ?n] [?d :decl/kind ?k]] db eids)
          (map (fn [[d n k]]
                 (let [sh (get shared d 0)]
-                  {:name n :kind k :shared sh :score (/ (double sh) n-gc)})))
-         (sort-by (juxt (comp - :score) (fn [{k :kind}] (case k :thm 0 :axiom 1 :def 2 3)) :name))
+                  {:name n :kind k :shared sh :specificity (get spec d 0)
+                   :score (/ (double sh) n-gc)})))
+         (sort-by (juxt (comp - :specificity) (comp - :score)
+                        (fn [{k :kind}] (case k :thm 0 :axiom 1 :def 2 3)) :name))
          (take limit)
          vec)))
 
@@ -198,16 +207,16 @@
         _ (when-not goal (throw (ex-info "no goals" {})))
         cands (remove #(contains? exclude (:name %)) (candidates db (:type goal) :limit try))]
     (->> cands
-         (keep (fn [{:keys [name score shared kind]}]
+         (keep (fn [{:keys [name score shared specificity kind]}]
                  (when-let [ps' (try-apply ps name)]
                    (let [n (count (proof/goals ps'))]
-                     {:name name :score score :shared shared :kind kind :remaining n
+                     {:name name :score score :shared shared :specificity specificity :kind kind :remaining n
                       :tactic (if (zero? n) [:exact name] [:apply name])}))))
          ;; CONFIRMED first, then by how much is left to prove, then by vocabulary. A lemma
          ;; general enough to unify with anything (`BoxIntegral.Box.subbox_induction_on'` on a
          ;; Nat goal) applies and leaves two goals; one that closes the goal outright is the
          ;; answer. Candidate order is a prior, not a verdict.
-         (sort-by (juxt :remaining (comp - :score)))
+         (sort-by (juxt :remaining (comp - :specificity) (comp - :score)))
          (take limit)
          vec)))
 

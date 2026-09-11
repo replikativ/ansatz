@@ -220,6 +220,30 @@
                                 (clojure.core/keys children)))]
       (into [] (concat star-results exact-results all-results)))))
 
+(defn- match-scored
+  "`match`, carrying Lean's DiscrTree SPECIFICITY: the number of CONCRETE (non-star) key
+   matches on the path to a value. A stored `*` matches anything and constrains nothing (+0);
+   a query `*` explores every child and constrains nothing (+0); a concrete-to-concrete match
+   is +1. Returns [[eid score] …] — higher is more specific, and that is the order to try
+   candidates in, because the tree over-approximates heavily (a Mathlib goal recalls ~5,500
+   declarations, most of them matched only through stars)."
+  [ctx node ks score]
+  (if (empty? ks)
+    (mapv (fn [v] [v score]) (:values node []))
+    (let [k (first ks)
+          rest-keys (rest ks)
+          children (:children node {})
+          star-results (when (contains? children star-key)
+                         (match-scored ctx (child-of ctx node star-key) (skip-subtree ks) score))
+          exact-results (when (and (not= k star-key) (contains? children k))
+                          (match-scored ctx (child-of ctx node k) rest-keys (inc score)))
+          all-results (when (= k star-key)
+                        (mapcat (fn [ck]
+                                  (when (not= ck star-key)
+                                    (match-scored ctx (child-of ctx node ck) rest-keys score)))
+                                (clojure.core/keys children)))]
+      (into [] (concat star-results exact-results all-results)))))
+
 (defn- inline-whole
   "A small subtree as a self-contained value: every ref/bucket beneath it resolved and
    inlined; bucket bookkeeping dropped."
@@ -387,6 +411,19 @@
   (let [st @(:state index) ctx (ctx-of st)]
     (distinct (match ctx (resolve-child ctx (:root st))
                      (if (string? key-path) (edn/read-string key-path) key-path)))))
+
+(defn search-scored
+  "Matching entity ids with their SPECIFICITY, most specific first: `[[eid score] …]`, one
+   entry per eid (its best score). The tree is an over-approximation — this is the order in
+   which its answers are worth trying."
+  [index key-path]
+  (let [st @(:state index) ctx (ctx-of st)]
+    (->> (match-scored ctx (resolve-child ctx (:root st))
+                       (if (string? key-path) (edn/read-string key-path) key-path)
+                       0)
+         (reduce (fn [m [e sc]] (assoc m e (max sc (get m e 0)))) {})
+         (sort-by (comp - val))
+         (mapv (fn [[e sc]] [e sc])))))
 
 ;; ---- datalog foreign var: query the disc-tree index from a datalog clause ----
 ;; In a query:
