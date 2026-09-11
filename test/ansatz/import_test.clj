@@ -9,6 +9,7 @@
             [ansatz.store :as store]
             [ansatz.state :as state]
             [ansatz.recall :as recall]
+            [ansatz.export.storage :as storage]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -42,6 +43,7 @@
       (is (= "test" (get-in m [:provenance :lean/toolchain])))
       (let [arts (:artifacts m)]
         (is (= 2997 (:declarations arts)))
+        (is (= 2997 (:facts arts)) "one facts record per declaration")
         (is (> (:attrs arts) 100) "the inherited Init corpus, intersected")
         (is (pos? (:recall-keys arts)))
         (is (pos? (:simp-keys arts)))
@@ -68,6 +70,22 @@
                          '(= Prop (= (Option Nat) (Option.some a) (Option.some b)) (= Nat a b)) '[(simp)]))
       (is (some? (env/lookup (a/env) (name/from-string "imp-opt-inj"))))
       (is (some? (:trie @state/ansatz-simp-trie)) "the trie blob was loaded on demand"))
+    (testing "the facts blobs carry the statement's and the value's vocabulary"
+      (let [sm (:store-map @state/ansatz-store)
+            kstore (:store sm)
+            n (storage/read-derived kstore "init" :facts-chunks)
+            facts (into [] (mapcat #(storage/read-derived kstore "init" [:facts %])) (range n))
+            by-name (into {} (map (juxt :name identity)) facts)
+            f (by-name "Nat.add_comm")]
+        (is (pos? n) "facts are chunked")
+        (is (= 2997 (count facts)))
+        (is (= :thm (:kind f)))
+        (is (= "Eq" (:concl-head f)))
+        (is (= 2 (:num-binders f)))
+        (is (contains? (set (:mentions f)) "HAdd.hAdd") "the STATEMENT's constants")
+        (is (contains? (set (:depends-on f)) "Nat.succ_add") "the VALUE's constants")
+        (is (not-any? :depends-on (filter #(= :axiom (:kind %)) facts))
+            "an axiom has no value, so no dependencies")))
     (testing "recall answers from the store's keys"
       (let [names (recall/recall-names (nle (e/lit-nat 0) (e/mvar 900001)))]
         (is (some #{"Nat.zero_le"} names))))))

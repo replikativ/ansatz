@@ -257,10 +257,11 @@
     (let [ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
                    (slurp in))
           env    (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false))]
-      (reset! ansatz-env env)
-      (reset! ansatz-instance-index (instance/build-instance-index env))
-      (attrs/load-bundled-attrs!)   ;; inherit Lean's @[simp]/@[csimp]/@[extern] into env extensions
-      (matchers/load-bundled-matchers!)  ;; inherit Lean's Match.MatcherInfo (for the `split` tactic)
+      ;; through `setup-env!` like every other entry point, NOT by hand: it is the one place
+      ;; that installs global state, and it also CLEARS what a previous `init!` left — the
+      ;; store, its simp index and its recall path. Installing the env directly left this tier
+      ;; claiming the previous store's derived state.
+      (setup-env! env)
       (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
       @ansatz-env)))
 

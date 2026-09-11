@@ -74,11 +74,12 @@
         (take limit (apply d/q {:find '[[?n ...]] :in in :where where} db args))))))
 
 (defn describe
-  "Everything the catalogue knows about a declaration."
+  "Everything the catalogue knows about a declaration, or nil when it holds none — `d/pull` on
+   a lookup ref that resolves to nothing throws rather than returning nil."
   [db name-str]
-  (some-> (d/pull db '[* {:decl/mentions [:decl/name]} {:decl/depends-on [:decl/name]}
-                       {:decl/instance-of [:decl/name]}]
-                  [:decl/name name-str])
+  (some-> (eid db name-str)
+          (->> (d/pull db '[* {:decl/mentions [:decl/name]} {:decl/depends-on [:decl/name]}
+                            {:decl/instance-of [:decl/name]}]))
           (update :decl/mentions #(mapv :decl/name %))
           (update :decl/depends-on #(mapv :decl/name %))
           (update :decl/instance-of :decl/name)))
