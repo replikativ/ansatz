@@ -9,8 +9,11 @@
             [ansatz.search :as s]
             [ansatz.catalogue :as cat]
             [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.basic :as basic]
+            [ansatz.tactic.search :as tsearch]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.name :as nm]))
+            [ansatz.kernel.name :as nm])
+  (:import [ansatz.kernel ConstantInfo]))
 
 (def ^:private store (atom nil))
 
@@ -66,7 +69,7 @@
           "the lemma itself is among the confirmed suggestions")
       (testing "every suggestion really applies to the goal"
         (is (every? (fn [{:keys [name]}]
-                      (some? (#'s/try-apply ps name)))
+                      (some? (s/apply-lemma ps name)))
                     hits)))))
   (testing "candidates carry specificity and are ordered by it"
     (let [ps (s/goal-state "Nat.succ_le_of_lt")
@@ -75,6 +78,41 @@
       (is (= (map :specificity cs) (reverse (sort (map :specificity cs))))
           "most specific first")
       (is (some #(= "Nat.succ_le_of_lt" (:name %)) cs) "the goal's own lemma is recalled"))))
+
+(deftest the-tactic-layer-sees-the-library
+  (testing "enumerate-tactics gains confirmed library lemmas when asked, and the REPL's
+            suggest shows tactics you can type"
+    (let [ps (s/goal-state "Nat.succ_le_of_lt")
+          structural (tsearch/enumerate-tactics ps)
+          with-lib (tsearch/enumerate-tactics ps {:library? true})
+          ;; by NAME, not by map equality — every entry carries a fresh closure
+          lib-only (filter #(#{:exact-lemma :apply-lemma} (:name %)) with-lib)]
+      (is (every? #{:intro :assumption :rfl :constructor :apply-hyp} (map :name structural))
+          "without asking, the enumerator is structural only — a search loop pays nothing")
+      (is (seq lib-only) "asking adds library lemmas")
+      (is (= (map :name structural)
+             (remove #{:exact-lemma :apply-lemma} (map :name with-lib)))
+          "the structural entries are unchanged; the library ones are added")
+      (is (some #(= "Nat.succ_le_of_lt" (first (:args %))) lib-only)
+          "including the lemma that proves this goal")
+      (testing "and every one of them really applies — they were confirmed before being offered"
+        (is (every? (fn [{:keys [tactic]}] (some? (tactic ps))) lib-only)))
+      (testing "a closing lemma outranks one that leaves subgoals"
+        (let [ws (into {} (map (juxt :name :weight)) lib-only)]
+          (when (and (:exact-lemma ws) (:apply-lemma ws))
+            (is (> (:exact-lemma ws) (:apply-lemma ws)))))))))
+
+(deftest the-tactic-layer-degrades-without-a-catalogue
+  (testing "no catalogue: library-tactics is nil and the enumerator is unchanged even when asked"
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [ci (env/lookup (a/env) (nm/from-string "Nat.succ_le_of_lt"))
+            [ps _] (proof/start-proof (a/env) (.type ^ansatz.kernel.ConstantInfo ci))
+            ps (basic/intros ps)]
+        (is (nil? (tsearch/library-tactics ps 3)))
+        (is (= (map :name (tsearch/enumerate-tactics ps))
+               (map :name (tsearch/enumerate-tactics ps {:library? true})))))
+      (finally (binding [a/*verbose* false] (a/init! @store "init"))))))
 
 (deftest search-degrades-without-a-catalogue
   (testing "the bundled tier has no catalogue: db is nil and suggest says so, it does not throw

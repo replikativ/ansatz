@@ -213,20 +213,38 @@
 ;; ============================================================
 
 (defn auto
-  "Try to automatically solve the proof. Returns solved ps or nil."
+  "Try to automatically solve the proof. Returns solved ps or nil.
+   Structural tactics only — the library is not searched, because auto-solve calls the
+   enumerator per node and a catalogue query per node would dominate. Use `suggest` to see
+   library lemmas, or `attempt` one."
   ([ps] (auto ps 10))
   ([ps max-depth] (search/auto-solve ps max-depth)))
 
 (defn suggest
-  "Show applicable tactics for the current goal."
-  [ps]
-  (let [tactics (search/enumerate-tactics ps)]
-    (if (empty? tactics)
-      (println "No applicable tactics found.")
-      (doseq [{:keys [name args weight]} tactics]
-        (println (str "  " name
-                      (when (seq args) (str " " (pr-str args)))
-                      " (weight: " (format "%.2f" weight) ")"))))))
+  "Show applicable tactics for the current goal, best first.
+
+   Includes LIBRARY lemmas when the current store has a catalogue (ansatz.search, the
+   `:datahike` module): each is recalled by the goal's conclusion shape, ranked by
+   specificity and shared vocabulary, and confirmed to apply before being shown — so a
+   suggestion here is one you can type. Without a catalogue this is exactly the structural
+   list it always was.
+
+   `:library? false` skips the library; `:limit` caps the lemmas shown (default 5)."
+  ([ps] (suggest ps nil))
+  ([ps {:keys [library? limit] :or {library? true limit 5}}]
+   (let [tactics (sort-by (comp - :weight)
+                          (search/enumerate-tactics ps {:library? library? :library-limit limit}))]
+     (if (empty? tactics)
+       (println "No applicable tactics found.")
+       (doseq [{:keys [name args weight]} tactics]
+         (println (str "  " (case name
+                              :exact-lemma (str "(exact " (first args) ")")
+                              :apply-lemma (str "(apply " (first args) ")")
+                              :apply-hyp (str "(apply-tac " (pr-str (first args)) ")")
+                              (str "(" (clojure.core/name name) ")"))
+                       (when (and (seq args) (not (#{:exact-lemma :apply-lemma :apply-hyp} name)))
+                         (str " " (pr-str args)))
+                       "   " (format "%.2f" weight))))))))
 
 (defn fork
   "Fork the proof state: try multiple tactics, return successful branches."

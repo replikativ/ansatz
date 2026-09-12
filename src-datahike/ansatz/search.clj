@@ -181,9 +181,11 @@
    candidate stalls the whole search. A candidate that times out is simply not suggested."
   1500)
 
-(defn- try-apply
+(defn apply-lemma
   "Apply lemma `name-str` to proof state `ps`; the resulting state, or nil (no such constant,
-   the application failed, or it exceeded `*apply-timeout-ms*`)."
+   the application failed, or it exceeded `*apply-timeout-ms*`). Public because the tactic
+   layer applies what this namespace suggested, and reconstructing the term there would
+   duplicate the level-parameter handling."
   [ps name-str]
   (when-let [^ConstantInfo ci (env/lookup (:env ps) (nm/from-string name-str))]
     (let [term (e/const' (nm/from-string name-str) (vec (repeat (count (.levelParams ci)) lvl/zero)))
@@ -209,7 +211,7 @@
         cands (remove #(contains? exclude (:name %)) (candidates db (:type goal) :limit try))]
     (->> cands
          (keep (fn [{:keys [name score shared specificity kind]}]
-                 (when-let [ps' (try-apply ps name)]
+                 (when-let [ps' (apply-lemma ps name)]
                    (let [n (count (proof/goals ps'))]
                      {:name name :score score :shared shared :specificity specificity :kind kind :remaining n
                       :tactic (if (zero? n) [:exact name] [:apply name])}))))
