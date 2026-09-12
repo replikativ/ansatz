@@ -6,14 +6,16 @@
         ;; Fressian stores are unchanged (the legacy node handlers still apply).
         org.replikativ/persistent-sorted-set {:mvn/version "0.5.144"}
         org.replikativ/boring {:mvn/version "0.1.27"}
-        ;; 0.9.372 carries the boring (CBOR) serializer, id 3 — see ansatz.export.codec. It is
-        ;; also what datahike and konserve-lmdb pin, so the :datahike alias no longer overrides.
-        org.replikativ/konserve {:mvn/version "0.9.372"
+        ;; 0.9.398 carries the boring (CBOR) serializer (id 3, see ansatz.export.codec) and the
+        ;; nested-`go` hoists in konserve.tiered and konserve.impl.defaults — a `go` nested in
+        ;; another `go` body costs ~6x at compile time, and those two namespaces were most of
+        ;; konserve's load. It is also what datahike pins, so the :datahike alias overrides nothing.
+        org.replikativ/konserve {:mvn/version "0.9.398"
                                  :exclusions [org.clojure/clojurescript
                                               com.github.pkpkpk/cljs-node-io
                                               com.github.pkpkpk/fress
                                               org.clojars.mmb90/cljs-cache]}
-        org.replikativ/hasch {:mvn/version "0.4.98"
+        org.replikativ/hasch {:mvn/version "0.4.104"
                               :exclusions [org.clojure/clojurescript
                                            com.cognitect/transit-cljs]}
         org.clojure/core.cache {:mvn/version "1.1.234"}}
@@ -25,6 +27,21 @@
                  babashka/fs {:mvn/version "0.3.17"}
                  cheshire/cheshire {:mvn/version "5.11.0"}}
           :ns-default build}
+
+  ;; The suite against the PUBLISHED JAR, with `src` off the classpath, so every namespace
+  ;; comes from the AOT classes the jar actually ships. `clj -M:test` exercises the SOURCE and
+  ;; would not catch an AOT-only fault — and those exist: a namespace compiled against a
+  ;; dependency's protocol fails at runtime with NoClassDefFoundError, because an AOT'd class
+  ;; loaded by the application classloader cannot see a protocol interface that a source-loaded
+  ;; namespace generates dynamically (konserve hit exactly this). Build the jar first:
+  ;;   clj -T:build jar && clj -M:jar-test -e :wip
+  :jar-test {:replace-paths ["test"]
+             :replace-deps {org.replikativ/ansatz {:local/root "target/ansatz.jar"}
+                            io.github.cognitect-labs/test-runner
+                            {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                            metosin/malli {:mvn/version "0.16.4"}}
+             :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+             :main-opts ["-m" "cognitect.test-runner" "-d" "test"]}
 
   ;; datahike-backed indices (optional module; own src path so the core build never sees it).
   ;; Core now pins the same konserve/persistent-sorted-set datahike does, so nothing is

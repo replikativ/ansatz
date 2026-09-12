@@ -227,6 +227,34 @@ Add to `deps.edn`:
 {:deps {org.replikativ/ansatz {:mvn/version "0.1.0-SNAPSHOT"}}}
 ```
 
+### Startup time
+
+Ansatz's own namespaces are AOT-compiled into the published jar (filtered to `ansatz.*`, so no
+dependency classes ship), which is why `(require 'ansatz.core)` is ~1 s rather than ~8 s. The
+zero-config tier is then ready in about **3 s** from a cold JVM.
+
+A store-backed session costs more, and almost all of it is konserve and datahike *compiling
+from source* at every start — not ansatz, and not the store. If that matters, build an
+application uberjar, which AOT-compiles the whole stack:
+
+```bash
+clj -T:build uber          # target/ansatz-standalone.jar
+```
+
+Measured on one machine, warm page cache, full Mathlib store:
+
+| | library jar | uberjar (50 MB) |
+|---|---|---|
+| `(require 'ansatz.core)` | 1.2–1.4 s | **0.8 s** |
+| `(init! "mathlib")` | 14.0–15.1 s | **3.8–3.9 s** |
+| first catalogue recall (loads datahike) | 28.9–29.6 s | **5.1–6.2 s** |
+| total first session | 47.4–49.1 s | **12.5–13.5 s** |
+
+Compiling dependencies is safe in an *application* — it pins its own versions, so nothing can
+shadow what another project resolved — and is deliberately not done in the library jar.
+Everything after startup is warm: a repeat theorem lookup is ~3 µs, `simp` 50–100 ms, a recall
+query ~1 ms.
+
 ### Setup Mathlib Store
 
 Ansatz needs a store of Lean 4 Mathlib declarations. There's a one-command setup script:

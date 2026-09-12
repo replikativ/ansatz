@@ -17,6 +17,23 @@ Run tests:
 clj -M:test
 ```
 
+## Startup and packaging
+
+The jar AOT-compiles `ansatz.*` only (`:filter-nses`, see `build.clj`) — no dependency classes
+ship. Two rules that follow, both learned the hard way:
+
+- **Never AOT a namespace that requires an OPTIONAL dependency** (`ansatz.malli`) or that
+  implements a **dependency's protocol/deftype**. The second fails at runtime with
+  `NoClassDefFoundError`: an AOT'd class loaded by the application classloader cannot see a
+  protocol interface a source-loaded namespace generates dynamically.
+- **Test the jar, not just the source**: `clj -T:build jar-stable && clj -M:jar-test -e :wip`
+  runs the suite with `src` off the classpath. `clj -M:test` exercises source and cannot catch
+  an AOT-only fault.
+
+`clj -T:build uber` builds an application uberjar with the whole stack compiled (ansatz,
+konserve, datahike, core.async): first session 49-51 s -> 12.5-13.5 s, `init!` 16.5 s -> 4 s.
+Safe for an application, not for the library jar.
+
 ## Setup Mathlib Store
 
 Run the setup script (clones lean4export + mathlib4, exports, imports):
