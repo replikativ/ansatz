@@ -21,49 +21,84 @@
 ;; Tactic enumeration — generate candidate tactics for a goal
 ;; ============================================================
 
+(defn library-tactics
+  "Applicable LIBRARY lemmas for the current goal, from the store's catalogue: recalled by
+   conclusion shape, ranked by specificity and shared vocabulary, each one already confirmed
+   to apply (ansatz.search/suggest). Returns enumerate-tactics entries.
+
+   OPTIONAL in every direction — it resolves `ansatz.search` at call time and yields nil when
+   datahike is not on the classpath, when the current store has no catalogue, or when anything
+   in the search fails. Nothing in the tactic layer depends on the database.
+
+   OFF BY DEFAULT in `enumerate-tactics`, because a catalogue query costs 0.2-10 s: a search
+   loop calling the enumerator per node (beam-search, auto-solve) must ask for it
+   deliberately, while an interactive `suggest` always should."
+  [ps limit]
+  (try
+    (when-let [suggest (requiring-resolve 'ansatz.search/suggest)]
+      (when-let [apply-lemma (requiring-resolve 'ansatz.search/apply-lemma)]
+        (doall
+         (for [{:keys [name remaining score]} (suggest ps :limit limit :try 40)]
+           {:tactic #(apply-lemma % name)
+            :name (if (zero? (long remaining)) :exact-lemma :apply-lemma)
+            :args [name]
+            ;; closing the goal outright beats leaving subgoals; among those leaving the same
+            ;; number, the one sharing more of the goal's vocabulary comes first
+            :weight (if (zero? (long remaining))
+                      0.99
+                      (* 0.6 (/ 1.0 (inc (long remaining)))
+                         (+ 0.5 (* 0.5 (double (or score 0))))))}))))
+    (catch Throwable _ nil)))
+
 (defn enumerate-tactics
   "Given a proof state, enumerate applicable tactics for the current goal.
    Returns a seq of {:tactic fn :name keyword :args vector :weight double}.
-   Weight represents prior probability of success."
-  [ps]
-  (when-let [goal (proof/current-goal ps)]
-    (let [tactics (transient [])]
+   Weight represents prior probability of success.
+
+   `:library?` adds lemmas from the store's catalogue (see `library-tactics`) — off by
+   default, and a no-op without one. `:library-limit` caps how many (default 5)."
+  ([ps] (enumerate-tactics ps nil))
+  ([ps {:keys [library? library-limit] :or {library-limit 5}}]
+   (when-let [goal (proof/current-goal ps)]
+     (let [tactics (transient [])]
       ;; intro — if goal is forall
-      (try
-        (basic/intro ps)
-        (conj! tactics {:tactic basic/intro :name :intro :args [] :weight 0.8})
-        (catch Exception _))
+       (try
+         (basic/intro ps)
+         (conj! tactics {:tactic basic/intro :name :intro :args [] :weight 0.8})
+         (catch Exception _))
 
       ;; assumption — if any hyp matches
-      (try
-        (basic/assumption ps)
-        (conj! tactics {:tactic basic/assumption :name :assumption :args [] :weight 0.9})
-        (catch Exception _))
+       (try
+         (basic/assumption ps)
+         (conj! tactics {:tactic basic/assumption :name :assumption :args [] :weight 0.9})
+         (catch Exception _))
 
       ;; rfl — if goal is Eq
-      (try
-        (basic/rfl ps)
-        (conj! tactics {:tactic basic/rfl :name :rfl :args [] :weight 0.95})
-        (catch Exception _))
+       (try
+         (basic/rfl ps)
+         (conj! tactics {:tactic basic/rfl :name :rfl :args [] :weight 0.95})
+         (catch Exception _))
 
       ;; constructor — if goal head is inductive
-      (try
-        (basic/constructor ps)
-        (conj! tactics {:tactic basic/constructor :name :constructor :args [] :weight 0.5})
-        (catch Exception _))
+       (try
+         (basic/constructor ps)
+         (conj! tactics {:tactic basic/constructor :name :constructor :args [] :weight 0.5})
+         (catch Exception _))
 
       ;; apply with each hypothesis that has a function type
-      (doseq [[id decl] (:lctx goal)]
-        (when (= :local (:tag decl))
-          (try
-            (basic/apply-tac ps (e/fvar id))
-            (conj! tactics {:tactic #(basic/apply-tac % (e/fvar id))
-                            :name :apply-hyp
-                            :args [id]
-                            :weight 0.3})
-            (catch Exception _))))
+       (doseq [[id decl] (:lctx goal)]
+         (when (= :local (:tag decl))
+           (try
+             (basic/apply-tac ps (e/fvar id))
+             (conj! tactics {:tactic #(basic/apply-tac % (e/fvar id))
+                             :name :apply-hyp
+                             :args [id]
+                             :weight 0.3})
+             (catch Exception _))))
 
-      (persistent! tactics))))
+       (doseq [t (when library? (library-tactics ps library-limit))]
+         (conj! tactics t))
+       (persistent! tactics)))))
 
 ;; ============================================================
 ;; Search strategies

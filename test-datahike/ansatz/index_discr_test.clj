@@ -44,6 +44,30 @@
                                      :added? false})]
           (is (= #{} (bitset->set (sec/-search ix' {:query (dti/query-key (nle (e/lit-nat 1) (e/lit-nat 2)))} nil)))))))))
 
+(deftest search-scored-orders-by-specificity
+  (testing "Lean's DiscrTree specificity: a stored pattern that matched more CONCRETE keys
+            outranks one matched only through stars — the order the durable index must return,
+            because it over-approximates (a Mathlib goal recalls ~5,500 declarations)"
+    (let [ix (reduce (fn [ix [eid c]]
+                       (sec/-transact ix {:datom [eid :decl/dt-key (dti/conclusion-key c) 1]
+                                          :added? true}))
+                     (dti/make-index {:attrs [:decl/dt-key]} nil)
+                     [[10 (nle (e/lit-nat 1) (e/lit-nat 2))]      ; fully concrete
+                      [11 (nle (e/lit-nat 1) (hole))]             ; one star
+                      [12 (nle (hole) (hole))]])                  ; both stars
+          scored (dti/search-scored ix (dti/query-key (nle (e/lit-nat 1) (e/lit-nat 2))))]
+      (is (= [10 11 12] (mapv first scored)) "most specific first")
+      (is (apply > (mapv second scored)) "and strictly decreasing scores")
+      (is (= (set (map first scored))
+             (set (dti/search-eids ix (dti/query-key (nle (e/lit-nat 1) (e/lit-nat 2))))))
+          "the same answers as the unscored search, only ordered")
+      (testing "one entry per entity, carrying its BEST score"
+        (let [ix' (sec/-transact ix {:datom [10 :decl/dt-key (dti/conclusion-key (nle (hole) (hole))) 2]
+                                     :added? true})
+              scored' (dti/search-scored ix' (dti/query-key (nle (e/lit-nat 1) (e/lit-nat 2))))]
+          (is (= 1 (count (filter #(= 10 (first %)) scored'))))
+          (is (= (second (first scored')) (second (first scored))) "the concrete match still wins"))))))
+
 (defn- fresh-cfg []
   {:store {:backend :memory :id (java.util.UUID/randomUUID)}
    :schema-flexibility :write :keep-history? false})

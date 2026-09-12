@@ -2948,6 +2948,18 @@
      (try (rfl ps) (catch Exception _ nil))
      ;; Strategy 4: try constructor
      (try (constructor ps) (catch Exception _ nil))
+     ;; Strategy 5: the LIBRARY, when the store has a catalogue (ansatz.search, the :datahike
+     ;; module) — recalled by conclusion shape, ranked, and confirmed to apply. Last because it
+     ;; is the only expensive one (0.2-10 s against Mathlib) and because everything above is a
+     ;; better answer when it works. A no-op without a catalogue, so this changes nothing for a
+     ;; store that has none.
+     (try
+       (when-let [suggest (requiring-resolve 'ansatz.search/suggest)]
+         (when-let [apply-lemma (requiring-resolve 'ansatz.search/apply-lemma)]
+           (when-let [hit (first (filter #(zero? (long (:remaining %)))
+                                         (suggest ps :limit 3 :try 40)))]
+             (apply-lemma ps (:name hit)))))
+       (catch Throwable _ nil))
      ;; Nothing found
      (tactic-error! "exact?: no matching term found" {:goal goal-type}))))
 

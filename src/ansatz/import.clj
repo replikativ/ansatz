@@ -13,6 +13,7 @@
      :ndjson      the lean4export NDJSON of the library
      :attrs       scripts/dump_attrs.lean output (.ndjson or .ndjson.gz)         — optional
      :instances   scripts/dump_instances.lean TSV                                  — optional
+     :modules     scripts/dump_modules.lean output: module + docstring per name    — optional
      :provenance  {:lean/toolchain :library/rev :lean4export/rev ...} recorded in the manifest
 
    LAYOUT written:
@@ -31,6 +32,7 @@
             [ansatz.matchers :as matchers]
             [ansatz.recall :as recall]
             [ansatz.simp-index :as si]
+            [ansatz.export.facts :as facts]
             [ansatz.tactic.instance :as instance]
             [ansatz.kernel.env :as env]
             [clojure.java.io :as io]
@@ -57,6 +59,26 @@
         (into [] (mapcat (fn [^Future f] (.get f))) futures))
       (finally (.shutdown pool)))))
 
+(defn- facts-pass!
+  "Compute and PERSIST the facts of `decl-order` in chunks of 50k — each chunk keyed in parallel,
+   written as `[:derived branch [:facts i]]` before the next begins — so memory holds one chunk,
+   not the library (648k fact maps with their mention/dependency lists is what an 8 GB heap
+   could not hold). Returns {:chunks n :facts n :mentions n :depends-on n}."
+  [sm kstore branch decl-order parallelism log]
+  (let [name-cache (java.util.concurrent.ConcurrentHashMap.)
+        chunks (partition-all 50000 decl-order)
+        totals (atom {:chunks 0 :facts 0 :mentions 0 :depends-on 0})]
+    (doseq [[i chunk] (map-indexed vector chunks)]
+      (let [fs (parallel-keying (vec chunk) parallelism (constantly nil)
+                                (fn [_ names] (facts/facts-for sm branch name-cache names)))]
+        (storage/write-derived! kstore branch [:facts i] fs)
+        (swap! totals (fn [t] (-> t (update :chunks inc) (update :facts + (count fs))
+                                  (update :mentions + (reduce + (map (comp count :mentions) fs)))
+                                  (update :depends-on + (reduce + (map (comp count :depends-on) fs))))))
+        (log "    facts chunk" i (count fs) "declarations")))
+    (storage/write-derived! kstore branch :facts-chunks (:chunks @totals))
+    @totals))
+
 (defn- copy-input! [src dst-dir]
   (when src
     (let [f (io/file src)]
@@ -72,7 +94,7 @@
    Options: :branch (default \"main\"), :attrs, :instances, :provenance, :parallelism (default:
    available processors), :log-file, :verbose?, :max-count (import only the first N
    declarations — tests)."
-  [store-path {:keys [ndjson attrs instances branch provenance parallelism log-file verbose? max-count]
+  [store-path {:keys [ndjson attrs instances modules branch provenance parallelism log-file verbose? max-count]
                :or {branch "main" verbose? true
                     parallelism (.availableProcessors (Runtime/getRuntime))}}]
   (when (.exists (store/manifest-file store-path))
@@ -131,19 +153,34 @@
             _ (storage/write-derived! kstore branch :simp-keys simp-entries)
             _ (storage/write-derived! kstore branch :simp-trie (si/build-simp-trie simp-entries))
             _ (log! lw "  simp keys:" (count simp-entries) "for" (count simp-names) "lemmas in" (elapsed-s t-simp) "s")
-            ;; 7. the catalogue, when datahike is on the classpath
+            ;; 7. facts: kind/universes/binders/head + MENTIONS (statement) + DEPENDS-ON (value),
+            ;;    by a raw walk of the expression records — no Expr objects (ansatz.export.facts);
+            ;;    streamed to the store chunk by chunk
+            t-facts (System/nanoTime)
+            facts-stats (facts-pass! sm kstore branch decl-order parallelism (fn [& a] (apply log! lw a)))
+            _ (log! lw "  facts:" (:facts facts-stats) "declarations," (:mentions facts-stats) "mentions,"
+                    (:depends-on facts-stats) "dependencies in" (elapsed-s t-facts) "s")
+            ;; the module/doc dump (scripts/dump_modules.lean), when given
+            module-facts (when modules (facts/read-modules-file modules))
+            _ (when modules (log! lw "  modules:" (count module-facts) "declarations with module/doc"))
+            ;; 8. the catalogue, when datahike is on the classpath
             catalogue (try (let [build! (requiring-resolve 'ansatz.catalogue/build!)]
                              (storage/flush-writes! (:storage sm))
                              (let [r (build! store-path {:branch branch
                                                          :recall-keys recall-entries
-                                                         :simp-keys simp-entries})]
+                                                         :simp-keys simp-entries
+                                                         :store-map sm            ; facts read lazily from its chunks
+                                                         :modules module-facts
+                                                         :attrs attr-tuples
+                                                         :instances inst-index
+                                                         :log (fn [& args] (apply log! lw args))})]
                                (log! lw "  catalogue:" (pr-str r))
                                r))
                            (catch java.io.FileNotFoundException _
                              (log! lw "  catalogue: skipped (ansatz.catalogue not on the classpath)")
                              nil))
-            ;; 8. inputs kept alongside, then the manifest LAST
-            inputs (vec (keep #(copy-input! % (io/file store-path "inputs")) [attrs instances]))
+            ;; 9. inputs kept alongside, then the manifest LAST
+            inputs (vec (keep #(copy-input! % (io/file store-path "inputs")) [attrs instances modules]))
             manifest {:store/format store/store-format
                       :ansatz/version (or (System/getProperty "ansatz.version") "dev")
                       :branch branch
@@ -159,6 +196,8 @@
                                   :matchers (count matcher-map)
                                   :recall-keys (count recall-entries)
                                   :simp-keys (count simp-entries)
+                                  :facts (:facts facts-stats)
+                                  :modules (count module-facts)
                                   :catalogue (boolean catalogue)}
                       :elapsed-s (elapsed-s t0)}]
         (storage/close-store sm)
@@ -167,15 +206,60 @@
         manifest)
       (finally (.close lw)))))
 
+(defn rebuild-catalogue!
+  "Recompute the FACTS (ansatz.export.facts) and the catalogue of an existing format-1 store,
+   optionally with a module/doc dump — for a store imported before facts existed, or a new
+   dump. Leaves the blobs alone. Returns the catalogue counts."
+  [store-path {:keys [branch modules parallelism log-file refacts? reuse-dump?]
+               :or {branch "main" parallelism (.availableProcessors (Runtime/getRuntime))}}]
+  (store/check-format! store-path)
+  (let [t0 (System/nanoTime)
+        lw (java.io.FileWriter. ^String (or log-file (str store-path "/rebuild-catalogue.log")) false)
+        sm (storage/open-store store-path {:sync-blob? false})
+        kstore (:store sm)]
+    (try
+      (let [decl-order (storage/load-decl-order sm branch)
+            ;; facts persisted by an earlier run are reused (`:refacts? true` recomputes)
+            facts-stats (if (and (storage/read-derived kstore branch :facts-chunks) (not refacts?))
+                          (let [n (reduce + (map #(count (storage/read-derived kstore branch [:facts %]))
+                                                 (range (storage/read-derived kstore branch :facts-chunks))))]
+                            (log! lw "  facts: reusing the store's" n)
+                            {:facts n})
+                          (facts-pass! sm kstore branch decl-order parallelism (fn [& a] (apply log! lw a))))
+            _ (log! lw "  facts:" (pr-str facts-stats) "in" (elapsed-s t0) "s")
+            module-facts (when modules (facts/read-modules-file modules))
+            _ (copy-input! modules (io/file store-path "inputs"))
+            build! (requiring-resolve 'ansatz.catalogue/build!)
+            r (build! store-path {:branch branch
+                                  :recall-keys (storage/read-derived kstore branch :recall-keys)
+                                  :simp-keys (storage/read-derived kstore branch :simp-keys)
+                                  :store-map sm
+                                  :reuse-dump? reuse-dump?
+                                  :modules module-facts
+                                  :attrs (storage/read-derived kstore branch :attrs)
+                                  :instances (storage/read-derived kstore branch :instances)
+                                  :log (fn [& args] (apply log! lw args))})]
+        (storage/close-store sm)
+        (store/write-manifest! store-path
+                               (-> (store/read-manifest store-path)
+                                   (assoc-in [:artifacts :facts] (:facts facts-stats))
+                                   (assoc-in [:artifacts :modules] (count module-facts))
+                                   (assoc-in [:artifacts :catalogue] true)))
+        (log! lw "rebuild-catalogue! DONE in" (elapsed-s t0) "s" (pr-str r))
+        r)
+      (finally (.close lw)))))
+
 (defn -main
-  "clj -M -m ansatz.import <store-path> <ndjson> [branch] [attrs] [instances] [k=v provenance...]"
-  [& [store-path ndjson branch attrs instances & kvs]]
+  "clj -M -m ansatz.import <store-path> <ndjson> [branch] [attrs] [instances] [modules] [k=v provenance...]
+   (`-` for an absent optional file)"
+  [& [store-path ndjson branch attrs instances modules & kvs]]
   (when-not (and store-path ndjson)
-    (println "usage: ansatz.import <store-path> <ndjson> [branch] [attrs] [instances] [key=value ...]")
+    (println "usage: ansatz.import <store-path> <ndjson> [branch] [attrs] [instances] [modules] [key=value ...]")
     (System/exit 2))
   (let [prov (into {} (map (fn [kv] (let [[k v] (str/split kv #"=" 2)] [(keyword k) v])) kvs))]
     (prn (import! store-path {:ndjson ndjson :branch (or branch "main")
                               :attrs (when (and attrs (not= attrs "-")) attrs)
                               :instances (when (and instances (not= instances "-")) instances)
+                              :modules (when (and modules (not= modules "-")) modules)
                               :provenance prov}))
     (shutdown-agents)))
