@@ -47,6 +47,8 @@
        sort
        vec))
 
+(def uber-file "target/ansatz-standalone.jar")
+
 (defn jar [_]
   (javac nil)
   (b/write-pom {:class-dir class-dir
@@ -83,6 +85,44 @@
                   :filter-nses '[ansatz]})
   (b/jar {:class-dir class-dir
           :jar-file jar-file}))
+
+(defn jar-stable
+  "`jar`, plus a copy at the fixed path the :jar-test alias depends on — the alias cannot name
+   a version that changes with every commit."
+  [_]
+  (jar nil)
+  (b/copy-file {:src jar-file :target "target/ansatz.jar"})
+  (println "Wrote" jar-file "and target/ansatz.jar"))
+
+(defn uber
+  "An application uberjar with the WHOLE stack AOT-compiled — ansatz, konserve, datahike and
+   core.async — not just ansatz's own namespaces.
+
+   This is the packaging that makes startup fast, and it is safe HERE where it is not safe in a
+   library: an application pins its own dependency versions, so compiling them cannot shadow a
+   version someone else resolved. Measured against the plain library jar, same machine, warm
+   cache:
+
+       (require 'ansatz.core)   1.2-1.4 s  -> 0.8 s
+       (init! \"mathlib\")       14.0-15.1 s -> 3.8-3.9 s
+       first catalogue recall   28.9-29.6 s -> 5.1-6.2 s
+       total first session      47.4-49.1 s -> 12.5-13.5 s
+
+   The uberjar is ~50 MB: it carries the whole stack plus the bundled Init tier.
+
+   The library jar (`jar`) stays filtered to `ansatz.*` and ships no dependency classes."
+  [_]
+  (clean nil)
+  (javac nil)
+  (let [uber-basis (b/create-basis {:project "deps.edn" :aliases [:datahike]})]
+    (b/copy-dir {:src-dirs ["src" "src-datahike" "classes" "resources"] :target-dir class-dir})
+    (b/compile-clj {:basis uber-basis
+                    :class-dir class-dir
+                    :ns-compile '[ansatz.core ansatz.search ansatz.catalogue ansatz.import]})
+    (b/uber {:class-dir class-dir
+             :uber-file uber-file
+             :basis uber-basis}))
+  (println "Wrote" uber-file))
 
 (defn deploy
   "Deploy to Clojars. Set CLOJARS_USERNAME and CLOJARS_PASSWORD env vars."
