@@ -79,6 +79,9 @@
   {"+" {"Nat" "Nat.add", "Int" "Int.add"}
    "-" {"Nat" "Nat.sub", "Int" "Int.sub"}
    "*" {"Nat" "Nat.mul", "Int" "Int.mul"}
+   ;; `pow` is only reachable through the explicit-type form `(pow T a n)`; the exponent is
+   ;; a Nat on both (Lean's Monoid npow), so these stay homogeneous in the operand type.
+   "pow" {"Nat" "Nat.pow", "Int" "Int.pow"}
    ;; `quot`/`rem`, NOT `/`. Clojure's `/` on integers is Ratio division --
    ;; `(/ 7 3)` is `7/3` -- while `Nat.div` is floor division. Lifting `/`
    ;; would make a verified definition mean something different from the

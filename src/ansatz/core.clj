@@ -599,27 +599,6 @@
         ;; Not a forall — apply remaining user args directly
         (reduce e/app f args)))))
 
-(clojure.core/defn- resolve-hop-instance
-  "Build the full H-operator instance: instHOp α (basic-inst).
-   hop-name: 'HAdd', 'HMul', etc.
-   basic-class: 'Add', 'Mul', etc."
-  [env hop-name basic-class type-name-str type-expr]
-  (when-let [basic-inst (resolve-basic-instance env basic-class type-name-str type-expr)]
-    (let [inst-hop-name (str "inst" hop-name)]
-      (when-let [ci (env/lookup env (name/from-string inst-hop-name))]
-        (e/app* (e/const' (name/from-string inst-hop-name) [lvl/zero])
-                type-expr basic-inst)))))
-
-(clojure.core/defn- build-binop
-  "Build a binary operator application generically.
-   Resolves instances automatically for the given type."
-  [env op-name hop-name basic-class type-name-str type-expr a b]
-  (let [inst (resolve-hop-instance env hop-name basic-class type-name-str type-expr)]
-    (if inst
-      (e/app* (e/const' (name/from-string op-name) [lvl/zero lvl/zero lvl/zero])
-              type-expr type-expr type-expr inst a b)
-      (throw (ex-info (str "No " basic-class " instance for " type-name-str) {})))))
-
 ;; ============================================================
 ;; Runtime helpers (the legacy bvar compiler that lived here was retired in P5)
 ;; ============================================================

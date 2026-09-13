@@ -11,6 +11,7 @@
    recursive synthesis for inst-implicit args, and depth limiting."
   (:require [clojure.string]
             [clojure.java.io]
+            [ansatz.meta :as meta]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -382,6 +383,19 @@
    ;; instance-implicit `wsum` over WSemiring-parameterized laws relies on this resolution).
    "WAddMonoid" ["WSemiring"]})
 
+(def ^:private extra-candidates
+  "class → instance constants that no naming convention finds. Lean reads these off the
+   `@[instance]` attribute; a PSS env cannot scan for them, so the ones the numeric surface
+   needs are named here (same curated style as `common-classes`):
+
+   - `OfNat T n` is how EVERY numeric literal at a non-Nat type elaborates. `0` and `1` go
+     through `Zero.toOfNat0` / `One.toOfNat1`, literals >= 2 through Mathlib's
+     `instOfNatAtLeastTwo` (`[NatCast R] [n.AtLeastTwo] : OfNat R n`).
+   - `Pow T Nat` is the monoid power behind `HPow Real Nat Real` (`(pow Real k n)`):
+     `Monoid.toNatPow`, with `instPowNat` for the `NatPow` types."
+  {"OfNat" ["Zero.toOfNat0" "One.toOfNat1" "instOfNatNat" "instOfNatAtLeastTwo"]
+   "Pow"   ["Monoid.toNatPow" "instPowNat"]})
+
 (defn- discover-candidates
   "On-demand candidate discovery for PSS environments.
    Tries naming conventions to find instances without scanning all constants.
@@ -424,12 +438,38 @@
             ;; subclass instance (e.g. ReflBEq via LawfulBEq.toReflBEq). try-candidate synthesizes the
             ;; projection's structure argument; the goal class is the projection's RETURN type.
           (for [sub (get parent-class-sources class-str)]
-            (str sub ".to" class-str))))]
+            (str sub ".to" class-str))
+            ;; instances no naming convention reaches (OfNat, Pow — see extra-candidates)
+          (get extra-candidates class-str)))]
     (keep (fn [n]
             (let [nm (name/from-string n)]
               (when (env/lookup env nm)
                 {:name nm :arity 0})))
           candidate-names)))
+
+(defn- at-least-two-instance
+  "`Nat.AtLeastTwo n` for a numeral n >= 2. This is the side condition of Mathlib's
+   `instOfNatAtLeastTwo`, i.e. of EVERY numeric literal >= 2 at a non-`Nat` type (`(2 : R)`).
+   Lean discharges it with `instance [NeZero n] : (n+1).AtLeastTwo` plus literal unification —
+   matching `?n + 1` against `2` is arithmetic our first-order matcher cannot do. The class is a
+   one-field Prop (`2 <= n`), so build it directly from the decidable comparison, which the
+   kernel evaluates on a literal. Returns nil for anything else."
+  [^Env env goal-type]
+  (let [[h args] (e/get-app-fn-args goal-type)]
+    (when (and (e/const? h)
+               (= "Nat.AtLeastTwo" (name/->string (e/const-name h)))
+               (= 1 (count args))
+               (e/lit-nat? (first args))
+               (>= (e/lit-nat-val (first args)) 2)
+               (env/lookup env (name/from-string "Nat.AtLeastTwo.mk"))
+               (env/lookup env (name/from-string "Nat.le_of_ble_eq_true")))
+      (let [n (first args)]
+        (e/app* (e/const' (name/from-string "Nat.AtLeastTwo.mk") []) n
+                (e/app* (e/const' (name/from-string "Nat.le_of_ble_eq_true") [])
+                        (e/lit-nat 2) n
+                        (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                (e/const' (name/from-string "Bool") [])
+                                (e/const' (name/from-string "Bool.true") []))))))))
 
 (defn synthesize*
   "Synthesis with depth limit and backtracking, memoized on the tc-state
@@ -483,15 +523,38 @@
                                       (take config/*max-candidates* candidates)))]
           (or local-inst
               from-candidates
-            ;; Fallback: name-based resolution with derivation chains (from ansatz.core)
+              ;; `Nat.AtLeastTwo <numeral>` — built, not searched (see above). Type-checked
+              ;; against the goal like every other path here.
+              (when-let [t (at-least-two-instance env goal-type)]
+                (when (try (tc/is-def-eq st (tc/infer-type st t) goal-type)
+                           (catch Exception _ false))
+                  t))
+            ;; Fallback: name-based resolution with derivation chains (from ansatz.core).
+            ;; TYPE-CHECKED before it is returned: that resolver builds terms from naming
+            ;; conventions alone and its H-class rule assumes a HOMOGENEOUS operator, so on a
+            ;; genuinely heterogeneous goal (`HPow Real Nat Real`) it produced an ill-typed
+            ;; `instHPow Real Real.instPow` that silently poisoned the elaborated term. Every
+            ;; other path here verifies its result; this one now does too, with the same
+            ;; tolerance try-candidate applies (head + argument prefix, so a goal whose universe
+            ;; the caller left at zero still resolves — inference alone rejects the poison).
               (try
                 (let [resolve-fn (requiring-resolve 'ansatz.core/resolve-basic-instance)
-                      [_ args] (e/get-app-fn-args goal-type)
-                      type-arg (first args)
+                      [_ goal-args] (e/get-app-fn-args goal-type)
+                      type-arg (first goal-args)
                       [th _] (when type-arg (e/get-app-fn-args type-arg))
                       class-str (name/->string head-info)
                       type-str (when (e/const? th) (name/->string (e/const-name th)))]
-                  (when type-str (resolve-fn env class-str type-str type-arg)))
+                  (when-let [term (when type-str (resolve-fn env class-str type-str type-arg))]
+                    (let [inferred (tc/infer-type st term)
+                          [ih ia] (e/get-app-fn-args inferred)]
+                      (when (or (tc/is-def-eq st inferred goal-type)
+                                (and (e/const? ih)
+                                     (= (e/const-name ih) head-info)
+                                     (>= (count ia) (count goal-args))
+                                     (every? true?
+                                             (map (fn [i g] (tc/is-def-eq st i g))
+                                                  (take (count goal-args) ia) goal-args))))
+                        term))))
                 (catch Exception _ nil))))))))  ;; extra close for when-not
 
 ;; ============================================================
@@ -598,3 +661,20 @@
                 (reset! result term))
               (recur (inc steps)))))
         :else nil))))
+
+;; ============================================================
+;; synthPending — instance synthesis from inside unification
+;; ============================================================
+
+(defn synth-pending-instance
+  "`ansatz.meta/*synth-pending-fn*`: synthesize the instance goal that `isDefEq` got stuck on
+   (Lean's `synthPending`). Uses the process-wide instance index — `ansatz.core` keeps it in
+   step with the env — and the tc-state's synth memo, so a goal that keeps recurring during
+   one match costs a single resolution."
+  [_mctx st goal]
+  (let [idx (try ((requiring-resolve 'ansatz.core/instance-index)) (catch Throwable _ {}))]
+    (try (synthesize* st (:env st) idx goal 0) (catch Throwable _ nil))))
+
+;; Loading this namespace is what makes instances synthesizable; installing the hook here
+;; keeps `ansatz.meta` free of any dependency on the tactic layer.
+(alter-var-root #'meta/*synth-pending-fn* (constantly synth-pending-instance))

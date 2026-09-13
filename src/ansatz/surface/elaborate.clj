@@ -437,6 +437,108 @@
         [h _] (e/get-app-fn-args tw)]
     (when (e/const? h) (name/->string (e/const-name h)))))
 
+;; ============================================================
+;; Type-directed arithmetic — Lean's `binop%` / `OfNat` elaboration
+;; ============================================================
+;; Lean elaborates `a * b` through the `binop%` elaborator: it walks the whole
+;; arithmetic tree, computes the "max type" of the leaves, inserts coercions at the
+;; leaves and emits the heterogeneous class operator `HMul.hMul α β γ inst a b`,
+;; leaving `inst` to instance synthesis. Numeric literals carry no type of their own —
+;; they become `OfNat.ofNat T n inst`, which is how `(2 : ℝ)` type-checks.
+;; We mirror that here (../lean4/src/Lean/Elab/Extra.lean). The Nat/Int fast path
+;; through `ingest/arith-lift` stays: picking the concrete kernel op (`Nat.mul`) for
+;; the types the runtime lowers natively keeps those terms small and their proofs
+;; unchanged.
+
+(def ^:private hop-table
+  "Surface op → [class method] for Lean's heterogeneous operator classes."
+  {"+" ["HAdd" "HAdd.hAdd"] "-" ["HSub" "HSub.hSub"] "*" ["HMul" "HMul.hMul"]
+   "quot" ["HDiv" "HDiv.hDiv"] "rem" ["HMod" "HMod.hMod"] "pow" ["HPow" "HPow.hPow"]})
+
+(def ^:private explicit-arith
+  "Explicit-type surface form → the `hop-table` / `ingest/arith-lift` op key. (No `rem` row: the
+   `case` that dispatches these and the one for the operator spellings share a branch list, and
+   `rem` already spells itself.)"
+  {"add" "+" "sub" "-" "mul" "*" "div" "quot" "pow" "pow"})
+
+(defn- bound-name?
+  "Is this surface head already a local binding or an env constant? `add`/`mul`/… are ordinary
+   identifiers — wandler's semiring surface defines several of them — so the explicit-type
+   arithmetic forms must never shadow a name that actually resolves."
+  [est sym]
+  (boolean (or (contains? (:scope est) sym)
+               (env/lookup (:env est) (name/from-string (str sym))))))
+
+(defn- type-sort-level
+  "The level `u` of a type `T : Sort (u+1)`, or a fresh level mvar when T's sort isn't
+   concrete. EAGER on purpose: a mid-elaboration infer (e.g. under `Not`) cannot apply a
+   const carrying an unsolved level-mvar, and in practice T's sort is concrete."
+  [est T]
+  (let [Ts (try (zonk est (infer-with-mvars est T)) (catch Exception _ nil))]
+    (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
+      (lvl/succ-pred (e/sort-level Ts))
+      (fresh-level-mvar! est))))
+
+(defn- inst-mvar!
+  "A fresh inst-implicit metavariable of type `goal` — solved by `solve-instance-mvars!`
+   once elaboration has determined the goal (Lean's `synthInstance` postponement)."
+  [est goal]
+  (let [m (fresh-mvar! est goal {:kind :synthetic :inst-implicit? true})]
+    (mark-inst-implicit! est m)
+    m))
+
+(defn- num-lit-at-type
+  "Give a bare Nat literal the type `T` the surrounding arithmetic runs at (Lean's `OfNat`
+   elaboration). Nat keeps the raw literal; Int/Float use their direct injections (the
+   shape the Nat/Int fast path and the runtime lowering already speak); every other type
+   gets `OfNat.ofNat T n ?inst`. Non-literals pass through untouched."
+  [est T tn x]
+  (if (e/lit-nat? x)
+    (case tn
+      ("Nat" nil) x
+      "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
+      "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
+      (let [u (type-sort-level est T)
+            goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
+        (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))
+    x))
+
+(defn- elab-hop
+  "`HOp.hOp.{u,v,w} α β γ ?inst a b` — the heterogeneous class operator with its instance
+   left to synthesis. `γ` is the result type (an `outParam`), so for the homogeneous case
+   the three types coincide."
+  [est cls method A B C a b]
+  (let [u (type-sort-level est A)
+        v (type-sort-level est B)
+        w (type-sort-level est C)
+        goal (e/app* (e/const' (name/from-string cls) [u v w]) A B C)]
+    (e/app* (e/const' (name/from-string method) [u v w])
+            A B C (inst-mvar! est goal) a b)))
+
+(defn- arith-leaves
+  "The leaves of a nested arithmetic form — the operands that are not themselves
+   applications of an arithmetic operator. Lean's binop% analysis works over this tree, so
+   that the literal in `(+ x (* 2 y))` learns its type from `y` rather than defaulting."
+  [sexpr]
+  (if (and (seq? sexpr) (symbol? (first sexpr))
+           (contains? hop-table (str (first sexpr)))
+           (= 3 (count sexpr)))
+    (mapcat arith-leaves (rest sexpr))
+    [sexpr]))
+
+(defn- arith-type
+  "The max type of an arithmetic tree: the kernel type of its first non-literal leaf (Lean
+   computes a maximum over the coercion order; the leaves of one arithmetic expression are
+   homogeneous in practice, so the first one that carries a type fixes it). Returns
+   [type-expr type-head-name], or nil when every leaf is a bare numeral."
+  [est sexpr]
+  (some (fn [leaf]
+          (when-not (integer? leaf)
+            (try (let [ty (zonk est (infer-with-mvars est (elab-term est leaf)))]
+                   (when-let [tn (type-head-name est ty)] [ty tn]))
+                 (catch Exception _ nil))))
+        (arith-leaves sexpr)))
+
 (defn- elab-app
   "Elaborate a function application, inserting implicit arguments."
   [est head-sexpr arg-sexprs]
@@ -487,6 +589,33 @@
             (elab-error! "Too many arguments"
                          {:fn head-sexpr :remaining-args (vec args)
                           :type ty})))))))
+
+(defn- elab-arith-at-type
+  "`(mul T a b)` / `(add|sub|div T a b)` / `(pow T a n)` / `(neg T a)` — arithmetic whose
+   carrier type is GIVEN rather than read off the operands, which is what a theorem statement
+   needs (`(<= Real (mul Real (pow Real k n) e) e)`). Same two paths as the operator spellings:
+   the concrete kernel op for the carriers `ingest/arith-lift` names, otherwise the
+   heterogeneous class operator with its instance left to synthesis."
+  [est hs T-form args]
+  (let [T (elab-term est T-form)
+        tn (type-head-name est T)]
+    (if (= hs "neg")
+      (let [u (type-sort-level est T)
+            a (num-lit-at-type est T tn (elab-term est (first args)))]
+        (e/app* (e/const' (name/from-string "Neg.neg") [u]) T
+                (inst-mvar! est (e/app (e/const' (name/from-string "Neg") [u]) T))
+                a))
+      (let [op (explicit-arith hs)]
+        (if-let [const (get-in ingest/arith-lift [op tn])]
+          (elab-app est (symbol const) args)
+          (let [[cls method] (hop-table op)
+                a (num-lit-at-type est T tn (elab-term est (first args)))
+                b (elab-term est (second args))
+                ;; `pow` is heterogeneous in its exponent: B is the exponent's own type (Nat
+                ;; for the monoid power), and only there is a literal exponent already a Nat.
+                B (if (= hs "pow") (zonk est (infer-with-mvars est b)) T)
+                b (if (= hs "pow") b (num-lit-at-type est T tn b))]
+            (elab-hop est cls method T B T a b)))))))
 
 (defn- elab-forall
   "Elaborate a forall expression with binders."
@@ -911,19 +1040,17 @@
                               cn  (if (= (str head) "le") "LE.le" "LT.lt")
                               icn (if (= (str head) "le") "LE" "LT")
                               T'  (elab-term est T)
-                              a'  (elab-term est a)
-                              b'  (elab-term est b)
                           ;; EAGER level: a mid-elaboration infer (e.g. as the argument of Not)
                           ;; cannot apply a const carrying an unsolved level-mvar. T's sort is
                           ;; concrete in practice (Nat/Int/custom : Sort 1 → u = 0); fall back
                           ;; to a level mvar only when it isn't.
-                              Ts  (try (zonk est (infer-with-mvars est T')) (catch Exception _ nil))
-                              u   (if (and Ts (e/sort? Ts) (lvl/succ? (e/sort-level Ts)))
-                                    (lvl/succ-pred (e/sort-level Ts))
-                                    (fresh-level-mvar! est))
-                              inst (fresh-mvar! est (e/app (e/const' (name/from-string icn) [u]) T')
-                                                {:kind :synthetic :inst-implicit? true})
-                              _ (mark-inst-implicit! est inst)]
+                              u   (type-sort-level est T')
+                          ;; A bare numeral compared AT T is a T-numeral: `(<= Real 0 x)` wants
+                          ;; `OfNat.ofNat Real 0`, not a Nat literal (Lean's OfNat elaboration).
+                              tn  (type-head-name est T')
+                              a'  (num-lit-at-type est T' tn (elab-term est a))
+                              b'  (num-lit-at-type est T' tn (elab-term est b))
+                              inst (inst-mvar! est (e/app (e/const' (name/from-string icn) [u]) T'))]
                           (e/app* (e/const' (name/from-string cn) [u]) T' inst a' b'))
 
         ;; (= T a b) → Eq T a b (the theorem-statement equality form)
@@ -1017,18 +1144,43 @@
                     (e/app* (e/const' (name/from-string "dite") [u])
                             ret-type cond-expr inst then-fn else-fn))
 
-        ;; Type-directed arithmetic: infer the first operand's type head and pick the matching
-        ;; kernel op from the core-lift table (Nat.add / Int.add / …), defaulting to Nat when
-        ;; the head isn't listed. Picking the concrete op avoids HAdd's output-param synthesis.
+        ;; Type-directed arithmetic — Lean's `binop%` (../lean4/src/Lean/Elab/Extra.lean):
+        ;; analyse the operand TREE for its max type, then either take the concrete kernel op
+        ;; from the core-lift table (Nat/Int — the types the runtime lowers natively, and the
+        ;; shape every existing proof is stated in) or emit the heterogeneous class operator
+        ;; with its instance left to synthesis. n-ary folds left, as Lean's infixl ops do.
             ("+" "-" "*" "quot" "rem")
-            (let [op (str head)]
-              (if (>= (count sexpr) 3)
-                (let [a*    (elab-term est (nth sexpr 1))
-                      tn    (type-head-name est (infer-with-mvars est a*))
-                      const (or (get-in ingest/arith-lift [op tn])
-                                (get-in ingest/arith-lift [op "Nat"]))]
-                  (elab-app est (symbol const) (rest sexpr)))
-                (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) (rest sexpr))))
+            (let [op (str head)
+                  args (rest sexpr)]
+              (cond
+                (> (count args) 2)
+                (elab-term est (reduce (fn [a b] (list head a b)) args))
+
+                (< (count args) 2)
+                (elab-app est (symbol (get-in ingest/arith-lift [op "Nat"])) args)
+
+                :else
+                (let [[T tn] (or (arith-type est sexpr) [nil "Nat"])]
+                  (if-let [const (get-in ingest/arith-lift [op tn])]
+                    (elab-app est (symbol const) args)
+                    (let [[cls method] (hop-table op)]
+                      (elab-hop est cls method T T T
+                                (num-lit-at-type est T tn (elab-term est (first args)))
+                                (num-lit-at-type est T tn (elab-term est (second args)))))))))
+
+        ;; Explicit-type arithmetic — `(mul T a b)`, `(add/sub/div T a b)`, `(pow T a n)`,
+        ;; `(neg T a)`: the spelling a theorem statement needs when the type cannot be read
+        ;; off the operands, e.g. `(<= Real (mul Real (pow Real κ n) ε₀) ε₀)`. Same two paths
+        ;; as above, with T given rather than inferred; `pow`'s exponent keeps its own type
+        ;; (`HPow Real Nat Real` — the Monoid npow), which is why it is heterogeneous.
+            ("add" "sub" "mul" "div" "pow" "neg")
+            (let [hs (str head)
+                  arity-ok? (if (= hs "neg") (= 3 (count sexpr)) (= 4 (count sexpr)))]
+              (if (or (not arity-ok?) (bound-name? est head))
+                ;; not the `(op T a b)` shape, or the name resolves to something real —
+                ;; an ordinary application (these are plain identifiers, not notation)
+                (elab-app est (first sexpr) (rest sexpr))
+                (elab-arith-at-type est hs (nth sexpr 1) (drop 2 sexpr))))
 
         ;; do → value of the last form (pure setting: earlier forms have no effect).
             "do" (elab-term est (last sexpr))

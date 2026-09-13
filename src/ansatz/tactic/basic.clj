@@ -36,6 +36,20 @@
   (let [st (mk-tc ps goal-lctx)]
     (meta/whnf (:meta-mctx ps) st expr)))
 
+(defn- expose-forall
+  "Lean's `forallMetaTelescopeReducingAux` reduction step: whnf `ty` only to TEST whether
+   another binder is hiding behind a definition, and return the UNREDUCED type when the
+   reduct is not a forall. Reducing the conclusion instead destroys the head `apply` has to
+   match on — whnf turns a class application `@LE.le ?a ?inst x y` into a stuck projection
+   `?inst.1 x y` (and the goal's, whose instance is concrete, all the way down into Real's
+   Subtype projection), so first-order unification never gets to assign `?a`/`?inst` from
+   the spine."
+  [ps goal-lctx ty]
+  (if (e/forall? ty)
+    ty
+    (let [w (meta-whnf-in-goal ps goal-lctx ty)]
+      (if (e/forall? w) w ty))))
+
 (defn- whnf-in-goal
   "WHNF reduce an expression in the context of a goal. Expressions mentioning
    metavariables route through the metacontext-aware reducer; the mvar-free
@@ -681,7 +695,7 @@
     ;; For inst-implicit params, try to synthesize immediately — this resolves
     ;; projections like LE.0(Preorder.toLE) before they reach matching.
     (loop [ps ps
-           ty (meta-whnf-in-goal ps (:lctx goal) term-type)
+           ty (expose-forall ps (:lctx goal) term-type)
            arg-mvars []
            arg-binfos []
            mvar-id-set #{}
@@ -715,7 +729,7 @@
                   [ps' mvar-id] (proof/fresh-mvar ps inst-type (:lctx goal) {:kind mvar-kind})
                   ps' (proof/assign-mvar ps' mvar-id {:kind :exact :term synthesized})
                   new-ty (e/instantiate1 (e/forall-body ty) synthesized)]
-              (recur ps' (meta-whnf-in-goal ps' (:lctx goal) new-ty)
+              (recur ps' (expose-forall ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id)
                      (conj arg-binfos binfo)
                      mvar-id-set
@@ -730,7 +744,7 @@
                   ;; can assign it through the one shared metacontext.
                   new-ty (e/instantiate1 (e/forall-body ty) (e/mvar mvar-id))
                   is-implicit (#{:implicit :strict-implicit :inst-implicit} binfo)]
-              (recur ps' (meta-whnf-in-goal ps' (:lctx goal) new-ty)
+              (recur ps' (expose-forall ps' (:lctx goal) new-ty)
                      (conj arg-mvars mvar-id)
                      (conj arg-binfos binfo)
                      (conj mvar-id-set mvar-id)

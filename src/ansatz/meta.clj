@@ -1153,6 +1153,105 @@
        (:lit-nat :lit-str :bvar) (when (= a b) mctx)
        nil))))
 
+(defn- whnf-opts
+  [mctx st]
+  {:infer-fn (fn [e] (infer-type mctx st e))
+   :is-def-eq-fn (fn [a b] (kernel-defeq-when-closed? mctx st a b))})
+
+(defn- same-const-head?
+  [a b]
+  (let [ha (e/get-app-fn a) hb (e/get-app-fn b)]
+    (and (e/const? ha) (e/const? hb) (= (e/const-name ha) (e/const-name hb)))))
+
+(defn- delta-align
+  "Unfold `x`'s head (one `lazyDeltaReduction` step at a time, `fuel` steps at most) until it
+   shares a head constant with `y`. Returns the aligned `x`, or nil."
+  [step x y fuel]
+  (loop [x x fuel fuel]
+    (cond
+      (same-const-head? x y) x
+      (not (pos? fuel)) nil
+      :else (when-let [x' (step x)] (recur x' (dec fuel))))))
+
+(defn- lazy-delta-def-eq
+  "Lean's `lazyDeltaReduction` (Meta/ExprDefEq.lean): the two sides are applications of
+   DIFFERENT constants, so unfold one head at a time until the heads agree and then compare
+   arguments (`isDefEqArgs`). Reducing both sides to whnf instead — which is all the retry above
+   can do — is not a substitute: whnf takes `@HAdd.hAdd ℕ ℕ ℕ inst ?m ?n` to a `brecOn` stuck on
+   `?n` and the goal's `Nat.add 7 1` to the literal `8`, so a Mathlib lemma stated with `+` never
+   matches a goal carrying the concrete kernel op. Lean picks the side to unfold by definition
+   height; lacking heights we try each side alone before stepping both, which reaches the same
+   meeting point for the class-operator-vs-kernel-op case that motivates this.
+   (Closed terms never come here: they go to the kernel, which does its own lazy delta.)"
+  [mctx st bound a b]
+  (let [env (:env st)
+        lctx (:lctx st)
+        opts (whnf-opts mctx st)
+        step (fn [x] (try (red/unfold-head-once env x lctx opts) (catch Exception _ nil)))
+        fuel 8]
+    (or (when-let [a' (delta-align step a b fuel)] (is-def-eq-core mctx st bound a' b))
+        (when-let [b' (delta-align step b a fuel)] (is-def-eq-core mctx st bound a b'))
+        ;; Neither head is reachable from the other: step both together.
+        (loop [a a b b fuel fuel]
+          (when (pos? fuel)
+            (let [a' (step a) b' (step b)]
+              (when (and a' b')
+                (if (same-const-head? a' b')
+                  (is-def-eq-core mctx st bound a' b')
+                  (recur a' b' (dec fuel))))))))))
+
+(def ^:dynamic *synth-pending-fn*
+  "Hook for Lean's `synthPending` (Meta/SynthInstance.lean). A fn `(fn [mctx st goal] → Expr|nil)`
+   that synthesizes a typeclass instance. Installed by the tactic layer (which owns the instance
+   index); nil here, so the kernel/meta layer keeps no dependency on it and plain metavariable
+   unification behaves exactly as before when no tactic layer is loaded."
+  nil)
+
+(def ^:dynamic ^:private *synthesizing-pending?*
+  "True for the dynamic extent of a synthPending call — synthesis runs its own isDefEq checks,
+   and they must not re-enter synthPending."
+  false)
+
+(defn- pending-instance-mvars
+  "Unassigned INSTANCE metavariables occurring in `expr` whose type is, by now, fully
+   determined. `:inst-implicit?` marks them in the elaborator; the proof layer marks the same
+   thing with the `:synthetic` kind (Lean's `SyntheticOpaque` vs `Synthetic` distinction)."
+  [mctx expr]
+  (->> (expr-mvars mctx expr)
+       (filter (fn [id]
+                 (when-let [decl (expr-decl mctx id)]
+                   (and (not (expr-assigned-or-delayed? mctx id))
+                        (or (:inst-implicit? decl) (= :synthetic (:kind decl)))
+                        (let [t (zonk-expr mctx (:type decl))]
+                          (and (not (has-expr-mvar? t))
+                               (let [[h _] (e/get-app-fn-args t)]
+                                 (e/const? h))))))))))
+
+(defn- synth-pending
+  "Lean's `synthPending`: `isDefEq` is stuck because a subterm is headed by an unassigned
+   instance metavariable whose type has meanwhile been determined — e.g. matching a Mathlib
+   lemma's `NegZeroClass.toZero ?α (… ?instAddGroup)` against the goal's `Real.instZero`,
+   where unification has already assigned `?α := ℝ`. Synthesize those instances and let the
+   caller retry. Returns an updated metacontext, or nil when nothing could be synthesized.
+
+   Without this every order/algebra lemma whose conclusion reaches its `Zero`/`LE`/`Sub`
+   through a derived projection chain is unusable with `apply`: the chain can only be
+   compared with the goal's direct instance once its root is known."
+  [mctx st a b]
+  (when-let [f *synth-pending-fn*]
+    (when-not *synthesizing-pending?*
+      (let [ids (distinct (concat (pending-instance-mvars mctx a)
+                                  (pending-instance-mvars mctx b)))]
+        (when (seq ids)
+          (binding [*synthesizing-pending?* true]
+            (reduce (fn [acc id]
+                      (let [goal (zonk-expr (or acc mctx) (:type (expr-decl mctx id)))]
+                        (if-let [inst (try (f (or acc mctx) st goal) (catch Throwable _ nil))]
+                          (assign-expr (or acc mctx) id inst)
+                          acc)))
+                    nil
+                    ids)))))))
+
 (defn is-def-eq
   "Lean-shaped expression definitional equality with metavariable assignment.
 
@@ -1177,7 +1276,14 @@
            (let [a' (whnf mctx st a)
                  b' (whnf mctx st b)]
              (when (or (not= a a') (not= b b'))
-               (is-def-eq-core mctx st bound (zonk-expr mctx a') (zonk-expr mctx b')))))))))
+               (is-def-eq-core mctx st bound (zonk-expr mctx a') (zonk-expr mctx b'))))
+           ;; Different constant heads: step them together (Lean's lazyDeltaReduction).
+           (when (and (e/const? (e/get-app-fn a)) (e/const? (e/get-app-fn b))
+                      (not (same-const-head? a b)))
+             (lazy-delta-def-eq mctx st bound a b))
+           ;; Stuck on an instance metavariable: synthesize it (Lean's synthPending) and retry.
+           (when-let [mctx' (synth-pending mctx st a b)]
+             (is-def-eq mctx' st bound a b)))))))
 
 (declare local-decl-depends-on?)
 

@@ -346,6 +346,39 @@
   ([env e lctx] (whnf-no-delta env e lctx nil))
   ([env e lctx opts] (whnf-core env e lctx opts)))
 
+(defn unfold-head-once
+  "ONE step of Lean's `lazyDeltaReduction` (Meta/ExprDefEq.lean): `whnf-core` (beta/iota/proj/let
+   — no delta), then delta-unfold the HEAD constant once and `whnf-core` again. Returns the
+   reduct, or nil when the head is not an unfoldable definition.
+
+   Unlike `whnf` this does not run reduction to completion, which is exactly the point: a
+   def-eq check can step the two sides until their heads AGREE and then compare arguments.
+   Running both sides to whnf instead takes `HAdd.hAdd Nat Nat Nat inst ?m ?n` down to a
+   `brecOn` stuck on `?n` and `Nat.add 7 1` down to `8`, and the two never meet."
+  ([env e] (unfold-head-once env e nil nil))
+  ([env e lctx opts]
+   (let [e' (whnf-core env e lctx opts)
+         [head args] (e/get-app-fn-args e')]
+     (cond
+       (e/const? head)
+       (when-let [body (try-unfold-def env head)]
+         (whnf-core env (reduce e/app body args) lctx opts))
+
+       ;; A projection stuck on a constant structure — `(instHAdd ℕ instAddNat).1 a b`, the shape
+       ;; the step above leaves a class operator in. Unfold the STRUCTURE's head so the next
+       ;; `whnf-core` can iota-reduce the projection.
+       (e/proj? head)
+       (let [struct (e/proj-struct head)
+             [sh sargs] (e/get-app-fn-args struct)]
+         (when (e/const? sh)
+           (when-let [body (try-unfold-def env sh)]
+             (let [struct' (whnf-core env (reduce e/app body sargs) lctx opts)]
+               (whnf-core env
+                          (reduce e/app
+                                  (e/proj (e/proj-type-name head) (e/proj-idx head) struct')
+                                  args)
+                          lctx opts)))))))))
+
 (defn- reducible-head?
   "Is the head of `e` a reducible (`:abbrev`) constant?"
   [^Env env e]

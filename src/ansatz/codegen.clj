@@ -76,6 +76,23 @@
   ([emit2 drop-prefix]
    (fn [_ _ _ ca _] (nary-op2 emit2 (if (pos? drop-prefix) (vec (drop drop-prefix ca)) ca)))))
 
+(clojure.core/defn- hop-carrier
+  "The head-constant name of a heterogeneous op's FIRST type argument (α), or nil. `Nat.sub` is
+   truncated and `Nat.div` floors, so `HSub`/`HDiv` mean different things on `Nat` than on a
+   field — the type argument the term already carries is what says which."
+  [args]
+  (when (seq args)
+    (let [[h _] (e/get-app-fn-args (first args))]
+      (when (e/const? h) (name/->string (e/const-name h))))))
+
+(clojure.core/defn- hop
+  "App handler for a heterogeneous H-op: the emitter is chosen by the carrier type (`by-type`,
+   keyed on α's head name, falling back to `default`), and the 4-arg type/instance prefix of
+   `HAdd.hAdd α β γ inst a b` is dropped."
+  [by-type default]
+  (fn [_ _ args ca _]
+    (nary-op2 (get by-type (hop-carrier args) default) (vec (drop 4 ca)))))
+
 (clojure.core/defn- bi-const "App handler for a nullary constant." [v] (fn [_ _ _ _ _] v))
 
 (def ^:private builtin-app
@@ -96,11 +113,16 @@
     "Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
-    "HAdd.hAdd" (bi-nary2 (fn [x y] (list '+' x y)) 4)
-    "HMul.hMul" (bi-nary2 (fn [x y] (list '*' x y)) 4)
-    "HSub.hSub" (bi-nary2 (fn [x y] (list 'max 0 (list '- x y))) 4)
-    "HDiv.hDiv" (bi-nary2 (fn [x y] (list 'quot x y)) 4)
-    "HPow.hPow" (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))) 4)}
+    "HAdd.hAdd" (hop {} (fn [x y] (list '+' x y)))
+    "HMul.hMul" (hop {} (fn [x y] (list '*' x y)))
+    ;; Nat subtraction truncates at 0 and Nat division floors; on Int/Float/Real (Real runs as
+    ;; a double — the trusted numeric lowering) they are the ordinary operations.
+    "HSub.hSub" (hop {"Nat" (fn [x y] (list 'max 0 (list '- x y)))} (fn [x y] (list '- x y)))
+    "HDiv.hDiv" (hop {"Nat" (fn [x y] (list 'quot x y))
+                      "Int" (fn [x y] (list 'quot x y))} (fn [x y] (list '/ x y)))
+    "HPow.hPow" (hop {"Nat" (fn [x y] (list 'long (list 'Math/pow x y)))
+                      "Int" (fn [x y] (list 'long (list 'Math/pow x y)))}
+                     (fn [x y] (list 'Math/pow x y)))}
    ;; nullary constants
    {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
     "List.nil"  (bi-const nil)}
@@ -128,6 +150,18 @@
                      3 (list 'fn '[_] (nth ca 2))
                      2 (list 'fn '[v#] (list 'fn '[_] 'v#))
                      (list 'fn '[_] (list 'fn '[v#] (list 'fn '[_] 'v#)))))
+    ;; OfNat.ofNat α n inst — a numeric literal AT a type (Lean's OfNat elaboration). The
+    ;; literal is the second argument; on a real/float carrier it runs as a double.
+    "OfNat.ofNat"
+    (fn [_ _ args ca _]
+      (let [lit (fn [n] (if (#{"Real" "Float"} (hop-carrier args))
+                          (if (number? n) (double n) (list 'double n))
+                          n))]
+        (case (count ca)
+          ;; arity-tolerant, as Subtype.val is: the instance argument erases to nothing
+          0 (list 'fn '[_] (list 'fn '[n#] (list 'fn '[_] (lit 'n#))))
+          1 (list 'fn '[n#] (list 'fn '[_] (lit 'n#)))
+          (lit (nth ca 1)))))
     ;; Float literal: OfScientific.ofScientific Float inst m s e → m × 10^±e (type/inst erase)
     "OfScientific.ofScientific"
     (fn [_ _ _ ca _]
