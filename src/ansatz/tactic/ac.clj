@@ -140,7 +140,7 @@
         g (proof/current-goal ps)
         _ (when-not g (throw (ex-info "ac_rfl: no goals" {})))
         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx g))
-        index (inst/build-instance-index env)
+        index (inst/index-for env)
         [h args] (e/get-app-fn-args (:type g))
         _ (when-not (and (e/const? h) (= "Eq" (nm/->string (e/const-name h))) (= 3 (count args)))
             (throw (ex-info "ac_rfl: goal is not an equality" {:goal (e/->string (:type g))})))
