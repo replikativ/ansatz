@@ -3,7 +3,9 @@
    Requires a Mathlib store, resolved through ansatz.store (XDG data-root).
    Skipped if no store is available."
   (:require [clojure.test :refer [deftest testing is]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.kernel.expr :as e]
+            [ansatz.surface.elaborate :as el]))
 
 ;; ============================================================
 ;; Mathlib environment
@@ -35,19 +37,30 @@
 ;; Contraction factor bounds
 ;; ============================================================
 
-;; ── ^:wip: the `mul` / `sub` / `pow` shorthand these proofs use does not resolve ──────
-;; `(mul Real eta L)` elaborates to "Unknown constant: mul". The surface has no
-;; type-directed arithmetic past the closed Nat/Int table in
-;; `ansatz.surface.ingest/arith-lift` -- `(* x y)` on Real silently falls back to Nat.mul
-;; -- and numeric literals elaborate as Nat, so `(<= Real 0 x)` is ill-typed too.
-;; `ansatz.core/build-binop` + `resolve-hop-instance` are exactly the machinery for this
-;; and have NO callers anywhere in src/: the vocabulary was scaffolded and never wired up.
-;; Un-:wip these as the acceptance criterion for porting Lean's binop%/OfNat elaboration
-;; (../lean4/src/Lean/Elab/Extra.lean). Until #73 the failure was masked: the store gate
-;; probed a hardcoded /var/tmp path and reported "skipped" as a PASSING assertion, so
-;; these tests had never once executed.
+;; These proofs are stated the way Lean states them: arithmetic AT a type (`(mul Real η L)`,
+;; `(pow Real κ n)`) and bare numerals that take their type from the surrounding expression
+;; (`(<= Real 0 x)`). Both are the surface elaborator's `binop%`/`OfNat` port (#78) — see
+;; `ansatz.surface.elaborate`, "Type-directed arithmetic".
 
-(deftest ^:wip test-kappa-nonneg
+(deftest test-numeric-literals-at-real
+  (when-mathlib
+   (testing "a numeral takes its type from the expression around it (Lean's OfNat elaboration)"
+     ;; 0 and 1 resolve through Zero.toOfNat0 / One.toOfNat1; a numeral >= 2 through Mathlib's
+     ;; instOfNatAtLeastTwo, whose Nat.AtLeastTwo side condition ansatz.tactic.instance builds
+     ;; from the decidable comparison. elaborate-check is the assertion: the kernel types it.
+     (let [t (e/->string (el/elaborate-check
+                          (a/env) '(forall [x Real] (Eq Real (mul Real 2 (add Real x 1)) x))))]
+       (is (re-find #"OfNat\.ofNat\.\{0\} Real 2" t))
+       (is (re-find #"OfNat\.ofNat\.\{0\} Real 1" t))
+       (is (re-find #"HMul\.hMul" t)))
+     ;; the operator spelling reads the type off the operands instead (binop%'s tree
+     ;; analysis) and produces the same term — `(* x y)` on Real no longer means Nat.mul
+     (is (= (e/->string (el/elaborate-check
+                         (a/env) '(forall [x Real y Real] (Eq Real (mul Real x y) x))))
+            (e/->string (el/elaborate-check
+                         (a/env) '(forall [x Real y Real] (Eq Real (* x y) x)))))))))
+
+(deftest test-kappa-nonneg
   (when-mathlib
    (testing "0 ≤ 1 - ηL when ηL ≤ 1"
      (a/prove-theorem 'test-kn
@@ -56,7 +69,7 @@
                       '[(apply sub_nonneg_of_le) (assumption)])
      (is true))))
 
-(deftest ^:wip test-kappa-le-one
+(deftest test-kappa-le-one
   (when-mathlib
    (testing "1 - ηL ≤ 1 when 0 ≤ η, 0 ≤ L"
      (a/prove-theorem 'test-kl
@@ -69,7 +82,7 @@
 ;; Convergence rate
 ;; ============================================================
 
-(deftest ^:wip test-gd-convergence-rate
+(deftest test-gd-convergence-rate
   (when-mathlib
    (testing "κ^n * ε₀ ≤ ε₀ (error bounded by initial)"
      (a/prove-theorem 'test-gr
@@ -80,7 +93,7 @@
                         (apply pow_le_one₀) (all_goals (assumption))])
      (is true))))
 
-(deftest ^:wip test-gd-monotone-decrease
+(deftest test-gd-monotone-decrease
   (when-mathlib
    (testing "κ^(n+1) * ε₀ ≤ κ^n * ε₀ (error decreases each step)"
      (a/prove-theorem 'test-gm
@@ -100,7 +113,7 @@
 ;; Full convergence with explicit step size
 ;; ============================================================
 
-(deftest ^:wip test-gd-full-convergence
+(deftest test-gd-full-convergence
   (when-mathlib
    (testing "Full GD: (1-ηL)^n * ε₀ ≤ ε₀"
      (a/prove-theorem 'test-gf
@@ -118,7 +131,7 @@
 ;; Verified function definition + execution
 ;; ============================================================
 
-(deftest ^:wip test-gd-step-defn
+(deftest test-gd-step-defn
   (when-mathlib
    (testing "Define and run verified GD step function"
      (let [f (a/define-verified 'test-gd-step
