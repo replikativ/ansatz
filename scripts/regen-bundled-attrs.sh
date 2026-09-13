@@ -3,8 +3,9 @@
 # the kernel export — lean4export emits only types + values):
 #   resources/ansatz/init-attrs.ndjson.gz     (Lean's @[simp]/@[csimp]/@[extern]/@[implemented_by])
 #   resources/ansatz/init-matchers.ndjson.gz  (Lean's Match.MatcherInfo — for the `split` tactic)
+#   resources/ansatz/init-instances.tsv.gz    (Lean's @[instance] registry — for instance synthesis)
 #
-# Both are dumped from full `Init` (scripts/dump_attrs.lean / dump_matchers.lean) and are intersected
+# All three are dumped from full `Init` (scripts/dump_attrs.lean / dump_matchers.lean) and are intersected
 # with the loaded store's constants on import (ansatz.attrs/import-attrs, ansatz.matchers/
 # import-matchers) — so a stale name simply skips and drift can only ever cost performance/
 # completeness, never soundness. The one drift vector worth closing: regenerating the bundled Init
@@ -18,6 +19,7 @@ PARENT_DIR="$(dirname "$PROJECT_DIR")"
 LEAN4EXPORT="$PARENT_DIR/lean4export"
 OUT="$PROJECT_DIR/resources/ansatz/init-attrs.ndjson.gz"
 OUT_MATCHERS="$PROJECT_DIR/resources/ansatz/init-matchers.ndjson.gz"
+OUT_INSTANCES="$PROJECT_DIR/resources/ansatz/init-instances.tsv.gz"
 
 if [ ! -d "$LEAN4EXPORT" ]; then
     echo "ERROR: $LEAN4EXPORT not found. This must be the SAME lean4export checkout that produced" >&2
@@ -34,6 +36,10 @@ echo ""
 echo ">>> Dumping Init Match.MatcherInfo from $LEAN4EXPORT (toolchain $TC)"
 lake env lean --run "$PROJECT_DIR/scripts/dump_matchers.lean" Init | gzip -c > "$OUT_MATCHERS"
 echo "    Wrote $OUT_MATCHERS ($(zcat "$OUT_MATCHERS" | wc -l) matchers, toolchain $TC)"
+echo ""
+echo ">>> Dumping Init @[instance] registry from $LEAN4EXPORT (toolchain $TC)"
+lake env lean --run "$PROJECT_DIR/scripts/dump_instances.lean" Init | gzip -c > "$OUT_INSTANCES"
+echo "    Wrote $OUT_INSTANCES ($(zcat "$OUT_INSTANCES" | wc -l) instances, toolchain $TC)"
 echo ""
 echo ">>> REMINDER: the bundled store (resources/ansatz/init-medium.ndjson.gz) must come from this"
 echo "    SAME toolchain ($TC). If you just bumped the toolchain, regenerate the store too."

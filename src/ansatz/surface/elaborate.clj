@@ -1388,8 +1388,9 @@
    binders resolve). Loops to a fixpoint: solving one inst may determine another."
   [est]
   (let [synth* (requiring-resolve 'ansatz.tactic.instance/synthesize*)
-        build-idx (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-        index (build-idx (:env est))]
+        ;; the session's registry (Lean's @[instance] table from the store or the bundled Init
+        ;; tier), NOT an index built by name-guessing over the env — that one never saw `OfNat`
+        index ((requiring-resolve 'ansatz.tactic.instance/index-for) (:env est))]
     (loop []
       (let [mctx @(:meta-mctx est)
             pending (->> (:decls mctx)

@@ -1,7 +1,9 @@
 -- Standalone instance dumper: emit every @[instance] registration of the imported Lean modules as
 -- TSV (one per line: `class<TAB>instance<TAB>priority`), so ansatz can inherit Lean's AUTHORITATIVE
 -- typeclass instance registry (name-INDEPENDENT discovery; replaces PSS name-guessing). The class is
--- the head constant of the instance type's conclusion. Run where the module is importable (a lake
+-- the head constant of the instance type's conclusion. Lines come out in MODULE (declaration)
+-- order with Lean's real priorities — both are load-bearing: Lean tries instances by priority,
+-- and the most recently declared first among equals (ansatz.tactic.instance/parse-instance-tsv). Run where the module is importable (a lake
 -- project with its oleans built):
 --
 --   cd ../mathlib4 && lake env lean --run ../ansatz/scripts/dump_instances.lean Mathlib \
@@ -37,11 +39,14 @@ def emit (entry : InstanceEntry) : CoreM Unit := do
       | .const className .. => IO.println s!"{className}\t{name}\t{entry.priority}"
       | _ => pure ()
 
+-- Only GLOBAL registrations: a `scoped instance` is inactive unless its namespace is opened,
+-- and after `importModules` none is — emitting it would hand synthesis an instance Lean itself
+-- never tries (e.g. grind's internal ring adapters).
 def dumpInstances : CoreM Unit :=
   foldModuleEntries Lean.Meta.instanceExtension.ext fun entry =>
     match entry with
     | .global e   => emit e
-    | .scoped _ e => emit e
+    | .scoped _ _ => pure ()
 
 def main (args : List String) : IO Unit := do
   initSearchPath (← findSysroot)

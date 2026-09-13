@@ -10,7 +10,7 @@
 #   1. Clones lean4export and mathlib4 (if not present)
 #   2. Builds lean4export
 #   3. Exports Mathlib to NDJSON
-#   4. Generates instances.tsv
+#   4. Dumps the @[instance] registry (scripts/dump_instances.lean)
 #   5. Imports into Ansatz PSS filestore
 #
 # Usage:
@@ -81,44 +81,25 @@ else
 fi
 
 # ============================================================
-# Step 4: Generate instances.tsv
+# Step 4: Dump Lean's @[instance] registry (co-generated with the export)
 # ============================================================
+# Instances are NOT in the kernel export either. scripts/dump_instances.lean walks Lean's instance
+# extension in MODULE ORDER with the REAL priorities — both load-bearing: synthesis tries
+# instances by priority, most recently declared first among equals (Lean's SynthInstance), and
+# a registry without that order picks grind's internal `Semiring.ofNat` for `(1 : ℝ)` instead
+# of `One.toOfNat1`. The importer folds it into the store's derived `:instances` blob; the raw
+# file is kept under <store>/inputs/ for regeneration.
 
-INSTANCES_TSV="$PROJECT_DIR/resources/instances.tsv"
+INSTANCES_TSV="$PROJECT_DIR/test-data/mathlib-instances.tsv"
 if [ -f "$INSTANCES_TSV" ]; then
     echo ""
-    echo ">>> instances.tsv already exists ($(wc -l < "$INSTANCES_TSV") lines)"
-    echo "    Delete it to regenerate."
+    echo ">>> instances already dumped at $INSTANCES_TSV ($(wc -l < "$INSTANCES_TSV") lines). Delete it to re-dump."
 else
     echo ""
-    echo ">>> Generating instances.tsv from Mathlib..."
-    cd "$PARENT_DIR/mathlib4"
-
-    # Create temporary DumpInstances.lean if not present
-    if [ ! -f "DumpInstances.lean" ]; then
-        cat > DumpInstances.lean << 'LEAN'
-import Mathlib
-
-open Lean in
-#eval show CoreM Unit from do
-  let env ← getEnv
-  let mut lines : Array String := #[]
-  for (name, ci) in env.constants.map₁.toList do
-    if (← Meta.isInstance name) then
-      let mut ty := ci.type
-      while ty.isForall do
-        ty := ty.bindingBody!
-      let head := ty.getAppFn
-      if let .const className _ := head then
-        lines := lines.push s!"{className}\t{name}\t100"
-  IO.FS.writeFile "instances.tsv" (String.intercalate "\n" lines.toList)
-  IO.eprintln s!"Wrote {lines.size} instances"
-LEAN
-    fi
-
-    lake env lean DumpInstances.lean
-    cp instances.tsv "$INSTANCES_TSV"
-    echo "    Generated: $(wc -l < "$INSTANCES_TSV") instances"
+    echo ">>> Dumping Mathlib @[instance] registry into $INSTANCES_TSV ..."
+    cd "$LIB_DIR"
+    lake env lean --run "$PROJECT_DIR/scripts/dump_instances.lean" Mathlib > "$INSTANCES_TSV"
+    echo "    Wrote $(wc -l < "$INSTANCES_TSV") instances"
 fi
 
 # ============================================================

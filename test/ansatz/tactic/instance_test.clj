@@ -8,7 +8,9 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.export.replay :as replay]
+            [ansatz.config :as config]
+            [ansatz.state :as state])
   (:import [ansatz.kernel ConstantInfo]))
 
 ;; ============================================================
@@ -92,3 +94,43 @@
                       (e/const' (name/from-string "Nat") []))]
       (is (nil? (inst/synthesize* st env @test-index goal 0))
           "Should return nil for unknown class"))))
+
+;; ============================================================
+;; Lean's registry: order, selection, and which index a session uses
+;; ============================================================
+
+(deftest test-parse-instance-tsv-order
+  (testing "Lean's try order: higher priority first, most recently declared first among equals"
+    (let [idx (inst/parse-instance-tsv ["C\tearly\t1000" "C\tlow\t100" "C\tlate\t1000" "C\thigh\t2000"])]
+      (is (= ["high" "late" "early" "low"]
+             (mapv (comp str :name) (inst/get-instances idx (name/from-string "C")))))))
+  (testing "present? drops what the env does not have (a full-Init registry over a smaller tier)"
+    (let [idx (inst/parse-instance-tsv ["C\ta\t1000" "C\tb\t1000" "D\tc\t1000"] #{"a" "c"})]
+      (is (= ["a"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "C")))))
+      (is (= ["c"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "D"))))))))
+
+(deftest test-select-candidates-keys-on-the-carrier
+  (testing "over the cap, only instances for the goal's carrier plus the generic ones survive
+            (Lean's DiscrTree selection, one level deep)"
+    (let [env (require-env)
+          cands (mapv (fn [n] {:name (name/from-string n) :priority 1000})
+                      ["Fin.instOfNat" "instOfNatNat" "BitVec.instOfNat" "Zero.toOfNat0"])
+          goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
+                       (e/const' (name/from-string "Nat") []) (e/lit-nat 5))]
+      (binding [config/*max-candidates* 2]
+        (is (= ["instOfNatNat" "Zero.toOfNat0"]
+               (mapv (comp str :name) (inst/select-candidates env cands goal)))))
+      (testing "and a list within the cap is left alone"
+        (is (= 4 (count (inst/select-candidates env cands goal))))))))
+
+(deftest test-index-for-prefers-the-installed-registry
+  (let [env (require-env)
+        saved @state/ansatz-instance-index
+        registry {(name/from-string "Nonempty") [{:name (name/from-string "instNonemptyOfInhabited") :priority 1000}]}]
+    (try
+      (reset! state/ansatz-instance-index registry)
+      (is (identical? registry (inst/index-for env)) "a session with a registry synthesizes against it")
+      (reset! state/ansatz-instance-index nil)
+      (is (seq (inst/get-instances (inst/index-for env) (name/from-string "Add")))
+          "without one, name-based discovery over the env")
+      (finally (reset! state/ansatz-instance-index saved)))))
