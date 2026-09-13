@@ -18,6 +18,7 @@
 # Usage:
 #   ./scripts/setup-mathlib.sh [STORE_DIR]
 #   MATHLIB_TAG=v4.34.0 ./scripts/setup-mathlib.sh      # build a different release
+#   IMPORT_HEAP=6g ./scripts/setup-mathlib.sh           # importer heap (default 8g)
 #
 # Default STORE_DIR: the durable ansatz.store data-root (XDG); /var/tmp erodes (systemd-tmpfiles)
 #
@@ -200,7 +201,7 @@ else
     clj -T:build javac 2>/dev/null || true
     LIB_REV="$(git -C "$LIB_DIR" rev-parse HEAD 2>/dev/null || echo unknown)"
     EXPORT_REV="$(git -C "$PARENT_DIR/lean4export" rev-parse HEAD 2>/dev/null || echo unknown)"
-    clj -J-Xmx8g -M:datahike -m ansatz.import "$STORE_DIR" "$NDJSON" "mathlib" "$ATTRS_GZ" "$INSTANCES_TSV" "$MODULES_GZ" \
+    clj "-J-Xmx${IMPORT_HEAP:-8g}" -M:datahike -m ansatz.import "$STORE_DIR" "$NDJSON" "mathlib" "$ATTRS_GZ" "$INSTANCES_TSV" "$MODULES_GZ" \
         "lean/toolchain=$TOOLCHAIN" "library/tag=$MATHLIB_TAG" "library/rev=$LIB_REV" "lean4export/rev=$EXPORT_REV"
 fi
 
