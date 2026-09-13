@@ -111,10 +111,14 @@
    env does not have, so a registry dumped from full Init serves a smaller bundled tier."
   ([lines] (parse-instance-tsv lines nil))
   ([lines present?]
-   (let [idx (reduce (fn [idx line]
+   (let [seen (java.util.HashSet.)
+         idx (reduce (fn [idx line]
                        (let [parts (str/split line #"\t")]
                          (if (and (>= (count parts) 2)
-                                  (or (nil? present?) (present? (nth parts 1))))
+                                  (or (nil? present?) (present? (nth parts 1)))
+                                  ;; an instance re-registered by a re-exporting module is one
+                                  ;; instance: keep its first (earliest) registration
+                                  (.add seen [(nth parts 0) (nth parts 1)]))
                            (update idx (name/from-string (nth parts 0)) (fnil conj [])
                                    {:name (name/from-string (nth parts 1))
                                     :priority (if (>= (count parts) 3)

@@ -104,6 +104,9 @@
     (let [idx (inst/parse-instance-tsv ["C\tearly\t1000" "C\tlow\t100" "C\tlate\t1000" "C\thigh\t2000"])]
       (is (= ["high" "late" "early" "low"]
              (mapv (comp str :name) (inst/get-instances idx (name/from-string "C")))))))
+  (testing "a re-registered instance (a re-exporting module) is one instance, at its first registration"
+    (let [idx (inst/parse-instance-tsv ["C\ta\t1000" "C\tb\t1000" "C\ta\t1000"])]
+      (is (= ["b" "a"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "C")))))))
   (testing "present? drops what the env does not have (a full-Init registry over a smaller tier)"
     (let [idx (inst/parse-instance-tsv ["C\ta\t1000" "C\tb\t1000" "D\tc\t1000"] #{"a" "c"})]
       (is (= ["a"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "C")))))

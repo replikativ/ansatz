@@ -94,14 +94,17 @@
   "[:db/add e a v] for every ref, resolved through `eid-of`; refs to names outside the
    catalogue (auxiliary constants filtered out at keying) are dropped."
   [{:keys [facts instances]} eid-of]
+  ;; `distinct` per source: the dump declares its datom count and `import-db` verifies it, so a
+  ;; duplicate ref (an instance registered twice, a name reached twice) must not reach the dump.
   (concat
    (for [f facts, [attr names] [[:decl/mentions (:mentions f)] [:decl/depends-on (:depends-on f)]]
          :let [e (eid-of (:name f))] :when e
-         n names :let [v (eid-of n)] :when v]
+         n (distinct names) :let [v (eid-of n)] :when v]
      [:db/add e attr v])
-   (for [[cls insts] instances {:keys [name]} insts
-         :let [e (eid-of (str name)) c (eid-of (str cls))] :when (and e c)]
-     [:db/add e :decl/instance-of c])))
+   (distinct
+    (for [[cls insts] instances {:keys [name]} insts
+          :let [e (eid-of (str name)) c (eid-of (str cls))] :when (and e c)]
+      [:db/add e :decl/instance-of c]))))
 
 (defn- facts-chunks
   "[i (fn [] facts-of-chunk-i)] for the store's facts chunk blobs."
