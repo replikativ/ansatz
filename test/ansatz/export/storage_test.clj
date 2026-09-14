@@ -170,6 +170,33 @@
         (finally
           (delete-dir-recursive dir))))))
 
+(deftest verify-corpus-parallel-and-resumable
+  (testing "Sliced parallel verification checks everything, checkpoints, and resumes to a no-op"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [r1 (storage/verify-corpus! store-map "verify-test" :workers 2 :checkpoint-every 3)
+                f (java.io.File. dir "verify-verify-test.edn")]
+            (is (:done? r1))
+            (is (= (:total r1) (:ok r1)))
+            (is (zero? (:errors r1)))
+            (is (.exists f) "the checkpoint is the run's durable state")
+            (testing "and a second run resumes from the completed checkpoint without re-verifying"
+              (let [r2 (storage/verify-corpus! store-map "verify-test" :workers 2 :checkpoint-every 3)]
+                (is (:done? r2))
+                (is (= (:ok r1) (:ok r2)))))
+            (testing "a slice that was interrupted continues where it stopped"
+              (let [cp (clojure.edn/read-string (slurp f))
+                    back (update-in cp [:slices 1] (fn [sl] (assoc sl :idx (:start sl) :ok 0)))
+                    _ (spit f (pr-str back))
+                    r3 (storage/verify-corpus! store-map "verify-test" :workers 2 :checkpoint-every 3)]
+                (is (:done? r3))
+                (is (= (:ok r1) (:ok r3))))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
 (deftest prepare-verify-stages-environment
   (testing "Verification env exposes only declarations admitted before the current index"
     (let [dir (temp-dir)]
@@ -213,6 +240,12 @@
             (try
               (let [result (storage/verify-one! failing-ctx :timeout-ms 0)]
                 (is (= :error (:status result)))
+                (testing "unless the corpus run asks to admit failures (recorded, not cascading)"
+                  (let [ctx2 (assoc failing-ctx :idx (atom 0) :ok (atom 0) :errors (atom 0)
+                                    :error-names (atom []) :admitted-ranks (java.util.BitSet. 8))
+                        r2 (storage/verify-one! ctx2 :timeout-ms 0 :admit-failures? true)]
+                    (is (= :error (:status r2)))
+                    (is (.get ^java.util.BitSet (:admitted-ranks ctx2) 0))))
                 (is (= 1 @(:idx ctx)))
                 (is (nil? (env/lookup (:env ctx) first-name))))
               (finally
