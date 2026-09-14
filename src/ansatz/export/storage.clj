@@ -913,7 +913,8 @@
   "Run f on a thread with a large stack (default 64MB).
    Blocks until completion. Re-throws any exception from f.
    The worker thread is a daemon and is interrupted if the calling thread is interrupted.
-   Optional timeout-ms: if > 0, interrupts the thread after that many ms and throws TimeoutException."
+   Optional timeout-ms: if > 0, interrupts the thread once it has used that much CPU time
+   (wall-clock only where thread CPU time is unsupported) and throws TimeoutException."
   ([f] (run-with-large-stack f default-stack-size 0))
   ([f stack-size] (run-with-large-stack f stack-size 0))
   ([f stack-size timeout-ms]
@@ -932,7 +933,21 @@
      (.start t)
      (try
        (if (and timeout-ms (pos? timeout-ms))
-         (.join t (long timeout-ms))
+         ;; The budget is the worker's CPU time, not wall-clock time: a verification run
+         ;; that is SIGSTOPped while the machine is busy (or simply descheduled next to
+         ;; other work) must not report the declaration in flight as timed out on resume.
+         ;; Falls back to wall-clock only where the JVM cannot measure thread CPU time.
+         (let [mx (java.lang.management.ManagementFactory/getThreadMXBean)
+               tid (.getId t)
+               budget-ns (* 1000000 (long timeout-ms))]
+           (if (.isThreadCpuTimeSupported mx)
+             (loop []
+               (.join t 250)
+               (when (.isAlive t)
+                 (let [cpu (.getThreadCpuTime mx tid)]
+                   (when (or (neg? cpu) (< cpu budget-ns))
+                     (recur)))))
+             (.join t (long timeout-ms))))
          (.join t))
        (catch InterruptedException _
          (.interrupt t)
