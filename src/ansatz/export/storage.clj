@@ -1371,11 +1371,25 @@
         cp (edn/read-string (slurp f))
         ctx (prepare-verify store-map branch
                             :log-file (io/file (:path store-map) (str "verify-" branch "-retry.log")))
+        ;; A constructor or recursor is only ever checked as part of its inductive's BUNDLE:
+        ;; retry the bundle head, and let its verdict stand for every member recorded.
+        head-of (fn [name]
+                  (let [^ConstantInfo ci ((:resolve-fn ctx) name)
+                        induct (cond
+                                 (nil? ci) nil
+                                 (.isCtor ci) (.inductName ci)
+                                 ;; a recursor names no inductive directly; its first rule's
+                                 ;; constructor does (an empty inductive has no rules — its
+                                 ;; recursor keeps its own name and is retried as recorded)
+                                 (.isRecursor ci) (some-> (.rules ci) first .ctor
+                                                          ((:resolve-fn ctx)) .inductName))]
+                    (if induct (ansatz-name/->string induct) name)))
+        by-head (group-by (comp head-of :name) (:error-names cp))
         results (try
-                  (mapv (fn [{:keys [name]}]
-                          (let [r (verify-by-name! ctx name :fuel fuel :timeout-ms timeout-ms)]
-                            [name (:status r) (:error r)]))
-                        (:error-names cp))
+                  (into [] (mapcat (fn [[head entries]]
+                                     (let [r (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)]
+                                       (map (fn [{:keys [name]}] [name (:status r) (:error r)]) entries))))
+                        by-head)
                   (finally (.close ^java.io.Writer (:log-writer ctx))))
         still (into [] (keep (fn [[n st err]] (when (not= st :ok) {:name n :error err}))) results)
         fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)
