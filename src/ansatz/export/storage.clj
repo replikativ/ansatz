@@ -971,10 +971,10 @@
    passed to verify-batch! for incremental verification.
    Context: {:env Env, :decl-order vec, :resolve-fn (name-str → CI),
              :log-writer Writer, :ok atom, :errors atom, :error-names atom, :idx atom}"
-  [store-map branch-name & {:keys [log-file]
+  [store-map branch-name & {:keys [log-file append?]
                             :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (let [{:keys [store]} store-map
-        lw (java.io.FileWriter. (str log-file) false)
+        lw (java.io.FileWriter. (str log-file) (boolean append?))
         loader (branch-loader store-map branch-name)
         {:keys [branch-meta lookup-ci]} loader]
     (let [decl-order (if-let [num-chunks (:decl-order-chunks branch-meta)]
@@ -1303,15 +1303,13 @@
    does, so every declaration is still checked by exactly one worker against declarations that
    are themselves checked: completing all slices gives the sequential run's guarantee.
    Returns the checkpoint: {:total :ok :errors :error-names :done? :slices …}."
-  [store-map branch & {:keys [workers resume? fuel timeout-ms checkpoint-every]
+  [store-map branch & {:keys [workers resume? fuel timeout-ms checkpoint-every epoch-batches]
                        :or {workers 4 resume? true fuel default-fuel timeout-ms 120000
-                            checkpoint-every 500}}]
+                            checkpoint-every 500 epoch-batches 20}}]
   (let [f (checkpoint-file store-map branch)
         saved (when (and resume? (.exists f)) (edn/read-string (slurp f)))
-        ctxs (mapv (fn [i] (prepare-verify store-map branch
-                                           :log-file (io/file (:path store-map)
-                                                              (str "verify-" branch "-w" i ".log"))))
-                   (range workers))
+        worker-log (fn [i] (io/file (:path store-map) (str "verify-" branch "-w" i ".log")))
+        ctxs (mapv (fn [i] (prepare-verify store-map branch :log-file (worker-log i))) (range workers))
         decl-order (:decl-order (first ctxs))
         total (count decl-order)
         starts (slice-starts decl-order (:resolve-fn (first ctxs)) workers)
@@ -1330,12 +1328,16 @@
                                    :done? (every? #(>= (:idx %) (:end %)) ss)
                                    :elapsed-ms (- (System/currentTimeMillis) t0))))
         save! (fn [] (locking f (save-checkpoint! f (summarize @cp))))
-        work (fn [i ctx]
-               (let [{:keys [end] :as sl} (nth (:slices @cp) i)]
-                 (skip-to! ctx (:idx sl))
-                 (loop []
+        ;; A worker's context is rebuilt every `epoch-batches` batches: the store loader and the
+        ;; env's shared reduction cache keep everything they ever resolved, and over a 700k-
+        ;; declaration slice that grows into any heap and turns the run into garbage collection
+        ;; (observed: 9 s batches became 600 s at the cap). prepare-verify is ~3 s.
+        work (fn [i ctx0]
+               (let [{:keys [end]} (nth (:slices @cp) i)]
+                 (loop [ctx ctx0 batches 0]
+                   (skip-to! ctx (:idx (nth (:slices @cp) i)))
                    (let [idx @(:idx ctx)]
-                     (when (< idx end)
+                     (if (< idx end)
                        (let [o0 @(:ok ctx) e0 @(:errors ctx) n0 (count @(:error-names ctx))
                              r (verify-batch! ctx (min checkpoint-every (- end idx))
                                               :stop-on-error? false :admit-failures? true
@@ -1347,12 +1349,15 @@
                                              (update :errors + (- @(:errors ctx) e0))
                                              (update :error-names into (subvec (vec @(:error-names ctx)) n0)))))
                          (save!)
-                         (recur)))))))]
+                         (if (< (inc batches) epoch-batches)
+                           (recur ctx (inc batches))
+                           (do (.close ^java.io.Writer (:log-writer ctx))
+                               (recur (prepare-verify store-map branch :log-file (worker-log i) :append? true) 0))))
+                       (.close ^java.io.Writer (:log-writer ctx)))))))]
     (save!)
     (try
       (run! deref (map-indexed (fn [i ctx] (future (work i ctx))) ctxs))
       (finally
-        (doseq [ctx ctxs] (.close ^java.io.Writer (:log-writer ctx)))
         (save!)))
     (summarize @cp)))
 
