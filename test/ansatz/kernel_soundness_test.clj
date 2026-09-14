@@ -400,11 +400,16 @@
 ;; behavioral divergence: opacity is the premise of the hot/cold term split in
 ;; .internal/MATHLIB_CATALOGUE.md. Being fixed on the main line; pinned here.
 
-(deftest pr12973-theorems-are-not-delta-unfolded
-  (testing "upstream leanprover/lean4#12973 — whnf of a theorem constant is the constant itself"
+(deftest theorems-are-delta-unfolded-by-the-kernel
+  (testing "the kernel's `is_delta` consults constant_info::has_value = is_theorem || is_definition
+            (lean4 v4.33.1, declaration.h:466) — a theorem's body unfolds when reduction reaches it"
+    ;; lean4#12973 made theorems opaque to the ELABORATOR (Meta.unfoldDefinition?, `unfold`,
+    ;; simp) and our Meta layer mirrors that; the kernel predicate is unchanged, and Mathlib
+    ;; relies on it: `Rat.instEncodable._proof_3` is a `rfl` that only closes because `And.rec`
+    ;; sees through the abstracted auxiliary theorem `_proof_1` to its `And.intro`.
     (let [env (admit @E (env/mk-thm (n "ksThm") [] (c "True") (c "True.intro")))]
-      (is (e/const? (whnf env (c "Nat.zero_add"))) "EXPOSED: imported theorem body unfolds (getValue returns THM values)")
-      (is (e/const? (whnf env (c "ksThm"))) "EXPOSED: freshly admitted theorem body unfolds"))))
+      (is (= (c "True.intro") (whnf env (c "ksThm"))) "a freshly admitted theorem unfolds to its proof")
+      (is (not (e/const? (whnf env (c "Nat.zero_add")))) "an imported theorem unfolds too"))))
 
 (deftest pr12973-opaques-are-not-delta-unfolded
   (testing "control: an `opaque` (which getValue already refuses) stays stuck"

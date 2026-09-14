@@ -173,16 +173,20 @@ public final class ConstantInfo {
     public boolean isOpaq() { return tag == OPAQUE; }
 
     /**
-     * Get the definition value for delta reduction.
-     * Lean 4's kernel `has_value()` is `is_definition()` only: theorems are OPAQUE to
-     * whnf/lazy_delta_reduction (lean4#12973, 2026-03 — "Theorems used to be like that
-     * [unfoldable]; now they are treated like opaque declarations"). A theorem's body is
-     * read exactly once, when the theorem itself is checked; after admission nothing in
-     * the kernel looks at it. That is what lets a store skip resolving theorem bodies for
-     * proving sessions. Returns null for theorems, axioms, inductives, constructors, opaques.
+     * Get the value for delta reduction: definitions AND theorems, never opaques.
+     * This is the kernel's `constant_info::has_value()` (declaration.h, v4.33.1:466 —
+     * `is_theorem() || is_definition()`), the predicate `type_checker::is_delta` consults.
+     * lean4#12973 ("theorems are opaque") did not change that predicate: the kernel still
+     * unfolds a theorem when reduction reaches it, and Mathlib relies on it — a `rfl` such as
+     * `Rat.instEncodable._proof_3` only closes because `And.rec` sees through the abstracted
+     * auxiliary theorem `_proof_1` to its `And.intro`. Hiding theorem bodies (PR #87, 2026-09)
+     * made that declaration fail against the reference. A store may still load theorems
+     * WITHOUT bodies for proving sessions (`:defs-only`); then `value` is null and the
+     * unfolding simply does not happen — a completeness, never a soundness, difference.
+     * Returns null for axioms, inductives, constructors, recursors, opaques.
      */
     public Expr getValue() {
-        return tag == DEF ? value : null;
+        return (tag == DEF || tag == THM) ? value : null;
     }
 
     /**
