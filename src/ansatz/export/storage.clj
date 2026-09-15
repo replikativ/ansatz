@@ -1275,19 +1275,29 @@
   (^java.io.File [store-map branch slice]
    (io/file (:path store-map) (str "verify-" branch (when slice (str "-s" slice)) ".edn"))))
 
-(defn- read-checkpoint
-  "The checkpoint of `branch`: the combined file, else the union of the per-slice files a
-   process-per-worker run writes (`verify-<branch>-s<i>.edn`), merged in slice order."
+(defn- slice-files
+  "The per-slice checkpoint files a process-per-worker run writes (`verify-<branch>-s<i>.edn`),
+   in slice order."
   [store-map branch]
-  (let [f (checkpoint-file store-map branch)]
-    (if (.exists f)
-      (edn/read-string (slurp f))
-      (let [parts (->> (.listFiles (io/file (:path store-map)))
-                       (filter #(re-matches (re-pattern (str "verify-" branch "-s\\d+\\.edn")) (.getName ^java.io.File %)))
-                       (map #(edn/read-string (slurp %)))
-                       (sort-by :slice))]
-        (when (seq parts)
-          (assoc (first parts) :slices (mapv #(first (:slices %)) parts)))))))
+  (->> (.listFiles (io/file (:path store-map)))
+       (filter #(re-matches (re-pattern (str "verify-" branch "-s\\d+\\.edn")) (.getName ^java.io.File %)))
+       (sort-by #(parse-long (re-find #"\d+(?=\.edn$)" (.getName ^java.io.File %))))))
+
+(defn- read-checkpoint
+  "The checkpoint of `branch`: the union of the per-slice files when a process-per-worker run
+   wrote any — they are that run's state and supersede a combined file an earlier in-process run
+   left behind — else the combined file. The `:files` of a merged checkpoint are its sources."
+  [store-map branch]
+  (let [f (checkpoint-file store-map branch)
+        parts (slice-files store-map branch)]
+    (cond
+      (seq parts) (let [cps (mapv #(edn/read-string (slurp %)) parts)]
+                    (-> (first cps)
+                        (assoc :slices (mapv #(first (:slices %)) cps)
+                               :error-names (into [] (mapcat (comp :error-names first :slices)) cps)
+                               :errors (reduce + (map (comp :errors first :slices) cps))
+                               :files (vec parts))))
+      (.exists f) (edn/read-string (slurp f)))))
 
 (defn- save-checkpoint!
   "Write the checkpoint atomically (tmp + rename) — the file is the run's only durable state."
@@ -1437,7 +1447,12 @@
                                                    (assoc sl :error-names keep :errors (count keep))))
                                                ss)))
                 (assoc :error-names still :errors (count still)))]
-    (locking f (save-checkpoint! f cp'))
+    ;; write back to what was read: each per-slice file keeps its own slice, and the combined
+    ;; file the merged view
+    (doseq [[^java.io.File sf sl] (map vector (:files cp) (:slices cp'))]
+      (save-checkpoint! sf (assoc (dissoc cp' :files) :slices [sl]
+                                  :error-names (:error-names sl) :errors (:errors sl))))
+    (locking f (save-checkpoint! f (dissoc cp' :files)))
     {:fixed fixed :still-failing still}))
 
 (defn verify-from-store!

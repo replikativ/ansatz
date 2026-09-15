@@ -211,7 +211,27 @@
             (is (= 2 (count (:slices merged))))
             (is (= (:total r0) (reduce + (map :ok (:slices merged)))))
             (is (zero? (reduce + (map :errors (:slices merged)))))
-            (is (.exists (java.io.File. dir "verify-verify-test-s1.edn"))))
+            (is (.exists (java.io.File. dir "verify-verify-test-s1.edn")))
+            (testing "the per-slice files supersede a stale combined checkpoint, and the retry
+                      pass rewrites them"
+              (let [s1 (java.io.File. dir "verify-verify-test-s1.edn")
+                    cp1 (clojure.edn/read-string (slurp s1))
+                    fake [{:name "Nat.add" :error "recorded"}]
+                    _ (spit s1 (pr-str (-> cp1 (assoc :error-names fake :errors 1)
+                                           (assoc-in [:slices 0 :error-names] fake)
+                                           (assoc-in [:slices 0 :errors] 1))))
+                    _ (spit (java.io.File. dir "verify-verify-test.edn")
+                            (pr-str (assoc merged :error-names [{:name "Nat.zero" :error "stale"}] :errors 1)))
+                    cp (#'storage/read-checkpoint store-map "verify-test")
+                    r (storage/reverify-errors! store-map "verify-test")
+                    after1 (clojure.edn/read-string (slurp s1))
+                    after (clojure.edn/read-string (slurp (java.io.File. dir "verify-verify-test.edn")))]
+                (is (= ["Nat.add"] (mapv :name (:error-names cp))))
+                (is (= ["Nat.add"] (:fixed r)))
+                (is (zero? (:errors after1)))
+                (is (zero? (get-in after1 [:slices 0 :errors])))
+                (is (zero? (:errors after)))
+                (is (= 2 (count (:slices after)))))))
           (storage/close-store store-map))
         (finally
           (delete-dir-recursive dir))))))

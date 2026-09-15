@@ -29,48 +29,43 @@ The standard suite includes targeted checks for:
 
 ## Full Mathlib Verification
 
-Use the PSS-backed imported store for the authoritative full-corpus check:
+Use the PSS-backed imported store for the authoritative full-corpus check. The
+runner verifies the store with one JVM per slice and is resumable:
 
 ```bash
-clojure -M -e '
-(require (quote [ansatz.export.storage :as s]))
-(let [store (s/open-store "/var/tmp/ansatz-mathlib-new")]
-  (try
-    (prn (s/verify-from-store! store "mathlib"
-                               :verbose? true
-                               :timeout-ms 300000))
-    (finally
-      (s/close-store store))))
-'
+./scripts/verify-mathlib.sh            # ~/.local/share/ansatz/stores/mathlib, 4 workers x 3 GB
+./scripts/verify-mathlib.sh retry      # re-check what the run recorded as failures
 ```
 
-The store verifier defaults to 100M fuel per declaration. This is intentional:
-Lean 4 itself has no fuel limit, and full Mathlib has legitimate declarations
-above the interactive 20M fuel budget. The observed example on this branch was
-`Polynomial.taylorLinearEquiv_symm`, which used about 25.4M fuel.
+Slice `i` of `WORKERS` runs `verify-corpus! :slice i` in its own process. A
+slice admits the declarations before its start the way `skip-to!` does, so every
+declaration is checked by exactly one worker against declarations that are
+themselves checked; completing all slices gives the sequential run's guarantee.
+Each slice checkpoints to `<store>/verify-<branch>-s<i>.edn` every 500
+declarations, so a killed run continues where each slice stopped. A failed
+declaration is recorded and then admitted for what follows (one failure instead
+of a cascade of "unknown constant"), and a declaration that exhausts its heap
+costs only its own worker. `reverify-errors!` (the `retry` mode) re-checks the
+recorded entries one at a time at 10x fuel with a 10-minute CPU-time budget —
+constructors and recursors through their inductive's bundle — and rewrites the
+checkpoints to what still fails, logging each verdict to
+`verify-<branch>-retry.log`.
 
-If a run stops after a known-good prefix, use `prepare-verify`, `skip-to!`, and
-`verify-batch!` to resume. A resumed suffix validates the remaining declarations
-against the staged environment, but record that the result was composed from a
-prefix and suffix rather than one uninterrupted process.
+The per-declaration timeout is CPU time (a paused or swapped process does not
+time out), and the corpus default fuel is 100M per declaration: Lean 4 has no
+fuel limit, and full Mathlib has legitimate declarations above the interactive
+20M budget (`Polynomial.taylorLinearEquiv_symm` used about 25.4M).
 
-Current full-corpus coverage from `/var/tmp/ansatz-mathlib-new`, branch
-`mathlib`, was:
+A "timeout" or fuel exhaustion in this run is a kernel-completeness symptom
+first and a performance one second: on the v4.33.1 store every root failure of
+the first pass came from one deviation from the reference kernel (theorems were
+not delta-unfolded, see `kernel_soundness_test`). Diagnose with
+`verify-by-name!` and `TypeChecker` tracing before raising fuel.
 
-```clojure
-{:total 648612
- :axiom 7
- :def 169615
- :thm 453415
- :opaque 3071
- :quot 4
- :induct 6589
- :ctor 9204
- :recursor 6707
- :nested-inductive-heads 55}
-```
+Current full-corpus coverage — Mathlib `v4.33.1`, branch `mathlib`, store
+format 1 — was:
 
-That run covered all imported declaration tags through the PSS staged verifier.
+COVERAGE_PLACEHOLDER
 
 ## FlatStore Status
 
