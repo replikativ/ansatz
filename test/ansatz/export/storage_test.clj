@@ -305,20 +305,23 @@
                 cp (clojure.edn/read-string (slurp f))
                 fake [{:name "Nat.succ" :error "recorded"}
                       {:name "Nat.rec" :error "recorded"}
-                      {:name "Nat.add" :error "recorded"}]
+                      {:name "Nat.add" :error "recorded"}
+                      {:name "NoSuch.decl" :error "recorded"}]
                 cp' (-> cp
-                        (assoc :error-names fake :errors 3)
+                        (assoc :error-names fake :errors 4)
                         (assoc-in [:slices 0 :error-names] fake)
-                        (assoc-in [:slices 0 :errors] 3))
+                        (assoc-in [:slices 0 :errors] 4))
                 _ (spit f (pr-str cp'))
                 r (storage/reverify-errors! store-map "verify-test")
                 after (clojure.edn/read-string (slurp f))]
             (is (:done? r0))
             (is (= #{"Nat.succ" "Nat.rec" "Nat.add"} (set (:fixed r))))
-            (is (empty? (:still-failing r)))
-            (is (zero? (:errors after)))
-            (is (empty? (:error-names after)))
-            (is (zero? (get-in after [:slices 0 :errors]))))
+            (testing "what still fails stays recorded with its new error, and does not stop the pass"
+              (is (= ["NoSuch.decl"] (mapv :name (:still-failing r))))
+              (is (= 1 (:errors after)))
+              (is (= ["NoSuch.decl"] (mapv :name (:error-names after))))
+              (is (re-find #"not found" (:error (first (:error-names after)))))
+              (is (= 1 (get-in after [:slices 0 :errors])))))
           (storage/close-store store-map))
         (finally
           (delete-dir-recursive dir))))))

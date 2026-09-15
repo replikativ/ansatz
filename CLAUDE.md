@@ -184,6 +184,6 @@ Single-threaded REPL use is safe. Fix: use `swap!` with
 
 ## Important Workflow Rules
 
-- **Never reprocess all 648k declarations to test a fix.** Jump to the failing declaration directly with `skip-to!` or `verify-by-name!`.
+- **Never reprocess all 707k declarations to test a fix.** Jump to the failing declaration directly with `skip-to!` or `verify-by-name!`.
 - **Full verification only as final validation** after individual fixes are confirmed.
 - Use `:reload` when requiring namespaces to pick up code changes.
