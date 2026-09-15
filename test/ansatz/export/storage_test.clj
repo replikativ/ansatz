@@ -308,9 +308,10 @@
                       {:name "Nat.add" :error "recorded"}
                       {:name "NoSuch.decl" :error "recorded"}]
                 cp' (-> cp
-                        (assoc :error-names fake :errors 4)
+                        (assoc :error-names fake :errors 4 :ok (- (:total cp) 4))
                         (assoc-in [:slices 0 :error-names] fake)
-                        (assoc-in [:slices 0 :errors] 4))
+                        (assoc-in [:slices 0 :errors] 4)
+                        (update-in [:slices 0 :ok] - 4))
                 _ (spit f (pr-str cp'))
                 r (storage/reverify-errors! store-map "verify-test")
                 after (clojure.edn/read-string (slurp f))]
@@ -321,7 +322,9 @@
               (is (= 1 (:errors after)))
               (is (= ["NoSuch.decl"] (mapv :name (:error-names after))))
               (is (re-find #"not found" (:error (first (:error-names after)))))
-              (is (= 1 (get-in after [:slices 0 :errors])))))
+              (is (= 1 (get-in after [:slices 0 :errors])))
+              (is (= (:total after) (+ (:ok after) (:errors after)))
+                  "a fixed entry counts as verified")))
           (storage/close-store store-map))
         (finally
           (delete-dir-recursive dir))))))
