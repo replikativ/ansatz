@@ -312,6 +312,22 @@ public final class TypeChecker {
         }
     }
 
+    /** Node count of `e` as a tree, capped. */
+    static int exprSize(Expr e, int cap) {
+        java.util.ArrayDeque<Expr> st = new java.util.ArrayDeque<>(); st.push(e); int n = 0;
+        while (!st.isEmpty() && n < cap) {
+            Expr x = st.pop(); n++;
+            switch (x.tag) {
+                case Expr.APP: st.push((Expr) x.o0); st.push((Expr) x.o1); break;
+                case Expr.LAM: case Expr.FORALL: st.push((Expr) x.o1); st.push((Expr) x.o2); break;
+                case Expr.LET: st.push((Expr) x.o1); st.push((Expr) x.o2); st.push((Expr) x.o3); break;
+                case Expr.MDATA: case Expr.PROJ: st.push((Expr) x.o1); break;
+                default: break;
+            }
+        }
+        return n;
+    }
+
     public static String exprFingerprint(Expr e) { return exprFingerprint(e, 3); }
     public static String exprFingerprint(Expr e, int maxDepth) {
         if (e == null) return "null";
@@ -2352,7 +2368,18 @@ public final class TypeChecker {
             byTag.computeIfAbsent(e.tag, k -> new int[1])[0]++;
         }
         r.put("distinct-hashes", hashes.size());
-        r.put("nodes-by-tag", byTag.toString());
+        // the structural classes with the most identity copies among the cached nodes
+        java.util.HashMap<Expr, Integer> copies = new java.util.HashMap<>(structAll.size() * 2);
+        for (Expr e : seenAll.keySet()) copies.merge(e, 1, Integer::sum);
+        java.util.ArrayList<java.util.Map.Entry<Expr, Integer>> top = new java.util.ArrayList<>(copies.entrySet());
+        top.sort((a, b) -> Integer.compare(b.getValue(), a.getValue()));
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < Math.min(25, top.size()); i++) {
+            Expr e = top.get(i).getKey();
+            sb.append("\n    ").append(top.get(i).getValue()).append("x tag=").append(e.tag)
+              .append(" size=").append(exprSize(e, 2000)).append(" ").append(exprFingerprint(e, 4));
+        }
+        r.put("most-copied", sb.toString());
         return r;
     }
 
