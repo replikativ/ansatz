@@ -1,0 +1,7 @@
+;; The offline fallback copy of the published store index. The authority is
+;; https://raw.githubusercontent.com/replikativ/ansatz-stores/main/stores.edn — a store is
+;; published once per IMPORT, not per ansatz release, so this copy goes stale by design and is
+;; only consulted when the published index cannot be read.
+{:index/format 1
+ :base "https://github.com/replikativ/ansatz-stores/releases/download"
+ :stores {}}

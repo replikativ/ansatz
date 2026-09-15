@@ -22,6 +22,7 @@
    scripts wrote."
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
+            [clojure.pprint :as pprint]
             [clojure.string :as str]))
 
 (defn- non-empty [s] (when (and s (not (str/blank? s))) s))
@@ -100,7 +101,7 @@
   "Write the manifest LAST: it is what marks an import complete."
   [store-path m]
   (spit (manifest-file store-path)
-        (with-out-str (clojure.pprint/pprint m))))
+        (with-out-str (pprint/pprint m))))
 
 (defn check-format!
   "The manifest of the store at `store-path`, or an exception saying to re-import. `init!`
