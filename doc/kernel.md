@@ -814,4 +814,4 @@ Others to compare against:
 | [lean4lean](https://github.com/digama0/lean4lean) | Lean 4 | First complete independent checker; verified all of Mathlib; found one soundness bug |
 | [nanoda_lib](https://github.com/ammkrn/nanoda_lib) | Rust | Author also wrote "Type Checking in Lean 4" guide |
 | [lean4checker](https://github.com/leanprover/lean4checker) | Lean 4 | Official lightweight re-checker |
-| Ansatz | Java/Clojure | This project; verified all 707,508 declarations of Mathlib v4.33.1 |
+| Ansatz | Java/Clojure | This project; verifies all 707,508 declarations of Mathlib v4.33.1 (~80 min on 4 workers) |
