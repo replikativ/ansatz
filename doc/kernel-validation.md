@@ -65,7 +65,27 @@ not delta-unfolded, see `kernel_soundness_test`). Diagnose with
 Current full-corpus coverage — Mathlib `v4.33.1`, branch `mathlib`, store
 format 1 — was:
 
-COVERAGE_PLACEHOLDER
+```clojure
+{:total 707508          ; verified 707507, recorded 1
+ :axiom 7
+ :def 176986
+ :thm 504824
+ :opaque 2587
+ :quot 4
+ :induct 6753
+ :ctor 9482
+ :recursor 6865}
+```
+
+Run of 2026-09-15 (branch `mathlib-4.33`): the first pass with four 3 GB workers
+verified 705,380 declarations and recorded 2,128 — all but one of them shadows
+of the theorem-unfolding fix landed mid-run — and the retry pass cleared 2,127
+of those in about three minutes of check time. The one declaration not verified
+is `localCohomology.diagramComp`, which exhausts its 600 s budget (a known
+performance regression of the pair-based defeq cache, not a kernel rejection;
+the pre-#84 union-find checked it in 1.6 s and Lean checks it instantly). The
+checkpoints (`verify-mathlib-s0..3.edn`, `verify-mathlib.edn`) record exactly
+this: 707,507 ok, 1 error.
 
 ## FlatStore Status
 
