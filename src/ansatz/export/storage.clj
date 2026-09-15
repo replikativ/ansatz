@@ -1414,12 +1414,20 @@
                                                           ((:resolve-fn ctx)) .inductName))]
                     (if induct (ansatz-name/->string induct) name)))
         by-head (group-by (comp head-of :name) (:error-names cp))
+        lw ^java.io.Writer (:log-writer ctx)
+        n (count by-head)
+        done (atom 0)
         results (try
+                  (log! lw (str "Retrying " (count (:error-names cp)) " recorded entries via " n " heads"))
                   (into [] (mapcat (fn [[head entries]]
                                      (let [r (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)]
+                                       (log! lw (str "  [" (swap! done inc) "/" n "] " (name (:status r)) " " head
+                                                     " (" (count entries) " recorded, "
+                                                     (long (or (:elapsed-ms r) 0)) " ms)"
+                                                     (when (not= :ok (:status r)) (str " — " (:error r)))))
                                        (map (fn [{:keys [name]}] [name (:status r) (:error r)]) entries))))
                         by-head)
-                  (finally (.close ^java.io.Writer (:log-writer ctx))))
+                  (finally (.close lw)))
         still (into [] (keep (fn [[n st err]] (when (not= st :ok) {:name n :error err}))) results)
         fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)
         fixed? (set fixed)
