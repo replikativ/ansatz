@@ -178,7 +178,7 @@ Single-threaded REPL use is safe. Fix: use `swap!` with
 
 ## Key Design Decisions
 
-- **Identity-based caches**: All caches (whnf, infer, failure, equiv) use `IdentityHashMap` after `shareCommon()`. Only `resultIntern` in Reducer uses structural `HashMap` (deduplication of new reduction results).
+- **Caches are Lean's** (`type_checker::state`): one `ExprMap` per role (infer ×2, whnfCore, whnf, unfold) and flat `ExprPairSet`s for is_def_eq success/failure, keyed under Lean's `is_equal` by the hash stored in the node (binder- and payload-insensitive, like `Expr.mkData`). No hash-consing during checking — Lean's kernel has none; `shareCommon()` on the declaration is the only pointer-sharing pass. Measure a kernel change with `ansatz.tools.kernel-bench` (`run` / `golden` / `compare`).
 - **Default fuel**: 20M steps per declaration. Enough for all known mathlib proofs (~6M heaviest).
 - **PSS storage**: Persistent sorted sets with LMDB backend. Branching is O(1).
 

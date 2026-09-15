@@ -29,14 +29,12 @@ public final class TypeChecker {
     // structural), mirroring the failure cache below. NOT a union-find: is_def_eq is a sound
     // but incomplete semi-decision procedure and therefore not transitive, so an equivalence
     // closure of successes made the answer depend on query order (that was EquivManager).
-    private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> successIdentityCache;
-    private final HashMap<LeanExprKey, HashMap<LeanExprKey, Boolean>> successStructuralCache;
-    private final IdentityHashMap<Expr, Expr> inferIdentityCache;      // exact object fast path
-    private final HashMap<LeanExprKey, Expr> inferStructuralCache;     // Lean expr_map equality, identity fast path above
-    private final IdentityHashMap<Expr, Expr> inferOnlyIdentityCache;  // exact object fast path
-    private final HashMap<LeanExprKey, Expr> inferOnlyStructuralCache; // Lean expr_map equality, identity fast path above
-    private final IdentityHashMap<Expr, IdentityHashMap<Expr, Boolean>> failureIdentityCache;
-    private final HashMap<LeanExprKey, HashMap<LeanExprKey, Boolean>> failureStructuralCache;
+    // type_checker::state (type_checker.h:28-44): one structural map per role, hashed by the
+    // node's stored hash, identity the first thing a probe tests.
+    private final ExprMap<Expr> inferCache;       // m_infer_type[0]
+    private final ExprMap<Expr> inferOnlyCache;   // m_infer_type[1]
+    private final ExprPairSet success;            // m_success  (lean4#14806 pair cache)
+    private final ExprPairSet failure;            // m_failure
     private long nextId;
     private int isDefEqDepth;
     private final byte definitionSafety;
@@ -452,14 +450,10 @@ public final class TypeChecker {
         this.definitionSafety = definitionSafety;
         this.allowedLevelParams = mkAllowedLevelParamSet(allowedLevelParams);
         this.reducer = new Reducer(env);
-        this.successIdentityCache = new IdentityHashMap<>(256);
-        this.successStructuralCache = new HashMap<>(256);
-        this.inferIdentityCache = new IdentityHashMap<>(1024);
-        this.inferStructuralCache = new HashMap<>(1024);
-        this.inferOnlyIdentityCache = new IdentityHashMap<>(1024);
-        this.inferOnlyStructuralCache = new HashMap<>(1024);
-        this.failureIdentityCache = new IdentityHashMap<>(256);
-        this.failureStructuralCache = new HashMap<>(256);
+        this.inferCache = new ExprMap<>(1024);
+        this.inferOnlyCache = new ExprMap<>(1024);
+        this.success = new ExprPairSet(256);
+        this.failure = new ExprPairSet(256);
         this.nextId = 0;
         this.lctx = new HashMap<>();
         this.reducer.setLctx(this.lctx);
@@ -710,11 +704,9 @@ public final class TypeChecker {
     }
 
     private Expr inferTypeCore(Expr e, boolean inferOnly) {
-        IdentityHashMap<Expr, Expr> identityCache = inferOnly ? inferOnlyIdentityCache : inferIdentityCache;
-        HashMap<LeanExprKey, Expr> structuralCache = inferOnly ? inferOnlyStructuralCache : inferStructuralCache;
-        Expr cached = identityCache.get(e);
-        if (cached != null) return cached;
-        cached = structuralCache.get(new LeanExprKey(e));
+        checkSystem();
+        ExprMap<Expr> cache = inferOnly ? inferOnlyCache : inferCache;
+        Expr cached = cache.get(e);
         if (cached != null) return cached;
 
         Expr result;
@@ -749,13 +741,13 @@ public final class TypeChecker {
                     }
                 }
                 if (ci.levelParams.length == 0) {
-                    result = Expr.deepReIntern(ci.type);
+                    result = ci.type;
                 } else {
                     HashMap<Object, Level> subst = new HashMap<>(ci.levelParams.length * 2);
                     for (int i = 0; i < ci.levelParams.length; i++) {
                         subst.put(ci.levelParams[i], (Level) levels[i]);
                     }
-                    result = Expr.deepReIntern(Reducer.instantiateLevelParams(ci.type, subst));
+                    result = Reducer.instantiateLevelParams(ci.type, subst);
                 }
                 break;
             }
@@ -1020,8 +1012,7 @@ public final class TypeChecker {
         }
 
         result = normalizeInferResult(result);
-        identityCache.put(e, result);
-        structuralCache.put(new LeanExprKey(e), result);
+        cache.put(e, result);
         return result;
     }
 
@@ -1107,7 +1098,19 @@ public final class TypeChecker {
         return result;
     }
 
+    // Lean's check_system(do_check_interrupted) at the head of is_def_eq_core and
+    // infer_type_core (type_checker.cpp:322, :1118): a check whose time goes into is_def_eq
+    // cache probes and structural comparisons never reaches the reducer's fuel counter, so
+    // the interruption a timeout delivers must be observed here too.
+    private long systemCheckCount;
+    private void checkSystem() {
+        if ((++systemCheckCount & 0xFFF) == 0 && Thread.interrupted()) {
+            throw new KernelAbort("Type checking interrupted (timeout)");
+        }
+    }
+
     private boolean isDefEqCore(Expr t, Expr s) {
+        checkSystem();
         boolean doEmit = traceWriter != null;
         isDefEqCalls++;
         if (isDefEqDepth < isDefEqDepthHist.length) isDefEqDepthHist[isDefEqDepth]++;
@@ -1285,14 +1288,9 @@ public final class TypeChecker {
         }
 
         // Step 2: whnf_core with Lean 4 flags (cheapRec=false, cheapProj=true).
-        // deepReIntern canonicalizes the result bottom-up through the intern table,
-        // matching Lean 4's global hash-consing: structurally equal trees from
-        // different reduction paths become pointer-equal → quick identity check fires.
-        Expr tnRaw = reducer.whnfCore(t, false, true);
-        Expr snRaw = reducer.whnfCore(s, false, true);
-        boolean whnfChanged = !tnRaw.isEqp(t) || !snRaw.isEqp(s);
-        Expr tn = Expr.deepReIntern(tnRaw);
-        Expr sn = Expr.deepReIntern(snRaw);
+        Expr tn = reducer.whnfCore(t, false, true);
+        Expr sn = reducer.whnfCore(s, false, true);
+        boolean whnfChanged = !tn.isEqp(t) || !sn.isEqp(s);
 
         // Quick check after whnf_core (Lean 4 lines 1116-1124)
         // Note: Lean uses use_hash=false (default) for the second quick check
@@ -1405,8 +1403,8 @@ public final class TypeChecker {
             Expr tn2Raw = reducer.whnfCore(tn, false, false);
             Expr sn2Raw = reducer.whnfCore(sn, false, false);
             boolean whnf2Changed = !tn2Raw.isEqp(tn) || !sn2Raw.isEqp(sn);
-            Expr tn2 = Expr.deepReIntern(tn2Raw);
-            Expr sn2 = Expr.deepReIntern(sn2Raw);
+            Expr tn2 = tn2Raw;
+            Expr sn2 = sn2Raw;
             if (whnf2Changed) {
                 emitPhasePairStats("step6.whnfcore2.stats", tn2, sn2);
                 emitPhaseTypes("step6.whnfcore2.types", tn2, sn2);
@@ -1563,7 +1561,7 @@ public final class TypeChecker {
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
-                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                     emitDeltaTrace("unfold.left", tn, sn);
                 }
             } else if (!dtHasDelta && dsHasDelta) {
@@ -1576,7 +1574,7 @@ public final class TypeChecker {
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
-                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                     emitDeltaTrace("unfold.right", tn, sn);
                 }
             } else {
@@ -1589,13 +1587,13 @@ public final class TypeChecker {
                     // Unfold left (higher height / more complex)
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
-                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                     emitDeltaTrace("unfold.left", tn, sn);
                 } else if (cmp > 0) {
                     // Unfold right
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
-                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                     emitDeltaTrace("unfold.right", tn, sn);
                 } else {
                     // Same hint level — Lean takes this shortcut when is_delta
@@ -1624,10 +1622,10 @@ public final class TypeChecker {
                     Expr unfoldedS = reducer.tryUnfoldDef(snHead);
                     if (unfoldedT == null && unfoldedS == null) return 0;
                     if (unfoldedT != null) {
-                        tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true));
+                        tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
                     }
                     if (unfoldedS != null) {
-                        sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
+                        sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
                     }
                     emitDeltaTrace("unfold.both", tn, sn);
                     emitPhasePairStats("lazyDelta.unfoldBoth.stats", tn, sn);
@@ -1855,106 +1853,35 @@ public final class TypeChecker {
         return true;
     }
 
-    /** Structural equality with a hash pre-check — Lean's `t == s` on expr. */
+    /** Lean's `t == s` on expr: is_equal, hash-guarded. */
     private static boolean structurallyEqual(Expr t, Expr s) {
-        return LeanExprKey.hashExpr(t) == LeanExprKey.hashExpr(s)
-            && new LeanExprKey(t).equals(new LeanExprKey(s));
+        return LeanExprKey.exprEquals(t, s);
     }
 
-    private boolean succeededBeforeIdentity(Expr t, Expr s) {
-        IdentityHashMap<Expr, Boolean> inner = successIdentityCache.get(t);
-        return inner != null && Boolean.TRUE.equals(inner.get(s));
-    }
-
-    private boolean succeededBeforeStructural(Expr t, Expr s) {
-        HashMap<LeanExprKey, Boolean> inner = successStructuralCache.get(new LeanExprKey(t));
-        return inner != null && Boolean.TRUE.equals(inner.get(new LeanExprKey(s)));
-    }
-
-    /** lean4#14806 succeeded_before: hash-ordered pair lookup, symmetric on a hash tie. */
+    // type_checker.cpp:986-1022 — the pair is stored hash-ordered, looked up symmetrically on a
+    // hash tie; one ordered pair, never an equivalence class (lean4#14806).
     private boolean succeededBefore(Expr t, Expr s) {
-        int cmp = Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s));
-        if (cmp < 0) {
-            return succeededBeforeIdentity(t, s) || succeededBeforeStructural(t, s);
-        } else if (cmp > 0) {
-            return succeededBeforeIdentity(s, t) || succeededBeforeStructural(s, t);
-        } else {
-            return succeededBeforeIdentity(t, s) || succeededBeforeIdentity(s, t)
-                || succeededBeforeStructural(t, s) || succeededBeforeStructural(s, t);
-        }
+        int cmp = Integer.compareUnsigned(t.structuralHash(), s.structuralHash());
+        if (cmp < 0) return success.contains(t, s);
+        if (cmp > 0) return success.contains(s, t);
+        return success.contains(t, s) || success.contains(s, t);
     }
 
-    private void cacheSuccessOrdered(Expr t, Expr s) {
-        IdentityHashMap<Expr, Boolean> identityInner = successIdentityCache.get(t);
-        if (identityInner == null) {
-            identityInner = new IdentityHashMap<>(4);
-            successIdentityCache.put(t, identityInner);
-        }
-        identityInner.put(s, Boolean.TRUE);
-
-        LeanExprKey tKey = new LeanExprKey(t);
-        HashMap<LeanExprKey, Boolean> structuralInner = successStructuralCache.get(tKey);
-        if (structuralInner == null) {
-            structuralInner = new HashMap<>(4);
-            successStructuralCache.put(tKey, structuralInner);
-        }
-        structuralInner.put(new LeanExprKey(s), Boolean.TRUE);
-    }
-
-    /** lean4#14806 cache_success: one ordered pair, never an equivalence class. */
     private void cacheSuccess(Expr t, Expr s) {
-        if (Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s)) <= 0) {
-            cacheSuccessOrdered(t, s);
-        } else {
-            cacheSuccessOrdered(s, t);
-        }
-    }
-
-    private boolean failedBeforeIdentity(Expr t, Expr s) {
-        IdentityHashMap<Expr, Boolean> inner = failureIdentityCache.get(t);
-        return inner != null && Boolean.TRUE.equals(inner.get(s));
-    }
-
-    private boolean failedBeforeStructural(Expr t, Expr s) {
-        HashMap<LeanExprKey, Boolean> inner = failureStructuralCache.get(new LeanExprKey(t));
-        return inner != null && Boolean.TRUE.equals(inner.get(new LeanExprKey(s)));
+        if (Integer.compareUnsigned(t.structuralHash(), s.structuralHash()) <= 0) success.add(t, s);
+        else success.add(s, t);
     }
 
     private boolean failedBefore(Expr t, Expr s) {
-        int cmp = Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s));
-        if (cmp < 0) {
-            return failedBeforeIdentity(t, s) || failedBeforeStructural(t, s);
-        } else if (cmp > 0) {
-            return failedBeforeIdentity(s, t) || failedBeforeStructural(s, t);
-        } else {
-            return failedBeforeIdentity(t, s) || failedBeforeIdentity(s, t)
-                || failedBeforeStructural(t, s) || failedBeforeStructural(s, t);
-        }
-    }
-
-    private void cacheFailureOrdered(Expr t, Expr s) {
-        IdentityHashMap<Expr, Boolean> identityInner = failureIdentityCache.get(t);
-        if (identityInner == null) {
-            identityInner = new IdentityHashMap<>(4);
-            failureIdentityCache.put(t, identityInner);
-        }
-        identityInner.put(s, Boolean.TRUE);
-
-        LeanExprKey tKey = new LeanExprKey(t);
-        HashMap<LeanExprKey, Boolean> structuralInner = failureStructuralCache.get(tKey);
-        if (structuralInner == null) {
-            structuralInner = new HashMap<>(4);
-            failureStructuralCache.put(tKey, structuralInner);
-        }
-        structuralInner.put(new LeanExprKey(s), Boolean.TRUE);
+        int cmp = Integer.compareUnsigned(t.structuralHash(), s.structuralHash());
+        if (cmp < 0) return failure.contains(t, s);
+        if (cmp > 0) return failure.contains(s, t);
+        return failure.contains(t, s) || failure.contains(s, t);
     }
 
     private void cacheFailure(Expr t, Expr s) {
-        if (Integer.compareUnsigned(LeanExprKey.hashExpr(t), LeanExprKey.hashExpr(s)) <= 0) {
-            cacheFailureOrdered(t, s);
-        } else {
-            cacheFailureOrdered(s, t);
-        }
+        if (Integer.compareUnsigned(t.structuralHash(), s.structuralHash()) <= 0) failure.add(t, s);
+        else failure.add(s, t);
     }
 
     /**
@@ -2015,7 +1942,7 @@ public final class TypeChecker {
             } else {
                 Expr unfolded = reducer.tryUnfoldDef(tnHead);
                 if (unfolded == null) return 0;
-                tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                 holder[0] = tn;
             }
         } else if (!dtHasDelta && dsHasDelta) {
@@ -2027,7 +1954,7 @@ public final class TypeChecker {
             } else {
                 Expr unfolded = reducer.tryUnfoldDef(snHead);
                 if (unfolded == null) return 0;
-                sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                 holder[1] = sn;
             }
         } else {
@@ -2039,12 +1966,12 @@ public final class TypeChecker {
             if (cmp < 0) {
                 Expr unfolded = reducer.tryUnfoldDef(tnHead);
                 if (unfolded == null) return 0;
-                tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                 holder[0] = tn;
             } else if (cmp > 0) {
                 Expr unfolded = reducer.tryUnfoldDef(snHead);
                 if (unfolded == null) return 0;
-                sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                 holder[1] = sn;
             } else {
                 // Same hint level — Lean takes this shortcut when is_delta
@@ -2070,11 +1997,11 @@ public final class TypeChecker {
                 Expr unfoldedS = reducer.tryUnfoldDef(snHead);
                 if (unfoldedT == null && unfoldedS == null) return 0;
                 if (unfoldedT != null) {
-                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true));
+                    tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
                     holder[0] = tn;
                 }
                 if (unfoldedS != null) {
-                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
+                    sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
                     holder[1] = sn;
                 }
             }
@@ -2203,6 +2130,8 @@ public final class TypeChecker {
             Expr tType = inferTypeOnly(t);
             Expr sType = inferTypeOnly(s);
             if (!isDefEq(tType, sType)) return false;
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e) {
             return false;
         }
@@ -2239,6 +2168,8 @@ public final class TypeChecker {
 
             // Both must have the same type (use inferTypeOnly — called from isDefEq)
             return isDefEq(tType, inferTypeOnly(s));
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e) {
             return false;
         }
@@ -2258,6 +2189,8 @@ public final class TypeChecker {
             if (indCi == null || indCi.ctors.length == 0) return false;
             ConstantInfo ctorCi = env.lookup(indCi.ctors[0]);
             return ctorCi != null && ctorCi.numFields == 0;
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e1) {
             return false;
         }
@@ -2275,6 +2208,8 @@ public final class TypeChecker {
             if (!isProp(tt)) return 0; // l_undef — not a Prop
             Expr ts = inferTypeOnly(s);
             return isDefEq(tt, ts) ? 1 : -1;
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e) {
             return 0; // treat inference errors as unknown
         }
@@ -2352,6 +2287,75 @@ public final class TypeChecker {
         }
     }
 
+    /** Set -Dansatz.kernel.cacheReport=true to have every check leave a cacheReport() here. */
+    public static volatile java.util.Map<String, Object> lastCacheReport;
+    private static final boolean CACHE_REPORT = Boolean.getBoolean("ansatz.kernel.cacheReport");
+
+    /**
+     * What the caches hold at the end of a check: entries per cache, and over every term they
+     * reference, the number of distinct nodes by identity (what the heap holds) and by
+     * structure (what the heap would hold if structurally equal nodes were one object).
+     */
+    public java.util.Map<String, Object> cacheReport() {
+        java.util.LinkedHashMap<String, Object> r = new java.util.LinkedHashMap<>();
+        java.util.IdentityHashMap<Expr, Boolean> seenAll = new java.util.IdentityHashMap<>(1 << 20);
+        java.util.HashMap<Expr, Boolean> structAll = new java.util.HashMap<>(1 << 20);
+        // per cache: [entries, key nodes by identity, key nodes by structure, value nodes by identity, value nodes by structure]
+        java.util.function.BiConsumer<String, java.util.List<java.util.List<Expr>>> report = (nm, kv) -> {
+            long[] out = new long[4];
+            for (int side = 0; side < 2; side++) {
+                java.util.IdentityHashMap<Expr, Boolean> seen = new java.util.IdentityHashMap<>(1 << 16);
+                java.util.HashMap<Expr, Boolean> struct = new java.util.HashMap<>(1 << 16);
+                java.util.ArrayDeque<Expr> stack = new java.util.ArrayDeque<>();
+                for (Expr root : kv.get(side)) {
+                    stack.push(root);
+                    while (!stack.isEmpty()) {
+                        Expr e = stack.pop();
+                        if (seen.put(e, Boolean.TRUE) != null) continue;
+                        struct.put(e, Boolean.TRUE);
+                        seenAll.put(e, Boolean.TRUE);
+                        structAll.put(e, Boolean.TRUE);
+                        switch (e.tag) {
+                            case Expr.APP: stack.push((Expr) e.o0); stack.push((Expr) e.o1); break;
+                            case Expr.LAM: case Expr.FORALL: stack.push((Expr) e.o1); stack.push((Expr) e.o2); break;
+                            case Expr.LET: stack.push((Expr) e.o1); stack.push((Expr) e.o2); stack.push((Expr) e.o3); break;
+                            case Expr.MDATA: case Expr.PROJ: stack.push((Expr) e.o1); break;
+                            default: break;
+                        }
+                    }
+                }
+                out[side * 2] = seen.size(); out[side * 2 + 1] = struct.size();
+            }
+            r.put(nm, new long[] {kv.get(0).size(), out[0], out[1], out[2], out[3]});
+        };
+        java.util.function.Function<ExprMap<Expr>, java.util.List<java.util.List<Expr>>> kvOf = m -> {
+            java.util.ArrayList<Expr> ks = new java.util.ArrayList<>(m.size()), vs = new java.util.ArrayList<>(m.size());
+            m.forEach((k, v) -> { ks.add(k); vs.add((Expr) v); });
+            return java.util.List.of(ks, vs);
+        };
+        java.util.function.Function<ExprPairSet, java.util.List<java.util.List<Expr>>> pairsOf = p -> {
+            java.util.ArrayList<Expr> as = new java.util.ArrayList<>(p.size()), bs = new java.util.ArrayList<>(p.size());
+            p.forEach((a, b) -> { as.add(a); bs.add(b); });
+            return java.util.List.of(as, bs);
+        };
+        report.accept("infer", kvOf.apply(inferCache));
+        report.accept("inferOnly", kvOf.apply(inferOnlyCache));
+        report.accept("success", pairsOf.apply(success));
+        report.accept("failure", pairsOf.apply(failure));
+        for (java.util.Map.Entry<String, ExprMap<Expr>> e : reducer.caches().entrySet()) report.accept(e.getKey(), kvOf.apply(e.getValue()));
+        r.put("nodes-by-identity", seenAll.size());
+        r.put("nodes-by-structure", structAll.size());
+        java.util.HashSet<Integer> hashes = new java.util.HashSet<>(structAll.size() * 2);
+        java.util.HashMap<Byte, int[]> byTag = new java.util.HashMap<>();
+        for (Expr e : structAll.keySet()) {
+            hashes.add(e.hashCode());
+            byTag.computeIfAbsent(e.tag, k -> new int[1])[0]++;
+        }
+        r.put("distinct-hashes", hashes.size());
+        r.put("nodes-by-tag", byTag.toString());
+        return r;
+    }
+
     private static ConstantCheckState checkConstantPreAdd(Env env, ConstantInfo ci, long fuel,
             Writer traceWriter, boolean phaseTracing) {
         if (ci.isInduct() || ci.isCtor() || ci.isRecursor()) {
@@ -2367,15 +2371,20 @@ public final class TypeChecker {
         java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
         Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
         Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-        // Seed intern table with shareCommon results so reduction-created
-        // expressions are pointer-identical to proof sub-expressions.
-        Expr.seedIntern(scCache);
 
         TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
         tc.setFuel(fuel);
         if (traceWriter != null) tc.setTraceWriter(traceWriter);
         tc.setPhaseTracing(phaseTracing);
+        try {
+            return checkConstantWith(tc, ci, type, value, phaseTracing);
+        } finally {
+            if (CACHE_REPORT) lastCacheReport = tc.cacheReport();
+        }
+    }
 
+    private static ConstantCheckState checkConstantWith(TypeChecker tc, ConstantInfo ci, Expr type, Expr value,
+            boolean phaseTracing) {
         // Theorem: check is_prop first, matching Lean 4's add_theorem.
         if (ci.isThm()) {
             if (phaseTracing) tc.emitPhase("isProp");
@@ -2496,13 +2505,10 @@ public final class TypeChecker {
             return env.enableQuot().addConstant(ci);
         }
 
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, null, false);
             return env.addConstant(ci);
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2516,13 +2522,10 @@ public final class TypeChecker {
             validateQuotDeclaration(env, ci);
             return env.enableQuot().addOrReplaceConstant(ci);
         }
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, null, false);
             return env.addOrReplaceConstant(ci);
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2532,7 +2535,6 @@ public final class TypeChecker {
 
     static void checkInductiveHeader(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isInduct()) throw new RuntimeException("expected inductive declaration: " + ci.name);
-        Expr.enableIntern();
         try {
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             Expr type = Expr.shareCommon(ci.type);
@@ -2541,14 +2543,11 @@ public final class TypeChecker {
             tc.ensureSort(tc.check(type));
             validateInductiveResultSort(ci, tc);
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
     static void checkConstructorDeclaration(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isCtor()) throw new RuntimeException("expected constructor declaration: " + ci.name);
-        Expr.enableIntern();
         try {
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             Expr type = Expr.shareCommon(ci.type);
@@ -2560,14 +2559,11 @@ public final class TypeChecker {
                 validateConstructor(env, indCi, ci, tc, !(ci.isUnsafe || indCi.isUnsafe));
             }
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
     static void checkRecursorDeclaration(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isRecursor()) throw new RuntimeException("expected recursor declaration: " + ci.name);
-        Expr.enableIntern();
         try {
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             Expr type = Expr.shareCommon(ci.type);
@@ -2587,8 +2583,6 @@ public final class TypeChecker {
                 }
             }
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2598,14 +2592,11 @@ public final class TypeChecker {
             validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, traceWriter, false);
             try { traceWriter.flush(); } catch (IOException e) {}
             return env.addConstant(ci);
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2615,14 +2606,11 @@ public final class TypeChecker {
             validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, traceWriter, true);
             try { traceWriter.flush(); } catch (IOException e) { throw new RuntimeException(e); }
             return env.addConstant(ci);
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2636,13 +2624,10 @@ public final class TypeChecker {
             // Callers must handle env.enableQuot().addConstant(ci)
             return 0;
         }
-        Expr.enableIntern();
         try {
             ConstantCheckState state = checkConstantPreAdd(env, ci, fuel, null, false);
             return state.tc.getFuelUsed();
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2655,7 +2640,6 @@ public final class TypeChecker {
             // Callers must handle env.enableQuot().addConstant(ci)
             return new Object[]{0L, new HashMap<String, Long>(), new String[0], null};
         }
-        Expr.enableIntern();
         try {
             TypeChecker tc = null;
             try {
@@ -2675,8 +2659,6 @@ public final class TypeChecker {
                     "StackOverflowError (whnf max depth: " + maxDepth + ")"};
             }
         } finally {
-            Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
