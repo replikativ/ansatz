@@ -206,6 +206,19 @@
         manifest)
       (finally (.close lw)))))
 
+(defn rebuild-instances!
+  "Replace an existing format-1 store's derived `:instances` blob from a fresh
+   scripts/dump_instances.lean TSV (module order, real priorities) — for a store whose registry
+   was written by the old inline emitter (hash order, every priority 100). Leaves the blobs
+   alone; keeps the TSV under <store>/inputs/. Returns the class count."
+  [store-path tsv & {:keys [branch] :or {branch "main"}}]
+  (store/check-format! store-path)
+  (let [sm (storage/open-store store-path {:sync-blob? false})
+        idx (instance/load-instance-tsv tsv)]
+    (storage/write-derived! (:store sm) branch :instances idx)
+    (copy-input! tsv (io/file store-path "inputs"))
+    (count idx)))
+
 (defn rebuild-catalogue!
   "Recompute the FACTS (ansatz.export.facts) and the catalogue of an existing format-1 store,
    optionally with a module/doc dump — for a store imported before facts existed, or a new

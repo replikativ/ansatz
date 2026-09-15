@@ -9,9 +9,10 @@
 
    Resolution uses structural matching with isDefEq fallback,
    recursive synthesis for inst-implicit args, and depth limiting."
-  (:require [clojure.string]
-            [clojure.java.io]
+  (:require [clojure.string :as str]
+            [clojure.java.io :as io]
             [ansatz.meta :as meta]
+            [ansatz.state :as state]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -102,28 +103,117 @@
   [index class-name]
   (get index class-name []))
 
+(defn parse-instance-tsv
+  "Lean's @[instance] registry (scripts/dump_instances.lean: `class<TAB>instance<TAB>priority`
+   lines) → an instance index {class-Name → [{:name Name :priority Nat} …]}. Within a class the
+   candidates are in Lean's try order: HIGHER priority first (`instance (priority := low)` is
+   tried last), the most recently declared first among equals. `present?` (name-string → bool) drops instances the
+   env does not have, so a registry dumped from full Init serves a smaller bundled tier."
+  ([lines] (parse-instance-tsv lines nil))
+  ([lines present?]
+   (let [idx (reduce (fn [idx line]
+                       (let [parts (str/split line #"\t")]
+                         (if (and (>= (count parts) 2)
+                                  (or (nil? present?) (present? (nth parts 1))))
+                           (update idx (name/from-string (nth parts 0)) (fnil conj [])
+                                   {:name (name/from-string (nth parts 1))
+                                    :priority (if (>= (count parts) 3)
+                                                (try (Long/parseLong (nth parts 2)) (catch Exception _ 1000))
+                                                1000)})
+                           idx)))
+                     {} lines)]
+     ;; Lean (SynthInstance.lean): candidates sorted by priority and consumed from the END —
+     ;; highest priority first, and among equals the LAST registered (DiscrTree insertion order
+     ;; = declaration order), so a carrier's own `Real.instMul` beats the generic
+     ;; `CommMagma.toMul` projection declared before it. A stable sort over the reversed list.
+     (into {} (map (fn [[k vs]] [k (vec (sort-by (comp - :priority) (rseq vs)))])) idx))))
+
 (defn load-instance-tsv
-  "Load instance registry from a TSV file (exported from Lean 4).
-   Format: class-name<TAB>instance-name<TAB>priority
-   Returns an instance index: {Name → [{:name Name :priority Nat} ...]}"
+  "Load Lean's instance registry from a TSV file (see parse-instance-tsv)."
   [path]
-  (let [idx (atom {})]
-    (with-open [rdr (clojure.java.io/reader path)]
-      (doseq [line (line-seq rdr)]
-        (let [parts (clojure.string/split line #"\t")]
-          (when (>= (count parts) 2)
-            (let [class-name (name/from-string (nth parts 0))
-                  inst-name (name/from-string (nth parts 1))
-                  priority (if (>= (count parts) 3)
-                             (try (Long/parseLong (nth parts 2)) (catch Exception _ 1000))
-                             1000)]
-              (swap! idx update class-name
-                     (fnil conj [])
-                     {:name inst-name :priority priority}))))))
-    ;; Sort by priority (lower = tried first)
-    (into {} (map (fn [[k vs]]
-                    [k (sort-by :priority vs)])
-                  @idx))))
+  (with-open [rdr (io/reader path)]
+    (parse-instance-tsv (doall (line-seq rdr)))))
+
+(def ^:private bundled-instances-resource "ansatz/init-instances.tsv.gz")
+
+(defn load-bundled-instances
+  "The instance index of the BUNDLED Init registry (resources/ansatz/init-instances.tsv.gz, dumped
+   by scripts/regen-bundled-attrs.sh), intersected with the env through `present?` — the zero-config
+   `load-init!` tier's counterpart of the store's derived `:instances` blob. nil when the resource is
+   not on the classpath."
+  [{:keys [present?]}]
+  (when-let [res (io/resource bundled-instances-resource)]
+    (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+                  (str/split-lines (slurp in)))]
+      (parse-instance-tsv lines present?))))
+
+(defn index-for
+  "The instance index to synthesize against for `env`: the registry the session installed
+   (`ansatz.state/ansatz-instance-index` — a store's derived `:instances` blob, or the bundled Init
+   registry; both are Lean's own @[instance] table), else name-based discovery over `env`. Every
+   synthesis entry point goes through this — an index built by discovery alone (39 hand-listed
+   classes) never sees most of Mathlib."
+  [env]
+  (let [installed @state/ansatz-instance-index]
+    (if (seq installed) installed (build-instance-index env))))
+
+;; ── Candidate selection — Lean's DiscrTree key, one level deep ─────────────────────────────
+;; Lean's `getInstances` looks candidates up in a discrimination tree keyed by the instance
+;; type's conclusion, so `OfNat ℝ 1` only ever sees the generic instances (conclusion `OfNat ?α n`)
+;; and the ℝ-specific ones. A flat per-class list is not a substitute once it is CAPPED at
+;; `*max-candidates*`: Mathlib registers 61 `OfNat` and 115 `Pow` instances, `One.toOfNat1` is
+;; number 58 of the former and `Monoid.toNatPow` number 38 of the latter, and both sat forever
+;; behind the cap. Keying each candidate by the head of its conclusion's FIRST argument (a bound
+;; variable → generic) recovers the relevant subset.
+
+(def ^:private conclusion-keys
+  "instance Name → its conclusion key (a head-constant Name, or :generic). Filled on demand: only
+   the classes a session actually synthesizes pay for resolving their instances' types."
+  (atom {}))
+
+(defn reset-caches!
+  "Forget the per-name conclusion keys — a new env may spell the same names differently."
+  []
+  (reset! conclusion-keys {}))
+
+(defn- conclusion-first-arg-key
+  "The DiscrTree-style key of an instance type: the head constant of its conclusion's first
+   argument, or :generic when that argument is a bound variable (the instance applies to any
+   carrier) or has no constant head."
+  [ty]
+  (let [concl (loop [t ty] (if (e/forall? t) (recur (e/forall-body t)) t))
+        [_ args] (e/get-app-fn-args concl)
+        a (first args)
+        [h _] (when a (e/get-app-fn-args a))]
+    (if (and h (e/const? h)) (e/const-name h) :generic)))
+
+(defn- conclusion-key
+  [^Env env inst-name]
+  (or (get @conclusion-keys inst-name)
+      (let [k (if-let [^ConstantInfo ci (env/lookup env inst-name)]
+                (conclusion-first-arg-key (.type ci))
+                :generic)]
+        (swap! conclusion-keys assoc inst-name k)
+        k)))
+
+(defn select-candidates
+  "The candidates of `candidates` (a class's registry entries, in order) worth trying for
+   `goal-type`, in order: only when the list exceeds the cap is it narrowed to the instances whose
+   conclusion key matches the goal's first argument plus the generic ones — Lean's DiscrTree
+   selection, one level deep. Small lists are returned as they are (nothing to gain, and the
+   keying costs a type lookup per instance)."
+  [env candidates goal-type]
+  (if (<= (count candidates) config/*max-candidates*)
+    candidates
+    (let [[_ gargs] (e/get-app-fn-args goal-type)
+          g (first gargs)
+          [gh _] (when g (e/get-app-fn-args g))
+          gkey (when (and gh (e/const? gh)) (e/const-name gh))]
+      (if-not gkey
+        candidates
+        (filterv (fn [c] (let [k (conclusion-key env (:name c))]
+                           (or (= k :generic) (= k gkey))))
+                 candidates)))))
 
 ;; ============================================================
 ;; Structural matching (avoids proof irrelevance)
@@ -383,19 +473,6 @@
    ;; instance-implicit `wsum` over WSemiring-parameterized laws relies on this resolution).
    "WAddMonoid" ["WSemiring"]})
 
-(def ^:private extra-candidates
-  "class → instance constants that no naming convention finds. Lean reads these off the
-   `@[instance]` attribute; a PSS env cannot scan for them, so the ones the numeric surface
-   needs are named here (same curated style as `common-classes`):
-
-   - `OfNat T n` is how EVERY numeric literal at a non-Nat type elaborates. `0` and `1` go
-     through `Zero.toOfNat0` / `One.toOfNat1`, literals >= 2 through Mathlib's
-     `instOfNatAtLeastTwo` (`[NatCast R] [n.AtLeastTwo] : OfNat R n`).
-   - `Pow T Nat` is the monoid power behind `HPow Real Nat Real` (`(pow Real k n)`):
-     `Monoid.toNatPow`, with `instPowNat` for the `NatPow` types."
-  {"OfNat" ["Zero.toOfNat0" "One.toOfNat1" "instOfNatNat" "instOfNatAtLeastTwo"]
-   "Pow"   ["Monoid.toNatPow" "instPowNat"]})
-
 (defn- discover-candidates
   "On-demand candidate discovery for PSS environments.
    Tries naming conventions to find instances without scanning all constants.
@@ -438,9 +515,7 @@
             ;; subclass instance (e.g. ReflBEq via LawfulBEq.toReflBEq). try-candidate synthesizes the
             ;; projection's structure argument; the goal class is the projection's RETURN type.
           (for [sub (get parent-class-sources class-str)]
-            (str sub ".to" class-str))
-            ;; instances no naming convention reaches (OfNat, Pow — see extra-candidates)
-          (get extra-candidates class-str)))]
+            (str sub ".to" class-str))))]
     (keep (fn [n]
             (let [nm (name/from-string n)]
               (when (env/lookup env nm)
@@ -520,7 +595,8 @@
               from-candidates (when-not local-inst
                                 (some (fn [candidate]
                                         (try-candidate st env index candidate goal-type depth))
-                                      (take config/*max-candidates* candidates)))]
+                                      (take config/*max-candidates*
+                                            (select-candidates env candidates goal-type))))]
           (or local-inst
               from-candidates
               ;; `Nat.AtLeastTwo <numeral>` — built, not searched (see above). Type-checked
@@ -668,12 +744,10 @@
 
 (defn synth-pending-instance
   "`ansatz.meta/*synth-pending-fn*`: synthesize the instance goal that `isDefEq` got stuck on
-   (Lean's `synthPending`). Uses the process-wide instance index — `ansatz.core` keeps it in
-   step with the env — and the tc-state's synth memo, so a goal that keeps recurring during
-   one match costs a single resolution."
+   (Lean's `synthPending`). Uses the session's registry (`index-for`) and the tc-state's synth
+   memo, so a goal that keeps recurring during one match costs a single resolution."
   [_mctx st goal]
-  (let [idx (try ((requiring-resolve 'ansatz.core/instance-index)) (catch Throwable _ {}))]
-    (try (synthesize* st (:env st) idx goal 0) (catch Throwable _ nil))))
+  (try (synthesize* st (:env st) (index-for (:env st)) goal 0) (catch Throwable _ nil)))
 
 ;; Loading this namespace is what makes instances synthesizable; installing the hook here
 ;; keeps `ansatz.meta` free of any dependency on the tactic layer.

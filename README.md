@@ -224,7 +224,7 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 Add to `deps.edn`:
 
 ```clojure
-{:deps {org.replikativ/ansatz {:mvn/version "0.1.0-SNAPSHOT"}}}
+{:deps {org.replikativ/ansatz {:mvn/version "0.2.105"}}}  ; latest release: see the Clojars badge
 ```
 
 ### Startup time
@@ -273,7 +273,7 @@ attributes from the same toolchain, and runs the importer (`ansatz.import`), whi
 the matcher corpus, the recall keys, the `@[simp]` index and the catalogue — under the durable
 store root (`$ANSATZ_STORE_DIR` → `$XDG_DATA_HOME/ansatz/stores` → `~/.local/share/ansatz/stores`;
 pass an explicit directory as the first argument to override). The export takes ~5 minutes, the
-import on the order of an hour (the keying passes use every core).
+import about half an hour on 8 cores (the keying passes use every core).
 Avoid `/tmp`/`/var/tmp` for stores — `systemd-tmpfiles` erodes them.
 
 A store is versioned by its `manifest.edn` (`:store/format`, provenance — Lean toolchain,
@@ -316,17 +316,17 @@ cd ../lean4export && lake build
 cd ../mathlib4
 lake env ../lean4export/.lake/build/bin/lean4export --export-mdata Mathlib > ../ansatz/test-data/mathlib.ndjson
 
-# 3. Generate instance registry from Mathlib (~2 min)
-lake env lean DumpInstances.lean   # produces instances.tsv
-cp instances.tsv ../ansatz/resources/instances.tsv
+# 3. Dump Lean's @[instance] registry (~2 min) — module order and real priorities, both
+#    load-bearing for synthesis (see scripts/dump_instances.lean)
+lake env lean --run ../ansatz/scripts/dump_instances.lean Mathlib > ../ansatz/test-data/mathlib-instances.tsv
 
 # 4. Dump the attributes (co-generated with the export)
 lake env lean --run ../ansatz/scripts/dump_attrs.lean Mathlib | gzip -c > ../ansatz/test-data/mathlib-attrs.ndjson.gz
 
-# 5. Import — one command, complete store (~1 h; keying runs on every core)
+# 5. Import — one command, complete store (~30 min on 8 cores; keying runs on every core)
 cd ../ansatz
 clj -J-Xmx8g -M:datahike -m ansatz.import "$(clj -M -e '(print ((requiring-resolve (quote ansatz.store/store-dir)) "mathlib"))')" \
-    test-data/mathlib.ndjson mathlib test-data/mathlib-attrs.ndjson.gz resources/instances.tsv \
+    test-data/mathlib.ndjson mathlib test-data/mathlib-attrs.ndjson.gz test-data/mathlib-instances.tsv \
     "lean/toolchain=$(cat ../mathlib4/lean-toolchain)" "library/rev=$(git -C ../mathlib4 rev-parse HEAD)"
 ```
 

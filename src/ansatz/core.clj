@@ -157,9 +157,8 @@
 
    Two sources. `derived` — the store's `[:derived <branch> k]` blobs, computed once by the
    importer (ansatz.import) — is the store path: nothing is parsed at start. nil is the
-   bundled in-memory tier (load-init!): Lean's Init attributes and matchers come from the jar's
-   resources, intersected with the env through `attr-present?`, and instances by name-based
-   discovery over the env."
+   bundled in-memory tier (load-init!): Lean's Init attributes, matchers and instance registry
+   come from the jar's resources, intersected with the env through `attr-present?`."
   ([env] (setup-env! env nil nil nil))
   ([env store attr-present? derived]
    (reset! ansatz-env env)
@@ -169,8 +168,15 @@
          (matchers/install! (or (:matchers derived) {})))
      (do (attrs/load-bundled-attrs! {:present? attr-present?})
          (matchers/load-bundled-matchers! {:present? attr-present?})))
-   (let [idx (or (:instances derived)
+   ;; Lean's @[instance] registry: the store's derived blob, else the bundled Init registry
+   ;; (intersected with the env); discovery over the env only for an env that has neither.
+   (let [present? (or attr-present? (fn [n] (some? (env/lookup env (name/from-string n)))))
+         bundled (when-not derived
+                   ((requiring-resolve 'ansatz.tactic.instance/load-bundled-instances) {:present? present?}))
+         idx (or (:instances derived)
+                 (when (seq bundled) bundled)
                  ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) env))]
+     ((requiring-resolve 'ansatz.tactic.instance/reset-caches!))
      (reset! ansatz-instance-index idx)
      (when (resolve 'ansatz.core/synth-cache)
        (reset! @(resolve 'ansatz.core/synth-cache) {}))
