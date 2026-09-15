@@ -48,3 +48,28 @@
         l2 (Expr/mkLet (name/from-string "y") nat z (Expr/bvar 0))]
     (is (hash= l1 l2))
     (is (key= l1 l2))))
+
+(deftest structural-equality-on-shared-dags
+  ;; expr_eq_fn memoizes the composite pairs it enters: two structurally equal DAGs built
+  ;; separately (no pointer sharing between them, heavy sharing within each) compare once per
+  ;; shared pair instead of once per path.
+  (let [nat (c "Nat")
+        tower (fn [depth]
+                (loop [e (Expr/app (c "f") (Expr/bvar 0)) d 0]
+                  (if (= d depth) e (recur (Expr/app (Expr/app (c "g") e) e) (inc d)))))
+        a (lam "x" nat (tower 40)) b (lam "y" nat (tower 40))]
+    (is (not (identical? a b)))
+    (is (hash= a b))
+    (is (key= a b) "2^40 paths, compared in linear time")
+    (is (not (key= a (lam "y" nat (Expr/app (c "g") (tower 39))))))))
+
+(deftest pair-memo-is-an-identity-set
+  (let [m (ansatz.kernel.LeanExprKey$PairMemo.)
+        xs (vec (repeatedly 300 #(Expr/app (c "h") (c "Nat.zero"))))]
+    (is (.add m (xs 0) (xs 1)))
+    (is (not (.add m (xs 0) (xs 1))) "a present pair is reported")
+    (is (.add m (xs 1) (xs 0)) "…ordered")
+    (is (.add m (xs 0) (xs 2)))
+    (doseq [i (range 3 300)] (.add m (xs i) (xs (dec i))))
+    (is (= 300 (.size m)) "growth keeps every pair")
+    (is (not (.add m (xs 150) (xs 149))))))
