@@ -1410,6 +1410,7 @@
                                  ;; constructor does (an empty inductive has no rules — its
                                  ;; recursor keeps its own name and is retried as recorded)
                                  (.isRecursor ci) (some-> (.rules ci) first .ctor
+                                                          ansatz-name/->string
                                                           ((:resolve-fn ctx)) .inductName))]
                     (if induct (ansatz-name/->string induct) name)))
         by-head (group-by (comp head-of :name) (:error-names cp))

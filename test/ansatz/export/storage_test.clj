@@ -273,3 +273,32 @@
         (finally
           (delete-dir-recursive dir))))))
 
+
+(deftest reverify-errors-retries-through-the-bundle-head
+  (testing "recorded constructor/recursor entries are retried via their inductive and cleared"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [r0 (storage/verify-corpus! store-map "verify-test" :workers 1 :checkpoint-every 3)
+                f (java.io.File. dir "verify-verify-test.edn")
+                cp (clojure.edn/read-string (slurp f))
+                fake [{:name "Nat.succ" :error "recorded"}
+                      {:name "Nat.rec" :error "recorded"}
+                      {:name "Nat.add" :error "recorded"}]
+                cp' (-> cp
+                        (assoc :error-names fake :errors 3)
+                        (assoc-in [:slices 0 :error-names] fake)
+                        (assoc-in [:slices 0 :errors] 3))
+                _ (spit f (pr-str cp'))
+                r (storage/reverify-errors! store-map "verify-test")
+                after (clojure.edn/read-string (slurp f))]
+            (is (:done? r0))
+            (is (= #{"Nat.succ" "Nat.rec" "Nat.add"} (set (:fixed r))))
+            (is (empty? (:still-failing r)))
+            (is (zero? (:errors after)))
+            (is (empty? (:error-names after)))
+            (is (zero? (get-in after [:slices 0 :errors]))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
