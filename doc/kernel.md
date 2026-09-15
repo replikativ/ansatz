@@ -296,7 +296,7 @@ This is important because:
   `PersistentHashMap`).
 - Fork is free — no copying needed.
 
-For large stores (Mathlib's 648K declarations), `Env` can wrap an external PSS
+For large stores (Mathlib's 707K declarations), `Env` can wrap an external PSS
 or FlatStore lookup. PSS is the store path used for the current full Mathlib
 kernel verification. FlatStore is a performance-oriented mmap store path with
 targeted tests; it is intended to speed up lookup/materialization, not to define
@@ -804,4 +804,4 @@ Others to compare against:
 | [lean4lean](https://github.com/digama0/lean4lean) | Lean 4 | First complete independent checker; verified all of Mathlib; found one soundness bug |
 | [nanoda_lib](https://github.com/ammkrn/nanoda_lib) | Rust | Author also wrote "Type Checking in Lean 4" guide |
 | [lean4checker](https://github.com/leanprover/lean4checker) | Lean 4 | Official lightweight re-checker |
-| Ansatz | Java/Clojure | This project; verified all 648,612 Mathlib declarations |
+| Ansatz | Java/Clojure | This project; verified all 707,508 declarations of Mathlib v4.33.1 |

@@ -49,8 +49,10 @@ Or manually:
 ## REPL Workflow (Mathlib)
 
 The full Mathlib store lives in the durable store root (`~/.local/share/ansatz/stores/mathlib`,
-648,612 declarations); `(a/init! "mathlib")` resolves it there (`$ANSATZ_STORE_DIR` overrides the
-root — see ansatz.store). A store is versioned by its `manifest.edn` (`:store/format`); `init!`
+707,508 declarations — Mathlib `v4.33.1` on Lean `v4.33.1`, the release `MATHLIB_TAG` pins in
+`scripts/setup-mathlib.sh`); `(a/init! "mathlib")` resolves it there (`$ANSATZ_STORE_DIR`
+overrides the root — see ansatz.store). The store's branch is `"mathlib"`, not `"main"` —
+`rebuild-catalogue!`/`rebuild-instances!` need `:branch "mathlib"`. A store is versioned by its `manifest.edn` (`:store/format`); `init!`
 refuses another format and there is NO migration: re-run `./scripts/setup-mathlib.sh`, which runs
 Lean for the inputs and then `ansatz.import` (one pass produces the complete store). Node blobs
 are content-addressed, so the same export always yields the same store.
@@ -182,6 +184,6 @@ Single-threaded REPL use is safe. Fix: use `swap!` with
 
 ## Important Workflow Rules
 
-- **Never reprocess all 648k declarations to test a fix.** Jump to the failing declaration directly with `skip-to!` or `verify-by-name!`.
+- **Never reprocess all 707k declarations to test a fix.** Jump to the failing declaration directly with `skip-to!` or `verify-by-name!`.
 - **Full verification only as final validation** after individual fixes are confirmed.
 - Use `:reload` when requiring namespaces to pick up code changes.

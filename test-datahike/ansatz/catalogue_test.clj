@@ -65,6 +65,19 @@
       (is (.isDirectory (io/file dir "catalogue")))
       (is (not (.exists (io/file dir "blobs" "catalogue")))))))
 
+(deftest a-renamed-store-keeps-its-catalogue
+  (testing "the catalogue connects from a path other than the one it was built at"
+    (let [dir (fresh-store-dir) p (.getPath dir)
+          moved (io/file (.getParentFile dir) (str (.getName dir) "-moved"))]
+      (cat/build! p {:branch "main" :recall-keys recall-entries :simp-keys simp-entries})
+      (is (.renameTo dir moved))
+      (.deleteOnExit moved)
+      (is (cat/exists? (.getPath moved)))
+      (let [conn (cat/connect (.getPath moved)) db @conn]
+        (try
+          (is (= #{"le_a"} (set (cat/recall-names db (dti/query-key (nle (e/lit-nat 1) (e/lit-nat 2)))))))
+          (finally (d/release conn)))))))
+
 (deftest recall-prefers-the-catalogue-and-falls-back-to-the-trie
   (let [dir (fresh-store-dir) p (.getPath dir)
         sm (storage/open-store p)]

@@ -170,6 +170,72 @@
         (finally
           (delete-dir-recursive dir))))))
 
+(deftest verify-corpus-parallel-and-resumable
+  (testing "Sliced parallel verification checks everything, checkpoints, and resumes to a no-op"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [r1 (storage/verify-corpus! store-map "verify-test" :workers 2 :checkpoint-every 3)
+                f (java.io.File. dir "verify-verify-test.edn")]
+            (is (:done? r1))
+            (is (= (:total r1) (:ok r1)))
+            (is (zero? (:errors r1)))
+            (is (.exists f) "the checkpoint is the run's durable state")
+            (testing "and a second run resumes from the completed checkpoint without re-verifying"
+              (let [r2 (storage/verify-corpus! store-map "verify-test" :workers 2 :checkpoint-every 3)]
+                (is (:done? r2))
+                (is (= (:ok r1) (:ok r2)))))
+            (testing "a slice that was interrupted continues where it stopped"
+              (let [cp (clojure.edn/read-string (slurp f))
+                    back (update-in cp [:slices 1] (fn [sl] (assoc sl :idx (:start sl) :ok 0)))
+                    _ (spit f (pr-str back))
+                    r3 (storage/verify-corpus! store-map "verify-test" :workers 2 :checkpoint-every 3)]
+                (is (:done? r3))
+                (is (= (:ok r1) (:ok r3))))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
+(deftest verify-corpus-one-slice-per-process
+  (testing "each slice can run in its own process with its own checkpoint, and the retry pass
+            reads them merged"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [r0 (storage/verify-corpus! store-map "verify-test" :workers 2 :slice 0 :checkpoint-every 3)
+                r1 (storage/verify-corpus! store-map "verify-test" :workers 2 :slice 1 :checkpoint-every 3)
+                merged (#'storage/read-checkpoint store-map "verify-test")]
+            (is (and (:done? r0) (:done? r1)))
+            (is (= 2 (count (:slices merged))))
+            (is (= (:total r0) (reduce + (map :ok (:slices merged)))))
+            (is (zero? (reduce + (map :errors (:slices merged)))))
+            (is (.exists (java.io.File. dir "verify-verify-test-s1.edn")))
+            (testing "the per-slice files supersede a stale combined checkpoint, and the retry
+                      pass rewrites them"
+              (let [s1 (java.io.File. dir "verify-verify-test-s1.edn")
+                    cp1 (clojure.edn/read-string (slurp s1))
+                    fake [{:name "Nat.add" :error "recorded"}]
+                    _ (spit s1 (pr-str (-> cp1 (assoc :error-names fake :errors 1)
+                                           (assoc-in [:slices 0 :error-names] fake)
+                                           (assoc-in [:slices 0 :errors] 1))))
+                    _ (spit (java.io.File. dir "verify-verify-test.edn")
+                            (pr-str (assoc merged :error-names [{:name "Nat.zero" :error "stale"}] :errors 1)))
+                    cp (#'storage/read-checkpoint store-map "verify-test")
+                    r (storage/reverify-errors! store-map "verify-test")
+                    after1 (clojure.edn/read-string (slurp s1))
+                    after (clojure.edn/read-string (slurp (java.io.File. dir "verify-verify-test.edn")))]
+                (is (= ["Nat.add"] (mapv :name (:error-names cp))))
+                (is (= ["Nat.add"] (:fixed r)))
+                (is (zero? (:errors after1)))
+                (is (zero? (get-in after1 [:slices 0 :errors])))
+                (is (zero? (:errors after)))
+                (is (= 2 (count (:slices after)))))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
 (deftest prepare-verify-stages-environment
   (testing "Verification env exposes only declarations admitted before the current index"
     (let [dir (temp-dir)]
@@ -213,6 +279,12 @@
             (try
               (let [result (storage/verify-one! failing-ctx :timeout-ms 0)]
                 (is (= :error (:status result)))
+                (testing "unless the corpus run asks to admit failures (recorded, not cascading)"
+                  (let [ctx2 (assoc failing-ctx :idx (atom 0) :ok (atom 0) :errors (atom 0)
+                                    :error-names (atom []) :admitted-ranks (java.util.BitSet. 8))
+                        r2 (storage/verify-one! ctx2 :timeout-ms 0 :admit-failures? true)]
+                    (is (= :error (:status r2)))
+                    (is (.get ^java.util.BitSet (:admitted-ranks ctx2) 0))))
                 (is (= 1 @(:idx ctx)))
                 (is (nil? (env/lookup (:env ctx) first-name))))
               (finally
@@ -221,3 +293,37 @@
         (finally
           (delete-dir-recursive dir))))))
 
+(deftest reverify-errors-retries-through-the-bundle-head
+  (testing "recorded constructor/recursor entries are retried via their inductive and cleared"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [r0 (storage/verify-corpus! store-map "verify-test" :workers 1 :checkpoint-every 3)
+                f (java.io.File. dir "verify-verify-test.edn")
+                cp (clojure.edn/read-string (slurp f))
+                fake [{:name "Nat.succ" :error "recorded"}
+                      {:name "Nat.rec" :error "recorded"}
+                      {:name "Nat.add" :error "recorded"}
+                      {:name "NoSuch.decl" :error "recorded"}]
+                cp' (-> cp
+                        (assoc :error-names fake :errors 4 :ok (- (:total cp) 4))
+                        (assoc-in [:slices 0 :error-names] fake)
+                        (assoc-in [:slices 0 :errors] 4)
+                        (update-in [:slices 0 :ok] - 4))
+                _ (spit f (pr-str cp'))
+                r (storage/reverify-errors! store-map "verify-test")
+                after (clojure.edn/read-string (slurp f))]
+            (is (:done? r0))
+            (is (= #{"Nat.succ" "Nat.rec" "Nat.add"} (set (:fixed r))))
+            (testing "what still fails stays recorded with its new error, and does not stop the pass"
+              (is (= ["NoSuch.decl"] (mapv :name (:still-failing r))))
+              (is (= 1 (:errors after)))
+              (is (= ["NoSuch.decl"] (mapv :name (:error-names after))))
+              (is (re-find #"not found" (:error (first (:error-names after)))))
+              (is (= 1 (get-in after [:slices 0 :errors])))
+              (is (= (:total after) (+ (:ok after) (:errors after)))
+                  "a fixed entry counts as verified")))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))

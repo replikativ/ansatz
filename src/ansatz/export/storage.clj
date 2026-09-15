@@ -22,6 +22,7 @@
             [konserve.filestore :as fs]
             [konserve.serializers :as ser]
             [clojure.java.io :as io]
+            [clojure.edn :as edn]
             [org.replikativ.persistent-sorted-set :as pss]
             [ansatz.kernel.name :as ansatz-name]
             [ansatz.export.parser :as parser]
@@ -912,7 +913,9 @@
   "Run f on a thread with a large stack (default 64MB).
    Blocks until completion. Re-throws any exception from f.
    The worker thread is a daemon and is interrupted if the calling thread is interrupted.
-   Optional timeout-ms: if > 0, interrupts the thread after that many ms and throws TimeoutException."
+   Optional timeout-ms: if > 0, interrupts the thread once it has used that much CPU time
+   plus collector time (wall-clock only where thread CPU time is unsupported) and throws
+   TimeoutException."
   ([f] (run-with-large-stack f default-stack-size 0))
   ([f stack-size] (run-with-large-stack f stack-size 0))
   ([f stack-size timeout-ms]
@@ -931,7 +934,29 @@
      (.start t)
      (try
        (if (and timeout-ms (pos? timeout-ms))
-         (.join t (long timeout-ms))
+         ;; The budget is the worker's CPU time, not wall-clock time: a verification run
+         ;; that is SIGSTOPped while the machine is busy (or simply descheduled next to
+         ;; other work) must not report the declaration in flight as timed out on resume.
+         ;; Falls back to wall-clock only where the JVM cannot measure thread CPU time.
+         ;; Collector time is charged too: a check whose live set fills the heap spends its
+         ;; time in full collections that thread CPU time never sees (one such declaration
+         ;; ran 5.5 h of GC against a 10 min budget), and like CPU time it stops accruing
+         ;; while the process is stopped.
+         (let [mx (java.lang.management.ManagementFactory/getThreadMXBean)
+               tid (.getId t)
+               budget-ns (* 1000000 (long timeout-ms))
+               gc-ms (fn [] (reduce + 0 (map #(max 0 (.getCollectionTime ^java.lang.management.GarbageCollectorMXBean %))
+                                             (java.lang.management.ManagementFactory/getGarbageCollectorMXBeans))))
+               gc0 (gc-ms)]
+           (if (.isThreadCpuTimeSupported mx)
+             (loop []
+               (.join t 250)
+               (when (.isAlive t)
+                 (let [cpu (.getThreadCpuTime mx tid)
+                       charged (+ (max 0 cpu) (* 1000000 (- (gc-ms) gc0)))]
+                   (when (or (neg? cpu) (< charged budget-ns))
+                     (recur)))))
+             (.join t (long timeout-ms))))
          (.join t))
        (catch InterruptedException _
          (.interrupt t)
@@ -955,10 +980,10 @@
    passed to verify-batch! for incremental verification.
    Context: {:env Env, :decl-order vec, :resolve-fn (name-str → CI),
              :log-writer Writer, :ok atom, :errors atom, :error-names atom, :idx atom}"
-  [store-map branch-name & {:keys [log-file]
+  [store-map branch-name & {:keys [log-file append?]
                             :or {log-file (str (System/getProperty "java.io.tmpdir") "/ansatz-verify.log")}}]
   (let [{:keys [store]} store-map
-        lw (java.io.FileWriter. (str log-file) false)
+        lw (java.io.FileWriter. (str log-file) (boolean append?))
         loader (branch-loader store-map branch-name)
         {:keys [branch-meta lookup-ci]} loader]
     (let [decl-order (if-let [num-chunks (:decl-order-chunks branch-meta)]
@@ -1082,8 +1107,9 @@
    Returns result map with :status, :name, :fuel-used, :elapsed-ms. Non-inductive
    constants report measured fuel; inductive bundles currently report 0.
    Inductive declarations are verified as a contiguous Lean-style bundle.
-   Failed declarations are not marked admitted; non-stop mode is diagnostic only."
-  [ctx & {:keys [fuel timeout-ms] :or {fuel default-fuel timeout-ms 120000}}]
+   Failed declarations are not marked admitted unless `:admit-failures?` (the corpus run's
+   choice, so a failure does not cascade into its dependents); non-stop mode is diagnostic."
+  [ctx & {:keys [fuel timeout-ms admit-failures?] :or {fuel default-fuel timeout-ms 120000}}]
   (let [{:keys [env decl-order resolve-fn ok errors error-names idx]} ctx
         i @idx
         total (count decl-order)]
@@ -1097,54 +1123,64 @@
             (swap! error-names conj {:name name-str :error "MISSING"})
             (swap! idx inc)
             {:status :missing :name name-str :idx i})
-        (try
-          (let [bundle? (.isInduct ci)
-                {:keys [members next-idx]}
-                (when bundle?
-                  (collect-inductive-bundle decl-order resolve-fn i ci))
-                fuel-used
-                (long
-                 (run-with-large-stack
-                  (fn []
-                    (cond
-                      bundle?
-                      (do
-                        (TypeChecker/checkInductiveBundle
-                         env (build-inductive-bundle members) (long fuel))
-                        0)
+        (let [bundle? (.isInduct ci)
+              ;; collected OUTSIDE the try: a failed bundle head must still advance past its
+              ;; members, or each constructor/recursor is then met alone and reported too
+              {:keys [members next-idx]}
+              (when bundle?
+                (try (collect-inductive-bundle decl-order resolve-fn i ci)
+                     (catch Throwable _ nil)))]
+          (try
+            (let [fuel-used
+                  (long
+                   (run-with-large-stack
+                    (fn []
+                      (cond
+                        bundle?
+                        (do
+                          (TypeChecker/checkInductiveBundle
+                           env (build-inductive-bundle members) (long fuel))
+                          0)
 
-                      (or (.isCtor ci) (.isRecursor ci))
-                      (throw (ex-info "Inductive bundle member encountered outside bundle head"
-                                      {:idx i :name name-str}))
+                        (or (.isCtor ci) (.isRecursor ci))
+                        (throw (ex-info "Inductive bundle member encountered outside bundle head"
+                                        {:idx i :name name-str}))
 
-                      :else
-                      (TypeChecker/checkConstantFuel env ci (long fuel))))
-                  verify-stack-size
-                  timeout-ms))
-                elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
-            (mark-admitted-range! ctx i (if bundle? next-idx (inc i)))
-            (swap! ok + (if bundle? (count members) 1))
-            (if bundle?
-              (reset! idx next-idx)
-              (swap! idx inc))
-            (cond-> {:status :ok :name name-str :idx i
-                     :fuel-used fuel-used :elapsed-ms elapsed-ms}
-              bundle? (assoc :bundle-size (count members)
-                             :next-idx next-idx)))
-          (catch Throwable ex
-            (let [msg (str (.getClass ex) ": " (.getMessage ex))
-                  elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
-                  fuel-exceeded? (or (instance? OutOfMemoryError ex)
-                                     (.contains ^String msg "fuel exhausted"))]
-              (when (instance? OutOfMemoryError ex)
-                (System/gc))
-              (swap! errors inc)
-              (swap! error-names conj {:name name-str :error msg
-                                       :fuel-exceeded? fuel-exceeded?})
-              (swap! idx inc)
-              {:status (if fuel-exceeded? :fuel-exceeded :error)
-               :name name-str :idx i
-               :error msg :elapsed-ms elapsed-ms})))))))
+                        :else
+                        (TypeChecker/checkConstantFuel env ci (long fuel))))
+                    verify-stack-size
+                    timeout-ms))
+                  elapsed-ms (/ (- (System/nanoTime) t0) 1e6)]
+              (mark-admitted-range! ctx i (if bundle? next-idx (inc i)))
+              (swap! ok + (if bundle? (count members) 1))
+              (if bundle?
+                (reset! idx next-idx)
+                (swap! idx inc))
+              (cond-> {:status :ok :name name-str :idx i
+                       :fuel-used fuel-used :elapsed-ms elapsed-ms}
+                bundle? (assoc :bundle-size (count members)
+                               :next-idx next-idx)))
+            (catch Throwable ex
+              (let [msg (str (.getClass ex) ": " (.getMessage ex))
+                    elapsed-ms (/ (- (System/nanoTime) t0) 1e6)
+                    fuel-exceeded? (or (instance? OutOfMemoryError ex)
+                                       (.contains ^String msg "fuel exhausted"))]
+                (when (instance? OutOfMemoryError ex)
+                  (System/gc))
+                (swap! errors inc)
+                (swap! error-names conj {:name name-str :error msg
+                                         :fuel-exceeded? fuel-exceeded?})
+              ;; A corpus run records the failure and ADMITS the declaration anyway: otherwise
+              ;; the staged env hides it and every dependent fails as "Unknown constant" — one
+              ;; timeout became 345 shadow failures. Dependents then get a real check modulo
+              ;; the one recorded root, which `reverify-errors!` retries.
+                (let [after (if (and bundle? next-idx) next-idx (inc i))]
+                  (when admit-failures?
+                    (mark-admitted-range! ctx i after))
+                  (reset! idx after))
+                {:status (if fuel-exceeded? :fuel-exceeded :error)
+                 :name name-str :idx i
+                 :error msg :elapsed-ms elapsed-ms}))))))))
 
 (defn skip!
   "Advance idx by `n` without verifying. For resuming past known-good ranges.
@@ -1203,7 +1239,7 @@
      :fuel            fuel limit (default 100M; 0 = unlimited)
      :timeout-ms      per-declaration wall-clock timeout
                       (default 120000, 0 disables)"
-  [ctx n & {:keys [verbose? fuel timeout-ms stop-on-error?]
+  [ctx n & {:keys [verbose? fuel timeout-ms stop-on-error? admit-failures?]
             :or {verbose? false fuel default-fuel timeout-ms 120000 stop-on-error? true}}]
   (let [{:keys [^java.io.Writer log-writer ok errors error-names idx decl-order]} ctx
         start-idx @idx
@@ -1213,7 +1249,7 @@
         last-result (atom nil)]
     (loop []
       (when (< @idx end-idx)
-        (let [result (verify-one! ctx :fuel fuel :timeout-ms timeout-ms)]
+        (let [result (verify-one! ctx :fuel fuel :timeout-ms timeout-ms :admit-failures? admit-failures?)]
           (reset! last-result result)
           (when (:fuel-used result)
             (swap! max-fuel-used max (:fuel-used result)))
@@ -1242,6 +1278,211 @@
        :max-fuel-used @max-fuel-used
        :batch-elapsed-ms elapsed
        :last-result @last-result})))
+
+(defn- checkpoint-file
+  (^java.io.File [store-map branch] (checkpoint-file store-map branch nil))
+  (^java.io.File [store-map branch slice]
+   (io/file (:path store-map) (str "verify-" branch (when slice (str "-s" slice)) ".edn"))))
+
+(defn- slice-files
+  "The per-slice checkpoint files a process-per-worker run writes (`verify-<branch>-s<i>.edn`),
+   in slice order."
+  [store-map branch]
+  (->> (.listFiles (io/file (:path store-map)))
+       (filter #(re-matches (re-pattern (str "verify-" branch "-s\\d+\\.edn")) (.getName ^java.io.File %)))
+       (sort-by #(parse-long (re-find #"\d+(?=\.edn$)" (.getName ^java.io.File %))))))
+
+(defn- read-checkpoint
+  "The checkpoint of `branch`: the union of the per-slice files when a process-per-worker run
+   wrote any — they are that run's state and supersede a combined file an earlier in-process run
+   left behind — else the combined file. The `:files` of a merged checkpoint are its sources."
+  [store-map branch]
+  (let [f (checkpoint-file store-map branch)
+        parts (slice-files store-map branch)]
+    (cond
+      (seq parts) (let [cps (mapv #(edn/read-string (slurp %)) parts)]
+                    (-> (first cps)
+                        (assoc :slices (mapv #(first (:slices %)) cps)
+                               :error-names (into [] (mapcat (comp :error-names first :slices)) cps)
+                               :errors (reduce + (map (comp :errors first :slices) cps))
+                               :files (vec parts))))
+      (.exists f) (edn/read-string (slurp f)))))
+
+(defn- save-checkpoint!
+  "Write the checkpoint atomically (tmp + rename) — the file is the run's only durable state."
+  [^java.io.File f cp]
+  (let [tmp (io/file (str (.getPath f) ".tmp"))]
+    (spit tmp (pr-str (assoc cp :updated (java.util.Date.))))
+    (.renameTo tmp f)))
+
+(defn- slice-starts
+  "Contiguous slice boundaries over `total` declarations, each start moved FORWARD off an
+   inductive bundle's constructors/recursors: a bundle is checked as one unit by the worker
+   that owns its head, and a worker starting on a member alone would report an error."
+  [decl-order resolve-fn workers]
+  (let [total (count decl-order)
+        size (quot total workers)
+        head? (fn [j] (let [^ConstantInfo ci (resolve-fn (nth decl-order j))]
+                        (not (and ci (or (.isCtor ci) (.isRecursor ci))))))
+        align (fn [j] (loop [j j] (if (and (< j total) (not (head? j))) (recur (inc j)) j)))]
+    (mapv (fn [i] (if (zero? i) 0 (align (* i size)))) (range workers))))
+
+(defn verify-corpus!
+  "Verify every declaration of `branch` — the authoritative full-corpus check — with `workers`
+   contiguous slices in parallel, each CHECKPOINTED to <store>/verify-<branch>.edn every
+   `checkpoint-every` declarations, so an interrupted run resumes (`:resume? true`, the default)
+   where each slice stopped instead of starting over, and with failures RECORDED rather than
+   fatal — a run over 700k declarations must not halt at the first one that needs more fuel
+   (see `reverify-errors!`). A failed declaration is admitted for what follows, so the
+   failure is counted once instead of cascading into every dependent as an unknown constant. A slice admits the declarations before it the way `skip-to!`
+   does, so every declaration is still checked by exactly one worker against declarations that
+   are themselves checked: completing all slices gives the sequential run's guarantee.
+   Returns the checkpoint: {:total :ok :errors :error-names :done? :slices …}."
+  [store-map branch & {:keys [workers resume? fuel timeout-ms checkpoint-every epoch-batches slice]
+                       :or {workers 4 resume? true fuel default-fuel timeout-ms 120000
+                            checkpoint-every 500 epoch-batches 20}}]
+  ;; `:slice i` runs ONE of the `workers` slices in this process, checkpointed to its own file
+  ;; (`verify-<branch>-s<i>.edn`): a worker per JVM, so a declaration whose check exhausts the
+  ;; heap costs only its own worker (recorded as a failure) instead of dragging every other
+  ;; worker into the same collector. A combined checkpoint from an earlier in-process run seeds
+  ;; the slice when no per-slice file exists yet.
+  (let [f (checkpoint-file store-map branch slice)
+        saved (when resume?
+                (cond (.exists f) (edn/read-string (slurp f))
+                      slice (let [c (checkpoint-file store-map branch)]
+                              (when (.exists c)
+                                (let [all (edn/read-string (slurp c))]
+                                  (assoc all :slices [(nth (:slices all) slice)]))))))
+        worker-ids (if slice [slice] (range workers))
+        worker-log (fn [i] (io/file (:path store-map) (str "verify-" branch "-w" i ".log")))
+        ctxs (mapv (fn [i] (prepare-verify store-map branch :log-file (worker-log i))) worker-ids)
+        decl-order (:decl-order (first ctxs))
+        total (count decl-order)
+        starts (slice-starts decl-order (:resolve-fn (first ctxs)) workers)
+        ends (conj (subvec starts 1) total)
+        all-slices (mapv (fn [s e] {:start s :end e :idx s :ok 0 :errors 0 :error-names []}) starts ends)
+        fresh {:branch branch :workers workers :total total :done? false :slice slice
+               :slices (if slice [(nth all-slices slice)] all-slices)}
+        cp (atom (if (and saved (= (select-keys saved [:branch :workers :total])
+                                   (select-keys fresh [:branch :workers :total])))
+                   (assoc saved :done? false :slice slice)
+                   fresh))
+        t0 (System/currentTimeMillis)
+        summarize (fn [c] (let [ss (:slices c)]
+                            (assoc c :ok (reduce + (map :ok ss)) :errors (reduce + (map :errors ss))
+                                   :error-names (into [] (mapcat :error-names) ss)
+                                   :done? (every? #(>= (:idx %) (:end %)) ss)
+                                   :elapsed-ms (- (System/currentTimeMillis) t0))))
+        save! (fn [] (locking f (save-checkpoint! f (summarize @cp))))
+        ;; A worker's context is rebuilt every `epoch-batches` batches: the store loader and the
+        ;; env's shared reduction cache keep everything they ever resolved, and over a 700k-
+        ;; declaration slice that grows into any heap and turns the run into garbage collection
+        ;; (observed: 9 s batches became 600 s at the cap). prepare-verify is ~3 s.
+        work (fn [i ctx0]
+               (let [si (if slice 0 i)                      ; position of this worker's slice in cp
+                     {:keys [end]} (nth (:slices @cp) si)]
+                 (loop [ctx ctx0 batches 0]
+                   (skip-to! ctx (:idx (nth (:slices @cp) si)))
+                   (let [idx @(:idx ctx)]
+                     (if (< idx end)
+                       (let [o0 @(:ok ctx) e0 @(:errors ctx) n0 (count @(:error-names ctx))
+                             r (verify-batch! ctx (min checkpoint-every (- end idx))
+                                              :stop-on-error? false :admit-failures? true
+                                              :fuel fuel :timeout-ms timeout-ms)]
+                         (swap! cp update-in [:slices si]
+                                (fn [sl] (-> sl
+                                             (assoc :idx (:idx r))
+                                             (update :ok + (- @(:ok ctx) o0))
+                                             (update :errors + (- @(:errors ctx) e0))
+                                             (update :error-names into (subvec (vec @(:error-names ctx)) n0)))))
+                         (save!)
+                         (if (< (inc batches) epoch-batches)
+                           (recur ctx (inc batches))
+                           (do (.close ^java.io.Writer (:log-writer ctx))
+                               (recur (prepare-verify store-map branch :log-file (worker-log i) :append? true) 0))))
+                       (.close ^java.io.Writer (:log-writer ctx)))))))]
+    (save!)
+    (try
+      (run! deref (map (fn [i ctx] (future (work i ctx))) worker-ids ctxs))
+      (finally
+        (save!)))
+    (summarize @cp)))
+
+(defn reverify-errors!
+  "Re-verify the declarations a `verify-corpus!` run recorded as failures — typically at a
+   higher `:fuel` and longer `:timeout-ms` — one at a time, each against every earlier
+   declaration admitted. Rewrites the checkpoint's error lists to what still fails. Returns
+   {:fixed [names] :still-failing [{:name :error}]}."
+  [store-map branch & {:keys [fuel timeout-ms] :or {fuel (* 10 default-fuel) timeout-ms 600000}}]
+  (let [f (checkpoint-file store-map branch)
+        cp (read-checkpoint store-map branch)
+        ctx (prepare-verify store-map branch
+                            :log-file (io/file (:path store-map) (str "verify-" branch "-retry.log")))
+        ;; A constructor or recursor is only ever checked as part of its inductive's BUNDLE:
+        ;; retry the bundle head, and let its verdict stand for every member recorded.
+        head-of (fn [name]
+                  (let [^ConstantInfo ci ((:resolve-fn ctx) name)
+                        induct (cond
+                                 (nil? ci) nil
+                                 (.isCtor ci) (.inductName ci)
+                                 ;; a recursor names no inductive directly; its first rule's
+                                 ;; constructor does (an empty inductive has no rules — its
+                                 ;; recursor keeps its own name and is retried as recorded)
+                                 (.isRecursor ci) (some-> (.rules ci) first .ctor
+                                                          ansatz-name/->string
+                                                          ((:resolve-fn ctx)) .inductName))]
+                    (if induct (ansatz-name/->string induct) name)))
+        by-head (group-by (comp head-of :name) (:error-names cp))
+        lw ^java.io.Writer (:log-writer ctx)
+        n (count by-head)
+        done (atom 0)
+        ;; The checkpoint is rewritten after EVERY head — a retry killed mid-way (or one head
+        ;; that exhausts its budget) leaves the verdicts so far on disk, and the next retry
+        ;; sees only what is still recorded.
+        apply-verdicts (fn [cp verdicts]
+                         (let [verdict (into {} (map (fn [[n st err]] [n [st err]])) verdicts)
+                               rewrite (fn [entries]
+                                         (into [] (keep (fn [{:keys [name] :as e}]
+                                                          (if-let [[st err] (verdict name)]
+                                                            (when (not= st :ok) (assoc e :error err))
+                                                            e)))
+                                               entries))
+                               cp' (update cp :slices (fn [ss] (mapv (fn [sl]
+                                                                       (let [keep (rewrite (:error-names sl))
+                                                                             fixed (- (count (:error-names sl)) (count keep))]
+                                                                         (assoc sl :error-names keep :errors (count keep)
+                                                                                :ok (+ (:ok sl 0) fixed))))
+                                                                     ss)))
+                               all (into [] (mapcat :error-names) (:slices cp'))]
+                           (assoc cp' :error-names all :errors (count all)
+                                  :ok (reduce + (map :ok (:slices cp'))))))
+        save! (fn [cp']
+                ;; write back to what was read: each per-slice file keeps its own slice, and
+                ;; the combined file the merged view
+                (doseq [[^java.io.File sf sl] (map vector (:files cp') (:slices cp'))]
+                  (save-checkpoint! sf (assoc (dissoc cp' :files) :slices [sl]
+                                              :error-names (:error-names sl) :errors (:errors sl))))
+                (locking f (save-checkpoint! f (dissoc cp' :files))))
+        state (atom cp)
+        results (try
+                  (log! lw (str "Retrying " (count (:error-names cp)) " recorded entries via " n " heads"))
+                  (into [] (mapcat (fn [[head entries]]
+                                     (let [r (try (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)
+                                                  (catch Exception e
+                                                    {:status :error :error (str (.getClass e) ": " (ex-message e))}))
+                                           verdicts (mapv (fn [{:keys [name]}] [name (:status r) (:error r)]) entries)]
+                                       (log! lw (str "  [" (swap! done inc) "/" n "] " (name (:status r)) " " head
+                                                     " (" (count entries) " recorded, "
+                                                     (long (or (:elapsed-ms r) 0)) " ms)"
+                                                     (when (not= :ok (:status r)) (str " — " (:error r)))))
+                                       (save! (swap! state apply-verdicts verdicts))
+                                       verdicts)))
+                        by-head)
+                  (finally (.close lw)))
+        still (into [] (keep (fn [[n st err]] (when (not= st :ok) {:name n :error err}))) results)
+        fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)]
+    (when (empty? by-head) (save! @state))
+    {:fixed fixed :still-failing still}))
 
 (defn verify-from-store!
   "Convenience: verify all declarations in one go.

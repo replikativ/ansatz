@@ -1602,7 +1602,7 @@ public final class TypeChecker {
                     // resolves both sides to the same declaration object, even if
                     // the head constants carry syntactically different levels.
                     if (tn.tag == Expr.APP && sn.tag == Expr.APP &&
-                        dtInfo == dsInfo && tHints > 0) {
+                        sameDeclaration(dtInfo, dsInfo) && tHints > 0) {
                         emitPhase("lazyDelta.sameDefArgs");
                         // Same definition with Regular hints — identity-based failure cache
                         if (!failedBefore(tn, sn)) {
@@ -1786,6 +1786,19 @@ public final class TypeChecker {
         if (fn.tag != Expr.PROJ) return null;
         Expr eNew = reducer.whnfCore(e);
         return !LeanExprKey.exprEquals(eNew, e) ? eNew : null;
+    }
+
+    /**
+     * Lean's `is_eqp(*d_t, *d_s)`: the two heads resolve to the SAME declaration. Lean's
+     * environment hands out one canonical constant_info per name, so pointer equality is the
+     * faithful test there. Here `env.lookup` re-materializes a declaration whenever its
+     * soft-referenced cache entry was collected, so two lookups of one name are routinely
+     * different objects — and an identity test then silently disables the same-definition
+     * argument shortcut of lazy delta exactly when memory is tight, unfolding both sides
+     * instead. `localCohomology.diagramComp` went from 1.6 s to an exhausted 3 GB heap that way.
+     */
+    private static boolean sameDeclaration(ConstantInfo a, ConstantInfo b) {
+        return a == b || (a != null && b != null && a.name.equals(b.name));
     }
 
     /** Return the delta declaration for a head constant, if it is unfoldable. */
@@ -2039,7 +2052,7 @@ public final class TypeChecker {
                 // the head constants carry syntactically different levels.
                 Expr[] tnArgs = (Expr[]) tnFA[1];
                 Expr[] snArgs = (Expr[]) snFA[1];
-                if (dtInfo == dsInfo
+                if (sameDeclaration(dtInfo, dsInfo)
                     && tnArgs.length == snArgs.length
                     && tHints > 0) { // regular hints (positive = regular in our encoding)
                     if (!failedBefore(tn, sn)) {
