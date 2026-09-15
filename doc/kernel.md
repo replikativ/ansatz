@@ -249,21 +249,29 @@ Each expression is a single Java object with:
 This gives ~72 bytes per node (vs ~200 for a Clojure persistent vector), a 64%
 memory reduction for large proof trees.
 
-**Hash-consing** (intern table): factory methods (`Expr.app`, `Expr.lam`, etc.)
-look up structurally equal expressions in a thread-local `HashMap` and return
-the *same object* if found. After interning, pointer equality (`==`) implies
-structural equality. This is how Lean 4's C++ arena allocator achieves the same
-effect — two allocations of identical terms land at the same pointer.
+**The stored hash is Lean's** (`Expr.mkData`, Expr.lean:473-513): a binder or let hashes
+its type, value and body — never the binder name or info — and mdata hashes its inner
+expression only. That is what lets one hash serve both equalities the kernel needs:
+Lean's `is_equal` (`LeanExprKey.exprEquals`, binder names and info ignored, the equality
+of every kernel cache) and the stricter `Expr.equals` (`shareCommon`, Lean's
+`expr_bi_map`). A cache may reject on `hash(a) != hash(b)` in O(1) only because equal terms
+always hash equal.
 
-**`shareCommon()`**: Before checking a declaration, all expressions in the
-proof are run through a bottom-up pass that rebuilds the tree with canonical
-pointers. This makes the identity-based caches (`IdentityHashMap`) in
-`TypeChecker` and `Reducer` effective — two syntactically identical
-subexpressions will share one cache entry.
+**Structural equality** (`LeanExprKey.exprEquals`) is a port of `expr_eq_fn`
+(expr_eq_fn.cpp): pointer fast path, hash guard inside the recursion, an iterative walk down
+application spines (argument first), and a memo of the composite pairs already entered — so
+two structurally equal DAGs are compared once per shared pair, not once per path. Lean
+memoizes the pairs whose nodes are shared (refcount > 1); the JVM has no refcounts, so the
+memo starts after 64 composite pairs and a small comparison never allocates.
 
-**`deepReIntern()`**: After reduction produces a new expression, it may contain
-subterms not yet in the intern table. `deepReIntern` walks the result bottom-up
-and inserts everything, ensuring future pointer comparisons work.
+**There is no hash-consing during checking.** Lean's kernel has no intern table: pointer
+sharing comes from `shareCommon()` on the declaration being checked (type + value are
+rebuilt bottom-up with canonical pointers, the elaborator's `ShareCommon`) and from the
+caches handing back the object they stored; every intermediate term is freed when its last
+reference goes. An earlier design interned every node built during a check in a
+per-declaration table and canonicalized reduction results through it (`deepReIntern`) to feed
+identity-keyed caches — on `localCohomology.diagramComp` that retained 18 M nodes and 20 M
+map entries and could not finish in a 3 GB heap.
 
 **Lean 4 reference**: `src/kernel/expr.h`, `src/kernel/expr.cpp`
 
@@ -308,9 +316,10 @@ marked its declaration-order rank admitted. The visibility predicate is checked
 **before** the shared cache, so a declaration cached by a later lookup cannot
 bypass staged admission.
 
-Visible external declarations are still cached with `SoftReference`s. This keeps
-repeated lookups pointer-stable enough for the identity-based kernel caches
-while letting the JVM reclaim cold declarations under memory pressure.
+Visible external declarations are still cached with `SoftReference`s, so repeated
+lookups are pointer-stable while the JVM can reclaim cold declarations under memory
+pressure (`sameDeclaration` in lazy delta compares by name, since a collected entry is
+re-materialized as a new object).
 
 **Lean 4 reference**: `src/kernel/environment.h`, `src/kernel/environment.cpp`
 
@@ -340,8 +349,10 @@ The implementation in `Reducer.java` (`whnfCoreImpl`) is a loop:
 5. If head is a `LET` fvar: zeta-reduce
 6. If expression is a `PROJ`: try to extract constructor field (`reduceProj`)
 
-Results are cached in an `IdentityHashMap` — once a term is reduced, the result
-is reused for any pointer-identical occurrence.
+Results are cached in an `ExprMap` — Lean's `expr_map<expr>` (`m_whnf_core`, `m_whnf`,
+`m_unfold` in `type_checker::state`): keyed under `is_equal` by the node's stored hash, open
+addressing over parallel arrays with identity as the first probe test, so a reduced term is
+reused for any structurally equal occurrence and the cache costs three slots per entry.
 
 **`cheapRec` / `cheapProj` flags**: During `isDefEq`, the first whnf call uses
 `cheapRec=false, cheapProj=true`. This avoids expensive recursor unfolding on
@@ -572,17 +583,15 @@ There are two public kernel admission entry points:
 `checkConstant`:
 
 1. **`shareCommon`**: Run all expressions in the declaration (type + value)
-   through the pointer-sharing pass. This makes identity-based caches work.
+   through the pointer-sharing pass, so identical subterms of the input are one object and
+   the pointer fast paths fire.
 
-2. **`Expr.seedIntern`**: Insert all shared expressions into the intern table,
-   so `deepReIntern` results can match them by pointer.
-
-3. For **theorems and definitions** (`checkType`):
+2. For **theorems and definitions** (`checkType`):
    - Infer the type of the value: `T_inferred = inferType(value)`
    - Check `T_inferred ≡ T_declared` via `isDefEq`
    - This is the core correctness check: the proof really proves what it claims
 
-4. For **quotient primitives**:
+3. For **quotient primitives**:
    - Enable quotient reduction support in the environment.
    - Add the primitive declaration. These are Lean kernel primitives, not
      ordinary definitions with proof terms.
@@ -651,8 +660,9 @@ semantic weakenings:
 
 - Ansatz has a fuel counter; Lean's kernel does not. Fuel exhaustion rejects
   conservatively.
-- Ansatz uses Java hash-consing, `shareCommon`, and identity maps to approximate
-  Lean's pointer-heavy expression representation.
+- Ansatz keeps Lean's cache structure (`expr_map` per role, flat `expr_pair_set` for
+  is_def_eq success/failure, `expr_eq_fn` equality, the stored binder-insensitive hash) on
+  the JVM: no refcounts, so the equality memo is threshold-started instead of `is_shared`.
 - Ansatz has staged external lookup for imported stores.
 - Trace comparison is targeted and semantic-first; full Mathlib trace-length
   equality has not been established as a requirement.
