@@ -237,9 +237,20 @@
 (defn exists? [store-path] (d/database-exists? (config store-path)))
 
 (defn connect
-  "A connection to the store's catalogue, or nil when it has none."
+  "A connection to the store's catalogue, or nil when it has none. The catalogue's `:id` is
+   derived from the path it was BUILT at; a store that has since been renamed, moved or
+   downloaded elsewhere keeps its catalogue, so on datahike's identity mismatch (which only
+   compares ids — the path already names the one catalogue a store has) we reconnect with
+   the id the catalogue carries."
   [store-path]
-  (when (exists? store-path) (d/connect (config store-path))))
+  (when (exists? store-path)
+    (let [cfg (config store-path)]
+      (try (d/connect cfg)
+           (catch clojure.lang.ExceptionInfo e
+             (if-let [stored-id (and (= :store-identity-mismatch (:type (ex-data e)))
+                                     (:stored-id (ex-data e)))]
+               (d/connect (assoc-in cfg [:store :id] stored-id))
+               (throw e)))))))
 
 (defn- names-of [db eids]
   (when (seq eids)
