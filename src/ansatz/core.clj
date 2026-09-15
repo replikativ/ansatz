@@ -133,20 +133,21 @@
 
    1-arity `(init! \"init\"|\"mathlib\"|…)` — a store NAME resolved via ansatz.store:
    the durable data-root ($ANSATZ_STORE_DIR → $XDG_DATA_HOME/ansatz/stores →
-   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>.
-   This is the full, kernel-verified tier; a missing named store is an honest error
-   (it does NOT silently fall back to the bundled medium tier).
+   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>. This is the
+   full, kernel-verified tier. A store that is not there is downloaded once from the
+   published import for this build's store format (ansatz.store.fetch; `ANSATZ_OFFLINE=1`
+   refuses, and it never falls back to the bundled medium tier).
 
    2-arity `(init! store-path branch)` — load from an explicit store path."
   ([] (init!-bundled-medium!))
   ([store-name]
    (if (contains? #{"medium" "init-medium"} (name store-name))
      (init!-bundled-medium!)
+     ;; A named store that is not here is FETCHED: the published import for the store format
+     ;; this build reads (ansatz.store.fetch), so depending on ansatz is enough to use Mathlib.
+     ;; Building it locally (./scripts/setup-<name>.sh) and ANSATZ_OFFLINE=1 both still work.
      (let [path (or ((requiring-resolve 'ansatz.store/resolve-existing) store-name)
-                    (throw (ex-info (str "No store named '" store-name "' found. Run "
-                                         "./scripts/setup-" (name store-name) ".sh to build it, "
-                                         "or call (init!) for the bundled medium tier.")
-                                    {:store store-name})))]
+                    ((requiring-resolve 'ansatz.store.fetch/fetch!) store-name))]
        (init! path (name store-name)))))
   ([store-path branch]
    (init!* store-path branch)))

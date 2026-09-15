@@ -6,7 +6,7 @@
 [![CircleCI](https://circleci.com/gh/replikativ/ansatz.svg?style=shield)](https://circleci.com/gh/replikativ/ansatz)
 [![Last Commit](https://img.shields.io/github/last-commit/replikativ/ansatz/main.svg)](https://github.com/replikativ/ansatz/commits/main)
 
-Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (210k+ theorems, 648k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to ordinary Clojure/JVM code.
+Ansatz is a verified programming library for Clojure built on the [Calculus of Inductive Constructions](https://en.wikipedia.org/wiki/Calculus_of_inductive_constructions) (CIC) — the same type theory that powers [Lean 4](https://lean-lang.org/). It implements Lean 4's kernel in Java, type-checks proofs against [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) (500k+ theorems, 707k declarations) and [CSLib](https://github.com/leanprover/cslib) (verified algorithms), and compiles verified functions to ordinary Clojure/JVM code.
 
 If you already write [malli](https://github.com/metosin/malli)-instrumented Clojure, Ansatz is the gradual next step: your `m/=>` schemas become kernel type signatures, your functions become machine-checked, and they still run as ordinary Clojure.
 
@@ -205,7 +205,7 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 - **One lean4-shaped elaborator** — fvar/metavar elaboration with implicit + universe inference for bodies, signatures, measures, theorem statements, and tactic arguments; Clojure macros (`->`, `when`, `and`/`or`, yours) expand by default and compose
 - **Structures** — `a/structure` compiles to `defrecord` with keyword access and pretty-printing
 - **Generic types** — implicit type parameter inference via auto-elaborate (polymorphic constructors work without explicit type annotations)
-- **Lean 4 Mathlib + CSLib** — 648k Mathlib declarations + CSLib verified algorithms
+- **Lean 4 Mathlib + CSLib** — 707k Mathlib declarations (all kernel-verified) + CSLib verified algorithms
 - **Tactic proofs** — `apply`, `simp`, `omega`, `ring`, `grind`, `assumption`, `induction`, `cases`, and more
 - **Instance synthesis** — automatic typeclass resolution with tabled backtracking
 - **Compiled output** — verified `defn` compiles to ordinary Clojure `fn` with arity-aware flat calls
@@ -255,11 +255,35 @@ shadow what another project resolved — and is deliberately not done in the lib
 Everything after startup is warm: a repeat theorem lookup is ~3 µs, `simp` 50–100 ms, a recall
 query ~1 ms.
 
-### Setup Mathlib Store
+### Mathlib, without building it
 
-Ansatz needs a store of Lean 4 Mathlib declarations. There's a one-command setup script:
+Ansatz needs a store of Lean 4 Mathlib declarations. You do not have to build one:
 
-**Automated setup (recommended)**
+```clojure
+(require '[ansatz.core :as a])
+(a/init! "mathlib")   ;; downloads the published store once (~1.3 GiB), then starts
+```
+
+The store a build can read is published per **import** — `mathlib-v4.33.1-f1`, the library tag
+and the store format — as a release of
+[replikativ/ansatz-stores](https://github.com/replikativ/ansatz-stores). `init!` looks the
+name up in that repository's index, downloads the parts (resuming if interrupted), checks each
+against its SHA-256 and installs the store under the durable store root
+(`$ANSATZ_STORE_DIR` → `$XDG_DATA_HOME/ansatz/stores` → `~/.local/share/ansatz/stores`). It
+unpacks to about 5 GB and is used from then on; nothing is downloaded again. Because the index
+is read at fetch time, a new import reaches you without a new ansatz release.
+
+| variable | effect |
+|---|---|
+| `ANSATZ_STORE_DIR` | where stores live |
+| `ANSATZ_OFFLINE=1` | never download; a missing store is an error |
+| `ANSATZ_STORE_INDEX` | another index (a path or a URL) |
+| `ANSATZ_STORE_BASE` | another artifact host (a mirror) |
+
+Or build the store yourself — for a Mathlib version that is not published, a private library,
+or to be independent of us:
+
+**Automated setup**
 
 ```bash
 # Requires: Lean 4 (elan), Java 21+, Clojure CLI
@@ -358,8 +382,8 @@ in the repo and sufficient for basic proofs on Nat. No Mathlib setup required:
 ```clojure
 (require '[ansatz.core :as a])
 
-;; Load the Mathlib environment by store name — resolved from the durable store
-;; root, falling back to legacy /var/tmp/ansatz-mathlib if that is where it lives.
+;; Load the Mathlib environment by store name — resolved from the durable store root,
+;; downloaded once when it is not there (see "Mathlib, without building it").
 ;; (An explicit path still works: (a/init! "/path/to/store" "mathlib").)
 (a/init! "mathlib")
 
