@@ -293,7 +293,6 @@
         (finally
           (delete-dir-recursive dir))))))
 
-
 (deftest reverify-errors-retries-through-the-bundle-head
   (testing "recorded constructor/recursor entries are retried via their inductive and cleared"
     (let [dir (temp-dir)]

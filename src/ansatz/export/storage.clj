@@ -946,7 +946,7 @@
                tid (.getId t)
                budget-ns (* 1000000 (long timeout-ms))
                gc-ms (fn [] (reduce + 0 (map #(max 0 (.getCollectionTime ^java.lang.management.GarbageCollectorMXBean %))
-                                              (java.lang.management.ManagementFactory/getGarbageCollectorMXBeans))))
+                                             (java.lang.management.ManagementFactory/getGarbageCollectorMXBeans))))
                gc0 (gc-ms)]
            (if (.isThreadCpuTimeSupported mx)
              (loop []
