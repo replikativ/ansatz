@@ -152,7 +152,7 @@ in the kernel term):
 
 ;; balance1 has 7 branches (from nested pattern matching on color + subtree shape).
 ;; (cases hl) splits ValidRB(l) into leaf/node.
-;; (simp "balance1") uses balance1's equation theorems to unfold it for each branch.
+;; (simp [balance1]) uses balance1's equation theorems to unfold it for each branch.
 ;; (grind) then applies ValidRB constructors and matches sub-proofs from context.
 ;; The middle lines split further on color, subtree shape, and inner color
 ;; to expose the left-left rotation case (the only one that restructures the tree).
@@ -161,13 +161,13 @@ in the kernel term):
    hl :- (ValidRB l), hr :- (ValidRB r)]
   (ValidRB (balance1 l v r))
   (cases hl)                           ;; leaf or node?
-  (all_goals (try (simp "balance1")))  ;; unfold via equation theorems
+  (all_goals (try (simp [balance1])))  ;; unfold via equation theorems
   (all_goals (try (grind)))            ;; close the easy cases
   (all_goals (try (cases c)))          ;; red or black?
   (all_goals (try (cases l)))          ;; left subtree shape
   (all_goals (try (cases color)))      ;; inner node color (detects LL rotation)
   (all_goals (try (cases hl)))         ;; decompose inner ValidRB proof
-  (all_goals (try (simp "balance1")))  ;; unfold the rotation case
+  (all_goals (try (simp [balance1])))  ;; unfold the rotation case
   (all_goals (try (grind))))           ;; close all remaining goals
 ```
 
@@ -188,7 +188,7 @@ Ansatz adds these primitives to Clojure:
 
 1. **`a/defn`** — like `defn`, but type-checked. The kernel verifies that your function matches its type signature. Supports well-founded recursion via `:termination-by` for non-structural patterns (merge sort, factorial). The compiled output is a normal Clojure `fn`.
 
-2. **`a/theorem`** — states a property and proves it using *tactics*. Tactics are commands that build a proof step by step. The `(grind "defn-name")` tactic automates most proofs via E-graph congruence closure and case splitting. For manual control: `(apply lemma)`, `(induction x)`, `(cases h)`, `(omega)`, `(simp "lemma")`. The kernel verifies the final proof term.
+2. **`a/theorem`** — states a property and proves it using *tactics*. Tactics are commands that build a proof step by step. The `(grind "defn-name")` tactic automates most proofs via E-graph congruence closure and case splitting. For manual control: `(apply lemma)`, `(induction x)`, `(cases h)`, `(omega)`, `(simp [lemma])`. The kernel verifies the final proof term.
 
 3. **`a/inductive`** — defines algebraic data types with exhaustive pattern matching. The kernel generates a recursor that ensures termination.
 
@@ -392,7 +392,7 @@ in the repo and sufficient for basic proofs on Nat. No Mathlib setup required:
 
 (a/theorem add-zero [n :- Nat]
   (= Nat (+ n 0) n)
-  (simp "Nat.add_zero"))
+  (simp [Nat.add_zero]))
 
 (double 21) ;; => 42
 ```
@@ -518,7 +518,7 @@ Type                         ;; types
 |--------|-------------|
 | `(apply lemma_name)` | Apply a lemma, generating subgoals for arguments |
 | `(assumption)` | Close goal from local context |
-| `(simp "lemma1" "lemma2")` | Simplify using rewrite lemmas |
+| `(simp [lemma1 lemma2])` | Simplify using rewrite lemmas |
 | `(rfl)` | Close `a = a` goals |
 | `(intro)` / `(intros x y)` | Introduce forall binders |
 | `(induction n)` | Structural induction |
