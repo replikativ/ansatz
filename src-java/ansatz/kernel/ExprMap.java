@@ -68,6 +68,11 @@ public final class ExprMap<V> {
 
     public int size() { return size; }
 
+    /** Every key and value, for diagnostics. */
+    public void forEach(java.util.function.BiConsumer<Expr, Object> f) {
+        for (int i = 0; i < keys.length; i++) if (keys[i] != null) f.accept(keys[i], vals[i]);
+    }
+
     public void clear() {
         if (size == 0) return;
         java.util.Arrays.fill(keys, null);

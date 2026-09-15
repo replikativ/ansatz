@@ -2266,6 +2266,51 @@ public final class TypeChecker {
         }
     }
 
+    /** Set -Dansatz.kernel.cacheReport=true to have every check leave a cacheReport() here. */
+    public static volatile java.util.Map<String, Object> lastCacheReport;
+    private static final boolean CACHE_REPORT = Boolean.getBoolean("ansatz.kernel.cacheReport");
+
+    /**
+     * What the caches hold at the end of a check: entries per cache, and over every term they
+     * reference, the number of distinct nodes by identity (what the heap holds) and by
+     * structure (what the heap would hold if structurally equal nodes were one object).
+     */
+    public java.util.Map<String, Object> cacheReport() {
+        java.util.LinkedHashMap<String, Object> r = new java.util.LinkedHashMap<>();
+        r.put("infer", inferCache.size()); r.put("inferOnly", inferOnlyCache.size());
+        r.put("success", success.size()); r.put("failure", failure.size());
+        for (java.util.Map.Entry<String, ExprMap<Expr>> e : reducer.caches().entrySet()) r.put(e.getKey(), e.getValue().size());
+        java.util.IdentityHashMap<Expr, Boolean> seen = new java.util.IdentityHashMap<>(1 << 20);
+        java.util.HashMap<Expr, Boolean> structural = new java.util.HashMap<>(1 << 20);
+        java.util.ArrayDeque<Expr> stack = new java.util.ArrayDeque<>();
+        long[] paths = new long[1];
+        java.util.function.Consumer<Expr> walk = root -> {
+            stack.push(root);
+            while (!stack.isEmpty()) {
+                Expr e = stack.pop();
+                paths[0]++;
+                if (seen.put(e, Boolean.TRUE) != null) continue;
+                structural.put(e, Boolean.TRUE);
+                switch (e.tag) {
+                    case Expr.APP: stack.push((Expr) e.o0); stack.push((Expr) e.o1); break;
+                    case Expr.LAM: case Expr.FORALL: stack.push((Expr) e.o1); stack.push((Expr) e.o2); break;
+                    case Expr.LET: stack.push((Expr) e.o1); stack.push((Expr) e.o2); stack.push((Expr) e.o3); break;
+                    case Expr.MDATA: case Expr.PROJ: stack.push((Expr) e.o1); break;
+                    default: break;
+                }
+            }
+        };
+        inferCache.forEach((k, v) -> { walk.accept(k); walk.accept((Expr) v); });
+        inferOnlyCache.forEach((k, v) -> { walk.accept(k); walk.accept((Expr) v); });
+        success.forEach((a, b) -> { walk.accept(a); walk.accept(b); });
+        failure.forEach((a, b) -> { walk.accept(a); walk.accept(b); });
+        for (ExprMap<Expr> m : reducer.caches().values()) m.forEach((k, v) -> { walk.accept(k); walk.accept((Expr) v); });
+        r.put("nodes-by-identity", seen.size());
+        r.put("nodes-by-structure", structural.size());
+        r.put("edge-visits", paths[0]);
+        return r;
+    }
+
     private static ConstantCheckState checkConstantPreAdd(Env env, ConstantInfo ci, long fuel,
             Writer traceWriter, boolean phaseTracing) {
         if (ci.isInduct() || ci.isCtor() || ci.isRecursor()) {
@@ -2286,7 +2331,15 @@ public final class TypeChecker {
         tc.setFuel(fuel);
         if (traceWriter != null) tc.setTraceWriter(traceWriter);
         tc.setPhaseTracing(phaseTracing);
+        try {
+            return checkConstantWith(tc, ci, type, value, phaseTracing);
+        } finally {
+            if (CACHE_REPORT) lastCacheReport = tc.cacheReport();
+        }
+    }
 
+    private static ConstantCheckState checkConstantWith(TypeChecker tc, ConstantInfo ci, Expr type, Expr value,
+            boolean phaseTracing) {
         // Theorem: check is_prop first, matching Lean 4's add_theorem.
         if (ci.isThm()) {
             if (phaseTracing) tc.emitPhase("isProp");

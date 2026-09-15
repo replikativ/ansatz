@@ -1925,6 +1925,13 @@ public final class Reducer {
         return subst;
     }
 
+    /** The reducer's caches, for diagnostics. */
+    public java.util.Map<String, ExprMap<Expr>> caches() {
+        java.util.LinkedHashMap<String, ExprMap<Expr>> m = new java.util.LinkedHashMap<>();
+        m.put("whnfCore", whnfCoreCache); m.put("whnf", whnfCache); m.put("unfold", unfoldCache);
+        return m;
+    }
+
     /** Clear all caches (call when starting a new declaration check). */
     public void clearCaches() {
         whnfCoreCache.clear();

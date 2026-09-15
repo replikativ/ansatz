@@ -7,7 +7,9 @@
      clojure -M -m ansatz.tools.kernel-bench golden <store> <branch> <out-dir> [decl ...]
      clojure -M -m ansatz.tools.kernel-bench compare <dir-a> <dir-b>
 
-   `run` checks the declarations (default: `default-decls`, ordinary heavy declarations plus
+   `run` checks the declarations (with -Dansatz.kernel.cacheReport=true each line is followed by
+   what the caches held: entries per cache and the nodes they reference by identity and by
+   structure) (default: `default-decls`, ordinary heavy declarations plus
    the known outlier localCohomology.diagramComp, which needs a large heap). `golden` writes
    the kernel trace of each declaration into <out-dir> and `compare` matches two such
    directories event for event (ansatz.tools.kernel-trace/compare-traces-semantic): a kernel
@@ -54,9 +56,15 @@
   [ctx decl & {:keys [fuel timeout-ms] :or {fuel 1000000000 timeout-ms 900000}}]
   (System/gc)
   (reset-peaks!)
+  (set! (. ansatz.kernel.TypeChecker lastCacheReport) nil)
   (let [gc0 (gc-ms) t0 (System/nanoTime)
         r (try (storage/verify-by-name! ctx decl :fuel fuel :timeout-ms timeout-ms)
                (catch Throwable e {:status :error :error (str e)}))]
+    ;; a timed-out check leaves its worker computing the cache report; wait for it
+    (when (Boolean/getBoolean "ansatz.kernel.cacheReport")
+      (loop [n 0]
+        (when (and (nil? (. ansatz.kernel.TypeChecker lastCacheReport)) (< n 600))
+          (Thread/sleep 500) (recur (inc n)))))
     {:decl decl
      :status (:status r)
      :wall-ms (quot (- (System/nanoTime) t0) 1000000)
@@ -77,6 +85,8 @@
       (doseq [d decls]
         (let [{:keys [status wall-ms fuel-used gc-ms peak-old-mb error]} (bench-one! ctx d)]
           (println (format "%-62s %-8s %9d %12s %8d %8d %s" d (name (or status :nil)) wall-ms (or fuel-used "-") gc-ms peak-old-mb (or error "")))
+          (when-let [r (ansatz.kernel.TypeChecker/lastCacheReport)]
+            (println "   caches:" (pr-str (into {} r))))
           (flush)))
       (finally (storage/close-store sm)))))
 

@@ -70,6 +70,11 @@ public final class ExprPairSet {
 
     public int size() { return size; }
 
+    /** Every pair, for diagnostics. */
+    public void forEach(java.util.function.BiConsumer<Expr, Expr> f) {
+        for (int i = 0; i < as.length; i++) if (as[i] != null) f.accept(as[i], bs[i]);
+    }
+
     public void clear() {
         if (size == 0) return;
         java.util.Arrays.fill(as, null);
