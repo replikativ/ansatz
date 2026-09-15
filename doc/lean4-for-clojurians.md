@@ -4,7 +4,7 @@ Ansatz brings Lean 4's type theory to Clojure. This guide explains the relations
 
 ## What Lean 4 Is
 
-[Lean 4](https://lean-lang.org/) is a theorem prover and programming language built on the **Calculus of Inductive Constructions** (CIC) — a type theory where propositions are types and proofs are programs. Its math library [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) has 648,000+ formalized declarations covering algebra, analysis, topology, probability, and more.
+[Lean 4](https://lean-lang.org/) is a theorem prover and programming language built on the **Calculus of Inductive Constructions** (CIC) — a type theory where propositions are types and proofs are programs. Its math library [Mathlib](https://leanprover-community.github.io/mathlib4_docs/) has 700,000+ formalized declarations covering algebra, analysis, topology, probability, and more.
 
 Ansatz implements **the same CIC kernel** in Java, verified declaration-by-declaration against Lean 4's export format. A proof verified by Ansatz is valid in Lean 4 and vice versa — they share the same foundations.
 
@@ -114,7 +114,7 @@ Both systems implement identical CIC:
 
 ### Lean 4 → Ansatz
 
-All of Mathlib's 648k declarations are imported via [lean4export](https://github.com/leanprover/lean4export) into Ansatz's store. When you write `(apply mul_le_of_le_one_left)` in Ansatz, you're applying a theorem proved in Mathlib and verified by the CIC kernel.
+All 707,508 declarations of Mathlib v4.33.1 are imported via [lean4export](https://github.com/leanprover/lean4export) into Ansatz's store — which `(a/init! "mathlib")` downloads for you — and every one of them has been re-checked by Ansatz's kernel. When you write `(apply mul_le_of_le_one_left)` in Ansatz, you're applying a theorem proved in Mathlib and verified by the CIC kernel.
 
 ### Ansatz → Lean 4
 

@@ -353,7 +353,7 @@
 ;; Core elaboration
 ;; ============================================================
 
-(declare elab-term)
+(declare elab-term elab-app)
 
 (defn- elab-error! [msg data]
   (throw (ex-info (str "Elaboration error: " msg) (merge {:kind :elab-error} data))))
@@ -489,19 +489,36 @@
 
 (defn- num-lit-at-type
   "Give a bare Nat literal the type `T` the surrounding arithmetic runs at (Lean's `OfNat`
-   elaboration). Nat keeps the raw literal; Int/Float use their direct injections (the
-   shape the Nat/Int fast path and the runtime lowering already speak); every other type
-   gets `OfNat.ofNat T n ?inst`. Non-literals pass through untouched."
+   elaboration). Nat keeps the raw literal (it already has that type); Float uses its direct
+   injection; every other type — Int included — gets `OfNat.ofNat T n ?inst`, which is how
+   Lean states it, and matching Lean's spelling is what lets its lemmas apply: with
+   `Int.ofNat 0` here instead, `Int.add_zero` did not match `a + 0` on `Int`. Non-literals
+   pass through untouched."
   [est T tn x]
   (if (e/lit-nat? x)
     (case tn
       ("Nat" nil) x
-      "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
       "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
       (let [u (type-sort-level est T)
             goal (e/app* (e/const' (name/from-string "OfNat") [u]) T x)]
         (e/app* (e/const' (name/from-string "OfNat.ofNat") [u]) T x (inst-mvar! est goal))))
     x))
+
+(defn- concrete-arith
+  "The concrete kernel op for a carrier `ingest/arith-lift` names (`Int.add`, `Nat.mul`, …).
+   These are homogeneous in the carrier, so a bare numeral operand has to be given that type
+   as well — `(+ a 1)` over `Int` is `Int.add a (Int.ofNat 1)`, the coercion Lean's `binop%`
+   performs through `OfNat`. Over `Nat` a literal already has the carrier's type, so that
+   path stays exactly as it was. `pow` is heterogeneous in its exponent (`Int.pow : Int → Nat
+   → Int`), so only its base is coerced."
+  [est const T tn args pow?]
+  (if (= tn "Nat")
+    (elab-app est (symbol const) args)
+    (let [coerce (fn [x] (num-lit-at-type est T tn (elab-term est x)))
+          [a b] args]
+      (e/app* (e/const' (name/from-string const) [])
+              (coerce a)
+              (if pow? (elab-term est b) (coerce b))))))
 
 (defn- elab-hop
   "`HOp.hOp.{u,v,w} α β γ ?inst a b` — the heterogeneous class operator with its instance
@@ -578,9 +595,18 @@
                           (insert-implicits est expr ty))]
           (if (e/forall? ty)
             (let [arg-expr (elab-term est (first args))
+                  dom-type (e/forall-type ty)
+                  ;; A bare numeral takes the type the position expects — Lean's `OfNat`
+                  ;; elaboration, which is not confined to arithmetic: `(= Int a 0)` and
+                  ;; `(le Real x 1)` put a literal where a carrier is expected. Without this
+                  ;; the literal stayed a `Nat` and the statement failed to type-check at the
+                  ;; kernel (it only ever worked when the carrier WAS Nat).
+                  arg-expr (if (e/lit-nat? arg-expr)
+                             (let [d (zonk est dom-type)]
+                               (num-lit-at-type est d (type-head-name est d) arg-expr))
+                             arg-expr)
                   ;; Unify arg type with expected domain
-                  arg-type (infer-with-mvars est arg-expr)
-                  dom-type (e/forall-type ty)]
+                  arg-type (infer-with-mvars est arg-expr)]
               (unify! est arg-type dom-type)
               (let [expr' (e/app expr arg-expr)
                     body-inst (e/instantiate1 (e/forall-body ty) arg-expr)
@@ -607,7 +633,7 @@
                 a))
       (let [op (explicit-arith hs)]
         (if-let [const (get-in ingest/arith-lift [op tn])]
-          (elab-app est (symbol const) args)
+          (concrete-arith est const T tn args (= hs "pow"))
           (let [[cls method] (hop-table op)
                 a (num-lit-at-type est T tn (elab-term est (first args)))
                 b (elab-term est (second args))
@@ -1162,7 +1188,7 @@
                 :else
                 (let [[T tn] (or (arith-type est sexpr) [nil "Nat"])]
                   (if-let [const (get-in ingest/arith-lift [op tn])]
-                    (elab-app est (symbol const) args)
+                    (concrete-arith est const T tn args false)
                     (let [[cls method] (hop-table op)]
                       (elab-hop est cls method T T T
                                 (num-lit-at-type est T tn (elab-term est (first args)))
