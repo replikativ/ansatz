@@ -843,10 +843,10 @@ public final class Reducer {
 
     private void checkFuel() {
         if (initialFuel > 0 && --fuel < 0) {
-            throw new RuntimeException("WHNF reduction fuel exhausted");
+            throw new KernelAbort("WHNF reduction fuel exhausted");
         }
         if ((fuel & 0xFFF) == 0 && Thread.interrupted()) {
-            throw new RuntimeException("Type checking interrupted (timeout)");
+            throw new KernelAbort("Type checking interrupted (timeout)");
         }
     }
 
@@ -1344,6 +1344,8 @@ public final class Reducer {
                         majorType = mt;
                         typeOfType = whnf(inferFn.infer(mt));
                     }
+                } catch (KernelAbort abort) {
+                    throw abort;
                 } catch (Exception ignored) {}
                 if (majorType != null) {
                     if (typeOfType.tag != Expr.SORT) {
@@ -1454,7 +1456,9 @@ public final class Reducer {
             if (newCnstr == null) return major;
             Expr newType = inferFn.infer(newCnstr);
             return isDefEqFn.isDefEq(majorType, newType) ? newCnstr : major;
-        } catch (Exception ignored) {
+        } catch (KernelAbort abort) {
+                    throw abort;
+                } catch (Exception ignored) {
             return major;
         }
     }

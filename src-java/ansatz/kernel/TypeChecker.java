@@ -704,6 +704,7 @@ public final class TypeChecker {
     }
 
     private Expr inferTypeCore(Expr e, boolean inferOnly) {
+        checkSystem();
         ExprMap<Expr> cache = inferOnly ? inferOnlyCache : inferCache;
         Expr cached = cache.get(e);
         if (cached != null) return cached;
@@ -1097,7 +1098,19 @@ public final class TypeChecker {
         return result;
     }
 
+    // Lean's check_system(do_check_interrupted) at the head of is_def_eq_core and
+    // infer_type_core (type_checker.cpp:322, :1118): a check whose time goes into is_def_eq
+    // cache probes and structural comparisons never reaches the reducer's fuel counter, so
+    // the interruption a timeout delivers must be observed here too.
+    private long systemCheckCount;
+    private void checkSystem() {
+        if ((++systemCheckCount & 0xFFF) == 0 && Thread.interrupted()) {
+            throw new KernelAbort("Type checking interrupted (timeout)");
+        }
+    }
+
     private boolean isDefEqCore(Expr t, Expr s) {
+        checkSystem();
         boolean doEmit = traceWriter != null;
         isDefEqCalls++;
         if (isDefEqDepth < isDefEqDepthHist.length) isDefEqDepthHist[isDefEqDepth]++;
@@ -2117,6 +2130,8 @@ public final class TypeChecker {
             Expr tType = inferTypeOnly(t);
             Expr sType = inferTypeOnly(s);
             if (!isDefEq(tType, sType)) return false;
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e) {
             return false;
         }
@@ -2153,6 +2168,8 @@ public final class TypeChecker {
 
             // Both must have the same type (use inferTypeOnly — called from isDefEq)
             return isDefEq(tType, inferTypeOnly(s));
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e) {
             return false;
         }
@@ -2172,6 +2189,8 @@ public final class TypeChecker {
             if (indCi == null || indCi.ctors.length == 0) return false;
             ConstantInfo ctorCi = env.lookup(indCi.ctors[0]);
             return ctorCi != null && ctorCi.numFields == 0;
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e1) {
             return false;
         }
@@ -2189,6 +2208,8 @@ public final class TypeChecker {
             if (!isProp(tt)) return 0; // l_undef — not a Prop
             Expr ts = inferTypeOnly(s);
             return isDefEq(tt, ts) ? 1 : -1;
+        } catch (KernelAbort abort) {
+            throw abort;
         } catch (Exception e) {
             return 0; // treat inference errors as unknown
         }
