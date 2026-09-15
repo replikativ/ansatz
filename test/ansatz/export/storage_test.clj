@@ -197,6 +197,25 @@
         (finally
           (delete-dir-recursive dir))))))
 
+(deftest verify-corpus-one-slice-per-process
+  (testing "each slice can run in its own process with its own checkpoint, and the retry pass
+            reads them merged"
+    (let [dir (temp-dir)]
+      (try
+        (let [store-map (storage/open-store dir)]
+          (storage/import-ndjson-streaming! store-map example-file "verify-test")
+          (let [r0 (storage/verify-corpus! store-map "verify-test" :workers 2 :slice 0 :checkpoint-every 3)
+                r1 (storage/verify-corpus! store-map "verify-test" :workers 2 :slice 1 :checkpoint-every 3)
+                merged (#'storage/read-checkpoint store-map "verify-test")]
+            (is (and (:done? r0) (:done? r1)))
+            (is (= 2 (count (:slices merged))))
+            (is (= (:total r0) (reduce + (map :ok (:slices merged)))))
+            (is (zero? (reduce + (map :errors (:slices merged)))))
+            (is (.exists (java.io.File. dir "verify-verify-test-s1.edn"))))
+          (storage/close-store store-map))
+        (finally
+          (delete-dir-recursive dir))))))
+
 (deftest prepare-verify-stages-environment
   (testing "Verification env exposes only declarations admitted before the current index"
     (let [dir (temp-dir)]
