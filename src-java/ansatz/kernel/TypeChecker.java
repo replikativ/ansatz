@@ -2502,7 +2502,6 @@ public final class TypeChecker {
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2522,7 +2521,6 @@ public final class TypeChecker {
             return env.addOrReplaceConstant(ci);
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2542,7 +2540,6 @@ public final class TypeChecker {
             validateInductiveResultSort(ci, tc);
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2561,7 +2558,6 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2588,7 +2584,6 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2605,7 +2600,6 @@ public final class TypeChecker {
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2622,7 +2616,6 @@ public final class TypeChecker {
             return env.addConstant(ci);
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2642,7 +2635,6 @@ public final class TypeChecker {
             return state.tc.getFuelUsed();
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 
@@ -2676,7 +2668,6 @@ public final class TypeChecker {
             }
         } finally {
             Expr.disableIntern();
-            LeanExprKey.clearThreadCache();
         }
     }
 

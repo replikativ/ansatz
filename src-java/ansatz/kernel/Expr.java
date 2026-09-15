@@ -494,6 +494,12 @@ public final class Expr {
         return intern(new Expr(APP, d, fn, arg, null, null, 0));
     }
 
+    // The stored hash is Lean's (Expr.lean `Expr.mkData`): a binder or let hashes its type,
+    // value and body only — never the binder name or info — and mdata hashes the inner
+    // expression only. That is what makes it usable by every kernel cache: Lean's `is_equal`
+    // (LeanExprKey.exprEquals) ignores binder names and info, and a cache may reject on
+    // `hash(a) != hash(b)` only if equal terms always hash equal. Expr.equals (used by
+    // intern/shareCommon, Lean's `expr_bi_map`) is the stricter predicate over the same hash.
     /** Lambda abstraction. */
     public static Expr lam(Object name, Expr type, Expr body, Object binderInfo) {
         long bodyRange = body.bvarRange();
@@ -501,7 +507,7 @@ public final class Expr {
         boolean fv = type.hasFVar() || body.hasFVar();
         boolean lp = type.hasLevelParam() || body.hasLevelParam();
         boolean mv = type.hasMVar() || body.hasMVar();
-        int h = (Objects.hashCode(name) * 31 + type.structuralHash() * 17 + body.structuralHash()) * 31 + LAM;
+        int h = (type.structuralHash() * 31 + body.structuralHash()) * 31 + LAM;
         long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(LAM, d, name, type, body, binderInfo, 0));
     }
@@ -513,7 +519,7 @@ public final class Expr {
         boolean fv = type.hasFVar() || body.hasFVar();
         boolean lp = type.hasLevelParam() || body.hasLevelParam();
         boolean mv = type.hasMVar() || body.hasMVar();
-        int h = (Objects.hashCode(name) * 31 + type.structuralHash() * 17 + body.structuralHash()) * 31 + FORALL;
+        int h = (type.structuralHash() * 31 + body.structuralHash()) * 31 + FORALL;
         long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(FORALL, d, name, type, body, binderInfo, 0));
     }
@@ -526,8 +532,7 @@ public final class Expr {
         boolean fv = type.hasFVar() || value.hasFVar() || body.hasFVar();
         boolean lp = type.hasLevelParam() || value.hasLevelParam() || body.hasLevelParam();
         boolean mv = type.hasMVar() || value.hasMVar() || body.hasMVar();
-        int h = (Objects.hashCode(name) * 31 + type.structuralHash() * 17
-                + value.structuralHash() * 13 + body.structuralHash()) * 31 + LET;
+        int h = ((type.structuralHash() * 31 + value.structuralHash()) * 31 + body.structuralHash()) * 31 + LET;
         long d = packData(br, h, fv, mv, lp);
         return intern(new Expr(LET, d, name, type, value, body, 0));
     }
@@ -558,7 +563,7 @@ public final class Expr {
 
     /** Metadata annotation (definitionally transparent). */
     public static Expr mdata(Object data, Expr expr) {
-        int h = (Objects.hashCode(data) * 31 + expr.structuralHash()) * 31 + MDATA;
+        int h = expr.structuralHash() * 31 + MDATA;
         long dd = packData(expr.bvarRange(), h, expr.hasFVar(), expr.hasMVar(), expr.hasLevelParam());
         return intern(new Expr(MDATA, dd, data, expr, null, null, 0));
     }

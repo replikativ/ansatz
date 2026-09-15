@@ -1,7 +1,5 @@
 package ansatz.kernel;
 
-import java.math.BigInteger;
-import java.util.IdentityHashMap;
 import java.util.Objects;
 
 /**
@@ -15,16 +13,10 @@ import java.util.Objects;
 public final class LeanExprKey {
     final Expr expr;
     private final int hash;
-    private static final ThreadLocal<IdentityHashMap<Expr, Integer>> HASH_CACHE =
-        ThreadLocal.withInitial(() -> new IdentityHashMap<>(16384));
 
     public LeanExprKey(Expr expr) {
         this.expr = expr;
         this.hash = hashExpr(expr);
-    }
-
-    static void clearThreadCache() {
-        HASH_CACHE.remove();
     }
 
     @Override
@@ -39,47 +31,10 @@ public final class LeanExprKey {
                 && exprEquals(expr, ((LeanExprKey) obj).expr));
     }
 
+    /** Lean's `hash(e)`: the hash stored in the node at construction (expr.h:131), which
+     *  ignores binder names/info and mdata payloads exactly as exprEquals does. */
     static int hashExpr(Expr e) {
-        IdentityHashMap<Expr, Integer> cache = HASH_CACHE.get();
-        Integer cached = cache.get(e);
-        if (cached != null) return cached;
-        int h = hashExprUncached(e);
-        cache.put(e, h);
-        return h;
-    }
-
-    private static int hashExprUncached(Expr e) {
-        switch (e.tag) {
-            case Expr.BVAR:
-            case Expr.FVAR:
-            case Expr.MVAR:
-                return Long.hashCode(e.longVal) * 31 + e.tag;
-            case Expr.SORT:
-                return Objects.hashCode(e.o0) * 31 + Expr.SORT;
-            case Expr.CONST:
-                return (Objects.hashCode(e.o0) * 31 + Expr.levelsHashCode(e.o1)) * 31 + Expr.CONST;
-            case Expr.APP:
-                return (hashExpr((Expr) e.o0) * 31 + hashExpr((Expr) e.o1)) * 31 + Expr.APP;
-            case Expr.LAM:
-                return (hashExpr((Expr) e.o1) * 31 + hashExpr((Expr) e.o2)) * 31 + Expr.LAM;
-            case Expr.FORALL:
-                return (hashExpr((Expr) e.o1) * 31 + hashExpr((Expr) e.o2)) * 31 + Expr.FORALL;
-            case Expr.LET:
-                return (((hashExpr((Expr) e.o1) * 31 + hashExpr((Expr) e.o2)) * 31
-                        + hashExpr((Expr) e.o3)) * 31 + Expr.LET);
-            case Expr.LIT_NAT:
-                return ((BigInteger) e.o0).hashCode() * 31 + Expr.LIT_NAT;
-            case Expr.LIT_STR:
-                return e.o0.hashCode() * 31 + Expr.LIT_STR;
-            case Expr.MDATA:
-                // Lean's expression hash ignores the metadata payload.
-                return hashExpr((Expr) e.o1) * 31 + Expr.MDATA;
-            case Expr.PROJ:
-                return ((Objects.hashCode(e.o0) * 31 + Long.hashCode(e.longVal)) * 31
-                        + hashExpr((Expr) e.o1)) * 31 + Expr.PROJ;
-            default:
-                return e.structuralHash();
-        }
+        return e.structuralHash();
     }
 
     static boolean exprEquals(Expr a, Expr b) {
