@@ -1448,11 +1448,14 @@
                                                             e)))
                                                entries))
                                cp' (update cp :slices (fn [ss] (mapv (fn [sl]
-                                                                       (let [keep (rewrite (:error-names sl))]
-                                                                         (assoc sl :error-names keep :errors (count keep))))
+                                                                       (let [keep (rewrite (:error-names sl))
+                                                                             fixed (- (count (:error-names sl)) (count keep))]
+                                                                         (assoc sl :error-names keep :errors (count keep)
+                                                                                :ok (+ (:ok sl 0) fixed))))
                                                                      ss)))
                                all (into [] (mapcat :error-names) (:slices cp'))]
-                           (assoc cp' :error-names all :errors (count all))))
+                           (assoc cp' :error-names all :errors (count all)
+                                  :ok (reduce + (map :ok (:slices cp'))))))
         save! (fn [cp']
                 ;; write back to what was read: each per-slice file keeps its own slice, and
                 ;; the combined file the merged view
