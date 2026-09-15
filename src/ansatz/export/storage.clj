@@ -914,7 +914,8 @@
    Blocks until completion. Re-throws any exception from f.
    The worker thread is a daemon and is interrupted if the calling thread is interrupted.
    Optional timeout-ms: if > 0, interrupts the thread once it has used that much CPU time
-   (wall-clock only where thread CPU time is unsupported) and throws TimeoutException."
+   plus collector time (wall-clock only where thread CPU time is unsupported) and throws
+   TimeoutException."
   ([f] (run-with-large-stack f default-stack-size 0))
   ([f stack-size] (run-with-large-stack f stack-size 0))
   ([f stack-size timeout-ms]
@@ -937,15 +938,23 @@
          ;; that is SIGSTOPped while the machine is busy (or simply descheduled next to
          ;; other work) must not report the declaration in flight as timed out on resume.
          ;; Falls back to wall-clock only where the JVM cannot measure thread CPU time.
+         ;; Collector time is charged too: a check whose live set fills the heap spends its
+         ;; time in full collections that thread CPU time never sees (one such declaration
+         ;; ran 5.5 h of GC against a 10 min budget), and like CPU time it stops accruing
+         ;; while the process is stopped.
          (let [mx (java.lang.management.ManagementFactory/getThreadMXBean)
                tid (.getId t)
-               budget-ns (* 1000000 (long timeout-ms))]
+               budget-ns (* 1000000 (long timeout-ms))
+               gc-ms (fn [] (reduce + 0 (map #(max 0 (.getCollectionTime ^java.lang.management.GarbageCollectorMXBean %))
+                                              (java.lang.management.ManagementFactory/getGarbageCollectorMXBeans))))
+               gc0 (gc-ms)]
            (if (.isThreadCpuTimeSupported mx)
              (loop []
                (.join t 250)
                (when (.isAlive t)
-                 (let [cpu (.getThreadCpuTime mx tid)]
-                   (when (or (neg? cpu) (< cpu budget-ns))
+                 (let [cpu (.getThreadCpuTime mx tid)
+                       charged (+ (max 0 cpu) (* 1000000 (- (gc-ms) gc0)))]
+                   (when (or (neg? cpu) (< charged budget-ns))
                      (recur)))))
              (.join t (long timeout-ms))))
          (.join t))
@@ -1427,32 +1436,49 @@
         lw ^java.io.Writer (:log-writer ctx)
         n (count by-head)
         done (atom 0)
+        ;; The checkpoint is rewritten after EVERY head — a retry killed mid-way (or one head
+        ;; that exhausts its budget) leaves the verdicts so far on disk, and the next retry
+        ;; sees only what is still recorded.
+        apply-verdicts (fn [cp verdicts]
+                         (let [verdict (into {} (map (fn [[n st err]] [n [st err]])) verdicts)
+                               rewrite (fn [entries]
+                                         (into [] (keep (fn [{:keys [name] :as e}]
+                                                          (if-let [[st err] (verdict name)]
+                                                            (when (not= st :ok) (assoc e :error err))
+                                                            e)))
+                                               entries))
+                               cp' (update cp :slices (fn [ss] (mapv (fn [sl]
+                                                                       (let [keep (rewrite (:error-names sl))]
+                                                                         (assoc sl :error-names keep :errors (count keep))))
+                                                                     ss)))
+                               all (into [] (mapcat :error-names) (:slices cp'))]
+                           (assoc cp' :error-names all :errors (count all))))
+        save! (fn [cp']
+                ;; write back to what was read: each per-slice file keeps its own slice, and
+                ;; the combined file the merged view
+                (doseq [[^java.io.File sf sl] (map vector (:files cp') (:slices cp'))]
+                  (save-checkpoint! sf (assoc (dissoc cp' :files) :slices [sl]
+                                              :error-names (:error-names sl) :errors (:errors sl))))
+                (locking f (save-checkpoint! f (dissoc cp' :files))))
+        state (atom cp)
         results (try
                   (log! lw (str "Retrying " (count (:error-names cp)) " recorded entries via " n " heads"))
                   (into [] (mapcat (fn [[head entries]]
-                                     (let [r (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)]
+                                     (let [r (try (verify-by-name! ctx head :fuel fuel :timeout-ms timeout-ms)
+                                                  (catch Exception e
+                                                    {:status :error :error (str (.getClass e) ": " (ex-message e))}))
+                                           verdicts (mapv (fn [{:keys [name]}] [name (:status r) (:error r)]) entries)]
                                        (log! lw (str "  [" (swap! done inc) "/" n "] " (name (:status r)) " " head
                                                      " (" (count entries) " recorded, "
                                                      (long (or (:elapsed-ms r) 0)) " ms)"
                                                      (when (not= :ok (:status r)) (str " — " (:error r)))))
-                                       (map (fn [{:keys [name]}] [name (:status r) (:error r)]) entries))))
+                                       (save! (swap! state apply-verdicts verdicts))
+                                       verdicts)))
                         by-head)
                   (finally (.close lw)))
         still (into [] (keep (fn [[n st err]] (when (not= st :ok) {:name n :error err}))) results)
-        fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)
-        fixed? (set fixed)
-        cp' (-> cp
-                (update :slices (fn [ss] (mapv (fn [sl]
-                                                 (let [keep (vec (remove #(fixed? (:name %)) (:error-names sl)))]
-                                                   (assoc sl :error-names keep :errors (count keep))))
-                                               ss)))
-                (assoc :error-names still :errors (count still)))]
-    ;; write back to what was read: each per-slice file keeps its own slice, and the combined
-    ;; file the merged view
-    (doseq [[^java.io.File sf sl] (map vector (:files cp) (:slices cp'))]
-      (save-checkpoint! sf (assoc (dissoc cp' :files) :slices [sl]
-                                  :error-names (:error-names sl) :errors (:errors sl))))
-    (locking f (save-checkpoint! f (dissoc cp' :files)))
+        fixed (into [] (keep (fn [[n st _]] (when (= st :ok) n))) results)]
+    (when (empty? by-head) (save! @state))
     {:fixed fixed :still-failing still}))
 
 (defn verify-from-store!
