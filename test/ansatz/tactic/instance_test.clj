@@ -113,18 +113,28 @@
       (is (= ["c"] (mapv (comp str :name) (inst/get-instances idx (name/from-string "D"))))))))
 
 (deftest test-select-candidates-keys-on-the-carrier
-  (testing "over the cap, only instances for the goal's carrier plus the generic ones survive
-            (Lean's DiscrTree selection, one level deep)"
-    (let [env (require-env)
-          cands (mapv (fn [n] {:name (name/from-string n) :priority 1000})
-                      ["Fin.instOfNat" "instOfNatNat" "BitVec.instOfNat" "Zero.toOfNat0"])
-          goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
-                       (e/const' (name/from-string "Nat") []) (e/lit-nat 5))]
+  (let [env (require-env)
+        of (fn [ns] (mapv (fn [n] {:name (name/from-string n) :priority 1000}) ns))
+        goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
+                     (e/const' (name/from-string "Nat") []) (e/lit-nat 5))
+        select (fn [ns] (mapv (comp str :name) (inst/select-candidates env (of ns) goal)))]
+    (testing "only instances for the goal's carrier plus the generic ones survive — Lean's
+              DiscrTree selection, one level deep, whatever the list's size"
+      (is (= ["instOfNatNat" "Zero.toOfNat0"]
+             (select ["Fin.instOfNat" "instOfNatNat" "BitVec.instOfNat" "Zero.toOfNat0"])))
       (binding [config/*max-candidates* 2]
         (is (= ["instOfNatNat" "Zero.toOfNat0"]
-               (mapv (comp str :name) (inst/select-candidates env cands goal)))))
-      (testing "and a list within the cap is left alone"
-        (is (= 4 (count (inst/select-candidates env cands goal))))))))
+               (select ["Fin.instOfNat" "instOfNatNat" "BitVec.instOfNat" "Zero.toOfNat0"])))))
+    (testing "the carrier's own instances come FIRST, before the generic ones, whatever the
+              registry order — `getUnify` returns star matches before keyed ones and
+              SynthInstance consumes that array backwards, so at equal priority Lean tries the
+              specific instance first. Registry order alone resolved `Add Int` to
+              `Distrib.toAdd`, a term no Mathlib lemma is stated about."
+      (is (= ["instOfNatNat" "Zero.toOfNat0"] (select ["Zero.toOfNat0" "instOfNatNat"]))))
+    (testing "a goal with no constant carrier keeps every candidate (nothing to key on)"
+      (let [open-goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
+                              (e/bvar 0) (e/lit-nat 5))]
+        (is (= 2 (count (inst/select-candidates env (of ["instOfNatNat" "Zero.toOfNat0"]) open-goal))))))))
 
 (deftest test-index-for-prefers-the-installed-registry
   (let [env (require-env)

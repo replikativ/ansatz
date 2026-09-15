@@ -1075,6 +1075,14 @@
         (let [[head args] (e/get-app-fn-args expr)
               head-name (when (e/const? head) (e/const-name head))]
           (cond
+            ;; OfNat.ofNat α n _ → n, BEFORE whnf. This is how Lean spells a numeral at a
+            ;; type, so every Int literal arrives in this shape; whnf turns it into
+            ;; `Int.ofNat n`, which the post-whnf cond below does not recognise, and the
+            ;; numeral became an opaque atom (`a + 0 = a` was unprovable while `a + 1 = 1 + a`
+            ;; passed, because there the atom cancelled).
+            (and (= head-name (:ofnat omega-names)) (>= (count args) 2))
+            (reify-term st table (nth args 1))
+
             ;; Int.ofNat(x) → reify x as Nat (reuses Nat-level atoms)
             ;; This ensures ↑(a-b) creates the same atom as bare Nat.sub a b,
             ;; and ↑a creates the same atom as bare a.

@@ -16,7 +16,7 @@ By the end you'll understand:
 ;; For this tutorial, init-medium is enough (ships with the repo, no Lean needed):
 (a/init! "test-data/init-medium.ndjson")
 
-;; Or with full Mathlib (648k theorems):
+;; Or with full Mathlib (707,508 declarations) — downloaded once on first use, ~1.3 GiB:
 ;; (a/init! "mathlib")
 ```
 

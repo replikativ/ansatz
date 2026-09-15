@@ -202,22 +202,31 @@
 
 (defn select-candidates
   "The candidates of `candidates` (a class's registry entries, in order) worth trying for
-   `goal-type`, in order: only when the list exceeds the cap is it narrowed to the instances whose
-   conclusion key matches the goal's first argument plus the generic ones — Lean's DiscrTree
-   selection, one level deep. Small lists are returned as they are (nothing to gain, and the
-   keying costs a type lookup per instance)."
+   `goal-type`, in order: the instances whose conclusion key matches the goal's first argument,
+   then the generic ones — Lean's DiscrTree selection, one level deep, in Lean's order.
+
+   The ORDER is load-bearing, not just the filtering. `getUnify` returns a class's star (generic)
+   matches before its keyed ones and `SynthInstance.generate` consumes that array BACKWARDS
+   (SynthInstance.lean:597, after a stable ascending sort by priority), so among instances of
+   equal priority Lean tries the carrier-specific ones FIRST. Registry order alone put the
+   generic parent projections first: `Add Int` resolved to `Distrib.toAdd Int Int.instDistrib`
+   instead of `Int.instAdd`, a term defeq to Lean's but syntactically unlike it, so Mathlib's
+   `Int` lemmas and omega's preprocessing — which are stated in Lean's spelling — matched
+   nothing. Parent projections carry the default priority in Lean too (Structure.lean:1516),
+   so specificity is the only thing that separates them."
   [env candidates goal-type]
-  (if (<= (count candidates) config/*max-candidates*)
-    candidates
-    (let [[_ gargs] (e/get-app-fn-args goal-type)
-          g (first gargs)
-          [gh _] (when g (e/get-app-fn-args g))
-          gkey (when (and gh (e/const? gh)) (e/const-name gh))]
-      (if-not gkey
-        candidates
-        (filterv (fn [c] (let [k (conclusion-key env (:name c))]
-                           (or (= k :generic) (= k gkey))))
-                 candidates)))))
+  (let [[_ gargs] (e/get-app-fn-args goal-type)
+        g (first gargs)
+        [gh _] (when g (e/get-app-fn-args g))
+        gkey (when (and gh (e/const? gh)) (e/const-name gh))]
+    (if-not gkey
+      candidates
+      (let [{keyed true generic false}
+            (group-by (fn [c] (= gkey (conclusion-key env (:name c)))) candidates)
+            generic (filterv #(= :generic (conclusion-key env (:name %))) generic)]
+        (if (and (empty? keyed) (empty? generic))
+          candidates
+          (into (vec keyed) generic))))))
 
 ;; ============================================================
 ;; Structural matching (avoids proof irrelevance)

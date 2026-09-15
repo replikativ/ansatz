@@ -219,12 +219,15 @@ The key idea: Lean 4's Mathlib library has 210,000+ proved theorems about math (
 - Java 21+ (for Foreign Function API / memory mapping)
 - [Clojure CLI](https://clojure.org/guides/install_clojure) 1.12+
 
+That is all: the Mathlib store is downloaded on first use. Lean 4 (elan) is needed only to
+*build* a store yourself — a version we have not published, or a library of your own.
+
 ### Installation
 
 Add to `deps.edn`:
 
 ```clojure
-{:deps {org.replikativ/ansatz {:mvn/version "0.2.105"}}}  ; latest release: see the Clojars badge
+{:deps {org.replikativ/ansatz {:mvn/version "0.2.112"}}}  ; latest release: see the Clojars badge
 ```
 
 ### Startup time
@@ -413,17 +416,31 @@ Type                         ;; types
 
 ### Operators
 
+Arithmetic is **type-directed**, the way Lean's `binop%`/`OfNat` elaboration is: the operator
+takes the type of its operands and a bare numeral takes the type its position expects. You do
+not spell the carrier out, and `Nat`, `Int` and `Real` all work the same way.
+
 ```clojure
-(+ a b)                      ;; Nat addition (default)
+(+ a b) (- a b) (* a b)      ;; at the operands' type — Nat, Int, Real, any carrier
+(+ x 1)                      ;; the numeral takes x's type (Lean's OfNat)
+(quot a b) (rem a b)         ;; integer division and remainder (NOT `/` — see below)
+(= Int a 0)                  ;; equality (Prop); the 0 is an Int here
+```
+
+When the type cannot be read off the operands — which is the normal case in a theorem
+*statement*, where the operands are binders — give it explicitly:
+
+```clojure
 (add Real a b)               ;; typed addition
 (mul Real a b)               ;; typed multiplication
 (sub Real a b)               ;; subtraction
-(div Real a b)               ;; division
-(pow Real k n)               ;; power (base^Nat)
+(div Real a b)               ;; division (there is no `/` operator: Clojure's `/` on integers
+                             ;;   is Ratio division, which is not what `Nat.div` means)
+(pow Real k n)               ;; power (base^Nat — heterogeneous in the exponent)
 (= Nat a b)                  ;; equality (Prop)
 (le Real a b)                ;; ≤ (Prop)
 (<= Real a b)                ;; ≤ sugar (Prop, 3-arg form)
-(<= a b)                     ;; ≤ (Bool, Nat default, 2-arg form)
+(<= a b)                     ;; ≤ (Bool, Nat only, 2-arg form — a decidable comparison)
 ```
 
 ### Definitions

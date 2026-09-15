@@ -104,12 +104,21 @@
    {"Nat.add"  (bi-nary '+') "Nat.mul"  (bi-nary '*') "Nat.div" (bi-nary 'quot)
     "Nat.max"  (bi-nary 'max) "Nat.min" (bi-nary 'min)
     "Nat.blt"  (bi-nary '<)  "Nat.ble"  (bi-nary '<=) "Nat.beq" (bi-nary '==)
-    "Float.add" (bi-nary '+) "Float.sub" (bi-nary '-) "Float.mul" (bi-nary '*) "Float.div" (bi-nary '/)}
+    "Float.add" (bi-nary '+) "Float.sub" (bi-nary '-) "Float.mul" (bi-nary '*) "Float.div" (bi-nary '/)
+    ;; Lean's Int is unbounded, so its ops take the auto-promoting variants too. `Int.ofNat`
+    ;; is the identity here: a Nat already runs as a long (promoting to bigint on overflow),
+    ;; which is exactly what an Int is at runtime.
+    "Int.add" (bi-nary '+') "Int.mul" (bi-nary '*') "Int.sub" (bi-nary '-')}
    ;; n-ary ops whose saturated form is a composite expr
    {"Nat.sub"  (bi-nary2 (fn [x y] (list 'max 0 (list '- x y))))   ; truncated Nat subtraction
     "Nat.pow"  (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))))
     ;; Lean Nat.mod n 0 = n (total); Clojure (mod n 0) throws — guard faithfully.
     "Nat.mod"  (bi-nary2 (fn [x y] (list 'if (list 'zero? y) x (list 'mod x y))))
+    ;; Int.tdiv/Int.tmod truncate toward zero, which is Clojure's quot/rem. Lean's are total:
+    ;; `Int.tdiv n 0 = 0` and `Int.tmod n 0 = n` (Nat.div/mod at 0), where Clojure throws.
+    "Int.tdiv" (bi-nary2 (fn [x y] (list 'if (list 'zero? y) 0 (list 'quot x y))))
+    "Int.tmod" (bi-nary2 (fn [x y] (list 'if (list 'zero? y) x (list 'rem x y))))
+    "Int.pow"  (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))))
     "Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
@@ -128,6 +137,9 @@
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
    {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
+    "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
+    "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
+    "Int.natAbs"    (fn [_ _ _ ca _] (list 'abs (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
     "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
@@ -225,6 +237,7 @@
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
    "Nat.add" '+' "Nat.mul" '*' "Nat.succ" 'inc' "Nat.div" 'quot
+   "Int.add" '+' "Int.mul" '*' "Int.sub" '-' "Int.ofNat" 'identity
    "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
    "Nat.sub" '(fn [a b] (max 0 (- a b)))
    ;; Unit/PUnit's single value → nil (the unit thunks an unfolded match auxiliary applies its branches to).
