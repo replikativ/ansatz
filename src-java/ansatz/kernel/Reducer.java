@@ -29,7 +29,6 @@ public final class Reducer {
     private final ExprMap<Expr> whnfCoreCache;
     private final ExprMap<Expr> whnfCache;
     private final ExprMap<Expr> unfoldCache;
-    private final HashMap<Expr, Expr> resultIntern;  // result deduplication for pointer sharing
 
     // Local context: fvar id -> LocalDecl
     // Managed externally (from TypeChecker)
@@ -106,7 +105,6 @@ public final class Reducer {
         this.whnfCoreCache = new ExprMap<>(4096);
         this.whnfCache = new ExprMap<>(4096);
         this.unfoldCache = new ExprMap<>(1024);
-        this.resultIntern = new HashMap<>(4096);
         this.lctx = null;
         this.fuel = DEFAULT_FUEL;
         this.initialFuel = DEFAULT_FUEL;
@@ -122,19 +120,6 @@ public final class Reducer {
     }
 
     public HashMap<Long, Object[]> getLctx() { return lctx; }
-
-    /**
-     * Intern a whnf result: return the canonical instance for structurally equal expressions.
-     * This enables reference equality (==) short-circuits in isDefEq, mirroring Lean 4's
-     * pointer sharing from hash-consing.
-     */
-    public Expr internResult(Expr r) {
-        // No size limit — grows per declaration, freed on clearCaches().
-        // Clearing destroys pointer sharing needed by IdentityHashMap caches.
-        Expr existing = resultIntern.putIfAbsent(r, r);
-        if (existing != null) { internHits++; return existing; }
-        return r;
-    }
 
     // ============================================================
     // de Bruijn operations
@@ -1667,10 +1652,7 @@ public final class Reducer {
         if (cached != null) return cached;
 
         HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, headLevels);
-        // Deep re-intern: definition values from ENV were created before enableIntern().
-        // Without this, their non-interned sub-expressions pollute all expression trees,
-        // breaking IdentityHashMap-based caches (inferCache, the defeq success/failure caches, whnfCache).
-        Expr result = Expr.deepReIntern(internResult(instantiateLevelParams(value, subst)));
+        Expr result = instantiateLevelParams(value, subst);
         unfoldCache.put(head, result);
         return result;
     }
@@ -1686,11 +1668,7 @@ public final class Reducer {
      * cheapRec=false means recursor major premise is fully whnf-reduced.
      */
     public Expr whnfCore(Expr e) {
-        // Canonicalize input via intern table so IdentityHashMap cache hits
-        // for structurally-equal but pointer-different expressions.
-        // Matches Lean 4's hash-consing invariant: same structure → same pointer.
-        // O(1) for already-canonical expressions (intern table fast-path).
-        return whnfCoreImpl(Expr.deepReIntern(e), false, false);
+        return whnfCoreImpl(e, false, false);
     }
 
     /**
@@ -1748,7 +1726,7 @@ public final class Reducer {
                 if (p != null) {
                     checkFuel();
                     projCount++;
-                    r = whnfCoreImpl(Expr.deepReIntern(p), cheapRec, cheapProj);
+                    r = whnfCoreImpl(p, cheapRec, cheapProj);
                 } else {
                     r = e;
                 }
@@ -1777,33 +1755,32 @@ public final class Reducer {
                         m++;
                     }
                     Expr body = instantiateRev((Expr) f.o2, m, args, 0);
-                    r = whnfCoreImpl(Expr.deepReIntern(mkApps(body, args, m)), cheapRec, cheapProj);
+                    r = whnfCoreImpl(mkApps(body, args, m), cheapRec, cheapProj);
                 } else if (LeanExprKey.exprEquals(head2, f0)) {
                     Expr reduced = tryReduceRecursor(f0, args, cheapRec, cheapProj);
                     if (reduced == null) reduced = tryReduceQuot(f0, args);
                     if (reduced != null) {
                         checkFuel();
                         iotaCount++;
-                        return whnfCoreImpl(Expr.deepReIntern(reduced), cheapRec, cheapProj);
+                        return whnfCoreImpl(reduced, cheapRec, cheapProj);
                     }
                     return e;
                 } else {
                     checkFuel();
-                    r = whnfCoreImpl(Expr.deepReIntern(mkApps(head2, args)), cheapRec, cheapProj);
+                    r = whnfCoreImpl(mkApps(head2, args), cheapRec, cheapProj);
                 }
                 break;
             }
             case Expr.LET:
                 checkFuel();
                 zetaCount++;
-                r = whnfCoreImpl(Expr.deepReIntern(instantiate1((Expr) e.o3, (Expr) e.o2)), cheapRec, cheapProj);
+                r = whnfCoreImpl(instantiate1((Expr) e.o3, (Expr) e.o2), cheapRec, cheapProj);
                 break;
             default:
                 return e;
         }
 
         if (!cheapRec && !cheapProj) {
-            r = r.isEqp(e) ? e : internResult(r);
             whnfCoreCache.put(e, r);
             reducerTrace("whnfCore.cache.put", e, r);
         }
@@ -1847,9 +1824,6 @@ public final class Reducer {
                 return e;
         }
 
-        // Canonicalize input so IdentityHashMap cache hits for structurally-equal inputs.
-        // Matches Lean 4's global hash-consing. O(1) for already-canonical expressions.
-        e = Expr.deepReIntern(e);
         reducerTrace("whnf.enter", e, null);
 
         // Check cache — unconditionally, matching Lean 4 (no hasFVar guard).
@@ -1866,10 +1840,7 @@ public final class Reducer {
         // Depth tracking is for diagnostics only — no limit enforced.
         try {
             Expr raw = whnfLoop(e);
-            // Deep re-intern: ensures sub-expressions from ENV (created before
-            // enableIntern) are canonicalized. Fast for already-interned expressions
-            // (table.get() hit returns immediately).
-            Expr result = raw.isEqp(e) ? e : Expr.deepReIntern(raw);
+            Expr result = raw;
             whnfCache.put(e, result);
             reducerTrace("whnf.result", e, result);
             return result;
@@ -1959,6 +1930,5 @@ public final class Reducer {
         whnfCoreCache.clear();
         whnfCache.clear();
         unfoldCache.clear();
-        resultIntern.clear();
     }
 }

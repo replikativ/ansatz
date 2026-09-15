@@ -740,13 +740,13 @@ public final class TypeChecker {
                     }
                 }
                 if (ci.levelParams.length == 0) {
-                    result = Expr.deepReIntern(ci.type);
+                    result = ci.type;
                 } else {
                     HashMap<Object, Level> subst = new HashMap<>(ci.levelParams.length * 2);
                     for (int i = 0; i < ci.levelParams.length; i++) {
                         subst.put(ci.levelParams[i], (Level) levels[i]);
                     }
-                    result = Expr.deepReIntern(Reducer.instantiateLevelParams(ci.type, subst));
+                    result = Reducer.instantiateLevelParams(ci.type, subst);
                 }
                 break;
             }
@@ -1275,14 +1275,9 @@ public final class TypeChecker {
         }
 
         // Step 2: whnf_core with Lean 4 flags (cheapRec=false, cheapProj=true).
-        // deepReIntern canonicalizes the result bottom-up through the intern table,
-        // matching Lean 4's global hash-consing: structurally equal trees from
-        // different reduction paths become pointer-equal → quick identity check fires.
-        Expr tnRaw = reducer.whnfCore(t, false, true);
-        Expr snRaw = reducer.whnfCore(s, false, true);
-        boolean whnfChanged = !tnRaw.isEqp(t) || !snRaw.isEqp(s);
-        Expr tn = Expr.deepReIntern(tnRaw);
-        Expr sn = Expr.deepReIntern(snRaw);
+        Expr tn = reducer.whnfCore(t, false, true);
+        Expr sn = reducer.whnfCore(s, false, true);
+        boolean whnfChanged = !tn.isEqp(t) || !sn.isEqp(s);
 
         // Quick check after whnf_core (Lean 4 lines 1116-1124)
         // Note: Lean uses use_hash=false (default) for the second quick check
@@ -1395,8 +1390,8 @@ public final class TypeChecker {
             Expr tn2Raw = reducer.whnfCore(tn, false, false);
             Expr sn2Raw = reducer.whnfCore(sn, false, false);
             boolean whnf2Changed = !tn2Raw.isEqp(tn) || !sn2Raw.isEqp(sn);
-            Expr tn2 = Expr.deepReIntern(tn2Raw);
-            Expr sn2 = Expr.deepReIntern(sn2Raw);
+            Expr tn2 = tn2Raw;
+            Expr sn2 = sn2Raw;
             if (whnf2Changed) {
                 emitPhasePairStats("step6.whnfcore2.stats", tn2, sn2);
                 emitPhaseTypes("step6.whnfcore2.types", tn2, sn2);
@@ -1553,7 +1548,7 @@ public final class TypeChecker {
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
-                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                     emitDeltaTrace("unfold.left", tn, sn);
                 }
             } else if (!dtHasDelta && dsHasDelta) {
@@ -1566,7 +1561,7 @@ public final class TypeChecker {
                 } else {
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
-                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                     emitDeltaTrace("unfold.right", tn, sn);
                 }
             } else {
@@ -1579,13 +1574,13 @@ public final class TypeChecker {
                     // Unfold left (higher height / more complex)
                     Expr unfolded = reducer.tryUnfoldDef(tnHead);
                     if (unfolded == null) return 0;
-                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                    tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                     emitDeltaTrace("unfold.left", tn, sn);
                 } else if (cmp > 0) {
                     // Unfold right
                     Expr unfolded = reducer.tryUnfoldDef(snHead);
                     if (unfolded == null) return 0;
-                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                    sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                     emitDeltaTrace("unfold.right", tn, sn);
                 } else {
                     // Same hint level — Lean takes this shortcut when is_delta
@@ -1614,10 +1609,10 @@ public final class TypeChecker {
                     Expr unfoldedS = reducer.tryUnfoldDef(snHead);
                     if (unfoldedT == null && unfoldedS == null) return 0;
                     if (unfoldedT != null) {
-                        tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true));
+                        tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
                     }
                     if (unfoldedS != null) {
-                        sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
+                        sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
                     }
                     emitDeltaTrace("unfold.both", tn, sn);
                     emitPhasePairStats("lazyDelta.unfoldBoth.stats", tn, sn);
@@ -1934,7 +1929,7 @@ public final class TypeChecker {
             } else {
                 Expr unfolded = reducer.tryUnfoldDef(tnHead);
                 if (unfolded == null) return 0;
-                tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                 holder[0] = tn;
             }
         } else if (!dtHasDelta && dsHasDelta) {
@@ -1946,7 +1941,7 @@ public final class TypeChecker {
             } else {
                 Expr unfolded = reducer.tryUnfoldDef(snHead);
                 if (unfolded == null) return 0;
-                sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                 holder[1] = sn;
             }
         } else {
@@ -1958,12 +1953,12 @@ public final class TypeChecker {
             if (cmp < 0) {
                 Expr unfolded = reducer.tryUnfoldDef(tnHead);
                 if (unfolded == null) return 0;
-                tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true));
+                tn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) tnFA[1]), false, true);
                 holder[0] = tn;
             } else if (cmp > 0) {
                 Expr unfolded = reducer.tryUnfoldDef(snHead);
                 if (unfolded == null) return 0;
-                sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true));
+                sn = reducer.whnfCore(Reducer.mkApps(unfolded, (Expr[]) snFA[1]), false, true);
                 holder[1] = sn;
             } else {
                 // Same hint level — Lean takes this shortcut when is_delta
@@ -1989,11 +1984,11 @@ public final class TypeChecker {
                 Expr unfoldedS = reducer.tryUnfoldDef(snHead);
                 if (unfoldedT == null && unfoldedS == null) return 0;
                 if (unfoldedT != null) {
-                    tn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true));
+                    tn = reducer.whnfCore(Reducer.mkApps(unfoldedT, (Expr[]) tnFA[1]), false, true);
                     holder[0] = tn;
                 }
                 if (unfoldedS != null) {
-                    sn = Expr.deepReIntern(reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true));
+                    sn = reducer.whnfCore(Reducer.mkApps(unfoldedS, (Expr[]) snFA[1]), false, true);
                     holder[1] = sn;
                 }
             }
@@ -2286,9 +2281,6 @@ public final class TypeChecker {
         java.util.IdentityHashMap<Expr, Expr> scVisited = new java.util.IdentityHashMap<>(4096);
         Expr type = Expr.shareCommon(ci.type, scCache, scVisited);
         Expr value = ci.value != null ? Expr.shareCommon(ci.value, scCache, scVisited) : null;
-        // Seed intern table with shareCommon results so reduction-created
-        // expressions are pointer-identical to proof sub-expressions.
-        Expr.seedIntern(scCache);
 
         TypeChecker tc = new TypeChecker(env, getDefinitionSafety(ci), ci.levelParams);
         tc.setFuel(fuel);
@@ -2415,12 +2407,10 @@ public final class TypeChecker {
             return env.enableQuot().addConstant(ci);
         }
 
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, null, false);
             return env.addConstant(ci);
         } finally {
-            Expr.disableIntern();
         }
     }
 
@@ -2434,12 +2424,10 @@ public final class TypeChecker {
             validateQuotDeclaration(env, ci);
             return env.enableQuot().addOrReplaceConstant(ci);
         }
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, null, false);
             return env.addOrReplaceConstant(ci);
         } finally {
-            Expr.disableIntern();
         }
     }
 
@@ -2449,7 +2437,6 @@ public final class TypeChecker {
 
     static void checkInductiveHeader(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isInduct()) throw new RuntimeException("expected inductive declaration: " + ci.name);
-        Expr.enableIntern();
         try {
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             Expr type = Expr.shareCommon(ci.type);
@@ -2458,13 +2445,11 @@ public final class TypeChecker {
             tc.ensureSort(tc.check(type));
             validateInductiveResultSort(ci, tc);
         } finally {
-            Expr.disableIntern();
         }
     }
 
     static void checkConstructorDeclaration(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isCtor()) throw new RuntimeException("expected constructor declaration: " + ci.name);
-        Expr.enableIntern();
         try {
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             Expr type = Expr.shareCommon(ci.type);
@@ -2476,13 +2461,11 @@ public final class TypeChecker {
                 validateConstructor(env, indCi, ci, tc, !(ci.isUnsafe || indCi.isUnsafe));
             }
         } finally {
-            Expr.disableIntern();
         }
     }
 
     static void checkRecursorDeclaration(Env env, ConstantInfo ci, long fuel) {
         if (!ci.isRecursor()) throw new RuntimeException("expected recursor declaration: " + ci.name);
-        Expr.enableIntern();
         try {
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             Expr type = Expr.shareCommon(ci.type);
@@ -2502,7 +2485,6 @@ public final class TypeChecker {
                 }
             }
         } finally {
-            Expr.disableIntern();
         }
     }
 
@@ -2512,13 +2494,11 @@ public final class TypeChecker {
             validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, traceWriter, false);
             try { traceWriter.flush(); } catch (IOException e) {}
             return env.addConstant(ci);
         } finally {
-            Expr.disableIntern();
         }
     }
 
@@ -2528,13 +2508,11 @@ public final class TypeChecker {
             validateQuotDeclaration(env, ci);
             return env.enableQuot().addConstant(ci);
         }
-        Expr.enableIntern();
         try {
             checkConstantPreAdd(env, ci, fuel, traceWriter, true);
             try { traceWriter.flush(); } catch (IOException e) { throw new RuntimeException(e); }
             return env.addConstant(ci);
         } finally {
-            Expr.disableIntern();
         }
     }
 
@@ -2548,12 +2526,10 @@ public final class TypeChecker {
             // Callers must handle env.enableQuot().addConstant(ci)
             return 0;
         }
-        Expr.enableIntern();
         try {
             ConstantCheckState state = checkConstantPreAdd(env, ci, fuel, null, false);
             return state.tc.getFuelUsed();
         } finally {
-            Expr.disableIntern();
         }
     }
 
@@ -2566,7 +2542,6 @@ public final class TypeChecker {
             // Callers must handle env.enableQuot().addConstant(ci)
             return new Object[]{0L, new HashMap<String, Long>(), new String[0], null};
         }
-        Expr.enableIntern();
         try {
             TypeChecker tc = null;
             try {
@@ -2586,7 +2561,6 @@ public final class TypeChecker {
                     "StackOverflowError (whnf max depth: " + maxDepth + ")"};
             }
         } finally {
-            Expr.disableIntern();
         }
     }
 

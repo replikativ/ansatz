@@ -86,120 +86,13 @@ public final class Expr {
         return this == other || (this.storeId >= 0 && this.storeId == other.storeId);
     }
 
-    // ---- Hash-consing intern table ----
-    // Thread-local intern table for expression deduplication during type checking.
-    // When enabled, factory methods (app, lam, forall, etc.) return existing
-    // structurally-equal expressions, making pointer equality (isEqp / ==) succeed
-    // for identical intermediate results. This matches Lean 4's C++ allocator behavior.
-    private static final ThreadLocal<HashMap<Expr, Expr>> internTable = new ThreadLocal<>();
-    /** Enable hash-consing for the current thread. Call disableIntern() when done. */
-    public static void enableIntern() {
-        internTable.set(new HashMap<>(16384));
-    }
-
-    /** Disable hash-consing and free the intern table.
-     *  The table is per-declaration (created in checkConstant, freed after).
-     *  No size limit — grows as needed, then GC'd on disableIntern(). */
-    public static void disableIntern() {
-        internTable.remove();
-    }
-
-    /** Seed the intern table with entries from shareCommon's cache.
-     *  Ensures proof sub-expressions are pointer-identical to reduction-created ones. */
-    public static void seedIntern(java.util.HashMap<Expr, Expr> scCache) {
-        HashMap<Expr, Expr> table = internTable.get();
-        if (table != null) table.putAll(scCache);
-    }
-
-    /** Re-intern an expression from outside the intern table (e.g., ENV values).
-     *  If already in the table, returns the canonical pointer. If not, adds it.
-     *  Just the top node — for deep re-interning use deepReIntern. */
-    public static Expr reIntern(Expr e) {
-        HashMap<Expr, Expr> table = internTable.get();
-        if (table == null) return e;
-        Expr existing = table.putIfAbsent(e, e);
-        return existing != null ? existing : e;
-    }
-
-    /** Deeply re-intern an expression tree. Rebuilds the tree bottom-up using
-     *  the interned factory methods, ensuring ALL sub-expressions are in the
-     *  intern table. Used for ENV definition values entering the kernel.
-     *  Results are cached per identity to avoid redundant work on DAG-shared sub-trees. */
-    public static Expr deepReIntern(Expr e) {
-        HashMap<Expr, Expr> table = internTable.get();
-        if (table == null) return e;
-        // Quick check: if already in the table, return canonical form immediately.
-        // After the CONST fix, structural-hash + structural-equals means this lookup
-        // correctly finds the canonical pointer even for fresh Object[] level arrays.
-        Expr existing = table.get(e);
-        if (existing != null) return existing;
-        return deepReInternGo(e, new IdentityHashMap<>(256));
-    }
-
-    private static Expr deepReInternGo(Expr e, IdentityHashMap<Expr, Expr> visited) {
-        Expr cached = visited.get(e);
-        if (cached != null) return cached;
-        // If already in intern table, use canonical version
-        HashMap<Expr, Expr> table = internTable.get();
-        if (table != null) {
-            Expr existing = table.get(e);
-            if (existing != null) { visited.put(e, existing); return existing; }
-        }
-        Expr result;
-        switch (e.tag) {
-            case BVAR: result = bvar(e.longVal); break;
-            case SORT: result = sort(e.o0, e.hasLevelParam()); break;
-            case CONST: result = mkConst(e.o0, e.o1, e.hasLevelParam()); break;
-            case FVAR: result = fvar(e.longVal); break;
-            case MVAR: result = mvar(e.longVal); break;
-            case LIT_NAT: result = litNat(e.o0); break;
-            case LIT_STR: result = litStr((String) e.o0); break;
-            case APP: {
-                Expr fn = deepReInternGo((Expr) e.o0, visited);
-                Expr arg = deepReInternGo((Expr) e.o1, visited);
-                result = app(fn, arg);
-                break;
-            }
-            case LAM: {
-                Expr type = deepReInternGo((Expr) e.o1, visited);
-                Expr body = deepReInternGo((Expr) e.o2, visited);
-                result = lam(e.o0, type, body, e.o3);
-                break;
-            }
-            case FORALL: {
-                Expr type = deepReInternGo((Expr) e.o1, visited);
-                Expr body = deepReInternGo((Expr) e.o2, visited);
-                result = forall(e.o0, type, body, e.o3);
-                break;
-            }
-            case LET: {
-                // LET is rare in kernel expressions; re-intern top node only
-                result = reIntern(e);
-                break;
-            }
-            case PROJ: {
-                Expr struct = deepReInternGo((Expr) e.o1, visited);
-                result = proj(e.o0, e.longVal, struct);
-                break;
-            }
-            case MDATA: {
-                Expr inner = deepReInternGo((Expr) e.o1, visited);
-                result = mdata(e.o0, inner);
-                break;
-            }
-            default: result = e;
-        }
-        visited.put(e, result);
-        return result;
-    }
-
-    /** Intern an expression: return canonical instance if one exists. */
-    private static Expr intern(Expr e) {
-        HashMap<Expr, Expr> table = internTable.get();
-        if (table == null) return e;
-        Expr existing = table.putIfAbsent(e, e);
-        return existing != null ? existing : e;
-    }
+    // There is no hash-consing during checking. Lean's kernel has no intern table: pointer
+    // sharing comes from shareCommon on the declaration being checked and from the caches
+    // handing back the object they stored, and every intermediate term is freed when the last
+    // reference goes. The structural caches (ExprMap/ExprPairSet under is_equal) make a
+    // structurally equal term as good as a pointer-equal one for a cache hit. An intern table
+    // instead retained every term ever built during a check — 18 M nodes and 20 M map entries
+    // on localCohomology.diagramComp.
 
     // --- Packed data helpers ---
 
@@ -381,7 +274,7 @@ public final class Expr {
     public static Expr bvar(long idx) {
         int h = Long.hashCode(idx) * 31 + BVAR;
         long d = packData(idx + 1, h, false, false, false);
-        return intern(new Expr(BVAR, d, null, null, null, null, idx));
+        return new Expr(BVAR, d, null, null, null, null, idx);
     }
 
     /** Normalize all universe levels in an expression tree.
@@ -470,7 +363,7 @@ public final class Expr {
     public static Expr sort(Object level, boolean levelHasParam) {
         int h = Objects.hashCode(level) * 31 + SORT;
         long d = packData(0, h, false, level instanceof Level && Level.hasMVar((Level) level), levelHasParam);
-        return intern(new Expr(SORT, d, level, null, null, null, 0));
+        return new Expr(SORT, d, level, null, null, null, 0);
     }
 
     /** Reference to a global constant with universe level arguments. */
@@ -480,7 +373,7 @@ public final class Expr {
         // bucket and are recognized as equal by the intern table.
         int h = (Objects.hashCode(name) * 31 + levelsHashCode(levels)) * 31 + CONST;
         long d = packData(0, h, false, levelsHaveMVar(levels), levelsHaveParam);
-        return intern(new Expr(CONST, d, name, levels, null, null, 0));
+        return new Expr(CONST, d, name, levels, null, null, 0);
     }
 
     /** Function application (curried). */
@@ -491,7 +384,7 @@ public final class Expr {
         boolean mv = fn.hasMVar() || arg.hasMVar();
         int h = (fn.structuralHash() * 31 + arg.structuralHash()) * 31 + APP;
         long d = packData(br, h, fv, mv, lp);
-        return intern(new Expr(APP, d, fn, arg, null, null, 0));
+        return new Expr(APP, d, fn, arg, null, null, 0);
     }
 
     // The stored hash is Lean's (Expr.lean `Expr.mkData`): a binder or let hashes its type,
@@ -509,7 +402,7 @@ public final class Expr {
         boolean mv = type.hasMVar() || body.hasMVar();
         int h = (type.structuralHash() * 31 + body.structuralHash()) * 31 + LAM;
         long d = packData(br, h, fv, mv, lp);
-        return intern(new Expr(LAM, d, name, type, body, binderInfo, 0));
+        return new Expr(LAM, d, name, type, body, binderInfo, 0);
     }
 
     /** Pi type / dependent function type. */
@@ -521,7 +414,7 @@ public final class Expr {
         boolean mv = type.hasMVar() || body.hasMVar();
         int h = (type.structuralHash() * 31 + body.structuralHash()) * 31 + FORALL;
         long d = packData(br, h, fv, mv, lp);
-        return intern(new Expr(FORALL, d, name, type, body, binderInfo, 0));
+        return new Expr(FORALL, d, name, type, body, binderInfo, 0);
     }
 
     /** Let binding with type annotation. */
@@ -534,7 +427,7 @@ public final class Expr {
         boolean mv = type.hasMVar() || value.hasMVar() || body.hasMVar();
         int h = ((type.structuralHash() * 31 + value.structuralHash()) * 31 + body.structuralHash()) * 31 + LET;
         long d = packData(br, h, fv, mv, lp);
-        return intern(new Expr(LET, d, name, type, value, body, 0));
+        return new Expr(LET, d, name, type, value, body, 0);
     }
 
     /** Natural number literal. Always stores value as BigInteger for consistent equality. */
@@ -551,21 +444,21 @@ public final class Expr {
         }
         int h = val.hashCode() * 31 + LIT_NAT;
         long d = packData(0, h, false, false, false);
-        return intern(new Expr(LIT_NAT, d, val, null, null, null, 0));
+        return new Expr(LIT_NAT, d, val, null, null, null, 0);
     }
 
     /** String literal. */
     public static Expr litStr(String s) {
         int h = s.hashCode() * 31 + LIT_STR;
         long d = packData(0, h, false, false, false);
-        return intern(new Expr(LIT_STR, d, s, null, null, null, 0));
+        return new Expr(LIT_STR, d, s, null, null, null, 0);
     }
 
     /** Metadata annotation (definitionally transparent). */
     public static Expr mdata(Object data, Expr expr) {
         int h = expr.structuralHash() * 31 + MDATA;
         long dd = packData(expr.bvarRange(), h, expr.hasFVar(), expr.hasMVar(), expr.hasLevelParam());
-        return intern(new Expr(MDATA, dd, data, expr, null, null, 0));
+        return new Expr(MDATA, dd, data, expr, null, null, 0);
     }
 
     /** Structure projection. */
@@ -573,14 +466,14 @@ public final class Expr {
         int h = (Objects.hashCode(typeName) * 31 + Long.hashCode(idx) * 17
                 + struct.structuralHash()) * 31 + PROJ;
         long d = packData(struct.bvarRange(), h, struct.hasFVar(), struct.hasMVar(), struct.hasLevelParam());
-        return intern(new Expr(PROJ, d, typeName, struct, null, null, idx));
+        return new Expr(PROJ, d, typeName, struct, null, null, idx);
     }
 
     /** Free variable with unique numeric id. Interned for pointer sharing. */
     public static Expr fvar(long id) {
         int h = Long.hashCode(id) * 31 + FVAR;
         long d = packData(0, h, true, false, false);
-        return intern(new Expr(FVAR, d, null, null, null, null, id));
+        return new Expr(FVAR, d, null, null, null, null, id);
     }
 
     /** Metavariable with unique numeric id. Interned for pointer sharing.
@@ -589,7 +482,7 @@ public final class Expr {
         int h = Long.hashCode(id) * 31 + MVAR;
         // MVAR does NOT set HAS_FVAR_BIT — this ensures abstract1 skips it
         long d = packData(0, h, false, true, false);
-        return intern(new Expr(MVAR, d, null, null, null, null, id));
+        return new Expr(MVAR, d, null, null, null, null, id);
     }
 
     /**
