@@ -1270,8 +1270,24 @@
        :batch-elapsed-ms elapsed
        :last-result @last-result})))
 
-(defn- checkpoint-file ^java.io.File [store-map branch]
-  (io/file (:path store-map) (str "verify-" branch ".edn")))
+(defn- checkpoint-file
+  (^java.io.File [store-map branch] (checkpoint-file store-map branch nil))
+  (^java.io.File [store-map branch slice]
+   (io/file (:path store-map) (str "verify-" branch (when slice (str "-s" slice)) ".edn"))))
+
+(defn- read-checkpoint
+  "The checkpoint of `branch`: the combined file, else the union of the per-slice files a
+   process-per-worker run writes (`verify-<branch>-s<i>.edn`), merged in slice order."
+  [store-map branch]
+  (let [f (checkpoint-file store-map branch)]
+    (if (.exists f)
+      (edn/read-string (slurp f))
+      (let [parts (->> (.listFiles (io/file (:path store-map)))
+                       (filter #(re-matches (re-pattern (str "verify-" branch "-s\\d+\\.edn")) (.getName ^java.io.File %)))
+                       (map #(edn/read-string (slurp %)))
+                       (sort-by :slice))]
+        (when (seq parts)
+          (assoc (first parts) :slices (mapv #(first (:slices %)) parts)))))))
 
 (defn- save-checkpoint!
   "Write the checkpoint atomically (tmp + rename) — the file is the run's only durable state."
@@ -1303,23 +1319,34 @@
    does, so every declaration is still checked by exactly one worker against declarations that
    are themselves checked: completing all slices gives the sequential run's guarantee.
    Returns the checkpoint: {:total :ok :errors :error-names :done? :slices …}."
-  [store-map branch & {:keys [workers resume? fuel timeout-ms checkpoint-every epoch-batches]
+  [store-map branch & {:keys [workers resume? fuel timeout-ms checkpoint-every epoch-batches slice]
                        :or {workers 4 resume? true fuel default-fuel timeout-ms 120000
                             checkpoint-every 500 epoch-batches 20}}]
-  (let [f (checkpoint-file store-map branch)
-        saved (when (and resume? (.exists f)) (edn/read-string (slurp f)))
+  ;; `:slice i` runs ONE of the `workers` slices in this process, checkpointed to its own file
+  ;; (`verify-<branch>-s<i>.edn`): a worker per JVM, so a declaration whose check exhausts the
+  ;; heap costs only its own worker (recorded as a failure) instead of dragging every other
+  ;; worker into the same collector. A combined checkpoint from an earlier in-process run seeds
+  ;; the slice when no per-slice file exists yet.
+  (let [f (checkpoint-file store-map branch slice)
+        saved (when resume?
+                (cond (.exists f) (edn/read-string (slurp f))
+                      slice (let [c (checkpoint-file store-map branch)]
+                              (when (.exists c)
+                                (let [all (edn/read-string (slurp c))]
+                                  (assoc all :slices [(nth (:slices all) slice)]))))))
+        worker-ids (if slice [slice] (range workers))
         worker-log (fn [i] (io/file (:path store-map) (str "verify-" branch "-w" i ".log")))
-        ctxs (mapv (fn [i] (prepare-verify store-map branch :log-file (worker-log i))) (range workers))
+        ctxs (mapv (fn [i] (prepare-verify store-map branch :log-file (worker-log i))) worker-ids)
         decl-order (:decl-order (first ctxs))
         total (count decl-order)
         starts (slice-starts decl-order (:resolve-fn (first ctxs)) workers)
         ends (conj (subvec starts 1) total)
-        fresh {:branch branch :workers workers :total total :done? false
-               :slices (mapv (fn [s e] {:start s :end e :idx s :ok 0 :errors 0 :error-names []})
-                             starts ends)}
+        all-slices (mapv (fn [s e] {:start s :end e :idx s :ok 0 :errors 0 :error-names []}) starts ends)
+        fresh {:branch branch :workers workers :total total :done? false :slice slice
+               :slices (if slice [(nth all-slices slice)] all-slices)}
         cp (atom (if (and saved (= (select-keys saved [:branch :workers :total])
                                    (select-keys fresh [:branch :workers :total])))
-                   (assoc saved :done? false)
+                   (assoc saved :done? false :slice slice)
                    fresh))
         t0 (System/currentTimeMillis)
         summarize (fn [c] (let [ss (:slices c)]
@@ -1333,16 +1360,17 @@
         ;; declaration slice that grows into any heap and turns the run into garbage collection
         ;; (observed: 9 s batches became 600 s at the cap). prepare-verify is ~3 s.
         work (fn [i ctx0]
-               (let [{:keys [end]} (nth (:slices @cp) i)]
+               (let [si (if slice 0 i)                      ; position of this worker's slice in cp
+                     {:keys [end]} (nth (:slices @cp) si)]
                  (loop [ctx ctx0 batches 0]
-                   (skip-to! ctx (:idx (nth (:slices @cp) i)))
+                   (skip-to! ctx (:idx (nth (:slices @cp) si)))
                    (let [idx @(:idx ctx)]
                      (if (< idx end)
                        (let [o0 @(:ok ctx) e0 @(:errors ctx) n0 (count @(:error-names ctx))
                              r (verify-batch! ctx (min checkpoint-every (- end idx))
                                               :stop-on-error? false :admit-failures? true
                                               :fuel fuel :timeout-ms timeout-ms)]
-                         (swap! cp update-in [:slices i]
+                         (swap! cp update-in [:slices si]
                                 (fn [sl] (-> sl
                                              (assoc :idx (:idx r))
                                              (update :ok + (- @(:ok ctx) o0))
@@ -1356,7 +1384,7 @@
                        (.close ^java.io.Writer (:log-writer ctx)))))))]
     (save!)
     (try
-      (run! deref (map-indexed (fn [i ctx] (future (work i ctx))) ctxs))
+      (run! deref (map (fn [i ctx] (future (work i ctx))) worker-ids ctxs))
       (finally
         (save!)))
     (summarize @cp)))
@@ -1368,7 +1396,7 @@
    {:fixed [names] :still-failing [{:name :error}]}."
   [store-map branch & {:keys [fuel timeout-ms] :or {fuel (* 10 default-fuel) timeout-ms 600000}}]
   (let [f (checkpoint-file store-map branch)
-        cp (edn/read-string (slurp f))
+        cp (read-checkpoint store-map branch)
         ctx (prepare-verify store-map branch
                             :log-file (io/file (:path store-map) (str "verify-" branch "-retry.log")))
         ;; A constructor or recursor is only ever checked as part of its inductive's BUNDLE:
