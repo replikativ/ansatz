@@ -66,7 +66,7 @@ Current full-corpus coverage — Mathlib `v4.33.1`, branch `mathlib`, store
 format 1 — was:
 
 ```clojure
-{:total 707508          ; verified 707507, recorded 1
+{:total 707508          ; verified 707508, recorded 0
  :axiom 7
  :def 176986
  :thm 504824
@@ -77,15 +77,19 @@ format 1 — was:
  :recursor 6865}
 ```
 
-Run of 2026-09-15 (branch `mathlib-4.33`): the first pass with four 3 GB workers
-verified 705,380 declarations and recorded 2,128 — all but one of them shadows
-of the theorem-unfolding fix landed mid-run — and the retry pass cleared 2,127
-of those in about three minutes of check time. The one declaration not verified
-is `localCohomology.diagramComp`, which exhausts its 600 s budget (a known
-performance regression of the pair-based defeq cache, not a kernel rejection;
-the pre-#84 union-find checked it in 1.6 s and Lean checks it instantly). The
-checkpoints (`verify-mathlib-s0..3.edn`, `verify-mathlib.edn`) record exactly
-this: 707,507 ok, 1 error.
+Run of 2026-09-15 on `main` after #104 (Lean's caches, equality and hashing): the
+first pass with four 3 GB workers verified 707,506 declarations in about 80
+minutes and recorded two — `AlgebraicGeometry.Proj.awayι_comp_map` and
+`localCohomology.diagramComp`, both out of heap at 3 GB — and the retry pass
+verified both (17 s and 48 s at 8 GB). **Every declaration of Mathlib v4.33.1
+verifies.** The two need 5–6 GB of live heap: the kernel search on
+`diagramComp` is 5.47 M `is_def_eq` events, the same search Lean's kernel
+performs (traces match event for event; Lean's own caches end that check with
+the same millions of entries and the same 2.5–4.6× structurally duplicated
+terms, measured with a cache report patched into its `type_checker`), and Lean
+peaks at 3.5 GB RSS on it — the difference is object size on the JVM, not the
+algorithm. The earlier run (before #104) needed several hours, recorded 2,128,
+and could not check `diagramComp` in any heap.
 
 ## FlatStore Status
 
