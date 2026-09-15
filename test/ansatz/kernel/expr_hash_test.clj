@@ -73,3 +73,41 @@
     (doseq [i (range 3 300)] (.add m (xs i) (xs (dec i))))
     (is (= 300 (.size m)) "growth keeps every pair")
     (is (not (.add m (xs 150) (xs 149))))))
+
+(deftest expr-map-is-lean-s-expr-map
+  ;; expr_map: keys under is_equal — an alpha-variant key hits, a different term does not,
+  ;; and the identity fast path is the same entry.
+  (let [m (ansatz.kernel.ExprMap. 4)
+        nat (c "Nat") body (Expr/app (c "Nat.succ") (Expr/bvar 0))
+        a (lam "x" nat body) b (lam "y" nat body)]
+    (.put m a :a)
+    (is (= :a (.get m a)))
+    (is (= :a (.get m b)) "alpha-variant key")
+    (is (nil? (.get m (lam "x" nat (Expr/bvar 0)))))
+    (.put m b :b)
+    (is (= 1 (.size m)) "the alpha-variant is the same key")
+    (is (= :b (.get m a)))
+    (doseq [i (range 500)] (.put m (Expr/litNat i) i))
+    (is (= 501 (.size m)) "growth keeps every entry")
+    (is (= 250 (.get m (Expr/litNat 250))))
+    (is (= :b (.get m a)))
+    (.clear m)
+    (is (zero? (.size m)))
+    (is (nil? (.get m a)))))
+
+(deftest expr-pair-set-is-lean-s-expr-pair-set
+  (let [ps (ansatz.kernel.ExprPairSet. 4)
+        nat (c "Nat") body (Expr/app (c "Nat.succ") (Expr/bvar 0))
+        a (lam "x" nat body) a' (lam "y" nat body) z (c "Nat.zero")]
+    (is (not (.contains ps a z)))
+    (.add ps a z)
+    (is (.contains ps a z))
+    (is (.contains ps a' z) "pairs are compared under is_equal")
+    (is (not (.contains ps z a)) "…and ordered")
+    (.add ps a' z)
+    (is (= 1 (.size ps)))
+    (doseq [i (range 500)] (.add ps (Expr/litNat i) (Expr/litNat (inc i))))
+    (is (= 501 (.size ps)))
+    (is (.contains ps (Expr/litNat 300) (Expr/litNat 301)))
+    (is (not (.contains ps (Expr/litNat 301) (Expr/litNat 300))))
+    (is (.contains ps a z))))

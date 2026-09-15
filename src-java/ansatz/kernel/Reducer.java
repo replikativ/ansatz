@@ -25,12 +25,10 @@ public final class Reducer {
         Boolean.getBoolean("ansatz.kernel.trace.reducer");
     private static final String TRACE_REDUCER_FILTER =
         System.getProperty("ansatz.kernel.trace.reducer.filter", "");
-    private final IdentityHashMap<Expr, Expr> whnfCoreIdentityCache;
-    private final HashMap<Expr, Expr> whnfCoreStructuralCache;
-    private final IdentityHashMap<Expr, Expr> whnfIdentityCache;
-    private final HashMap<Expr, Expr> whnfStructuralCache;
-    private final IdentityHashMap<Expr, Expr> unfoldIdentityCache;
-    private final HashMap<Expr, Expr> unfoldStructuralCache;
+    // type_checker::state (type_checker.h:33-44): expr_map<expr> m_whnf_core, m_whnf, m_unfold
+    private final ExprMap<Expr> whnfCoreCache;
+    private final ExprMap<Expr> whnfCache;
+    private final ExprMap<Expr> unfoldCache;
     private final HashMap<Expr, Expr> resultIntern;  // result deduplication for pointer sharing
 
     // Local context: fvar id -> LocalDecl
@@ -73,12 +71,9 @@ public final class Reducer {
     public void setTransparency(int mode) {
         this.transparencyMode = mode;
         // Clear caches since reduction behavior changes
-        this.whnfCoreIdentityCache.clear();
-        this.whnfCoreStructuralCache.clear();
-        this.whnfIdentityCache.clear();
-        this.whnfStructuralCache.clear();
-        this.unfoldIdentityCache.clear();
-        this.unfoldStructuralCache.clear();
+        this.whnfCoreCache.clear();
+        this.whnfCache.clear();
+        this.unfoldCache.clear();
     }
 
     public int getTransparency() { return transparencyMode; }
@@ -108,12 +103,9 @@ public final class Reducer {
 
     public Reducer(Env env) {
         this.env = env;
-        this.whnfCoreIdentityCache = new IdentityHashMap<>(4096);
-        this.whnfCoreStructuralCache = new HashMap<>(4096);
-        this.whnfIdentityCache = new IdentityHashMap<>(4096);
-        this.whnfStructuralCache = new HashMap<>(4096);
-        this.unfoldIdentityCache = new IdentityHashMap<>(1024);
-        this.unfoldStructuralCache = new HashMap<>(1024);
+        this.whnfCoreCache = new ExprMap<>(4096);
+        this.whnfCache = new ExprMap<>(4096);
+        this.unfoldCache = new ExprMap<>(1024);
         this.resultIntern = new HashMap<>(4096);
         this.lctx = null;
         this.fuel = DEFAULT_FUEL;
@@ -1671,7 +1663,7 @@ public final class Reducer {
         }
 
         // Check unfold cache
-        Expr cached = cacheGet(unfoldIdentityCache, unfoldStructuralCache, head);
+        Expr cached = unfoldCache.get(head);
         if (cached != null) return cached;
 
         HashMap<Object, Level> subst = makeLevelSubst(ci.levelParams, headLevels);
@@ -1679,7 +1671,7 @@ public final class Reducer {
         // Without this, their non-interned sub-expressions pollute all expression trees,
         // breaking IdentityHashMap-based caches (inferCache, the defeq success/failure caches, whnfCache).
         Expr result = Expr.deepReIntern(internResult(instantiateLevelParams(value, subst)));
-        cachePut(unfoldIdentityCache, unfoldStructuralCache, head, result);
+        unfoldCache.put(head, result);
         return result;
     }
 
@@ -1736,7 +1728,7 @@ public final class Reducer {
                 return e;
         }
 
-        Expr cached = cacheGet(whnfCoreIdentityCache, whnfCoreStructuralCache, e);
+        Expr cached = whnfCoreCache.get(e);
         if (cached != null) {
             whnfCoreCacheHits++;
             reducerTrace("whnfCore.cache", e, cached);
@@ -1812,7 +1804,7 @@ public final class Reducer {
 
         if (!cheapRec && !cheapProj) {
             r = r.isEqp(e) ? e : internResult(r);
-            cachePut(whnfCoreIdentityCache, whnfCoreStructuralCache, e, r);
+            whnfCoreCache.put(e, r);
             reducerTrace("whnfCore.cache.put", e, r);
         }
         return r;
@@ -1863,7 +1855,7 @@ public final class Reducer {
         // Check cache — unconditionally, matching Lean 4 (no hasFVar guard).
         // Within a single declaration check, lctx only grows monotonically,
         // so cached results for fvar-containing expressions remain valid.
-        Expr cached = cacheGet(whnfIdentityCache, whnfStructuralCache, e);
+        Expr cached = whnfCache.get(e);
         if (cached != null) { whnfCacheHits++; return cached; }
 
         whnfDepth++;
@@ -1878,7 +1870,7 @@ public final class Reducer {
             // enableIntern) are canonicalized. Fast for already-interned expressions
             // (table.get() hit returns immediately).
             Expr result = raw.isEqp(e) ? e : Expr.deepReIntern(raw);
-            cachePut(whnfIdentityCache, whnfStructuralCache, e, result);
+            whnfCache.put(e, result);
             reducerTrace("whnf.result", e, result);
             return result;
         } finally {
@@ -1964,28 +1956,9 @@ public final class Reducer {
 
     /** Clear all caches (call when starting a new declaration check). */
     public void clearCaches() {
-        whnfCoreIdentityCache.clear();
-        whnfCoreStructuralCache.clear();
-        whnfIdentityCache.clear();
-        whnfStructuralCache.clear();
-        unfoldIdentityCache.clear();
-        unfoldStructuralCache.clear();
+        whnfCoreCache.clear();
+        whnfCache.clear();
+        unfoldCache.clear();
         resultIntern.clear();
-    }
-
-    private static Expr cacheGet(IdentityHashMap<Expr, Expr> identityCache,
-                                 HashMap<Expr, Expr> structuralCache,
-                                 Expr e) {
-        Expr cached = identityCache.get(e);
-        if (cached != null) return cached;
-        return structuralCache.get(e);
-    }
-
-    private static void cachePut(IdentityHashMap<Expr, Expr> identityCache,
-                                 HashMap<Expr, Expr> structuralCache,
-                                 Expr key,
-                                 Expr value) {
-        identityCache.put(key, value);
-        structuralCache.put(key, value);
     }
 }

@@ -31,7 +31,8 @@
   [obj field-name]
   (let [field (.getDeclaredField (class obj) field-name)]
     (.setAccessible field true)
-    (.size ^java.util.Map (.get field obj))))
+    (let [m (.get field obj)]
+      (if (instance? java.util.Map m) (.size ^java.util.Map m) (.size ^ansatz.kernel.ExprMap m)))))
 
 (defn- invoke-private-method
   [obj method-name arg-types & args]
@@ -106,10 +107,10 @@
           rhs (e/forall' "y" prop prop :implicit)]
       (is (not= lhs rhs))
       (.inferType tc lhs)
-      (let [size-after-lhs (private-map-size tc "inferOnlyStructuralCache")]
+      (let [size-after-lhs (private-map-size tc "inferOnlyCache")]
         (.inferType tc rhs)
         (is (= size-after-lhs
-               (private-map-size tc "inferOnlyStructuralCache")))))))
+               (private-map-size tc "inferOnlyCache")))))))
 
 (deftest failure-cache-uses-lean-expr-pair-equality-test
   (testing "same-definition failure cache ignores binder names and binder info like Lean expr_pair_set"
