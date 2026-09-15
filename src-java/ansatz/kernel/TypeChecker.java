@@ -2298,37 +2298,61 @@ public final class TypeChecker {
      */
     public java.util.Map<String, Object> cacheReport() {
         java.util.LinkedHashMap<String, Object> r = new java.util.LinkedHashMap<>();
-        r.put("infer", inferCache.size()); r.put("inferOnly", inferOnlyCache.size());
-        r.put("success", success.size()); r.put("failure", failure.size());
-        for (java.util.Map.Entry<String, ExprMap<Expr>> e : reducer.caches().entrySet()) r.put(e.getKey(), e.getValue().size());
-        java.util.IdentityHashMap<Expr, Boolean> seen = new java.util.IdentityHashMap<>(1 << 20);
-        java.util.HashMap<Expr, Boolean> structural = new java.util.HashMap<>(1 << 20);
-        java.util.ArrayDeque<Expr> stack = new java.util.ArrayDeque<>();
-        long[] paths = new long[1];
-        java.util.function.Consumer<Expr> walk = root -> {
-            stack.push(root);
-            while (!stack.isEmpty()) {
-                Expr e = stack.pop();
-                paths[0]++;
-                if (seen.put(e, Boolean.TRUE) != null) continue;
-                structural.put(e, Boolean.TRUE);
-                switch (e.tag) {
-                    case Expr.APP: stack.push((Expr) e.o0); stack.push((Expr) e.o1); break;
-                    case Expr.LAM: case Expr.FORALL: stack.push((Expr) e.o1); stack.push((Expr) e.o2); break;
-                    case Expr.LET: stack.push((Expr) e.o1); stack.push((Expr) e.o2); stack.push((Expr) e.o3); break;
-                    case Expr.MDATA: case Expr.PROJ: stack.push((Expr) e.o1); break;
-                    default: break;
+        java.util.IdentityHashMap<Expr, Boolean> seenAll = new java.util.IdentityHashMap<>(1 << 20);
+        java.util.HashMap<Expr, Boolean> structAll = new java.util.HashMap<>(1 << 20);
+        // per cache: [entries, key nodes by identity, key nodes by structure, value nodes by identity, value nodes by structure]
+        java.util.function.BiConsumer<String, java.util.List<java.util.List<Expr>>> report = (nm, kv) -> {
+            long[] out = new long[4];
+            for (int side = 0; side < 2; side++) {
+                java.util.IdentityHashMap<Expr, Boolean> seen = new java.util.IdentityHashMap<>(1 << 16);
+                java.util.HashMap<Expr, Boolean> struct = new java.util.HashMap<>(1 << 16);
+                java.util.ArrayDeque<Expr> stack = new java.util.ArrayDeque<>();
+                for (Expr root : kv.get(side)) {
+                    stack.push(root);
+                    while (!stack.isEmpty()) {
+                        Expr e = stack.pop();
+                        if (seen.put(e, Boolean.TRUE) != null) continue;
+                        struct.put(e, Boolean.TRUE);
+                        seenAll.put(e, Boolean.TRUE);
+                        structAll.put(e, Boolean.TRUE);
+                        switch (e.tag) {
+                            case Expr.APP: stack.push((Expr) e.o0); stack.push((Expr) e.o1); break;
+                            case Expr.LAM: case Expr.FORALL: stack.push((Expr) e.o1); stack.push((Expr) e.o2); break;
+                            case Expr.LET: stack.push((Expr) e.o1); stack.push((Expr) e.o2); stack.push((Expr) e.o3); break;
+                            case Expr.MDATA: case Expr.PROJ: stack.push((Expr) e.o1); break;
+                            default: break;
+                        }
+                    }
                 }
+                out[side * 2] = seen.size(); out[side * 2 + 1] = struct.size();
             }
+            r.put(nm, new long[] {kv.get(0).size(), out[0], out[1], out[2], out[3]});
         };
-        inferCache.forEach((k, v) -> { walk.accept(k); walk.accept((Expr) v); });
-        inferOnlyCache.forEach((k, v) -> { walk.accept(k); walk.accept((Expr) v); });
-        success.forEach((a, b) -> { walk.accept(a); walk.accept(b); });
-        failure.forEach((a, b) -> { walk.accept(a); walk.accept(b); });
-        for (ExprMap<Expr> m : reducer.caches().values()) m.forEach((k, v) -> { walk.accept(k); walk.accept((Expr) v); });
-        r.put("nodes-by-identity", seen.size());
-        r.put("nodes-by-structure", structural.size());
-        r.put("edge-visits", paths[0]);
+        java.util.function.Function<ExprMap<Expr>, java.util.List<java.util.List<Expr>>> kvOf = m -> {
+            java.util.ArrayList<Expr> ks = new java.util.ArrayList<>(m.size()), vs = new java.util.ArrayList<>(m.size());
+            m.forEach((k, v) -> { ks.add(k); vs.add((Expr) v); });
+            return java.util.List.of(ks, vs);
+        };
+        java.util.function.Function<ExprPairSet, java.util.List<java.util.List<Expr>>> pairsOf = p -> {
+            java.util.ArrayList<Expr> as = new java.util.ArrayList<>(p.size()), bs = new java.util.ArrayList<>(p.size());
+            p.forEach((a, b) -> { as.add(a); bs.add(b); });
+            return java.util.List.of(as, bs);
+        };
+        report.accept("infer", kvOf.apply(inferCache));
+        report.accept("inferOnly", kvOf.apply(inferOnlyCache));
+        report.accept("success", pairsOf.apply(success));
+        report.accept("failure", pairsOf.apply(failure));
+        for (java.util.Map.Entry<String, ExprMap<Expr>> e : reducer.caches().entrySet()) report.accept(e.getKey(), kvOf.apply(e.getValue()));
+        r.put("nodes-by-identity", seenAll.size());
+        r.put("nodes-by-structure", structAll.size());
+        java.util.HashSet<Integer> hashes = new java.util.HashSet<>(structAll.size() * 2);
+        java.util.HashMap<Byte, int[]> byTag = new java.util.HashMap<>();
+        for (Expr e : structAll.keySet()) {
+            hashes.add(e.hashCode());
+            byTag.computeIfAbsent(e.tag, k -> new int[1])[0]++;
+        }
+        r.put("distinct-hashes", hashes.size());
+        r.put("nodes-by-tag", byTag.toString());
         return r;
     }
 

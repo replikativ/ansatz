@@ -86,7 +86,8 @@
         (let [{:keys [status wall-ms fuel-used gc-ms peak-old-mb error]} (bench-one! ctx d)]
           (println (format "%-62s %-8s %9d %12s %8d %8d %s" d (name (or status :nil)) wall-ms (or fuel-used "-") gc-ms peak-old-mb (or error "")))
           (when-let [r (ansatz.kernel.TypeChecker/lastCacheReport)]
-            (println "   caches:" (pr-str (into {} r))))
+            (println "   caches [entries key-nodes-id key-nodes-struct val-nodes-id val-nodes-struct]:")
+            (doseq [[k v] r] (println "     " k (if (instance? (Class/forName "[J") v) (vec v) v))))
           (flush)))
       (finally (storage/close-store sm)))))
 
