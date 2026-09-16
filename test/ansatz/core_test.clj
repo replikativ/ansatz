@@ -40,6 +40,8 @@
           idx (if (.exists (java.io.File. tsv))
                 (load-tsv tsv)
                 (build-fn env))]
+      ;; the registry rides on the env (Lean's instance table is part of the environment)
+      (swap! a/ansatz-env (fn [e] (env/with-extension e :instances idx)))
       (reset! a/ansatz-instance-index idx))
     (binding [a/*verbose* false]
       (f))))

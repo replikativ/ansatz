@@ -179,6 +179,11 @@
                  ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) env))]
      ((requiring-resolve 'ansatz.tactic.instance/reset-caches!))
      (reset! ansatz-instance-index idx)
+     ;; The registry also rides ON the env (an extension, like the simp index): Lean's
+     ;; instance table is part of the environment, and a tactic synthesizing against an env
+     ;; must see that env's instances — not whatever a global last held. `index-for` reads the
+     ;; extension first; the process-global atom stays for the surface elaborator's session.
+     (swap! ansatz-env (fn [e] (env/with-extension e :instances idx)))
      (when (resolve 'ansatz.core/synth-cache)
        (reset! @(resolve 'ansatz.core/synth-cache) {}))
      ;; Recall: served from the store's catalogue, else from a trie built on first demand
@@ -273,7 +278,14 @@
       @ansatz-env)))
 
 (clojure.core/defn env [] (or @ansatz-env (throw (ex-info "Call (ansatz/init!) or (ansatz/load-init!) first" {}))))
-(clojure.core/defn instance-index [] (or @ansatz-instance-index {}))
+(clojure.core/defn instance-index
+  "The session's instance table: the registry ON the session env (Lean's instance table is
+   part of the environment, and `deriving`/`add-instance` extend it there), else what
+   `setup-env!` installed globally."
+  []
+  (or (some-> @ansatz-env (env/get-extension :instances nil))
+      @ansatz-instance-index
+      {}))
 
 (declare synth-cache)
 

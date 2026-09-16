@@ -25,6 +25,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.tactic.instance :as instance]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]))
@@ -224,7 +225,9 @@
           inst-name (name/from-string (str "instDecidableEq" type-name-str))
           ci (env/mk-def inst-name [] goal-type term :hints :abbrev)]
       (println "✓ deriving DecidableEq" type-name-str)
-      (env/check-constant env ci))))
+      ;; Lean's `deriving` ends in `addInstance`: the env's instance table sees it at once
+      (-> (env/check-constant env ci)
+          (instance/add-instance inst-name)))))
 
 ;; ============================================================
 ;; Register built-in handlers

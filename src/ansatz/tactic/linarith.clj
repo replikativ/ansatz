@@ -316,8 +316,16 @@
         st (tc/mk-tc-state env)
         st (assoc st :lctx (:lctx goal))
         table {:expr->idx {} :idx->expr {} :next-idx 0}]
-    ;; Strategy 1: Try decide directly (handles ground cases)
-    (or (try (decide-tac/decide ps) (catch Exception _ nil))
+    ;; Strategy 0: two numerals — Mathlib's linarith preprocessing normalises numerals with
+    ;; norm_num; here that is the numeral-order extension, and it must come before the
+    ;; certification chain below: `simp [le_refl …]` on `1 ≤ 2` over Real matches `a ≤ a`
+    ;; by asking the kernel whether (1 : Real) is (2 : Real), which unfolds Real's numerals
+    ;; into Cauchy sequences and does not return.
+    (or (try ((requiring-resolve 'ansatz.tactic.norm-num/numeral-order)
+              (tc/attach-lctx (tc/mk-tc-state (:env ps)) (:lctx goal)) ps (:type goal))
+             (catch Exception _ nil))
+        ;; Strategy 1: Try decide directly (handles ground cases)
+        (try (decide-tac/decide ps) (catch Exception _ nil))
         ;; Strategy 2: Collect constraints and run FM
         (let [;; Collect hypothesis constraints
               [table hyp-constraints]

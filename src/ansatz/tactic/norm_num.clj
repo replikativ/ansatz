@@ -25,7 +25,9 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.basic :as basic]
             [ansatz.tactic.decide :as decide-tac]
+            [ansatz.kernel.level :as lvl]
             [ansatz.tactic.instance :as instance]))
 
 ;; ============================================================
@@ -222,15 +224,99 @@
   (some? (reify-num st expr)))
 
 ;; ============================================================
+;; Numeral order — Mathlib's `norm_num` Ineq extension, the isNat case
+;; ============================================================
+;; `Mathlib.Tactic.NormNum.Ineq` proves `a ≤ b` / `a < b` between numerals of an ordered
+;; semiring from Mathlib's own theorems: `isNat_le_true : IsNat a a' → IsNat b b' →
+;; Nat.ble a' b' = true → a ≤ b` (and `isNat_lt_true`, which also needs `CharZero`), where each
+;; `IsNat` comes from `isNat_zero`/`isNat_one`/`isNat_ofNat`. No `Decidable` instance is
+;; involved, which is the point: over `Real` there is none. This is that construction as
+;; tactic composition — apply the theorem, discharge each `IsNat` and the `Nat.ble` by
+;; reflexivity — so the certificate is exactly the term Mathlib's extension would build.
+
+(def ^:private nn (fn [s] (name/from-string (str "Mathlib.Meta.NormNum." s))))
+
+(defn- const-with-level-mvars
+  "`c` applied to fresh universe metavariables, one per level parameter."
+  [ps cname]
+  (let [^ansatz.kernel.ConstantInfo ci (env/lookup (:env ps) cname)]
+    (when ci
+      (let [[ps' ids] (reduce (fn [[p acc] _] (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
+                              [ps []] (vec (.levelParams ci)))]
+        [ps' (e/const' cname (mapv lvl/mvar ids))]))))
+
+(defn- apply-named [ps cname]
+  (when-let [[ps' c] (const-with-level-mvars ps cname)]
+    (basic/apply-tac ps' c)))
+
+(defn- strip-mdata [x] (if (e/mdata? x) (recur (e/mdata-expr x)) x))
+
+(defn- numeral-value
+  "The natural number a numeral names, read from its syntax the way Mathlib's `isNat`
+   derivation does: `OfNat.ofNat α n _` and a raw `Nat` literal. nil for anything else."
+  [x]
+  (let [x (strip-mdata x)]
+    (cond (e/lit-nat? x) (e/lit-nat-val x)
+          (e/app? x) (let [[h as] (e/get-app-fn-args x)]
+                       (when (and (e/const? h) (= (e/const-name h) ofnat-name) (= 3 (count as))
+                                  (e/lit-nat? (strip-mdata (nth as 1))))
+                         (e/lit-nat-val (strip-mdata (nth as 1))))))))
+
+(defn- close-numeral-subgoal
+  "An `IsNat a k` goal by the theorem the numeral `a` names — `isNat_zero`, `isNat_one`, or
+   `isNat_ofNat` closed by reflexivity — and the `Nat.ble … = true` goal by reflexivity. The
+   lemma is chosen by READING the numeral, never by trial: applying `isNat_zero` to
+   `IsNat (1 : Real) ?k` asks the kernel whether `(0 : Real)` is `(1 : Real)`, and deciding
+   that unfolds Real's numerals into Cauchy sequences — minutes, for a question the syntax
+   answers at once. Mathlib's `evalOfNat` is deterministic in the same way."
+  [st ps]
+  (let [goal (proof/current-goal ps)
+        [head args] (e/get-app-fn-args (strip-mdata (:type goal)))
+        hname (when (e/const? head) (e/const-name head))]
+    (cond
+      (= hname eq-name) (basic/rfl ps)
+      (= hname (nn "IsNat"))
+      (let [a (strip-mdata (nth args 2))
+            k (numeral-value a)]
+        (case (long (or k -1))
+          0 (apply-named ps (nn "isNat_zero"))
+          1 (apply-named ps (nn "isNat_one"))
+          (-> ps (apply-named (nn "isNat_ofNat")) (basic/all-goals basic/rfl))))
+      :else (tactic-error! "norm_num: unexpected side goal" {:goal (:type goal)}))))
+
+(defn numeral-order
+  "Close `a ≤ b` / `a < b` (and `≥`/`>`) between two numerals by Mathlib's `isNat_le_true` /
+   `isNat_lt_true`. nil when either side is not a numeral — the theorem is never applied on
+   speculation."
+  [st ps goal-type]
+  (let [[head args] (e/get-app-fn-args goal-type)
+        hname (when (e/const? head) (e/const-name head))
+        thm (cond (= hname le-name) (nn "isNat_le_true")
+                  (= hname lt-name) (nn "isNat_lt_true")
+                  (= hname ge-name) (nn "isNat_le_true")
+                  (= hname gt-name) (nn "isNat_lt_true"))]
+    (when (and thm (= 4 (count args))
+               (numeral-value (nth args 2))
+               (numeral-value (nth args 3)))
+      (-> ps (apply-named thm) (basic/all-goals (partial close-numeral-subgoal st))))))
+
+;; ============================================================
 ;; norm_num tactic
 ;; ============================================================
 ;; Closes Eq, LE, LT, Ne, GE, GT goals on ground numeric expressions.
-;; Strategy: delegate to `decide` which evaluates the decidable instance.
+;;
+;; Two evaluators, in Lean's shape. Mathlib's `norm_num` IS simp plus the numeric extensions
+;; (NormNum/Core.lean:302, `useSimp := true`); `norm_num1` is the extension core alone. `decide`
+;; is neither — it is the fast path for a relation that HAS a `Decidable` instance, which over
+;; `Nat`/`Int`/`Bool` it does. Over `Real` there is no such instance at all (its order is
+;; classical), so a decide-only norm_num could not prove `(0 : Real) ≤ 1` — it reported
+;; "no instance found", naming the missing Decidable instance rather than the reason.
 
 (defn norm-num
   "Close a goal by evaluating ground arithmetic.
    Works for Eq, LE, LT, Ne, GE, GT goals where both sides are ground numeric.
-   Certification via `decide` — the kernel evaluates the Decidable instance."
+   Certified by `decide` (the kernel evaluates the Decidable instance) where the relation is
+   decidable, else by simp with the numeric simproc — Lean's own `norm_num`."
   [ps]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -246,11 +332,21 @@
                          (= hname ne-name) (= hname ge-name) (= hname gt-name))))
       (tactic-error! "goal is not a numeric relation"
                      {:goal goal-type}))
-    ;; Try decide
-    (try (decide-tac/decide ps)
-         (catch Exception ex
-           (tactic-error! (str "cannot evaluate: " (.getMessage ex))
-                          {:goal goal-type})))))
+    (let [decided (try {:ps (decide-tac/decide ps)}
+                       (catch Exception ex {:error ex}))]
+      (or (:ps decided)
+          ;; Mathlib's Ineq extension: numerals of an ordered semiring, no Decidable needed.
+          (try (numeral-order st ps goal-type) (catch Exception _ nil))
+          ;; No Decidable instance (Real, or any classical order), or the evaluation did not
+          ;; close it: fall back to simp, which carries `try-norm-num-simproc` below and the
+          ;; numeric @[simp] corpus. Resolved at call time — simp requires this namespace for
+          ;; the simproc, so a load-time dependency the other way would be a cycle.
+          (try ((requiring-resolve 'ansatz.tactic.simp/simp) ps)
+               (catch Exception simp-ex
+                 (tactic-error!
+                  (str "cannot evaluate: " (.getMessage ^Exception (:error decided))
+                       "; simp did not close it either: " (.getMessage simp-ex))
+                  {:goal goal-type})))))))
 
 ;; ============================================================
 ;; norm_num simproc — for integration with simp

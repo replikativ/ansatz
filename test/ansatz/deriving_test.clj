@@ -33,6 +33,8 @@
           idx (if (.exists (java.io.File. tsv))
                 (load-tsv tsv)
                 (build-fn env))]
+      ;; the registry rides on the env (Lean's instance table is part of the environment)
+      (swap! a/ansatz-env (fn [e] (env/with-extension e :instances idx)))
       (reset! a/ansatz-instance-index idx))
     (binding [a/*verbose* false]
       (f))))
@@ -99,10 +101,6 @@
       (a/inductive DEqTest [] (alpha) (beta) (gamma)
                    :deriving [DecidableEq])
 
-      ;; Rebuild instance index to pick up new instance
-      (let [build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)]
-        (reset! a/ansatz-instance-index (build-fn @a/ansatz-env)))
-
       ;; Prove alpha = alpha using decide
       (is (nil? (a/theorem deq-test-eq []
                            (= DEqTest (DEqTest.alpha) (DEqTest.alpha))
@@ -114,9 +112,6 @@
     (binding [a/*verbose* false]
       (a/inductive DNeqTest [] (x1) (x2) (x3)
                    :deriving [DecidableEq])
-
-      (let [build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)]
-        (reset! a/ansatz-instance-index (build-fn @a/ansatz-env)))
 
       ;; Prove Not (x1 = x2) using decide
       (is (nil? (a/theorem dneq-test []

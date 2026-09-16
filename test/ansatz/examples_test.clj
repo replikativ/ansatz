@@ -31,7 +31,7 @@
             idx (if (.exists (java.io.File. tsv))
                   (load-tsv tsv)
                   (build-fn env))]
-        (reset! a/ansatz-env env)
+        (reset! a/ansatz-env (env/with-extension env :instances idx))
         (reset! a/ansatz-instance-index idx)
         (binding [a/*verbose* false]
           (when-not (env/lookup (a/env) (name/from-string "TRBColor"))
@@ -56,7 +56,7 @@
 
 (defn- with-baseline-env [f]
   (when-let [{:keys [env idx]} @baseline-state]
-    (reset! a/ansatz-env (env/fork env))
+    (reset! a/ansatz-env (env/with-extension (env/fork env) :instances idx))
     (reset! a/ansatz-instance-index idx)
     (f)))
 

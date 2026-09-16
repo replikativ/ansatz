@@ -819,7 +819,7 @@
           (try
             (let [inst-index (if-let [idx (:inst-index config)]
                                (if (instance? clojure.lang.Delay idx) @idx idx)
-                               (inst/build-instance-index env))]
+                               (inst/index-for env))]
               (inst/synthesize env inst-index obligation-type))
             (catch Exception _ nil))
           ;; Strategy 3: recursive simp with fresh cache (Lean 4: withPreservedCache)
@@ -872,7 +872,7 @@
                 ;; Omega says provable — try decide to certify the proof term
                 (let [inst-index (if-let [idx (:inst-index config)]
                                    (if (instance? clojure.lang.Delay idx) @idx idx)
-                                   (inst/build-instance-index env))
+                                   (inst/index-for env))
                       decidable-goal (e/app (e/const' decidable-name [])
                                             obligation-type)
                       inst (inst/synthesize* st env inst-index decidable-goal 0)]
@@ -1032,7 +1032,7 @@
                                                  (or (when-let [idx (:inst-index config)]
                                                        (if (instance? clojure.lang.Delay idx) @idx idx))
                                                      (not-empty ((requiring-resolve 'ansatz.core/instance-index)))
-                                                     (inst/build-instance-index env))
+                                                     (inst/index-for env))
                                                  param-type 0)
                                                 (catch Throwable _ nil))
                                            (try-discharge st env lemma-index config
@@ -1703,7 +1703,7 @@
           (let [env (:env st)
                 inst-index (if-let [idx (:inst-index config)]
                              (if (instance? clojure.lang.Delay idx) @idx idx)
-                             (inst/build-instance-index env))
+                             (inst/index-for env))
                 decidable-goal (e/app (e/const' decidable-name []) expr)
                 inst (inst/synthesize* st env inst-index decidable-goal 0)]
             (when inst
@@ -3009,7 +3009,7 @@
                  :discharge-depth 0
                  :ext-trie ext-trie
                  ;; Lazy instance index for TC synthesis in discharge
-                 :inst-index (delay (inst/build-instance-index env))}
+                 :inst-index (delay (inst/index-for env))}
          result (simp-expr* st env lemma-index (:type goal) config)]
      (close-goal-with-proof ps goal st result lemma-names))))
 
@@ -3156,7 +3156,7 @@
                                                     (not (find-eqn-theorems env cn)))
                                            (str n)))))
                            all-names)
-           inst-index (delay (inst/build-instance-index env))
+           inst-index (delay (inst/index-for env))
            hyps (vec (filter (fn [[_ d]] (= :local (:tag d))) lctx))
              ;; Compute simplified hypothesis types
            replacements
