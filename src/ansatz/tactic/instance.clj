@@ -12,7 +12,6 @@
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
             [ansatz.meta :as meta]
-            [ansatz.state :as state]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -98,6 +97,29 @@
                (swap! idx assoc cls-name (distinct @candidates)))))
          @idx)))))
 
+(defn add-instance
+  "Lean's `addInstance`: a NEW env whose instance table (the `:instances` extension) also
+   holds the constant `inst-name`, keyed by the class its type concludes in, at `priority`
+   (Lean's default 1000). Among equal priorities the newest registration is tried FIRST, as
+   in Lean's DiscrTree insertion order; a higher priority still goes ahead of it. An env with
+   no registry yet is seeded by discovery, so the new instance never shadows what discovery
+   would have found."
+  [^Env env inst-name & {:keys [priority] :or {priority 1000}}]
+  (let [ci (or (env/lookup env inst-name)
+               (throw (ex-info "add-instance: no such constant" {:name (name/->string inst-name)})))
+        [cls _] (or (return-type-head (.type ci))
+                    (throw (ex-info "add-instance: the type does not conclude in a class"
+                                    {:name (name/->string inst-name)})))
+        idx (or (env/get-extension env :instances nil) (build-instance-index env))
+        entry {:name inst-name :priority priority}
+        same? (fn [v] (= (:name v) inst-name))]
+    (env/with-extension env :instances
+      (update idx cls (fn [vs]
+                        (->> (remove same? vs)
+                             (cons entry)
+                             (sort-by (fn [v] (- (or (:priority v) 1000))))
+                             vec))))))
+
 (defn get-instances
   "Get candidate instances for a class name from the index."
   [index class-name]
@@ -152,14 +174,18 @@
       (parse-instance-tsv lines present?))))
 
 (defn index-for
-  "The instance index to synthesize against for `env`: the registry the session installed
-   (`ansatz.state/ansatz-instance-index` — a store's derived `:instances` blob, or the bundled Init
-   registry; both are Lean's own @[instance] table), else name-based discovery over `env`. Every
+  "The instance index to synthesize against for `env`: the registry carried ON the env (the
+   `:instances` extension `setup-env!` attaches — a store's derived `:instances` blob, or the
+   bundled Init registry; both are Lean's own @[instance] table), else name-based discovery
+   over `env` — never a process-global registry that may belong to another env. Every
    synthesis entry point goes through this — an index built by discovery alone (39 hand-listed
-   classes) never sees most of Mathlib."
+   classes) never sees most of Mathlib. The env carries it because Lean's instance table is part of the environment:
+   `decide` on an env must see THAT env's instances, and a process-global alone let a test's
+   leftover registry for another env answer for it (the full suite failed nondeterministically
+   in whichever namespace ran `decide` next)."
   [env]
-  (let [installed @state/ansatz-instance-index]
-    (if (seq installed) installed (build-instance-index env))))
+  (let [on-env (env/get-extension env :instances nil)]
+    (if (seq on-env) on-env (build-instance-index env))))
 
 ;; ── Candidate selection — Lean's DiscrTree key, one level deep ─────────────────────────────
 ;; Lean's `getInstances` looks candidates up in a discrimination tree keyed by the instance
@@ -180,25 +206,56 @@
   []
   (reset! conclusion-keys {}))
 
+(defn- strip
+  "`x` without its mdata wrappers — definitionally transparent, and a matcher must not see it."
+  [x] (if (e/mdata? x) (recur (e/mdata-expr x)) x))
+
+(defn- head-key
+  "The head constant of `x`, or :generic when it has none (a bound variable, a literal, …)."
+  [x]
+  (let [x (loop [x x] (if (and x (e/mdata? x)) (recur (e/mdata-expr x)) x))
+        [h _] (when x (e/get-app-fn-args x))]
+    (if (and h (e/const? h)) (e/const-name h) :generic)))
+
 (defn- conclusion-first-arg-key
-  "The DiscrTree-style key of an instance type: the head constant of its conclusion's first
-   argument, or :generic when that argument is a bound variable (the instance applies to any
-   carrier) or has no constant head."
+  "The DiscrTree-style key path of an instance type: the head constant of its conclusion's
+   first argument, and — when that argument is itself an application — the head of ITS first
+   argument. Two levels, because one is too coarse for the classes that take a proposition:
+   every `Decidable (a ≤ b)` instance keys as `LE.le` at one level, so `Nat.decLe` sat among
+   80 equals (`Real.decidableLE`, `Prod.instDecidableLE`, the whole of `Std.Time`…) and fell
+   behind the candidate cap — `norm_num` could not decide `(2 : Nat) ≤ 3`. With the carrier as
+   the second level, `Decidable (LE.le Nat …)` sees the Nat instances and the generic ones.
+   :generic at a level means the instance applies to anything there."
   [ty]
   (let [concl (loop [t ty] (if (e/forall? t) (recur (e/forall-body t)) t))
         [_ args] (e/get-app-fn-args concl)
         a (first args)
-        [h _] (when a (e/get-app-fn-args a))]
-    (if (and h (e/const? h)) (e/const-name h) :generic)))
+        a (loop [x a] (if (and x (e/mdata? x)) (recur (e/mdata-expr x)) x))
+        [_ aargs] (when a (e/get-app-fn-args a))]
+    [(head-key a) (if (seq aargs) (head-key (first aargs)) :generic)]))
 
 (defn- conclusion-key
+  "Cached per instance NAME — and only when the instance is in `env`; an instance the env
+   does not have is `:absent`, never a candidate. A miss is not cached: the cache outlives an
+   env (tests switch envs; a session can too), and a name absent from one env and present in
+   the next would otherwise stay \"generic\" forever — which is how `Nat.decLt` came to be
+   offered, and accepted, for `Decidable (0 = 0)`. Lean's registry only ever names constants
+   of its environment; ours can be wider (a registry dumped from Mathlib attached to a small
+   env), and the 246 absent `Decidable` entries ahead of `instDecidableNot` pushed it past
+   `*max-candidates*` when they counted as generic matches."
   [^Env env inst-name]
   (or (get @conclusion-keys inst-name)
-      (let [k (if-let [^ConstantInfo ci (env/lookup env inst-name)]
-                (conclusion-first-arg-key (.type ci))
-                :generic)]
-        (swap! conclusion-keys assoc inst-name k)
-        k)))
+      (if-let [^ConstantInfo ci (env/lookup env inst-name)]
+        (let [k (conclusion-first-arg-key (.type ci))]
+          (swap! conclusion-keys assoc inst-name k)
+          k)
+        :absent)))
+
+(defn- key-matches?
+  "Does the candidate's key path fit the goal's? A level is compatible when the keys agree or
+   either side is generic there — Lean's DiscrTree, where a star matches anything."
+  [ck gk]
+  (every? true? (map (fn [c g] (or (= c g) (= c :generic) (= g :generic))) ck gk)))
 
 (defn select-candidates
   "The candidates of `candidates` (a class's registry entries, in order) worth trying for
@@ -215,18 +272,22 @@
    nothing. Parent projections carry the default priority in Lean too (Structure.lean:1516),
    so specificity is the only thing that separates them."
   [env candidates goal-type]
-  (let [[_ gargs] (e/get-app-fn-args goal-type)
-        g (first gargs)
-        [gh _] (when g (e/get-app-fn-args g))
-        gkey (when (and gh (e/const? gh)) (e/const-name gh))]
-    (if-not gkey
-      candidates
-      (let [{keyed true generic false}
-            (group-by (fn [c] (= gkey (conclusion-key env (:name c)))) candidates)
-            generic (filterv #(= :generic (conclusion-key env (:name %))) generic)]
-        (if (and (empty? keyed) (empty? generic))
-          candidates
-          (into (vec keyed) generic))))))
+  (let [gkey (let [[_ gargs] (e/get-app-fn-args goal-type)
+                   g (first gargs)
+                   g (loop [x g] (if (and x (e/mdata? x)) (recur (e/mdata-expr x)) x))
+                   [_ gaargs] (when g (e/get-app-fn-args g))]
+               [(head-key g) (if (seq gaargs) (head-key (first gaargs)) :generic)])]
+    (if (= gkey [:generic :generic])
+      (remove #(= :absent (conclusion-key env (:name %))) candidates)
+      (let [scored (group-by (fn [c]
+                               (let [ck (conclusion-key env (:name c))]
+                                 (cond (= ck :absent) :no
+                                       (= ck gkey) :exact
+                                       (key-matches? ck gkey) :compatible
+                                       :else :no)))
+                             candidates)
+            picked (into (vec (:exact scored)) (:compatible scored))]
+        (if (empty? picked) (remove #(= :absent (conclusion-key env (:name %))) candidates) picked)))))
 
 ;; ============================================================
 ;; Structural matching (avoids proof irrelevance)
@@ -241,49 +302,57 @@
   [pattern target fvar-ids]
   (let [subst (atom {})
         ok (atom true)]
-    (letfn [(go [p t]
-                (when @ok
-                  (cond
+    (letfn [(strip [x] (if (e/mdata? x) (recur (e/mdata-expr x)) x))
+            (go [p0 t0]
+                ;; mdata is definitionally transparent — the kernel ignores it, and so must a
+                ;; matcher. Store-imported instance types carry it (the Mathlib export
+                ;; preserves mdata so imported declarations stay close to Lean's trace space)
+                ;; while an elaborated goal does not, so `Decidable (LE.le (mdata Nat) …)` vs
+                ;; `Decidable (LE.le Nat …)` failed on the tag comparison alone: every
+                ;; `Decidable` synthesis over Mathlib missed, which is what left `norm_num`
+                ;; with "no instance found" on goals as simple as `(2 : Nat) ≤ 3`.
+                (let [p (strip p0) t (strip t0)]
+                  (when @ok
+                    (cond
                   ;; Pattern is a unification variable
-                    (and (e/fvar? p) (contains? fvar-ids (e/fvar-id p)))
-                    (let [id (e/fvar-id p)]
-                      (if-let [existing (get @subst id)]
-                        (when-not (= existing t)
-                          (reset! ok false))
-                        (swap! subst assoc id t)))
+                      (and (e/fvar? p) (contains? fvar-ids (e/fvar-id p)))
+                      (let [id (e/fvar-id p)]
+                        (if-let [existing (get @subst id)]
+                          (when-not (= existing t)
+                            (reset! ok false))
+                          (swap! subst assoc id t)))
 
                   ;; Both same tag — recurse structurally
-                    (= (e/tag p) (e/tag t))
-                    (case (e/tag p)
-                      :bvar (when-not (= (e/bvar-idx p) (e/bvar-idx t))
-                              (reset! ok false))
-                      :sort (when-not (lvl/level= (e/sort-level p) (e/sort-level t))
-                              (reset! ok false))
-                      :const (do (when-not (= (e/const-name p) (e/const-name t))
-                                   (reset! ok false))
-                                 (when @ok
-                                   (let [pl (e/const-levels p)
-                                         tl (e/const-levels t)]
-                                     (when-not (and (= (count pl) (count tl))
-                                                    (every? true? (map lvl/level= pl tl)))
-                                       (reset! ok false)))))
-                      :app (do (go (e/app-fn p) (e/app-fn t))
-                               (go (e/app-arg p) (e/app-arg t)))
-                      :lam (do (go (e/lam-type p) (e/lam-type t))
-                               (go (e/lam-body p) (e/lam-body t)))
-                      :forall (do (go (e/forall-type p) (e/forall-type t))
-                                  (go (e/forall-body p) (e/forall-body t)))
-                      :fvar (when-not (= (e/fvar-id p) (e/fvar-id t))
-                              (reset! ok false))
-                      :proj (do (when-not (and (= (e/proj-type-name p) (e/proj-type-name t))
-                                               (= (e/proj-idx p) (e/proj-idx t)))
-                                  (reset! ok false))
-                                (go (e/proj-struct p) (e/proj-struct t)))
-                      (:lit-nat :lit-str) (when-not (= p t) (reset! ok false))
-                      :mdata (go (e/mdata-expr p) (e/mdata-expr t))
-                      (reset! ok false))
+                      (= (e/tag p) (e/tag t))
+                      (case (e/tag p)
+                        :bvar (when-not (= (e/bvar-idx p) (e/bvar-idx t))
+                                (reset! ok false))
+                        :sort (when-not (lvl/level= (e/sort-level p) (e/sort-level t))
+                                (reset! ok false))
+                        :const (do (when-not (= (e/const-name p) (e/const-name t))
+                                     (reset! ok false))
+                                   (when @ok
+                                     (let [pl (e/const-levels p)
+                                           tl (e/const-levels t)]
+                                       (when-not (and (= (count pl) (count tl))
+                                                      (every? true? (map lvl/level= pl tl)))
+                                         (reset! ok false)))))
+                        :app (do (go (e/app-fn p) (e/app-fn t))
+                                 (go (e/app-arg p) (e/app-arg t)))
+                        :lam (do (go (e/lam-type p) (e/lam-type t))
+                                 (go (e/lam-body p) (e/lam-body t)))
+                        :forall (do (go (e/forall-type p) (e/forall-type t))
+                                    (go (e/forall-body p) (e/forall-body t)))
+                        :fvar (when-not (= (e/fvar-id p) (e/fvar-id t))
+                                (reset! ok false))
+                        :proj (do (when-not (and (= (e/proj-type-name p) (e/proj-type-name t))
+                                                 (= (e/proj-idx p) (e/proj-idx t)))
+                                    (reset! ok false))
+                                  (go (e/proj-struct p) (e/proj-struct t)))
+                        (:lit-nat :lit-str) (when-not (= p t) (reset! ok false))
+                        (reset! ok false))
 
-                    :else (reset! ok false))))]
+                      :else (reset! ok false)))))]
       (go pattern target))
     (when @ok @subst)))
 
@@ -389,9 +458,17 @@
                                      (swap! s assoc (e/fvar-id r) g)
                                      ;; skipped positions are gated by the final
                                      ;; is-def-eq — but a rigid const-vs-fvar head
-                                     ;; mismatch can never pass it: fail fast.
-                                     (when (rigid-fvar-mismatch? r g)
-                                       (reset! ok false))))
+                                     ;; mismatch can never pass it, and neither can two
+                                     ;; DIFFERENT constant heads (`LT.lt …` against
+                                     ;; `Eq …`): Lean's DiscrTree never offers such a
+                                     ;; candidate, and this path once accepted `Nat.decLt`
+                                     ;; for `Decidable (0 = 0)`. Fail fast.
+                                     (let [[rh' _] (e/get-app-fn-args (strip r))
+                                           [gh' _] (e/get-app-fn-args (strip g))]
+                                       (when (or (rigid-fvar-mismatch? r g)
+                                                 (and (e/const? rh') (e/const? gh')
+                                                      (not= (e/const-name rh') (e/const-name gh'))))
+                                         (reset! ok false)))))
                                  (when (and @ok (seq @s)) @s))))]
         ;; Try to fill all arguments
           (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
@@ -660,10 +737,9 @@
                         {:kind :no-instance :goal goal-type})))))
 
 (defn resolve-decidable
-  "Convenience: resolve a Decidable instance for a proposition.
-   Builds the instance index on the fly."
+  "Convenience: resolve a Decidable instance for a proposition, against the session's registry."
   [env prop]
-  (let [index (build-instance-index env)
+  (let [index (index-for env)
         decidable-name (name/from-string "Decidable")
         goal (e/app (e/const' decidable-name []) prop)]
     (synthesize env index goal)))

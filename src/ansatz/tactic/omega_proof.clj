@@ -2147,6 +2147,21 @@
           bridged
           (reify-prop st table problem (first bridged) (second bridged))
 
+          ;; A relation over a carrier omega does not handle is NOT a fact — Lean's frontend
+          ;; (Elab/Tactic/Omega/Frontend.lean:441-478) matches the carrier against Int, Nat
+          ;; and Fin, and for anything else `pure (p, 0)`: the hypothesis contributes nothing
+          ;; and a goal over it fails as "could not prove". Reifying a Real relation as if it
+          ;; were Int built `HSub Int … (x : Real)` — a proof the kernel rejected, but only
+          ;; after the tactic had returned it, which stranded `positivity` and `linarith`
+          ;; (both try omega inside a catch-and-fall-through chain).
+          (and (#{(:eq-name omega-names) (:le-name omega-names) (:lt-name omega-names)
+                  (:ge-name omega-names) (:gt-name omega-names)} head-name)
+               (>= (count args) 3)
+               (let [t (#'tc/cached-whnf st (nth args 0))]
+                 (not (and (e/const? t)
+                           (#{(:nat-name omega-names) (:int-name omega-names)} (e/const-name t))))))
+          [table problem]
+
           ;; Eq _ a b → a - b = 0
           (and (= head-name (:eq-name omega-names)) (= 3 (count args)))
           (let [type-arg (nth args 0)
@@ -2497,6 +2512,17 @@
       (negate-goal-forall st table problem goal-type hyp-proof)
       (let [[head-name head-levels args] matched]
         (cond
+          ;; The negated GOAL is a relation over a carrier omega does not handle: no fact
+          ;; (Lean's frontend, Frontend.lean:441-478 — `| _ => pure (p, 0)`), so the search
+          ;; has nothing and reports "could not prove", instead of reifying the Real relation
+          ;; as Int and handing back an ill-typed proof.
+          (and (#{(:eq-name omega-names) (:le-name omega-names) (:lt-name omega-names)
+                  (:ge-name omega-names) (:gt-name omega-names)} head-name)
+               (>= (count args) 3)
+               (let [t (#'tc/cached-whnf st (nth args 0))]
+                 (not (and (e/const? t)
+                           (#{(:nat-name omega-names) (:int-name omega-names)} (e/const-name t))))))
+          [table problem]
           ;; Goal: Eq _ a b → ¬(a = b): split into a < b ∨ b < a
           (and (= head-name (:eq-name omega-names)) (= 3 (count args)))
           (let [type-arg (nth args 0)

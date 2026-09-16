@@ -136,14 +136,30 @@
                               (e/bvar 0) (e/lit-nat 5))]
         (is (= 2 (count (inst/select-candidates env (of ["instOfNatNat" "Zero.toOfNat0"]) open-goal))))))))
 
-(deftest test-index-for-prefers-the-installed-registry
+(deftest test-index-for-reads-the-env-not-the-process
   (let [env (require-env)
         saved @state/ansatz-instance-index
         registry {(name/from-string "Nonempty") [{:name (name/from-string "instNonemptyOfInhabited") :priority 1000}]}]
     (try
+      (is (identical? registry (inst/index-for (env/with-extension env :instances registry)))
+          "the registry ON the env is the instance table — Lean's environment extension")
       (reset! state/ansatz-instance-index registry)
-      (is (identical? registry (inst/index-for env)) "a session with a registry synthesizes against it")
-      (reset! state/ansatz-instance-index nil)
+      (is (not (identical? registry (inst/index-for env)))
+          "a process-global registry never answers for an env that does not carry it")
       (is (seq (inst/get-instances (inst/index-for env) (name/from-string "Add")))
-          "without one, name-based discovery over the env")
+          "an env without a registry gets name-based discovery")
       (finally (reset! state/ansatz-instance-index saved)))))
+
+(deftest test-add-instance-registers-on-the-env
+  (let [env (require-env)
+        inst (name/from-string "instNonemptyOfInhabited")
+        env' (inst/add-instance env inst)
+        entries (inst/get-instances (inst/index-for env') (name/from-string "Nonempty"))]
+    (is (= inst (:name (first entries))) "the newest registration is tried first among equals")
+    (is (= 1000 (:priority (first entries))) "Lean's default priority")
+    (is (nil? (env/get-extension env :instances nil)) "the original env is untouched")
+    (is (= [{:name inst :priority 10}]
+           (filter #(= inst (:name %))
+                   (inst/get-instances (inst/index-for (inst/add-instance env' inst :priority 10))
+                                       (name/from-string "Nonempty"))))
+        "re-registering replaces the entry, and a lower priority sorts it behind the defaults")))

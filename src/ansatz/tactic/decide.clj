@@ -53,7 +53,11 @@
   [ps]
   (if-let [idx (:instance-index ps)]
     [ps idx]
-    (let [idx (instance/build-instance-index (:env ps))]
+    ;; index-for, NOT build-instance-index: the session's registry is Lean's own @[instance]
+    ;; table, and name-guessing over 39 curated classes does not contain `Nat.decLe`. `decide`
+    ;; resolving against the guesses is why `norm_num` reported "no instance found" for
+    ;; `(2 : Nat) ≤ 3` on a full Mathlib store.
+    (let [idx (instance/index-for (:env ps))]
       [(assoc ps :instance-index idx) idx])))
 
 (defn decide

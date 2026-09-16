@@ -353,7 +353,7 @@
 ;; Core elaboration
 ;; ============================================================
 
-(declare elab-term elab-app)
+(declare elab-term elab-app elab-arith-at-type* arith-type)
 
 (defn- elab-error! [msg data]
   (throw (ex-info (str "Elaboration error: " msg) (merge {:kind :elab-error} data))))
@@ -594,13 +594,25 @@
                           [expr ty]
                           (insert-implicits est expr ty))]
           (if (e/forall? ty)
-            (let [arg-expr (elab-term est (first args))
-                  dom-type (e/forall-type ty)
-                  ;; A bare numeral takes the type the position expects — Lean's `OfNat`
-                  ;; elaboration, which is not confined to arithmetic: `(= Int a 0)` and
-                  ;; `(le Real x 1)` put a literal where a carrier is expected. Without this
-                  ;; the literal stayed a `Nat` and the statement failed to type-check at the
-                  ;; kernel (it only ever worked when the carrier WAS Nat).
+            (let [dom-type (e/forall-type ty)
+                  arg-sexpr (first args)
+                  ;; Lean's `binop%` analyses the operand tree together with the EXPECTED type
+                  ;; (Elab/Extra.lean): where no leaf carries one — `(+ 2 2)`, all numerals —
+                  ;; the expected type decides the carrier. Without this the tree defaulted to
+                  ;; Nat and `(= Int (+ 2 2) 4)` built `Eq Int (Nat.add 2 2) (4 : Int)`.
+                  at-expected (when (and (seq? arg-sexpr) (= 3 (count arg-sexpr))
+                                         (symbol? (first arg-sexpr))
+                                         (contains? #{"+" "-" "*"} (str (first arg-sexpr)))
+                                         (nil? (arith-type est arg-sexpr)))
+                                (let [d (zonk est dom-type)]
+                                  (when (and (not (e/mvar? d)) (type-head-name est d))
+                                    (elab-arith-at-type* est (case (str (first arg-sexpr))
+                                                               "+" "add" "-" "sub" "*" "mul")
+                                                         d (rest arg-sexpr)))))
+                  arg-expr (or at-expected (elab-term est arg-sexpr))
+                  ;; A bare numeral takes the type the position expects — the same rule for a
+                  ;; leaf: `(= Int a 0)` and `(le Real x 1)` put a literal where a carrier is
+                  ;; expected, and it only ever worked when the carrier WAS Nat.
                   arg-expr (if (e/lit-nat? arg-expr)
                              (let [d (zonk est dom-type)]
                                (num-lit-at-type est d (type-head-name est d) arg-expr))
@@ -623,8 +635,12 @@
    the concrete kernel op for the carriers `ingest/arith-lift` names, otherwise the
    heterogeneous class operator with its instance left to synthesis."
   [est hs T-form args]
-  (let [T (elab-term est T-form)
-        tn (type-head-name est T)]
+  (elab-arith-at-type* est hs (elab-term est T-form) args))
+
+(defn- elab-arith-at-type*
+  "`elab-arith-at-type` with the carrier already elaborated."
+  [est hs T args]
+  (let [tn (type-head-name est T)]
     (if (= hs "neg")
       (let [u (type-sort-level est T)
             a (num-lit-at-type est T tn (elab-term est (first args)))]

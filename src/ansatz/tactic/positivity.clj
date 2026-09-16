@@ -155,8 +155,15 @@
         env (:env ps)
         st (tc/mk-tc-state env)
         st (assoc st :lctx (:lctx goal))]
-    ;; Strategy 1: try assumption directly
-    (or (try (basic/assumption ps) (catch Exception _ nil))
+    ;; Strategy 0: two numerals — Mathlib's positivity core hands a numeral comparison to
+    ;; norm_num (Positivity/Core.lean, the `normNumPositivity` extension). It must come
+    ;; first: the apply-chains below try `le_refl`-shaped lemmas, and matching `1 ≤ 2` over
+    ;; Real against `a ≤ a` asks the kernel whether (1 : Real) is (2 : Real), which unfolds
+    ;; Real's numerals into Cauchy sequences and does not return.
+    (or (try ((requiring-resolve 'ansatz.tactic.norm-num/numeral-order) st ps (:type goal))
+             (catch Exception _ nil))
+        ;; Strategy 1: try assumption directly
+        (try (basic/assumption ps) (catch Exception _ nil))
         ;; Strategy 2: try omega (handles 0 ≤ n for Nat via Nat.zero_le)
         (try (let [omega-fn (requiring-resolve 'ansatz.tactic.omega/omega)]
                (omega-fn ps))
