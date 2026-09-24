@@ -918,12 +918,12 @@
 
                     (and (= argc 4) (= ':= (nth args 2)))
                     (let [g (proof/current-goal ps)
-                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args) nil {:type-position true})]
                       (basic/exact-form (basic/have-tac ps hyp-name hyp-type) (nth args 3)))
 
                     (>= argc 2)
                     (let [g (proof/current-goal ps)
-                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))
+                          hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args) nil {:type-position true})
                           ps' (basic/have-tac ps hyp-name hyp-type)]
                       (if (>= argc 3)
                         ;; have-tac made the type-subgoal the current goal (sub1 first); close it with the
@@ -951,11 +951,11 @@
                     (basic/replace-infer-tac ps old-fid hyp-name (nth args 2))
 
                     (and (= argc 4) (= ':= (nth args 2)))
-                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args) nil {:type-position true})]
                       (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 3)))
 
                     (>= argc 2)
-                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args))]
+                    (let [hyp-type (elab/elaborate-in-context (:env ps) (:lctx g) (second args) nil {:type-position true})]
                       (if (>= argc 3)
                         (basic/replace-tac ps old-fid hyp-name hyp-type (nth args 2))
                         (basic/replace-tac ps old-fid hyp-name hyp-type)))

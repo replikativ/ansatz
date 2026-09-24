@@ -556,6 +556,17 @@
                  (catch Exception _ nil))))
         (arith-leaves sexpr)))
 
+(defn- sort-valued-domain?
+  "Is a parameter type a Sort, or a function type ending in one (a predicate)?
+   An unsolved metavariable is not: nothing is known about it yet."
+  [est dom-type]
+  (loop [t (whnf-with-mvars est (zonk est dom-type))]
+    (cond
+      (e/sort? t) true
+      ;; the codomain is read as written: bodies under binders are not reduced
+      (e/forall? t) (recur (e/forall-body t))
+      :else false)))
+
 (defn- elab-app
   "Elaborate a function application, inserting implicit arguments."
   [est head-sexpr arg-sexprs]
@@ -609,7 +620,13 @@
                                     (elab-arith-at-type* est (case (str (first arg-sexpr))
                                                                "+" "add" "-" "sub" "*" "mul")
                                                          d (rest arg-sexpr)))))
-                  arg-expr (or at-expected (elab-term est arg-sexpr))
+                  ;; Lean propagates the expected type into the argument; here only the part a
+                  ;; comparison needs: a parameter of type Prop (or a predicate α → Prop, as
+                  ;; for Exists) takes a proposition, any other parameter takes a value.
+                  arg-est (if (sort-valued-domain? est dom-type)
+                            (assoc est :prop-ctx true)
+                            (dissoc est :prop-ctx))
+                  arg-expr (or at-expected (elab-term arg-est arg-sexpr))
                   ;; A bare numeral takes the type the position expects — the same rule for a
                   ;; leaf: `(= Int a 0)` and `(le Real x 1)` put a literal where a carrier is
                   ;; expected, and it only ever worked when the carrier WAS Nat.
@@ -660,9 +677,11 @@
             (elab-hop est cls method T B T a b)))))))
 
 (defn- elab-forall
-  "Elaborate a forall expression with binders."
+  "Elaborate a forall expression with binders. Its binder types and body are
+   types, so a comparison there is a proposition (see :prop-ctx)."
   [est binder-vec body-sexpr]
-  (let [binders (parse-binders binder-vec)]
+  (let [binders (parse-binders binder-vec)
+        est (assoc est :prop-ctx true)]
     (letfn [(build [binders est]
               (if (empty? binders)
                 (elab-term est body-sexpr)
@@ -886,6 +905,48 @@
                                    hole-name (assoc :user-name hole-name)))]
       term-hole)))
 
+(defn- elab-pow-inferred
+  "`(pow a n)` — a power whose carrier is the base's type, as Lean's `x ^ n`
+   (rightact% HPow.hPow): the exponent keeps its own type (Nat, the Monoid npow),
+   so only the base decides. An all-numeral base is a Nat."
+  [est base-form exp-form]
+  (let [numeral-tree? (fn numeral-tree? [f]
+                        (or (integer? f)
+                            (and (seq? f) (symbol? (first f))
+                                 (contains? #{"+" "-" "*"} (str (first f)))
+                                 (every? numeral-tree? (rest f)))))]
+    (if (numeral-tree? base-form)
+      (elab-arith-at-type* est "pow" (e/const' (name/from-string "Nat") []) [base-form exp-form])
+      (let [b (elab-term est base-form)
+            T (zonk est (infer-with-mvars est b))]
+        (elab-arith-at-type* est "pow" T [b exp-form])))))
+
+(defn- elab-prop-comparison
+  "A 2-arg comparison where a proposition is being elaborated (:prop-ctx):
+   `(<= a b)` → `LE.le T ?inst a b`, `(== a b)` → `Eq T a b`, with the carrier
+   T read off the operands, as Lean's binrel% does. The carrier comes from an
+   operand that is not all numerals; the other operand is elaborated at it as
+   an argument of the relation, so its numerals take that type."
+  [est hs sexpr]
+  (let [[a-form b-form] (case hs (">" ">=" "≥") [(nth sexpr 2) (nth sexpr 1)]
+                              [(nth sexpr 1) (nth sexpr 2)])
+        ;; operands are values, not propositions
+        vest (dissoc est :prop-ctx)
+        numeral-tree? (fn numeral-tree? [f]
+                        (or (integer? f)
+                            (and (seq? f) (symbol? (first f))
+                                 (contains? #{"+" "-" "*"} (str (first f)))
+                                 (every? numeral-tree? (rest f)))))
+        carrier-of (fn [x] (zonk est (infer-with-mvars est x)))
+        [T a b] (cond
+                  (not (numeral-tree? a-form))
+                  (let [a0 (elab-term vest a-form)] [(carrier-of a0) a0 b-form])
+                  (not (numeral-tree? b-form))
+                  (let [b0 (elab-term vest b-form)] [(carrier-of b0) a-form b0])
+                  :else [(e/const' (name/from-string "Nat") []) a-form b-form])
+        rel (case hs "==" 'Eq ("<" ">") 'lt 'le)]
+    (elab-term est (list rel T a b))))
+
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
@@ -1102,16 +1163,23 @@
             ;; is the Prop `Eq` (for a/theorem goals). Both route through the `==` handler below.
             (elab-term est (cons '== (rest sexpr)))
 
-        ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool (Nat.b*).
+        ;; Surface comparison glyphs: 3-arg → Prop (le/lt), 2-arg → Bool (Nat.b*) —
+        ;; except where a proposition is being elaborated (:prop-ctx), where 2-arg is
+        ;; the Prop with its carrier read off the operands (Lean's binrel%).
             ("<" "==" "<=" ">" ">=" "≤" "≥")
             (let [hs (str head)]
-              (if (= 4 (count sexpr))
+              (cond
+                (and (= 3 (count sexpr)) (:prop-ctx est))
+                (elab-prop-comparison est hs sexpr)
+
+                (= 4 (count sexpr))
                 (let [[_ T a b] sexpr]
                   (if (= hs "==")
                     (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
                     (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
                           rel (case hs ("<" ">") "lt" "le")]
                       (elab-term est (list (symbol rel) T a* b*)))))
+                :else
                 ;; 2-arg Bool comparison, TYPE-DIRECTED on the operands (a non-literal
                 ;; operand's type head picks the ops; literals coerce to that type):
                 ;; Nat → Nat.b* · Int/Float → Decidable.decide over the order Props ·
@@ -1218,10 +1286,17 @@
             ("add" "sub" "mul" "div" "pow" "neg")
             (let [hs (str head)
                   arity-ok? (if (= hs "neg") (= 3 (count sexpr)) (= 4 (count sexpr)))]
-              (if (or (not arity-ok?) (bound-name? est head))
+              (cond
+                ;; `(pow a n)`: the base decides the carrier (Lean's rightact% HPow.hPow)
+                (and (= hs "pow") (= 3 (count sexpr)) (not (bound-name? est head)))
+                (elab-pow-inferred est (nth sexpr 1) (nth sexpr 2))
+
+                (or (not arity-ok?) (bound-name? est head))
                 ;; not the `(op T a b)` shape, or the name resolves to something real —
                 ;; an ordinary application (these are plain identifiers, not notation)
                 (elab-app est (first sexpr) (rest sexpr))
+
+                :else
                 (elab-arith-at-type est hs (nth sexpr 1) (drop 2 sexpr))))
 
         ;; do → value of the last form (pure setting: earlier forms have no effect).
@@ -1538,7 +1613,12 @@
    (elaborate* mode env lctx sexpr expected {}))
   ([mode env lctx sexpr expected opts]
    (let [est (cond-> (mk-elab-state env opts)
-               lctx (attach-elab-lctx lctx))
+               lctx (attach-elab-lctx lctx)
+               ;; elaborating a type: a signature's binder types, a theorem statement, or
+               ;; anything whose expected type is a Sort (change/show targets)
+               (or (:type-position opts)
+                   (and expected (e/sort? expected)))
+               (assoc :prop-ctx true))
          expr (elab-term est sexpr)]
      (check-expected! est expr expected)
      (finalize-elaboration mode est expr))))
@@ -1597,7 +1677,9 @@
   ([env lctx sexpr]
    (elaborate-in-context env lctx sexpr nil))
   ([env lctx sexpr expected]
-   (elaborate* :strict env lctx sexpr expected)))
+   (elaborate* :strict env lctx sexpr expected))
+  ([env lctx sexpr expected opts]
+   (elaborate* :strict env lctx sexpr expected opts)))
 
 (defn elaborate-in-context-collecting
   "Contextual variant of `elaborate-collecting`."

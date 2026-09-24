@@ -1,5 +1,5 @@
 (require '[ansatz.core :as a])
-(a/init! "cslib")
+(a/init! "mathlib")
 
 (println "\n========================================================")
 (println "  Verified List Library — Kernel-Checked Clojure")
@@ -14,53 +14,45 @@
 
 ;; map: apply a function to every element
 (a/defn lmap [f :- (arrow Nat Nat), l :- (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil nil)
-    (cons [hd tl] (cons (f hd) ih_tail))))
+  (match l
+    [nil nil]
+    [(cons hd tl) (cons (f hd) (lmap f tl))]))
 
 ;; filter: keep elements satisfying a predicate
 (a/defn lfilter [p :- (arrow Nat Bool), l :- (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil nil)
-    (cons [hd tl] (match (p hd) Bool (List Nat)
-      (true (cons hd ih_tail))
-      (false ih_tail)))))
+  (match l
+    [nil nil]
+    [(cons hd tl) (if (p hd) (cons hd (lfilter p tl)) (lfilter p tl))]))
 
 ;; length
 (a/defn llen [l :- (List Nat)] Nat
-  (match l (List Nat) Nat
-    (nil 0)
-    (cons [_ tl] (+ 1 ih_tail))))
+  (match l
+    [nil 0]
+    [(cons _ tl) (+ 1 (llen tl))]))
 
 ;; append
 (a/defn lappend [xs :- (List Nat), ys :- (List Nat)] (List Nat)
-  (match xs (List Nat) (List Nat)
-    (nil ys)
-    (cons [hd tl] (cons hd ih_tail))))
+  (match xs
+    [nil ys]
+    [(cons hd tl) (cons hd (lappend tl ys))]))
 
 ;; nth with default
 (a/defn lnth [l :- (List Nat), n :- Nat, d :- Nat] Nat
-  (match l (List Nat) Nat
-    (nil d)
-    (cons [hd tl] (match n Nat Nat
-      (zero hd)
-      (succ [k] ih_tail)))))
+  (match l
+    [nil d]
+    [(cons hd tl) (match n [zero hd] [(succ k) (lnth tl k d)])]))
 
 ;; all: check predicate holds for all elements
 (a/defn lall [p :- (arrow Nat Bool), l :- (List Nat)] Bool
-  (match l (List Nat) Bool
-    (nil true)
-    (cons [hd tl] (match (p hd) Bool Bool
-      (true ih_tail)
-      (false false)))))
+  (match l
+    [nil true]
+    [(cons hd tl) (if (p hd) (lall p tl) false)]))
 
 ;; any: check predicate holds for some element
 (a/defn lany [p :- (arrow Nat Bool), l :- (List Nat)] Bool
-  (match l (List Nat) Bool
-    (nil false)
-    (cons [hd tl] (match (p hd) Bool Bool
-      (true true)
-      (false ih_tail)))))
+  (match l
+    [nil false]
+    [(cons hd tl) (if (p hd) true (lany p tl))]))
 
 ;; --- Demo ---
 (println "(lmap inc '(1 2 3))          =>" (lmap inc '(1 2 3)))
@@ -78,47 +70,47 @@
 (println "\n--- Proofs (all kernel-verified) ---\n")
 
 ;; Nil identities
-(a/theorem llen-nil [] (= Nat (llen nil) 0) (grind "llen"))
+(a/theorem llen-nil [] (= (llen nil) 0) (grind "llen"))
 (println "  llen []           = 0")
 
 (a/theorem lappend-nil-left [ys :- (List Nat)]
-  (= (List Nat) (lappend nil ys) ys) (grind "lappend"))
+  (= (lappend nil ys) ys) (grind "lappend"))
 (println "  lappend [] ys     = ys")
 
 (a/theorem lmap-nil [f :- (arrow Nat Nat)]
-  (= (List Nat) (lmap f nil) nil) (grind "lmap"))
+  (= (lmap f nil) nil) (grind "lmap"))
 (println "  lmap f []         = []")
 
 (a/theorem lfilter-nil [p :- (arrow Nat Bool)]
-  (= (List Nat) (lfilter p nil) nil) (grind "lfilter"))
+  (= (lfilter p nil) nil) (grind "lfilter"))
 (println "  lfilter p []      = []")
 
 (a/theorem lall-nil [p :- (arrow Nat Bool)]
-  (= Bool (lall p nil) Bool.true) (grind "lall"))
+  (= (lall p nil) true) (grind "lall"))
 (println "  lall p []         = true")
 
 (a/theorem lany-nil [p :- (arrow Nat Bool)]
-  (= Bool (lany p nil) Bool.false) (grind "lany"))
+  (= (lany p nil) false) (grind "lany"))
 (println "  lany p []         = false")
 
 (a/theorem lnth-nil [n :- Nat, d :- Nat]
-  (= Nat (lnth nil n d) d) (grind "lnth"))
+  (= (lnth nil n d) d) (grind "lnth"))
 (println "  lnth [] n d       = d")
 
 ;; Structural properties (induction + grind)
 (a/theorem lappend-assoc [xs :- (List Nat), ys :- (List Nat), zs :- (List Nat)]
-  (= (List Nat) (lappend (lappend xs ys) zs) (lappend xs (lappend ys zs)))
+  (= (lappend (lappend xs ys) zs) (lappend xs (lappend ys zs)))
   (induction xs) (grind "lappend"))
 (println "  (xs++ys)++zs      = xs++(ys++zs)    [append associativity]")
 
 (a/theorem lappend-nil-right [xs :- (List Nat)]
-  (= (List Nat) (lappend xs nil) xs)
-  (induction xs) (all_goals (try (simp_all "lappend"))) (all_goals (try (grind "lappend"))))
+  (= (lappend xs nil) xs)
+  (induction xs) (all_goals (simp_all [lappend])))
 (println "  xs++[]            = xs               [append right identity]")
 
 ;; Constructor discrimination
 (a/theorem cons-ne-nil [x :- Nat, xs :- (List Nat),
-                         h :- (= (List Nat) (cons x xs) nil)]
+                         h :- (= (cons x xs) nil)]
   False (grind))
 (println "  x::xs != []                          [constructor discrimination]")
 
@@ -129,15 +121,16 @@
 (println "\n--- Insertion Sort + Correctness ---\n")
 
 (a/defn insertSorted [x :- Nat, l :- (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil (cons x nil))
-    (cons [hd tl] (match (<= x hd) Bool (List Nat)
-      (true (cons x l)) (false (cons hd ih_tail))))))
+  (match l
+    [nil (cons x nil)]
+    [(cons hd tl) (match (<= x hd)
+                    [true (cons x l)]
+                    [false (cons hd (insertSorted x tl))])]))
 
 (a/defn isort [l :- (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil nil)
-    (cons [hd tl] (insertSorted hd ih_tail))))
+  (match l
+    [nil nil]
+    [(cons hd tl) (insertSorted hd (isort tl))]))
 
 (println "(isort '(5 3 1 4 2))  =>" (isort '(5 3 1 4 2)))
 

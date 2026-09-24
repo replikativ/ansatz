@@ -24,31 +24,32 @@
 (defn- def-memq! []
   (install-one! "memq"
     '(ansatz.core/defn memq [x :- Nat, xs :- (List Nat)] Bool
-       (match xs (List Nat) Bool
-         (nil Bool.false)
-         (cons [h t] (if (Nat.beq x h) Bool.true (memq x t)))))))
+       (match xs
+         [nil false]
+         [(cons h t) (if (Nat.beq x h) true (memq x t))]))))
 
 (defn- def-regressions! []
   (install-one! "regressions"
     '(ansatz.core/defn regressions [old :- (List Nat), new :- (List Nat)] (List Nat)
-       (match new (List Nat) (List Nat)
-         (nil (List.nil Nat))
-         (cons [h t] (if (memq h old) (regressions old t)
-                         (List.cons Nat h (regressions old t))))))))
+       (match new
+         [nil (List.nil Nat)]
+         [(cons h t) (if (memq h old)
+                       (regressions old t)
+                       (List.cons Nat h (regressions old t)))]))))
 
 (defn- def-allmem! []
   (install-one! "allmem"
     '(ansatz.core/defn allmem [new :- (List Nat), old :- (List Nat)] Bool
-       (match new (List Nat) Bool
-         (nil Bool.true)
-         (cons [h t] (if (memq h old) (allmem t old) Bool.false))))))
+       (match new
+         [nil true]
+         [(cons h t) (if (memq h old) (allmem t old) false)]))))
 
 ;; ── Promote — raw fact -> richer fact ─────────────────────────────────────────
 
 (defn- prove-memq-head! []
   (install-one! "memq_head"
     '(ansatz.core/theorem memq_head [h :- Nat, t :- (List Nat)]
-       (= Bool (memq h (List.cons Nat h t)) Bool.true)
+       (= (memq h (List.cons Nat h t)) true)
        (rewrite memq.eq_2) (rewrite Nat.beq_refl) (rfl))))
 
 (defn- prove-memq-mono! []
@@ -56,8 +57,8 @@
     ;; rewrite hyp makes both Bool.rec branches Bool.true; case-split the
     ;; discriminant and iota-reduce each to close.
     '(ansatz.core/theorem memq_mono
-       [x :- Nat, old :- (List Nat), a :- Nat, hyp :- (= Bool (memq x old) Bool.true)]
-       (= Bool (memq x (List.cons Nat a old)) Bool.true)
+       [x :- Nat, old :- (List Nat), a :- Nat, hyp :- (= (memq x old) true)]
+       (= (memq x (List.cons Nat a old)) true)
        (rewrite memq.eq_2) (rewrite hyp)
        (cases hm (Nat.beq x a)) (all_goals (rewrite hm)) (all_goals (rfl)))))
 
@@ -66,8 +67,8 @@
     ;; close the true branch by rfl, then reduce the surviving false branch
     ;; (ha reduced through allmem.eq_2 + hm) down to false = false.
     '(ansatz.core/theorem allmem_cons_head [h :- Nat, t :- (List Nat), old :- (List Nat)]
-       (=> (= Bool (allmem (List.cons Nat h t) old) Bool.true)
-           (= Bool (memq h old) Bool.true))
+       (=> (= (allmem (List.cons Nat h t) old) true)
+           (= (memq h old) true))
        (intro ha) (cases hm (memq h old))
        (all_goals (try (rfl)))
        (all_goals (try (rewrite <- ha))) (all_goals (try (rewrite allmem.eq_2)))
@@ -76,10 +77,10 @@
 (defn- prove-allmem-cons-tail! []
   (install-one! "allmem_cons_tail"
     '(ansatz.core/theorem allmem_cons_tail [h :- Nat, t :- (List Nat), old :- (List Nat)]
-       (=> (= Bool (allmem (List.cons Nat h t) old) Bool.true)
-           (= Bool (allmem t old) Bool.true))
+       (=> (= (allmem (List.cons Nat h t) old) true)
+           (= (allmem t old) true))
        (intro ha)
-       (have hmt (= Bool (memq h old) Bool.true) (allmem_cons_head h t old ha))
+       (have hmt (= (memq h old) true) (allmem_cons_head h t old ha))
        (rewrite <- ha) (rewrite allmem.eq_2) (rewrite hmt) (dsimp))))
 
 ;; ── Pipeline — pure orchestration ─────────────────────────────────────────────
@@ -91,39 +92,39 @@
   (install-one! "allmem_mono"
     '(ansatz.core/theorem allmem_mono
        [old :- (List Nat), a :- Nat, new :- (List Nat)]
-       (=> (= Bool (allmem new old) Bool.true)
-           (= Bool (allmem new (List.cons Nat a old)) Bool.true))
+       (=> (= (allmem new old) true)
+           (= (allmem new (List.cons Nat a old)) true))
        (induction new)
        (all_goals (intro hh))
        (all_goals (try (exact (allmem.eq_1 (List.cons Nat a old)))))
-       (have hmt  (= Bool (memq head old) Bool.true) (allmem_cons_head head tail old hh))
-       (have hat  (= Bool (allmem tail old) Bool.true) (allmem_cons_tail head tail old hh))
-       (have hmc  (= Bool (memq head (List.cons Nat a old)) Bool.true) (memq_mono head old a hmt))
-       (have hat2 (= Bool (allmem tail (List.cons Nat a old)) Bool.true) (ih_tail hat))
+       (have hmt  (= (memq head old) true) (allmem_cons_head head tail old hh))
+       (have hat  (= (allmem tail old) true) (allmem_cons_tail head tail old hh))
+       (have hmc  (= (memq head (List.cons Nat a old)) true) (memq_mono head old a hmt))
+       (have hat2 (= (allmem tail (List.cons Nat a old)) true) (ih_tail hat))
        (rewrite allmem.eq_2) (rewrite hmc) (dsimp) (exact hat2))))
 
 (defn- prove-allmem-refl! []
   (install-one! "allmem_refl"
     '(ansatz.core/theorem allmem_refl [xs :- (List Nat)]
-       (= Bool (allmem xs xs) Bool.true)
+       (= (allmem xs xs) true)
        (induction xs)
        (all_goals (try (exact (allmem.eq_1 (List.nil Nat)))))
-       (have hmh  (= Bool (memq head (List.cons Nat head tail)) Bool.true) (memq_head head tail))
-       (have hat2 (= Bool (allmem tail (List.cons Nat head tail)) Bool.true)
+       (have hmh  (= (memq head (List.cons Nat head tail)) true) (memq_head head tail))
+       (have hat2 (= (allmem tail (List.cons Nat head tail)) true)
                   (allmem_mono tail head tail ih_tail))
        (rewrite allmem.eq_2) (rewrite hmh) (dsimp) (exact hat2))))
 
 (defn- prove-regr-gen! []
   (install-one! "regr_gen"
     '(ansatz.core/theorem regr_gen [old :- (List Nat), new :- (List Nat)]
-       (=> (= Bool (allmem new old) Bool.true)
-           (= (List Nat) (regressions old new) (List.nil Nat)))
+       (=> (= (allmem new old) true)
+           (= (regressions old new) (List.nil Nat)))
        (induction new)
        (all_goals (intro ha))
        (all_goals (try (exact (regressions.eq_1 old))))
-       (have hmt (= Bool (memq head old) Bool.true) (allmem_cons_head head tail old ha))
-       (have hat (= Bool (allmem tail old) Bool.true) (allmem_cons_tail head tail old ha))
-       (have htn (= (List Nat) (regressions old tail) (List.nil Nat)) (ih_tail hat))
+       (have hmt (= (memq head old) true) (allmem_cons_head head tail old ha))
+       (have hat (= (allmem tail old) true) (allmem_cons_tail head tail old ha))
+       (have htn (= (regressions old tail) (List.nil Nat)) (ih_tail hat))
        (rewrite regressions.eq_2) (rewrite hmt) (dsimp) (exact htn))))
 
 ;; ── Boundary — capstone + effectful edge ──────────────────────────────────────
@@ -131,7 +132,7 @@
 (defn- prove-regressions-self-empty! []
   (install-one! "regressions_self_empty"
     '(ansatz.core/theorem regressions_self_empty [xs :- (List Nat)]
-       (= (List Nat) (regressions xs xs) (List.nil Nat))
+       (= (regressions xs xs) (List.nil Nat))
        (exact (regr_gen xs xs (allmem_refl xs))))))
 
 (defn install!

@@ -65,14 +65,15 @@ are content-addressed, so the same export always yields the same store.
 
 ### Proving theorems
 ```clojure
-;; Define a verified function
+;; Define a verified function — arithmetic takes the operands' type
 (a/defn ^{:- Real} gd-step [^{:- Real} x ^{:- Real} grad ^{:- Real} eta]
-  (sub Real x (mul Real eta grad)))
+  (- x (* eta grad)))
 
-;; Prove convergence
+;; Prove convergence — comparisons in a statement are propositions at the operands' type
+;; (Lean's binrel%); write the type, e.g. (<= Real 0 1), only when every operand is a numeral
 (a/theorem gd-rate [κ :- Real, ε₀ :- Real, n :- Nat,
-                     hκ₀ :- (<= Real 0 κ), hκ₁ :- (<= Real κ 1), hε₀ :- (<= Real 0 ε₀)]
-  (<= Real (mul Real (pow Real κ n) ε₀) ε₀)
+                     hκ₀ :- (<= 0 κ), hκ₁ :- (<= κ 1), hε₀ :- (<= 0 ε₀)]
+  (<= (* (pow κ n) ε₀) ε₀)
   (apply mul_le_of_le_one_left) (assumption)
   (apply pow_le_one₀) (all_goals (assumption)))
 ```

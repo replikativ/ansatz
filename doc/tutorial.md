@@ -59,17 +59,17 @@ Lists are the bread and butter of Clojure. In Ansatz, `List Nat` is a verified l
 
 ```clojure
 ;; Length of a list
-(a/defn len [l (List Nat)] Nat
-  (match l (List Nat) Nat
-    (nil 0)
-    (cons [hd tl] (+ 1 ih_tail))))
+(a/defn len [l :- (List Nat)] Nat
+  (match l
+    [nil 0]
+    [(cons hd tl) (+ 1 (len tl))]))
 ```
 
 The `match` expression does structural recursion on `l`:
 - If `l` is `nil` → return 0
-- If `l` is `cons hd tl` → return `1 + ih_tail`
+- If `l` is `cons hd tl` → return `1 + len tl`
 
-**What's `ih_tail`?** It's the *induction hypothesis* — the result of calling `len` recursively on `tl`. The kernel provides it automatically because `tl` is a structural subterm of `l`. You don't write the recursive call explicitly — the kernel guarantees termination.
+As in Lean, you write the recursive call yourself, and nothing about types: the list type comes from `l` and the result type from the signature. The call `(len tl)` is on `tl`, a structural subterm of `l`, so the kernel knows the recursion terminates. (When the recursion is not structural, Ansatz looks for a decreasing measure — see `:termination-by`.)
 
 This compiles to a `List.rec` application (the *recursor* — the only way to eliminate a `List` in CIC). The recursor is what makes termination checking possible.
 
@@ -81,18 +81,18 @@ More examples:
 
 ```clojure
 ;; Append two lists
-(a/defn app [xs (List Nat) ys (List Nat)] (List Nat)
-  (match xs (List Nat) (List Nat)
-    (nil ys)
-    (cons [hd tl] (cons hd ih_tail))))
+(a/defn lappend [xs :- (List Nat), ys :- (List Nat)] (List Nat)
+  (match xs
+    [nil ys]
+    [(cons hd tl) (cons hd (lappend tl ys))]))
 
-(app '(1 2) '(3 4)) ;; => (1 2 3 4)
+(lappend '(1 2) '(3 4)) ;; => (1 2 3 4)
 
 ;; Map a function over a list
-(a/defn lmap [f (arrow Nat Nat) l (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil nil)
-    (cons [hd tl] (cons (f hd) ih_tail))))
+(a/defn lmap [f :- (arrow Nat Nat), l :- (List Nat)] (List Nat)
+  (match l
+    [nil nil]
+    [(cons hd tl) (cons (f hd) (lmap f tl))]))
 
 (lmap inc '(1 2 3)) ;; => (2 3 4)
 ```
@@ -116,7 +116,7 @@ A *theorem* states a property and proves it:
 
 ```clojure
 (a/theorem len-nil []
-  (= Nat (len nil) 0)
+  (= (len nil) 0)
   (rfl))
 ```
 
@@ -134,46 +134,45 @@ Reading this:
 Here's another:
 
 ```clojure
-(a/theorem app-nil [ys :- (List Nat)]
-  (= (List Nat) (app nil ys) ys)
+(a/theorem lappend-nil [ys :- (List Nat)]
+  (= (lappend nil ys) ys)
   (rfl))
 ```
 
-`app nil ys` reduces to `ys` by definition (the nil branch returns `ys`). Both sides are equal → `rfl`.
+`lappend nil ys` reduces to `ys` by definition (the nil branch returns `ys`). Both sides are equal → `rfl`.
 
 **But this fails:**
 
 ```clojure
 ;; This does NOT work with rfl:
-(a/theorem app-nil-right [xs :- (List Nat)]
-  (= (List Nat) (app xs nil) xs)
+(a/theorem lappend-nil-right [xs :- (List Nat)]
+  (= (lappend xs nil) xs)
   (rfl))  ;; ERROR!
 ```
 
-Why? Because `xs` is a *variable*. The kernel can't reduce `app xs nil` — it doesn't know if `xs` is nil or cons. We need **induction**.
+Why? Because `xs` is a *variable*. The kernel can't reduce `lappend xs nil` — it doesn't know if `xs` is nil or cons. We need **induction**.
 
 ## 5. Induction
 
 Induction splits a goal into cases based on the structure of a value:
 
 ```clojure
-(a/theorem app-nil-right [xs :- (List Nat)]
-  (= (List Nat) (app xs nil) xs)
+(a/theorem lappend-nil-right [xs :- (List Nat)]
+  (= (lappend xs nil) xs)
   (induction xs)
-  (all_goals (try (simp_all "app")))
-  (all_goals (try (grind "app"))))
+  (all_goals (simp_all [lappend])))
 ```
 
 `(induction xs)` creates two goals:
 
-**Goal 1 (nil):** `app nil nil = nil`
+**Goal 1 (nil):** `lappend nil nil = nil`
 - Both sides reduce to `nil` → closed by simp
 
-**Goal 2 (cons):** `app (hd::tl) nil = hd::tl`
-- With IH: `app tl nil = tl`
-- `simp "app"` unfolds one step: `app (hd::tl) nil → cons hd (app tl nil)`
-- Goal becomes: `cons hd (app tl nil) = cons hd tl`
-- The IH says `app tl nil = tl`
+**Goal 2 (cons):** `lappend (hd::tl) nil = hd::tl`
+- With IH: `lappend tl nil = tl`
+- `simp_all [lappend]` unfolds one step: `lappend (hd::tl) nil → cons hd (lappend tl nil)`
+- Goal becomes: `cons hd (lappend tl nil) = cons hd tl`
+- The IH says `lappend tl nil = tl`
 - By congruence: `cons hd X = cons hd Y` when `X = Y` → done!
 
 `(all_goals ...)` applies a tactic to every open goal. `(try ...)` means "if this tactic fails, skip it." This pattern — `(induction x) (all_goals (grind "defn"))` — handles most list properties.
@@ -185,7 +184,7 @@ Induction splits a goal into cases based on the structure of a value:
 ```clojure
 ;; Map preserves length (grind handles everything after induction)
 (a/theorem map-len [f :- (arrow Nat Nat), l :- (List Nat)]
-  (= Nat (len (lmap f l)) (len l))
+  (= (len (lmap f l)) (len l))
   (induction l) (all_goals (grind "lmap" "len")))
 ```
 
@@ -200,21 +199,19 @@ More properties grind handles:
 
 ```clojure
 ;; Append is associative
-(a/theorem app-assoc [xs :- (List Nat), ys :- (List Nat), zs :- (List Nat)]
-  (= (List Nat) (app (app xs ys) zs) (app xs (app ys zs)))
-  (induction xs) (all_goals (grind "app")))
+(a/theorem lappend-assoc [xs :- (List Nat), ys :- (List Nat), zs :- (List Nat)]
+  (= (lappend (lappend xs ys) zs) (lappend xs (lappend ys zs)))
+  (induction xs) (all_goals (grind "lappend")))
 
 ;; Map distributes over append
-(a/theorem map-app [f :- (arrow Nat Nat), xs :- (List Nat), ys :- (List Nat)]
-  (= (List Nat) (lmap f (app xs ys)) (app (lmap f xs) (lmap f ys)))
-  (induction xs) (all_goals (grind "lmap" "app")))
+(a/theorem map-lappend [f :- (arrow Nat Nat), xs :- (List Nat), ys :- (List Nat)]
+  (= (lmap f (lappend xs ys)) (lappend (lmap f xs) (lmap f ys)))
+  (induction xs) (all_goals (grind "lmap" "lappend")))
 
 ;; Append length = sum of lengths
-(a/theorem app-len [xs :- (List Nat), ys :- (List Nat)]
-  (= Nat (len (app xs ys)) (+ (len xs) (len ys)))
-  (induction xs)
-  (all_goals (try (simp_all "app" "len" "Nat.add_assoc")))
-  (all_goals (try (grind "app" "len"))))
+(a/theorem lappend-len [xs :- (List Nat), ys :- (List Nat)]
+  (= (len (lappend xs ys)) (+ (len xs) (len ys)))
+  (induction xs) (all_goals (grind "lappend" "len")))
 ```
 
 The pattern is always: **induction** to split cases, **grind** to close each one.
@@ -226,14 +223,14 @@ Grind also handles constructor discrimination (different constructors can't be e
 ```clojure
 ;; nil and cons are different
 (a/theorem cons-ne-nil [x :- Nat, xs :- (List Nat),
-                         h :- (= (List Nat) (cons x xs) nil)]
+                         h :- (= (cons x xs) nil)]
   False
   (grind))
 
 ;; Same constructor → same fields
 (a/theorem cons-inj [a :- Nat, b :- Nat, xs :- (List Nat), ys :- (List Nat),
-                      h :- (= (List Nat) (cons a xs) (cons b ys))]
-  (= Nat a b)
+                      h :- (= (cons a xs) (cons b ys))]
+  (= a b)
   (grind))
 ```
 
@@ -255,10 +252,10 @@ Type parameters (like `α` in `Tree`) are automatically inferred:
 
 ```clojure
 ;; No need to write (Tree.node Nat ...) — α is inferred from val
-(a/defn tree-sum [t (Tree Nat)] Nat
-  (match t (Tree Nat) Nat
-    (leaf 0)
-    (node [l v r] (+ v (+ ih_left ih_right)))))
+(a/defn tree-sum [t :- (Tree Nat)] Nat
+  (match t
+    [leaf 0]
+    [(node l v r) (+ v (+ (tree-sum l) (tree-sum r)))]))
 ```
 
 Structures compile to Clojure records:

@@ -21,7 +21,7 @@ If you already write [malli](https://github.com/metosin/malli)-instrumented Cloj
 ;; still compiles to an ordinary Clojure fn.
 (m/=> add2 [:=> [:cat :int :int] :int])
 (a/defn add2 [x y]
-  (match x Nat Nat (zero y) (succ [k] (+ 1 (add2 k y)))))
+  (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
 (add2 20 22) ;; => 42
 
 ;; [:map …] schemas become named-field records: keyword access is kernel-verified,
@@ -47,15 +47,14 @@ in the kernel term):
 
 ```clojure
 (a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
-  (match xs (List Nat) (List Nat)
-    (nil ys)
-    (cons [x xs']
-      (match ys (List Nat) (List Nat)
-        (nil (cons x xs'))
-        (cons [y ys']
-          (if (<= x y)
-            (cons x (merge xs' (cons y ys')))
-            (cons y (merge (cons x xs') ys'))))))))
+  (match xs
+    [nil ys]
+    [(cons x xs')
+     (match ys
+       [nil (cons x xs')]
+       [(cons y ys') (if (<= x y)
+                       (cons x (merge xs' (cons y ys')))
+                       (cons y (merge (cons x xs') ys')))])]))
 ;; explicit spellings also work:
 ;;   :termination-by (+ (sizeOf xs) (sizeOf ys))   or   [(sizeOf xs) (sizeOf ys)]
 
@@ -77,23 +76,23 @@ in the kernel term):
   (leaf)
   (node [color RBColor] [left (RBTree α)] [key α] [right (RBTree α)]))
 
-;; Pattern matching with recursion — the kernel checks termination
-;; ih_left and ih_right are induction hypotheses (recursive results)
+;; Pattern matching with recursion — the kernel checks termination.
+;; The types are inferred: the tree's from `t`, the result's from the signature.
 (a/defn rb-size [t :- (RBTree Nat)] Nat
-  (match t (RBTree Nat) Nat
-    (leaf 0)
-    (node [color left key right] (+ 1 (+ ih_left ih_right)))))
+  (match t
+    [leaf 0]
+    [(node color left key right) (+ 1 (+ (rb-size left) (rb-size right)))]))
 
-;; Nested match for BST lookup — references outer param k
+;; BST lookup — recursion into a subtree is an ordinary call
 (a/defn rb-member [t :- (RBTree Nat), k :- Nat] Bool
-  (match t (RBTree Nat) Bool
-    (leaf false)
-    (node [color left key right]
-      (match (< k key) Bool Bool
-        (true ih_left)                    ;; recurse into left subtree
-        (false (match (== k key) Bool Bool
-                 (true true)              ;; found it
-                 (false ih_right)))))))   ;; recurse into right subtree
+  (match t
+    [leaf false]
+    [(node color left key right)
+     (if (< k key)
+       (rb-member left k)                 ;; recurse into left subtree
+       (if (== k key)
+         true                             ;; found it
+         (rb-member right k)))]))         ;; recurse into right subtree
 
 ;; A verified constant (constructors are ordinary constants in term position)
 (a/defn tree [] (RBTree Nat)
@@ -114,14 +113,14 @@ in the kernel term):
 ;; Simplest proof: rb-size(leaf) computes to 0 by definition.
 ;; (rfl) = "reflexivity" — both sides reduce to the same thing.
 (a/theorem leaf-size-zero []
-  (= Nat (rb-size (RBTree.leaf Nat)) 0)
+  (= (rb-size (RBTree.leaf Nat)) 0)
   (rfl))
 
 ;; (omega) solves linear arithmetic over natural numbers automatically.
 ;; It sees: goal is (rb-size l) ≤ 1 + (rb-size l) + (rb-size r)
 ;; and closes it because x ≤ 1 + x + y for all naturals.
 (a/theorem left-le-size [c :- RBColor, l :- (RBTree Nat), k :- Nat, r :- (RBTree Nat)]
-  (<= Nat (rb-size l) (+ 1 (+ (rb-size l) (rb-size r))))
+  (<= (rb-size l) (+ 1 (+ (rb-size l) (rb-size r))))
   (omega))
 
 ;; The following proofs use definitions from examples/ (llen, lmap, Sorted,
@@ -137,7 +136,7 @@ in the kernel term):
 ;; It unfolds one step, sees 1 + llen(lmap f xs) = 1 + llen xs,
 ;; and closes via congruence from the IH.
 (a/theorem map-preserves-len [f :- (arrow Nat Nat), l :- (List Nat)]
-  (= Nat (llen (lmap f l)) (llen l))
+  (= (llen (lmap f l)) (llen l))
   (induction l) (all_goals (grind "lmap" "llen")))
 
 ;; Sorted is an indexed inductive: Sorted [] | Sorted [a] | Sorted (a::b::tl) when a≤b.
@@ -394,7 +393,7 @@ in the repo and sufficient for basic proofs on Nat. No Mathlib setup required:
 (a/defn ^Nat double [^Nat n] (+ n n))
 
 (a/theorem add-zero [n :- Nat]
-  (= Nat (+ n 0) n)
+  (= (+ n 0) n)
   (simp [Nat.add_zero]))
 
 (double 21) ;; => 42
@@ -423,24 +422,31 @@ not spell the carrier out, and `Nat`, `Int` and `Real` all work the same way.
 ```clojure
 (+ a b) (- a b) (* a b)      ;; at the operands' type — Nat, Int, Real, any carrier
 (+ x 1)                      ;; the numeral takes x's type (Lean's OfNat)
+(pow x n)                    ;; x^n at x's type; the exponent is a Nat (Lean's x ^ n)
 (quot a b) (rem a b)         ;; integer division and remainder (NOT `/` — see below)
-(= Int a 0)                  ;; equality (Prop); the 0 is an Int here
 ```
 
-When the type cannot be read off the operands — which is the normal case in a theorem
-*statement*, where the operands are binders — give it explicitly:
+Comparisons follow Lean's `binrel%`. In a theorem statement, a hypothesis type, or any
+other place where a proposition is expected, `(<= a b)` is the proposition `a ≤ b` at the
+operands' type; in code it is the decidable Bool comparison:
 
 ```clojure
-(add Real a b)               ;; typed addition
-(mul Real a b)               ;; typed multiplication
-(sub Real a b)               ;; subtraction
+(a/theorem kappa-nonneg [η :- Real, L :- Real, hη :- (<= 0 η), hb :- (<= (* η L) 1)]
+  (<= 0 (- 1 (* η L)))                          ;; propositions over Real, no type written
+  (apply sub_nonneg_of_le) (assumption))
+
+(a/defn small? [n :- Nat] Bool (< n 3))         ;; a Bool comparison in code
+(= a b) (< a b) (<= a b) (> a b) (>= a b)       ;; Prop in statements, Bool in code
+```
+
+Give the type explicitly only when no operand carries it — all numerals, as Lean's
+`(0 : ℝ) ≤ 1` does:
+
+```clojure
+(<= Real 0 1)                ;; ≤ at Real (Prop); also (le Real a b), (= Real a b)
+(add Real a b) (mul Real a b) (sub Real a b) (pow Real k n)
 (div Real a b)               ;; division (there is no `/` operator: Clojure's `/` on integers
                              ;;   is Ratio division, which is not what `Nat.div` means)
-(pow Real k n)               ;; power (base^Nat — heterogeneous in the exponent)
-(= Nat a b)                  ;; equality (Prop)
-(le Real a b)                ;; ≤ (Prop)
-(<= Real a b)                ;; ≤ sugar (Prop, 3-arg form)
-(<= a b)                     ;; ≤ (Bool, Nat only, 2-arg form — a decidable comparison)
 ```
 
 ### Definitions
@@ -463,20 +469,18 @@ When the type cannot be read off the operands — which is the normal case in a 
 ;; Lexicographic measures (vector) — Ackermann verifies; the measure is also auto-guessed
 (a/defn ^Nat ack [^Nat m ^Nat n]
   :termination-by [m n]
-  (match m Nat Nat
-    (zero (+ n 1))
-    (succ [k] (match n Nat Nat (zero (ack k 1)) (succ [j] (ack k (ack (Nat.succ k) j)))))))
+  (match m
+    [zero (+ n 1)]
+    [(succ k) (match n [zero (ack k 1)] [(succ j) (ack k (ack (Nat.succ k) j))])]))
 
 ;; Recursion over data structures — sizeOf measures (auto-guessed for List/custom inductives)
 (a/defn ^Nat pairs [^{:- (List Nat)} xs]                ; recurses on rest-of-rest
-  (match xs (List Nat) Nat
-    (nil 0)
-    (cons [h t] (match t (List Nat) Nat (nil 0) (cons [h2 t2] (+ 1 (pairs t2)))))))
+  (match xs [nil 0] [(cons h t) (match t [nil 0] [(cons h2 t2) (+ 1 (pairs t2))])]))
 
 ;; Malli schemas as signatures (optional dep): defn → a/defn, schema unchanged
 (m/=> add2 [:=> [:cat :int :int] :int])
 (a/defn add2 [x y]
-  (match x Nat Nat (zero y) (succ [k] (+ 1 (add2 k y)))))
+  (match x [zero y] [(succ k) (+ 1 (add2 k y))]))
 ;; [:map …] schemas become named-field records: keyword access verifies, runtime = plain maps
 (m/=> dot [:=> [:cat [:map [:x :int] [:y :int]]] :int])
 (a/defn dot [p] (+ (:x p) (:y p)))                       ; (dot {:x 2 :y 3}) => 5
@@ -492,7 +496,7 @@ When the type cannot be read off the operands — which is the normal case in a 
 (a/defn ^{:- (List α)} sort [^{:- Type} α ^:inst ^{:- (Ord α)} inst ^{:- (List α)} xs] ...)
 
 ;; Theorem
-(a/theorem name [param :- Type, hyp :- (le Real 0 x), ...]
+(a/theorem name [param :- Type, hyp :- (<= 0 x), ...]
   proposition
   (tactic1 arg1 arg2)
   (tactic2)
@@ -516,17 +520,22 @@ When the type cannot be read off the operands — which is the normal case in a 
 ### Pattern Matching
 
 ```clojure
-;; Match on inductive types — uses CIC recursor under the hood
-(match expr InductiveType ReturnType
-  (ctor1 body1)                          ;; leaf case
-  (ctor2 [field1 field2 ...] body2))     ;; node case with field bindings
+;; Match on inductive types — uses CIC recursor under the hood. As in Lean, the
+;; inductive type comes from the scrutinee and the result type from the context.
+(match expr
+  [ctor1 body1]                          ;; constructor without fields
+  [(ctor2 field1 field2 ...) body2])     ;; constructor with field bindings
 
-;; Induction hypotheses are auto-generated for recursive fields:
-;;   ih_left, ih_right (named after fields), or ih0, ih1
+;; Recursion is an ordinary call on a field; the kernel checks it is structural
+;; (or finds a terminating measure)
 (a/defn size [t :- (MyList Nat)] Nat
-  (match t (MyList Nat) Nat
-    (nil 0)
-    (cons [head tail] (+ 1 ih_tail))))
+  (match t
+    [nil 0]
+    [(cons head tail) (+ 1 (size tail))]))
+
+;; The explicit form, with both types spelled out and induction hypotheses
+;; named after the recursive fields (ih_tail), is still accepted:
+;;   (match t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))
 ```
 
 ### Tactics
@@ -603,7 +612,7 @@ Ansatz provides three extension points, following Lean 4's metaprogramming model
         (try (omega/omega ps) (catch Exception _ nil)))))
 
 ;; Use it in proofs:
-(a/theorem foo [n :- Nat] (<= Nat 0 n) (auto))
+(a/theorem foo [n :- Nat] (<= 0 n) (auto))
 ```
 
 ### Custom Elaboration Forms (Lean 4's `elab_rules`)
