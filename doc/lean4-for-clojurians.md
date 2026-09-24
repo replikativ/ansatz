@@ -18,8 +18,8 @@ In Clojure, you write tests:
 In Ansatz/Lean 4, you write proofs:
 ```clojure
 (a/theorem add-comm [n :- Nat, m :- Nat]
-  (= Nat (+ n m) (+ m n))     ;; true for ALL n and m
-  (simp "Nat.add_comm"))
+  (= (+ n m) (+ m n))         ;; true for ALL n and m
+  (simp [Nat.add_comm]))
 ```
 
 The theorem is a *universally quantified* statement checked at compile time by the CIC kernel. The `simp` tactic builds a proof term that the kernel verifies — it's not a runtime assertion, it's a mathematical guarantee.
@@ -38,8 +38,8 @@ Lean 4                                    Ansatz
 def double (n : Nat) : Nat := n + n       (a/defn double [n :- Nat] Nat (+ n n))
 
 theorem add_zero (n : Nat) :              (a/theorem add-zero [n :- Nat]
-    n + 0 = n := by                         (= Nat (+ n 0) n)
-  simp [Nat.add_zero]                       (simp "Nat.add_zero"))
+    n + 0 = n := by                         (= (+ n 0) n)
+  simp [Nat.add_zero]                       (simp [Nat.add_zero]))
 
 inductive Color where                     (a/inductive Color []
   | red | green | blue                      (red) (green) (blue))
@@ -69,7 +69,7 @@ inductive Vec (α : Type) : Nat → Type     (a/inductive Vec [α Type] :indices
 | `exact term` | `(apply term)` | Provide exact proof term |
 | `assumption` | `(assumption)` | Use hypothesis matching goal |
 | `rfl` | `(rfl)` | Reflexivity (`a = a`) |
-| `simp [lem]` | `(simp "lem")` | Simplify with rewrite lemmas |
+| `simp [lem]` | `(simp [lem])` | Simplify with rewrite lemmas |
 | `omega` | `(omega)` | Linear arithmetic on Nat/Int |
 | `ring` | `(ring)` | Polynomial identity |
 | `linarith` | `(linarith)` | Linear arithmetic over fields |
@@ -87,13 +87,13 @@ inductive Vec (α : Type) : Nat → Type     (a/inductive Vec [α Type] :indices
 ```
 Lean 4                                    Ansatz
 ────────────────────────────────────────  ──────────────────────────────────────
-def size : MyList Nat → Nat               (a/defn size [t (MyList Nat)] Nat
-  | .nil => 0                               (match t (MyList Nat) Nat
-  | .cons _ tail => 1 + size tail             (nil 0)
-                                              (cons [head tail] (+ 1 ih_tail))))
+def size : MyList Nat → Nat               (a/defn size [t :- (MyList Nat)] Nat
+  | .nil => 0                               (match t
+  | .cons _ tail => 1 + size tail             [nil 0]
+                                              [(cons head tail) (+ 1 (size tail))]))
 ```
 
-In Ansatz, `ih_tail` is the induction hypothesis — the recursive result for the `tail` field. Lean 4 handles this via the equation compiler; Ansatz makes it explicit.
+As in Lean, the recursive call is written directly and the kernel checks that it is structural; the inductive type and the result type are inferred. The older explicit form `(match t (MyList Nat) Nat (nil 0) (cons [head tail] (+ 1 ih_tail)))`, with the induction hypothesis named after the field, is still accepted.
 
 ## Kernel Compatibility
 

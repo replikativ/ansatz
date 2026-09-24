@@ -176,44 +176,62 @@
    path-condition guards (if/match) and match-bound field binders in scope at that call — the
    ansatz analogue of lean4's recursive-call context (Fix.lean). Returns a vector of
    {:args [arg-forms], :field-binders [[sym type-form] …], :guards [guard-form …]}.
-   Match field types currently default to Nat (Stage-1 WF is over Nat measures)."
-  [body fn-name n]
-  (let [acc (atom [])]
-    (letfn [(walk [form guards binders]
-              (cond
-                (and (seq? form) (= (first form) fn-name) (= n (count (rest form))))
-                (do (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
+   Match field types currently default to Nat (Stage-1 WF is over Nat measures).
+   Both match forms are read: the explicit `(match d T R (ctor [fields] body) …)` and the
+   pattern form `(match d [pattern body] …)`, whose guard needs d's type — known when d is
+   a parameter (from `pairs`), otherwise the call is collected without that guard."
+  ([body fn-name n] (collect-rec-calls-with-guards body fn-name n nil))
+  ([body fn-name n pairs]
+   (let [acc (atom [])
+         param-type (fn [sym] (some (fn [[p t]] (when (= p sym) t)) pairs))]
+     (letfn [(walk [form guards binders]
+               (cond
+                 (and (seq? form) (= (first form) fn-name) (= n (count (rest form))))
+                 (do (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
                     ;; nested self-calls inside this call's arguments carry their own obligations
-                    (doseq [sub (rest form)] (walk sub guards binders)))
+                     (doseq [sub (rest form)] (walk sub guards binders)))
 
-                (and (seq? form) (= 'if (first form)))
-                (let [[_ c t e] form
-                      gt (wf-guard-of c true)
-                      ge (wf-guard-of c false)]
-                  (walk t (if gt (conj guards gt) guards) binders)
-                  (walk e (if ge (conj guards ge) guards) binders))
+                 (and (seq? form) (= 'if (first form)))
+                 (let [[_ c t e] form
+                       gt (wf-guard-of c true)
+                       ge (wf-guard-of c false)]
+                   (walk t (if gt (conj guards gt) guards) binders)
+                   (walk e (if ge (conj guards ge) guards) binders))
 
-                (and (seq? form) (= 'match (first form)))
-                (let [[_ discr discr-type _result & branches] form]
-                  (doseq [br branches]
-                    (let [[ctor-short x & more] br
-                          [fields bbody] (if (vector? x) [x (first more)] [[] x])
-                          field-bs (mapv (fn [f] [f 'Nat]) fields)
-                          guard (list '= discr-type discr
-                                      (wf-ctor-pattern discr-type ctor-short fields))]
-                      (walk bbody (conj guards guard) (into binders field-bs)))))
+                 (and (seq? form) (= 'match (first form)) (vector? (nth form 2 nil)))
+                 (let [[_ discr & alts] form
+                       dtype (when (symbol? discr) (param-type discr))]
+                   (doseq [[pat rhs] alts]
+                     (let [[ctor-short fields] (cond (seq? pat) [(first pat) (vec (rest pat))]
+                                                     (and (symbol? pat) (not= '_ pat)) [pat []]
+                                                     :else [nil []])
+                           fields (filterv symbol? fields)
+                           guard (when (and dtype ctor-short)
+                                   (list '= dtype discr (wf-ctor-pattern dtype ctor-short fields)))]
+                       (walk rhs (if guard (conj guards guard) guards)
+                             (into binders (mapv (fn [f] [f 'Nat]) fields))))))
 
-                (and (seq? form) (= 'let (first form)))
-                (let [[_ bnds bbody] form]
-                  (doseq [v (take-nth 2 (rest bnds))] (walk v guards binders))
-                  (walk bbody guards binders))
+                 (and (seq? form) (= 'match (first form)))
+                 (let [[_ discr discr-type _result & branches] form]
+                   (doseq [br branches]
+                     (let [[ctor-short x & more] br
+                           [fields bbody] (if (vector? x) [x (first more)] [[] x])
+                           field-bs (mapv (fn [f] [f 'Nat]) fields)
+                           guard (list '= discr-type discr
+                                       (wf-ctor-pattern discr-type ctor-short fields))]
+                       (walk bbody (conj guards guard) (into binders field-bs)))))
 
-                (seq? form)
-                (doseq [sub (rest form)] (walk sub guards binders))
+                 (and (seq? form) (= 'let (first form)))
+                 (let [[_ bnds bbody] form]
+                   (doseq [v (take-nth 2 (rest bnds))] (walk v guards binders))
+                   (walk bbody guards binders))
 
-                :else nil))]
-      (walk body [] [])
-      @acc)))
+                 (seq? form)
+                 (doseq [sub (rest form)] (walk sub guards binders))
+
+                 :else nil))]
+       (walk body [] [])
+       @acc))))
 
 (clojure.core/defn- prove-decrease
   "Discharge one rec-call's decrease obligation:
@@ -274,7 +292,7 @@
    and then re-verified by the encoder's embedded kernel proofs, so a wrong guess cannot slip
    through."
   [pairs body-form fn-name n]
-  (let [calls (collect-rec-calls-with-guards body-form fn-name n)
+  (let [calls (collect-rec-calls-with-guards body-form fn-name n pairs)
         passes? (fn [check m] (try (doseq [c calls] (check pairs m c)) true
                                    (catch Throwable _ false)))]
     (when (seq calls)
@@ -891,10 +909,12 @@
         (loop [i 0 lctx {} acc []]
           (if (= i n) [lctx acc]
               (let [[pn pt _] (nth pairs i)
-                    ty (elab/elaborate-in-context env lctx pt)
+                    ty (elab/elaborate-in-context env lctx pt nil {:type-position true})
                     lctx' (assoc lctx (nth ids i) {:name (str pn) :type ty :tag :local})]
                 (recur (inc i) lctx' (conj acc ty)))))
-        ret (elab/elaborate-in-context env lctx ret-type-form)
+        ;; binder types and the return type / theorem statement are types: a
+        ;; comparison there is a proposition, as in Lean
+        ret (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true})
         type-ansatz (loop [i (dec n) body (e/abstract-many ret ids)]
                       (if (< i 0) body
                           (let [[pn _ binfo] (nth pairs i)]
@@ -940,7 +960,7 @@
                                                (or (seq? f) (vector? f)) (boolean (some has-sz? f))
                                                :else false))
                          measure-form))
-            (doseq [c (collect-rec-calls-with-guards body-form fn-name n)]
+            (doseq [c (collect-rec-calls-with-guards body-form fn-name n pairs)]
               (try (prove-decrease pairs measure-form c)
                    (catch Throwable e
                      (throw (ex-info (str "Cannot prove `" fn-name "` terminates: measure `"

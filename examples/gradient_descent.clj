@@ -11,7 +11,7 @@
 (println "━━━ 1. Verified GD Step Function ━━━\n")
 
 (a/defn gd-step [x :- Real, grad :- Real, eta :- Real] Real
-  (sub Real x (mul Real eta grad)))
+  (- x (* eta grad)))
 
 ;; ============================================================
 ;; 2. Prove convergence properties
@@ -21,42 +21,41 @@
 ;; Contraction factor κ = 1 - ηL is in [0, 1]
 (a/theorem kappa-nonneg
   [η :- Real, L :- Real,
-   hη :- (<= Real 0 η), hL :- (<= Real 0 L),
-   hbound :- (<= Real (mul Real η L) 1)]
-  (<= Real 0 (sub Real 1 (mul Real η L)))
+   hη :- (<= 0 η), hL :- (<= 0 L),
+   hbound :- (<= (* η L) 1)]
+  (<= 0 (- 1 (* η L)))
   (apply sub_nonneg_of_le) (assumption))
 
 (a/theorem kappa-le-one
   [η :- Real, L :- Real,
-   hη :- (<= Real 0 η), hL :- (<= Real 0 L)]
-  (<= Real (sub Real 1 (mul Real η L)) 1)
+   hη :- (<= 0 η), hL :- (<= 0 L)]
+  (<= (- 1 (* η L)) 1)
   (apply sub_le_self) (apply mul_nonneg) (assumption) (assumption))
 
 ;; Main convergence: κ^n * ε₀ ≤ ε₀
 (a/theorem convergence-rate
   [κ :- Real, ε₀ :- Real, n :- Nat,
-   hκ₀ :- (<= Real 0 κ), hκ₁ :- (<= Real κ 1), hε₀ :- (<= Real 0 ε₀)]
-  (<= Real (mul Real (pow Real κ n) ε₀) ε₀)
+   hκ₀ :- (<= 0 κ), hκ₁ :- (<= κ 1), hε₀ :- (<= 0 ε₀)]
+  (<= (* (pow κ n) ε₀) ε₀)
   (apply mul_le_of_le_one_left) (assumption)
   (apply pow_le_one₀) (all_goals (assumption)))
 
 ;; Monotone decrease: error decreases each step
 (a/theorem monotone-decrease
   [κ :- Real, ε₀ :- Real, n :- Nat,
-   hκ₀ :- (<= Real 0 κ), hκ₁ :- (<= Real κ 1), hε₀ :- (<= Real 0 ε₀)]
-  (<= Real (mul Real (pow Real κ (+ n 1)) ε₀)
-           (mul Real (pow Real κ n) ε₀))
-  (apply mul_le_mul_of_nonneg_right) (apply pow_le_pow_of_le_one)
-  (apply sub_nonneg_of_le) (assumption)
-  (apply sub_le_self) (apply mul_nonneg) (assumption) (assumption)
-  (apply Nat.le_add_right) (assumption))
+   hκ₀ :- (<= 0 κ), hκ₁ :- (<= κ 1), hε₀ :- (<= 0 ε₀)]
+  (<= (* (pow κ (+ n 1)) ε₀)
+      (* (pow κ n) ε₀))
+  (apply mul_le_mul_of_nonneg_right)
+  (apply pow_le_pow_of_le_one) (assumption) (assumption) (omega)
+  (assumption))
 
 ;; Full convergence with explicit step size
 (a/theorem full-convergence
   [η :- Real, L :- Real, ε₀ :- Real, n :- Nat,
-   hη :- (<= Real 0 η), hL :- (<= Real 0 L),
-   hbound :- (<= Real (mul Real η L) 1), hε₀ :- (<= Real 0 ε₀)]
-  (<= Real (mul Real (pow Real (sub Real 1 (mul Real η L)) n) ε₀) ε₀)
+   hη :- (<= 0 η), hL :- (<= 0 L),
+   hbound :- (<= (* η L) 1), hε₀ :- (<= 0 ε₀)]
+  (<= (* (pow (- 1 (* η L)) n) ε₀) ε₀)
   (apply mul_le_of_le_one_left) (assumption)
   (apply pow_le_one₀)
   (apply sub_nonneg_of_le) (assumption)

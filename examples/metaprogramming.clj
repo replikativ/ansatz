@@ -38,11 +38,11 @@
 
 ;; Use it in a proof:
 (a/theorem auto-demo-1 []
-  (= Nat (+ 1 1) 2)
+  (= (+ 1 1) 2)
   (auto))  ;; solved by rfl
 
 (a/theorem auto-demo-2 [n :- Nat]
-  (<= Nat 0 n)
+  (<= 0 n)
   (auto))  ;; solved by omega (via Nat.zero_le)
 
 (println "  auto tactic registered and working!\n")
@@ -58,7 +58,7 @@
       (basic/apply-tac ps term))))
 
 (a/theorem by-zero-le-demo [n :- Nat]
-  (<= Nat 0 (+ n 1))
+  (<= 0 (+ n 1))
   (by-zero-le))
 
 (println "  by-zero-le tactic registered and working!\n")
@@ -86,10 +86,10 @@
   (fn [args] (list '+ (first args) (first args))))
 
 (a/defn test-double [n :- Nat] Nat (double n))
-(println "  (test-double 21) =" ((test-double 21)))
+(println "  (test-double 21) =" (test-double 21))
 
 (a/theorem double-is-add [n :- Nat]
-  (= Nat (double n) (+ n n))
+  (= (double n) (+ n n))
   (rfl))
 
 (println "  double elaborator registered — (double n) = n + n, proved by rfl!\n")

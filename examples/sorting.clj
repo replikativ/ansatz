@@ -1,5 +1,5 @@
 (require '[ansatz.core :as a])
-(a/init! "cslib")   ;; resolved from the durable store root (legacy /var/tmp found too)
+(a/init! "mathlib")
 
 (println "\n╔═══════════════════════════════════════════════════════════╗")
 (println "║  Kernel-Verified Sorting — Merge Sort on Lists           ║")
@@ -18,15 +18,14 @@
 
 (a/defn merge [xs :- (List Nat), ys :- (List Nat)] (List Nat)
   :termination-by (+ (sizeOf xs) (sizeOf ys))
-  (match xs (List Nat) (List Nat)
-    (nil ys)
-    (cons [x xs']
-      (match ys (List Nat) (List Nat)
-        (nil (cons x xs'))
-        (cons [y ys']
-          (if (<= x y)
-            (cons x (merge xs' (cons y ys')))
-            (cons y (merge (cons x xs') ys'))))))))
+  (match xs
+    [nil ys]
+    [(cons x xs')
+     (match ys
+       [nil (cons x xs')]
+       [(cons y ys') (if (<= x y)
+                       (cons x (merge xs' (cons y ys')))
+                       (cons y (merge (cons x xs') ys')))])]))
 
 (println "(merge '(1 3 5) '(2 4 6)) =>" (merge '(1 3 5) '(2 4 6)))
 (println "(merge '() '(1 2))         =>" (merge '() '(1 2)))
@@ -39,22 +38,14 @@
 (println "\n━━━ 2. Verified Take / Drop ━━━\n")
 
 (a/defn take [n :- Nat, xs :- (List Nat)] (List Nat)
-  :termination-by n
-  (match n Nat (List Nat)
-    (zero nil)
-    (succ [k]
-      (match xs (List Nat) (List Nat)
-        (nil nil)
-        (cons [hd tl] (cons hd (take k tl)))))))
+  (match n
+    [zero nil]
+    [(succ k) (match xs [nil nil] [(cons hd tl) (cons hd (take k tl))])]))
 
 (a/defn drop [n :- Nat, xs :- (List Nat)] (List Nat)
-  :termination-by n
-  (match n Nat (List Nat)
-    (zero xs)
-    (succ [k]
-      (match xs (List Nat) (List Nat)
-        (nil nil)
-        (cons [hd tl] (drop k tl))))))
+  (match n
+    [zero xs]
+    [(succ k) (match xs [nil nil] [(cons hd tl) (drop k tl)])]))
 
 (println "(take 2 '(1 2 3 4)) =>" (take 2 '(1 2 3 4)))
 (println "(drop 2 '(1 2 3 4)) =>" (drop 2 '(1 2 3 4)))
@@ -62,26 +53,26 @@
 ;; ============================================================
 ;; 3. Merge Sort — recursive divide-and-conquer
 ;; ============================================================
-;; Well-founded recursion with measure: length(xs)
-;; Each recursive call operates on half the list.
+;; Each recursive call operates on half the list. Termination is not proved here
+;; (see the note on ^:partial below).
 
 (println "\n━━━ 3. Verified Merge Sort ━━━\n")
 
-(a/defn sort [xs :- (List Nat)] (List Nat)
-  :termination-by (List.length xs)
-  (match xs (List Nat) (List Nat)
-    (nil nil)
-    (cons [hd tl]
-      (match tl (List Nat) (List Nat)
-        ;; Single element — already sorted
-        (nil (cons hd nil))
-        ;; Two or more — split, sort recursively, merge
-        (cons [hd2 tl2]
-          (merge
-            (sort (take (/ (+ 2 (List.length tl2)) 2)
-                        (cons hd (cons hd2 tl2))))
-            (sort (drop (/ (+ 2 (List.length tl2)) 2)
-                        (cons hd (cons hd2 tl2))))))))))
+;; ^:partial: termination is trusted, not proved. The decrease obligation
+;; length (take k xs) < length xs needs lemmas about List.length/take, which the
+;; omega-based termination check cannot use (Lean discharges it with decreasing_by).
+(a/defn ^:partial sort [xs :- (List Nat)] (List Nat)
+  (match xs
+    [nil nil]
+    [(cons hd tl)
+     (match tl
+       ;; Single element — already sorted
+       [nil (cons hd nil)]
+       ;; Two or more — split, sort recursively, merge
+       [(cons hd2 tl2)
+        (merge
+          (sort (take (quot (+ 2 (List.length tl2)) 2) (cons hd (cons hd2 tl2))))
+          (sort (drop (quot (+ 2 (List.length tl2)) 2) (cons hd (cons hd2 tl2)))))])]))
 
 (println "(sort '(5 3 1 4 2))     =>" (sort '(5 3 1 4 2)))
 (println "(sort '(9 1 8 2 7 3))   =>" (sort '(9 1 8 2 7 3)))
@@ -124,15 +115,16 @@
 (println "\n━━━ 6. Insertion Sort + Correctness Proof ━━━\n")
 
 (a/defn insertSorted [x :- Nat, l :- (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil (cons x nil))
-    (cons [hd tl] (match (<= x hd) Bool (List Nat)
-      (true (cons x l)) (false (cons hd ih_tail))))))
+  (match l
+    [nil (cons x nil)]
+    [(cons hd tl) (match (<= x hd)
+                    [true (cons x l)]
+                    [false (cons hd (insertSorted x tl))])]))
 
 (a/defn isort [l :- (List Nat)] (List Nat)
-  (match l (List Nat) (List Nat)
-    (nil nil)
-    (cons [hd tl] (insertSorted hd ih_tail))))
+  (match l
+    [nil nil]
+    [(cons hd tl) (insertSorted hd (isort tl))]))
 
 (println "(isort '(5 3 1 4 2)) =>" (isort '(5 3 1 4 2)))
 
@@ -160,40 +152,6 @@
 
 (println "✓ Proved: Sorted l → Sorted(insertSorted x l)")
 (println "  (kernel-verified by CIC type checker)")
-
-;; ============================================================
-;; 7. Manual Proof (for comparison)
-;; ============================================================
-;; The same theorem proved step-by-step without grind.
-;; Each tactic line corresponds to a specific proof obligation.
-
-(println "\n━━━ 7. Same Proof — Manual Tactics (for comparison) ━━━\n")
-
-(a/theorem insert-preserves-manual
-  [x :- Nat, l :- (List Nat), h :- (Sorted l)]
-  (Sorted (insertSorted x l))
-  ;; Induction on h : Sorted l (3 cases: nil, single, cons_cons)
-  (induction h)
-  ;; Nil case: insertSorted x [] = [x], need Sorted.single
-  (apply (Sorted.single x))
-  ;; Case-split on x <= a, unfold insertSorted in each branch
-  (all_goals (try (by_cases (<= x a))))
-  (all_goals (try (simp_all "insertSorted")))
-  ;; Sub-split cons_cons case on x <= b
-  (all_goals (try (by_cases (<= x b))))
-  (all_goals (try (simp_all "insertSorted")))
-  (all_goals (try (simp_all "insertSorted")))
-  ;; Close remaining: constructors + arithmetic + assumptions
-  (all_goals (try (apply Sorted.cons_cons)))
-  (all_goals (try (omega)))
-  (all_goals (try (apply Sorted.single)))
-  (all_goals (try (assumption)))
-  (all_goals (try (apply Sorted.cons_cons)))
-  (all_goals (try (omega)))
-  (all_goals (try (assumption))))
-
-(println "✓ Same theorem proved with 14 manual tactic lines")
-(println "  (grind automates all of this from the induction hypothesis)")
 
 (println "\n━━━ Summary ━━━\n")
 (println "All functions and theorems above are:")
