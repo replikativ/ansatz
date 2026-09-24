@@ -79,8 +79,8 @@
 (deftest tactic-types-are-propositions
   (testing "a type given to `have` is elaborated as a type, as in Lean"
     (a/theorem ifp-have [n :- Nat, h :- (<= 1 n)] (<= 1 n)
-      (have h2 (<= 1 n) h)
-      (exact h2))
+               (have h2 (<= 1 n) h)
+               (exact h2))
     (a/theorem ifp-have-bool [b :- Bool, h :- (= b true)] (= b true)
-      (have h2 (= b true) h)
-      (exact h2))))
+               (have h2 (= b true) h)
+               (exact h2))))
