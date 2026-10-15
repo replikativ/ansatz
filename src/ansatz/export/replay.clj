@@ -259,6 +259,24 @@
         :tag (env/ci-tag ci)
         :error "inductive bundle member encountered outside bundle head"})
 
+      ;; unsafe/partial definitions (e.g. `_unsafe_rec`) may be (mutually) self-referential:
+      ;; Lean admits them as a group, headers first (environment::add_mutual)
+      (and (.isDef ci) (not= 0 (int (.safety ci))))
+      (let [all-names (vec (or (.all ci) [(.name ci)]))
+            group (conj (get-in state [:pending-mutual all-names] []) ci)]
+        (if (< (count group) (count all-names))
+          (assoc-in state [:pending-mutual all-names] group)
+          (let [state (update state :pending-mutual dissoc all-names)]
+            (try
+              (record-stream-results
+               (assoc state :env (TypeChecker/checkMutualDefinitions (:env state) group (long default-fuel)))
+               (mapv (fn [^ConstantInfo m] {:status :ok :name (str (.name m)) :tag (env/ci-tag m)}) group))
+              (catch Exception ex
+                (record-stream-results
+                 state
+                 (mapv (fn [^ConstantInfo m] {:status :error :name (str (.name m)) :tag (env/ci-tag m)
+                                              :error (.getMessage ex)}) group)))))))
+
       :else
       (let [[env' result] (replay-one (:env state) ci)]
         (record-stream-result (assoc state :env env') result)))))
@@ -297,6 +315,7 @@
                   :total (+ (:ok st) (:errors st))
                   :elapsed-ms elapsed}
           :error-names (:error-names st)
+          :incomplete-mutual (mapv #(mapv str %) (keys (:pending-mutual st)))
           :meta (:parser-meta result)})))))
 
 (defn summarize-errors

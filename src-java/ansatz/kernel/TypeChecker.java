@@ -2540,6 +2540,41 @@ public final class TypeChecker {
     }
 
     /**
+     * Admit a group of unsafe/partial definitions that may refer to each other (and to
+     * themselves), following Lean 4's {@code environment::add_mutual} (and the unsafe branch of
+     * {@code add_definition}, which is the one-member case): every member must carry the SAME
+     * non-safe safety; the headers are checked in {@code env}, all members are added, and only
+     * then are the bodies checked — in the extended environment, so recursive references resolve.
+     * This is how Lean admits the {@code _unsafe_rec} companions of {@code partial} / compiled
+     * well-founded definitions. Safe definitions never take this path.
+     */
+    public static Env checkMutualDefinitions(Env env, java.util.List<ConstantInfo> cis, long fuel) {
+        if (cis.isEmpty()) throw new RuntimeException("invalid empty mutual definition");
+        byte safety = cis.get(0).safety;
+        if (safety == DEFN_SAFE)
+            throw new RuntimeException("invalid mutual definition, declaration is not tagged as unsafe/partial: " + cis.get(0).name);
+        for (ConstantInfo ci : cis) {
+            if (!ci.isDef()) throw new RuntimeException("invalid mutual definition, not a definition: " + ci.name);
+            if (ci.safety != safety)
+                throw new RuntimeException("invalid mutual definition, declarations must have the same safety annotation: " + ci.name);
+            checkDuplicateUnivParams(ci.levelParams, ci.name);
+            TypeChecker tc = new TypeChecker(env, safety, ci.levelParams);
+            tc.setFuel(fuel);
+            tc.ensureSort(tc.check(Expr.shareCommon(ci.type)));
+        }
+        Env newEnv = env;
+        for (ConstantInfo ci : cis) newEnv = newEnv.addConstant(ci);
+        for (ConstantInfo ci : cis) {
+            TypeChecker tc = new TypeChecker(newEnv, safety, ci.levelParams);
+            tc.setFuel(fuel);
+            Expr inferred = tc.check(Expr.shareCommon(ci.value));
+            if (!tc.isDefEq(inferred, Expr.shareCommon(ci.type)))
+                throw new RuntimeException("Type error: Declaration value type does not match declared type for " + ci.name);
+        }
+        return newEnv;
+    }
+
+    /**
      * Type-check and add-or-REPLACE a constant (SURFACE redefinition: a/defn / a/theorem in a REPL).
      * Identical type-checking to {@link #checkConstant}; only the final add replaces rather than throwing.
      * Kernel proof / install paths keep using the strict {@link #checkConstant}.
