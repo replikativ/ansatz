@@ -401,8 +401,19 @@
           arg-info (atom [])
           ;; Peel foralls, WHNF at each step to handle type aliases
           ;; (e.g., DecidableEq Nat → ∀ a b, Decidable (Eq Nat a b))
+          ;; …but stop at the instance's DECLARED conclusion when it already has the goal's
+          ;; class head: `instDecidableEqFin : (n : Nat) → DecidableEq (Fin n)` for the goal
+          ;; `DecidableEq (Fin 3)` must match at `DecidableEq (Fin ?n)`. Unfolding the alias to
+          ;; `∀ a b, Decidable (a = b)` peels two binders the goal does not have, so nothing
+          ;; matches (a zero-arity instance like `instDecidableEqBool` only got through the
+          ;; name-based fallback).
+          goal-head (let [[h _] (e/get-app-fn-args goal-type)] (when (e/const? h) (e/const-name h)))
           result-type (loop [t ctype]
-                        (let [tw (or (try (whnf st t) (catch Exception _ nil)) t)]
+                        (let [[th _] (e/get-app-fn-args t)
+                              tw (if (and goal-head (not (e/forall? t)) (e/const? th)
+                                          (= (e/const-name th) goal-head))
+                                   t
+                                   (or (try (whnf st t) (catch Exception _ nil)) t))]
                           (if (e/forall? tw)
                             (let [fv-id (swap! (:next-id st) inc)
                                   fv (e/fvar fv-id)
@@ -636,6 +647,24 @@
                                 (e/const' (name/from-string "Bool") [])
                                 (e/const' (name/from-string "Bool.true") []))))))))
 
+(declare synthesize*)
+
+(defn- decidable-eq-instance
+  "`Decidable (@Eq.{u} T a b)` ⇐ `(inst a b)` for a synthesized `inst : DecidableEq.{u} T`,
+   type-checked against the goal. nil for any other goal."
+  [st env index goal-type head-info depth]
+  (when (= "Decidable" (name/->string head-info))
+    (let [[_ gargs] (e/get-app-fn-args goal-type)
+          [eh eargs] (when (= 1 (count gargs)) (e/get-app-fn-args (first gargs)))]
+      (when (and eh (e/const? eh) (= "Eq" (name/->string (e/const-name eh))) (= 3 (count eargs)))
+        (let [[T a b] eargs
+              deq (e/app (e/const' (name/from-string "DecidableEq") (vec (e/const-levels eh))) T)]
+          (when-let [inst (synthesize* st env index deq (inc depth))]
+            (let [t (e/app* inst a b)]
+              (when (try (tc/is-def-eq st (tc/infer-type st t) goal-type)
+                         (catch Exception _ false))
+                t))))))))
+
 (defn synthesize*
   "Synthesis with depth limit and backtracking, memoized on the tc-state
    (`:synth-memo`, Lean's synthInstance cache — failures memoize too, which is
@@ -695,6 +724,10 @@
                 (when (try (tc/is-def-eq st (tc/infer-type st t) goal-type)
                            (catch Exception _ false))
                   t))
+              ;; `Decidable (@Eq T a b)` from a `DecidableEq T` instance. Lean keys DecidableEq
+              ;; instances under their unfolded conclusion `Decidable (Eq _ _ _)`, so they answer
+              ;; such goals directly; the registry here lists them under `DecidableEq`. Type-checked.
+              (decidable-eq-instance st env index goal-type head-info depth)
             ;; Fallback: name-based resolution with derivation chains (from ansatz.core).
             ;; TYPE-CHECKED before it is returned: that resolver builds terms from naming
             ;; conventions alone and its H-class rule assumes a HOMOGENEOUS operator, so on a

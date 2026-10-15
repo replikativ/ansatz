@@ -163,3 +163,38 @@
                    (inst/get-instances (inst/index-for (inst/add-instance env' inst :priority 10))
                                        (name/from-string "Nonempty"))))
         "re-registering replaces the entry, and a lower priority sorts it behind the defaults")))
+
+;; ============================================================
+;; DecidableEq instances with arguments (Lean keys them by the unfolded conclusion)
+;; ============================================================
+
+(deftest test-synthesize-decidable-eq-with-arguments
+  ;; `T : Nat → Type` with `instT : (n : Nat) → DecidableEq (T n)` — the shape of
+  ;; `instDecidableEqFin`. Peeling instT's type through the `DecidableEq` alias used to
+  ;; produce `Decidable (a = b)` with two extra binders, so neither goal below matched.
+  (let [nm name/from-string
+        c (fn [s & ls] (e/const' (nm s) (vec ls)))
+        u1 (lvl/succ lvl/zero)
+        type0 (e/sort' u1)
+        T (fn [n] (e/app (c "T") n))
+        env (-> (require-env)
+                (.addConstant (env/mk-axiom (nm "T") [] (e/forall' "n" (c "Nat") type0 :default)))
+                (.addConstant (env/mk-axiom (nm "instT") []
+                                            (e/forall' "n" (c "Nat")
+                                                       (e/app (c "DecidableEq" u1) (T (e/bvar 0)))
+                                                       :default))))
+        idx (inst/parse-instance-tsv ["DecidableEq\tinstT\t1000"])]
+    (testing "DecidableEq (T 3) matches instT at its declared conclusion"
+      (let [r (inst/synthesize* (tc/mk-tc-state env) env idx
+                                (e/app (c "DecidableEq" u1) (T (e/lit-nat 3))) 0)]
+        (is (= "(app (const instT []) (lit-nat 3))" (str r)))))
+    (testing "Decidable (x = y) at T n is answered by the DecidableEq instance applied to x y"
+      (let [n (e/fvar 900)
+            st (tc/mk-tc-state-with-locals env {900 {:name "n" :type (c "Nat")}
+                                                901 {:name "x" :type (T n)}
+                                                902 {:name "y" :type (T n)}})
+            goal (e/app (c "Decidable") (e/app* (c "Eq" u1) (T n) (e/fvar 901) (e/fvar 902)))
+            r (inst/synthesize* st env idx goal 0)]
+        (is (some? r))
+        (is (= "instT" (str (e/const-name (e/get-app-fn r)))))
+        (is (tc/is-def-eq st (tc/infer-type st r) goal))))))
