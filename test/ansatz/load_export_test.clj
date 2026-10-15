@@ -14,7 +14,7 @@
         (is (some? (env/lookup (a/env) (name/from-string "Nat.add_succ"))))))
     (testing "an export with an ill-typed declaration is refused, the session env is kept"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not check"
-            (a/load-export! "test-data/arena/002_badDef.ndjson")))
+                            (a/load-export! "test-data/arena/002_badDef.ndjson")))
       (is (some? (env/lookup (a/env) (name/from-string "Nat.add_succ")))))
     (testing "trust mode admits without re-checking"
       (is (= 1 (:declarations (a/load-export! "test-data/arena/002_badDef.ndjson" :verify? false)))))))

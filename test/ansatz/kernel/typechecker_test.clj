@@ -622,17 +622,17 @@
         (is (some? (.lookup env' (nm "h"))))))
     (testing "safe definitions never take the mutual path"
       (is (thrown-with-msg? Exception #"not tagged as unsafe/partial"
-            (TypeChecker/checkMutualDefinitions
-             base [(env/mk-def (nm "k") [] A (mk-const "k"))] 1000000))))
+                            (TypeChecker/checkMutualDefinitions
+                             base [(env/mk-def (nm "k") [] A (mk-const "k"))] 1000000))))
     (testing "mixed safety is rejected"
       (is (thrown-with-msg? Exception #"same safety"
-            (TypeChecker/checkMutualDefinitions
-             base [g (env/mk-def (nm "h") [] A (mk-const "g") :safety :unsafe
-                                 :all [(nm "g") (nm "h")])] 1000000))))
+                            (TypeChecker/checkMutualDefinitions
+                             base [g (env/mk-def (nm "h") [] A (mk-const "g") :safety :unsafe
+                                                 :all [(nm "g") (nm "h")])] 1000000))))
     (testing "a body of the wrong type is rejected"
       (let [B (env/mk-axiom (nm "B") [] type0)
             b (env/mk-axiom (nm "b") [] (mk-const "B"))
             env1 (-> base (.addConstant B) (.addConstant b))]
         (is (thrown? Exception
-              (TypeChecker/checkMutualDefinitions
-               env1 [(env/mk-def (nm "bad") [] A (mk-const "b") :safety :partial)] 1000000)))))))
+                     (TypeChecker/checkMutualDefinitions
+                      env1 [(env/mk-def (nm "bad") [] A (mk-const "b") :safety :partial)] 1000000)))))))
