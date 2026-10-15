@@ -598,3 +598,41 @@
                Exception
                #"generated recursor rule mismatch"
                (TypeChecker/checkInductiveBundle (Env.) bundle 1000000))))))))
+
+;; ============================================================
+;; Unsafe / partial (mutual) definitions — Lean's environment::add_mutual
+;; ============================================================
+
+(deftest mutual-partial-definitions-test
+  (let [A (mk-const "A")
+        base (-> (Env.)
+                 (.addConstant (env/mk-axiom (name/from-string "A") [] type0)))
+        nm name/from-string
+        self (env/mk-def (nm "f._unsafe_rec") [] A (mk-const "f._unsafe_rec") :safety :partial)
+        g (env/mk-def (nm "g") [] A (mk-const "h") :safety :partial :all [(nm "g") (nm "h")])
+        h (env/mk-def (nm "h") [] A (mk-const "g") :safety :partial :all [(nm "g") (nm "h")])]
+    (testing "a self-referential partial def is admitted, headers before bodies"
+      (let [env' (TypeChecker/checkMutualDefinitions base [self] 1000000)]
+        (is (some? (.lookup env' (nm "f._unsafe_rec"))))))
+    (testing "the one-at-a-time path cannot see the recursive reference"
+      (is (thrown? Exception (TypeChecker/checkConstant base self 1000000))))
+    (testing "a mutual partial group is admitted together"
+      (let [env' (TypeChecker/checkMutualDefinitions base [g h] 1000000)]
+        (is (some? (.lookup env' (nm "g"))))
+        (is (some? (.lookup env' (nm "h"))))))
+    (testing "safe definitions never take the mutual path"
+      (is (thrown-with-msg? Exception #"not tagged as unsafe/partial"
+                            (TypeChecker/checkMutualDefinitions
+                             base [(env/mk-def (nm "k") [] A (mk-const "k"))] 1000000))))
+    (testing "mixed safety is rejected"
+      (is (thrown-with-msg? Exception #"same safety"
+                            (TypeChecker/checkMutualDefinitions
+                             base [g (env/mk-def (nm "h") [] A (mk-const "g") :safety :unsafe
+                                                 :all [(nm "g") (nm "h")])] 1000000))))
+    (testing "a body of the wrong type is rejected"
+      (let [B (env/mk-axiom (nm "B") [] type0)
+            b (env/mk-axiom (nm "b") [] (mk-const "B"))
+            env1 (-> base (.addConstant B) (.addConstant b))]
+        (is (thrown? Exception
+                     (TypeChecker/checkMutualDefinitions
+                      env1 [(env/mk-def (nm "bad") [] A (mk-const "b") :safety :partial)] 1000000)))))))

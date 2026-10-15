@@ -11,6 +11,7 @@ clojure -M:ci \
 	-n ansatz.export.storage-test \
 	-n ansatz.kernel.reducer-test \
 	-n ansatz.kernel.typechecker-test \
+	-n ansatz.load-export-test \
 	-n ansatz.surface.lean-test \
 	-n ansatz.surface.pp-test \
 	-n ansatz.theory.convergence-test \

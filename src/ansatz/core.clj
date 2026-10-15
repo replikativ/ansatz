@@ -277,6 +277,34 @@
       (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
       @ansatz-env)))
 
+(clojure.core/defn load-export!
+  "Load a lean4export NDJSON file (one library's export, e.g. a dependency closure) as the
+   session environment, without building a store. By default every declaration is re-checked
+   by the kernel from an empty env (`:verify? false` admits them in TRUST mode instead) and an
+   export that does not check throws. Optional companions from the same Lean environment:
+   `:instances` — the scripts/dump_instances.lean TSV (else instances are discovered by name),
+   `:attrs` — the scripts/dump_attrs.lean corpus (@[simp]/@[csimp]/@[extern]); both are
+   restricted to the declarations the export contains. Returns {:declarations :elapsed-ms}."
+  [ndjson & {:keys [instances attrs verify?] :or {verify? true}}]
+  (let [t0 (System/currentTimeMillis)
+        {:keys [env stats error-names]}
+        (if verify?
+          (replay/replay-file-streaming ndjson)
+          (replay/replay (:decls (parser/parse-ndjson-file ndjson)) :verify? false))]
+    (when (pos? (:errors stats))
+      (throw (ex-info (str "export does not check: " (:errors stats) " declarations failed")
+                      {:ndjson ndjson :stats stats :failed (vec (take 50 error-names))})))
+    (let [present? (fn [n] (some? (env/lookup env (name/from-string n))))
+          derived {:attrs (when attrs
+                            (filterv (fn [[_ n _ _]] (present? n)) (attrs/read-attr-file attrs)))
+                   :instances (when instances
+                                (instance/parse-instance-tsv
+                                 (clojure.string/split-lines (slurp instances)) present?))
+                   :matchers (into {} (filter (fn [[n _]] (present? n))) (matchers/bundled-matchers))}]
+      (setup-env! env nil present? derived)
+      {:declarations (.size ^ansatz.kernel.Env @ansatz-env)
+       :elapsed-ms (- (System/currentTimeMillis) t0)})))
+
 (clojure.core/defn env [] (or @ansatz-env (throw (ex-info "Call (ansatz/init!) or (ansatz/load-init!) first" {}))))
 (clojure.core/defn instance-index
   "The session's instance table: the registry ON the session env (Lean's instance table is
