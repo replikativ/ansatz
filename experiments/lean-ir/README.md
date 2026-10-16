@@ -815,7 +815,8 @@ interfaces are another reference design. Pattern passes can then transform typed
 data without operating on native LLVM object pointers. Initial support should be
 small and explicit: integer SSA, blocks/phis, branches, direct calls and returns.
 Unsupported constructs must be rejected or retained opaquely outside semantic
-rewrites. There is no general LLVM importer/exporter in this experiment yet.
+rewrites. There is no general LLVM importer/exporter in this experiment yet;
+the optional scalar bridge below implements a deliberately restricted subset.
 See [LLVM IR reader](https://llvm.org/doxygen/group__LLVMCCoreIRReader.html) and
 [MLIR's LLVM translation](https://mlir.llvm.org/docs/TargetLLVMIR/).
 
@@ -837,7 +838,7 @@ compilation an optional tier for hot regions and measure its latency separately.
 See [stack maps](https://llvm.org/docs/StackMaps.html) and
 [ORC](https://llvm.org/docs/ORCv2.html).
 
-Two bounded plumbing probes accompany this proposal:
+The original plumbing probes accompany this proposal:
 
 * `prototype.pattern-probe` defines and validates a small LLVM-shaped Pattern
   dialect. It checks grammar shape, not SSA dominance or semantic equivalence.
@@ -845,7 +846,8 @@ Two bounded plumbing probes accompany this proposal:
   do not acquire this dependency.
 * `llvm/TailProbe.ll` is independently checked with LLVM's own tools. It exercises
   200,000 `musttail` transfers and checks the result. It uses i64 arithmetic and
-  no guest heap. There is no generated connection between these two fixtures yet.
+  no guest heap. The new bridge exports Pattern data directly; this older fixture
+  remains an independent test, not the bridge's generated output.
 
 The [probe record](measurements/llvm-pattern-probes.json) pins the Pattern commit,
 fixture hashes and LLVM commands. The optional Pattern probe passes against the
@@ -868,6 +870,84 @@ With `PATTERN_DIR` set before starting the experiment REPL, the optional probe i
 (require '[prototype.pattern-probe :as pp])
 (pp/check!)
 ```
+
+#### Optional scalar bridge: REPL round trip
+
+LLVM is optional. The guest interpreter, Clojure/JVM compiler, explicit tail-call
+loop, snapshots and lazy compilation do not call LLVM or require Pattern. The
+bridge is outside normal source/AOT paths and is not registered in the default
+test runner. The local Lean checkout also makes LLVM support optional; its C
+backend does not require the optional LLVM backend. Hosting more of Lean still
+requires module initialization, extern implementations and runtime semantics;
+adding LLVM does not supply those facilities.
+
+`prototype.llvm-bridge` now connects the scalar Pattern dialect to LLVM:
+
+```mermaid
+flowchart LR
+  A[Pattern scalar data] --> B[Pure text exporter]
+  B --> C[LLVM 20 parser and verifier]
+  C --> D[Canonical LLVM text]
+  D --> E[Strict subset adapter]
+  E --> F[Imported Pattern data]
+  F --> G[Clojure scalar evaluator]
+  B --> H[Separate lli process and result-check harness]
+```
+
+This adapter supports named `tailcc` functions, i1/i32/i64 arithmetic, equality,
+named blocks, conditional/unconditional branches, returns and direct `musttail`
+calls. The Clojure evaluator uses an explicit loop for tail transfers and modulo
+integer arithmetic. It assumes verified, in-profile input; it is not the Lean
+guest machine or a proof of LLVM semantics.
+
+`import-text` first uses `llvm-as`, `opt -passes=verify` and `llvm-dis`; only then
+does it adapt the canonical text using anchored, restricted forms. This is a
+bounded prototype adapter, not a general text parser. LLVM 20 is required for
+this adapter, independently of Lean's optional backend version. Unsupported
+attributes, target/data layout, pointers, loads/stores, phis, poison and other
+constructs are rejected. Comments and source filename metadata are discarded.
+Bitcode input and arbitrary optimized LLVM modules are not supported. A broader
+adapter should use LLVM's structured API rather than extend these text rules.
+
+After adding the optional Pattern dependency as above, these forms work in the
+existing REPL and leave the ordinary guest runtime intact:
+
+```clojure
+(require '[prototype.llvm-bridge :as llvm])
+(def llvm-export (llvm/export-text pp/sample))
+(def llvm-import (llvm/import-text llvm-export))
+(= pp/sample llvm-import) ; true
+(llvm/evaluate llvm-import 'count [200000 0]) ; 200000N, no LLVM invocation
+(llvm/native-check! llvm-import 'count [200000 0] 200000) ; :exit 0
+
+;; Use run-tests here, never the CLI -main that shuts down agent pools.
+(require '[prototype.llvm-bridge-test] '[clojure.test :as test])
+(test/run-tests 'prototype.llvm-bridge-test)
+```
+
+The native harness compares the complete scalar result inside LLVM and returns
+a success/failure exit status; it does not truncate the result to an exit byte.
+Tests cover structural round trips, 200,000 tail transfers, calls between
+functions, branches, i1/i32/i64 wraparound and verifier/subset rejection.
+The [scalar bridge record](measurements/llvm-scalar-bridge.json) pins the sources,
+tool version and successful REPL/CLI results: 7 tests and 34 assertions. The
+unchanged baseline suite also passes: 48 tests and 10,410 assertions.
+These programs have no heap or host bindings: there is no native-region ABI,
+ORC integration or Lean-IR-to-LLVM lowering yet. No performance comparison is
+claimed; each native check includes tool and process startup.
+
+Run the optional suite from this directory, with `PATTERN_DIR` pointing to the
+Pattern checkout:
+
+```sh
+clojure -Srepro -J-Xmx1g \
+  -Sdeps "{:deps {com.github.pangloss/pattern {:local/root \"$PATTERN_DIR\"}}}" \
+  -M -m prototype.llvm-bridge-test
+```
+
+Keep the fast JVM path as the default. The next LLVM step is a small semantic
+guest-IR-to-CFG lowering with differential checks; heap-bearing native regions
+must wait for explicit ownership, handle and state-materialization contracts.
 
 ### REPL
 
