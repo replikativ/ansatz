@@ -356,6 +356,72 @@ should target compact call frames and live-register spills, joins as control
 flow, and Ref-to-map heap indirection. The block compiler retains interpreter
 bookkeeping that a closed compiled region should eventually avoid.
 
+### Compact frame experiment
+
+The mutable backend now stores return frames and join descriptors in fixed-layout
+object arrays. Parameter transfers use indexed binding, and RC drops skip scalar
+values before allocating a release worklist. Snapshots still contain the same
+immutable maps and vectors as the reference machine. Join capture still copies
+the complete register array; these changes do not implement live-register spills,
+lexical compiled joins or direct heap references.
+
+Compare the previous runtime with this one using the same reference snapshots:
+
+```sh
+git show 719bdcf:experiments/lean-ir/src/prototype/mutable.clj > target/mutable-before-compact.clj
+clojure -Srepro -J-Xmx1g -J-XX:-UsePerfData -M -m prototype.compact-bench target/mutable-before-compact.clj > target/compact-comparison.json
+```
+
+The runner refreshes function definitions in baseline/compact/compact/baseline
+order, builds fresh normally linked blocks per phase, and checks complete result
+snapshots outside each kernel timer. It measures copying and warm edits separately.
+Source hashes identify both runtime versions. This is one JVM with shared JIT and
+GC history; the order reduces a simple warmup bias but does not establish precise
+speed ratios. Allocation counters cover the executing thread, excluding setup and
+snapshot materialization.
+
+[Retained ABBA results](measurements/compact-frames.json) use 40 warmups and 15
+samples per phase/case. Compiled unique-input allocation medians across the two
+phases for each implementation were:
+
+| Operation | Previous runtime | Compact runtime |
+| --- | ---: | ---: |
+| Map, 1,000 elements | 3.85–3.98 MB | 2.73 MB |
+| Fold, 1,000 elements | 3.74–3.88 MB | 2.62 MB |
+| Reverse, 1,000 elements | 2.91–3.00 MB | 1.19–1.24 MB |
+| Mirror, 1,023 nodes | 1.92–2.12 MB | 1.40 MB |
+
+MB here means decimal megabytes allocated on the executing JVM thread. Timing
+results are mixed: compiled map medians were 5.85/6.77 ms before and 5.64/8.72 ms
+after. Reverse was 3.47/2.94 ms before and 2.47/2.29 ms after. This supports an
+allocation reduction, not a general throughput claim. Warm callback edit-to-result
+medians remained around 3.3 ms. Full-copy 10,000-node snapshots remained around
+3–4 ms; compact frames do not remove heap copying.
+
+The live REPL's `compact-lab` resumes a snapshot captured before this change,
+checks two matching fork results and the unchanged parent list, and runs the
+one-block callback edit. The sparse-register suspension regression also restores
+a caller's captured lexical join after executing and forking its suspended callee.
+
+Validation for this change: prototype 29 tests / 794 assertions, SCI 3 / 7, and
+the surrounding Ansatz source suite 713 / 2,417, all passing. Optional full Init
+and Mathlib fixtures remain unavailable. Production/AOT and portable CLJS source
+are unchanged; the JAR and Node checks were not rerun for this JVM-only experiment.
+
+Before refreshing across this representation change, freeze every retained mutable
+machine with its existing runtime and restore it after refreshing. Function-only
+refresh preserves record identities, but cannot migrate an old frame layout.
+Rebuild compiled programs after the change, especially direct-linked programs.
+
+For the next region compiler, make lexical joins local control-flow edges and
+derive stack maps at calls, suspension and supported fork boundaries. There is a
+semantic comparison to settle first: current differential checks include dead
+register bindings. Spilling only live registers needs either reconstruction of
+that diagnostic state or an explicit refinement relation that ignores dead
+bindings while checking control, heap ownership, effects and results. Register
+liveness alone must not replace the IR's explicit RC operations. Keep the current
+machine as the fallback until these boundaries can be materialized correctly.
+
 ### REPL
 
 ```clojure

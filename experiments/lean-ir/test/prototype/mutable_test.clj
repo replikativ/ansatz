@@ -56,6 +56,30 @@
     (doseq [s [s (m/retain s closure 1)]]
       (compare-steps (m/start s :apply [closure])))))
 
+(deftest suspended-call-restores-lexical-join-and-sparse-registers
+  (let [functions
+        {:entry {:params [7]
+                 :body [:join 42 [9]
+                        [:let 13 [:prim :add [[:var 7] [:var 9]]] [:return [:var 13]]]
+                        [:let 7 [:literal 100]
+                         [:call 21 [:direct :worker] [[:var 7]] [:jump 42 [[:var 21]]]]]]}
+         :worker {:params [5] :body [:suspend 11 [:return [:var 11]]]}}
+        initial (m/start (m/world functions) :entry [3])
+        parent (u/run! (u/thaw initial))
+        captured (u/freeze parent)]
+    (compare-steps initial)
+    (is (= :suspended (:status captured)))
+    (is (= 3 (get-in captured [:frames 0 :joins 42 :locals 7])))
+    (is (= 100 (get-in captured [:frames 0 :locals 7])))
+    (doseq [answer [10 20]]
+      (let [child (u/thaw captured)
+            result (u/freeze (u/run! (u/resume! child answer)))]
+        (is (= (m/run (m/resume captured answer)) result))
+        (is (= (+ 3 answer) (:result result)))
+        (is (= captured (u/freeze parent)))))
+    (u/run! (u/resume! parent 30))
+    (is (= 3 (get-in captured [:frames 0 :joins 42 :locals 7])))))
+
 (defn -main [& _]
   (let [result (run-tests 'prototype.mutable-test)]
     (shutdown-agents)

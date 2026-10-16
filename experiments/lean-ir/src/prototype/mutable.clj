@@ -16,12 +16,29 @@
   (let [a (object-array n)]
     (Arrays/fill a unbound)
     (doseq [[k v] bindings] (aset a (int k) v)) a))
+(defn- bind-params! [locals params args]
+  ;; IR parameter/argument vectors are already indexed. Avoid constructing an
+  ;; intermediate map or a lazy sequence of pairs on every guest transfer.
+  (dotimes [i (count params)]
+    (aset ^objects locals (int (nth params i)) (nth args i)))
+  locals)
 (defn- bindings [a]
   (into {} (keep-indexed (fn [i v] (when-not (identical? unbound v) [i v])) a)))
 (defn- joins-out [joins]
-  (into {} (map (fn [[k j]] [k (update j :locals bindings)]) joins)))
+  (into {} (map (fn [[k j]]
+                  [k {:params (aget ^objects j 0) :body (aget ^objects j 1)
+                      :locals (bindings (aget ^objects j 2))}]) joins)))
 (defn- joins-in [n joins]
-  (HashMap. ^java.util.Map (update-vals (or joins {}) #(update % :locals (partial registers n)))))
+  (let [result (HashMap.)]
+    (doseq [[k j] joins]
+      (.put result k (object-array [(:params j) (:body j) (registers n (:locals j))])))
+    result))
+(defn- frame-in [n frame]
+  (object-array [(:body frame) (:dest frame) (registers n (:locals frame))
+                 (joins-in n (:joins frame))]))
+(defn- frame-out [frame]
+  {:body (aget ^objects frame 0) :dest (aget ^objects frame 1)
+   :locals (bindings (aget ^objects frame 2)) :joins (joins-out (aget ^objects frame 3))})
 (defn- slot-count [s]
   (let [forms (tree-seq coll? seq (:functions s))
         ids (concat (mapcat :params (vals (:functions s)))
@@ -44,8 +61,7 @@
                (HashMap. ^java.util.Map
                          (update-vals (:heap snapshot) #(update % :fields object-array)))
                (ArrayDeque. ^java.util.Collection
-                            (mapv #(-> % (update :locals (partial registers n))
-                                       (update :joins (partial joins-in n))) (:frames snapshot)))
+                            (mapv #(frame-in n %) (:frames snapshot)))
                (java.util.ArrayList. ^java.util.Collection (:events snapshot))
                (long-array (map (:stats snapshot) [:allocations :field-stores :steps :max-frames])))))
 
@@ -56,7 +72,7 @@
            :next-id (ctl s 3) :events (vec (:events s))
            :stats (zipmap [:allocations :field-stores :steps :max-frames] (vec (aclone ^longs (:counters s))))
            :body (ctl s 0) :locals (bindings (ctl s 1)) :joins (joins-out (ctl s 2))
-           :frames (mapv #(-> % (update :locals bindings) (update :joins joins-out)) (:frames s))
+           :frames (mapv frame-out (:frames s))
            :status (ctl s 4)}
     (= :done (ctl s 4)) (assoc :result (ctl s 5))
     (= :suspended (ctl s 4)) (assoc :resume-var (ctl s 6))))
@@ -67,7 +83,8 @@
   (when (m/ref? v)
     (.put ^HashMap (:heap s) (:id v) (update (node s v) :rc + n))))
 (defn release! [s v n]
-  (let [pending (ArrayDeque.)]
+  (when (m/ref? v)
+   (let [pending (ArrayDeque.)]
     (.addLast pending [v n])
     (while (not (.isEmpty pending))
       (let [[v n] (.removeLast pending)]
@@ -78,7 +95,8 @@
               (.put ^HashMap (:heap s) (:id v) (assoc node :rc left))
               (do (.remove ^HashMap (:heap s) (:id v))
                   (when (= :resource kind) (.add ^java.util.ArrayList (:events s) [:released tag]))
-                  (doseq [f fields] (.addLast pending [f 1]))))))))))
+                  (doseq [f fields]
+                    (when (m/ref? f) (.addLast pending [f 1]))))))))))))
 (defn read-local [locals x]
   (let [v (aget ^objects locals (int x))]
     (if (identical? unbound v) (m/fail "Unbound variable" {:variable x}) v)))
@@ -105,9 +123,10 @@
 (defn deliver! [s result]
   (if (.isEmpty ^ArrayDeque (:frames s))
     (do (put! s 4 :done) (put! s 5 result))
-    (let [{:keys [body locals joins dest]} (.removeLast ^ArrayDeque (:frames s))]
-      (aset ^objects locals (int dest) result)
-      (put! s 0 body) (put! s 1 locals) (put! s 2 joins))))
+    (let [frame ^objects (.removeLast ^ArrayDeque (:frames s))
+          locals ^objects (aget frame 2)]
+      (aset locals (int (aget frame 1)) result)
+      (put! s 0 (aget frame 0)) (put! s 1 locals) (put! s 2 (aget frame 3)))))
 (defn call-values! [s target args dest continuation]
   (let [[target args]
         (if (= :direct (first target)) [(second target) args]
@@ -122,7 +141,7 @@
                   (release! s closure 1) [function args]))
               :else (m/fail "Expected closure" {:value closure}))))]
     (when continuation
-      (.addLast ^ArrayDeque (:frames s) {:body continuation :dest dest :locals (ctl s 1) :joins (ctl s 2)})
+      (.addLast ^ArrayDeque (:frames s) (object-array [continuation dest (ctl s 1) (ctl s 2)]))
       (let [a ^longs (:counters s)]
         (aset-long a 3 (max (aget a 3) (.size ^ArrayDeque (:frames s))))))
     (if (instance? prototype.machine.Builtin target)
@@ -134,11 +153,11 @@
         (when-not (= (count params) (count args)) (m/fail "Guest arity mismatch" {:target target}))
         (put! s 0 body)
         (if continuation
-          (do (put! s 1 (registers (:slots s) (zipmap params args)))
+          (do (put! s 1 (bind-params! (registers (:slots s) nil) params args))
               (put! s 2 (HashMap.)))
           (let [locals ^objects (ctl s 1)]
             (Arrays/fill locals unbound)
-            (doseq [[k v] (map vector params args)] (aset locals (int k) v))
+            (bind-params! locals params args)
             (.clear ^HashMap (ctl s 2))))))))
 
 (defn- call! [s target operands dest continuation]
@@ -164,13 +183,13 @@
   (cond (m/ref? v) (:tag (node s v)) (instance? prototype.machine.Tag v) (:tag v)
         (number? v) v :else (m/fail "Value has no constructor tag" {:value v})))
 (defn join! [s id params body]
-  (.put ^HashMap (ctl s 2) id {:params params :body body :locals (aclone ^objects (ctl s 1))}))
+  (.put ^HashMap (ctl s 2) id (object-array [params body (aclone ^objects (ctl s 1))])))
 (defn jump-values! [s id args]
-  (let [{:keys [params body locals] :as join} (.get ^HashMap (ctl s 2) id)]
-    (when-not (and join (= (count params) (count args))) (m/fail "Invalid join" {:join id}))
-    (let [locals (aclone ^objects locals)]
-      (doseq [[k v] (map vector params args)] (aset locals (int k) v))
-      (put! s 1 locals) (put! s 0 body))))
+  (let [join ^objects (.get ^HashMap (ctl s 2) id)]
+    (when-not (and join (= (count (aget join 0)) (count args))) (m/fail "Invalid join" {:join id}))
+    (let [locals (aclone ^objects (aget join 2))]
+      (bind-params! locals (aget join 0) args)
+      (put! s 1 locals) (put! s 0 (aget join 1)))))
 (defn store! [s r i v]
   (let [n (node s r) fields ^objects (:fields n)]
     (when-not (and (= :ctor (:kind n)) (= 1 (:rc n)) (< -1 i (alength fields)))
