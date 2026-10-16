@@ -51,9 +51,10 @@
 
 (defn freeze [s]
   (cond-> {:functions (:functions s)
-           :heap (into {} (map (fn [[k v]] [k (update v :fields vec)]) (:heap s)))
+           ;; vec may adopt a short Object[] instead of copying it.
+           :heap (into {} (map (fn [[k v]] [k (update v :fields #(vec (aclone ^objects %)))]) (:heap s)))
            :next-id (ctl s 3) :events (vec (:events s))
-           :stats (zipmap [:allocations :field-stores :steps :max-frames] (vec (:counters s)))
+           :stats (zipmap [:allocations :field-stores :steps :max-frames] (vec (aclone ^longs (:counters s))))
            :body (ctl s 0) :locals (bindings (ctl s 1)) :joins (joins-out (ctl s 2))
            :frames (mapv #(-> % (update :locals bindings) (update :joins joins-out)) (:frames s))
            :status (ctl s 4)}
@@ -62,10 +63,10 @@
 
 (defn- node [s r]
   (or (.get ^HashMap (:heap s) (:id r)) (m/fail "Dangling guest reference" {:ref r})))
-(defn- retain! [s v n]
+(defn retain! [s v n]
   (when (m/ref? v)
     (.put ^HashMap (:heap s) (:id v) (update (node s v) :rc + n))))
-(defn- release! [s v n]
+(defn release! [s v n]
   (let [pending (ArrayDeque.)]
     (.addLast pending [v n])
     (while (not (.isEmpty pending))
@@ -78,11 +79,13 @@
               (do (.remove ^HashMap (:heap s) (:id v))
                   (when (= :resource kind) (.add ^java.util.ArrayList (:events s) [:released tag]))
                   (doseq [f fields] (.addLast pending [f 1]))))))))))
+(defn read-local [locals x]
+  (let [v (aget ^objects locals (int x))]
+    (if (identical? unbound v) (m/fail "Unbound variable" {:variable x}) v)))
 (defn- value [s [op x]]
   (case op
     :imm x
-    :var (let [v (aget ^objects (ctl s 1) (int x))]
-           (if (identical? unbound v) (m/fail "Unbound variable" {:variable x}) v))
+    :var (read-local (ctl s 1) x)
     (m/fail "Unknown operand" {:op op})))
 (defn- allocate! [s kind tag fields function]
   (let [id (ctl s 3)]
@@ -97,23 +100,18 @@
     :project (aget ^objects (:fields (node s (value s a))) (int b))
     :shared? (let [r (value s a)] (if (and (m/ref? r) (> (:rc (node s r)) 1)) 1 0))
     :closure (allocate! s :closure nil (mapv #(value s %) b) a)
-    :prim (let [args (mapv #(m/small-integer! (value s %)) b)]
-            (when-not (= 1 (count args)) (m/fail "Scalar primitive arity" {:op a}))
-            (m/small-integer! (case a :inc (inc (first args)) :dec (dec (first args))
-                                  :zero? (if (zero? (first args)) 1 0)
-                                  (m/fail "Unknown scalar primitive" {:op a}))))
+    :prim (m/scalar a (mapv #(value s %) b))
     (m/fail "Unsupported expression" {:op op})))
-(defn- deliver! [s result]
+(defn deliver! [s result]
   (if (.isEmpty ^ArrayDeque (:frames s))
     (do (put! s 4 :done) (put! s 5 result))
     (let [{:keys [body locals joins dest]} (.removeLast ^ArrayDeque (:frames s))]
       (aset ^objects locals (int dest) result)
       (put! s 0 body) (put! s 1 locals) (put! s 2 joins))))
-(defn- call! [s target operands dest continuation]
-  (let [args (mapv #(value s %) operands)
-        [target args]
+(defn call-values! [s target args dest continuation]
+  (let [[target args]
         (if (= :direct (first target)) [(second target) args]
-          (let [closure (value s (second target))]
+          (let [closure (second target)]
             (cond
               (instance? prototype.machine.Builtin closure) [closure args]
               (m/ref? closure)
@@ -143,6 +141,44 @@
             (doseq [[k v] (map vector params args)] (aset locals (int k) v))
             (.clear ^HashMap (ctl s 2))))))))
 
+(defn- call! [s target operands dest continuation]
+  (call-values! s (if (= :closure (first target))
+                   [:closure (value s (second target))] target)
+                (mapv #(value s %) operands) dest continuation))
+
+;; Experimental ABI shared by the instruction interpreter and generated blocks.
+;; Helpers own heap/control transitions; compiled code owns operand resolution.
+(defn body-of [s] (ctl s 0))
+(defn set-body! [s body] (put! s 0 body))
+(defn locals-array [s] (ctl s 1))
+(defn status [s] (ctl s 4))
+(defn steps [s] (aget ^longs (:counters s) 2))
+(defn add-steps! [s n] (bump! s 2 n))
+(defn pause! [s] (put! s 4 :paused) s)
+(defn constructor! [s tag fields]
+  (if (empty? fields) (m/->Tag tag) (allocate! s :ctor tag fields nil)))
+(defn closure! [s function fields] (allocate! s :closure nil fields function))
+(defn project [s r i] (aget ^objects (:fields (node s r)) (int i)))
+(defn shared? [s r] (if (and (m/ref? r) (> (:rc (node s r)) 1)) 1 0))
+(defn tag-of [s v]
+  (cond (m/ref? v) (:tag (node s v)) (instance? prototype.machine.Tag v) (:tag v)
+        (number? v) v :else (m/fail "Value has no constructor tag" {:value v})))
+(defn join! [s id params body]
+  (.put ^HashMap (ctl s 2) id {:params params :body body :locals (aclone ^objects (ctl s 1))}))
+(defn jump-values! [s id args]
+  (let [{:keys [params body locals] :as join} (.get ^HashMap (ctl s 2) id)]
+    (when-not (and join (= (count params) (count args))) (m/fail "Invalid join" {:join id}))
+    (let [locals (aclone ^objects locals)]
+      (doseq [[k v] (map vector params args)] (aset locals (int k) v))
+      (put! s 1 locals) (put! s 0 body))))
+(defn store! [s r i v]
+  (let [n (node s r) fields ^objects (:fields n)]
+    (when-not (and (= :ctor (:kind n)) (= 1 (:rc n)) (< -1 i (alength fields)))
+      (m/fail "Invalid unique field store" {:ref r :field i}))
+    (aset fields (int i) v) (bump! s 1 1)))
+(defn suspend! [s dest body]
+  (put! s 4 :suspended) (put! s 6 dest) (put! s 0 body))
+
 (defn step! [s]
   (when-not (= :running (ctl s 4)) (m/fail "Machine is not running" {:status (ctl s 4)}))
   (bump! s 2 1)
@@ -152,26 +188,16 @@
       :call (call! s b c a d)
       :tail (call! s a b nil nil)
       :return (deliver! s (value s a))
-      :join (do (.put ^HashMap (ctl s 2) a {:params b :body c :locals (aclone ^objects (ctl s 1))}) (put! s 0 d))
-      :jump (let [{:keys [params body locals] :as join} (.get ^HashMap (ctl s 2) a)
-                  args (mapv #(value s %) b)]
-              (when-not (and join (= (count params) (count args))) (m/fail "Invalid join" {:join a}))
-              (let [locals (aclone ^objects locals)]
-                (doseq [[k v] (map vector params args)] (aset locals (int k) v))
-                (put! s 1 locals) (put! s 0 body)))
-      :case (let [v (value s a)
-                  tag (cond (m/ref? v) (:tag (node s v)) (instance? prototype.machine.Tag v) (:tag v)
-                            (number? v) v :else (m/fail "Value has no constructor tag" {:value v}))
+      :join (do (join! s a b c) (put! s 0 d))
+      :jump (jump-values! s a (mapv #(value s %) b))
+      :case (let [tag (tag-of s (value s a))
                   branch (or (some (fn [[k body]] (when (= k tag) body)) b)
                              (some (fn [[k body]] (when (= k :default) body)) b))]
               (when-not branch (m/fail "Missing case" {:tag tag})) (put! s 0 branch))
       :inc (do (retain! s (value s a) b) (put! s 0 c))
       :dec (do (release! s (value s a) b) (put! s 0 c))
-      :set (let [r (value s a) n (node s r) fields ^objects (:fields n)]
-             (when-not (and (= :ctor (:kind n)) (= 1 (:rc n)) (< -1 b (alength fields)))
-               (m/fail "Invalid unique field store" {:ref r :field b}))
-             (aset fields (int b) (value s c)) (bump! s 1 1) (put! s 0 d))
-      :suspend (do (put! s 4 :suspended) (put! s 6 a) (put! s 0 b))
+      :set (do (store! s (value s a) b (value s c)) (put! s 0 d))
+      :suspend (suspend! s a b)
       (m/fail "Unsupported instruction" {:op op}))) s)
 
 (defn run!

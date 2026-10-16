@@ -34,7 +34,11 @@
     (check! (= [1 2 3 4] (m/list-values s root)) :unique-store-snapshot-isolation)
     (check! (= [2 3 4 5] (m/list-values (m/run (m/start s target [(m/->Builtin :inc) root])) root))
             :unique-store-second-branch)
-    (println (pr-str {:platform :node :checks 14 :unique (:stats unique)
+    (check! (= 6 (m/scalar :add [2 4])) :exact-addition)
+    (check! (= 0 (m/scalar :add [9007199254740991 -9007199254740991])) :addition-cancellation)
+    (check! (try (m/scalar :add [9007199254740991 1]) false
+                 (catch js/Error _ true)) :addition-overflow-rejected)
+    (println (pr-str {:platform :node :checks 17 :unique (:stats unique)
                      :shared (:stats shared) :tail (:stats tail)}))))
 
 (set! *main-cli-fn* -main)

@@ -4,16 +4,20 @@
             [prototype.examples :as ex]
             [prototype.machine :as m]
             [prototype.mutable :as u]
+            [prototype.block-compile :as b]
             [sci.core :as sci]))
 
 (defn branch-demo
   ([] (branch-demo :persistent))
   ([backend]
-  (let [resume (case backend
+  (let [captured (:captured (ex/fork-demo))
+        compiled (when (= :blocks backend) (b/compile-program (:functions captured)))
+        resume (case backend
                  :persistent (fn [state value] (m/run (m/resume state value)))
                  :mutable (fn [state value]
-                            (u/freeze (u/run! (u/resume! (u/thaw state) value)))))
-        captured (:captured (ex/fork-demo))
+                            (u/freeze (u/run! (u/resume! (u/thaw state) value))))
+                 :blocks (fn [state value]
+                           (u/freeze (b/run! compiled (u/resume! (u/thaw state) value)))))
         ctx (sci/init {:runtime-mode :forkable
                        :namespaces {'guest {'initial captured
                                             'resume resume}}})]
@@ -40,6 +44,9 @@
 (deftest mutable-regions-preserve-world-semantics
   ;; Only immutable snapshots cross back into SCI's world cells.
   (is (= (branch-demo :persistent) (branch-demo :mutable))))
+
+(deftest compiled-regions-preserve-world-semantics
+  (is (= (branch-demo :persistent) (branch-demo :blocks))))
 
 (defn -main [& _]
   (let [result (run-tests 'prototype.sci-bridge)]

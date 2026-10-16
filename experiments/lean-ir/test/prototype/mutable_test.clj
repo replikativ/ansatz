@@ -35,6 +35,15 @@
     (is (= (m/run (m/resume snapshot nil)) (u/freeze left) (u/freeze right)))
     (is (= [1 2 3 4] (m/list-values snapshot input)))))
 
+(deftest snapshot-survives-mutable-parent-continuation
+  (let [{:keys [initial target input]} (ex/list-demo false)
+        machine (u/run! (u/thaw (m/start initial target [(m/->Builtin :inc) input])) 20)
+        captured (u/freeze machine)]
+    (u/run! (u/resume! machine nil))
+    (is (= [1 2 3 4] (m/list-values captured input)))
+    (is (= 20 (get-in captured [:stats :steps])))
+    (is (= (m/run (m/resume captured nil)) (u/freeze machine)))))
+
 (deftest suspended-resources-and-closures
   (let [snapshot (:captured (ex/fork-demo))]
     (doseq [value [10 20]]

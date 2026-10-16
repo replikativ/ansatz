@@ -24,6 +24,7 @@ end
 @[noinline] def mapIO (xs : List Nat) : IO (List Nat) := pure (runMap xs)
 @[noinline] def bounceIO (n : Nat) : IO Nat := pure (bounceA n 0)
 @[noinline] def wordIO (n : UInt64) : IO UInt64 := pure (wordA n 0)
+@[noinline] def listInputIO (n : Nat) : IO (List Nat) := pure (List.range n)
 
 -- Keep a second owner observably alive across map in the shared case.
 def sample (workload : String) (n : Nat) : IO (Nat × Nat) := do
@@ -39,7 +40,7 @@ def sample (workload : String) (n : Nat) : IO (Nat × Nat) := do
     let after ← IO.monoNanosNow
     return (after - before, result)
   else if workload == "unique" then
-    let input := List.range n
+    let input ← listInputIO n
     let before ← IO.monoNanosNow
     let result ← mapIO input
     let after ← IO.monoNanosNow

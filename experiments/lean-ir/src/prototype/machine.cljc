@@ -58,6 +58,14 @@
     (fail "Prototype arithmetic requires an exact small integer" {:value x}))
   x)
 
+(defn scalar [op args]
+  (let [args (mapv small-integer! args)
+        arity (case op :add 2 (:dec :inc :zero?) 1 (fail "Unknown scalar primitive" {:op op}))]
+    (when-not (= arity (count args)) (fail "Scalar primitive arity" {:op op}))
+    (small-integer!
+     (case op :add (+ (first args) (second args)) :dec (dec (first args))
+           :inc (inc (first args)) :zero? (if (zero? (first args)) 1 0)))))
+
 (defn expr [s [op a b]]
   (case op
     :literal [s a]
@@ -67,12 +75,7 @@
     :shared? (let [r (value s a)] [s (if (and (ref? r) (> (:rc (node s r)) 1)) 1 0)])
     :closure (let [[s r] (allocate s :closure nil (mapv #(value s %) b))]
                [(assoc-in s [:heap (:id r) :function] a) r])
-    :prim (let [args (mapv #(small-integer! (value s %)) b)]
-            (when-not (= 1 (count args)) (fail "Scalar primitive arity" {:op a}))
-            [s (small-integer!
-                (case a :dec (dec (first args)) :inc (inc (first args))
-                      :zero? (if (zero? (first args)) 1 0)
-                      (fail "Unknown scalar primitive" {:op a})))])
+    :prim [s (scalar a (mapv #(value s %) b))]
     (fail "Unsupported expression" {:op op})))
 
 (defn enter [s target args]
