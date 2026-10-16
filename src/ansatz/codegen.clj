@@ -3,12 +3,14 @@
    lowering tables (`builtin-app`/`builtin-value`). Extracted from ansatz.core. Reads the shared
    registries in ansatz.surface.ingest (structure/codegen/arity) and the structural ctor/recursor/
    arity machinery; the runtime (wandler) augments lowering via `codegen-registry`."
-  (:require [ansatz.kernel.expr :as e]
+  (:require [ansatz.codegen.numeric]
+            [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
+            [ansatz.kernel.level :as level]
             [ansatz.inductive :as inductive]
             [ansatz.surface.ingest :as ingest :refer [structure-registry codegen-registry arity-registry]])
-  (:import [ansatz.kernel ConstantInfo]))
+  (:import [ansatz.kernel ConstantInfo TypeChecker]))
 
 (clojure.core/defn- nary-op
   "Emit `(op a b)` when a binary primitive is fully applied (>=2 compiled args), else a
@@ -26,8 +28,13 @@
   [emit2 ca]
   (cond
     (>= (count ca) 2) (emit2 (nth ca 0) (nth ca 1))
-    (= (count ca) 1)  (let [g (gensym "b")] (list 'clojure.core/fn [g] (emit2 (nth ca 0) g)))
-    :else (let [g1 (gensym "a") g2 (gensym "b")] (list 'clojure.core/fn [g1 g2] (emit2 g1 g2)))))
+    (= (count ca) 1)  (let [a (gensym "a") b (gensym "b")]
+                       (list 'clojure.core/let [a (nth ca 0)]
+                             (list 'clojure.core/fn [b] (emit2 a b))))
+    :else (let [a (gensym "a") b (gensym "b")]
+            (list 'clojure.core/fn
+                  (list [a] (list 'clojure.core/fn [b] (emit2 a b)))
+                  (list [a b] (emit2 a b))))))
 
 (clojure.core/defn- tagged-inductive?
   "True when an inductive's runtime representation is the GENERAL tagged vector
@@ -52,7 +59,7 @@
                                           (pos? (.numFields ^ConstantInfo cci))))
                                ctors)))))))
 
-(declare ansatz->clj)
+(declare ansatz->clj beta-apply runtime-instance-op standard-real-approx)
 
 ;; ── built-in codegen tables (the Init/kernel lowerings) ──────────────────────────────────────────
 ;; head-name → lowering. `ansatz->clj` consults these BEFORE the `codegen-registry` extension seam
@@ -77,23 +84,39 @@
    (fn [_ _ _ ca _] (nary-op2 emit2 (if (pos? drop-prefix) (vec (drop drop-prefix ca)) ca)))))
 
 (clojure.core/defn- hop-carrier
-  "The head-constant name of a heterogeneous op's FIRST type argument (α), or nil. `Nat.sub` is
-   truncated and `Nat.div` floors, so `HSub`/`HDiv` mean different things on `Nat` than on a
-   field — the type argument the term already carries is what says which."
+  "The head-constant name of the FIRST type argument (α), or nil. Used for
+   numeric-literal representation; arithmetic dispatch follows the actual instance."
   [args]
   (when (seq args)
     (let [[h _] (e/get-app-fn-args (first args))]
       (when (e/const? h) (name/->string (e/const-name h))))))
 
 (clojure.core/defn- hop
-  "App handler for a heterogeneous H-op: the emitter is chosen by the carrier type (`by-type`,
-   keyed on α's head name, falling back to `default`), and the 4-arg type/instance prefix of
-   `HAdd.hAdd α β γ inst a b` is dropped."
-  [by-type default]
-  (fn [_ _ args ca _]
-    (nary-op2 (get by-type (hop-carrier args) default) (vec (drop 4 ca)))))
+  "Compile an H-op's actual instance field. Carrier names never establish which
+   implementation an instance contains. All H* classes here have one field."
+  []
+  (fn [env head args ca names]
+    (when (< (count args) 4)
+      (throw (ex-info "H-op lowering requires all type and instance arguments"
+                      {:head (name/->string (e/const-name head))})))
+    (if-let [emit2 (standard-real-approx env head args)]
+      (nary-op2 emit2 (vec (drop 4 ca)))
+      (let [hn (name/->string (e/const-name head))
+            cls (subs hn 0 (.lastIndexOf ^String hn "."))
+            field (e/proj (name/from-string cls) 0 (nth args 3))
+            op (runtime-instance-op env field)]
+        (ansatz->clj env (reduce e/app op (drop 4 args)) names)))))
 
 (clojure.core/defn- bi-const "App handler for a nullary constant." [v] (fn [_ _ _ _ _] v))
+
+;; One contract table drives saturated, partially applied and function-value lowering.
+(def ^:private integer-binary
+  {"Nat.sub" 'ansatz.codegen.numeric/nat-sub
+   "Nat.pow" 'ansatz.codegen.numeric/pow "Int.pow" 'ansatz.codegen.numeric/pow
+   "Nat.div" 'ansatz.codegen.numeric/tdiv "Nat.mod" 'ansatz.codegen.numeric/tmod
+   "Int.tdiv" 'ansatz.codegen.numeric/tdiv "Int.tmod" 'ansatz.codegen.numeric/tmod
+   "Int.ediv" 'ansatz.codegen.numeric/ediv "Int.emod" 'ansatz.codegen.numeric/emod
+   "Int.fdiv" 'ansatz.codegen.numeric/fdiv "Int.fmod" 'ansatz.codegen.numeric/fmod})
 
 (def ^:private builtin-app
   (merge
@@ -101,7 +124,7 @@
    ;; auto-promoting variants (+'/*'/inc'): with literals now emitted as longs, results
    ;; promote to bigint on overflow instead of throwing — full unbounded-Nat semantics at
    ;; ~3% over raw long ops (sub/div/mod/comparisons can't overflow from Nat inputs).
-   {"Nat.add"  (bi-nary '+') "Nat.mul"  (bi-nary '*') "Nat.div" (bi-nary 'quot)
+   {"Nat.add"  (bi-nary '+') "Nat.mul"  (bi-nary '*')
     "Nat.max"  (bi-nary 'max) "Nat.min" (bi-nary 'min)
     "Nat.blt"  (bi-nary '<)  "Nat.ble"  (bi-nary '<=) "Nat.beq" (bi-nary '==)
     "Float.add" (bi-nary '+) "Float.sub" (bi-nary '-) "Float.mul" (bi-nary '*) "Float.div" (bi-nary '/)
@@ -110,28 +133,12 @@
     ;; which is exactly what an Int is at runtime.
     "Int.add" (bi-nary '+') "Int.mul" (bi-nary '*') "Int.sub" (bi-nary '-')}
    ;; n-ary ops whose saturated form is a composite expr
-   {"Nat.sub"  (bi-nary2 (fn [x y] (list 'max 0 (list '- x y))))   ; truncated Nat subtraction
-    "Nat.pow"  (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))))
-    ;; Lean Nat.mod n 0 = n (total); Clojure (mod n 0) throws — guard faithfully.
-    "Nat.mod"  (bi-nary2 (fn [x y] (list 'if (list 'zero? y) x (list 'mod x y))))
-    ;; Int.tdiv/Int.tmod truncate toward zero, which is Clojure's quot/rem. Lean's are total:
-    ;; `Int.tdiv n 0 = 0` and `Int.tmod n 0 = n` (Nat.div/mod at 0), where Clojure throws.
-    "Int.tdiv" (bi-nary2 (fn [x y] (list 'if (list 'zero? y) 0 (list 'quot x y))))
-    "Int.tmod" (bi-nary2 (fn [x y] (list 'if (list 'zero? y) x (list 'rem x y))))
-    "Int.pow"  (bi-nary2 (fn [x y] (list 'long (list 'Math/pow x y))))
-    "Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
+   {"Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
+    "Float.pow" (bi-nary2 (fn [x y] (list 'Math/pow x y)))
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
-    "HAdd.hAdd" (hop {} (fn [x y] (list '+' x y)))
-    "HMul.hMul" (hop {} (fn [x y] (list '*' x y)))
-    ;; Nat subtraction truncates at 0 and Nat division floors; on Int/Float/Real (Real runs as
-    ;; a double — the trusted numeric lowering) they are the ordinary operations.
-    "HSub.hSub" (hop {"Nat" (fn [x y] (list 'max 0 (list '- x y)))} (fn [x y] (list '- x y)))
-    "HDiv.hDiv" (hop {"Nat" (fn [x y] (list 'quot x y))
-                      "Int" (fn [x y] (list 'quot x y))} (fn [x y] (list '/ x y)))
-    "HPow.hPow" (hop {"Nat" (fn [x y] (list 'long (list 'Math/pow x y)))
-                      "Int" (fn [x y] (list 'long (list 'Math/pow x y)))}
-                     (fn [x y] (list 'Math/pow x y)))}
+    "HAdd.hAdd" (hop) "HMul.hMul" (hop) "HSub.hSub" (hop)
+    "HDiv.hDiv" (hop) "HMod.hMod" (hop) "HPow.hPow" (hop)}
    ;; nullary constants
    {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
     "List.nil"  (bi-const nil)}
@@ -139,7 +146,7 @@
    {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
-    "Int.natAbs"    (fn [_ _ _ ca _] (list 'abs (nth ca 0)))
+    "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
     "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
@@ -231,17 +238,24 @@
           (list 'letfn [(list self-sym [(symbol x-name)] final-body)]
                 (list self-sym x-arg)))
         ;; Partial application (shouldn't happen normally)
-        (list 'apply (ansatz->clj env head names) ca)))}))
+        (list 'apply (ansatz->clj env head names) ca)))}
+   (into {} (map (fn [[n op]] [n (bi-nary op)]) integer-binary))))
 
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
-  {"Nat.zero" 0 "Bool.true" true "Bool.false" false
-   "Nat.add" '+' "Nat.mul" '*' "Nat.succ" 'inc' "Nat.div" 'quot
-   "Int.add" '+' "Int.mul" '*' "Int.sub" '-' "Int.ofNat" 'identity
-   "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
-   "Nat.sub" '(fn [a b] (max 0 (- a b)))
-   ;; Unit/PUnit's single value → nil (the unit thunks an unfolded match auxiliary applies its branches to).
-   "Unit.unit" nil "PUnit.unit" nil})
+  (merge
+   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
+    "Nat.succ" 'inc' "Int.ofNat" 'identity
+    "Float.pow" (nary-op2 (fn [x y] (list 'Math/pow x y)) [])
+    "Int.neg" '-' "Int.natAbs" 'ansatz.codegen.numeric/nat-abs
+    ;; Unit/PUnit's single value → nil (the unit thunks a match auxiliary applies branches to).
+    "Unit.unit" nil "PUnit.unit" nil}
+   (into {} (map (fn [[n op]] [n (nary-op2 (fn [x y] (list op x y)) [])])
+                 (merge {"Nat.add" '+' "Nat.mul" '*'
+                         "Nat.min" 'min "Nat.max" 'max
+                         "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
+                         "Int.add" '+' "Int.mul" '*' "Int.sub" '-'}
+                        integer-binary)))))
 
 (clojure.core/defn- extern-unhandled-form
   "Lean's @[extern] decls (inherited into the env's :extern extension by ansatz.attrs) are native
@@ -310,6 +324,118 @@
       ;; leftover args (over-application): apply left-assoc. (e/app* is variadic, so reduce e/app
       ;; over the residual args — NOT `(e/app* v (vec as))`, which would pass the vector as one arg.)
       (if as (reduce e/app v as) v))))
+
+(clojure.core/defn- standard-real-approx
+  "The existing trusted Real-as-double execution profile, restricted to dictionaries
+   definitionally equal to pinned Mathlib standard instances. A Real carrier alone
+   never authorizes substituting an operation for a custom instance. This is an
+   approximation contract, not faithful execution of mathematical real numbers."
+  [env head args]
+  (when (= "Real" (hop-carrier args))
+    (let [c (fn [s]
+              (let [nm (name/from-string s)]
+                (when-let [ci (env/lookup env nm)]
+                  (e/const' nm (repeat (alength (.levelParams ^ConstantInfo ci)) level/zero)))))
+          app (fn [f & as] (when (and f (every? some? as)) (reduce e/app f as)))
+          real (c "Real") nat (c "Nat")
+          hn (name/->string (e/const-name head))
+          wrap (fn [generic dict] (app (c generic) real dict))
+          pow (fn [dict] (app (c "instHPow") real nat dict))
+          [op candidates]
+          (case hn
+            "HAdd.hAdd" ['+' [(wrap "instHAdd" (c "Real.instAdd"))]]
+            "HMul.hMul" ['*' [(wrap "instHMul" (c "Real.instMul"))]]
+            "HSub.hSub" ['-' [(wrap "instHSub" (c "Real.instSub"))]]
+            "HDiv.hDiv" ['/ [(wrap "instHDiv" (c "Real.instDiv"))
+                             (wrap "instHDiv" (app (c "DivInvMonoid.toDiv") real
+                                                   (c "Real.instDivInvMonoid")))]]
+            "HPow.hPow" ['Math/pow
+                          [(pow (app (c "instPowNat") real
+                                     (app (c "Monoid.toNatPow") real (c "Real.instMonoid"))))
+                           (pow (app (c "NPow.toPow") real
+                                     (app (c "Monoid.toNPow") real (c "Real.instMonoid"))))
+                           (app (c "instHPow") real real (c "Real.instPow"))]]
+            [nil nil])]
+      (when (and op
+                 (some (fn [candidate]
+                         (when candidate
+                           (try
+                             (let [tc (TypeChecker. env)]
+                               (.setFuel tc 50000)
+                               (.isDefEq tc (nth args 3) candidate))
+                             ;; Unknown/incompatible declarations and exhausted reduction
+                             ;; cannot authorize approximation; ordinary instance dispatch follows.
+                             (catch RuntimeException _ false))))
+                       candidates))
+        (fn [x y] (list op x y))))))
+
+(clojure.core/defn- runtime-instance-op
+  "Reduce a concrete instance projection, stopping at executable primitives and
+   lambdas instead of unfolding their implementations. A symbolic instance stays
+   a projection for ordinary runtime dispatch. Unsupported concrete instances and
+   excessive unfolding fail explicitly, never select an operation by its carrier."
+  [env expr]
+  (let [fuel (volatile! 256)]
+    (letfn [(step [expr]
+              (when (neg? (vswap! fuel dec))
+                (throw (ex-info "Runtime instance resolution exceeded its unfolding budget" {})))
+              (let [[head args] (e/get-app-fn-args expr)]
+                (cond
+                  (e/let? head)
+                  (step (reduce e/app
+                                (e/instantiate1 (e/let-body head) (e/let-value head)) args))
+                  (and (e/lam? head) (seq args)) (step (beta-apply head args))
+                  (e/proj? head)
+                  (let [struct (step (e/proj-struct head))
+                        [sh sa] (e/get-app-fn-args struct)
+                        ci (when (e/const? sh) (env/lookup env (e/const-name sh)))
+                        idx (when (and ci (.isCtor ^ConstantInfo ci))
+                              (+ (.numParams ^ConstantInfo ci) (e/proj-idx head)))]
+                    (cond
+                      (and idx (< idx (count sa)))
+                      (step (reduce e/app (nth sa idx) args))
+                      ;; Variable/nested symbolic instances use the existing representation-aware
+                      ;; Expr.proj lowering (registered record field or constructor-vector slot).
+                      (or (e/bvar? sh) (e/proj? sh))
+                      (reduce e/app (e/proj (e/proj-type-name head) (e/proj-idx head) struct) args)
+                      :else
+                      (throw (ex-info "Cannot resolve concrete runtime instance projection"
+                                      {:instance (e/->string struct)}))))
+                  (e/const? head)
+                  (let [hn (name/->string (e/const-name head))
+                        ci (env/lookup env (e/const-name head))]
+                    (if (and ci (.value ^ConstantInfo ci)
+                             (not (contains? builtin-app hn))
+                             (not (contains? @codegen-registry hn))
+                             (not (contains? @arity-registry hn)))
+                      (step (beta-apply (.value ^ConstantInfo ci) args))
+                      expr))
+                  :else expr)))
+            (walk [expr]
+              (cond
+                (e/lam? expr)
+                (e/lam (e/lam-name expr) (e/lam-type expr)
+                       (walk (e/lam-body expr)) (e/lam-info expr))
+                (e/proj? expr)
+                (let [r (step expr)]
+                  (if (e/proj? (e/get-app-fn r)) r (walk r)))
+                (e/app? expr)
+                (let [[h as] (e/get-app-fn-args expr)
+                      ci (when (e/const? h) (env/lookup env (e/const-name h)))
+                      v (when (and ci (.value ^ConstantInfo ci)
+                                   (not (contains? builtin-app (name/->string (e/const-name h)))))
+                          (beta-apply (.value ^ConstantInfo ci) as))]
+                  ;; Generic instances often eta-wrap another class projection under
+                  ;; lambdas (instHDiv -> fun x y => Div.div inst x y). Inline only
+                  ;; projection accessors, leaving ordinary function bodies alone.
+                  (if (and v (e/proj? (e/get-app-fn v)))
+                    (walk (step v))
+                    (reduce e/app (walk h) (map walk as))))
+                (e/let? expr)
+                (e/let' (e/let-name expr) (e/let-type expr)
+                        (walk (e/let-value expr)) (walk (e/let-body expr)))
+                :else expr))]
+      (walk (step expr)))))
 
 ;; ── Instance-projection specialization (Lean-faithful monomorphization) ──────────────────────────
 ;; Collapse a structure OWN-field projection applied to a structure instance — a concrete `{Struct}.mk`

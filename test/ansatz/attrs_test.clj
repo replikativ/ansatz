@@ -57,7 +57,8 @@
         lower   (fn [nm] (cg/ansatz->clj e (expr/const' (name/from-string nm) []) []))
         throw?  (fn [form] (and (seq? form) (= 'throw (first form))))]
     (is (seq externs) "the inherited @[extern] set is populated")
-    (is (= '+' (lower "Nat.add")) "an extern WITH a builtin still lowers to its Clojure op (builtin wins)")
+    (is (= 5 ((eval (lower "Nat.add")) 2 3))
+        "an extern WITH a builtin still executes its builtin (builtin wins)")
     (is (pos? (count (filter #(throw? (lower %)) externs)))
         "an @[extern] primitive with NO ansatz runtime lowers to an explanatory throw, not a bare symbol")))
 
@@ -81,3 +82,17 @@
         (is (= "Nat.add" (get (env/get-extension (a/env) :csimp {}) "Nat.succ")))))
     (is (nil? (attrs/read-attr-file (str (.getPath dir) "-nope/attrs.ndjson.gz")))
         "a missing corpus reads as nil")))
+
+(deftest inherited-numeric-instances-retain-their-implementations
+  ;; The real imported generic instances eta-wrap homogeneous class projections.
+  ;; Resolving only the outer H*.mk field leaves named dictionaries in the body.
+  (let [c #(expr/const' (name/from-string %) [])
+        lit #(expr/lit-nat (biginteger %))
+        int-div (expr/app* (c "instHDiv") (c "Int") (c "Int.instDiv"))
+        nat-pow (expr/app* (c "instHPow") (c "Nat") (c "Nat")
+                           (expr/app* (c "instPowNat") (c "Nat") (c "instNatPowNat")))
+        div (expr/app* (c "HDiv.hDiv") (c "Int") (c "Int") (c "Int") int-div
+                       (expr/app (c "Int.neg") (lit 5)) (lit 2))
+        pow (expr/app* (c "HPow.hPow") (c "Nat") (c "Nat") (c "Nat") nat-pow (lit 3) (lit 34))]
+    (is (= -3 (eval (cg/ansatz->clj (a/env) div []))))
+    (is (= 16677181699666569N (eval (cg/ansatz->clj (a/env) pow []))))))
