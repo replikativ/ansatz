@@ -12,13 +12,15 @@
   ([backend]
    (branch-demo backend (:captured (ex/fork-demo))))
   ([backend captured]
-  (let [compiled (when (contains? #{:blocks :regions} backend)
-                   (b/compile-program (:functions captured) nil {:lexical-joins (= :regions backend)}))
+  (let [compiled (when (contains? #{:blocks :regions :calls} backend)
+                   (b/compile-program (:functions captured) nil
+                                      {:lexical-joins (contains? #{:regions :calls} backend)
+                                       :leaf-calls (= :calls backend) :compact-registers (= :calls backend)}))
         resume (case backend
                  :persistent (fn [state value] (m/run (m/resume state value)))
                  :mutable (fn [state value]
                             (u/freeze (u/run! (u/resume! (u/thaw state) value))))
-                 (:blocks :regions) (fn [state value]
+                 (:blocks :regions :calls) (fn [state value]
                            (u/freeze (b/run! compiled (u/resume! (u/thaw state) value)))))
         ctx (sci/init {:runtime-mode :forkable
                        :namespaces {'guest {'initial captured
@@ -62,6 +64,18 @@
     (is (= (branch-demo :persistent captured) result))
     (is (= [10 20] (mapv :result [(:left result) (:right result)])))
     (is (= [[] [[:released :lexical-capture]] [[:released :lexical-capture]]]
+           (mapv :events [(:parent result) (:left result) (:right result)])))))
+
+(deftest specialized-calls-preserve-fork-and-resource-effects
+  (let [functions {:inc {:params [0] :body [:let 1 [:prim :inc [[:var 0]]] [:return [:var 1]]]}
+                   :fork {:params [0] :body [:suspend 1 [:call 2 [:direct :inc] [[:var 1]]
+                                                         [:dec [:var 0] 1 [:return [:var 2]]]]]}}
+        [world resource] (m/resource (m/world functions) :call-capture)
+        captured (m/run (m/start world :fork [resource]))
+        result (branch-demo :calls captured)]
+    (is (= (branch-demo :persistent captured) result))
+    (is (= [11 21] (mapv :result [(:left result) (:right result)])))
+    (is (= [[] [[:released :call-capture]] [[:released :call-capture]]]
            (mapv :events [(:parent result) (:left result) (:right result)])))))
 
 (defn -main [& _]

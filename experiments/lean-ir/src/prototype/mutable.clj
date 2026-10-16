@@ -2,7 +2,8 @@
   "JVM-only mutable execution of the reference instruction set.
    Snapshots copy all live guest storage; no shared mutable pages or native resources."
   (:refer-clojure :exclude [run!])
-  (:require [prototype.machine :as m])
+  (:require [prototype.machine :as m]
+            [prototype.leaf-compile :as leaf])
   (:import [java.util HashMap ArrayDeque Arrays]))
 
 (def ^:private unbound (Object.))
@@ -50,6 +51,8 @@
                                   []))) forms)
                     (keys (:locals s)))]
     (inc (reduce max 0 (filter integer? ids)))))
+(defn function-slots [function]
+  (slot-count {:functions {:callee function}}))
 
 (defn thaw [snapshot]
   (let [n (slot-count snapshot)]
@@ -148,17 +151,54 @@
       (do (when-not (and (= :inc (:name target)) (= 1 (count args)) (number? (first args)))
             (m/fail "Unsupported pure host callback" {:target target :args args}))
           (deliver! s (m/small-integer! (inc (m/small-integer! (first args))))))
-      (let [{:keys [params body] :as f} (get (:functions s) target)]
+      (let [{:keys [params body] :as f} (get (:functions s) target)
+            slots (get (:register-layouts s) target (:slots s))]
         (when-not f (m/fail "Unresolved function" {:target target}))
         (when-not (= (count params) (count args)) (m/fail "Guest arity mismatch" {:target target}))
         (put! s 0 body)
         (if continuation
-          (do (put! s 1 (bind-params! (registers (:slots s) nil) params args))
+          (do (put! s 1 (bind-params! (registers slots nil) params args))
               (put! s 2 (HashMap.)))
-          (let [locals ^objects (ctl s 1)]
+          (let [old ^objects (ctl s 1)
+                ^objects locals (if (< (alength old) slots) (registers slots nil) old)]
             (Arrays/fill locals unbound)
             (bind-params! locals params args)
+            (put! s 1 locals)
             (.clear ^HashMap (ctl s 2))))))))
+
+(defn- complete-leaf! [s result steps]
+  (let [a ^longs (:counters s)]
+    (aset-long a 3 (max (aget a 3) (inc (.size ^ArrayDeque (:frames s))))))
+  (bump! s 2 steps)
+  result)
+
+(defn try-leaf! [s target args]
+  ;; A miss has no guest-visible effects. Plans come from the current program,
+  ;; not a block's constant pool, so reused callers see edited callees.
+  (let [closure (when (= :closure (first target)) (second target))]
+    (if (instance? prototype.machine.Builtin closure)
+      ;; This is the one existing pure host callback, not arbitrary host interop.
+      (when (and (= :inc (:name closure)) (= 1 (count args)) (leaf/small-integer? (first args)))
+        (let [result (try (m/small-integer! (inc (first args)))
+                          (catch clojure.lang.ExceptionInfo _ nil))]
+          (when (some? result) (complete-leaf! s result 0))))
+      (let [capture (when (m/ref? closure) (node s closure))
+            name (if (= :direct (first target)) (second target)
+                     (when (= :closure (:kind capture)) (:function capture)))
+            plan (when (or (= :direct (first target)) (= :closure (:kind capture)))
+                   (get (:leaf-plans s) name))]
+        (when (and plan (= (:definition plan) (get (:functions s) name)))
+          (let [fields (:fields capture)
+                args (if (seq fields) (into (vec fields) args) args)]
+            (when (and (= (count (:params (:definition plan))) (count args))
+                       (every? leaf/small-integer? args))
+              (let [result (try ((:invoke plan) args)
+                                (catch clojure.lang.ExceptionInfo _ nil))]
+                (when (some? result)
+                  (when capture
+                    (doseq [v fields] (retain! s v 1))
+                    (release! s closure 1))
+                  (complete-leaf! s result (:steps plan)))))))))))
 
 (defn- call! [s target operands dest continuation]
   (call-values! s (if (= :closure (first target))

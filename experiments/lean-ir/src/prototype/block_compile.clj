@@ -3,6 +3,7 @@
    Control-transfer boundaries remain explicit. No native heap or general Lean ABI."
   (:refer-clojure :exclude [run!])
   (:require [prototype.machine :as m]
+            [prototype.leaf-compile :as leaf]
             [prototype.mutable :as u]))
 
 ;; Reloading the compiler invalidates its in-memory block cache.
@@ -34,13 +35,14 @@
          :set (cost d)
          0)))
 
-(defn- compile-block [body functions lexical?]
+(defn- compile-block [body functions lexical? leaf-calls? leaf-names]
   (let [machine (gensym "machine")
         registers (with-meta (gensym "registers") {:tag 'objects})
         pool (with-meta (gensym "pool") {:tag 'objects})
         constants (atom [])
         max-cost (atom 0)
-        inlined-jumps (atom 0)]
+        inlined-jumps (atom 0)
+        leaf-sites (atom 0)]
     (letfn [(constant [v]
               (let [i (count @constants)]
                 (swap! constants conj v)
@@ -99,8 +101,18 @@
                   :join (if lexical?
                           (emit d n env (assoc joins a {:params b :body c :locals env}) active)
                           `(do (u/join! ~machine ~a ~(constant b) ~(constant c)) ~(emit d n env joins active)))
-                  :call (finish n instruction
-                                (materialize env joins `(u/call-values! ~machine ~(target b env) ~(arguments c env) ~a ~(constant d))))
+                  :call (if (and leaf-calls? (or (= :closure (first b)) (contains? leaf-names (second b)))
+                                 (< @leaf-sites 4) (<= (+ n (cost d)) 256))
+                          (let [call-target (gensym "target") args (gensym "args") result (gensym "result")]
+                            (swap! leaf-sites inc)
+                            `(let [~call-target ~(target b env) ~args ~(arguments c env)
+                                   ~result (u/try-leaf! ~machine ~call-target ~args)]
+                               (if (some? ~result)
+                                 ~(emit d n (assoc env a result) joins active)
+                                 ~(finish n instruction
+                                          (materialize env joins `(u/call-values! ~machine ~call-target ~args ~a ~(constant d)))))))
+                          (finish n instruction
+                                  (materialize env joins `(u/call-values! ~machine ~(target b env) ~(arguments c env) ~a ~(constant d)))))
                   :tail (let [callee (when (= :direct (first a)) (get functions (second a)))
                               invoke `(u/call-values! ~machine ~(target a env) ~(arguments b env) nil nil)]
                           (finish n instruction
@@ -135,27 +147,40 @@
                       (let [~registers (u/locals-array ~machine)] ~(emit body 0 {} {} #{})))
               code (eval form)
               constants (object-array @constants)]
-          {:max-cost @max-cost :form form :inlined-jumps @inlined-jumps
+          {:max-cost (+ @max-cost (* leaf/max-steps @leaf-sites))
+           :form form :inlined-jumps @inlined-jumps :leaf-sites @leaf-sites
            :execute! (fn [machine] (code machine constants))})))))
 
 (defn compile-program
   ([functions] (compile-program functions nil))
   ([functions previous]
    (compile-program functions previous {}))
-  ([functions previous {:keys [lexical-joins]}]
+  ([functions previous {:keys [lexical-joins leaf-calls compact-registers]}]
+   (when (and leaf-calls (not lexical-joins))
+     (m/fail "Leaf calls require lexical regions" {}))
    (let [bodies (entries functions)
          options (cond-> {:direct-linking (boolean (:direct-linking *compiler-options*))
-                          :lexical-joins (boolean lexical-joins)}
+                          :lexical-joins (boolean lexical-joins)
+                          :leaf-calls (boolean leaf-calls)
+                          :compact-registers (boolean compact-registers)}
                    ;; Eliding a direct guest tail frame's materialization relies
                    ;; on callee existence and arity, never its implementation.
                    lexical-joins (assoc :tail-signatures (update-vals functions #(count (:params %)))))
-         reusable (if (and (identical? generation (:generation previous))
-                           (= options (:compiler-options previous))) (:blocks previous) {})
-         reused (count (filter #(contains? reusable %) bodies))]
+         reuse? (and (identical? generation (:generation previous))
+                     (= options (:compiler-options previous)))
+         reusable (if reuse? (:blocks previous) {})
+         reused (count (filter #(contains? reusable %) bodies))
+         plans (when leaf-calls (leaf/compile-plans functions (when reuse? (:leaf-plans previous))))
+         leaf-names (set (keys plans))]
      {:functions functions :generation generation :compiler-options options
       :compiled-blocks (- (count bodies) reused) :reused-blocks reused
-      ;; Calls resolve against machine code at runtime; there is no callee inlining.
-      :blocks (into {} (map (fn [body] [body (or (get reusable body) (compile-block body functions lexical-joins))]) bodies))})))
+      :leaf-plans plans
+      :register-layouts (when compact-registers (update-vals functions u/function-slots))
+      ;; Reused callers resolve leaf plans through the current execution context.
+      :blocks (into {} (map (fn [body] [body (or (get reusable body) (compile-block body functions lexical-joins leaf-calls leaf-names))]) bodies))})))
+
+(defn- execution-context [program machine]
+  (assoc machine :leaf-plans (:leaf-plans program) :register-layouts (:register-layouts program)))
 
 (defn- check-program! [program machine]
   (when-not (= (:functions program) (:functions machine))
@@ -165,9 +190,9 @@
   (check-program! program machine)
   (when-not (= :running (u/status machine)) (m/fail "Machine is not running" {}))
   (if-let [block (get (:blocks program) (u/body-of machine))]
-    ((:execute! block) machine)
+    ((:execute! block) (execution-context program machine))
     ;; A fuel pause can leave control in the middle of a compiled block.
-    (u/step! machine))
+    (u/step! (execution-context program machine)))
   machine)
 
 (defn run!
@@ -175,7 +200,7 @@
   ([program machine fuel]
    (check-program! program machine)
    (when-not (and (integer? fuel) (not (neg? fuel))) (m/fail "Invalid step budget" {:fuel fuel}))
-   (loop [remaining fuel]
+   (loop [remaining fuel machine (execution-context program machine)]
      (cond
        (not= :running (u/status machine)) machine
        (zero? remaining) (u/pause! machine)
@@ -184,6 +209,6 @@
          (if (>= remaining (:max-cost block))
            (let [before (u/steps machine)]
              ((:execute! block) machine)
-             (recur (- remaining (- (u/steps machine) before))))
+             (recur (- remaining (- (u/steps machine) before)) machine))
            (u/run! machine remaining))
-         (do (u/step! machine) (recur (dec remaining))))))))
+         (do (u/step! machine) (recur (dec remaining) machine)))))))

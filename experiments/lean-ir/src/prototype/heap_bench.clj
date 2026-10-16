@@ -10,9 +10,9 @@
   (for [workload [:map :fold :reverse :mirror] shared? [false true]]
     {:workload workload :size (if (= :mirror workload) 9 1000) :shared? shared?}))
 
-(defn prepare [functions {:keys [workload size shared?]}]
+(defn prepare [functions {:keys [workload size shared? guest-callback?]}]
   (if (= :mirror workload) (h/prepare-tree functions size shared?)
-      (h/prepare functions workload (range size) shared?)))
+      (h/prepare functions workload (range size) shared? (boolean guest-callback?))))
 
 (defn execution [functions program scenario backend warmup samples]
   (let [{:keys [initial]} (prepare functions scenario)
@@ -46,7 +46,8 @@
         measurements
         (mapv (fn [_]
                 (let [sample (stats/measure #(let [code (b/compile-program edited program
-                                                                       (select-keys (:compiler-options program) [:lexical-joins]))
+                                                                       (select-keys (:compiler-options program)
+                                                                                    [:lexical-joins :leaf-calls :compact-registers]))
                                                   result (u/freeze (b/run! code (u/thaw initial)))]
                                               {:code code :values (m/list-values result (:result result))}))
                       {:keys [code values]} (:value sample)]

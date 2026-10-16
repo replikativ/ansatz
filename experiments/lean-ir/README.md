@@ -506,6 +506,113 @@ Ansatz source 713 / 2,417, all passing. Optional full Init and Mathlib fixtures
 remain unavailable. JAR and Node checks were not rerun: production/AOT and
 portable CLJS sources are unchanged by this JVM experiment.
 
+### Guarded scalar calls and per-function registers
+
+The next opt-in profile specializes calls to small scalar guest functions:
+
+```clojure
+(def call-options {:lexical-joins true :leaf-calls true :compact-registers true})
+(def call-code (blocks/compile-program functions nil call-options))
+(def edited-code (blocks/compile-program edited-functions call-code call-options))
+```
+
+`prototype.leaf-compile` accepts at most eight guest instructions: scalar
+literal/primitive bindings and a return. It excludes heap operations, RC,
+branches, calls, suspension and effects. Runtime guards check closure kind,
+current definition, arity and exact small-integer arguments. Arithmetic overflow
+also takes the normal call path. A guard miss leaves guest state unchanged.
+Successful calls consume the closure with the normal ownership rules, execute
+the scalar leaf and continue through JVM locals without constructing a return
+frame. Logical guest step counts and maximum stack depth still include the call.
+The existing pure host `Builtin :inc` also has a guarded path, with zero guest
+callee instructions. Arbitrary host callbacks and native resources remain
+outside this evaluator. Known direct non-leaf calls do not receive a guard site.
+
+Compiled regions reserve the worst-case leaf instruction budget before entering
+this path. Each block has at most four specialization sites. With insufficient
+fuel the interpreter can pause inside the callee and expose its complete frame.
+Unsupported callees, argument types and stale plans use ordinary calls. These
+checks preserve the reference machine's successful execution and pause semantics;
+general exception-state fidelity remains outside the prototype's contract.
+
+Leaf plans belong to the program's execution context rather than caller constant
+pools. Reused caller blocks therefore see newly compiled callback bodies. Plans
+are reused when their definition is unchanged, and checked against the machine's
+function table before use. A mismatched plan falls back. Execution context is
+machine-local metadata and is excluded from immutable guest snapshots. It does
+not change the program registry or require a global code mutation on edits.
+Compiler reloads and linking-profile changes rebuild both blocks and leaf plans.
+
+The independent `:compact-registers` option sizes new callee register arrays for
+that function instead of the largest function in the world. Tail transfers grow
+an array when necessary and otherwise reuse it. Saved frames still retain every
+bound register for exact snapshot inspection. **This is per-function register
+storage, not live-only frame spilling.** Leaf specialization can eliminate a
+frame entirely; general dead-register omission and reconstruction remain future
+work. Neither option changes the snapshot schema.
+
+Run the profiles and ablations with:
+
+```sh
+clojure -Srepro -J-Xmx1g -J-XX:-UsePerfData -M -m prototype.call-bench > target/call-comparison.json
+```
+
+The runner compares regions and the combined profile twice, with separate
+register-only and leaf-only phases between them. It includes both host and guest
+map callbacks, fold, reverse and mirror with unique/shared inputs. Every measured
+result is compared against the complete reference snapshot outside the kernel
+timer. Compilation, warm edits and full-copy snapshots are timed separately.
+
+[Retained results](measurements/guarded-calls.json) use 60 warmups and 21 samples
+per case/phase. Unique-input allocation medians across the two repeated phases:
+
+| Operation | Regions | Combined profile |
+| --- | ---: | ---: |
+| Map with host callback, 1,000 elements | 1.94–1.99 MB | 1.55–1.60 MB |
+| Map with guest callback, 1,000 elements | 2.71–2.90 MB | 2.04 MB |
+| Fold, 1,000 elements | 2.47–2.61 MB | 1.88–1.94 MB |
+
+The combined profile's execution medians were 2.33–2.34 ms for host map,
+3.23–6.54 ms for guest map and 4.42–6.11 ms for fold. Region medians were
+2.91–4.68, 3.25–4.62 and 4.51–4.67 ms respectively. Later combined-phase reverse
+also slowed markedly despite equal allocation. This one-JVM run has shared
+JIT/GC/scheduling history; it supports callback allocation reductions, not a
+general throughput improvement. Per-function layouts alone did not show a clear
+benefit on this small world, whose function widths range from two to fifteen.
+
+Warm callback edit/restore/execute/freeze medians were 9.53–10.22 ms combined,
+versus 3.48–6.14 ms for regions. The single leaf-only phase measured 4.34 ms and
+register-only 4.35 ms. Both combined edits still rebuilt one block and reused
+twenty, but leaf compilation and layout analysis add work. Given a turnover
+priority, keep both flags opt-in and investigate leaf-only execution first.
+Independent-process measurements are needed to rank these profiles reliably.
+The combined profile's 10,000-node full-copy freeze/restore medians stayed near
+2.9–3.3 ms. Native Lean was not remeasured; competitive performance is unproven.
+
+The live REPL provides `call-code`, `call-edit-code`, `call-options` and `call-lab`.
+The latter checks a 1,000-element fold, an older captured world and a callback
+edit. SCI accepts `branch-demo :calls`; a dedicated test forks a suspended world,
+executes a scalar callback and releases a synthetic resource independently in
+each child.
+
+When changing array allocation paths, check reflection warnings as well as tests:
+
+```sh
+clojure -Srepro -M -e '(binding [*warn-on-reflection* true] (require (quote prototype.mutable)))'
+```
+
+An explicit array type on the resized local binding keeps `Arrays/fill` a direct
+call. The benchmark caught substantial allocation from reflective dispatch before
+that binding was corrected.
+
+Validation: prototype 43 tests / 9,152 assertions, SCI 5 / 14, and surrounding
+Ansatz source 713 / 2,417, all passing. Coverage includes every tested fuel value,
+the eight-instruction leaf limit, longer-callee fallback, stale plans, scalar and
+resource captures, shared closures, wide tail transfers, suspended frames and
+direct-linked runtime helpers. The reflection check emits no warnings. Optional
+full Init/Mathlib fixtures remain unavailable; unchanged production JAR and
+portable Node paths were not rerun.
+
 ### REPL
 
 ```clojure
