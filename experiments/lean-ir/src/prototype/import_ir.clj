@@ -102,9 +102,12 @@
     (:inc :dec) (static-targets c)
     :set (static-targets d)
     :suspend (static-targets b)
+    :host (static-targets d)
     (:return :jump) #{}))
 
-(defn load-closure [catalogue roots]
+(defn load-closure
+  ([catalogue roots] (load-closure catalogue roots lower-declaration))
+  ([catalogue roots lower]
   (loop [pending (vec roots) functions {}]
     (if (empty? pending) functions
       (let [name (peek pending) pending (pop pending)]
@@ -113,8 +116,8 @@
                          (read-declaration name)
                          (get-in catalogue [:declarations name]))
                         (m/fail "Missing declaration dependency" {:name name}))
-                [actual function] (lower-declaration row)]
+                [actual function] (lower row)]
             (when-not (= name actual) (m/fail "Declaration name mismatch" {:name name :actual actual}))
             ;; Derive dependencies from the admitted body, rather than trusting
             ;; optional producer dependency metadata.
-            (recur (into pending (static-targets (:body function))) (assoc functions name function))))))))
+            (recur (into pending (static-targets (:body function))) (assoc functions name function)))))))))

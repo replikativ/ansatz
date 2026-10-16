@@ -1,0 +1,121 @@
+{
+  "objective_complete": false,
+  "milestones": {
+    "1_bidirectional_module": {
+      "status": "prototype-pass",
+      "value_profile": "small Nat and synchronous guest closures",
+      "backends": [
+        "reference",
+        "mutable",
+        "jvm"
+      ],
+      "verified_ansatz_to_lean": 42,
+      "lean_to_verified_ansatz": 42
+    },
+    "2_hosted_parser": {
+      "status": "not-running",
+      "root": "Lean.Parser.parseHeader",
+      "link_failure": {
+        "message": "Unsupported imported runtime type",
+        "type": "void"
+      },
+      "declarations": 985,
+      "lowerable": 461,
+      "extern_declarations": 96,
+      "extern_symbols": 89,
+      "native_oracle_cases": 5
+    },
+    "3_hosted_elaboration_kernel": {
+      "status": "native-assisted-only",
+      "kernel_checks": {
+        "interop": {
+          "ok": 16,
+          "errors": 0,
+          "total": 16,
+          "elapsed-ms": 7
+        },
+        "macro": {
+          "ok": 12,
+          "errors": 0,
+          "total": 12,
+          "elapsed-ms": 9
+        }
+      },
+      "live_frontend_kernel_adapter": false
+    },
+    "4_hosted_macro_or_tactic": {
+      "status": "native-assisted-only",
+      "macro_file": "lean/FrontendProbe.lean",
+      "jvm_result_after_native_expansion": 43,
+      "hosted_macro_execution": false,
+      "hosted_evalConst": false
+    }
+  },
+  "validation": {
+    "prototype_cli_and_repl": {
+      "tests": 63,
+      "assertions": 10498,
+      "failures": 0,
+      "errors": 0
+    },
+    "sci": {
+      "tests": 5,
+      "assertions": 14,
+      "failures": 0,
+      "errors": 0
+    },
+    "node": {
+      "checks": 20
+    },
+    "native_file_smoke": {
+      "identity": 42,
+      "host": 43,
+      "roundtrip": 84,
+      "host-callback": 43,
+      "macro": 43
+    },
+    "not_rerun": [
+      "production source suite",
+      "AOT JAR suite",
+      "optional LLVM suite"
+    ]
+  },
+  "source_and_fixture_sha256": {
+    "src/prototype/interop.clj": "ccd87e059c1c992a3884fb94601fd89910ce96fe6f050c239806946690a0b280",
+    "src/prototype/bootstrap.clj": "39d760779427443e9a3eaef98a9d75e5b0505b875170ee551961d5997d386271",
+    "src/prototype/runtime_audit.clj": "561aba301940db39d03d60c0e22a51cd4197f40dd88d5f9ab82952ed8176ff31",
+    "src/prototype/frontend_smoke.clj": "e792dd3a6754d3bd66b2f9485bc20cfa1d9624b1ddffd00f7197537a2accb9a4",
+    "src/prototype/machine.cljc": "bab08adf7d07e25fb0758deefc4d444479735a0c64ea24b6f2f25e0f3b1951ec",
+    "src/prototype/mutable.clj": "16226b23e5f8021cd496259c098b96367bb374d50af0d3e665b66fd465c019fe",
+    "src/prototype/import_ir.clj": "20c33ee97fbbb711df591bbd3fb305e566aedec90a9a7416a9bec67bf67a9ba1",
+    "src/prototype/block_compile.clj": "c9247f0fe614b54b0e946c064e0447019c7254f7c8f564341d30f362d08918d3",
+    "src/prototype/portable.cljs": "aaa89e2bc77465866bd288fd97c0a334105c00dcdb795902f95d1f17962c65c2",
+    "src/prototype/test_runner.clj": "a0fff2eb6ae5cbd23c74ff90cffc61a7aac4cce684f7e872b2a895e8d82debd7",
+    "test/prototype/interop_test.clj": "c94ce5eba5388ebbc8cdc4a00e6492568dc34dff1f0f6982415756f74e08e3a0",
+    "test/prototype/ansatz_interop_test.clj": "f8a3b2b1199df269277eae3d432c130b2b61afb64b4ec88cbd2a0c61c8939f2e",
+    "test/prototype/runtime_audit_test.clj": "80bf3b3a90d3276e1d1f63398b84572a89fdfb67c20b2a26e06380664862e3c2",
+    "lean/InteropProbe.lean": "5c7e32ea6e2171b882fa9c89a1a5a29bc74be40d1ef16d8f29927888732d19b3",
+    "lean/FrontendProbe.lean": "1d459ec1869cb8a1477798f8be4a17c6f6ed3ee5b88ba19e3c8894c701ef7c9b",
+    "lean/ParserOracle.lean": "d39e07b9341152e424e9a8286a64ed37f72794c305bb7e98ed65f20942ad323d",
+    "fixtures/interop.jsonl": "8920d0dda93c6901e2481845a2b8f57a84f4e17986fb6bd7ddcbc47dffe5d14b",
+    "fixtures/interop-kernel.ndjson": "2a7fe00ea81ed5f8df94a7fdc91e038bf385c12974a69d9f1be65106da163330",
+    "fixtures/frontend.jsonl": "47a04fcd534461a705dc60538a9946b2ae926e3788c02e8765f05b403feab571",
+    "fixtures/frontend-kernel.ndjson": "4443c72253c00292f067a215b9efc839b77d92c2cd43d8080c76f6566058c614",
+    "fixtures/parser-header-oracle.jsonl": "c1e0690b4acf86b08b8efed807f6b1ca198b665af8e2a626f009213f3d9c6427"
+  },
+  "remaining_order": [
+    "typed runtime and scalar layouts",
+    "reached primitive families with ownership and UTF-8 semantics",
+    "world-local globals, initializers and environment extensions",
+    "guest parser matches native oracle",
+    "live Lean expression/environment to Ansatz kernel adapters",
+    "new declaration compilation, evalConst and macro/tactic registration"
+  ],
+  "limitations": [
+    "Frontend still runs in native Lean during file loading",
+    "Native macro expansion is not hosted macro execution",
+    "Runtime and kernel paths are experimentally linked; no compiler correctness proof",
+    "Host effects and JVM stacks are not captured by snapshots",
+    "Native elaboration-time callbacks into the JVM are unsupported"
+  ]
+}

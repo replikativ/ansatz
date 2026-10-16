@@ -18,7 +18,9 @@
         [f resource] (m/resource (m/world {:fork {:params [0]
                                                 :body [:suspend 1 [:dec [:var 0] 1 [:return [:var 1]]]]}}) :fork-resource)
         captured (m/run (m/start f :fork [resource]))
-        left (m/run (m/resume captured 10)) right (m/run (m/resume captured 20))]
+        left (m/run (m/resume captured 10)) right (m/run (m/resume captured 20))
+        host (m/run (m/start (m/world {:host {:params [0] :body [:host "demo" [[:var 0]] 1 [:return [:var 1]]]}})
+                             :host [42]))]
     (check! (= [2 3 4 5] (m/list-values unique (:result unique))) :unique-map)
     (check! (= [2 3 4 5] (m/list-values shared (:result shared))) :shared-map)
     (check! (= [1 2 3 4] (m/list-values shared root)) :preserve-input)
@@ -38,7 +40,10 @@
     (check! (= 0 (m/scalar :add [9007199254740991 -9007199254740991])) :addition-cancellation)
     (check! (try (m/scalar :add [9007199254740991 1]) false
                  (catch js/Error _ true)) :addition-overflow-rejected)
-    (println (pr-str {:platform :node :checks 17 :unique (:stats unique)
+    (check! (= {:symbol "demo" :arguments [42] :dest 1} (:host-request host)) :host-boundary-data)
+    (check! (= [10 20] (mapv #(:result (m/run (m/resume host %))) [10 20])) :host-independent-resumes)
+    (check! (= :host-call (:status host)) :host-snapshot-retained)
+    (println (pr-str {:platform :node :checks 20 :unique (:stats unique)
                      :shared (:stats shared) :tail (:stats tail)}))))
 
 (set! *main-cli-fn* -main)

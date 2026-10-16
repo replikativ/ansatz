@@ -21,6 +21,7 @@
                 (:inc :dec) (walk c false)
                 :set (walk d false)
                 :suspend (walk b true)
+                :host (walk d true)
                 (:tail :return :jump) nil
                 (m/fail "Unsupported compiled instruction" {:op op})))]
       (doseq [f (vals functions)] (walk (:body f) true))
@@ -133,6 +134,7 @@
                                  ~(emit (:body join) n jump-env joins (conj active a))))
                             (finish n instruction (materialize env joins `(u/jump-values! ~machine ~a ~(arguments b env))))))
                   :suspend (finish n instruction (materialize env joins `(u/suspend! ~machine ~a ~(constant b))))
+                  :host (finish n instruction (materialize env joins `(u/host! ~machine ~(constant a) ~(arguments b env) ~c ~(constant d))))
                   :case (let [tag (gensym "tag")
                               fallback (if-let [[_ branch] (first (filter #(= :default (first %)) b))]
                                          (emit branch n env joins active) `(m/fail "Missing case" {:tag ~tag}))]
@@ -194,6 +196,7 @@
     (:inc :dec) (tail-targets c)
     :set (tail-targets d)
     :suspend (tail-targets b)
+    :host (tail-targets d)
     (:jump :return) #{}
     (m/fail "Unsupported compiled instruction" {:op op})))
 

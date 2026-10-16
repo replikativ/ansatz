@@ -47,6 +47,7 @@
                               (when (vector? x)
                                 (case (first x)
                                   (:var :let :call :suspend) [(second x)]
+                                  :host [(nth x 3)]
                                   :join (nth x 2)
                                   []))) forms)
                     (keys (:locals s)))]
@@ -60,7 +61,7 @@
     (->Machine (:functions snapshot) n
                (object-array [(:body snapshot) (registers n (:locals snapshot))
                               (joins-in n (:joins snapshot)) (:next-id snapshot)
-                              (:status snapshot) (:result snapshot) (:resume-var snapshot)])
+                              (:status snapshot) (:result snapshot) (or (:host-request snapshot) (:resume-var snapshot))])
                (HashMap. ^java.util.Map
                          (update-vals (:heap snapshot) #(update % :fields object-array)))
                (ArrayDeque. ^java.util.Collection
@@ -78,7 +79,8 @@
            :frames (mapv frame-out (:frames s))
            :status (ctl s 4)}
     (= :done (ctl s 4)) (assoc :result (ctl s 5))
-    (= :suspended (ctl s 4)) (assoc :resume-var (ctl s 6))))
+    (= :suspended (ctl s 4)) (assoc :resume-var (ctl s 6))
+    (= :host-call (ctl s 4)) (assoc :host-request (ctl s 6))))
 
 (defn- node [s r]
   (or (.get ^HashMap (:heap s) (:id r)) (m/fail "Dangling guest reference" {:ref r})))
@@ -242,6 +244,9 @@
 (defn suspend! [s dest body]
   (put! s 4 :suspended) (put! s 6 dest) (put! s 0 body))
 
+(defn host! [s symbol args dest body]
+  (put! s 4 :host-call) (put! s 6 {:symbol symbol :arguments args :dest dest}) (put! s 0 body))
+
 (defn step! [s]
   (when-not (= :running (ctl s 4)) (m/fail "Machine is not running" {:status (ctl s 4)}))
   (bump! s 2 1)
@@ -261,6 +266,7 @@
       :dec (do (release! s (value s a) b) (put! s 0 c))
       :set (do (store! s (value s a) b (value s c)) (put! s 0 d))
       :suspend (suspend! s a b)
+      :host (host! s a (mapv #(value s %) b) c d)
       (m/fail "Unsupported instruction" {:op op}))) s)
 
 (defn run!
@@ -275,4 +281,5 @@
   (case (ctl s 4)
     :suspended (do (aset ^objects (ctl s 1) (int (ctl s 6)) x) (put! s 6 nil) (put! s 4 :running))
     :paused (put! s 4 :running)
+    :host-call (do (aset ^objects (ctl s 1) (int (:dest (ctl s 6))) x) (put! s 6 nil) (put! s 4 :running))
     (m/fail "State is not resumable" {:status (ctl s 4)})) s)

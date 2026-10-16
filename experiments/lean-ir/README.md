@@ -38,7 +38,9 @@ lowers all rows eagerly. The newer `index-bundles` retains raw declarations and
 and closure constructors determine those dependencies from the lowered body;
 producer dependency lists are not trusted for execution linking. Indirect targets
 supplied from outside this closure require additional explicit roots or host
-functions. Module initializers and native extern resolution are still unsupported.
+functions. Module initializers are not replayed on the JVM. The default importer
+rejects extern declarations; the optional interop driver links explicit host
+bindings for its small-Nat/closure subset.
 The optional declaration store described below avoids decoding all declaration
 bodies on subsequent reloads: it opens a smaller immutable index and resolves
 selected bodies from separately hashed files.
@@ -173,8 +175,177 @@ Arithmetic intrinsics are intentionally limited to exact small integers within
 JavaScript's safe range and reject out-of-range arithmetic. This does not implement
 general Lean Nat/Int/UInt64 arithmetic. Scalar constructor layouts, most externs,
 boxing, reset/reuse instructions, general partial/overapplication, exception unwinding, module initialization,
-kernel adapters and admission-to-executable linking remain unsupported. Unsupported
+live frontend kernel adapters remain unsupported. The native-assisted bootstrap
+can now check exported declarations and link their IR as described below. Unsupported
 imported operations fail explicitly. There is no verified compiler or production JIT.
+
+## Frontend milestones and bidirectional calls
+
+The four frontend milestones are **not all complete**. The native-assisted
+file loader makes selected Lean definitions callable now, while the hosted
+parser/elaborator remains a separate porting effort.
+
+| Milestone | Evidence and status |
+| --- | --- |
+| Bidirectional calls for a small Lean module | Implemented for small Nat and guest closures, including reentrant callbacks; reference, mutable and JVM paths agree |
+| Real Lean parser on the JVM | Audited `Lean.Parser.parseHeader`; linkage currently rejects its `void` runtime type; no hosted parser result yet |
+| Hosted elaboration with Ansatz admission | Native-elaborated declarations check in Ansatz and execute on the JVM; direct frontend-to-kernel extern adapters are not implemented |
+| Hosted file defining and invoking a macro/tactic | A custom macro file passes native elaboration, Ansatz checking and JVM execution; hosted macro registration/evaluation remains unimplemented |
+
+```mermaid
+flowchart TD
+  A[Lean file] --> B[Native Lean parses, elaborates and expands macros]
+  B --> C[Structural runtime IR export]
+  B --> D[lean4export kernel declarations]
+  D --> E[Strict Ansatz kernel replay]
+  C --> F[Selected IR + explicit host binding stubs]
+  E --> G[Returned session: checked declarations and executable code]
+  F --> G
+  G --> H[Reference, mutable or lazy JVM execution]
+  H --> I[Host-call boundary with materialized guest state]
+  I --> J[Clojure or Ansatz-compiled function]
+  J -->|synchronous callback in same guest heap| H
+```
+
+`prototype.bootstrap/load-file!` is explicitly a native bootstrap. It compiles one
+module with pinned Lean 4.33.1 and exports requested roots. Dependencies must
+already be installed or compiled; it does not replace Lake. If a matching
+`lean4export` executable is supplied, declarations are checked from an empty
+Ansatz environment before the session is returned. Without that executable the
+session is marked `:kernel-status :unchecked`. The helper never installs a global
+Ansatz context. This gate checks declarations; it does not prove the IR compiler,
+host bindings or their correspondence to those declarations correct.
+
+```clojure
+(require '[prototype.bootstrap :as bootstrap]
+         '[prototype.interop :as interop]
+         '[prototype.frontend-smoke :as smoke])
+(def session
+  (bootstrap/load-file!
+   {:module "InteropProbe"
+    :roots ["InteropProbe.identity" "InteropProbe.callHost"
+            "InteropProbe.roundTrip" "InteropProbe.applyCallback"]
+    :bindings smoke/bindings
+    :kernel-exporter (System/getenv "LEAN4EXPORT_BIN")}))
+
+(def identity-fn (interop/function session "InteropProbe.identity"))
+(identity-fn 42) ; 42
+((interop/function session "InteropProbe.callHost") 42) ; 43
+((interop/function session "InteropProbe.roundTrip") 42) ; 84: host invokes Lean closure twice
+((interop/function session "InteropProbe.applyCallback")
+ (interop/function-ref "InteropProbe.hostTransform") 42) ; 43
+```
+
+The Lean file declares host entry points normally:
+
+```lean
+@[extern "ansatz_host_transform"] opaque hostTransform : Nat → Nat
+@[extern "ansatz_host_apply"] opaque hostApply : (Nat → Nat) → Nat → Nat
+```
+
+The corresponding binding entry has `:arguments`, `:result` and `:fn`, for example
+`{:arguments [:nat] :result :nat :fn (fn [_ x] (inc x))}`. A closure handler receives
+an invocation context: `(fn [{:keys [invoke]} f x] (+ (invoke f [x]) (invoke f [x])))`.
+Runtime types and ownership signatures are checked against the binding profile.
+Bindings currently return small Nat and accept small Nat or guest closures;
+general inductives, strings, arbitrary-size integers and returned callbacks are
+not marshalled. `function-ref` creates a guest wrapper for an already linked
+Lean definition or host extern; arbitrary Clojure functions are not passed as
+raw guest objects.
+
+`:host` is an explicit instruction that stops execution with a serializable
+request containing the symbol, argument values and result register. The driver
+resumes after handling it. Nested callbacks borrow the closure, execute in the
+same guest heap, restore the outer continuation and discharge transferred
+argument ownership when the handler returns. One instruction budget covers
+nested calls. Host implementations stay outside snapshots and compiled code;
+sessions can share a code cache without capturing another session's bindings.
+Pass `:code-cache (lazy/code-cache)` to repeated bootstrap loads to share it.
+
+Callbacks are synchronous, restricted to the calling thread and invalid after
+the handler returns. Host JVM stacks, arbitrary host state and effects are not
+forked or rolled back. Guest state can be snapshotted at the host-call boundary;
+this does not make an executing Clojure callback resumable. Exceptions abort the
+call rather than implement Lean exception unwinding.
+
+`prototype.ansatz-interop-test` demonstrates both calling directions using the
+existing Ansatz compiler: a verified Ansatz definition calls the checked Lean
+`InteropProbe.identity` through an arity-registry binding, and a verified Ansatz
+identity serves as a Lean host implementation. These are scoped test/REPL
+registry bindings, not a finished concurrent-session DSL API. No replacement
+axiom is introduced for the imported identity definition.
+
+`FrontendProbe.lean` defines and uses a custom `keepValue` macro. Its expanded
+`answer` definition is checked by Ansatz and returns 43 through the JVM host
+binding. Expansion runs in native Lean. Native elaboration-time macros, tactics
+and `#eval` cannot use the JVM binding registry through this bootstrap; that
+requires the hosted frontend or a separate native callback bridge.
+
+The [native bootstrap record](measurements/frontend-bootstrap.json) pins sources
+and artifacts and records 16 accepted declarations for the interop module and 12
+for the macro example. The current live REPL retains `interop-lab`,
+`ansatz-interop-lab`, `bootstrap-lab`, `frontend-smoke`, `parser-audit` and
+`parser-link-attempt`. Reproduce the native-assisted end-to-end check with:
+
+```clojure
+;; In the REPL, use experiment rather than CLI -main.
+(smoke/experiment (System/getenv "LEAN4EXPORT_BIN"))
+```
+
+```sh
+clojure -Srepro -J-Xmx1g -M -m prototype.frontend-smoke "$LEAN4EXPORT_BIN"
+```
+
+### Hosted parser: measured compatibility gaps
+
+The [parseHeader audit](measurements/parser-header-audit.json) inventories 985
+statically reachable declarations: 889 functions and 96 extern declarations
+covering 89 symbols. The current strict importer admits 461 declarations. This
+is a lowering count, not a runnable coverage percentage. Initializers and
+dynamically registered callbacks need additional roots.
+
+The closure includes uint32/uint64/usize/void types, scalar constructor storage,
+boxing/unboxing, scalar projections/stores, tag mutation and shell deletion.
+It contains 487 persistent-RC operations and three functions whose IR is
+`unreachable` because their values come from initialization: `parserExtension`,
+`categoryParserFnExtension` and `envExtensionsRef`. Treating those bodies or
+persistent flags as ordinary functions/RC would be incorrect.
+
+The exporter manifest covers 604 loaded modules with 1,595 builtin and two
+regular initializer entries. This is the exporter's complete imported-module
+inventory, not a claim that all these initializers are necessary for parseHeader.
+The extern inventory includes arrays, UTF-8 string operations, arithmetic and
+hashing, references and tasks. Each needs an explicit semantic implementation,
+including ownership; substituting Java string indices or hashes is insufficient.
+
+`lean/ParserOracle.lean` captures native syntax structure, byte positions,
+recovery state and diagnostics for five header inputs in
+[the oracle fixture](fixtures/parser-header-oracle.jsonl). SourceInfo annotations
+are omitted from that structural oracle; a complete parser compatibility test
+must eventually cover them too. No JVM parser is compared successfully yet.
+
+```sh
+lean +leanprover/lean4:v4.33.1 --run lean/Export.lean --closure \
+  Lean.Parser.Module Lean.Parser.parseHeader > target/parser-header.jsonl
+clojure -Srepro -J-Xmx1g -M -m prototype.runtime-audit target/parser-header.jsonl
+lean +leanprover/lean4:v4.33.1 --run lean/ParserOracle.lean
+```
+
+Continue in this order: implement typed scalar/heap layouts and the reached
+primitive families; provide world-local initialized globals and extension state;
+match the parser oracle; implement expression/environment adapters for kernel
+externs such as `lean_add_decl`; then connect newly elaborated code to runtime
+compilation and `evalConst`. Macro/tactic registration and invocation are the
+final hosted test, not something established by native macro expansion. LLVM
+is not required by any of these steps.
+
+The [milestone checkpoint](measurements/frontend-progress.json) records the
+incomplete hosted objective and pins the source/fixture versions. Validation at
+this checkpoint passes 63 tests / 10,498 assertions in both CLI and live REPL,
+five SCI tests / 14 assertions, and 20 Node checks including host-boundary
+resumption. Native file-loading smoke and the five-case parser oracle also pass.
+Production source, AOT JAR and optional LLVM suites were not rerun; production
+code and packaging are unchanged.
 
 ## ClojureScript / Node
 

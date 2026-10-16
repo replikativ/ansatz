@@ -86,7 +86,7 @@
     (assoc s :body body :locals (zipmap params args) :joins {})))
 
 (defn start [s target args]
-  (-> s (dissoc :result :resume-var) (assoc :frames [] :status :running) (enter target args)))
+  (-> s (dissoc :result :resume-var :host-request) (assoc :frames [] :status :running) (enter target args)))
 
 (defn deliver-result [s result]
   (if-let [frame (peek (:frames s))]
@@ -151,6 +151,8 @@
              (-> s (assoc-in [:heap (:id r) :fields b] (value s c))
                  (update-in [:stats :field-stores] inc) (assoc :body d)))
       :suspend (assoc s :status :suspended :resume-var a :body b)
+      :host (assoc s :status :host-call :host-request {:symbol a :arguments (mapv #(value s %) b) :dest c}
+                   :body d)
       (fail "Unsupported instruction" {:op op}))))
 
 (defn run
@@ -167,6 +169,8 @@
     :suspended (-> s (assoc :status :running) (assoc-in [:locals (:resume-var s)] x)
                    (dissoc :resume-var))
     :paused (assoc s :status :running)
+    :host-call (-> s (assoc :status :running) (assoc-in [:locals (get-in s [:host-request :dest])] x)
+                   (dissoc :host-request))
     (fail "State is not resumable" {:status (:status s)})))
 
 (defn guest-list [s xs]
