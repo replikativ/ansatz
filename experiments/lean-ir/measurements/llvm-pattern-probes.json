@@ -1,0 +1,38 @@
+{
+  "source_sha256": {
+    "llvm/TailProbe.ll": "c4cc2f7cb6fae6202435ab0217548f81225beda45a9eb01e3f078486cb342287",
+    "src/prototype/pattern_probe.clj": "4ef49f14efa4e08eec4470d77ca24dc22c138563ae64cc032598d7509ae2a10e"
+  },
+  "pattern_commit": "89da31a64f5150a180a1233cd13fa1de4f42e416",
+  "llvm_version": "Ubuntu LLVM version 20.1.8",
+  "scope": "Independent CFG shape and native tail-call probes; no importer/exporter",
+  "commands": [
+    {
+      "argv": [
+        "llvm-as",
+        "llvm/TailProbe.ll",
+        "-o",
+        "target/TailProbe.bc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "opt",
+        "-passes=verify",
+        "target/TailProbe.bc",
+        "-o",
+        "target/TailProbe.verified.bc"
+      ],
+      "exit_code": 0
+    },
+    {
+      "argv": [
+        "lli",
+        "target/TailProbe.verified.bc"
+      ],
+      "exit_code": 0
+    }
+  ],
+  "pattern_shape_checks": 2
+}

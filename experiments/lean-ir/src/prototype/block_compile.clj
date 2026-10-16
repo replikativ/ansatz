@@ -182,6 +182,34 @@
 (defn- execution-context [program machine]
   (assoc machine :leaf-plans (:leaf-plans program) :register-layouts (:register-layouts program)))
 
+(defn compiler-token [] generation)
+
+(defn- tail-targets [[op a b c d]]
+  (case op
+    :tail (if (= :direct (first a)) #{(second a)} #{})
+    :let (tail-targets c)
+    :call (tail-targets d)
+    :join (into (tail-targets c) (tail-targets d))
+    :case (into #{} (mapcat #(tail-targets (second %)) b))
+    (:inc :dec) (tail-targets c)
+    :set (tail-targets d)
+    :suspend (tail-targets b)
+    (:jump :return) #{}
+    (m/fail "Unsupported compiled instruction" {:op op})))
+
+(defn runtime-block-key [functions body options]
+  (when (or (:leaf-calls options) (:compact-registers options))
+    (m/fail "Lazy prototype supports plain blocks and lexical regions" {:options options}))
+  [generation (boolean (:lexical-joins options)) (boolean (:direct-linking options)) body
+   (when (:lexical-joins options)
+     (into {} (map (fn [name] [name (when-let [f (get functions name)] (count (:params f)))])
+                   (tail-targets body))))])
+
+(defn compile-runtime-block [functions body options]
+  (runtime-block-key functions body options)
+  (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
+    (compile-block body functions (:lexical-joins options) false #{})))
+
 (defn- check-program! [program machine]
   (when-not (= (:functions program) (:functions machine))
     (m/fail "Compiled program does not match machine code" {})))

@@ -8,6 +8,86 @@ The JVM experiment now also includes a mutable interpreter, a numeric compiler
 and a constructor/closure block compiler. These are experimental alternatives to the portable reference machine,
 not changes to Ansatz's production lowering or library runtime.
 
+## Architecture: loading and execution
+
+The producer is native Lean, which imports compiled modules and exposes their
+compiler IR through `IR.findEnvDecl`. `lean/Export.lean` exports declarations as
+structured JSONL under a pinned schema. The prototype reads this export, not
+Lean's binary `.ir` files or its human-readable pretty printer. It does not yet
+run Lean's parser/elaborator on Ansatz's kernel.
+
+```mermaid
+flowchart LR
+  A[Lean source and compiled modules] --> B[Native Lean imports and compiler IR]
+  B --> C[Export.lean: structured JSONL]
+  C --> D[Schema, runtime-type and layout checks]
+  D --> E[Clojure FnBody data]
+  E --> F[Persistent reference interpreter]
+  E --> G[Mutable JVM interpreter]
+  E --> H[Clojure forms compiled to JVM bytecode]
+  H --> I[JVM JIT]
+  G --> J[Explicit guest heap and control state]
+  H --> J
+  K[Lean proof declarations] -. separate admission path .-> L[Ansatz kernel]
+```
+
+The JSON manifest records producer version, modules and initialization metadata.
+Names preserve both string and numeric components. `load-bundle` validates and
+lowers all rows eagerly. The newer `index-bundles` retains raw declarations and
+`load-closure` lowers selected roots and their static dependencies. Direct calls
+and closure constructors determine those dependencies from the lowered body;
+producer dependency lists are not trusted for execution linking. Indirect targets
+supplied from outside this closure require additional explicit roots or host
+functions. Module initializers and native extern resolution are still unsupported.
+
+Our instruction language is ordinary immutable data. For example:
+
+```clojure
+{:params [0]
+ :body [:let 1 [:prim :inc [[:var 0]]]
+        [:return [:var 1]]]}
+```
+
+`:let` binds a register; `:call` saves a continuation; `:tail` replaces the current
+activation; `:return` delivers a value. `:join`/`:jump` describe local control flow
+with arguments and captured lexical bindings. Constructors, projections, cases,
+closures, explicit RC and unique-field stores implement the heap portion. Proof
+terms are not interpreted by this machine. The `:suspend` operation is an explicit
+prototype extension used for continuation/fork experiments.
+
+```mermaid
+flowchart TD
+  A[Current body and registers] --> B{Execution tier}
+  B -->|reference| C[One immutable state transition]
+  B -->|mutable| D[One instruction over arrays and heap map]
+  B -->|compiled| E[Compiled region with JVM local temporaries]
+  E --> F{Boundary}
+  F -->|call or suspension| G[Materialize registers, joins and return frames]
+  F -->|tail transfer| A
+  F -->|return| H{Caller frame?}
+  G --> A
+  H -->|yes| R[Restore caller]
+  R --> A
+  H -->|no| Z[Done]
+  G --> I[Freeze: copy mutable storage into an immutable snapshot]
+  I --> J[Thaw left world]
+  I --> K[Thaw right world]
+```
+
+The mutable machine stores registers and constructor fields in object arrays,
+return frames in an explicit deque, and guest nodes in an ID-to-node heap map.
+Calls and tail transfers return to a host dispatch loop, so guest tail recursion
+does not grow the JVM stack. Compiled regions are generated Clojure forms passed
+to `eval`; Clojure emits bytecode and the JVM optimizes that code. This is not a
+native LLVM backend. Calls into runtime helpers still handle heap/control effects.
+
+Guest RC governs constructor reuse and logical release. The JVM GC manages the
+physical host objects. A frozen world copies mutable arrays; each restored child
+can then have guest RC 1 without sharing writable fields with its sibling. Current
+forks therefore copy storage. Constant-time persistent-page forks, native resource
+rollback and arbitrary JVM stack capture are not implemented. Exact-fuel pauses
+use interpreter fallback when a complete compiled region cannot fit the budget.
+
 ## Reproduce
 
 From the Ansatz worktree root, compile the Java kernel once:
@@ -612,6 +692,182 @@ resource captures, shared closures, wide tail transfers, suspended frames and
 direct-linked runtime helpers. The reflection check emits no warnings. Optional
 full Init/Mathlib fixtures remain unavailable; unchanged production JAR and
 portable Node paths were not rerun.
+
+### Demand compilation and selective module lowering
+
+The demand compiler is a separate opt-in driver over the same mutable machine:
+
+```clojure
+(require '[prototype.import-ir :as ir] '[prototype.lazy-runtime :as lazy])
+(def catalogue (ir/index-bundles ["fixtures/list-map.jsonl"]))
+(def roots [["str" ["str" ["str" ["anonymous"] "List"] "map"] "_redArg"]])
+(def selected (ir/load-closure catalogue roots))
+(def shared-code (lazy/code-cache))
+(def program (lazy/open-program selected {} shared-code))
+;; No bytecode has been compiled yet.
+(lazy/summary program)
+```
+
+```mermaid
+flowchart LR
+  A[JSONL modules] --> B[Raw declaration catalogue]
+  B --> C[Selected roots and static dependency closure]
+  C --> D[Immutable world function table]
+  D --> E[Current instruction body]
+  E --> F{Program-local dispatch table}
+  F -->|hit| J[Execute compiled region]
+  F -->|cold| G{Shared versioned code cache}
+  G -->|hit| J
+  G -->|miss| H[Compile this region only]
+  H --> G
+  J --> E
+```
+
+Cache keys contain the body, compiler generation, runtime-linking/region options
+and the existence/arity of directly called tail targets on which materialization
+elision depends. They do not contain the complete module. Ordinary callee body
+edits reuse caller code and resolve the callee through that world's function
+table. Unrelated declaration additions do not invalidate touched regions. A
+compiler reload requires reopening the lazy program; it produces different cache
+keys. Concurrent cache misses are serialized before publishing a compiled block.
+There is no durable machine-code cache or eviction policy yet.
+
+This driver currently supports plain blocks and lexical regions. It rejects the
+leaf-call and compact-register profiles rather than scanning all declarations to
+prepare their whole-program plans. Worlds and snapshots retain the existing
+semantic format; dispatch tables and compiled functions live outside snapshots.
+At low fuel it uses the instruction interpreter. An unsupported unused declaration
+can stay in the raw catalogue; selecting it still fails the importer checks.
+
+Raw JSON decoding/indexing remains eager, and `thaw` still scans every function
+in its supplied table. Supplying the selected table is therefore part of the
+experiment, not an optional cosmetic change. This does not implement demand-loaded
+native Lean modules, initializer execution or admission-to-executable linking.
+
+```sh
+clojure -Srepro -J-Xmx1g -J-XX:-UsePerfData -M -m prototype.module-bench 100 1000 10000 > target/module-comparison.json
+```
+
+The benchmark uses explicitly synthetic module corpora, with two reachable
+functions and distinct cold declarations. It times JSON indexing, selected/all
+lowering, machine restoration, lazy opening, first execution, warmed execution and
+edits separately. The real Lean list/tree fixtures remain differential tests.
+An edit changes a callee, compiles one region and reuses two caller regions; both
+old and new worlds retain their own results.
+
+The live REPL exposes `lazy-code`, `lazy-lab` and `lazy-edit-lab`. It executes
+the selectively loaded real `List.map._redArg`, forks a paused world into equal
+results, and retains an unchanged parent. The edit lab returns 42 from the old
+world and 43 from the new one, while reusing two caller regions and compiling one.
+
+[Retained module measurements](measurements/lazy-modules.json) show:
+
+| Synthetic declarations | Eager blocks / compilation | Reached blocks / first execution | Selected warm edit |
+| --- | ---: | ---: | ---: |
+| 102 | 103 / 0.94 s | 3 / 17.2 ms | 6.83 ms |
+| 1,002 | 1,003 / 4.12 s | 3 / 16.2 ms | 4.57 ms |
+| 10,002 | 10,003 / 19.74 s | 3 / 11.3 ms | 1.95 ms |
+
+The reached-block first-execution timer excludes machine restoration. In the
+10,002-declaration case, JSON parse/index took 317 ms, selected lowering 0.15 ms,
+and full-registry restoration 545 ms. The selected pipeline's first
+lower/open/restore/run/freeze took 8.88 ms after indexing. Full-registry warm edits
+cost 196 ms, compared with 1.95 ms using the selected table. Each of eleven edits
+compiled one block and reused two. Source-level Lean compilation, kernel admission,
+IR export and raw JSON reindexing are excluded from the edit timer. Complete
+reference checks run outside the execution/edit timers.
+
+These are sequential sizes in a shared JVM, with compiler warmup, JIT, GC and
+scheduling effects. An optional Pattern smoke process also ran at the beginning.
+The decreasing selected-edit times are not evidence that larger modules run
+faster. The firm structural result is three reached blocks and two lowered
+declarations, independent of the unused declaration count. Full Lean frontend
+modules and their initializer/native-primitive surface remain untested here.
+
+Validation: prototype 48 tests / 10,410 assertions, SCI 5 / 14 and surrounding
+Ansatz source 713 / 2,417 all pass. Actual Lean list execution is checked after
+selective loading, alongside exact-fuel resumes, suspension forks, old/new world
+edits and dependency-sensitive cache keys. Optional full Init/Mathlib fixtures
+remain unavailable. Production JAR and portable Node paths were not rerun because
+their sources are unchanged.
+
+### Pattern and LLVM direction
+
+The proposed LLVM bridge belongs below the semantic guest IR. Pattern already
+contains immutable-data rewrites, nanopass dialects and SSA/CPS examples. Our
+current importer/emitter uses direct Clojure functions; it has not been rewritten
+as Pattern passes.
+
+```mermaid
+flowchart LR
+  A[Lean IR or formal Clojure core] -. proposed lowering .-> B[Pattern guest dialect: closures, RC, worlds, effects]
+  B -. closure conversion and safepoints .-> C[Typed CFG and explicit runtime ABI]
+  C -. JVM lowering .-> D[JVM backend]
+  C -. LLVM lowering .-> E[Pattern LLVM dialect]
+  F[LLVM text or bitcode] -. LLVM parser and importer .-> E
+  E -. checked exporter .-> F
+  F -. optimization and code generation .-> G[Native code or ORC JIT]
+```
+
+Use LLVM's parser and verifier, with an LLVM-version-pinned adapter to immutable
+data. Its C API exposes `LLVMParseIRInContext`; MLIR's LLVM dialect/import-export
+interfaces are another reference design. Pattern passes can then transform typed
+data without operating on native LLVM object pointers. Initial support should be
+small and explicit: integer SSA, blocks/phis, branches, direct calls and returns.
+Unsupported constructs must be rejected or retained opaquely outside semantic
+rewrites. There is no general LLVM importer/exporter in this experiment yet.
+See [LLVM IR reader](https://llvm.org/doxygen/group__LLVMCCoreIRReader.html) and
+[MLIR's LLVM translation](https://mlir.llvm.org/docs/TargetLLVMIR/).
+
+The low-level dialect must preserve target/data layout, calling conventions,
+integer widths, attributes, alignment, address spaces, atomics and poison/undef
+semantics wherever supported. An LLVM `add i64` is not the prototype's checked
+53-bit arithmetic or Lean's arbitrary Nat. LLVM input does not recover dependent
+types, proof terms, persistent ownership or world semantics automatically.
+Tail calls need the appropriate ABI and verifier conditions; `musttail` has
+specific signature/placement restrictions. See the
+[LLVM language reference](https://llvm.org/docs/LangRef.html#call-instruction).
+
+Native regions would need explicit handles for host values, effect boundaries,
+GC/RC cooperation and state materialization before a fork or deoptimization.
+LLVM stack maps expose locations; they do not supply our reconstruction policy.
+ORC supplies useful lazy compilation/linking infrastructure, while specialization,
+profiling and world/version guards remain our responsibility. Keep native
+compilation an optional tier for hot regions and measure its latency separately.
+See [stack maps](https://llvm.org/docs/StackMaps.html) and
+[ORC](https://llvm.org/docs/ORCv2.html).
+
+Two bounded plumbing probes accompany this proposal:
+
+* `prototype.pattern-probe` defines and validates a small LLVM-shaped Pattern
+  dialect. It checks grammar shape, not SSA dominance or semantic equivalence.
+  Supply the Pattern checkout as an optional dependency; normal prototype tests
+  do not acquire this dependency.
+* `llvm/TailProbe.ll` is independently checked with LLVM's own tools. It exercises
+  200,000 `musttail` transfers and checks the result. It uses i64 arithmetic and
+  no guest heap. There is no generated connection between these two fixtures yet.
+
+The [probe record](measurements/llvm-pattern-probes.json) pins the Pattern commit,
+fixture hashes and LLVM commands. The optional Pattern probe passes against the
+local checkout, and LLVM 20.1.8
+assembles, verifies and executes the tail fixture successfully. Pattern's test
+checks two grammar outcomes; LLVM's verifier checks the separate native module.
+Neither result proves the future import/export lowering correct.
+
+```sh
+llvm-as llvm/TailProbe.ll -o target/TailProbe.bc
+opt -passes=verify target/TailProbe.bc -o target/TailProbe.verified.bc
+lli target/TailProbe.verified.bc
+```
+
+With `PATTERN_DIR` set before starting the experiment REPL, the optional probe is:
+
+```clojure
+(require '[clojure.repl.deps :as deps])
+(deps/add-lib 'com.github.pangloss/pattern {:local/root (System/getenv "PATTERN_DIR")})
+(require '[prototype.pattern-probe :as pp])
+(pp/check!)
+```
 
 ### REPL
 

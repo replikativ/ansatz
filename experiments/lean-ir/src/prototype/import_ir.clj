@@ -56,14 +56,60 @@
     "set" [:set [:var (:idx a)] b (operand c) (body d)]
     (m/fail "Unsupported imported instruction" {:op op})))
 
-(defn load-bundle [path]
+(defn- rows [path]
   (let [rows (mapv #(json/read-str % :key-fn keyword :bigdec false) (str/split-lines (slurp path)))
         manifest (first rows)]
     (when-not (and (= "lean-ir-probe/1" (:schema manifest)) (= "4.33.1" (:leanVersion manifest)))
       (m/fail "Unsupported producer" {:manifest manifest}))
-    (into {} (for [row (rest rows)]
-               (let [f (get-in row [:ir :fdecl])]
-                 (when-not f (m/fail "Missing body or extern" {:name (:name row)}))
-                 (type! (:type f))
-                 (doseq [p (:xs f)] (type! (:ty p)))
-                 [(:f f) {:params (mapv #(get-in % [:x :idx]) (:xs f)) :body (body (:body f))}])))))
+    rows))
+
+(defn lower-declaration [row]
+  (let [f (get-in row [:ir :fdecl])]
+    (when-not f (m/fail "Missing body or extern" {:name (:name row)}))
+    (type! (:type f))
+    (doseq [p (:xs f)] (type! (:ty p)))
+    [(:f f) {:params (mapv #(get-in % [:x :idx]) (:xs f)) :body (body (:body f))}]))
+
+(defn load-bundle [path]
+  (into {} (map lower-declaration (rest (rows path)))))
+
+(defn index-bundles [paths]
+  ;; JSON decoding is still eager. This is a raw declaration catalogue, not
+  ;; admission of every indexed body to the executable subset.
+  (reduce (fn [catalogue path]
+            (let [rows (rows path)]
+              (reduce (fn [catalogue row]
+                        (let [name (:name row)]
+                          (when-not name (m/fail "Missing declaration name" {:path path}))
+                          (when-let [old (get-in catalogue [:declarations name])]
+                            (when-not (= (select-keys old [:kind :ir :dependencies])
+                                         (select-keys row [:kind :ir :dependencies]))
+                              (m/fail "Conflicting declaration" {:name name})))
+                          (assoc-in catalogue [:declarations name] row)))
+                      (update catalogue :manifests conj (first rows)) (rest rows))))
+          {:manifests [] :declarations {}} paths))
+
+(defn- static-targets [[op a b c d]]
+  (case op
+    :let (cond-> (static-targets c) (= :closure (first b)) (conj (second b)))
+    :call (cond-> (static-targets d) (= :direct (first b)) (conj (second b)))
+    :tail (if (= :direct (first a)) #{(second a)} #{})
+    :join (into (static-targets c) (static-targets d))
+    :case (into #{} (mapcat #(static-targets (second %)) b))
+    (:inc :dec) (static-targets c)
+    :set (static-targets d)
+    :suspend (static-targets b)
+    (:return :jump) #{}))
+
+(defn load-closure [catalogue roots]
+  (loop [pending (vec roots) functions {}]
+    (if (empty? pending) functions
+      (let [name (peek pending) pending (pop pending)]
+        (if (contains? functions name) (recur pending functions)
+          (let [row (or (get-in catalogue [:declarations name])
+                        (m/fail "Missing declaration dependency" {:name name}))
+                [actual function] (lower-declaration row)]
+            (when-not (= name actual) (m/fail "Declaration name mismatch" {:name name :actual actual}))
+            ;; Derive dependencies from the admitted body, rather than trusting
+            ;; optional producer dependency metadata.
+            (recur (into pending (static-targets (:body function))) (assoc functions name function))))))))
