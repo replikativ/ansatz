@@ -1,0 +1,444 @@
+{
+  "jvm": {
+    "java-version": "25.0.1",
+    "clojure-version": "1.12.0",
+    "warmup": 20,
+    "samples": 11,
+    "execution": [
+      {
+        "samples": 11,
+        "raw-ns": [
+          92700955,
+          93119156,
+          79612335,
+          90344395,
+          81202955,
+          93915135,
+          83552067,
+          82932492,
+          78866720,
+          79255467,
+          79281519
+        ],
+        "median-bytes": 163034544,
+        "median-ns": 82932492,
+        "size": 20000,
+        "max-ns": 93915135,
+        "checksum": 20000,
+        "min-ns": 78866720,
+        "workload": "tail",
+        "backend": "persistent"
+      },
+      {
+        "samples": 11,
+        "raw-ns": [
+          39721601,
+          43578615,
+          33046333,
+          32522892,
+          31930075,
+          38939910,
+          32926769,
+          32012764,
+          32509348,
+          31415002,
+          30957544
+        ],
+        "median-bytes": 59194480,
+        "median-ns": 32522892,
+        "size": 20000,
+        "max-ns": 43578615,
+        "checksum": 20000,
+        "min-ns": 30957544,
+        "workload": "tail",
+        "backend": "mutable"
+      },
+      {
+        "samples": 11,
+        "raw-ns": [
+          29925039,
+          30699542,
+          23464478,
+          22700237,
+          22889040,
+          23506493,
+          22362918,
+          22029295,
+          25770649,
+          28079130,
+          27200332
+        ],
+        "median-bytes": 29137024,
+        "median-ns": 23506493,
+        "size": 1000,
+        "max-ns": 30699542,
+        "checksum": 1,
+        "min-ns": 22029295,
+        "workload": "unique",
+        "backend": "persistent"
+      },
+      {
+        "samples": 11,
+        "raw-ns": [
+          8486678,
+          9048554,
+          8888750,
+          8646421,
+          7774169,
+          7582908,
+          7518409,
+          7453293,
+          7528009,
+          6871600,
+          6408295
+        ],
+        "median-bytes": 5525720,
+        "median-ns": 7582908,
+        "size": 1000,
+        "max-ns": 9048554,
+        "checksum": 1,
+        "min-ns": 6408295,
+        "workload": "unique",
+        "backend": "mutable"
+      },
+      {
+        "samples": 11,
+        "raw-ns": [
+          24042258,
+          22544515,
+          25888062,
+          22642920,
+          22591811,
+          22887423,
+          23855883,
+          23655121,
+          24229589,
+          23863474,
+          23211687
+        ],
+        "median-bytes": 32293848,
+        "median-ns": 23655121,
+        "size": 1000,
+        "max-ns": 25888062,
+        "checksum": 1,
+        "min-ns": 22544515,
+        "workload": "shared",
+        "backend": "persistent"
+      },
+      {
+        "samples": 11,
+        "raw-ns": [
+          8023234,
+          6774259,
+          6690709,
+          7009809,
+          6879661,
+          6575239,
+          6449383,
+          6360107,
+          6420777,
+          6117533,
+          6096557
+        ],
+        "median-bytes": 6556008,
+        "median-ns": 6575239,
+        "size": 1000,
+        "max-ns": 8023234,
+        "checksum": 1,
+        "min-ns": 6096557,
+        "workload": "shared",
+        "backend": "mutable"
+      }
+    ],
+    "compiled": {
+      "warmup": 200,
+      "compile-first-ns": 10529620,
+      "compile-repeated": {
+        "samples": 5,
+        "median-ns": 4155928,
+        "min-ns": 4034798,
+        "max-ns": 4770153,
+        "median-bytes": 1385432,
+        "raw-ns": [
+          4770153,
+          4182725,
+          4155928,
+          4149391,
+          4034798
+        ]
+      },
+      "execution": {
+        "samples": 11,
+        "raw-ns": [
+          80267,
+          125370,
+          50769,
+          47067,
+          58839,
+          52673,
+          50589,
+          48941,
+          49996,
+          51178,
+          48853
+        ],
+        "median-bytes": 1296,
+        "median-ns": 50769,
+        "size": 20000,
+        "max-ns": 125370,
+        "checksum": 20000,
+        "min-ns": 47067,
+        "workload": "tail",
+        "backend": "compiled-numeric"
+      }
+    },
+    "checkpoints": [
+      {
+        "size": 100,
+        "live-frames": 2,
+        "live-nodes": 100,
+        "freeze": {
+          "samples": 11,
+          "median-ns": 99078,
+          "min-ns": 73180,
+          "max-ns": 350538,
+          "median-bytes": 50144,
+          "raw-ns": [
+            161042,
+            99078,
+            76998,
+            78987,
+            73180,
+            240166,
+            101498,
+            78909,
+            79768,
+            350538,
+            111832
+          ]
+        },
+        "restore": {
+          "samples": 11,
+          "median-ns": 399862,
+          "min-ns": 351424,
+          "max-ns": 738509,
+          "median-bytes": 532504,
+          "raw-ns": [
+            738509,
+            385201,
+            651855,
+            399862,
+            356008,
+            358328,
+            351424,
+            393638,
+            576277,
+            692633,
+            425812
+          ]
+        }
+      },
+      {
+        "size": 1000,
+        "live-frames": 2,
+        "live-nodes": 1000,
+        "freeze": {
+          "samples": 11,
+          "median-ns": 453716,
+          "min-ns": 361512,
+          "max-ns": 3023236,
+          "median-bytes": 361072,
+          "raw-ns": [
+            477266,
+            1173139,
+            453716,
+            376697,
+            3023236,
+            514103,
+            384202,
+            380799,
+            370533,
+            361512,
+            570736
+          ]
+        },
+        "restore": {
+          "samples": 11,
+          "median-ns": 794772,
+          "min-ns": 614621,
+          "max-ns": 9665063,
+          "median-bytes": 824768,
+          "raw-ns": [
+            3307185,
+            1298104,
+            1127591,
+            4816844,
+            708790,
+            734696,
+            794772,
+            614621,
+            614936,
+            9665063,
+            724806
+          ]
+        }
+      },
+      {
+        "size": 10000,
+        "live-frames": 2,
+        "live-nodes": 10000,
+        "freeze": {
+          "samples": 11,
+          "median-ns": 4519257,
+          "min-ns": 4152904,
+          "max-ns": 4973339,
+          "median-bytes": 3007440,
+          "raw-ns": [
+            4973339,
+            4541372,
+            4634024,
+            4381350,
+            4714174,
+            4507262,
+            4602744,
+            4519257,
+            4377348,
+            4278917,
+            4152904
+          ]
+        },
+        "restore": {
+          "samples": 11,
+          "median-ns": 4058432,
+          "min-ns": 3769395,
+          "max-ns": 5171904,
+          "median-bytes": 3335024,
+          "raw-ns": [
+            5171904,
+            4294342,
+            4186655,
+            4058432,
+            4015945,
+            4445643,
+            4039125,
+            3870282,
+            4743076,
+            3807757,
+            3769395
+          ]
+        }
+      }
+    ]
+  },
+  "native": [
+    {
+      "backend": "native",
+      "workload": "tail",
+      "size": 20000,
+      "checksum": 20000,
+      "median-ns": 682631,
+      "min-ns": 524447,
+      "max-ns": 874714,
+      "raw-ns": [
+        602077,
+        676196,
+        717143,
+        778030,
+        729219,
+        874714,
+        793823,
+        609325,
+        682631,
+        524447,
+        590853
+      ]
+    },
+    {
+      "backend": "native-uint64",
+      "workload": "tail",
+      "size": 20000,
+      "checksum": 20000,
+      "median-ns": 6367,
+      "min-ns": 6334,
+      "max-ns": 6374,
+      "raw-ns": [
+        6371,
+        6368,
+        6357,
+        6372,
+        6370,
+        6357,
+        6335,
+        6349,
+        6367,
+        6374,
+        6334
+      ]
+    },
+    {
+      "backend": "native",
+      "workload": "unique",
+      "size": 1000,
+      "checksum": 1,
+      "median-ns": 10790,
+      "min-ns": 10742,
+      "max-ns": 10995,
+      "raw-ns": [
+        10838,
+        10995,
+        10871,
+        10896,
+        10828,
+        10768,
+        10790,
+        10774,
+        10742,
+        10787,
+        10754
+      ]
+    },
+    {
+      "backend": "native",
+      "workload": "shared",
+      "size": 1000,
+      "checksum": 1,
+      "median-ns": 9780,
+      "min-ns": 9685,
+      "max-ns": 9865,
+      "raw-ns": [
+        9780,
+        9865,
+        9700,
+        9796,
+        9724,
+        9799,
+        9810,
+        9768,
+        9831,
+        9769,
+        9685
+      ]
+    }
+  ],
+  "toolchain": "leanprover/lean4:v4.33.1",
+  "measured_at": "2026-10-16T16:49:47.764013+00:00",
+  "machine": {
+    "platform": "Linux-6.17.0-41-generic-x86_64-with-glibc2.42",
+    "cpu": "Intel(R) Core(TM) Ultra 7 258V",
+    "cpu_count": 8
+  },
+  "build_seconds": {
+    "lean": 0.8472449429973494,
+    "c": 1.2429035190143622
+  },
+  "jvm_process_seconds": 12.186278883978957,
+  "source_sha256": {
+    "lean/Bench.lean": "0da0cc1c1a254d23505a25e84f3ee868b1e49e1495cab625d6ce58db0e310e27",
+    "src/prototype/bench.clj": "1fd3d20a877198bdce42c6ba1cda20b41293e34711710aa05005a0870f101fe0",
+    "src/prototype/mutable.clj": "6307775196c749d3a7e927992d4801994d84b607822e76dd896e6e1c8d641f84",
+    "src/prototype/numeric_compile.clj": "4deadc7186a8ef60b743eeabeb8e7c75206f47607763c53b1fd9790c9cd67765",
+    "src/prototype/machine.cljc": "641d7c59ba19de3231efe6f6ef97a9bc14d34bb062ff2f0839d77aa87945a18d",
+    "fixtures/list-map.jsonl": "ed160bf5b9fa07fa3eae25d2f0a12ea05f971e5214c6cd9c57dba66e5d92e124",
+    "bench.py": "89fee9ee9fa58d118962e837575d18a7df280753b608fa292da0c57251c745bb"
+  }
+}

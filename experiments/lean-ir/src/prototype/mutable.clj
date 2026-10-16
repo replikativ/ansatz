@@ -1,0 +1,189 @@
+(ns prototype.mutable
+  "JVM-only mutable execution of the reference instruction set.
+   Snapshots copy all live guest storage; no shared mutable pages or native resources."
+  (:refer-clojure :exclude [run!])
+  (:require [prototype.machine :as m])
+  (:import [java.util HashMap ArrayDeque Arrays]))
+
+(def ^:private unbound (Object.))
+(defrecord Machine [functions slots control heap frames events counters])
+;; control: body, locals, joins, next-id, status, result, resume-var
+;; counters: allocations, field-stores, steps, max-frames
+(defn- ctl [s i] (aget ^objects (:control s) i))
+(defn- put! [s i v] (aset ^objects (:control s) i v))
+(defn- bump! [s i n] (let [a ^longs (:counters s)] (aset-long a i (+ (aget a i) (long n)))))
+(defn- registers [n bindings]
+  (let [a (object-array n)]
+    (Arrays/fill a unbound)
+    (doseq [[k v] bindings] (aset a (int k) v)) a))
+(defn- bindings [a]
+  (into {} (keep-indexed (fn [i v] (when-not (identical? unbound v) [i v])) a)))
+(defn- joins-out [joins]
+  (into {} (map (fn [[k j]] [k (update j :locals bindings)]) joins)))
+(defn- joins-in [n joins]
+  (HashMap. ^java.util.Map (update-vals (or joins {}) #(update % :locals (partial registers n)))))
+(defn- slot-count [s]
+  (let [forms (tree-seq coll? seq (:functions s))
+        ids (concat (mapcat :params (vals (:functions s)))
+                    (mapcat (fn [x]
+                              (when (vector? x)
+                                (case (first x)
+                                  (:var :let :call :suspend) [(second x)]
+                                  :join (nth x 2)
+                                  []))) forms)
+                    (keys (:locals s)))]
+    (inc (reduce max 0 (filter integer? ids)))))
+
+(defn thaw [snapshot]
+  (let [n (slot-count snapshot)]
+    (when (> n 1000000) (m/fail "Register limit" {:slots n}))
+    (->Machine (:functions snapshot) n
+               (object-array [(:body snapshot) (registers n (:locals snapshot))
+                              (joins-in n (:joins snapshot)) (:next-id snapshot)
+                              (:status snapshot) (:result snapshot) (:resume-var snapshot)])
+               (HashMap. ^java.util.Map
+                         (update-vals (:heap snapshot) #(update % :fields object-array)))
+               (ArrayDeque. ^java.util.Collection
+                            (mapv #(-> % (update :locals (partial registers n))
+                                       (update :joins (partial joins-in n))) (:frames snapshot)))
+               (java.util.ArrayList. ^java.util.Collection (:events snapshot))
+               (long-array (map (:stats snapshot) [:allocations :field-stores :steps :max-frames])))))
+
+(defn freeze [s]
+  (cond-> {:functions (:functions s)
+           :heap (into {} (map (fn [[k v]] [k (update v :fields vec)]) (:heap s)))
+           :next-id (ctl s 3) :events (vec (:events s))
+           :stats (zipmap [:allocations :field-stores :steps :max-frames] (vec (:counters s)))
+           :body (ctl s 0) :locals (bindings (ctl s 1)) :joins (joins-out (ctl s 2))
+           :frames (mapv #(-> % (update :locals bindings) (update :joins joins-out)) (:frames s))
+           :status (ctl s 4)}
+    (= :done (ctl s 4)) (assoc :result (ctl s 5))
+    (= :suspended (ctl s 4)) (assoc :resume-var (ctl s 6))))
+
+(defn- node [s r]
+  (or (.get ^HashMap (:heap s) (:id r)) (m/fail "Dangling guest reference" {:ref r})))
+(defn- retain! [s v n]
+  (when (m/ref? v)
+    (.put ^HashMap (:heap s) (:id v) (update (node s v) :rc + n))))
+(defn- release! [s v n]
+  (let [pending (ArrayDeque.)]
+    (.addLast pending [v n])
+    (while (not (.isEmpty pending))
+      (let [[v n] (.removeLast pending)]
+        (when (m/ref? v)
+          (let [{:keys [rc kind tag fields] :as node} (node s v) left (- rc n)]
+            (when (neg? left) (m/fail "Reference count underflow" {:ref v :rc rc :drop n}))
+            (if (pos? left)
+              (.put ^HashMap (:heap s) (:id v) (assoc node :rc left))
+              (do (.remove ^HashMap (:heap s) (:id v))
+                  (when (= :resource kind) (.add ^java.util.ArrayList (:events s) [:released tag]))
+                  (doseq [f fields] (.addLast pending [f 1]))))))))))
+(defn- value [s [op x]]
+  (case op
+    :imm x
+    :var (let [v (aget ^objects (ctl s 1) (int x))]
+           (if (identical? unbound v) (m/fail "Unbound variable" {:variable x}) v))
+    (m/fail "Unknown operand" {:op op})))
+(defn- allocate! [s kind tag fields function]
+  (let [id (ctl s 3)]
+    (put! s 3 (inc id))
+    (.put ^HashMap (:heap s) id (cond-> {:kind kind :tag tag :fields (object-array fields) :rc 1}
+                                function (assoc :function function)))
+    (bump! s 0 1) (m/->Ref id)))
+(defn- expr! [s [op a b]]
+  (case op
+    :literal a
+    :ctor (if (empty? b) (m/->Tag a) (allocate! s :ctor a (mapv #(value s %) b) nil))
+    :project (aget ^objects (:fields (node s (value s a))) (int b))
+    :shared? (let [r (value s a)] (if (and (m/ref? r) (> (:rc (node s r)) 1)) 1 0))
+    :closure (allocate! s :closure nil (mapv #(value s %) b) a)
+    :prim (let [args (mapv #(m/small-integer! (value s %)) b)]
+            (when-not (= 1 (count args)) (m/fail "Scalar primitive arity" {:op a}))
+            (m/small-integer! (case a :inc (inc (first args)) :dec (dec (first args))
+                                  :zero? (if (zero? (first args)) 1 0)
+                                  (m/fail "Unknown scalar primitive" {:op a}))))
+    (m/fail "Unsupported expression" {:op op})))
+(defn- deliver! [s result]
+  (if (.isEmpty ^ArrayDeque (:frames s))
+    (do (put! s 4 :done) (put! s 5 result))
+    (let [{:keys [body locals joins dest]} (.removeLast ^ArrayDeque (:frames s))]
+      (aset ^objects locals (int dest) result)
+      (put! s 0 body) (put! s 1 locals) (put! s 2 joins))))
+(defn- call! [s target operands dest continuation]
+  (let [args (mapv #(value s %) operands)
+        [target args]
+        (if (= :direct (first target)) [(second target) args]
+          (let [closure (value s (second target))]
+            (cond
+              (instance? prototype.machine.Builtin closure) [closure args]
+              (m/ref? closure)
+              (let [{:keys [kind function fields]} (node s closure)]
+                (when-not (= :closure kind) (m/fail "Expected guest closure" {:value closure}))
+                (doseq [v fields] (retain! s v 1))
+                (let [args (into (vec fields) args)]
+                  (release! s closure 1) [function args]))
+              :else (m/fail "Expected closure" {:value closure}))))]
+    (when continuation
+      (.addLast ^ArrayDeque (:frames s) {:body continuation :dest dest :locals (ctl s 1) :joins (ctl s 2)})
+      (let [a ^longs (:counters s)]
+        (aset-long a 3 (max (aget a 3) (.size ^ArrayDeque (:frames s))))))
+    (if (instance? prototype.machine.Builtin target)
+      (do (when-not (and (= :inc (:name target)) (= 1 (count args)) (number? (first args)))
+            (m/fail "Unsupported pure host callback" {:target target :args args}))
+          (deliver! s (m/small-integer! (inc (m/small-integer! (first args))))))
+      (let [{:keys [params body] :as f} (get (:functions s) target)]
+        (when-not f (m/fail "Unresolved function" {:target target}))
+        (when-not (= (count params) (count args)) (m/fail "Guest arity mismatch" {:target target}))
+        (put! s 0 body)
+        (if continuation
+          (do (put! s 1 (registers (:slots s) (zipmap params args)))
+              (put! s 2 (HashMap.)))
+          (let [locals ^objects (ctl s 1)]
+            (Arrays/fill locals unbound)
+            (doseq [[k v] (map vector params args)] (aset locals (int k) v))
+            (.clear ^HashMap (ctl s 2))))))))
+
+(defn step! [s]
+  (when-not (= :running (ctl s 4)) (m/fail "Machine is not running" {:status (ctl s 4)}))
+  (bump! s 2 1)
+  (let [[op a b c d] (ctl s 0)]
+    (case op
+      :let (do (aset ^objects (ctl s 1) (int a) (expr! s b)) (put! s 0 c))
+      :call (call! s b c a d)
+      :tail (call! s a b nil nil)
+      :return (deliver! s (value s a))
+      :join (do (.put ^HashMap (ctl s 2) a {:params b :body c :locals (aclone ^objects (ctl s 1))}) (put! s 0 d))
+      :jump (let [{:keys [params body locals] :as join} (.get ^HashMap (ctl s 2) a)
+                  args (mapv #(value s %) b)]
+              (when-not (and join (= (count params) (count args))) (m/fail "Invalid join" {:join a}))
+              (let [locals (aclone ^objects locals)]
+                (doseq [[k v] (map vector params args)] (aset locals (int k) v))
+                (put! s 1 locals) (put! s 0 body)))
+      :case (let [v (value s a)
+                  tag (cond (m/ref? v) (:tag (node s v)) (instance? prototype.machine.Tag v) (:tag v)
+                            (number? v) v :else (m/fail "Value has no constructor tag" {:value v}))
+                  branch (or (some (fn [[k body]] (when (= k tag) body)) b)
+                             (some (fn [[k body]] (when (= k :default) body)) b))]
+              (when-not branch (m/fail "Missing case" {:tag tag})) (put! s 0 branch))
+      :inc (do (retain! s (value s a) b) (put! s 0 c))
+      :dec (do (release! s (value s a) b) (put! s 0 c))
+      :set (let [r (value s a) n (node s r) fields ^objects (:fields n)]
+             (when-not (and (= :ctor (:kind n)) (= 1 (:rc n)) (< -1 b (alength fields)))
+               (m/fail "Invalid unique field store" {:ref r :field b}))
+             (aset fields (int b) (value s c)) (bump! s 1 1) (put! s 0 d))
+      :suspend (do (put! s 4 :suspended) (put! s 6 a) (put! s 0 b))
+      (m/fail "Unsupported instruction" {:op op}))) s)
+
+(defn run!
+  ([s] (run! s 10000000))
+  ([s fuel]
+   (when-not (and (integer? fuel) (not (neg? fuel))) (m/fail "Invalid step budget" {:fuel fuel}))
+   (loop [n fuel]
+     (cond (not= :running (ctl s 4)) s
+           (zero? n) (do (put! s 4 :paused) s)
+           :else (do (step! s) (recur (dec n)))))))
+(defn resume! [s x]
+  (case (ctl s 4)
+    :suspended (do (aset ^objects (ctl s 1) (int (ctl s 6)) x) (put! s 6 nil) (put! s 4 :running))
+    :paused (put! s 4 :running)
+    (m/fail "State is not resumable" {:status (ctl s 4)})) s)

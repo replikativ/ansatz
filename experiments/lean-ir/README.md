@@ -4,6 +4,10 @@ An isolated Ansatz experiment, outside the library's normal source/AOT paths.
 The branch is `experiment/lean-ir-runtime`, based on the numeric fixes in PR #116.
 No public runtime API or package split is decided here.
 
+The JVM experiment now also includes a mutable interpreter and a small numeric
+compiler. These are experimental alternatives to the portable reference machine,
+not changes to Ansatz's production lowering or library runtime.
+
 ## Reproduce
 
 From the Ansatz worktree root, compile the Java kernel once:
@@ -108,8 +112,9 @@ CommonJS, independent of any containing project's module setting.
 
 ## Validation checkpoint
 
-The JVM machine suite passes 8 tests / 37 assertions; the Node runner passes
-14 checks. The optional SCI bridge passes 1 test / 5 assertions. Native Lean's
+The reference, mutable and numeric-compiler JVM suites together pass 17 tests /
+362 assertions; the Node reference runner previously passed 14 checks. The optional
+SCI bridge passes 2 tests / 6 assertions. Native Lean's
 list oracle returns `[2, 3, 4, 5]`, matching the imported guest execution.
 The surrounding Ansatz source and AOT JAR suites each pass 713 tests / 2417 assertions using
 an empty optional store root and the required medium Init fixture. Full Init and
@@ -151,12 +156,116 @@ It stores a suspended guest state in an SCI-created atom, forks the SCI context
 between evaluations, and resumes the children to different results. The parent
 and each child's simulated resource events remain isolated. The host `guest/resume`
 function runs the machine directly; SCI does not interpret each guest instruction.
+`(branch-demo :mutable)` restores a private mutable machine for each resume and
+freezes its result before returning to SCI; the complete returned snapshots match
+the persistent path. No mutable machine is stored in an SCI world cell.
 The machine's explicit frames supply guest continuations, not SCI or JVM stack capture.
 
 This is an in-memory integration check, not a durable snapshot codec. Ordinary
 SCI forks do not capture an active dynamic binding frame; asynchronous integration
 must explicitly convey and retarget the SCI continuation context. Forking from
 inside an active evaluation of that same source world is unsupported.
+
+## Mutable execution and baseline compilation
+
+```sh
+clojure -Srepro -J-Xmx1g -M -m prototype.mutable-test
+clojure -Srepro -J-Xmx1g -M -m prototype.numeric-compile-test
+python3 bench.py
+```
+
+`prototype.mutable/thaw` restores a reference snapshot into mutable register
+arrays, a frame deque, join tables and a heap table with mutable constructor
+fields. Tail transfers reuse the current register array. `freeze` copies these
+back to the reference representation. Both operations copy live state: there is
+no paged copy-on-write implementation yet. A mutable machine belongs to one
+execution and must not be accessed concurrently or shared between branches.
+Separate `thaw` calls produce independent mutable worlds. RC metadata still
+uses small persistent maps, and argument/frame/dispatch operations still allocate.
+
+The tests compare complete reference and mutable states after every instruction
+of selected imported and synthetic programs. They cover list reuse/sharing,
+closures, resource drops, mutual tail calls and forking with active return frames.
+These are differential checks, not a formal refinement proof.
+
+`prototype.numeric-compile/compile-program` translates the numeric tail-only
+subset into a Clojure form, which the ordinary Clojure compiler turns into JVM
+bytecode. The generated code uses primitive long loop registers and a function
+selector for mutual tail transfers. Each arithmetic operation retains the
+prototype's exact-small-integer guard. Unsupported heap instructions, callbacks,
+joins and suspension reject at compilation; there is no automatic tier promotion,
+deoptimization or fallback to arbitrary-precision arithmetic. The generated form
+is returned for inspection.
+
+The benchmark compares imported generic `List.map._redArg` on the two interpreters,
+a synthetic numeric mutual-tail loop on both interpreters and the numeric compiler,
+and equivalent workloads compiled by pinned Lean 4.33.1. Native Lean's map includes
+its own specialization and optimized `mapTR` implementation, so this is an
+end-to-end execution comparison, not an isolated comparison of heap layouts.
+The native Nat loop supports arbitrary precision; a separate native UInt64 loop
+provides a bounded-machine-word comparison. Agreement is checked only on the
+sampled safe inputs, where all numeric profiles coincide.
+
+Execution timers exclude input construction, mutable restoration and result
+inspection. Native IO call boundaries prevent Lean from moving pure work outside
+the clock reads; the generated C was inspected for their ordering. The numeric
+JVM entry wrapper, argument checks and register preparation are included in its
+execution time. Checkpoint timers measure full copying separately. JVM allocation
+counts use the current thread's allocation counter and exclude setup; native
+allocation is not measured. Native result destruction occurs after the clock read;
+JVM GC may occur inside a timed region. No GC suppression or CPU pinning is used.
+
+The runner stores raw samples, toolchain/JVM/CPU details, build/process timings and
+source hashes in ignored `target/benchmark.json`. Native Lean is built through its
+normal C backend and `leanc -O2`; the run does not compare an LLVM backend.
+Cold JVM process time includes namespace loading, setup and every benchmark.
+The recorded warm Clojure compile latency is for the small numeric program;
+native build timings include the whole Lean benchmark module and linking. They
+are different compilation tasks and must not be presented as a compiler speed ratio.
+
+### Retained baseline
+
+[Raw measurements and source hashes](measurements/baseline.json) record one
+exploratory run on an Intel Core Ultra 7 258V, OpenJDK 25.0.1 and Clojure 1.12.0.
+Times below are medians of 11 samples after 20 warmup invocations; the compiled
+numeric loop receives 200 warmup invocations. These are single-process,
+single-machine microbenchmarks, with no confidence interval or isolated CPU.
+
+| Backend | 20,000 numeric tail transfers | Map 1,000 unique nodes | Map 1,000 shared nodes |
+| --- | ---: | ---: | ---: |
+| Persistent interpreter | 82.93 ms | 23.51 ms | 23.66 ms |
+| Mutable interpreter | 32.52 ms | 7.58 ms | 6.58 ms |
+| Compiled numeric subset | 0.051 ms | unsupported | unsupported |
+| Native Lean Nat | 0.683 ms | 0.0108 ms | 0.0098 ms |
+| Native Lean UInt64 | 0.0064 ms | not measured | not measured |
+
+The compiled subset is restricted to exact small integers and rejects overflow;
+native Nat is arbitrary precision, while UInt64 wraps outside its range. Their
+times describe these implementations on common safe inputs, not interchangeable
+numeric semantics. The shared/unique map ordering is noisy and should not be
+interpreted as a general advantage of sharing.
+
+The numeric compiler's first invocation took 10.53 ms; repeated compilation of
+the small program had a 4.16 ms median. Its timed execution allocated 1,296 host
+bytes per invocation, including argument setup; the mutable interpreter allocated
+59.2 MB on that loop and the persistent interpreter 163.0 MB. Mutation alone has
+not removed boxed values, instruction dispatch, temporary arguments and metadata.
+The native module's Lean-to-C and C/link steps took 0.85 s and 1.24 s respectively,
+for a different and larger compilation task.
+
+Copying a snapshot with 10,000 live nodes and two return frames took 4.52 ms to
+freeze and 4.06 ms to restore. This is a full-copy baseline, not the intended cost
+of a future paged world fork. A native allocation or checkpoint comparison is not
+implemented.
+
+The evidence supports keeping a persistent reference, running private mutable
+regions, and compiling useful hot code. It does not establish competitive Lean
+frontend execution: the heap workload is still hundreds of times slower than
+native, and the compiled numeric example is about eight times slower than the
+native word loop. The next meaningful slice is compiled constructor operations
+with calls and explicit safepoint materialization, followed by a cold/edit-to-result
+benchmark for a growing imported program. Keep execution available before hot
+regions compile; do not eagerly compile the entire Lean frontend into JVM classes.
 
 ## Execution speed and persistence
 

@@ -3,14 +3,20 @@
   (:require [clojure.test :refer [deftest is run-tests]]
             [prototype.examples :as ex]
             [prototype.machine :as m]
+            [prototype.mutable :as u]
             [sci.core :as sci]))
 
-(defn branch-demo []
-  (let [captured (:captured (ex/fork-demo))
+(defn branch-demo
+  ([] (branch-demo :persistent))
+  ([backend]
+  (let [resume (case backend
+                 :persistent (fn [state value] (m/run (m/resume state value)))
+                 :mutable (fn [state value]
+                            (u/freeze (u/run! (u/resume! (u/thaw state) value)))))
+        captured (:captured (ex/fork-demo))
         ctx (sci/init {:runtime-mode :forkable
                        :namespaces {'guest {'initial captured
-                                            'resume (fn [state value]
-                                                      (m/run (m/resume state value)))}}})]
+                                            'resume resume}}})]
     (sci/eval-string* ctx "(def state (atom guest/initial))")
     ;; Fork between evaluations: SCI's source world must be quiescent.
     (let [left (sci/fork ctx)
@@ -20,7 +26,7 @@
       {:captured captured
        :parent (sci/eval-string* ctx "@state")
        :left (sci/eval-string* left "@state")
-       :right (sci/eval-string* right "@state")})))
+       :right (sci/eval-string* right "@state")}))))
 
 (deftest isolated-guest-worlds
   (let [{:keys [captured parent left right]} (branch-demo)]
@@ -30,6 +36,10 @@
     (is (= [[] [[:released :test-resource]] [[:released :test-resource]]]
            (mapv :events [parent left right])))
     (is (= [1 0 0] (mapv #(count (:heap %)) [parent left right])))))
+
+(deftest mutable-regions-preserve-world-semantics
+  ;; Only immutable snapshots cross back into SCI's world cells.
+  (is (= (branch-demo :persistent) (branch-demo :mutable))))
 
 (defn -main [& _]
   (let [result (run-tests 'prototype.sci-bridge)]
