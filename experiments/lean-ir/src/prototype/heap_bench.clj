@@ -45,7 +45,8 @@
         initial (:initial (h/prepare edited :map [1 2 3 4] false true))
         measurements
         (mapv (fn [_]
-                (let [sample (stats/measure #(let [code (b/compile-program edited program)
+                (let [sample (stats/measure #(let [code (b/compile-program edited program
+                                                                       (select-keys (:compiler-options program) [:lexical-joins]))
                                                   result (u/freeze (b/run! code (u/thaw initial)))]
                                               {:code code :values (m/list-values result (:result result))}))
                       {:keys [code values]} (:value sample)]

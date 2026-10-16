@@ -413,14 +413,98 @@ machine with its existing runtime and restore it after refreshing. Function-only
 refresh preserves record identities, but cannot migrate an old frame layout.
 Rebuild compiled programs after the change, especially direct-linked programs.
 
-For the next region compiler, make lexical joins local control-flow edges and
-derive stack maps at calls, suspension and supported fork boundaries. There is a
-semantic comparison to settle first: current differential checks include dead
+Further reducing call-frame spills needs stack maps at calls, suspension and
+supported fork boundaries. There is a semantic comparison to settle first:
+current differential checks include dead
 register bindings. Spilling only live registers needs either reconstruction of
 that diagnostic state or an explicit refinement relation that ignores dead
 bindings while checking control, heap ownership, effects and results. Register
 liveness alone must not replace the IR's explicit RC operations. Keep the current
 machine as the fallback until these boundaries can be materialized correctly.
+
+### Lexical region experiment
+
+Opt into bounded lexical join inlining and JVM local temporaries:
+
+```clojure
+(def region-code (blocks/compile-program functions nil {:lexical-joins true}))
+(def result (u/freeze (blocks/run! region-code (u/thaw initial))))
+```
+
+The compiler keeps the entry register array unchanged while a region executes.
+New bindings become JVM locals; join captures are compiler environments over
+these locals and the entry array. An inlined jump binds all arguments before
+entering its target. No join-table lookup or register-array copy occurs on that
+edge. Recursive/shadowed join cycles and paths exceeding the inlining budget
+materialize and use the existing runtime. This is bounded inlining, not a general
+compiler for cyclic control-flow graphs.
+
+Calls, suspension, final returns and fallback jumps materialize complete locals
+and pending joins. All captured environments are copied before current registers
+are written, preserving older bindings of overwritten registers. Direct guest
+tail calls replace the current frame, and returns to an existing caller discard
+it; both can omit that materialization. Guest RC instructions still execute in
+order. The full immutable snapshot schema, including diagnostic dead registers,
+is unchanged. **Live-only call-frame spills are not implemented**; this step
+establishes lexical execution and exact materialization boundaries first.
+
+The fuel runner enters a region only when its maximum path cost fits the remaining
+budget. Otherwise the interpreter executes the exact remaining instruction count.
+Tests compare complete state at region boundaries and every tested fuel value,
+then resume or fork through either tier. This is differential validation, not a
+refinement proof. General Lean exceptions and native externs remain outside the
+supported execution profile.
+
+Cache identity includes region mode, runtime linking profile and callee arities.
+Skipping a guest tail frame depends on callee existence/arity. Changing a body
+without changing arity can still reuse callers; adding/removing functions or
+changing an arity conservatively invalidates the region cache. Reloading the
+compiler also invalidates it. Pass the same region option on an incremental edit:
+
+```clojure
+(def edited-code (blocks/compile-program edited-functions region-code {:lexical-joins true}))
+```
+
+Run the comparison with:
+
+```sh
+clojure -Srepro -J-Xmx1g -J-XX:-UsePerfData -M -m prototype.region-bench > target/region-comparison.json
+```
+
+[Retained results](measurements/lexical-regions.json) use ABBA order, 60 warmups
+and 21 samples per phase/case in one JVM. For unique inputs, the range of the two
+phase medians was:
+
+| Operation | Blocks, ms | Regions, ms | Blocks, MB | Regions, MB |
+| --- | ---: | ---: | ---: | ---: |
+| Map, 1,000 elements | 3.04–9.92 | 2.25–2.30 | 2.59–2.78 | 1.91–2.06 |
+| Fold, 1,000 elements | 2.97–3.08 | 3.09–3.19 | 2.42–2.57 | 2.48–2.62 |
+| Reverse, 1,000 elements | 1.81–1.99 | 0.95–1.00 | 1.08–1.19 | 0.44–0.48 |
+| Mirror, 1,023 nodes | 2.03–2.03 | 1.58–2.23 | 1.34–1.45 | 1.08–1.18 |
+
+Execution excludes restoration and freezing; complete reference equality is checked
+after each measured run. JVM allocation is executing-thread allocation, in decimal
+MB. These timings share JIT/GC history and are not isolated throughput estimates.
+The first block-map phase is particularly noisy. Fold does not improve: guest
+callback dispatch and full call-frame materialization remain. Native Lean was not
+remeasured, and the earlier large native gap remains unresolved.
+
+One callback body edit rebuilt one block and reused twenty in both profiles.
+Edit/restore/execute/freeze medians were 3.09–3.18 ms for blocks and 3.33–3.63 ms
+for regions. Whole-program compilation measured 53–54 ms for regions and
+107–180 ms for blocks in this order; those observations do not establish cold
+compile-cost rankings. Full-copy 10,000-node freeze/restore medians remained
+around 3.1–3.4 ms. No cheap persistent-page fork is implemented.
+
+The live REPL exposes `region-code`, `region-edit-code` and `region-lab`; the latter
+resumes an older captured world through regions and checks unchanged parent data
+and equal child results. SCI also accepts `branch-demo :regions`; its tests cover
+world-local suspension roots, an inlined join and synthetic resource release.
+
+Validation: prototype 36 tests / 3,317 assertions, SCI 4 / 11, and surrounding
+Ansatz source 713 / 2,417, all passing. Optional full Init and Mathlib fixtures
+remain unavailable. JAR and Node checks were not rerun: production/AOT and
+portable CLJS sources are unchanged by this JVM experiment.
 
 ### REPL
 

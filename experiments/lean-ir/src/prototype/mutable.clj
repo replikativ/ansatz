@@ -170,6 +170,7 @@
 (defn body-of [s] (ctl s 0))
 (defn set-body! [s body] (put! s 0 body))
 (defn locals-array [s] (ctl s 1))
+(defn has-frames? [s] (not (.isEmpty ^ArrayDeque (:frames s))))
 (defn status [s] (ctl s 4))
 (defn steps [s] (aget ^longs (:counters s) 2))
 (defn add-steps! [s n] (bump! s 2 n))
@@ -182,8 +183,11 @@
 (defn tag-of [s v]
   (cond (m/ref? v) (:tag (node s v)) (instance? prototype.machine.Tag v) (:tag v)
         (number? v) v :else (m/fail "Value has no constructor tag" {:value v})))
+(defn capture-join! [s id params body locals]
+  ;; Takes ownership of a fresh, fully materialized register array.
+  (.put ^HashMap (ctl s 2) id (object-array [params body locals])))
 (defn join! [s id params body]
-  (.put ^HashMap (ctl s 2) id (object-array [params body (aclone ^objects (ctl s 1))])))
+  (capture-join! s id params body (aclone ^objects (ctl s 1))))
 (defn jump-values! [s id args]
   (let [join ^objects (.get ^HashMap (ctl s 2) id)]
     (when-not (and join (= (count (aget join 0)) (count args))) (m/fail "Invalid join" {:join id}))
