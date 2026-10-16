@@ -43,7 +43,17 @@
     (check! (= {:symbol "demo" :arguments [42] :dest 1} (:host-request host)) :host-boundary-data)
     (check! (= [10 20] (mapv #(:result (m/run (m/resume host %))) [10 20])) :host-independent-resumes)
     (check! (= :host-call (:status host)) :host-snapshot-retained)
-    (println (pr-str {:platform :node :checks 20 :unique (:stats unique)
+    (let [[world box] (m/box-value (m/world {}) "uint64" 9007199254740991)
+          slot {:index 0 :offset 0 :type "uint64" :region :scalar}
+          child (m/run (m/start (assoc world :functions {:write {:params [0] :body [:scalar-set [:var 0] slot [:imm 7] [:return [:var 0]]]}})
+                                :write [box]))]
+      (check! (= 9007199254740991 (m/unbox-value world "uint64" box)) :scalar-wide-exact)
+      (check! (= 7 (m/unbox-value child "uint64" box)) :scalar-child-update)
+      (check! (= 9007199254740991 (m/unbox-value world "uint64" box)) :scalar-parent-isolation)
+      (check! (= 4294967295 (second (m/box-value (m/world {}) "uint32" 4294967295))) :scalar-immediate-uint32)
+      (check! (try (m/box-value world "uint64" 9007199254740992) false
+                   (catch js/Error _ true)) :scalar-unsafe-number-rejected))
+    (println (pr-str {:platform :node :checks 25 :unique (:stats unique)
                      :shared (:stats shared) :tail (:stats tail)}))))
 
 (set! *main-cli-fn* -main)

@@ -85,7 +85,9 @@ unsafe def main (args : List String) : IO Unit := do
       ("irDeclarations", toJson entries.size), ("initializers", toJson inits),
       ("builtinInitializers", toJson builtinInits)]
   IO.println <| (Json.mkObj [("kind", toJson "manifest"), ("schema", toJson "lean-ir-probe/1"),
-    ("leanVersion", toJson Lean.versionString), ("modules", Json.arr modules)]).compress
+    ("leanVersion", toJson Lean.versionString),
+    ("runtimeProfile", Json.mkObj [("wordBits", toJson System.Platform.numBits),
+      ("target", toJson System.Platform.target)]), ("modules", Json.arr modules)]).compress
   let mut pending := names.toArray.map String.toName
   let mut seen : NameSet := {}
   while !pending.isEmpty do

@@ -1,6 +1,7 @@
 (ns prototype.machine
   "Experimental persistent guest machine. Not a public Ansatz API.
-   RC is logical; heap updates use host persistent maps. Native resources excluded.")
+   RC is logical; heap updates use host persistent maps. Native resources excluded."
+  (:require [prototype.scalar :as scalar]))
 
 (defrecord Ref [id])
 (defrecord Tag [tag])
@@ -66,13 +67,44 @@
      (case op :add (+ (first args) (second args)) :dec (dec (first args))
            :inc (inc (first args)) :zero? (if (zero? (first args)) 1 0)))))
 
-(defn expr [s [op a b]]
+(defn scalar-constructor [s tag fields layout]
+  (scalar/layout! layout)
+  (when-not (= (:objects layout) (count fields)) (fail "Scalar constructor object count mismatch" {}))
+  (let [[s r] (allocate s :ctor tag fields)]
+    [(update-in s [:heap (:id r)] assoc :layout layout :scalar-bytes {}) r]))
+
+(defn read-scalar-node [n slot]
+  (when-not (and (= :ctor (:kind n)) (:layout n)) (fail "Expected scalar constructor storage" {:node n}))
+  (scalar/read-bytes (:layout n) (:scalar-bytes n) slot))
+
+(defn write-scalar-node [n slot value]
+  (when-not (and (= :ctor (:kind n)) (= 1 (:rc n)) (:layout n))
+    (fail "Invalid unique scalar store" {:node n}))
+  (assoc n :scalar-bytes (scalar/write-bytes (:layout n) (:scalar-bytes n) slot value)))
+
+(defn box-value [s type x]
+  (scalar/integer! type x)
+  (if-let [layout (scalar/box-layout type)]
+    (let [[s r] (scalar-constructor s 0 [] layout)]
+      [(update-in s [:heap (:id r)] write-scalar-node (scalar/box-slot type) x) r])
+    [s x]))
+
+(defn unbox-value [s type x]
+  (if (scalar/box-layout type)
+    (read-scalar-node (node s x) (scalar/box-slot type))
+    (scalar/integer! type (if (instance? Tag x) (:tag x) x))))
+
+(defn expr [s [op a b c]]
   (case op
     :literal [s a]
     :ctor (let [fields (mapv #(value s %) b)]
             (if (empty? fields) [s (->Tag a)] (allocate s :ctor a fields)))
     :project (let [r (value s a)] [s (nth (:fields (node s r)) b)])
     :shared? (let [r (value s a)] [s (if (and (ref? r) (> (:rc (node s r)) 1)) 1 0)])
+    :scalar-ctor (scalar-constructor s a (mapv #(value s %) b) c)
+    :scalar-get [s (read-scalar-node (node s (value s a)) b)]
+    :box (box-value s a (value s b))
+    :unbox [s (unbox-value s a (value s b))]
     :closure (let [[s r] (allocate s :closure nil (mapv #(value s %) b))]
                [(assoc-in s [:heap (:id r) :function] a) r])
     :prim [s (scalar a (mapv #(value s %) b))]
@@ -150,6 +182,9 @@
                (fail "Invalid unique field store" {:ref r :node n :field b}))
              (-> s (assoc-in [:heap (:id r) :fields b] (value s c))
                  (update-in [:stats :field-stores] inc) (assoc :body d)))
+      :scalar-set (let [r (value s a)]
+                    (-> s (update-in [:heap (:id r)] write-scalar-node b (value s c))
+                        (update-in [:stats :field-stores] inc) (assoc :body d)))
       :suspend (assoc s :status :suspended :resume-var a :body b)
       :host (assoc s :status :host-call :host-request {:symbol a :arguments (mapv #(value s %) b) :dest c}
                    :body d)

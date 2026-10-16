@@ -3,6 +3,7 @@
    Snapshots copy all live guest storage; no shared mutable pages or native resources."
   (:refer-clojure :exclude [run!])
   (:require [prototype.machine :as m]
+            [prototype.scalar :as scalar]
             [prototype.leaf-compile :as leaf])
   (:import [java.util HashMap ArrayDeque Arrays]))
 
@@ -116,12 +117,35 @@
     (.put ^HashMap (:heap s) id (cond-> {:kind kind :tag tag :fields (object-array fields) :rc 1}
                                 function (assoc :function function)))
     (bump! s 0 1) (m/->Ref id)))
-(defn- expr! [s [op a b]]
+
+(defn scalar-constructor! [s tag fields layout]
+  (scalar/layout! layout)
+  (when-not (= (:objects layout) (count fields)) (m/fail "Scalar constructor object count mismatch" {}))
+  (let [r (allocate! s :ctor tag fields nil)]
+    (.put ^HashMap (:heap s) (:id r) (assoc (node s r) :layout layout :scalar-bytes {})) r))
+
+(defn scalar-get [s r slot] (m/read-scalar-node (node s r) slot))
+(defn scalar-store! [s r slot v]
+  (.put ^HashMap (:heap s) (:id r) (m/write-scalar-node (node s r) slot v)) (bump! s 1 1))
+(defn box! [s type x]
+  (scalar/integer! type x)
+  (if-let [layout (scalar/box-layout type)]
+    (let [r (scalar-constructor! s 0 [] layout)]
+      ;; Boxing initializes storage, but isn't a separate IR field-store step.
+      (.put ^HashMap (:heap s) (:id r) (m/write-scalar-node (node s r) (scalar/box-slot type) x)) r)
+    x))
+(defn unbox [s type x] (m/unbox-value s type x))
+
+(defn- expr! [s [op a b c]]
   (case op
     :literal a
     :ctor (if (empty? b) (m/->Tag a) (allocate! s :ctor a (mapv #(value s %) b) nil))
     :project (aget ^objects (:fields (node s (value s a))) (int b))
     :shared? (let [r (value s a)] (if (and (m/ref? r) (> (:rc (node s r)) 1)) 1 0))
+    :scalar-ctor (scalar-constructor! s a (mapv #(value s %) b) c)
+    :scalar-get (scalar-get s (value s a) b)
+    :box (box! s a (value s b))
+    :unbox (unbox s a (value s b))
     :closure (allocate! s :closure nil (mapv #(value s %) b) a)
     :prim (m/scalar a (mapv #(value s %) b))
     (m/fail "Unsupported expression" {:op op})))
@@ -265,6 +289,7 @@
       :inc (do (retain! s (value s a) b) (put! s 0 c))
       :dec (do (release! s (value s a) b) (put! s 0 c))
       :set (do (store! s (value s a) b (value s c)) (put! s 0 d))
+      :scalar-set (do (scalar-store! s (value s a) b (value s c)) (put! s 0 d))
       :suspend (suspend! s a b)
       :host (host! s a (mapv #(value s %) b) c d)
       (m/fail "Unsupported instruction" {:op op}))) s)

@@ -173,8 +173,9 @@ both branches through the unique-store path.
 
 Arithmetic intrinsics are intentionally limited to exact small integers within
 JavaScript's safe range and reject out-of-range arithmetic. This does not implement
-general Lean Nat/Int/UInt64 arithmetic. Scalar constructor layouts, most externs,
-boxing, reset/reuse instructions, general partial/overapplication, exception unwinding, module initialization,
+general Lean Nat/Int/UInt64 arithmetic. Integer scalar storage and boxing are now
+supported under the explicit profile below. Most externs, float layouts,
+reset/reuse instructions, general partial/overapplication, exception unwinding, module initialization,
 live frontend kernel adapters remain unsupported. The native-assisted bootstrap
 can now check exported declarations and link their IR as described below. Unsupported
 imported operations fail explicitly. There is no verified compiler or production JIT.
@@ -188,7 +189,7 @@ parser/elaborator remains a separate porting effort.
 | Milestone | Evidence and status |
 | --- | --- |
 | Bidirectional calls for a small Lean module | Implemented for small Nat and guest closures, including reentrant callbacks; reference, mutable and JVM paths agree |
-| Real Lean parser on the JVM | Audited `Lean.Parser.parseHeader`; linkage currently rejects its `void` runtime type; no hosted parser result yet |
+| Real Lean parser on the JVM | Scalar types/layouts now lower; linkage next rejects persistent RC operations; no hosted parser result yet |
 | Hosted elaboration with Ansatz admission | Native-elaborated declarations check in Ansatz and execute on the JVM; direct frontend-to-kernel extern adapters are not implemented |
 | Hosted file defining and invoking a macro/tactic | A custom macro file passes native elaboration, Ansatz checking and JVM execution; hosted macro registration/evaluation remains unimplemented |
 
@@ -300,8 +301,9 @@ clojure -Srepro -J-Xmx1g -M -m prototype.frontend-smoke "$LEAN4EXPORT_BIN"
 
 The [parseHeader audit](measurements/parser-header-audit.json) inventories 985
 statically reachable declarations: 889 functions and 96 extern declarations
-covering 89 symbols. The current strict importer admits 461 declarations. This
-is a lowering count, not a runnable coverage percentage. Initializers and
+covering 89 symbols. The initial importer admitted 461 declarations; the scalar
+checkpoint below admits 573. These are raw lowering counts, not executable
+admission or runnable coverage percentages. Initializers and
 dynamically registered callbacks need additional roots.
 
 The closure includes uint32/uint64/usize/void types, scalar constructor storage,
@@ -346,6 +348,107 @@ five SCI tests / 14 assertions, and 20 Node checks including host-boundary
 resumption. Native file-loading smoke and the five-case parser oracle also pass.
 Production source, AOT JAR and optional LLVM suites were not rerun; production
 code and packaging are unchanged.
+
+### Typed integer storage and boxing checkpoint
+
+The scalar implementation was checked against the sibling Lean checkout's IR
+definitions, C emitter and runtime header, and against the pinned 4.33.1 release
+header and native executables. The [scalar record](measurements/scalar-runtime.json)
+pins the reviewed source files separately: the checkout and installed producer
+need not have identical compiler pipelines. Native results from the pinned
+producer define the tested ABI here.
+
+The new runtime supports `uint8`, `uint16`, `uint32`, `uint64`, `usize` and the
+erased `void` type. It lowers `uproj`, `sproj`, `uset`, `sset`, `box` and `unbox`,
+and allocates constructors containing both object and scalar fields. This adds
+storage and transfers, not the corresponding arithmetic extern implementations.
+Floats and struct/union return types remain unsupported.
+
+| Type | Scalar width | Boxed representation in the tested 64-bit ABI |
+| --- | --- | --- |
+| UInt8 / UInt16 / UInt32 | 1 / 2 / 4 bytes | Immediate value |
+| UInt64 / USize | 8 bytes | Heap constructor containing an eight-byte scalar tail |
+
+Object slots precede the scalar tail. An IR scalar address is
+`8 * index + byteOffset`; `uproj`/`uset` use word indices. The usize count
+contributes to allocation size but does not make a separate physical region:
+both access forms can view the same bytes. The direct C ABI probe verifies
+that UInt64 and USize boxes can be read through either accessor.
+
+Scalar bytes are stored in an immutable sparse map alongside each constructor's
+object fields. Missing bytes remain uninitialized; reads reject them rather than
+invent padding values. Writes require unique ownership, stay inside the scalar
+tail and use naturally aligned addresses. Snapshots can share these immutable
+byte maps while object/register arrays still use the existing full-copy scheme.
+The reference machine, mutable machine, eager compiler and demand compiler agree
+at every tested instruction-fuel boundary, including pauses inside updates and
+boxed closure calls.
+
+New exports carry `runtimeProfile.wordBits` and `runtimeProfile.target`.
+Executable scalar loading requires an explicit supported 64-bit x86 profile;
+32-bit and other producer profiles are rejected. Legacy object-only fixtures
+continue to load. Mixed catalogues with unprofiled manifests are conservatively
+rejected for scalar execution until declaration-level provenance is tracked.
+Raw `lower-declaration` remains available to static audits, so its success alone
+does not establish ABI admission. This metadata adds no LLVM dependency.
+
+JVM storage covers the complete unsigned UInt64/USize range. JavaScript currently
+supports exact Number values through `2^53-1` and rejects larger scalar values;
+full-width JS storage still needs BigInt or an equivalent representation.
+The public small-Nat/closure interop driver has not been generalized to these
+integer types.
+
+`ScalarProbe.lean` checks mixed fields, a shared record update and a boxed
+higher-order UInt64 call. Native Lean and a compiled C executable both return:
+
+```text
+4294967297,255,4294967295,18446744073709551615
+255,3,4294967295,18446744073709551615
+18446744073709551615
+```
+
+`native/ScalarABI.c` separately checks word width, endianness, boxing allocation
+and aliasing against Lean's runtime functions. Reproduce from this directory:
+
+```sh
+lean +leanprover/lean4:v4.33.1 --root=lean -o target/ScalarProbe.olean \
+  -c target/ScalarProbe.c lean/ScalarProbe.lean
+lean +leanprover/lean4:v4.33.1 --run lean/ScalarProbe.lean
+leanc +leanprover/lean4:v4.33.1 -O2 -o target/scalar-native target/ScalarProbe.c
+./target/scalar-native
+leanc +leanprover/lean4:v4.33.1 -O2 -o target/scalar-abi native/ScalarABI.c
+./target/scalar-abi
+```
+
+Refresh the checked-in scalar fixture with the profiled exporter:
+
+```sh
+LEAN_PATH=target lean +leanprover/lean4:v4.33.1 --run lean/Export.lean --closure ScalarProbe \
+  ScalarProbe.makePacket ScalarProbe.readWord ScalarProbe.readSmall ScalarProbe.readMedium \
+  ScalarProbe.readWide ScalarProbe.replaceSmall ScalarProbe.identity8._boxed \
+  ScalarProbe.identity16._boxed ScalarProbe.identity32._boxed ScalarProbe.identity64._boxed \
+  ScalarProbe.identitySize._boxed ScalarProbe.apply64 > fixtures/scalar.jsonl
+```
+
+The [updated parser audit](measurements/parser-header-scalars.json) uses a fresh
+export with explicit ABI metadata. It lowers 573 declarations, up by 112, and
+next fails on persistent RC. Remaining first-failure groups are 304 declarations
+with persistent RC, 96 extern declarations and 12 with other unsupported
+instructions. That classification can mask later failures and does not account
+for initialization or dynamic callback roots. The parser still does not run.
+The source review confirms that persistent RC cannot simply be ignored: global
+values must be initialized and made non-exclusive under Lean's ownership rules.
+Lean uses RC zero for persistent objects; marking persistence traverses their
+children, and persistent objects are never eligible for unique stores. Closed
+thunks and initializer-produced values must be classified from the producer's
+environment metadata rather than guessed from names. Their values and
+initialization state need to belong to the guest world and its snapshots.
+
+Validation passes 68 tests / 11,335 assertions in both CLI and live REPL, five
+SCI tests / 14 assertions and 25 Node checks. Native Lean, compiled C and the
+direct C ABI probe pass. No throughput comparison is claimed. The live REPL
+retains `scalar-lab`, `scalar-full-tests`, `scalar-parser-audit` and
+`scalar-parser-link`; record classes and old frozen values were preserved.
 
 ## ClojureScript / Node
 

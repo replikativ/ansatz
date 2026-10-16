@@ -19,7 +19,7 @@
                 :join (do (walk c true) (walk d false))
                 :case (doseq [[_ branch] b] (walk branch false))
                 (:inc :dec) (walk c false)
-                :set (walk d false)
+                (:set :scalar-set) (walk d false)
                 :suspend (walk b true)
                 :host (walk d true)
                 (:tail :return :jump) nil
@@ -33,7 +33,7 @@
          :join (cost d)
          :case (reduce max 0 (map #(cost (second %)) b))
          (:inc :dec) (cost c)
-         :set (cost d)
+         (:set :scalar-set) (cost d)
          0)))
 
 (defn- compile-block [body functions lexical? leaf-calls? leaf-names]
@@ -57,13 +57,17 @@
             (target [[op x] env]
               (case op :direct [:direct (constant x)] :closure [:closure (operand x env)]
                     (m/fail "Unsupported compiled target" {:op op})))
-            (expr [[op a b] env]
+            (expr [[op a b c] env]
               (case op
                 :literal (constant a)
                 :ctor `(u/constructor! ~machine ~(constant a) ~(arguments b env))
                 :closure `(u/closure! ~machine ~(constant a) ~(arguments b env))
                 :project `(u/project ~machine ~(operand a env) ~b)
                 :shared? `(u/shared? ~machine ~(operand a env))
+                :scalar-ctor `(u/scalar-constructor! ~machine ~(constant a) ~(arguments b env) ~(constant c))
+                :scalar-get `(u/scalar-get ~machine ~(operand a env) ~(constant b))
+                :box `(u/box! ~machine ~(constant a) ~(operand b env))
+                :unbox `(u/unbox ~machine ~(constant a) ~(operand b env))
                 :prim (do (when-not (= (if (= a :add) 2 1) (count b))
                             (m/fail "Scalar primitive arity" {:op a}))
                           (let [v `(m/small-integer! ~(operand (first b) env))]
@@ -99,6 +103,7 @@
                   :inc `(do (u/retain! ~machine ~(operand a env) ~b) ~(emit c n env joins active))
                   :dec `(do (u/release! ~machine ~(operand a env) ~b) ~(emit c n env joins active))
                   :set `(do (u/store! ~machine ~(operand a env) ~b ~(operand c env)) ~(emit d n env joins active))
+                  :scalar-set `(do (u/scalar-store! ~machine ~(operand a env) ~(constant b) ~(operand c env)) ~(emit d n env joins active))
                   :join (if lexical?
                           (emit d n env (assoc joins a {:params b :body c :locals env}) active)
                           `(do (u/join! ~machine ~a ~(constant b) ~(constant c)) ~(emit d n env joins active)))
@@ -194,7 +199,7 @@
     :join (into (tail-targets c) (tail-targets d))
     :case (into #{} (mapcat #(tail-targets (second %)) b))
     (:inc :dec) (tail-targets c)
-    :set (tail-targets d)
+    (:set :scalar-set) (tail-targets d)
     :suspend (tail-targets b)
     :host (tail-targets d)
     (:jump :return) #{}

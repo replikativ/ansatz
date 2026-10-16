@@ -1,0 +1,1786 @@
+{
+  "manifest-initializers": {
+    "modules": 604,
+    "builtin": 1595,
+    "regular": 2,
+    "scope": "All modules loaded by native exporter; not a minimal initializer dependency closure"
+  },
+  "producer": {
+    "schema": "lean-ir-probe/1",
+    "leanVersion": "4.33.1"
+  },
+  "persistent-rc-operations": 487,
+  "externs": [
+    {
+      "name": "Array.emptyWithCapacity",
+      "symbol": "lean_mk_empty_array_with_capacity",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.get!Internal",
+      "symbol": "lean_array_get",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Array.get!InternalBorrowed",
+      "symbol": "lean_array_get_borrowed",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Array.getInternal",
+      "symbol": "lean_array_fget",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Array.getInternalBorrowed",
+      "symbol": "lean_array_fget_borrowed",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Array.mk",
+      "symbol": "lean_array_mk",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.mkEmpty",
+      "symbol": "lean_mk_empty_array_with_capacity",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.pop",
+      "symbol": "lean_array_pop",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.push",
+      "symbol": "lean_array_push",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.replicate",
+      "symbol": "lean_mk_array",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.set",
+      "symbol": "lean_array_fset",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.size",
+      "symbol": "lean_array_get_size",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "tagged"
+    },
+    {
+      "name": "Array.swap",
+      "symbol": "lean_array_fswap",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.toList",
+      "symbol": "lean_array_to_list",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Array.ugetBorrowed",
+      "symbol": "lean_array_uget_borrowed",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Array.uset",
+      "symbol": "lean_array_uset",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Array.usize",
+      "symbol": "lean_array_size",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "ByteArray.get",
+      "symbol": "lean_byte_array_fget",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "ByteArray.mk",
+      "symbol": "lean_byte_array_mk",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "ByteArray.push",
+      "symbol": "lean_byte_array_push",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "uint8",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "ByteArray.size",
+      "symbol": "lean_byte_array_size",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "tagged"
+    },
+    {
+      "name": "IO.initializing",
+      "symbol": "lean_io_initializing",
+      "params": [
+        {
+          "ty": "void",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "Int.add",
+      "symbol": "lean_int_add",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Int.decLt",
+      "symbol": "lean_int_dec_lt",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "Int.natAbs",
+      "symbol": "lean_nat_abs",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Int.neg",
+      "symbol": "lean_int_neg",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Int.ofNat",
+      "symbol": "lean_nat_to_int",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Lean.Name.beq",
+      "symbol": "lean_name_eq",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "Nat.add",
+      "symbol": "lean_nat_add",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Nat.decEq",
+      "symbol": "lean_nat_dec_eq",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "Nat.decLe",
+      "symbol": "lean_nat_dec_le",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "Nat.decLt",
+      "symbol": "lean_nat_dec_lt",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "Nat.div",
+      "symbol": "lean_nat_div",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Nat.mod",
+      "symbol": "lean_nat_mod",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Nat.mul",
+      "symbol": "lean_nat_mul",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Nat.pow",
+      "symbol": "lean_nat_pow",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Nat.shiftRight",
+      "symbol": "lean_nat_shiftr",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Nat.sub",
+      "symbol": "lean_nat_sub",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "ST.Prim.Ref.get",
+      "symbol": "lean_st_ref_get",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "void",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "String.Internal.append",
+      "symbol": "lean_string_append",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "String.Internal.contains",
+      "symbol": "lean_string_contains",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "uint32",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.Pos.Raw.atEnd",
+      "symbol": "lean_string_utf8_at_end",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.Pos.Raw.extract",
+      "symbol": "lean_string_utf8_extract",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "String.Pos.Raw.get",
+      "symbol": "lean_string_utf8_get",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint32"
+    },
+    {
+      "name": "String.Pos.Raw.get'",
+      "symbol": "lean_string_utf8_get_fast",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint32"
+    },
+    {
+      "name": "String.Pos.Raw.isValid",
+      "symbol": "lean_string_is_valid_pos",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.Pos.Raw.next",
+      "symbol": "lean_string_utf8_next",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "String.Pos.Raw.next'",
+      "symbol": "lean_string_utf8_next_fast",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "tagged"
+    },
+    {
+      "name": "String.Pos.next",
+      "symbol": "lean_string_utf8_next_fast",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "tagged"
+    },
+    {
+      "name": "String.Slice.Pattern.Internal.memcmpStr",
+      "symbol": "lean_string_memcmp",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.append",
+      "symbol": "lean_string_append",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "String.compare",
+      "symbol": "lean_string_compare",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.decEq",
+      "symbol": "lean_string_dec_eq",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.decidableLT",
+      "symbol": "lean_string_dec_lt",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.decodeChar",
+      "symbol": "lean_string_utf8_get_fast",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint32"
+    },
+    {
+      "name": "String.extract",
+      "symbol": "lean_string_utf8_extract",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "String.getUTF8Byte",
+      "symbol": "lean_string_get_byte_fast",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "String.hash",
+      "symbol": "lean_string_hash",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint64"
+    },
+    {
+      "name": "String.ofList",
+      "symbol": "lean_string_mk",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "String.push",
+      "symbol": "lean_string_push",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "uint32",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "String.utf8ByteSize",
+      "symbol": "lean_string_utf8_byte_size",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": true
+        }
+      ],
+      "return-type": "tagged"
+    },
+    {
+      "name": "Substring.Raw.Internal.beq",
+      "symbol": "lean_substring_beq",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "System.Platform.getNumBits",
+      "symbol": "lean_system_platform_nbits",
+      "params": [
+        {
+          "ty": "tagged",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Task.get",
+      "symbol": "lean_task_get_own",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "Task.map",
+      "symbol": "lean_task_map",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        },
+        {
+          "ty": "uint8",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "Task.pure",
+      "symbol": "lean_task_pure",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": false
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "UInt32.decEq",
+      "symbol": "lean_uint32_dec_eq",
+      "params": [
+        {
+          "ty": "uint32",
+          "borrow": false
+        },
+        {
+          "ty": "uint32",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt32.decLe",
+      "symbol": "lean_uint32_dec_le",
+      "params": [
+        {
+          "ty": "uint32",
+          "borrow": false
+        },
+        {
+          "ty": "uint32",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt32.ofNatLT",
+      "symbol": "lean_uint32_of_nat",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint32"
+    },
+    {
+      "name": "UInt32.toUInt8",
+      "symbol": "lean_uint32_to_uint8",
+      "params": [
+        {
+          "ty": "uint32",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt64.decEq",
+      "symbol": "lean_uint64_dec_eq",
+      "params": [
+        {
+          "ty": "uint64",
+          "borrow": false
+        },
+        {
+          "ty": "uint64",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt64.decLt",
+      "symbol": "lean_uint64_dec_lt",
+      "params": [
+        {
+          "ty": "uint64",
+          "borrow": false
+        },
+        {
+          "ty": "uint64",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt64.ofNat",
+      "symbol": "lean_uint64_of_nat",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "uint64"
+    },
+    {
+      "name": "UInt64.ofNatLT",
+      "symbol": "lean_uint64_of_nat",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint64"
+    },
+    {
+      "name": "UInt64.shiftRight",
+      "symbol": "lean_uint64_shift_right",
+      "params": [
+        {
+          "ty": "uint64",
+          "borrow": false
+        },
+        {
+          "ty": "uint64",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint64"
+    },
+    {
+      "name": "UInt64.toUSize",
+      "symbol": "lean_uint64_to_usize",
+      "params": [
+        {
+          "ty": "uint64",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "UInt64.xor",
+      "symbol": "lean_uint64_xor",
+      "params": [
+        {
+          "ty": "uint64",
+          "borrow": false
+        },
+        {
+          "ty": "uint64",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint64"
+    },
+    {
+      "name": "UInt8.decEq",
+      "symbol": "lean_uint8_dec_eq",
+      "params": [
+        {
+          "ty": "uint8",
+          "borrow": false
+        },
+        {
+          "ty": "uint8",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt8.decLe",
+      "symbol": "lean_uint8_dec_le",
+      "params": [
+        {
+          "ty": "uint8",
+          "borrow": false
+        },
+        {
+          "ty": "uint8",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "UInt8.land",
+      "symbol": "lean_uint8_land",
+      "params": [
+        {
+          "ty": "uint8",
+          "borrow": false
+        },
+        {
+          "ty": "uint8",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "USize.add",
+      "symbol": "lean_usize_add",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.decEq",
+      "symbol": "lean_usize_dec_eq",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "USize.decLe",
+      "symbol": "lean_usize_dec_le",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "USize.decLt",
+      "symbol": "lean_usize_dec_lt",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint8"
+    },
+    {
+      "name": "USize.land",
+      "symbol": "lean_usize_land",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.mul",
+      "symbol": "lean_usize_mul",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.ofNat",
+      "symbol": "lean_usize_of_nat",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.ofNatLT",
+      "symbol": "lean_usize_of_nat",
+      "params": [
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "erased",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.repr",
+      "symbol": "lean_string_of_usize",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": true
+        }
+      ],
+      "return-type": "object"
+    },
+    {
+      "name": "USize.shiftLeft",
+      "symbol": "lean_usize_shift_left",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.shiftRight",
+      "symbol": "lean_usize_shift_right",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.sub",
+      "symbol": "lean_usize_sub",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        },
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "usize"
+    },
+    {
+      "name": "USize.toNat",
+      "symbol": "lean_usize_to_nat",
+      "params": [
+        {
+          "ty": "usize",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "mixHash",
+      "symbol": "lean_uint64_mix_hash",
+      "params": [
+        {
+          "ty": "uint64",
+          "borrow": false
+        },
+        {
+          "ty": "uint64",
+          "borrow": false
+        }
+      ],
+      "return-type": "uint64"
+    },
+    {
+      "name": "panicCore",
+      "symbol": "lean_panic_fn_borrowed",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        },
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject"
+    },
+    {
+      "name": "ptrAddrUnsafe",
+      "symbol": "lean_ptr_addr",
+      "params": [
+        {
+          "ty": "erased",
+          "borrow": false
+        },
+        {
+          "ty": "tobject",
+          "borrow": true
+        }
+      ],
+      "return-type": "usize"
+    }
+  ],
+  "limitations": [
+    "Static direct-call and closure-construction closure only",
+    "Module initializers and dynamically registered parser callbacks are additional roots",
+    "First lowering failure per declaration is not the full list of required fixes",
+    "Successful lowering does not imply linked, initialized or semantically compatible execution"
+  ],
+  "extern-count": 96,
+  "first-failure-per-declaration": {
+    "Missing body or extern": {
+      "declarations": 96,
+      "examples": [
+        {
+          "name": "mixHash",
+          "message": "Missing body or extern",
+          "data": {
+            "name": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "mixHash"
+            ]
+          }
+        },
+        {
+          "name": "String.Slice.Pattern.Internal.memcmpStr",
+          "message": "Missing body or extern",
+          "data": {
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "String"
+                    ],
+                    "Slice"
+                  ],
+                  "Pattern"
+                ],
+                "Internal"
+              ],
+              "memcmpStr"
+            ]
+          }
+        },
+        {
+          "name": "USize.sub",
+          "message": "Missing body or extern",
+          "data": {
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "USize"
+              ],
+              "sub"
+            ]
+          }
+        },
+        {
+          "name": "Array.push",
+          "message": "Missing body or extern",
+          "data": {
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Array"
+              ],
+              "push"
+            ]
+          }
+        },
+        {
+          "name": "UInt32.decLe",
+          "message": "Missing body or extern",
+          "data": {
+            "name": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "UInt32"
+              ],
+              "decLe"
+            ]
+          }
+        }
+      ]
+    },
+    "Persistent RC flag unsupported": {
+      "declarations": 304,
+      "examples": [
+        {
+          "name": "Lean.Parser.Module.import._closed_11",
+          "message": "Persistent RC flag unsupported",
+          "data": {}
+        },
+        {
+          "name": "Lean.Parser.hexDigitFn",
+          "message": "Persistent RC flag unsupported",
+          "data": {}
+        },
+        {
+          "name": "Lean.Parser.epsilonInfo",
+          "message": "Persistent RC flag unsupported",
+          "data": {}
+        },
+        {
+          "name": "Lean.Parser.Module.all._closed_2",
+          "message": "Persistent RC flag unsupported",
+          "data": {}
+        },
+        {
+          "name": "Lean.Parser.ident._closed_0",
+          "message": "Persistent RC flag unsupported",
+          "data": {}
+        }
+      ]
+    },
+    "Unsupported imported instruction": {
+      "declarations": 12,
+      "examples": [
+        {
+          "name": "Lean.PersistentArray.insertNewLeaf._redArg",
+          "message": "Unsupported imported instruction",
+          "data": {
+            "op": "setTag"
+          }
+        },
+        {
+          "name": "_private.Lean.Parser.Basic.0.Lean.Parser.updateTokenCache",
+          "message": "Unsupported imported instruction",
+          "data": {
+            "op": "del"
+          }
+        },
+        {
+          "name": "Lean.Parser.ParserState.mkNode",
+          "message": "Unsupported imported instruction",
+          "data": {
+            "op": "del"
+          }
+        },
+        {
+          "name": "List.eraseRepsBy.loop._redArg",
+          "message": "Unsupported imported instruction",
+          "data": {
+            "op": "del"
+          }
+        },
+        {
+          "name": "Lean.Syntax.setHeadInfoAux",
+          "message": "Unsupported imported instruction",
+          "data": {
+            "op": "del"
+          }
+        }
+      ]
+    }
+  },
+  "functions": 889,
+  "extern-symbol-count": 89,
+  "instructions": {
+    "uset": 4,
+    "del": 11,
+    "unreachable": 3,
+    "inc": 1278,
+    "ret": 1468,
+    "case": 985,
+    "jdecl": 400,
+    "vdecl": 5197,
+    "set": 151,
+    "setTag": 3,
+    "jmp": 851,
+    "dec": 1149,
+    "sset": 26
+  },
+  "admitted-by-current-importer": 573,
+  "input-sha256": "66d11f978179b265876a528973664a4347b513e50c005d3282ccb2c276e640e8",
+  "expressions": {
+    "fap": 2655,
+    "box": 31,
+    "uproj": 2,
+    "isShared": 109,
+    "unbox": 30,
+    "proj": 936,
+    "ctor": 515,
+    "ap": 43,
+    "pap": 66,
+    "sproj": 30,
+    "lit": 780
+  },
+  "unreachable-functions": [
+    "_private.Lean.Environment.0.Lean.EnvExtension.envExtensionsRef",
+    "Lean.Parser.parserExtension",
+    "Lean.Parser.categoryParserFnExtension"
+  ],
+  "runtime-types": {
+    "erased": 13,
+    "object": 3209,
+    "void": 6,
+    "uint32": 287,
+    "uint64": 90,
+    "uint8": 1027,
+    "tobject": 1776,
+    "usize": 119,
+    "tagged": 537
+  },
+  "declarations": 985,
+  "scalar-constructor-layouts": 24
+}
