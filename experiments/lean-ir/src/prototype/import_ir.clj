@@ -56,11 +56,14 @@
     "set" [:set [:var (:idx a)] b (operand c) (body d)]
     (m/fail "Unsupported imported instruction" {:op op})))
 
+(defn validate-manifest! [manifest]
+  (when-not (and (= "lean-ir-probe/1" (:schema manifest)) (= "4.33.1" (:leanVersion manifest)))
+    (m/fail "Unsupported producer" {:manifest manifest}))
+  manifest)
+
 (defn- rows [path]
-  (let [rows (mapv #(json/read-str % :key-fn keyword :bigdec false) (str/split-lines (slurp path)))
-        manifest (first rows)]
-    (when-not (and (= "lean-ir-probe/1" (:schema manifest)) (= "4.33.1" (:leanVersion manifest)))
-      (m/fail "Unsupported producer" {:manifest manifest}))
+  (let [rows (mapv #(json/read-str % :key-fn keyword :bigdec false) (str/split-lines (slurp path)))]
+    (validate-manifest! (first rows))
     rows))
 
 (defn lower-declaration [row]
@@ -106,7 +109,9 @@
     (if (empty? pending) functions
       (let [name (peek pending) pending (pop pending)]
         (if (contains? functions name) (recur pending functions)
-          (let [row (or (get-in catalogue [:declarations name])
+          (let [row (or (if-let [read-declaration (:read-declaration catalogue)]
+                         (read-declaration name)
+                         (get-in catalogue [:declarations name]))
                         (m/fail "Missing declaration dependency" {:name name}))
                 [actual function] (lower-declaration row)]
             (when-not (= name actual) (m/fail "Declaration name mismatch" {:name name :actual actual}))

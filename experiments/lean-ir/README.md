@@ -39,6 +39,9 @@ and closure constructors determine those dependencies from the lowered body;
 producer dependency lists are not trusted for execution linking. Indirect targets
 supplied from outside this closure require additional explicit roots or host
 functions. Module initializers and native extern resolution are still unsupported.
+The optional declaration store described below avoids decoding all declaration
+bodies on subsequent reloads: it opens a smaller immutable index and resolves
+selected bodies from separately hashed files.
 
 Our instruction language is ordinary immutable data. For example:
 
@@ -790,6 +793,79 @@ selective loading, alongside exact-fuel resumes, suspension forks, old/new world
 edits and dependency-sensitive cache keys. Optional full Init/Mathlib fixtures
 remain unavailable. Production JAR and portable Node paths were not rerun because
 their sources are unchanged.
+
+### Content-addressed declaration loading
+
+`prototype.declaration-store` removes full-body JSON decoding from the reload
+path. `pack!` streams existing exports once, publishes one canonical JSON blob
+per declaration and preserves producer manifests. SHA-256 identities cover bytes;
+they are integrity checks, not proof admission or semantic equivalence checks.
+Names retain their numeric and string components. Unsupported declarations may
+be stored; selecting them still goes through the ordinary lowering checks.
+
+```mermaid
+flowchart TD
+  A[Lean JSONL export] -->|one-time streaming pack| B[Declaration blobs keyed by SHA-256]
+  A -->|producer manifests and name/hash pairs| C[Immutable index checkpoint]
+  C --> D[Open index: zero declaration reads]
+  D --> E[Choose roots and follow lowered dependencies]
+  E -->|read and verify only reached blobs| B
+  E --> F[Selected function table]
+  F --> G[Existing lazy JVM compiler and code cache]
+  H[Changed declaration] --> I[Publish one blob and update persistent name map]
+  I --> E
+```
+
+The importer accepts a declaration resolver alongside its existing in-memory
+catalogue. Dependency discovery still examines the admitted body, rather than
+trusting exported dependency lists. Each selected file is hash-checked before
+decoding, and its name must match the index. Corrupted indexes/blobs are rejected;
+missing or unsupported unused blobs do not prevent another closure from running.
+
+`with-declaration!` publishes one blob and returns a new catalogue with a changed
+name-to-hash map. Existing catalogues and executable worlds keep their old
+versions. `checkpoint!` explicitly saves a complete immutable index, identified
+by its own hash. Opening and saving that index remain O(N); ordinary in-memory
+edits do not rewrite it. There is no blob collection, lowered-body cache or
+fsync durability guarantee. Publishing uses temporary files and an atomic move
+on the local filesystem. Repeated loads currently reread selected blobs.
+
+```clojure
+(require '[prototype.declaration-store :as store])
+(def packed (store/pack! "target/ir-store" ["fixtures/list-map.jsonl"]))
+(def index-hash (store/checkpoint! packed))
+(def opened (store/open-index "target/ir-store" index-hash))
+(:blob-reads (store/stats opened)) ; 0
+(def root (first (filter #(= "List.map._redArg" (ir/name-label %))
+                         (keys (:declarations opened)))))
+(def functions (ir/load-closure opened [root]))
+(:blob-reads (store/stats opened)) ; 1: self-recursive List.map._redArg
+;; (store/with-declaration! opened replacement-producer-row) returns a new version.
+```
+
+The live REPL also retains `store-parent`, `store-child`, `store-cache`,
+`store-results` and `store-lab`. The parent returns 42, the edited child returns
+99, and rerunning the parent returns 42. The child compiles one region and reuses
+two. Real List.map execution agrees with the reference machine; integrity,
+selectivity, name-component distinctions and version retention have dedicated
+tests.
+
+The [store measurements](measurements/declaration-store.json) compare raw JSON
+reopening and index reopening in alternating order, with seven samples at each
+synthetic module size. Opening reads zero bodies; selecting the two-function
+closure reads exactly two blobs at 102, 1,002 and 10,002 declarations. Each edit
+publishes one blob, reads two, compiles one region and reuses two. Pack and full
+checkpoint costs are reported separately. Edit timings include publication,
+selected loading, execution and snapshot creation; they exclude full index
+checkpointing, Lean elaboration, export and proof admission. These are shared-JVM,
+warm-filesystem measurements, not isolated cold-start results.
+
+```sh
+clojure -Srepro -J-Xmx1g -M -m prototype.store-bench 100 1000 10000
+```
+
+In the REPL use `(store-bench/experiment)` and retain its return value; the CLI
+`-main` shuts down agent pools. The store introduces no LLVM or Pattern dependency.
 
 ### Pattern and LLVM direction
 
