@@ -133,9 +133,9 @@
 
    1-arity `(init! \"init\"|\"mathlib\"|…)` — a store NAME resolved via ansatz.store:
    the durable data-root ($ANSATZ_STORE_DIR → $XDG_DATA_HOME/ansatz/stores →
-   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>. This is the
-   full, kernel-verified tier. A store that is not there is downloaded once from the
-   published import for this build's store format (ansatz.store.fetch; `ANSATZ_OFFLINE=1`
+   ~/.local/share/ansatz/stores) first, then the legacy /var/tmp/ansatz-<name>. This loads the
+   prepared store without rechecking every declaration. An absent store is downloaded
+   only when a compatible import is published in the index (ansatz.store.fetch; `ANSATZ_OFFLINE=1`
    refuses, and it never falls back to the bundled medium tier).
 
    2-arity `(init! store-path branch)` — load from an explicit store path."
@@ -209,7 +209,7 @@
   ;; required by this namespace: loading it from source costs ~16 s, and the zero-config
   ;; path (`load-init!`, the bundled Init tier) never needs it. Only a store-backed `init!`
   ;; pays for it, once.
-  ((requiring-resolve 'ansatz.store/check-format!) store-path)
+  ((requiring-resolve 'ansatz.store/check-compatible!) store-path {:branch branch})
   (let [open-store (requiring-resolve 'ansatz.export.storage/open-store)
         load-env (requiring-resolve 'ansatz.export.storage/load-env)
         read-derived (requiring-resolve 'ansatz.export.storage/read-derived)

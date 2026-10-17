@@ -50,3 +50,12 @@
     (let [ci (definition "replayed" hint) [next result] (replay/replay-one (Env.) ci true)]
       (is (= :ok (:status result)))
       (is (= hint (env/get-reducibility-hints (.lookup ^Env next (.name ci))))))))
+
+(deftest legacy-full-ci-parts-keep-their-documented-meaning
+  ;; Exact format-1 DEF vectors used signed integer hints, unlike CIShell maps.
+  ;; In particular zero means abbrev; a reader cannot infer a lost regular zero.
+  (doseq [[wire expected] [[-1 :opaque] [0 :abbrev] [1 {:regular 1}]
+                           [2147483647 {:regular 2147483647}]]]
+    (let [nm (name/from-string "legacy")
+          ci (#'codec/parts->ci [1 nm [] type0 prop wire 0 [nm]])]
+      (is (= expected (env/get-reducibility-hints ci))))))

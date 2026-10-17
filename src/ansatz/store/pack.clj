@@ -61,21 +61,24 @@
                        (println (format "  %-18s %6.2f GiB  %d files" file
                                         (/ (.length f) 1073741824.0) files))
                        {:file file :size (.length f) :sha256 (sha256-hex f) :files files})))
-        descriptor {:store/id id
-                    :store/name (.getName (io/file store-path))
-                    :store/format (:store/format m)
-                    :library (:provenance m)
-                    :packed (java.util.Date.)
-                    :parts parts}]
+        descriptor (merge (select-keys m [:artifact/cohort :store/capabilities])
+                          {:store/id id
+                           :store/name (.getName (io/file store-path))
+                           :store/format (:store/format m)
+                           :library (:provenance m)
+                           :provenance (:provenance m)
+                           :packed (java.util.Date.)
+                           :parts parts})]
     (spit (io/file out "store.edn") (with-out-str (pprint/pprint descriptor)))
     ;; the line to paste into the index of the store repository
     (spit (io/file out "index-entry.edn")
           (with-out-str
             (pprint/pprint {(:store/name descriptor)
                             {(:store/format descriptor)
-                             {:id id
-                              :library/tag (get-in m [:provenance :library/tag])
-                              :parts (mapv #(select-keys % [:file :size :sha256]) parts)}}})))
+                             (merge (select-keys m [:artifact/cohort :store/capabilities :provenance])
+                                    {:id id
+                                     :library/tag (get-in m [:provenance :library/tag])
+                                     :parts (mapv #(select-keys % [:file :size :sha256]) parts)})}})))
     (println (format "  %-18s %6.2f GiB total" "" (/ (reduce + 0 (map :size parts)) 1073741824.0)))
     (println "  descriptor:" (str (io/file out "store.edn")))
     descriptor))

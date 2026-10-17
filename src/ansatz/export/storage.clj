@@ -7,7 +7,7 @@
 
    Storage stack: PSS → CachedStorage (IStorage) → konserve filestore at `<store>/blobs`.
 
-   STORE FORMAT 1 (see ansatz.store/store-format): every PSS node is one CBOR blob
+   STORE FORMATS 1 AND 2 (see ansatz.store/readable-formats): every PSS node is one CBOR blob
    (ansatz.export.codec) written as BINARY under a CONTENT ADDRESS — the SHA-256 of its
    bytes as a UUID — so an identical node has one address everywhere: two imports of the
    same library produce the same roots, an unchanged subtree costs nothing across library
