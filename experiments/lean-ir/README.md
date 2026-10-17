@@ -1603,6 +1603,10 @@ broader effectful/native interop remain separate integration work. The current
 regression suite now passes **691 tests / 58,784 assertions**
 ([source-pinned validation](measurements/hosted-source-header-regression.json)); these
 regressions do not establish arbitrary Lean-file compatibility.
+The separate [parent source and AOT jar validation](research/PARENT_VALIDATION.md)
+passes 602 tests / 2,067 assertions in each 66-namespace partition, with the
+baseline-reproduced Omega heap failure, missing Init fixtures, and incomplete
+Mathlib checks recorded explicitly.
 
 The [prepared hosted file runner](research/HOSTED_FILE_RUNNER.md) exposes reusable
 file compilation, explicit initialization, boxed calls and guest module export;
