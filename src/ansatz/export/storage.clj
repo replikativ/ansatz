@@ -692,9 +692,9 @@
                s (case (:safety m)
                    :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
            (ConstantInfo/mkDefWithHints (:name m) lps type-expr
-                               (resolve-expr-fn (:value-id m))
-                               (long h) s
-                               (into-array Object (:all m))))
+                                        (resolve-expr-fn (:value-id m))
+                                        (long h) s
+                                        (into-array Object (:all m))))
       ;; THM
        2 (ConstantInfo/mkThm (:name m) lps type-expr
                              (resolve-value (:value-id m))

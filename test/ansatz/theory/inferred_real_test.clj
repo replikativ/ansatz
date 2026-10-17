@@ -41,7 +41,6 @@
              (apply pow_le_one₀) (all_goals (assumption)))
   (is true))
 
-
 (deftest real-double-profile-requires-standard-instances
   (let [en (a/env)
         c (fn [s]

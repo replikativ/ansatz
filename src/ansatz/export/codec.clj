@@ -136,8 +136,8 @@
     (case tag
       0 (ConstantInfo/mkAxiom nm lps ty (boolean (nth parts 4)))
       1 (ConstantInfo/mkDefWithHints nm lps ty (nth parts 4)
-                            (hints/wire-code (nth parts 5)) (byte (int (nth parts 6)))
-                            (into-array Object (nth parts 7)))
+                                     (hints/wire-code (nth parts 5)) (byte (int (nth parts 6)))
+                                     (into-array Object (nth parts 7)))
       2 (ConstantInfo/mkThm nm lps ty (nth parts 4) (into-array Object (nth parts 5)))
       3 (ConstantInfo/mkOpaque nm lps ty (nth parts 4)
                                (into-array Object (nth parts 5)) (boolean (nth parts 6)))

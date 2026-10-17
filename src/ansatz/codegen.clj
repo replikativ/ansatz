@@ -29,8 +29,8 @@
   (cond
     (>= (count ca) 2) (emit2 (nth ca 0) (nth ca 1))
     (= (count ca) 1)  (let [a (gensym "a") b (gensym "b")]
-                       (list 'clojure.core/let [a (nth ca 0)]
-                             (list 'clojure.core/fn [b] (emit2 a b))))
+                        (list 'clojure.core/let [a (nth ca 0)]
+                              (list 'clojure.core/fn [b] (emit2 a b))))
     :else (let [a (gensym "a") b (gensym "b")]
             (list 'clojure.core/fn
                   (list [a] (list 'clojure.core/fn [b] (emit2 a b)))
@@ -350,11 +350,11 @@
                              (wrap "instHDiv" (app (c "DivInvMonoid.toDiv") real
                                                    (c "Real.instDivInvMonoid")))]]
             "HPow.hPow" ['Math/pow
-                          [(pow (app (c "instPowNat") real
-                                     (app (c "Monoid.toNatPow") real (c "Real.instMonoid"))))
-                           (pow (app (c "NPow.toPow") real
-                                     (app (c "Monoid.toNPow") real (c "Real.instMonoid"))))
-                           (app (c "instHPow") real real (c "Real.instPow"))]]
+                         [(pow (app (c "instPowNat") real
+                                    (app (c "Monoid.toNatPow") real (c "Real.instMonoid"))))
+                          (pow (app (c "NPow.toPow") real
+                                    (app (c "Monoid.toNPow") real (c "Real.instMonoid"))))
+                          (app (c "instHPow") real real (c "Real.instPow"))]]
             [nil nil])]
       (when (and op
                  (some (fn [candidate]

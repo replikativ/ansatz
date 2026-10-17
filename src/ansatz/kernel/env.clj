@@ -34,7 +34,7 @@
   (let [h (hints/code hints)
         s (case safety :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
     (ConstantInfo/mkDefWithHints name (into-array Object level-params) type value
-                        (long h) s (into-array Object (or all [name])))))
+                                 (long h) s (into-array Object (or all [name])))))
 
 (defn mk-thm [name level-params type value & {:keys [all]}]
   (ConstantInfo/mkThm name (into-array Object level-params) type value

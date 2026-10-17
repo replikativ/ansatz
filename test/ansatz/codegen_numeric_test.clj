@@ -35,9 +35,9 @@
     (reduce e/app (c op) (concat [(c carrier) (c beta) (c carrier) instance] operands))))
 (defn- heterogeneous [op carrier operands]
   (let [primitive (str carrier "." (case op "HAdd.hAdd" "add" "HMul.hMul" "mul"
-                                                  "HSub.hSub" "sub" "HPow.hPow" "pow"
-                                                  "HDiv.hDiv" (if (= carrier "Nat") "div" "ediv")
-                                                  "HMod.hMod" (if (= carrier "Nat") "mod" "emod")))]
+                                         "HSub.hSub" "sub" "HPow.hPow" "pow"
+                                         "HDiv.hDiv" (if (= carrier "Nat") "div" "ediv")
+                                         "HMod.hMod" (if (= carrier "Nat") "mod" "emod")))]
     (heterogeneous-with op carrier (instance-expr op carrier (c primitive)) operands)))
 
 (deftest exact-integer-powers
@@ -120,7 +120,7 @@
           partial (run (e/app (c op) (lit x)))
           ;; A lambda-bound head uses codegen's unknown-head CURRIED application path.
           caller (run (e/lam "f" (c "Nat")
-                              (e/app* (e/bvar 0) (lit x) (lit y)) :default))]
+                             (e/app* (e/bvar 0) (lit x) (lit y)) :default))]
       (is (= expected (f x y)) [op :flat])
       (is (= expected ((f x) y)) [op :curried])
       (is (= expected (partial y)) [op :partial])
@@ -133,8 +133,8 @@
           inst (instance-expr op carrier impl)
           call #(heterogeneous-with op carrier % [(lit 5) (lit 2)])
           named-env (env/add-constant numeric-env
-                                     (env/mk-def (name/from-string "customInstance") []
-                                                 (c "Nat") inst))]
+                                      (env/mk-def (name/from-string "customInstance") []
+                                                  (c "Nat") inst))]
       (is (= 42 (run (call inst))) [op :inline])
       (binding [*runtime-env* named-env]
         (is (= 42 (run (call (c "customInstance"))))) [op :named])
@@ -142,16 +142,15 @@
         (is (= 42 (f [(fn [_] (fn [_] 42))])) [op :dynamic]))))
   (testing "unresolved concrete instances fail explicitly instead of selecting by carrier"
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Cannot resolve concrete runtime instance"
-                         (run (heterogeneous-with "HDiv.hDiv" "Nat" (lit 0) [(lit 5) (lit 2)])))))
+                          (run (heterogeneous-with "HDiv.hDiv" "Nat" (lit 0) [(lit 5) (lit 2)])))))
   (testing "instance aliases cannot make compilation unfold forever"
     (let [cyclic-env (env/add-constant numeric-env
-                                     (env/mk-def (name/from-string "cycleInstance") []
-                                                 (c "Nat") (c "cycleInstance")))]
+                                       (env/mk-def (name/from-string "cycleInstance") []
+                                                   (c "Nat") (c "cycleInstance")))]
       (binding [*runtime-env* cyclic-env]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unfolding budget"
-                             (run (heterogeneous-with "HDiv.hDiv" "Nat" (c "cycleInstance")
-                                                      [(lit 5) (lit 2)]))))))))
-
+                              (run (heterogeneous-with "HDiv.hDiv" "Nat" (c "cycleInstance")
+                                                       [(lit 5) (lit 2)]))))))))
 
 (deftest float-power-retains-the-existing-floating-profile
   (let [f (run (c "Float.pow"))
