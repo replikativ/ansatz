@@ -51,6 +51,12 @@ all UInt32 heights survive exactly. Format-1 full-CI integer hints retain their 
 interpretation; information already lost by an old writer cannot be recovered by
 changing a manifest. The symbolic `CIShell` encoding already existed in format 1.
 
+Opening an existing store selects its manifest's writer format. A format-1 writer
+rejects extended full-CI hints instead of writing format-2-only values under a
+format-1 manifest. Symbolic shells and ordinary maps remain supported. Unmanifested
+stores default to format 2; an explicit `:write-format` cannot override an existing
+manifest. Readers remain independent of writer selection.
+
 `check-format!` establishes readable storage only. `check-compatible!` additionally
 accepts exact `:branch`, `:store/format`, and `:artifact/cohort` requirements,
 a `:provenance` key/value subset, and a required `:store/capabilities` subset.
@@ -85,3 +91,54 @@ are not evidence of compatibility with the experimental 4.33.1 frontend.
 The optional `:artifact/cohort` field is an exact matching constraint, not a signature
 or proof that resources were generated together. This change provides metadata
 plumbing; it does not regenerate bundles or publish a prepared frontend cohort.
+
+
+## Bundled resource inventory
+
+`ansatz/bundle.edn` records the exact six bundled resource paths and hashes.
+Bundled initialization verifies and captures all six before activating proof state;
+metadata loaders consume that captured snapshot. Lazy preludes require the active
+bundled environment's cohort, and JAR/uberjar builds verify the copied staging
+resources before archiving them.
+
+This is a legacy byte inventory: kernel exports record Lean 4.29.0-rc2, while
+metadata producer history and common generation remain unrecorded. Hash agreement
+does not establish proof validity, authenticity, or Lean 4.33 frontend compatibility.
+The existing regeneration scripts do not yet produce a coordinated six-artifact
+release; changing resource bytes without updating a valid inventory is rejected.
+
+## Scoped proof sessions
+
+`ansatz.session/capture` returns a complete snapshot over the existing ProofContext:
+Env, indexes, borrowed store descriptor, recall source, and tactic caches. Its
+synthesis-cache atom is independent of the live atom. The record retains its
+original three fields; capture adds the session fields as extension keys. Bare
+`a/context` or `a/make-context` values remain useful for proof APIs but are not
+complete snapshots accepted by `session/activate!`. For example:
+
+```clojure
+(require '[ansatz.core :as a] '[ansatz.session :as session])
+(def saved (session/capture))
+(def result
+  (session/with-session saved
+    (fn []
+      ;; Run ordinary proof operations against this session.
+      (a/env))))
+(:value result)   ; callback result
+(:session result) ; updated complete snapshot
+```
+
+Scopes restore the previous session on return or exception; nested scopes are allowed.
+If restoration itself fails, an existing error is preserved with any distinct
+restoration error suppressed; otherwise the restoration error is reported directly.
+The caller must inspect and repair the remaining state.
+`activate!` installs a complete captured snapshot after validation and attempts
+rollback if installation fails. Store handles remain borrowed and must outlive
+all sessions using them. Catalogue connections are not resurrected; lookup uses
+the restored source path and reconnects lazily.
+
+A shared lock serializes these operations and session activation during initialization.
+Unlocked definition
+macros are still outside that concurrency contract. Sessions do not roll back
+namespace Vars, host registries, arbitrary IO, or external effects. They are also
+separate from the experimental guest Lean runtime contexts.

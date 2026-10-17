@@ -49,6 +49,23 @@
 
 (def uber-file "target/ansatz-standalone.jar")
 
+(defn verify-staged-bundle!
+  "Verify the copied resource bytes that will enter the archive. Read only from
+   staging, never a different classpath resource with the same name."
+  [staging-dir]
+  (let [result (b/process {:command-args ["clojure" "-M" "-e"
+                                        (str "(require 'ansatz.bundle 'clojure.java.io) "
+                                             "(let [root " (pr-str staging-dir) " "
+                                             "reader (fn [resource] "
+                                             "(let [file (clojure.java.io/file root resource)] "
+                                             "(when (.isFile file) "
+                                             "(java.nio.file.Files/readAllBytes (.toPath file)))))] "
+                                             "(ansatz.bundle/verify! {:read-resource reader}) "
+                                             "(println :bundle-verified))")]})]
+    (when-not (zero? (:exit result))
+      (throw (ex-info "Bundled artifact packaging preflight failed"
+                      {:exit (:exit result) :staging-dir staging-dir})))))
+
 (defn jar [_]
   (javac nil)
   (b/write-pom {:class-dir class-dir
@@ -83,6 +100,7 @@
                   :class-dir class-dir
                   :ns-compile (aot-namespaces)
                   :filter-nses '[ansatz]})
+  (verify-staged-bundle! class-dir)
   (b/jar {:class-dir class-dir
           :jar-file jar-file}))
 
@@ -119,6 +137,7 @@
     (b/compile-clj {:basis uber-basis
                     :class-dir class-dir
                     :ns-compile '[ansatz.core ansatz.search ansatz.catalogue ansatz.import]})
+    (verify-staged-bundle! class-dir)
     (b/uber {:class-dir class-dir
              :uber-file uber-file
              :basis uber-basis}))

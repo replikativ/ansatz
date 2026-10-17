@@ -12,7 +12,8 @@
    Lean's default (`@[simp low]` / `@[simp high]`). Priority is not decoration: `Bool.false_eq`
    and `Bool.true_eq` are confluent only because they are low.
    The tactic / optimizer / codegen layers can then consult the inherited set instead of hand-curating."
-  (:require [ansatz.kernel.env :as env]
+  (:require [ansatz.bundle :as bundle]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.state :as state]
             [clojure.string :as str]
@@ -111,15 +112,23 @@
 
 (def ^:private bundled-attrs-resource "ansatz/init-attrs.ndjson.gz")
 
+(defn bundled-attrs
+  "Read verified bundled attribute tuples without changing proof state."
+  []
+  (let [payload (bundle/verified-bytes bundled-attrs-resource)
+        text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
+               (slurp in))]
+    (parse-attr-lines (str/split-lines text))))
+
 (defn load-bundled-attrs!
   "Import the bundled Lean attribute corpus (the gzipped NDJSON dumped from Init by
    scripts/dump_attrs.lean) into the GLOBAL env's extensions, intersected with the loaded store.
    Called by ansatz.core/init! + load-init! so Lean's @[simp]/@[csimp]/@[extern] are inherited by
-   default. No-op (returns nil) if the resource isn't on the classpath. Returns the load stats."
+   default. Missing or inconsistent bundled resources fail before installation. Returns the load stats."
   ([] (load-bundled-attrs! {}))
   ([opts]
-   (when-let [res (io/resource bundled-attrs-resource)]
-     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+   (let [payload (bundle/verified-bytes bundled-attrs-resource)]
+     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                    (str/split-lines (slurp in)))]
        (import-attrs! lines opts)))))
 

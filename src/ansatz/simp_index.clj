@@ -45,6 +45,20 @@
           corpus, valid for the store they were resolved against; dropped when it changes."}
   (atom nil))
 
+(defn capture-caches
+  "Capture the immutable lazy simp-rule cache, without opening a store."
+  []
+  @rule-cache)
+
+(defn validate-caches! [snapshot]
+  (when-not (or (nil? snapshot)
+                (and (map? snapshot) (contains? snapshot :path) (map? (:rules snapshot))))
+    (throw (ex-info "Invalid simp-index cache snapshot" {})))
+  snapshot)
+
+(defn restore-caches! [snapshot]
+  (reset! rule-cache (validate-caches! snapshot)))
+
 (def ^:private extract-simp-lemma
   "simp's private CI → simp-rule extractor, resolved once on first use (var-accessed: this leaf
    must not require ansatz.tactic.simp)."

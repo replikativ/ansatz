@@ -2239,6 +2239,24 @@
 (def ^:private fun-info-cache (atom {}))
 (def ^:private fun-info-cache-env (atom nil))
 
+(defn capture-caches
+  "Capture the immutable function-information cache and its exact Env identity."
+  []
+  {:env @fun-info-cache-env :entries @fun-info-cache})
+
+(defn validate-caches! [snapshot]
+  (when-not (and (map? snapshot) (= #{:env :entries} (set (keys snapshot)))
+                 (or (nil? (:env snapshot)) (instance? ansatz.kernel.Env (:env snapshot)))
+                 (map? (:entries snapshot)))
+    (throw (ex-info "Invalid simp function-information cache snapshot" {})))
+  snapshot)
+
+(defn restore-caches! [snapshot]
+  (validate-caches! snapshot)
+  (reset! fun-info-cache (:entries snapshot))
+  (reset! fun-info-cache-env (:env snapshot))
+  snapshot)
+
 (defn- get-fun-info
   "Compute FunInfo for a function applied to nargs arguments.
    Returns {:param-infos [{:binder-info :back-deps :has-fwd-deps :is-prop :is-instance} ...]

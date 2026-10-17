@@ -4,6 +4,11 @@
    extracted from ansatz.core (codegen, wf, …) can read and mutate the live env without a
    core↔X load cycle. ansatz.core re-exports these; a/ansatz-env stays the wandler-facing handle.")
 
+(defonce ^{:doc "Reentrant monitor for proof-session capture, activation and scoped bodies.
+                 Unlocked DSL/global mutations remain outside this synchronization contract."}
+  session-lock
+  (Object.))
+
 (defonce ^{:doc "The current kernel Env (a value), as an atom. nil until (ansatz/init!)."}
   ansatz-env (atom nil))
 (defonce ^{:doc "The current instance index (name → instances), as an atom."}

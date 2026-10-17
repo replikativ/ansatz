@@ -4,7 +4,8 @@
    which dispatches here (define-verified-wf) for non-structural recursion. Reads the live env from
    ansatz.state; the few core elaboration/API callbacks are resolved at runtime (core requires this
    ns, so a static require back would cycle)."
-  (:require [ansatz.kernel.expr :as e]
+  (:require [ansatz.bundle :as bundle]
+            [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -21,7 +22,7 @@
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.ingest :as ingest
              :refer [parse-params binder-type metadata-params? arity-registry structure-registry codegen-registry]]
-            [ansatz.state :refer [ansatz-env ansatz-instance-index]])
+            [ansatz.state :as state :refer [ansatz-env ansatz-instance-index]])
   (:import [ansatz.kernel ConstantInfo]))
 
 ;; ── core callbacks resolved at runtime (core requires this ns → no static require back) ──────────
@@ -398,31 +399,36 @@
 (clojure.core/defn- wf-fix-ensure-prelude!
   "Ensure a bundled prelude export is loaded into the global env (idempotent via sentinel)."
   [sentinel resource label]
-  (when-not (env/lookup @ansatz-env (name/from-string sentinel))
-    (let [res (clojure.java.io/resource resource)
-          _ (when-not res (throw (ex-info (str label " prelude not on classpath (" resource ")") {})))
-          ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))] (slurp in))
-          decls (:decls (parser/parse-ndjson-string ndjson))
-          env'
-          (loop [ds (seq decls) env @ansatz-env]
-            (if-let [ci (first ds)]
-              (cond
-                (env/lookup env (.name ^ansatz.kernel.ConstantInfo ci))
-                (recur (next ds) env)
-                (.isInduct ^ansatz.kernel.ConstantInfo ci)
-                (let [{:keys [members rest]} (replay/collect-inductive-bundle ds)
-                      [env2 rs] (replay/replay-inductive-bundle env members)]
-                  (when-let [err (first (filter #(= :error (:status %)) rs))]
-                    (throw (ex-info (str "lex prelude replay failed: " (:name err) " — " (:error err)) {})))
-                  (recur rest env2))
-                :else
-                (let [[env2 r] (replay/replay-one env ci true)]
-                  (when (= :error (:status r))
-                    (throw (ex-info (str "lex prelude replay failed: " (:name r) " — " (:error r)) {})))
-                  (recur (next ds) env2)))
-              env))]
-      (reset! ansatz-env env')
-      (when (verbose?) (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))
+  (locking state/session-lock
+    (let [base @ansatz-env]
+      (when-not (env/lookup base (name/from-string sentinel))
+        (bundle/with-verified
+          {:requirements (if-let [manifest (env/get-extension base :bundled-artifacts nil)]
+                           {:artifact/cohort (:artifact/cohort manifest)} {})}
+          (fn [_]
+            (let [payload (bundle/verified-bytes resource)
+                  ndjson (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))] (slurp in))
+                  decls (:decls (parser/parse-ndjson-string ndjson))
+                  env'
+                  (loop [ds (seq decls) env base]
+                    (if-let [ci (first ds)]
+                      (cond
+                        (env/lookup env (.name ^ansatz.kernel.ConstantInfo ci))
+                        (recur (next ds) env)
+                        (.isInduct ^ansatz.kernel.ConstantInfo ci)
+                        (let [{:keys [members rest]} (replay/collect-inductive-bundle ds)
+                              [env2 rs] (replay/replay-inductive-bundle env members)]
+                          (when-let [err (first (filter #(= :error (:status %)) rs))]
+                            (throw (ex-info (str "lex prelude replay failed: " (:name err) " — " (:error err)) {})))
+                          (recur rest env2))
+                        :else
+                        (let [[env2 r] (replay/replay-one env ci true)]
+                          (when (= :error (:status r))
+                            (throw (ex-info (str "lex prelude replay failed: " (:name r) " — " (:error r)) {})))
+                          (recur (next ds) env2)))
+                      env))]
+              (reset! ansatz-env env')
+              (when (verbose?) (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))))))
 
 (clojure.core/defn wf-fix-ensure-lex-prelude!
   "Ensure the Prod.Lex prelude is loaded (idempotent)."

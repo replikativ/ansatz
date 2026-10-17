@@ -10,7 +10,8 @@
 (ns ansatz.core
   "Verified Clojure — write proven programs using Ansatz types and tactics."
   (:refer-clojure :exclude [defn])
-  (:require [clojure.java.io]
+  (:require [ansatz.bundle :as bundle]
+            [clojure.java.io]
             [clojure.string]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -66,9 +67,7 @@
   "Fork a ProofContext for isolation. Creates a new env copy (via Env.fork)
    and fresh synth-cache. Instance index is shared (read-only)."
   [^ProofContext ctx]
-  (->ProofContext (env/fork (:env ctx))
-                  (:instance-index ctx)
-                  (atom {})))
+  (assoc ctx :env (env/fork (:env ctx)) :synth-cache (atom {})))
 
 ;; Global atoms — REPL convenience wrappers around ProofContext. The atoms live in the
 ;; dependency-free ansatz.state leaf (so extracted namespaces — codegen, wf — read/mutate the
@@ -152,56 +151,49 @@
   ([store-path branch]
    (init!* store-path branch)))
 
-(clojure.core/defn- setup-env!
-  "Install global proof state from an already-loaded `env`: reset the env atom, inherit the
-   attributes, matchers and instance index, and point the derived-state readers at the store.
+(clojure.core/defn- prepare-proof-session
+  "Prepare all derived Env state before changing any session globals."
+  [base store attr-present? derived]
+  (let [present? (or attr-present? (fn [n] (some? (env/lookup base (name/from-string n)))))
+        tuples (if derived (:attrs derived) (attrs/bundled-attrs))
+        [loaded _] (attrs/import-attr-tuples base tuples
+                                             {:present? (if derived (constantly true) present?)})
+        matcher-map (if derived (or (:matchers derived) {})
+                        (into {} (filter (fn [[n _]] (present? n))) (matchers/bundled-matchers)))
+        loaded (matchers/install loaded matcher-map)
+        bundled (when-not derived
+                  ((requiring-resolve 'ansatz.tactic.instance/load-bundled-instances) {:present? present?}))
+        index (or (:instances derived) (when (seq bundled) bundled)
+                  ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) base))
+        loaded (env/with-extension loaded :instances index)
+        loaded ((requiring-resolve 'ansatz.simp-index/with-index-source)
+                loaded (when (and store (:simp-trie derived))
+                         (select-keys store [:store-path :branch])))]
+    (map->ProofContext
+     {:env loaded :instance-index index :store store :recall-store-path (:store-path store)
+      :synth-cache (atom {}) :discr-trie nil :simp-trie nil
+      :instance-caches {} :simp-index-caches nil :simp-caches {:env nil :entries {}}})))
 
-   Two sources. `derived` — the store's `[:derived <branch> k]` blobs, computed once by the
-   importer (ansatz.import) — is the store path: nothing is parsed at start. nil is the
-   bundled in-memory tier (load-init!): Lean's Init attributes, matchers and instance registry
-   come from the jar's resources, intersected with the env through `attr-present?`."
-  ([env] (setup-env! env nil nil nil))
-  ([env store attr-present? derived]
-   (reset! ansatz-env env)
-   (reset! state/ansatz-store store)
-   (if derived
-     (do (when-let [t (:attrs derived)] (attrs/install-tuples! t))
-         (matchers/install! (or (:matchers derived) {})))
-     (do (attrs/load-bundled-attrs! {:present? attr-present?})
-         (matchers/load-bundled-matchers! {:present? attr-present?})))
-   ;; Lean's @[instance] registry: the store's derived blob, else the bundled Init registry
-   ;; (intersected with the env); discovery over the env only for an env that has neither.
-   (let [present? (or attr-present? (fn [n] (some? (env/lookup env (name/from-string n)))))
-         bundled (when-not derived
-                   ((requiring-resolve 'ansatz.tactic.instance/load-bundled-instances) {:present? present?}))
-         idx (or (:instances derived)
-                 (when (seq bundled) bundled)
-                 ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) env))]
-     ((requiring-resolve 'ansatz.tactic.instance/reset-caches!))
-     (reset! ansatz-instance-index idx)
-     ;; The registry also rides ON the env (an extension, like the simp index): Lean's
-     ;; instance table is part of the environment, and a tactic synthesizing against an env
-     ;; must see that env's instances — not whatever a global last held. `index-for` reads the
-     ;; extension first; the process-global atom stays for the surface elaborator's session.
-     (swap! ansatz-env (fn [e] (env/with-extension e :instances idx)))
-     (when (resolve 'ansatz.core/synth-cache)
-       (reset! @(resolve 'ansatz.core/synth-cache) {}))
-     ;; Recall: served from the store's catalogue, else from a trie built on first demand
-     ;; from its derived recall keys — never at boot (ansatz.recall).
-     (reset! ansatz-discr-trie nil)
-     (reset! (deref (requiring-resolve 'ansatz.recall/store-path)) (:store-path store))
-     ;; The @[simp] index: recorded ON THE ENV (an extension) as {:store-path :branch}, not
-     ;; process-globally — an env built any other way (replay, a test's `reset!`) must never
-     ;; inherit another store's index. simp loads the store's trie blob on its first call.
-     (swap! ansatz-env (fn [e]
-                         ((requiring-resolve 'ansatz.simp-index/with-index-source)
-                          e (when (and store (:simp-trie derived))
-                              (select-keys store [:store-path :branch])))))
-     (when *verbose*
-       (println "Ansatz:" (.size ^ansatz.kernel.Env @ansatz-env) "declarations loaded,"
-                (count idx) "classes indexed"
-                (when (:recall-keys derived) ", recall keys")
-                (when (:simp-trie derived) ", simp index"))))))
+(clojure.core/defn- setup-env!
+  "Prepare Env extensions and indexes before serialized session activation.
+   Store resources stay borrowed. This lock serializes session switching, not
+   arbitrary concurrent definition macros or unlocked global readers."
+  ([base] (setup-env! base nil nil nil))
+  ([base store attr-present? derived]
+   (let [install
+         (fn []
+           (locking state/session-lock
+             (let [prepared (prepare-proof-session base store attr-present? derived)
+                   activate! (requiring-resolve 'ansatz.session/activate!)]
+               ;; Activation validates the complete session before mutation and
+               ;; restores prior globals/caches if installation fails.
+               (activate! prepared)
+               (when *verbose*
+                 (println "Ansatz:" (.size ^ansatz.kernel.Env (:env prepared)) "declarations loaded,"
+                          (count (:instance-index prepared)) "classes indexed"
+                          (when (:recall-keys derived) ", recall keys")
+                          (when (:simp-trie derived) ", simp index"))))))]
+     (if derived (install) (bundle/with-verified (fn [_] (install)))))))
 
 (clojure.core/defn- init!*
   [store-path branch]
@@ -232,50 +224,36 @@
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
 
 (clojure.core/defn- bundled-medium-env
-  "Replay the bundled medium Init tier (gzipped lean4export NDJSON resource) into an
-   env, in TRUST mode (:verify? false — a known-good export, admitted without
-   re-checking). nil if the resource isn't on the classpath."
+  "Replay the verified bundled bytes in TRUST mode; integrity is not proof checking."
   []
-  (when-let [res (clojure.java.io/resource bundled-medium-resource)]
-    (let [s (with-open [in (java.util.zip.GZIPInputStream. (clojure.java.io/input-stream res))]
-              (slurp in))
-          decls (:decls ((requiring-resolve 'ansatz.export.parser/parse-ndjson-string) s))]
-      (:env ((requiring-resolve 'ansatz.export.replay/replay) decls :verify? false)))))
+  (let [payload (bundle/verified-bytes bundled-medium-resource)
+        text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
+               (slurp in))
+        decls (:decls (parser/parse-ndjson-string text))]
+    (:env (replay/replay decls :verify? false))))
 
 (clojure.core/defn- init!-bundled-medium! []
-  (if-let [env (bundled-medium-env)]
-    (do (setup-env! env)
+  (bundle/with-verified
+    (fn [manifest]
+      (let [loaded (env/with-extension (bundled-medium-env) :bundled-artifacts manifest)]
+        (setup-env! loaded)
         (println (str "Ansatz: loaded the bundled medium Init tier ("
                       (.size ^ansatz.kernel.Env @ansatz-env) " declarations, TRUST mode).\n"
                       "  For the full Init or Mathlib, build a durable store and call "
                       "(init! \"init\") / (init! \"mathlib\")."))
-        :medium)
-    (throw (ex-info (str "Bundled medium Init resource not found on the classpath: "
-                         bundled-medium-resource " — is ansatz on the classpath as a built jar?")
-                    {:resource bundled-medium-resource}))))
+        :medium))))
 
 (clojure.core/defn load-init!
-  "ZERO-CONFIG bootstrap for library users: load Lean `Init` from the export bundled in the jar
-   (`resources/ansatz/init-medium.ndjson.gz`, ~3000 decls — Nat/List/Eq/basics), replayed in TRUST
-   mode, plus the instance index. Enough to verify basic CIC functions and prove theorems against Init.
-   For a full Init or Mathlib store, build one (scripts/setup-*.sh) and use `init!`. Returns the Env."
+  "Load the bundled Init export and companion metadata after integrity preflight.
+   Kernel declarations are replayed in TRUST mode. The recorded legacy producer
+   and unrecorded metadata provenance remain visible on the immutable Env."
   []
-  (let [res (clojure.java.io/resource "ansatz/init-medium.ndjson.gz")]
-    (when-not res
-      (throw (ex-info "bundled Init export not on classpath (resources/ansatz/init-medium.ndjson.gz)" {})))
-    ;; Stream straight from the (jar) resource: gunzip on the fly, parse the in-memory string.
-    ;; No temp file — works on read-only / sandboxed filesystems and GraalVM native-image, and
-    ;; identically whether the bundle is a loose classpath file (dev) or inside the jar.
-    (let [ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
-                   (slurp in))
-          env    (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false))]
-      ;; through `setup-env!` like every other entry point, NOT by hand: it is the one place
-      ;; that installs global state, and it also CLEARS what a previous `init!` left — the
-      ;; store, its simp index and its recall path. Installing the env directly left this tier
-      ;; claiming the previous store's derived state.
-      (setup-env! env)
-      (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
-      @ansatz-env)))
+  (bundle/with-verified
+    (fn [manifest]
+      (let [loaded (env/with-extension (bundled-medium-env) :bundled-artifacts manifest)]
+        (setup-env! loaded)
+        (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
+        @ansatz-env))))
 
 (clojure.core/defn load-export!
   "Load a lean4export NDJSON file (one library's export, e.g. a dependency closure) as the
@@ -335,7 +313,7 @@
 (clojure.core/defn context
   "Get the current global ProofContext (built from global atoms)."
   []
-  (->ProofContext (env) (instance-index) @(resolve 'ansatz.core/synth-cache)))
+  (->ProofContext (env) (instance-index) (atom @@(resolve 'ansatz.core/synth-cache))))
 
 ;; ============================================================
 ;; Instance resolution (name-based, works with PSS env)

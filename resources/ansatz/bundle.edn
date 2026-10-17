@@ -1,0 +1,39 @@
+;; Legacy byte inventory. Metadata producer history and common generation are unrecorded.
+;; This manifest establishes neither kernel validity nor frontend compatibility.
+{:bundle/schema "ansatz-bundle/1"
+ :bundle/status :legacy-inventory
+ :bundle/co-generation :unrecorded
+ :artifact/cohort "legacy-inventory-sha256:7911a546c68c71156294b40c880d22beb5c4b918b06b6d2748ca940a25359230"
+ :producer/scope :kernel-exports-only
+ :producer {:exporter {:name "lean4export" :version "3.1.0"}
+                           :format {:version "3.1.0"}
+                           :lean {:githash "83e54b65b65d1d3ce31d99d820a7bd5f3e219295" :version "4.29.0-rc2"}}
+ :resources [
+  {:resource "ansatz/init-medium.ndjson.gz" :role :init
+   :sha256 "1fa6384e5a694d5f8d96bdd49511f77443b2c0783d879818e2d7aadf89e72370"
+   :provenance/status :header-recorded
+   :producer {:exporter {:name "lean4export" :version "3.1.0"}
+                           :format {:version "3.1.0"}
+                           :lean {:githash "83e54b65b65d1d3ce31d99d820a7bd5f3e219295" :version "4.29.0-rc2"}}}
+  {:resource "ansatz/lex-prelude.ndjson.gz" :role :lex
+   :sha256 "b6132c0cf48f8e8ea6f575c15704f6cb33a451abf4e1e0e7b61527ee115fae4e"
+   :provenance/status :header-recorded
+   :producer {:exporter {:name "lean4export" :version "3.1.0"}
+                           :format {:version "3.1.0"}
+                           :lean {:githash "83e54b65b65d1d3ce31d99d820a7bd5f3e219295" :version "4.29.0-rc2"}}}
+  {:resource "ansatz/sizeof-prelude.ndjson.gz" :role :sizeof
+   :sha256 "b1eabaea9fecd4c34c9ba664b4772bd004c5c5e8e4c58ce05086de2a4a917ee6"
+   :provenance/status :header-recorded
+   :producer {:exporter {:name "lean4export" :version "3.1.0"}
+                           :format {:version "3.1.0"}
+                           :lean {:githash "83e54b65b65d1d3ce31d99d820a7bd5f3e219295" :version "4.29.0-rc2"}}}
+  {:resource "ansatz/init-attrs.ndjson.gz" :role :attrs
+   :sha256 "1d1aa13ca17e15657ae102d2498446c4d0f408d014faef75a845112821fdef94"
+   :provenance/status :unrecorded}
+  {:resource "ansatz/init-matchers.ndjson.gz" :role :matchers
+   :sha256 "8b3eda934a69658b9cdf25a693e482a44b983550b18bad97fa06bd1686018852"
+   :provenance/status :unrecorded}
+  {:resource "ansatz/init-instances.tsv.gz" :role :instances
+   :sha256 "2f3ef33a3be1a525ea420ba982df40018926c0caee038f0a2d2c20d2a9fce90a"
+   :provenance/status :unrecorded}
+ ]}

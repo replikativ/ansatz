@@ -9,7 +9,8 @@
 
    Resolution uses structural matching with isDefEq fallback,
    recursive synthesis for inst-implicit args, and depth limiting."
-  (:require [clojure.string :as str]
+  (:require [ansatz.bundle :as bundle]
+            [clojure.string :as str]
             [clojure.java.io :as io]
             [ansatz.meta :as meta]
             [ansatz.kernel.expr :as e]
@@ -165,11 +166,11 @@
 (defn load-bundled-instances
   "The instance index of the BUNDLED Init registry (resources/ansatz/init-instances.tsv.gz, dumped
    by scripts/regen-bundled-attrs.sh), intersected with the env through `present?` — the zero-config
-   `load-init!` tier's counterpart of the store's derived `:instances` blob. nil when the resource is
-   not on the classpath."
+   `load-init!` tier's counterpart of the store's derived `:instances` blob. Missing or inconsistent resources fail
+   before installation."
   [{:keys [present?]}]
-  (when-let [res (io/resource bundled-instances-resource)]
-    (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+  (let [payload (bundle/verified-bytes bundled-instances-resource)]
+    (let [lines (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                   (str/split-lines (slurp in)))]
       (parse-instance-tsv lines present?))))
 
@@ -205,6 +206,19 @@
   "Forget the per-name conclusion keys — a new env may spell the same names differently."
   []
   (reset! conclusion-keys {}))
+
+(defn capture-caches
+  "Capture immutable instance-selection cache values for a proof session."
+  []
+  @conclusion-keys)
+
+(defn validate-caches! [snapshot]
+  (when-not (map? snapshot)
+    (throw (ex-info "Invalid instance cache snapshot" {})))
+  snapshot)
+
+(defn restore-caches! [snapshot]
+  (reset! conclusion-keys (validate-caches! snapshot)))
 
 (defn- strip
   "`x` without its mdata wrappers — definitionally transparent, and a matcher must not see it."

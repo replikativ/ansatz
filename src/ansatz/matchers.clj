@@ -11,7 +11,8 @@
    For NON-OVERLAPPING matchers (overlaps empty, every :num-overlaps 0 — ~91% of Init, incl. all
    the ones the wandler BYCASES cluster hits) the splitter is the matcher itself (Lean
    MatchEqs.lean:231-243); the overlapping ones carry full metadata for the deferred mkMatcher path."
-  (:require [ansatz.kernel.env :as env]
+  (:require [ansatz.bundle :as bundle]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.state :as state]
             [clojure.data.json :as json]
@@ -54,10 +55,10 @@
   (count m))
 
 (defn bundled-matchers
-  "The bundled Init matcher corpus as {name → info}, or nil if the resource is absent."
+  "The bundled Init matcher corpus as {name → info}, after bundle integrity validation."
   []
-  (when-let [res (io/resource bundled-resource)]
-    (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+  (let [payload (bundle/verified-bytes bundled-resource)]
+    (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
       (parse-matcher-lines (str/split-lines (slurp in))))))
 
 (defn import-matchers
@@ -91,11 +92,11 @@
 
 (defn load-bundled-matchers!
   "Import the bundled Init matcher-info corpus (gzipped NDJSON from scripts/dump_matchers.lean) into
-   the GLOBAL env's :matcher-info extension. No-op if the resource isn't on the classpath."
+   the GLOBAL env's :matcher-info extension. Missing or inconsistent resources fail before installation."
   ([] (load-bundled-matchers! {}))
   ([opts]
-   (when-let [res (io/resource bundled-resource)]
-     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+   (let [payload (bundle/verified-bytes bundled-resource)]
+     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                    (str/split-lines (slurp in)))]
        (import-matchers! lines opts)))))
 
