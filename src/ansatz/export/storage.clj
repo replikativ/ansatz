@@ -18,6 +18,7 @@
    (ansatz.import), not to migrate."
   (:require [konserve.core :as k]
             [ansatz.export.codec :as codec]
+            [ansatz.store :as store]
             [boring.core :as boring]
             [konserve.filestore :as fs]
             [konserve.serializers :as ser]
@@ -126,20 +127,29 @@
   "Open the store rooted at `store-path` (creating `<store>/blobs` if absent). Returns
    {:store konserve, :storage CachedStorage, :settings-atom, :path}.
 
-   Opening does NOT check the manifest — `ansatz.store/check-format!` does, and `init!` calls
-   it; the importer opens a store that has no manifest yet.
+   Existing manifests must be readable and determine the writer's compatibility.
+   Unmanifested stores default to the current writer (the importer creates these).
+   :write-format explicitly selects an unmanifested store's writer; it cannot
+   override an existing manifest. No manifest migration or relabeling occurs.
 
    `:sync-blob?` (default true) fsyncs each blob write. An import turns it off: a crashed
    import is simply re-run, and the manifest is written last."
   ([store-path] (open-store store-path {}))
-  ([store-path {:keys [sync-blob?] :or {sync-blob? true}}]
-   (let [dir (blobs-dir store-path)
+  ([store-path {:keys [sync-blob? write-format] :or {sync-blob? true} :as options}]
+   (let [manifest (when (.exists (store/manifest-file store-path)) (store/check-format! store-path))
+         selected-format (if (contains? options :write-format) write-format
+                             (or (:store/format manifest) store/write-format))
+         _ (when (and manifest (not= selected-format (:store/format manifest)))
+             (throw (ex-info "Store writer format cannot override an existing manifest"
+                             {:store store-path :store/format (:store/format manifest)
+                              :requested-format selected-format})))
+         dir (blobs-dir store-path)
          _ (.mkdirs dir)
          settings-atom (atom (Settings. 64 RefType/WEAK))
          storage-atom (atom nil)
          ;; the PSS root handler resolves its storage through a write-once cell, as the
          ;; storage does not exist until the store is open
-         registry (codec/registry (fn [_] @storage-atom))
+         registry (codec/registry (fn [_] @storage-atom) {:write-format selected-format})
          kstore (fs/connect-fs-store
                  (.getPath dir)
                  :opts {:sync? true}
@@ -151,6 +161,7 @@
      {:store kstore
       :storage cached
       :settings-atom settings-atom
+      :write-format selected-format
       :path store-path})))
 
 (defn close-store

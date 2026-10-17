@@ -26,6 +26,7 @@
    state: an id's meaning must never change, and a new type takes the next free number."
   (:require [boring.core :as boring]
             [ansatz.kernel.hints :as hints]
+            [ansatz.store :as store]
             [ansatz.export.types]
             [org.replikativ.persistent-sorted-set.cbor :as pss-cbor])
   (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule]
@@ -210,26 +211,39 @@
 
 (defn install-elements
   "Register the kernel element types on `registry`. Public so an embedder can build its own
-   codec over kernel values (the counterpart of ansatz-element-write-handlers)."
-  [registry]
-  (-> registry
-      (boring/register-tag name-tag Name name->parts parts->name)
-      (boring/register-tag level-tag Level level->parts parts->level)
-      (boring/register-tag expr-tag Expr expr->parts parts->expr)
-      (boring/register-tag ci-tag ConstantInfo ci->parts parts->ci)
-      (boring/register-tag recursor-rule-tag ConstantInfo$RecursorRule rule->parts parts->rule)
-      (boring/register-tag ci-shell-tag CIShell shell->parts parts->shell)))
+   codec over kernel values (the counterpart of ansatz-element-write-handlers).
+   :write-format defaults to the current writer. Format 1 refuses extended full-CI
+   hints; CIShell symbolic hints and both reader formats remain unchanged."
+  ([registry] (install-elements registry {}))
+  ([registry {:keys [write-format] :or {write-format store/write-format}}]
+   (when-not (contains? #{1 2} write-format)
+     (throw (ex-info "Unsupported store codec writer format" {:store/format write-format})))
+   (let [write-ci (fn [^ConstantInfo ci]
+                    (let [parts (ci->parts ci)]
+                      (when (and (= write-format 1) (.isDef ci) (map? (nth parts 5)))
+                        (throw (ex-info "Full ConstantInfo hints require store format 2"
+                                        {:store/format write-format :required-format 2
+                                         :name (str (.name ci)) :hints (nth parts 5)})))
+                      parts))]
+     (-> registry
+         (boring/register-tag name-tag Name name->parts parts->name)
+         (boring/register-tag level-tag Level level->parts parts->level)
+         (boring/register-tag expr-tag Expr expr->parts parts->expr)
+         (boring/register-tag ci-tag ConstantInfo write-ci parts->ci)
+         (boring/register-tag recursor-rule-tag ConstantInfo$RecursorRule rule->parts parts->rule)
+         (boring/register-tag ci-shell-tag CIShell shell->parts parts->shell)))))
 
 (defn registry
   "The full store codec: kernel elements + canonical PSS node/root handlers.
 
    `resolve-storage` is pss-cbor's root resolver `(fn [root-meta] IStorage)` — the storage a
    root resolves to does not exist until the store is open, so callers pass
-   `(fn [_] @storage-cell)` over a write-once cell, exactly as konserve-lmdb.pss does."
+   `(fn [_] @storage-cell)` over a write-once cell, exactly as konserve-lmdb.pss does.
+   :write-format selects encoding compatibility, independently of reader support."
   ([resolve-storage] (registry resolve-storage {}))
-  ([resolve-storage {:keys [default-bf] :or {default-bf 512}}]
+  ([resolve-storage {:keys [default-bf write-format] :or {default-bf 512 write-format store/write-format}}]
    (-> (boring/tag-registry)
-       (install-elements)
+       (install-elements {:write-format write-format})
        (pss-cbor/install {:default-bf default-bf
                           :resolve-storage resolve-storage
                           :resolve-cmp (fn [_] compare)}))))

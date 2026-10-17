@@ -70,11 +70,23 @@
         (bundled)
         (throw (ex-info "no store index available (no network and none bundled)" {})))))
 
+(defn- entry-metadata [entry format store-name]
+  (let [provenance (:provenance entry)
+        top-tag? (contains? entry :library/tag)
+        nested-tag? (contains? provenance :library/tag)]
+    (when (and top-tag? nested-tag?
+               (not= (:library/tag entry) (:library/tag provenance)))
+      (throw (ex-info "Published store entry has conflicting library tags"
+                      {:store (name store-name) :format format
+                       :library/tag (:library/tag entry)
+                       :provenance/library-tag (:library/tag provenance)})))
+    (cond-> (assoc entry :store/format format :branch (name store-name))
+      top-tag? (assoc-in [:provenance :library/tag] (:library/tag entry)))))
+
 (defn- select-entry [index store-name requirements]
   (some (fn [format]
           (when-let [e (get-in index [:stores (name store-name) format])]
-            (let [metadata (cond-> (assoc e :store/format format :branch (name store-name))
-                             (:library/tag e) (assoc-in [:provenance :library/tag] (:library/tag e)))]
+            (let [metadata (entry-metadata e format store-name)]
               (when (empty? (store/compatibility-errors metadata requirements))
                 [format e]))))
         (sort > store/readable-formats)))
@@ -198,16 +210,13 @@
         (when verbose? (println "   unpacking" file))
         (archive/unpack! (io/file staging file) incoming))
       ;; the manifest must be there and readable by this build before anything is moved
+      ;; Keep advertised constraints and consumer constraints independent: neither
+      ;; may overwrite the other when validating the actual unpacked manifest.
+      (store/check-compatible! (str incoming) requirements)
       (store/check-compatible!
        (str incoming)
-       (cond-> (merge requirements
-                      (select-keys e [:artifact/cohort])
-                      {:store/format format :branch nm
-                       :store/capabilities (set (concat (:store/capabilities e)
-                                                        (:store/capabilities requirements)))})
-         (or (:provenance e) (:provenance requirements) (:library/tag e))
-         (assoc :provenance (cond-> (merge (:provenance requirements) (:provenance e))
-                              (:library/tag e) (assoc :library/tag (:library/tag e))))))
+       (select-keys (entry-metadata e format nm)
+                    [:store/format :branch :artifact/cohort :store/capabilities :provenance]))
       (archive/move-into-place! incoming dest)
       (run! io/delete-file (reverse (file-seq staging)))
       (when verbose?
