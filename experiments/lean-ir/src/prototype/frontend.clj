@@ -23,11 +23,11 @@
     (case (first n)
       "anonymous" (when-not (= 1 (count n)) (fail "Invalid frontend anonymous Name" {}))
       "str" (do (when-not (and (= 3 (count n)) (string? (nth n 2)))
-                   (fail "Invalid frontend string Name segment" {})) (recur (second n)))
+                  (fail "Invalid frontend string Name segment" {})) (recur (second n)))
       "num" (do (when-not (and (= 3 (count n))
-                                (or (and (integer? (nth n 2)) (<= 0 (nth n 2)))
-                                    (and (string? (nth n 2)) (re-matches #"0|[1-9][0-9]*" (nth n 2)))))
-                   (fail "Invalid frontend numeric Name segment" {})) (recur (second n)))
+                               (or (and (integer? (nth n 2)) (<= 0 (nth n 2)))
+                                   (and (string? (nth n 2)) (re-matches #"0|[1-9][0-9]*" (nth n 2)))))
+                  (fail "Invalid frontend numeric Name segment" {})) (recur (second n)))
       (fail "Invalid frontend structured Name" {}))) value)
 (defn- imports! [imports]
   (when-not (vector? imports) (fail "Invalid frontend import list" {}))
@@ -68,15 +68,15 @@
          (let [data (ex-data cause)
                newer? (some? (:checkpoint data))]
            (throw (ex-info (or (.getMessage cause) "Hosted frontend result failed")
-                          (cond-> (merge data
-                                    {:checkpoint (or (:checkpoint data) (:state result))
-                                     :session (or (:checkpoint-session data) (:session data) (:session result))
+                           (cond-> (merge data
+                                          {:checkpoint (or (:checkpoint data) (:state result))
+                                           :session (or (:checkpoint-session data) (:session data) (:session result))
                                      ;; This wrapper is owned only in this separately
                                      ;; retained snapshot, before result cleanup.
-                                     :frontend-result {:checkpoint (:state result)
-                                                       :session (:session result)
-                                                       :raw-result (:value result)}})
-                            (not newer?) (assoc :raw-result (:value result))) cause))))))
+                                           :frontend-result {:checkpoint (:state result)
+                                                             :session (:session result)
+                                                             :raw-result (:value result)}})
+                             (not newer?) (assoc :raw-result (:value result))) cause))))))
 
 (defn inspect-file-header
   "Run the actual guest header parser. Text/file-name accept host immutable
@@ -89,15 +89,15 @@
          world (-> world (m/retain text 1) (m/retain file-name 1))
          result (raw/call session world (or (:header-target options) header-target) [text file-name m/erased])]
      (checked-result result (fn []
-       (let [world (:state result) wrapper (:value result)
-         value (codec/decode world :string (io-ok! world wrapper))
-         world (assoc (m/release world wrapper 1) :result 0)
-         header (envelope! value "lean-file-header/1" "RuntimeCompileShim.inspectFileHeader" file-name-host)]
-     (when-not (and (boolean? (:hasErrors header))
-                    (integer? (:headerEndByte header)) (<= 0 (:headerEndByte header))
-                    (or (not (:hasErrors header)) (empty? (:requestedImports header))))
-       (fail "Invalid frontend header result" {}))
-     {:session (:session result) :world world :header header}))))))
+                              (let [world (:state result) wrapper (:value result)
+                                    value (codec/decode world :string (io-ok! world wrapper))
+                                    world (assoc (m/release world wrapper 1) :result 0)
+                                    header (envelope! value "lean-file-header/1" "RuntimeCompileShim.inspectFileHeader" file-name-host)]
+                                (when-not (and (boolean? (:hasErrors header))
+                                               (integer? (:headerEndByte header)) (<= 0 (:headerEndByte header))
+                                               (or (not (:hasErrors header)) (empty? (:requestedImports header))))
+                                  (fail "Invalid frontend header result" {}))
+                                {:session (:session result) :world world :header header}))))))
 
 (defn finish-compilation-refs
   "Finish an independently completed raw compileImportedFileState invocation.
@@ -119,52 +119,52 @@
    (let [file-name-host (codec/decode (:state result) :string file-name)
          _ (reference! (:state result) roots :roots)]
      (checked-result result (fn []
-       (let [world (:state result) wrapper (:value result)
-         pair (io-ok! world wrapper)
-         [returned-env envelope-string] (:fields (ctor! world pair 0 2))
-         _ (reference! world returned-env :returned-environment)
-         envelope-text (codec/decode world :string envelope-string)
+                              (let [world (:state result) wrapper (:value result)
+                                    pair (io-ok! world wrapper)
+                                    [returned-env envelope-string] (:fields (ctor! world pair 0 2))
+                                    _ (reference! world returned-env :returned-environment)
+                                    envelope-text (codec/decode world :string envelope-string)
          ;; The pair owns the Environment. Save that owner BEFORE dropping pair
          ;; and IO wrapper, even on a diagnostic/failure result.
-         world (assoc (m/release (m/retain world returned-env 1) wrapper 1) :result 0)
-         envelope (envelope! envelope-text "lean-file-compilation/1"
-                             "RuntimeCompileShim.compileImportedFileState" file-name-host)
-         _ (name! (:mainModule envelope))
-         _ (when-not (and (boolean? (:success envelope))
-                          (contains? #{"header" "imports" "module-name" "commands" "exports" "complete"} (:stage envelope))
-                          (contains? #{"input" "prepared" "after-commands"} (:environmentState envelope))
-                          (if (:success envelope)
-                            (and (= "complete" (:stage envelope)) (string? (:bundle envelope)))
-                            (nil? (:bundle envelope))))
-             (fail "Invalid frontend compilation result" {}))
-         base {:session (:session result) :world world :environment returned-env
-               :success (:success envelope) :diagnostics (:diagnostics envelope)
-               :envelope envelope :boxed-entrypoints {} :handle nil}]
-     (if-not (:success envelope) base
-       (let [session (:session result) bindings (:bindings session)
-             custom (get-in configuration [:install-options :lower-extern])
-             lower (fn [row]
-                     (if (contains? bindings (abi/symbol-for (get-in row [:ir :extern])))
-                       (raw/lower bindings row) (when custom (custom row))))
-             active-session (atom session)
-             invoke (fn [world target args]
-                      (let [result (raw/call @active-session world target args)]
-                        (reset! active-session (:session result))
-                        [(:state result) (:value result)]))
-             installed (eval/install-file-bundle {:invoke invoke} world returned-env roots (:bundle envelope)
-                         (assoc (:install-options configuration) :initialize? false :lower-extern lower
-                                :witness (or (get-in configuration [:install-options :witness]) (helper "exportEvalConstWitness"))
-                                :trusted-functions (:functions session)))
-             session @active-session
-             world (:world installed)
-             next-session (raw/open-functions (:functions world) bindings
-                            (assoc (select-keys session [:backend :fuel :compile-threshold]) :cache (get-in session [:program :cache])))]
-         (assoc base :world world :session next-session
-                     :boxed-entrypoints (:boxed-entrypoints installed)
-                     :pending-local-initializers (:pending-local-initializers installed)
-                     :handle {:module-name (:mainModule envelope) :file-name file-name-host
-                              :boxed-entrypoints (:boxed-entrypoints installed)
-                              :unit-digest (:unit-digest installed)})))))))))
+                                    world (assoc (m/release (m/retain world returned-env 1) wrapper 1) :result 0)
+                                    envelope (envelope! envelope-text "lean-file-compilation/1"
+                                                        "RuntimeCompileShim.compileImportedFileState" file-name-host)
+                                    _ (name! (:mainModule envelope))
+                                    _ (when-not (and (boolean? (:success envelope))
+                                                     (contains? #{"header" "imports" "module-name" "commands" "exports" "complete"} (:stage envelope))
+                                                     (contains? #{"input" "prepared" "after-commands"} (:environmentState envelope))
+                                                     (if (:success envelope)
+                                                       (and (= "complete" (:stage envelope)) (string? (:bundle envelope)))
+                                                       (nil? (:bundle envelope))))
+                                        (fail "Invalid frontend compilation result" {}))
+                                    base {:session (:session result) :world world :environment returned-env
+                                          :success (:success envelope) :diagnostics (:diagnostics envelope)
+                                          :envelope envelope :boxed-entrypoints {} :handle nil}]
+                                (if-not (:success envelope) base
+                                        (let [session (:session result) bindings (:bindings session)
+                                              custom (get-in configuration [:install-options :lower-extern])
+                                              lower (fn [row]
+                                                      (if (contains? bindings (abi/symbol-for (get-in row [:ir :extern])))
+                                                        (raw/lower bindings row) (when custom (custom row))))
+                                              active-session (atom session)
+                                              invoke (fn [world target args]
+                                                       (let [result (raw/call @active-session world target args)]
+                                                         (reset! active-session (:session result))
+                                                         [(:state result) (:value result)]))
+                                              installed (eval/install-file-bundle {:invoke invoke} world returned-env roots (:bundle envelope)
+                                                                                  (assoc (:install-options configuration) :initialize? false :lower-extern lower
+                                                                                         :witness (or (get-in configuration [:install-options :witness]) (helper "exportEvalConstWitness"))
+                                                                                         :trusted-functions (:functions session)))
+                                              session @active-session
+                                              world (:world installed)
+                                              next-session (raw/open-functions (:functions world) bindings
+                                                                               (assoc (select-keys session [:backend :fuel :compile-threshold]) :cache (or (get-in session [:program :cache]) (:cache session))))]
+                                          (assoc base :world world :session next-session
+                                                 :boxed-entrypoints (:boxed-entrypoints installed)
+                                                 :pending-local-initializers (:pending-local-initializers installed)
+                                                 :handle {:module-name (:mainModule envelope) :file-name file-name-host
+                                                          :boxed-entrypoints (:boxed-entrypoints installed)
+                                                          :unit-digest (:unit-digest installed)})))))))))
 
 (defn compile-file-refs
   "Compile against the supplied imported :environment, with borrowed guest
@@ -181,7 +181,7 @@
      (reference! world value label))
    (if (m/ref? module-name) (m/node world module-name)
      ;; Name.anonymous is the valid nullary immediate zero.
-     (codec/decode world :unit module-name))
+       (codec/decode world :unit module-name))
    (let [file-name-host (codec/decode world :string file-name)
          _ (codec/decode world :string text)
          arguments [environment text file-name module-name roots options]
@@ -200,18 +200,29 @@
    (when-not (and (fn? encode-name) (fn? encode-names) (vector? (:roots arguments)))
      (fail "Structured frontend compilation requires explicit Name encoders and vector roots" {}))
    (let [active-session (atom session)
+         progress (volatile! world)
+         temporaries (volatile! [])
          invoke (fn [world target args]
                   (let [result (raw/call @active-session world target args)]
                     (reset! active-session (:session result))
-                    [(:state result) (:value result)]))
-         [world module] (encode-name world invoke (:module-name arguments) encoder-options)
-         [world roots] (encode-names world invoke (:roots arguments) encoder-options)]
+                    (vreset! progress (:state result))
+                    [(:state result) (:value result)]))]
      (try
-       (let [result (compile-file-refs @active-session world
-                                      (assoc arguments :module-name module :roots roots) configuration)]
-         ;; The raw layer borrowed these generated owners; discharge only this
-         ;; layer's temporary ownership, preserving the returned Environment.
+       (let [[world module] (encode-name world invoke (:module-name arguments) encoder-options)
+             _ (vreset! progress world)
+             _ (vswap! temporaries conj module)
+             [world roots] (encode-names world invoke (:roots arguments) encoder-options)
+             _ (vreset! progress world)
+             _ (vswap! temporaries conj roots)
+             result (compile-file-refs @active-session world
+                                       (assoc arguments :module-name module :roots roots) configuration)]
+         ;; Each successful encoder produced a named owner even if a subsequent
+         ;; encoder fails. Only the successful path discharges these temporaries.
          (update result :world #(-> % (m/release module 1) (m/release roots 1))))
        (catch Throwable cause
-         (throw (ex-info (or (.getMessage cause) "Structured frontend compilation failed")
-                        (assoc (ex-data cause) :frontend-temporary-owners [module roots]) cause)))))))
+         (let [data (ex-data cause)]
+           (throw (ex-info (or (.getMessage cause) "Structured frontend compilation failed")
+                           (merge {:checkpoint @progress :checkpoint-session @active-session}
+                                  data
+                                  {:session (or (:checkpoint-session data) (:session data) @active-session)
+                                   :frontend-temporary-owners @temporaries}) cause))))))))

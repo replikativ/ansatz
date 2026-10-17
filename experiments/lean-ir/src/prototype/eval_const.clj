@@ -28,27 +28,27 @@
     (if (.isAnonymous name)
       (reduce (fn [prefix [kind payload]] [kind prefix payload]) ["anonymous"] (rseq parts))
       (recur (.-prefix name) (conj parts (if (.isStr name) ["str" (.-str name)]
-                                           ["num" (str (.-num name))]))))))
+                                             ["num" (str (.-num name))]))))))
 
 (defn ir-equal?
   "Stack-safe exact JSON structural equality, including ABI/borrow annotations."
   [a b]
   (loop [pending [[a b]]]
     (if (empty? pending) true
-      (let [[a b] (peek pending) pending (pop pending)]
-        (cond
-          (identical? a b) (recur pending)
-          (map? a) (if (and (map? b) (= (set (keys a)) (set (keys b))))
-                     (recur (into pending (map (fn [[k v]] [v (get b k)]) a))) false)
-          (vector? a) (if (and (vector? b) (= (count a) (count b)))
-                        (recur (into pending (map vector a b))) false)
-          (or (map? b) (vector? b)) false
-          (= a b) (recur pending)
-          :else false)))))
+        (let [[a b] (peek pending) pending (pop pending)]
+          (cond
+            (identical? a b) (recur pending)
+            (map? a) (if (and (map? b) (= (set (keys a)) (set (keys b))))
+                       (recur (into pending (map (fn [[k v]] [v (get b k)]) a))) false)
+            (vector? a) (if (and (vector? b) (= (count a) (count b)))
+                          (recur (into pending (map vector a b))) false)
+            (or (map? b) (vector? b)) false
+            (= a b) (recur pending)
+            :else false)))))
 
 (defn- row [catalogue name]
   (if-let [read-declaration (:read-declaration catalogue)] (read-declaration name)
-    (get-in catalogue [:declarations name])))
+          (get-in catalogue [:declarations name])))
 (defn- decl [row] (or (get-in row [:ir :fdecl]) (get-in row [:ir :extern])))
 (defn- raw-dependencies [row]
   (into #{} (keep (fn [x] (when (map? x) (or (get-in x [:fap :c]) (get-in x [:pap :c])))))
@@ -65,33 +65,33 @@
         (walk/forms (:body f))))
 
 (defn- validate-witness [w target]
-    (when-not (and (= "lean-eval-const-witness/1" (:schema w))
-                   (= "RuntimeCompileShim.exportEvalConstWitness" (:producer w))
-                   (= (get prim/pinned-build "lean_get_githash") (:leanCommit w))
-                   (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile w))
-                   (= target (:name w)) (vector? (:declarations w))
-                   (vector? (:missingDependencies w)) (empty? (:missingDependencies w))
-                   (nil? (:sorryDep w)))
-      (m/fail "Invalid, missing or sorry-dependent evalConst interpreter witness" {:name target}))
-    (let [rows (:declarations w) by-name (into {} (map (juxt :name identity)) rows)]
-      (when-not (and (= (count rows) (count by-name)) (get by-name target)
-                     (get by-name (:boxedTarget w)))
-        (m/fail "Incomplete evalConst witness roots" {:name target}))
-      (let [base (decl (get by-name target)) chosen (decl (get by-name (:boxedTarget w)))
-            object-types #{"object" "tobject" "tagged" "erased" "void"}]
-        (when-not (and (= (count (:xs base)) (count (:xs chosen)))
-                       (if (empty? (:xs base)) (= target (:boxedTarget w))
+  (when-not (and (= "lean-eval-const-witness/1" (:schema w))
+                 (= "RuntimeCompileShim.exportEvalConstWitness" (:producer w))
+                 (= (get prim/pinned-build "lean_get_githash") (:leanCommit w))
+                 (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile w))
+                 (= target (:name w)) (vector? (:declarations w))
+                 (vector? (:missingDependencies w)) (empty? (:missingDependencies w))
+                 (nil? (:sorryDep w)))
+    (m/fail "Invalid, missing or sorry-dependent evalConst interpreter witness" {:name target}))
+  (let [rows (:declarations w) by-name (into {} (map (juxt :name identity)) rows)]
+    (when-not (and (= (count rows) (count by-name)) (get by-name target)
+                   (get by-name (:boxedTarget w)))
+      (m/fail "Incomplete evalConst witness roots" {:name target}))
+    (let [base (decl (get by-name target)) chosen (decl (get by-name (:boxedTarget w)))
+          object-types #{"object" "tobject" "tagged" "erased" "void"}]
+      (when-not (and (= (count (:xs base)) (count (:xs chosen)))
+                     (if (empty? (:xs base)) (= target (:boxedTarget w))
                          (and (every? #(and (contains? object-types (:ty %)) (false? (:borrow %))) (:xs chosen))
                               (contains? object-types (:type chosen)))))
-          (m/fail "evalConst selected entry lacks a faithful boxed ABI" {:name target})))
-      (doseq [r rows]
-        (when-not (and (boolean? (:sourceLocal r)) (= (:name r) (:f (decl r)))
-                       (= 1 (count (:ir r))) (decl r))
-          (m/fail "Invalid evalConst witnessed declaration" {:name (:name r)}))
-        (doseq [dependency (raw-dependencies r)]
-          (when-not (contains? by-name dependency)
-            (m/fail "Incomplete evalConst witness dependency closure" {:name (:name r) :dependency dependency}))))
-      (assoc w :rows by-name)))
+        (m/fail "evalConst selected entry lacks a faithful boxed ABI" {:name target})))
+    (doseq [r rows]
+      (when-not (and (boolean? (:sourceLocal r)) (= (:name r) (:f (decl r)))
+                     (= 1 (count (:ir r))) (decl r))
+        (m/fail "Invalid evalConst witnessed declaration" {:name (:name r)}))
+      (doseq [dependency (raw-dependencies r)]
+        (when-not (contains? by-name dependency)
+          (m/fail "Incomplete evalConst witness dependency closure" {:name (:name r) :dependency dependency}))))
+    (assoc w :rows by-name)))
 
 (defn- witness! [value target]
   (validate-witness (json/read-str value :key-fn keyword) target))
@@ -100,16 +100,34 @@
   (loop [pending (vec roots) seen {}]
     (if-let [name (peek pending)]
       (if (contains? seen name) (recur (pop pending) seen)
-        (let [actual (get-in world [:functions name]) expected (get registry name)]
-          (when-not (and actual expected (identical? actual expected))
-            (m/fail "evalConst executable differs from authorized program" {:name name}))
-          (recur (into (pop pending) (executable-dependencies actual)) (assoc seen name expected))))
+          (let [actual (get-in world [:functions name]) expected (get registry name)]
+            (when-not (and actual expected (identical? actual expected))
+              (m/fail "evalConst executable differs from authorized program" {:name name}))
+            (recur (into (pop pending) (executable-dependencies actual)) (assoc seen name expected))))
       seen)))
+
+(defn validate-executables!
+  "Validate exact executable identity and its transitive static closure against
+   an existing trusted registry. This does not mint kernel checking authority."
+  [world registry roots]
+  (check-function-closure! world registry roots))
+
+(defn boxed-entrypoint!
+  "Resolve an entry only through its admitted unit manifest and exact currently
+   authorized executable closure. Returns the boxed target, never guessed names."
+  [world digest name]
+  (let [unit (get-in world [:eval-const-authorizations :units digest])
+        entry (some #(when (= name (:name %)) %) (get-in unit [:manifest :entryPoints]))
+        target (:boxedTarget entry)]
+    (when-not (and unit target)
+      (m/fail "Name is not an admitted boxed entrypoint" {:name name :unit-digest digest}))
+    (check-function-closure! world (get-in world [:eval-const-authorizations :functions]) [target])
+    target))
 
 (defn- source-transition? [world options local r]
   (let [name (:name r) proof (get (::source-transitions options) name)
         unit (get-in world [:eval-const-authorizations :units
-                           (get-in world [:eval-const-authorizations :unit-digests name])])]
+                            (get-in world [:eval-const-authorizations :unit-digests name])])]
     (and proof (false? (:sourceLocal r))
          (identical? local (:local proof)) (identical? unit (:unit proof))
          (ir-equal? (:ir r) (:ir (:witness proof)))
@@ -120,31 +138,31 @@
   ;; Evidence is scoped to this actual guest witness and this invocation. Never
   ;; mutate a local source receipt into imported provenance for unrelated forks.
   (reduce
-    (fn [[world options] r]
-      (let [name (:name r) local (get-in world [:eval-const-authorizations :declarations name])]
-        (if (and local (true? (:sourceLocal local)) (false? (:sourceLocal r))
-                 (:authorize-source-import options))
-          (let [module (:sourceModule r)
-                unit (get-in world [:eval-const-authorizations :units
+   (fn [[world options] r]
+     (let [name (:name r) local (get-in world [:eval-const-authorizations :declarations name])]
+       (if (and local (true? (:sourceLocal local)) (false? (:sourceLocal r))
+                (:authorize-source-import options))
+         (let [module (:sourceModule r)
+               unit (get-in world [:eval-const-authorizations :units
                                    (get-in world [:eval-const-authorizations :unit-digests name])])]
-            (when-not (and (vector? module) unit
-                           (= module (get-in unit [:manifest :initializationPlan :module]))
-                           (ir-equal? (:ir local) (:ir r))
-                           (or (not (contains? r :runtime))
-                               (ir-equal? (:runtime local) (:runtime r))))
-              (m/fail "Source import witness differs from admitted source unit" {:name name}))
-            (let [registry (merge (:trusted-functions options)
-                                  (get-in world [:eval-const-authorizations :functions]))
-                  context (assoc context :check-trusted-functions!
-                                 (fn [world roots] (check-function-closure! world registry roots)))
-                  [world authorized?] ((:authorize-source-import options)
+           (when-not (and (vector? module) unit
+                          (= module (get-in unit [:manifest :initializationPlan :module]))
+                          (ir-equal? (:ir local) (:ir r))
+                          (or (not (contains? r :runtime))
+                              (ir-equal? (:runtime local) (:runtime r))))
+             (m/fail "Source import witness differs from admitted source unit" {:name name}))
+           (let [registry (merge (:trusted-functions options)
+                                 (get-in world [:eval-const-authorizations :functions]))
+                 context (assoc context :check-trusted-functions!
+                                (fn [world roots] (check-function-closure! world registry roots)))
+                 [world authorized?] ((:authorize-source-import options)
                                       world context environment r local unit)]
-              (when-not (true? authorized?)
-                (m/fail "Source import lacks checked module installation authority" {:name name}))
-              [world (assoc-in options [::source-transitions name]
-                               {:local local :unit unit :witness r})]))
-          [world options])))
-    [world (dissoc options ::source-transitions)] (vals (:rows witness))))
+             (when-not (true? authorized?)
+               (m/fail "Source import lacks checked module installation authority" {:name name}))
+             [world (assoc-in options [::source-transitions name]
+                              {:local local :unit unit :witness r})]))
+         [world options])))
+   [world (dissoc options ::source-transitions)] (vals (:rows witness))))
 
 (defn- existing-row! [world options backing-valid r]
   (let [name (:name r) authority (:eval-const-authorizations world)
@@ -214,7 +232,7 @@
           ;; :result. Preserve its exact owner and matching snapshot explicitly.
           ;; Any :guest-error field is borrowed from this retained IO wrapper.
           (throw (ex-info (or (.getMessage cause) "Guest Json witness failed")
-                         (merge (ex-data cause) {:checkpoint world :witness-io-result value}) cause)))))
+                          (merge (ex-data cause) {:checkpoint world :witness-io-result value}) cause)))))
     (m/fail "Invalid evalConst witness format" {:witness-format (:witness-format options)})))
 
 (defn- backing-validation [options]
@@ -229,7 +247,7 @@
     (doseq [manifest (get-in options [:catalogue :manifests])]
       (ir/validate-manifest! manifest)
       (when-not (and (or (not (contains? manifest :leanCommit))
-                              (= (get prim/pinned-build "lean_get_githash") (:leanCommit manifest)))
+                         (= (get prim/pinned-build "lean_get_githash") (:leanCommit manifest)))
                      (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile manifest)))
         (m/fail "evalConst catalogue profile mismatch" {})))))
 
@@ -238,7 +256,7 @@
                      (map #(row candidate %) (sort-by pr-str (keys (:declarations candidate)))))
         text (if (string? bundle) bundle (str/join "\n" (map json/write-str rows)))]
     (apply str (map #(format "%02x" (bit-and 255 %))
-                   (.digest (MessageDigest/getInstance "SHA-256") (.getBytes ^String text StandardCharsets/UTF_8))))))
+                    (.digest (MessageDigest/getInstance "SHA-256") (.getBytes ^String text StandardCharsets/UTF_8))))))
 
 (defn- action-marker [{:keys [action]}]
   (if (= "io" (:kind action)) [::initialization/io (:name action)] (:name action)))
@@ -288,13 +306,25 @@
 
 (defn- pending-actions [world plan]
   (into [] (keep (fn [planned]
-                  (let [entry (get-in world [:globals (action-marker planned)])
-                        evidence (get-in world [:eval-const-authorizations :completion-evidence planned])]
-                    (when (and entry (not= :ready (:status entry)))
-                      (m/fail "Initializer has an incomplete prior guest execution" {:action (:action planned)}))
-                    (if evidence (do (evidence-valid! world evidence) nil)
-                      (assoc planned :call-target (action-target world planned)
-                                     :completion-key (:action planned)))))) (:actions plan)))
+                   (let [entry (get-in world [:globals (action-marker planned)])
+                         evidence (get-in world [:eval-const-authorizations :completion-evidence planned])]
+                     (when (and entry (not= :ready (:status entry)))
+                       (m/fail "Initializer has an incomplete prior guest execution" {:action (:action planned)}))
+                     (if evidence (do (evidence-valid! world evidence) nil)
+                         (assoc planned :call-target (action-target world planned)
+                                :completion-key (:action planned)))))) (:actions plan)))
+
+(defn assert-unit-ready!
+  "Require actual admitted completion evidence without executing initializers."
+  [world digest]
+  (let [unit (get-in world [:eval-const-authorizations :units digest])
+        status (get-in world [:eval-const-authorizations :initializations digest :status])]
+    (when-not unit (m/fail "Missing admitted source unit" {:unit-digest digest}))
+    (when (and status (not= :ready status))
+      (m/fail "Source unit has a partially entered initializer" {:status status}))
+    (when (seq (pending-actions world (:initializationPlan (:manifest unit))))
+      (m/fail "Source unit has pending initializers" {:unit-digest digest}))
+    unit))
 
 (declare run-initializers)
 
@@ -307,20 +337,20 @@
   ;; This exception belongs only to source-bundle reuse, not witness checking.
   (-> candidate
       (assoc :declarations
-      (into {} (map (fn [[name _]]
-                      (let [selected (row candidate name)
-                            canonical (get-in world [:eval-const-authorizations :imported-declarations name])]
-                        [name (if (and (contains? (:functions world) name)
-                                       (not (get-in world [:eval-const-authorizations :declarations name]))
-                                       (false? (:sourceLocal selected))
-                                       (= {:role "value" :initializer nil} (:runtime selected))
-                                       (contains? #{{:role "closed" :initializer nil}
-                                                    {:role "ground" :initializer nil}} (:runtime canonical))
-                                       (contains? (:ir selected) :fdecl)
-                                       (empty? (:xs (decl selected)))
-                                       (ir-equal? (:ir selected) (:ir canonical)))
-                                (assoc selected :runtime (:runtime canonical))
-                                selected)]))) (:declarations candidate)))
+             (into {} (map (fn [[name _]]
+                             (let [selected (row candidate name)
+                                   canonical (get-in world [:eval-const-authorizations :imported-declarations name])]
+                               [name (if (and (contains? (:functions world) name)
+                                              (not (get-in world [:eval-const-authorizations :declarations name]))
+                                              (false? (:sourceLocal selected))
+                                              (= {:role "value" :initializer nil} (:runtime selected))
+                                              (contains? #{{:role "closed" :initializer nil}
+                                                           {:role "ground" :initializer nil}} (:runtime canonical))
+                                              (contains? (:ir selected) :fdecl)
+                                              (empty? (:xs (decl selected)))
+                                              (ir-equal? (:ir selected) (:ir canonical)))
+                                       (assoc selected :runtime (:runtime canonical))
+                                       selected)]))) (:declarations candidate)))
       (dissoc :read-declaration)))
 
 (defn install-bundle
@@ -363,11 +393,11 @@
                (m/fail "Source unit omits selected dependency IR" {:name name :dependency dependency})))
          backing-valid (or (::backing-validation options) (backing-validation options))
          reused (into [] (keep (fn [name]
-                                (let [r (row candidate name)]
-                                  (when (contains? old name)
-                                    (when-not (= "decl" (:kind r))
-                                      (m/fail "Existing source dependency lacks actual IR" {:name name}))
-                                    (existing-row! world options backing-valid r) name))))
+                                 (let [r (row candidate name)]
+                                   (when (contains? old name)
+                                     (when-not (= "decl" (:kind r))
+                                       (m/fail "Existing source dependency lacks actual IR" {:name name}))
+                                     (existing-row! world options backing-valid r) name))))
                       (keys (:declarations candidate)))
          _ (check-function-closure! world (code-registry world options) reused)
          _ (doseq [{:keys [action meta] :as planned} (:actions plan)]
@@ -383,7 +413,7 @@
                           (= (set (:requestedRoots manifest)) (set (map :name entries))))
              (m/fail "Invalid source entrypoint roots" {}))
          boxed-for (fn [name] (let [boxed ["str" name "_boxed"]]
-                               (if (= "decl" (:kind (row candidate boxed))) boxed name)))
+                                (if (= "decl" (:kind (row candidate boxed))) boxed name)))
          _ (doseq [{:keys [name boxedTarget]} entries]
              (when-not (and (= boxedTarget (boxed-for name))
                             (= "decl" (:kind (row candidate name)))
@@ -396,24 +426,24 @@
                                         [name (if (contains? old name) (assoc r :sourceLocal false) r)])))
                             (keys (:declarations candidate)))
          new-roots (into [] (keep (fn [[name r]]
-                                   (when (and (= "decl" (:kind r)) (:sourceLocal r) (not (contains? old name))) name))) declarations)
+                                    (when (and (= "decl" (:kind r)) (:sourceLocal r) (not (contains? old name))) name))) declarations)
          new-actions (filterv #(not (contains? (get-in world [:eval-const-authorizations :actions] #{}) %)) (:actions plan))
          transformed (-> candidate (assoc :declarations declarations) (dissoc :read-declaration)
                          (assoc :manifests [(-> manifest
-                                               (assoc :requestedRoots new-roots
-                                                      :entryPoints (mapv (fn [n] {:name n :boxedTarget (boxed-for n)}) new-roots))
-                                               (assoc-in [:initializationPlan :actions] new-actions))]))
+                                                (assoc :requestedRoots new-roots
+                                                       :entryPoints (mapv (fn [n] {:name n :boxedTarget (boxed-for n)}) new-roots))
+                                                (assoc-in [:initializationPlan :actions] new-actions))]))
          install-options (dissoc options :witness :witness-format :trusted-functions :initialize? :completion-evidence
                                  :completed-local-actions ::backing-validation)
          [world installed]
          (if (seq new-roots)
            (if-let [install! (:install-compiled! context)] (install! world transformed install-options)
-             (let [result (install/install world transformed install-options)] [(:world result) (dissoc result :world)]))
+                   (let [result (install/install world transformed install-options)] [(:world result) (dissoc result :world)]))
            (do (when (seq new-actions) (m/fail "Source action has no admissible local code" {}))
                [world {:new-functions {}}]))
          source-rows (into {} (keep (fn [[name _]]
-                                     (when-let [r (or (row candidate name) (row (:catalogue options) name))]
-                                       (when (= "decl" (:kind r)) [name r])))) (:new-functions installed))
+                                      (when-let [r (or (row candidate name) (row (:catalogue options) name))]
+                                        (when (= "decl" (:kind r)) [name r])))) (:new-functions installed))
          digest (bundle-digest bundle original-candidate)
          world (-> world
                    (assoc-in [:eval-const-authorizations :units digest]
@@ -502,38 +532,38 @@
    CONTEXT supplies :invoke; :witness names the trusted guest witness helper."
   [context world environment roots bundle options]
   (if-not (:authorize-source-import options) (install-bundle world bundle options)
-    (let [candidate (install/bundle-catalogue bundle)
-          transitions (into #{} (keep (fn [[name r]]
-                                       (when (and (false? (:sourceLocal r))
-                                                  (true? (get-in world [:eval-const-authorizations :declarations name :sourceLocal])))
-                                         name))) (:declarations candidate))]
-      (if (empty? transitions) (install-bundle world bundle options)
-        (let [helper (:witness options)
-              _ (when-not (vector? helper) (m/fail "Source file imports require an actual guest interpreter witness" {}))
-              _ (check-function-closure! world (code-registry world options) [helper])
-              root-node (when (m/ref? roots) (m/node world roots))
-              _ (when-not (= :array (:kind root-node)) (m/fail "Source file witness roots must be a guest array" {}))
-              [world proofs]
-              (reduce
-                (fn [[world proofs] name]
-                  (let [target (structured-name (bridge/project-name world name))
-                        [world witness] (invoke-witness (:invoke context)
-                                       (-> world (m/retain environment 1) (m/retain name 1))
-                                       helper [environment name m/erased] options target)
+          (let [candidate (install/bundle-catalogue bundle)
+                transitions (into #{} (keep (fn [[name r]]
+                                              (when (and (false? (:sourceLocal r))
+                                                         (true? (get-in world [:eval-const-authorizations :declarations name :sourceLocal])))
+                                                name))) (:declarations candidate))]
+            (if (empty? transitions) (install-bundle world bundle options)
+                (let [helper (:witness options)
+                      _ (when-not (vector? helper) (m/fail "Source file imports require an actual guest interpreter witness" {}))
+                      _ (check-function-closure! world (code-registry world options) [helper])
+                      root-node (when (m/ref? roots) (m/node world roots))
+                      _ (when-not (= :array (:kind root-node)) (m/fail "Source file witness roots must be a guest array" {}))
+                      [world proofs]
+                      (reduce
+                       (fn [[world proofs] name]
+                         (let [target (structured-name (bridge/project-name world name))
+                               [world witness] (invoke-witness (:invoke context)
+                                                               (-> world (m/retain environment 1) (m/retain name 1))
+                                                               helper [environment name m/erased] options target)
                         ;; Only installation transitions present in this bundle
                         ;; need source receipts; every candidate match is exact.
-                        witness (update witness :rows select-keys transitions)
-                        _ (doseq [[n r] (:rows witness)]
-                            (let [exported (row candidate n)]
-                              (when-not (and (= (:sourceLocal exported) (:sourceLocal r))
-                                             (ir-equal? (:ir exported) (:ir r)))
-                                (m/fail "File output differs from actual interpreter import witness" {:name n}))))
-                        [world scoped] (authorize-source-transitions world context environment witness options)]
-                    [world (merge proofs (::source-transitions scoped))]))
-                [world {}] (:fields root-node))
-              _ (when-not (= transitions (set (keys proofs)))
-                  (m/fail "File source imports lack complete actual interpreter witnesses" {:names (vec transitions)}))]
-          (install-bundle world bundle (assoc options ::source-transitions proofs)))))))
+                               witness (update witness :rows select-keys transitions)
+                               _ (doseq [[n r] (:rows witness)]
+                                   (let [exported (row candidate n)]
+                                     (when-not (and (= (:sourceLocal exported) (:sourceLocal r))
+                                                    (ir-equal? (:ir exported) (:ir r)))
+                                       (m/fail "File output differs from actual interpreter import witness" {:name n}))))
+                               [world scoped] (authorize-source-transitions world context environment witness options)]
+                           [world (merge proofs (::source-transitions scoped))]))
+                       [world {}] (:fields root-node))
+                      _ (when-not (= transitions (set (keys proofs)))
+                          (m/fail "File source imports lack complete actual interpreter witnesses" {:names (vec transitions)}))]
+                  (install-bundle world bundle (assoc options ::source-transitions proofs)))))))
 
 (defn- link-imported [context world options backing-valid witness]
   (force backing-valid)
@@ -609,10 +639,10 @@
               [world witness]
               (if-let [helper (:witness options)]
                 (let [_ (check-function-closure! world (merge (:trusted-functions options)
-                                                                (get-in world [:eval-const-authorizations :functions])) [helper])
+                                                              (get-in world [:eval-const-authorizations :functions])) [helper])
                       world (-> world (m/retain environment 1) (m/retain name 1))
                       [world witness] (invoke-witness (:invoke context) world helper
-                                        [environment name m/erased] options target)]
+                                                      [environment name m/erased] options target)]
                   [world witness]) [world nil])
               [world options] (authorize-source-transitions world context environment witness options)
               [world boxed]

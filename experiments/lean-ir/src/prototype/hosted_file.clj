@@ -35,16 +35,16 @@
 
 (defn- execution-request [request]
   (let [{:keys [module-name roots initialization calls]} request
-         _ (when-not (contains? #{:defer :run} initialization)
-             (fail "Hosted file requires explicit :initialization :defer or :run" {}))
-         _ (structured-name module-name)
-         _ (when-not (vector? roots) (fail "Hosted file roots must be a vector" {}))
-         _ (doseq [name roots] (structured-name name))
-         calls (or calls [])
-         _ (when-not (vector? calls) (fail "Hosted file calls must be a vector" {}))
-         calls (mapv (fn [{:keys [name args] :as call}]
-                       (when-not (and (map? call) (vector? args)) (fail "Invalid hosted file call" {}))
-                       (assoc call :structured-name (structured-name name))) calls)]
+        _ (when-not (contains? #{:defer :run} initialization)
+            (fail "Hosted file requires explicit :initialization :defer or :run" {}))
+        _ (structured-name module-name)
+        _ (when-not (vector? roots) (fail "Hosted file roots must be a vector" {}))
+        _ (doseq [name roots] (structured-name name))
+        calls (or calls [])
+        _ (when-not (vector? calls) (fail "Hosted file calls must be a vector" {}))
+        calls (mapv (fn [{:keys [name args] :as call}]
+                      (when-not (and (map? call) (vector? args)) (fail "Invalid hosted file call" {}))
+                      (assoc call :structured-name (structured-name name))) calls)]
     {:module-name module-name :roots roots :initialization initialization :calls calls}))
 
 (defn finish-file
@@ -58,36 +58,36 @@
                  (identical? (get-in compiled [:world :functions]) (get-in compiled [:session :functions])))
     (fail "Expected frontend compilation result with matching session" {}))
   (let [{:keys [initialization calls]} (execution-request request)]
-     (if-not (:success compiled)
-       (assoc compiled :call-results [] :initialization-state :not-compiled)
-       (let [active (atom (:session compiled)) invoke (invocation active)
-             results (volatile! []) progress (volatile! (:world compiled))]
-         (try
-           (let [digest (get-in compiled [:handle :unit-digest])
-                 unit (get-in (:world compiled) [:eval-const-authorizations :units digest])
-                 installation {:unit-digest digest :initialization-plan (get-in unit [:manifest :initializationPlan])}
-                 world (if (= :run initialization)
-                         (eval/run-initializers {:invoke invoke} (:world compiled) installation)
-                         (:world compiled))
-                 _ (vreset! progress world)
-                 _ (when (and (seq calls) (= :defer initialization) (seq (:pending-local-initializers compiled)))
-                     (fail "Hosted calls require running pending module initializers" {}))
-                 world (reduce (fn [world {:keys [name args structured-name]}]
-                                 (let [target (or (get (:boxed-entrypoints compiled) structured-name)
-                                                  (fail "Hosted call is not an admitted boxed entrypoint" {:name structured-name}))
-                                       [world value] (invoke world target args)]
-                                   (vswap! results conj {:name name :target target :value value})
-                                   (vreset! progress world)
-                                   world)) world calls)]
-             (assoc compiled :world world :session @active :call-results @results
-                             :initialization-state (if (= :run initialization) :ready :deferred)
-                             :pending-local-initializers (if (= :run initialization) [] (:pending-local-initializers compiled))))
-           (catch Throwable cause
-             (throw (ex-info (or (.getMessage cause) "Hosted file execution failed")
-                             (merge {:checkpoint @progress}
-                                    (ex-data cause)
-                                    {:session (or (:session (ex-data cause)) (:checkpoint-session (ex-data cause)) @active)
-                                     :compiled-environment (:environment compiled) :call-results @results}) cause))))))))
+    (if-not (:success compiled)
+      (assoc compiled :call-results [] :initialization-state :not-compiled)
+      (let [active (atom (:session compiled)) invoke (invocation active)
+            results (volatile! []) progress (volatile! (:world compiled))]
+        (try
+          (let [digest (get-in compiled [:handle :unit-digest])
+                unit (get-in (:world compiled) [:eval-const-authorizations :units digest])
+                installation {:unit-digest digest :initialization-plan (get-in unit [:manifest :initializationPlan])}
+                world (if (= :run initialization)
+                        (eval/run-initializers {:invoke invoke} (:world compiled) installation)
+                        (:world compiled))
+                _ (vreset! progress world)
+                _ (when (and (seq calls) (= :defer initialization) (seq (:pending-local-initializers compiled)))
+                    (fail "Hosted calls require running pending module initializers" {}))
+                world (reduce (fn [world {:keys [name args structured-name]}]
+                                (let [target (or (get (:boxed-entrypoints compiled) structured-name)
+                                                 (fail "Hosted call is not an admitted boxed entrypoint" {:name structured-name}))
+                                      [world value] (invoke world target args)]
+                                  (vswap! results conj {:name name :target target :value value})
+                                  (vreset! progress world)
+                                  world)) world calls)]
+            (assoc compiled :world world :session @active :call-results @results
+                   :initialization-state (if (= :run initialization) :ready :deferred)
+                   :pending-local-initializers (if (= :run initialization) [] (:pending-local-initializers compiled))))
+          (catch Throwable cause
+            (throw (ex-info (or (.getMessage cause) "Hosted file execution failed")
+                            (merge {:checkpoint @progress}
+                                   (ex-data cause)
+                                   {:session (or (:checkpoint-session (ex-data cause)) (:session (ex-data cause)) @active)
+                                    :compiled-environment (:environment compiled) :call-results @results}) cause))))))))
 
 (defn run-file
   "PREPARED supplies :session/:world/:catalogue and borrowed guest :environment
@@ -133,5 +133,5 @@
        (catch Throwable cause
          (throw (ex-info (or (.getMessage cause) "Hosted module export failed")
                          (merge (ex-data cause)
-                                {:session (or (:session (ex-data cause)) (:checkpoint-session (ex-data cause)) @active)
+                                {:session (or (:checkpoint-session (ex-data cause)) (:session (ex-data cause)) @active)
                                  :hosted-file-temporary-owners [name]}) cause)))))))

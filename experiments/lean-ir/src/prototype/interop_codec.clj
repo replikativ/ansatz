@@ -18,7 +18,7 @@
 (def ^:private scalars
   {:uint8 "uint8" :uint16 "uint16" :uint32 "uint32" :uint64 "uint64"
    :usize "usize" :float "float" :float32 "float32"})
-(def ^:private atoms (into #{:nat :string :bytes :bool :unit :world} (keys scalars)))
+(def ^:private atoms (into #{:nat :string :bytes :bool :unit :world :erased} (keys scalars)))
 (defn- fail [message data] (throw (ex-info message data)))
 
 (defn- descriptor! [descriptor encode?]
@@ -77,7 +77,7 @@
                                                     (constructor/physical-layout? node 0 (scalar/width type)))))
                                        (map? (:scalar-bytes node))
                                        (= (set (range (+ (* 8 (get-in node [:layout :usize]))
-                                                        (get-in node [:layout :ssize]))))
+                                                         (get-in node [:layout :ssize]))))
                                           (set (keys (:scalar-bytes node)))))
                           (fail "Invalid boxed interop scalar layout" {:descriptor descriptor}))
                         (doseq [byte (vals (:scalar-bytes node))]
@@ -91,10 +91,10 @@
       [world (if (scalar/float-type? type) (float-value type value) (scalar/integer! type value))])
     (vector? descriptor)
     (if (nil? value) [world 0]
-      (do (when-not (and (map? value) (= #{:some} (set (keys value))))
-            (fail "Expected nil or {:some value} for Option" {:descriptor descriptor}))
-          (let [[world field] (encode-field world (second descriptor) (:some value))]
-            (m/allocate world :ctor 1 [field]))))
+        (do (when-not (and (map? value) (= #{:some} (set (keys value))))
+              (fail "Expected nil or {:some value} for Option" {:descriptor descriptor}))
+            (let [[world field] (encode-field world (second descriptor) (:some value))]
+              (m/allocate world :ctor 1 [field]))))
     :else
     (case descriptor
       :nat [world (nat! value)]
@@ -105,7 +105,8 @@
       :bool (do (when-not (or (true? value) (false? value))
                   (fail "Expected host Boolean" {:value value})) [world (if value 1 0)])
       :unit (do (when-not (nil? value) (fail "Expected nil host Unit" {:value value})) [world 0])
-      :world (do (when-not (nil? value) (fail "Expected nil host world token" {})) [world m/erased]))))
+      :world (do (when-not (nil? value) (fail "Expected nil host world token" {})) [world m/erased])
+      :erased (do (when-not (nil? value) (fail "Expected nil erased argument" {})) [world m/erased]))))
 
 (defn- decode-value [world descriptor value]
   (cond
@@ -115,12 +116,12 @@
     (vector? descriptor)
     (let [[kind child] descriptor]
       (if (and (= :option kind) (= 0 (immediate value))) nil
-        (let [{:keys [tag fields]} (constructor! world value (if (= :io kind) #{0 1} #{1}))
-              field (first fields)]
-          (if (= :option kind) {:some (decode-field world child field)}
-            (if (= 0 tag) (decode-field world child field)
-              (fail "Lean IO returned an error" {:type :guest-error :guest-error field
-                                                 :descriptor descriptor}))))))
+          (let [{:keys [tag fields]} (constructor! world value (if (= :io kind) #{0 1} #{1}))
+                field (first fields)]
+            (if (= :option kind) {:some (decode-field world child field)}
+                (if (= 0 tag) (decode-field world child field)
+                    (fail "Lean IO returned an error" {:type :guest-error :guest-error field
+                                                       :descriptor descriptor}))))))
     :else
     (case descriptor
       :nat (native/nat-value carrier-ops world value)
@@ -134,7 +135,8 @@
               (cond (= 0 value) false (= 1 value) true
                     :else (fail "Invalid guest Bool" {:value value})))
       :unit (do (when-not (= 0 (immediate value)) (fail "Invalid guest Unit" {:value value})) nil)
-      :world (do (when-not (= m/erased value) (fail "Invalid erased world token" {})) nil))))
+      :world (do (when-not (= m/erased value) (fail "Invalid erased world token" {})) nil)
+      :erased (do (when-not (= m/erased value) (fail "Invalid erased argument" {})) nil))))
 
 (defn encode
   "Return [new-world guest-value]. Newly allocated objects have one owner;
@@ -150,3 +152,23 @@
   [world descriptor guest-value]
   (descriptor! descriptor false)
   (decode-value world descriptor guest-value))
+
+(defn encode-boxed
+  "Encode one explicit value at a boxed object ABI boundary. Scalar fields are
+   boxed as Lean constructor fields are; erased arguments remain explicit."
+  [world descriptor host-value]
+  (descriptor! descriptor true)
+  (encode-field world descriptor host-value))
+
+(defn decode-boxed
+  "Borrow one boxed object ABI result. IO decoding keeps its owned wrapper."
+  [world descriptor guest-value]
+  (descriptor! descriptor false)
+  (decode-field world descriptor guest-value))
+
+(defn validate-descriptor!
+  "Validate an explicit codec before entering guest code or transferring arguments."
+  [descriptor direction]
+  (when-not (contains? #{:encode :decode} direction)
+    (fail "Unknown codec direction" {:direction direction}))
+  (descriptor! descriptor (= :encode direction)))

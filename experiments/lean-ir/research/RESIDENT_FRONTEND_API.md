@@ -1,8 +1,11 @@
-# Proposed resident Ansatz frontend facade
+# Experimental resident Ansatz frontend facade
 
-This is a design proposal, not an implemented or published Ansatz API. First
-coordinate it with the source-import work. Keep the existing `hosted-file`,
-`frontend`, `raw-interop` and codec contracts as the execution foundation.
+`prototype.resident-frontend` now implements the explicit context facade over
+`hosted-file`, `frontend`, `raw-interop`, and the value codecs. It is experimental,
+not a published `ansatz.lean` API. Boundary tests use clearly labeled helper
+models and captured emitted IR; actual full-Init acceptance through this new
+facade remains a separate gate. The previous resident REPL port was unreachable
+on October 18; no successful replacement/bootstrap is implied here.
 
 The experiment already compiles an ordinary implicit-Init source file and calls
 Clojure from the emitted guest code. It also roundtrips a genuinely owned heap
@@ -13,13 +16,15 @@ compatibility.
 
 ## Small first API
 
-Use a prototype namespace initially, for example `prototype.resident-frontend`.
-A later public `ansatz.lean` namespace would require a separate packaging decision.
-The following signatures illustrate the proposal; none currently exists:
+The prototype namespace is `prototype.resident-frontend`. A public `ansatz.lean`
+namespace still requires a packaging decision. The implemented operations are:
 
 ```clojure
 (def context
-  (resident/adopt-prepared prepared))
+  (resident/adopt-prepared prepared
+    {:trusted-functions trusted-preparation-functions
+     :trusted-bindings trusted-preparation-bindings
+     :application-extern-symbols #{"ansatz_host_identity"}}))
 
 (def loaded
   (resident/load-source context
@@ -39,9 +44,13 @@ The following signatures illustrate the proposal; none currently exists:
 
 `adopt-prepared` takes the actual prepared session/world/catalogue/Environment/
 Options, not a native Environment pointer or a module name that silently triggers
-import. Require the existing checked kernel association and pinned producer/profile
-checks; do not mint new checking authority from a caller-provided map. Validate
-session/world function-map identity. Bootstrap preparation, runtime capabilities,
+import. It requires an existing checked kernel association and pinned producer/profile
+checks. Independently retained `:trusted-functions` and `:trusted-bindings` are
+explicit host preparation capabilities; checking a candidate map against itself
+would not establish code provenance. Missing producer commit metadata remains
+missing, not inferred. Existing live kernel authority comes only from the actual
+association, never a serialized boolean. Adoption rejects suspended/active worlds
+and validates session/world function-map identity. Bootstrap preparation, runtime capabilities,
 Init completion and import preparation remain separate explicit operations.
 
 `load-source` accepts the existing exactly-one-of `:path` or `:text` plus file name
@@ -57,8 +66,9 @@ Earlier successful commands or macro IO may already have occurred. The old
 immutable context is a diagnostic fork, not permission to retry effects. Do not
 silently replace the partial Environment with the previous or empty one.
 
-`call` uses only a file's admitted boxed-entrypoint mapping, encodes explicit
-arguments with `interop-codec`, and invokes `raw-interop/call` in the current
+`call` uses only a file's admitted boxed-entrypoint mapping and exact current
+unit identity. It validates actual admitted IR parameter/return types, ownership,
+and initializer completion before encoding. It uses boxed value codecs and invokes `raw-interop/call` in the current
 world. It must preserve the actual session returned by execution because a host
 callback can link more code. Decode borrows; an ordinary decoded-value mode
 releases the returned guest owner exactly once and clears the world result alias.
@@ -68,10 +78,10 @@ reporting it; preserve the completed result owner/checkpoint on decode failure.
 
 Keep `call-io` explicit: append the actual erased world token only under an
 explicit IO contract and decode `[:io result]`. Object return type does not imply
-IO. Polymorphic erased arguments also need explicit treatment: the current codec
-has a `:world` token but no dedicated `:erased` descriptor. Decide between a narrow
-new descriptor and a clearly separated raw call escape hatch; do not pretend to
-infer erased type parameters from all-object boxed IR.
+IO. Polymorphic erased arguments use the new explicit `:erased` descriptor
+with nil host input. Actual void/erased ABI parameters require it; object parameters
+may also carry an explicit erased argument. Boxed scalar adapters box/unbox
+UInt64/Float values explicitly; no type parameters are inferred from object IR.
 
 ## Context and ownership lifecycle
 
@@ -88,23 +98,28 @@ not a raw callable detached from its checking/code authority. Validate it agains
 the current world's unit registry before use. Cross-context numeric Ref IDs are
 not capabilities; reject handles from incompatible worlds or changed units.
 
-Provide an explicit `fork` operation only after defining ownership precisely.
-It branches an immutable snapshot and shares immutable artifact storage and
+`fork` creates a separate close token over the immutable guest snapshot. It branches an immutable snapshot and shares immutable artifact storage and
 semantically keyed code cache; it does not create an independent OS entropy
 stream or replay arbitrary external IO safely. Runtime session/program caches
 can be mutable optimization state without becoming shared guest state. Preserve
 backend, fuel, compile threshold and the exact shared cache when reopening a
 session. Never solve lifecycle problems by rebuilding full Init for each file.
 
-A release/close operation should consume only the context's documented owners.
-It must not unmap shared immutable ModuleData while another context uses it or
-clear a code cache owned by other contexts. The first facade can leave bootstrap
-artifact-store lifetime explicit rather than invent a process-wide shutdown API.
+`close!` consumes the context's one Environment and one Options owner once;
+contexts also implement `java.io.Closeable`. It does not close shared ModuleData
+stores or invalidate descendants. Artifact-store lifetime remains external.
+`initialize` executes only an admitted unit's initializer plan without recompiling
+source; current guest guards/evidence prevent replay of entered failures.
+Borrowed call arguments remain facade-owned until successful decode; failures
+name them separately from the owned returned result or alternate frontend packet.
 
 ## Explicit host bindings
 
-Start with a narrow `with-externs context bindings` adapter around existing raw
-bindings. Require exact IR parameter/return types and borrow flags, and reopen
+`with-externs context bindings` adds application raw bindings without replacing
+any existing runtime or application handler capability. New application symbols
+must be in the independent preparation's `:application-extern-symbols` allowlist;
+known runtime symbols, the `lean_` namespace, and catalogue exports remain reserved,
+including when their implementation has not yet been linked. Require exact IR parameter/return types and borrow flags, and reopen
 only the matching session while preserving the function map and execution options.
 A newly compiled source extern is admitted through the existing lowerer's ABI
 checks. Do not infer a signature from a Clojure function or reinterpret an unknown
@@ -148,7 +163,7 @@ the hidden implementation of a supposedly hosted `load-source`. Avoid claiming
 that the current bootstrap-only archive already persists all live imported
 kernel associations, source receipts and resident context resources.
 
-## Meaningful validation before implementation handoff
+## Acceptance gates
 
 - Reject mismatched function maps, absent checked Environment/Options, incompatible
   producer profile, stale handles and protected binding replacement before any
@@ -172,3 +187,11 @@ kernel associations, source receipts and resident context resources.
 The first implementation should package proven operations and make ownership
 convenient, without redesigning import semantics, adding implicit initializer IO,
 changing native representation profiles or weakening interpreter-witness checks.
+
+
+The [foundation validation record](../measurements/resident-session-foundation.json)
+distinguishes passing model/source/JAR checks from actual facade acceptance.
+`scripts/resident-prelude-probe.clj` now provides the latter probe over explicit
+prepared artifacts. Its 2 GiB attempt exhausted the archive-restoration heap before
+frontend execution; the larger attempt was deferred by the memory preflight.
+This does not extend the earlier lower-level ordinary-file observations to the facade.

@@ -66,3 +66,41 @@ that group and preserved a 1 GiB system-memory floor. The resident hosted
 frontend success contexts and native Store remained live. CI setup, build, formatting and unit-test jobs also passed at `69c572f`
 ([unit-test result](https://circleci.com/gh/replikativ/ansatz/1523)); those results
 do not remove the local resource limits and fixture omissions recorded here.
+
+
+## Resident/session foundation — 2026-10-18
+
+The reviewed batch adds complete scoped proof sessions, legacy bundle inventory
+and activation/packaging guards, manifest-selected store writers, and an experimental
+resident frontend facade. Reviews found and fixed selected compiler/witness authority,
+self-suppression during rollback, and manifest resource/consumer-path mismatches.
+
+The fresh IR runtime suite passes 712 tests / 59,039 assertions. The rebuilt AOT JAR
+passes 105 tests / 624 assertions across 18 affected namespaces; source/classes/resources
+are absent from its project classpath. The JAR contains no dependency classes or optional
+Malli AOT classes, and the packaged inventory/resources match source bytes. Formatting
+and a deliberate corrupt-staging rejection pass. The new real-frontend probe compiles
+without executing as an additional API/reader preflight.
+
+The full parent source run at 768 MiB exhausts its heap in the existing Mathlib-backed
+`ansatz.int-arith-test` fixture before a summary. A 73-namespace partition completes
+662 tests / 2,505 assertions with one Omega heap failure and no errors. Both the current
+Omega namespace and isolated baseline `c88f348` pass separately at 768 MiB: 19 tests /
+147 assertions each. This is evidence of the combined-run resource limit, not a complete
+parent-suite pass. Six large-fixture namespaces remain excluded from that partition;
+missing Init fixtures and optional Datahike coverage retain their earlier limitations.
+The uberjar was not built; both packaging paths use the reviewed staging guard.
+
+Actual acceptance through the new facade remains open. The old resident REPL port was
+unreachable. A fresh strict, pinned archive restore with a 2 GiB heap failed with
+`OutOfMemoryError` before catalogue preparation or frontend execution (87.43 s, peak
+process-group RSS 2,382,647,296 bytes). A 3 GiB attempt did not launch: available memory
+was below its 4,480 MiB preflight threshold. No new ordinary/full-Init or facade acceptance
+claim follows from the passing model tests. The reproducible
+[prelude probe](../scripts/resident-prelude-probe.clj) checks the real three compiler
+markers rather than assuming an empty kernel.
+
+The [machine-readable record](../measurements/resident-session-foundation.json) contains
+profiles, exact final code hashes, counts, exclusions and local log locations. The
+coordinated 4.33 generator and strict companion coverage remain separate work; the
+shipped manifest honestly inventories legacy 4.29 bytes.
