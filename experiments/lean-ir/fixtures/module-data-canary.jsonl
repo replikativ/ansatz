@@ -1,0 +1,9 @@
+{"kind":"manifest","schema":"lean-module-dag/1","wordBits":64,"byteOrder":"little","immediateEncoding":"unsigned-native-tagged-payload","root":{"ref":0},"input":{"canary":true,"globalLevel":"private","leanCommit":"819816b2e0a3bf405af45ae5c7af2491d8f5bee6","leanVersion":"4.33.1","modules":[],"nativeEnvironmentFinalized":false,"regionAddressesTransported":false,"requestedImports":[],"schema":"lean-module-data-input/1","transitiveClosure":false},"inventory":{"nodes":8,"sourceAllocationBytes":283,"referenceOccurrences":11,"immediateOccurrences":2,"sharingRevisits":3,"nativeRoundtripVerified":true,"tags":{"0":1,"246":2,"248":2,"249":1,"250":2},"constructorLayouts":[{"tag":0,"objectFields":8,"scalarBytesWithPadding":32,"count":1}]}}
+{"id":0,"tag":246,"objectBytes":40,"kind":"array","size":2,"capacity":2,"fields": [{"ref":1},{"ref":1}],"bytesHex":""}
+{"id":1,"tag":0,"objectBytes":104,"kind":"ctor","scalarBytesIncludePadding":true,"fields": [{"ref":2},{"ref":2},{"ref":3},{"ref":4},{"immediate":"4294967295"},{"immediate":"4294967295"},{"ref":5},{"ref":6}],"bytesHex":"ffffffffffffffffffffffffffffffff010000000000f87f0100000000000000"}
+{"id":2,"tag":246,"objectBytes":40,"kind":"array","size":2,"capacity":2,"fields": [{"ref":7},{"ref":7}],"bytesHex":""}
+{"id":3,"tag":250,"objectBytes":0,"kind":"mpz","signedDecimal":"1606938044258990275541962092341162602522202993782792835301376","fields": []}
+{"id":4,"tag":250,"objectBytes":0,"kind":"mpz","signedDecimal":"-3213876088517980551083924184682325205044405987565585670602752","fields": []}
+{"id":5,"tag":248,"objectBytes":27,"kind":"scalar-array","elementBytes":1,"size":3,"capacity":3,"fields": [],"bytesHex":"00ff80"}
+{"id":6,"tag":248,"objectBytes":32,"kind":"scalar-array","elementBytes":8,"size":1,"capacity":1,"fields": [],"bytesHex":"010000000000f87f"}
+{"id":7,"tag":249,"objectBytes":40,"kind":"string","utf8Length":3,"size":8,"capacity":8,"fields": [],"bytesHex":"cebb00f09f988000"}

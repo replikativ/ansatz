@@ -22,7 +22,11 @@ public final class ConstantInfo {
     // Hint constants
     public static final int HINTS_OPAQUE = -1;
     public static final int HINTS_ABBREV = 0;
-    // hints > 0: regular(height)
+    // Legacy hints > 0: regular(height). Extended values never alias abbrev.
+    public static final int HINTS_EXTENDED = Integer.MIN_VALUE;
+    public static final long REDUCIBILITY_OPAQUE = -1L;
+    public static final long REDUCIBILITY_ABBREV = -2L;
+    public static final long MAX_REGULAR_HEIGHT = 0xffffffffL;
 
     public final byte tag;
     public final Name name;
@@ -31,7 +35,8 @@ public final class ConstantInfo {
 
     // DEF/THM/OPAQUE
     public Expr value;          // mutable: cleared for THM/OPAQUE after check
-    public int hints;           // DEF only: -1=opaque, 0=abbrev, >0=regular(height)
+    public int hints;           // Legacy DEF view; HINTS_EXTENDED requires getHintsCode().
+    private long extendedRegularHeight;
     public byte safety;         // 0=safe, 1=unsafe, 2=partial
 
     // QUOT
@@ -91,10 +96,41 @@ public final class ConstantInfo {
                                      int hints, byte safety, Object[] all) {
         ConstantInfo ci = new ConstantInfo(DEF, name, levelParams, type);
         ci.value = value;
+        if (hints < HINTS_OPAQUE)
+            throw new IllegalArgumentException("Invalid legacy reducibility hints: " + hints);
         ci.hints = hints;
         ci.safety = safety;
         ci.all = all;
         return ci;
+    }
+
+    /** Exact Lean hints: -1 opaque, -2 abbrev, or unsigned UInt32 regular height.
+     * The legacy int factory remains unchanged; regular(0) is distinct from abbrev. */
+    public static ConstantInfo mkDefWithHints(Name name, Object[] levelParams, Expr type, Expr value,
+                                              long hintsCode, byte safety, Object[] all) {
+        if (hintsCode < REDUCIBILITY_ABBREV || hintsCode > MAX_REGULAR_HEIGHT)
+            throw new IllegalArgumentException("Invalid exact reducibility hints: " + hintsCode);
+        int legacy = hintsCode == REDUCIBILITY_OPAQUE ? HINTS_OPAQUE :
+                     hintsCode == REDUCIBILITY_ABBREV ? HINTS_ABBREV :
+                     hintsCode > 0 && hintsCode <= Integer.MAX_VALUE ? (int) hintsCode : HINTS_EXTENDED;
+        ConstantInfo ci = new ConstantInfo(DEF, name, levelParams, type);
+        ci.value = value;
+        ci.hints = legacy;
+        ci.extendedRegularHeight = hintsCode;
+        ci.safety = safety;
+        ci.all = all;
+        return ci;
+    }
+
+    /** Exact, unambiguous hints used by the kernel. Legacy mutable-field edits
+     * remain supported for legacy values; extended regular heights use the sentinel. */
+    public long getHintsCode() {
+        if (tag != DEF) return REDUCIBILITY_OPAQUE;
+        if (hints == HINTS_EXTENDED) return extendedRegularHeight;
+        if (hints == HINTS_OPAQUE) return REDUCIBILITY_OPAQUE;
+        if (hints == HINTS_ABBREV) return REDUCIBILITY_ABBREV;
+        if (hints > 0) return hints;
+        throw new IllegalStateException("Invalid legacy reducibility hints: " + hints);
     }
 
     public static ConstantInfo mkThm(Name name, Object[] levelParams, Expr type, Expr value, Object[] all) {
@@ -190,7 +226,9 @@ public final class ConstantInfo {
     }
 
     /**
-     * Get reducibility hints. Returns HINTS_OPAQUE for non-definitions.
+     * Legacy reducibility hints. Returns HINTS_OPAQUE for non-definitions, or
+     * HINTS_EXTENDED for regular(0) / regular heights above Integer.MAX_VALUE.
+     * Use getHintsCode() for exact kernel semantics.
      */
     public int getHints() {
         return tag == DEF ? hints : HINTS_OPAQUE;

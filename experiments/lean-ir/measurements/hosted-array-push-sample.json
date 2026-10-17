@@ -1,0 +1,20 @@
+{
+  "schema": "hosted-array-push-sample/1",
+  "lean_version": "4.33.1",
+  "lean_commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "calls": 64,
+  "field_count_total": 6508,
+  "maximum_field_count": 276,
+  "reference_counts": {
+    "1": 64
+  },
+  "last_guest_steps": 538097685,
+  "retains_machine": false,
+  "maximum_samples": 64,
+  "observer_restored": true,
+  "limitations": [
+    "Bounded existing execution only; does not measure global push distribution or full-storage copy counts.",
+    "Deferred optimization proposal; no storage change follows from this sample."
+  ],
+  "log": "target/frontend-sample-array-push-sizes.log"
+}

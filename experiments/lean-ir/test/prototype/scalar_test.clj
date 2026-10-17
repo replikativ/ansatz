@@ -91,17 +91,41 @@
       (is (= max64 (m/unbox-value world "usize" boxed))))
     (let [[world boxed] (m/box-value world "usize" max64)]
       (is (= max64 (m/unbox-value world "uint64" boxed))))
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported" (ir/type! "float")))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported" (ir/type! "float128")))))
 
 (deftest explicit-runtime-profile-is-checked
   (let [manifest {:schema "lean-ir-probe/1" :leanVersion "4.33.1"
                   :runtimeProfile {:wordBits 64 :target "x86_64-unknown-linux-gnu"}}]
     (is (= manifest (ir/validate-manifest! manifest)))
     (doseq [profile [{:wordBits 32 :target "i686-unknown-linux-gnu"}
-                     {:wordBits 64 :target "powerpc64-unknown-linux-gnu"}]]
+                     {:wordBits 64 :target "powerpc64-unknown-linux-gnu"}
+                     {:wordBits 64 :target "x86_64-windows-msvc"}]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unsupported runtime profile"
                             (ir/validate-manifest! (assoc manifest :runtimeProfile profile))))))
   (let [catalogue (ir/index-bundles ["fixtures/scalar.jsonl"])
         legacy (update catalogue :manifests #(mapv (fn [m] (dissoc m :runtimeProfile)) %))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"requires explicit runtime profile"
                           (ir/load-closure legacy [(target "ScalarProbe.readWide")])))))
+
+(deftest ieee-boxes-preserve-bytes-and-execution-boundaries
+  (doseq [[type value expected]
+          [["float" 1.5 4609434218613702656N]
+           ["float" -0.0 9223372036854775808N]
+           ["float32" 1.5 1069547520]
+           ["float32" -0.0 2147483648]
+           ["float" (scalar/float-from-bytes "float" [1 0 0 0 0 0 240 127]) 9218868437227405313N]]]
+    (let [slot {:index 0 :offset 0 :type (if (= type "float") "uint64" "uint32") :region :scalar}
+          functions {:bits {:params [] :body [:let 0 [:literal value]
+                                             [:let 1 [:box type [:var 0]]
+                                              [:let 2 [:scalar-get [:var 1] slot]
+                                               [:dec [:var 1] 1 [:return [:var 2]]]]]]}}
+          initial (m/start (m/world functions) :bits [])
+          eager (blocks/compile-program functions nil {:lexical-joins true})
+          demand (lazy/open-program functions)]
+      (is (= expected (:result (m/run initial))))
+      (doseq [[backend program] [[:reference nil] [:mutable nil] [:eager eager] [:lazy demand]]
+              fuel (range 7)]
+        (let [paused (run backend program initial fuel)]
+          (is (= (m/run initial fuel) paused))
+          (when (= :paused (:status paused))
+            (is (= (m/run initial) (run backend program (m/resume paused nil) 100)))))))))

@@ -40,8 +40,9 @@
       (is (= 10 (:result (check-fuels (m/start s :entry [closure]) options))))))
   ;; A scalar-leaf candidate that receives a resource must miss without consuming
   ;; it. The normal closure path transfers and eventually releases ownership.
-  (let [functions {:identity {:params [0] :body [:return [:var 0]]}
-                   :entry {:params [0] :body [:call 1 [:closure [:var 0]] []
+  ;; Pinned lean_alloc_closure asserts fixed < arity; lean_apply_n requires n > 0.
+  (let [functions {:identity {:params [0 2] :body [:return [:var 0]]}
+                   :entry {:params [0] :body [:call 1 [:closure [:var 0]] [[:imm 0]]
                                              [:dec [:var 1] 1 [:return [:imm 99]]]]}}
         [s resource] (m/resource (m/world functions) :capture)
         [s closure] (m/expr s [:closure :identity [[:imm resource]]])]

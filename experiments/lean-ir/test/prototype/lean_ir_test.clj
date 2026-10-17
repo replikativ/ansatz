@@ -84,3 +84,41 @@
   (let [result (run-tests 'prototype.lean-ir-test)]
     (shutdown-agents)
     (when (pos? (+ (:fail result) (:error result))) (System/exit 1))))
+
+(deftest extending-a-trusted-closure-preserves-existing-code-and-global-wrappers
+  (let [old ["str" ["anonymous"] "old"]
+        initializer ["str" ["anonymous"] "initNew"]
+        fresh ["str" ["anonymous"] "new"]
+        existing-global {:params [] :body [:global old :already-wrapped]}
+        existing-initializer (with-meta {:params [0] :body [:return [:imm 7]]}
+                               {:runtime-param-types ["erased"]})
+        existing {old existing-global initializer existing-initializer}
+        fresh-function {:params [] :runtime-initializer initializer :result-type "object"
+                        :body [:return [:imm 999]]}
+        reads (atom [])
+        catalogue {:manifests [] :declarations {fresh {:name fresh}}
+                   :read-declaration (fn [name] (swap! reads conj name) {:name name})}
+        linked (ir/load-closure catalogue [old fresh]
+                 (fn [row] (is (= fresh (:name row))) [fresh fresh-function])
+                 {:existing-functions existing})
+        wrapper (get-in linked [fresh :init-target])]
+    (is (= [fresh] @reads))
+    (is (identical? existing-global (get linked old)))
+    (is (identical? existing-initializer (get linked initializer)))
+    (is (= [:begin-init fresh initializer [[:imm m/erased]] "object"]
+           (get-in linked [wrapper :body])))
+    (is (= 4 (count linked)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"collision"
+          (ir/load-closure catalogue [fresh] (fn [_] [fresh fresh-function])
+            {:existing-functions (assoc existing wrapper {:params [] :body [:return [:imm 0]]})})))))
+
+(deftest runtime-only-dependencies-are-linked-when-extending-a-program
+  (let [root ["str" ["anonymous"] "root"]
+        dependency ["str" ["anonymous"] "runtimeHelper"]
+        catalogue {:manifests [] :declarations {root {:name root} dependency {:name dependency}}}
+        linked (ir/load-closure catalogue [root]
+                 (fn [{:keys [name]}]
+                   [name (cond-> {:params [] :body [:return [:imm 42]]}
+                           (= root name) (assoc :runtime-dependencies [dependency]))])
+                 {:existing-functions {}})]
+    (is (= #{root dependency} (set (keys linked))))))

@@ -53,7 +53,27 @@
       (check! (= 4294967295 (second (m/box-value (m/world {}) "uint32" 4294967295))) :scalar-immediate-uint32)
       (check! (try (m/box-value world "uint64" 9007199254740992) false
                    (catch js/Error _ true)) :scalar-unsafe-number-rejected))
-    (println (pr-str {:platform :node :checks 25 :unique (:stats unique)
+    (let [functions {:global {:params [] :body [:global :global :init]}
+                     :init {:params [] :body [:let 0 [:ctor 1 [[:imm 42]]] [:return [:var 0]]]}}
+          ready (m/run (m/start (m/world functions) :global []))
+          again (m/run (m/start ready :global []))]
+      (check! (= (:result ready) (:result again)) :global-cached)
+      (check! (= (:heap ready) (:heap again)) :global-heap-stable)
+      (check! (= 0 (:rc (m/node ready (:result ready)))) :global-persistent))
+    (let [functions {:set {:params [0 1]
+                           :body [:let 2 [:runtime "lean_st_ref_set"
+                                          [[:imm m/erased] [:imm m/erased] [:var 0] [:var 1] [:imm m/erased]]]
+                                  [:return [:var 2]]]}}
+          [world ref] (m/expr (m/world functions) [:runtime "lean_st_mk_ref"
+                                                 [[:imm m/erased] [:imm m/erased] [:imm 40] [:imm m/erased]]])
+          parent (m/mark-persistent world ref)
+          child (m/run (m/start parent :set [ref 41]))]
+      (check! (= [40] (:fields (m/node parent ref))) :persistent-ref-parent)
+      (check! (= [41] (:fields (m/node child ref))) :persistent-ref-child)
+      (check! (= 0 (:rc (m/node child ref))) :persistent-ref-still-persistent)
+      (check! (= 3 (second (m/expr parent [:runtime "lean_nat_add" [[:imm 1] [:imm 2]]]))) :runtime-nat-add)
+      (check! (= 0 (second (m/expr parent [:runtime "lean_io_initializing" [[:imm m/erased]]]))) :runtime-not-initializing))
+    (println (pr-str {:platform :node :checks 33 :unique (:stats unique)
                      :shared (:stats shared) :tail (:stats tail)}))))
 
 (set! *main-cli-fn* -main)

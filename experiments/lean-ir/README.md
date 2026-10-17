@@ -13,12 +13,35 @@ not changes to Ansatz's production lowering or library runtime.
 The producer is native Lean, which imports compiled modules and exposes their
 compiler IR through `IR.findEnvDecl`. `lean/Export.lean` exports declarations as
 structured JSONL under a pinned schema. The prototype reads this export, not
-Lean's binary `.ir` files or its human-readable pretty printer. It does not yet
-run Lean's parser/elaborator on Ansatz's kernel.
+Lean's binary `.ir` files or its human-readable pretty printer. Native Lean
+prepares the pinned bootstrap artifacts. The hosted path executes Lean's parser,
+command elaborator and compiler as guest code, routing kernel admission to
+Ansatz. The hosted prelude-file path already compiles and runs small source
+files. The full implicit-Init path has now completed guest finalization and
+strict kernel association for 65,994 constants, with 15 explicit axioms under
+the recorded policy. After adding the native-tested expression ordering primitive, an ordinary
+implicit-Init file compiled and returned `42`, with no diagnostics or pending
+initializers. A source-defined macro also compiled, expanded and returned `42` after a
+reviewed compiler-boundary recovery; its timing covers only that resumed
+segment. A fresh ordinary file then passed Lean–Clojure round trips for a Nat
+and a Unicode String with explicit ownership checks. See the
+[ordinary-file](measurements/hosted-ordinary-answer.json),
+[macro](measurements/hosted-ordinary-macro.json), and
+[interop](measurements/hosted-ordinary-interop.json) observations. The bounded
+ordinary A→B path also passed: A's actual owned ModuleData was combined with the
+verified Init prefix, the whole 65,995-constant hybrid map was strictly rechecked,
+and B's genuine imported-source witness was accepted before returning 42 and
+Unicode String. See the [hybrid kernel](measurements/hosted-ordinary-hybrid-kernel.json)
+and [B completion](measurements/hosted-ordinary-library-b.json) records. B's timing
+covers reviewed completion only; neither guest compilation nor finalization was
+replayed. This establishes the observed two-source-module case. General package
+imports, complete runtime coverage, and competitive performance remain unproven.
+See the [Init measurement](measurements/hosted-full-init-kernel.json) and
+[current gate notes](research/hosted-frontend-next.md).
 
 ```mermaid
 flowchart LR
-  A[Lean source and compiled modules] --> B[Native Lean imports and compiler IR]
+  A[Pinned Lean source and compiled modules] --> B[Native Lean bootstrap and IR export]
   B --> C[Export.lean: structured JSONL]
   C --> D[Schema, runtime-type and layout checks]
   D --> E[Clojure FnBody data]
@@ -28,7 +51,12 @@ flowchart LR
   H --> I[JVM JIT]
   G --> J[Explicit guest heap and control state]
   H --> J
-  K[Lean proof declarations] -. separate admission path .-> L[Ansatz kernel]
+  S[New ordinary .lean file] --> P[Hosted Lean frontend and compiler]
+  G -->|executes| P
+  H -->|executes| P
+  P -->|new definition IR| D
+  P -->|declaration admission| L[Ansatz kernel]
+  L -->|checked result| P
 ```
 
 The JSON manifest records producer version, modules and initialization metadata.
@@ -38,9 +66,11 @@ lowers all rows eagerly. The newer `index-bundles` retains raw declarations and
 and closure constructors determine those dependencies from the lowered body;
 producer dependency lists are not trusted for execution linking. Indirect targets
 supplied from outside this closure require additional explicit roots or host
-functions. Module initializers are not replayed on the JVM. The default importer
-rejects extern declarations; the optional interop driver links explicit host
-bindings for its small-Nat/closure subset.
+functions. The module runtime executes recorded initialization actions in guest order with
+world-local once guards. Its full Lean bootstrap completes 8,052 actions. The
+strict importer rejects unbound extern declarations; runtime-enabled loading
+links reviewed primitives and explicit host handlers. Research loading may
+retain an explicit trap for a missing primitive; reaching that trap fails.
 The optional declaration store described below avoids decoding all declaration
 bodies on subsequent reloads: it opens a smaller immutable index and resolves
 selected bodies from separately hashed files.
@@ -81,16 +111,31 @@ flowchart TD
 
 The mutable machine stores registers and constructor fields in object arrays,
 return frames in an explicit deque, and guest nodes in an ID-to-node heap map.
+Read-only array size/index operations borrow the current storage. Element stores
+in uniquely owned local arrays update it directly after releasing the old field;
+shared, persistent and imported arrays retain the copy-on-write path. These fast
+paths do not change frozen snapshots or expose mutable arrays to host handlers.
 Calls and tail transfers return to a host dispatch loop, so guest tail recursion
 does not grow the JVM stack. Compiled regions are generated Clojure forms passed
 to `eval`; Clojure emits bytecode and the JVM optimizes that code. This is not a
 native LLVM backend. Calls into runtime helpers still handle heap/control effects.
 
 Guest RC governs constructor reuse and logical release. The JVM GC manages the
-physical host objects. A frozen world copies mutable arrays; each restored child
-can then have guest RC 1 without sharing writable fields with its sibling. Current
-forks therefore copy storage. Constant-time persistent-page forks, native resource
-rollback and arbitrary JVM stack capture are not implemented. Exact-fuel pauses
+physical host objects. Frozen worlds copy writable field arrays; thawed children
+share immutable field vectors and materialize private arrays on a validated
+mutation. Defensive normalization copies non-vector input storage. Persistent
+references and tasks replace their storage when updated, preserving fork isolation.
+Each child can therefore have guest RC 1 without sharing writable fields with its
+sibling. Freezing tracks changed heap IDs and shares unchanged immutable map
+entries; dense updates use a full reconstruction. Thawing uses a private heap
+overlay over the immutable base instead of copying every map entry. A warm
+identity-scoped storage-shape hint skips heap validation; cold unknown or external
+heaps still undergo normalization/key checks. This hint proves only the map/vector
+storage shape required by COW, not deep payload immutability or kernel authority.
+Globals, frames, locals and join restoration still cost work; the entire fork is
+not O(1). The [adoption observations](research/REGISTER_LAYOUTS.md#restoring-live-continuations-and-warm-heap-storage)
+preserve exact state and runtime identities without a paired speed benchmark.
+Native resource rollback and arbitrary JVM stack capture are not implemented. Exact-fuel pauses
 use interpreter fallback when a complete compiled region cannot fit the budget.
 
 ## Reproduce
@@ -182,16 +227,55 @@ imported operations fail explicitly. There is no verified compiler or production
 
 ## Frontend milestones and bidirectional calls
 
-The four frontend milestones are **not all complete**. The native-assisted
-file loader makes selected Lean definitions callable now, while the hosted
-parser/elaborator remains a separate porting effort.
+The four frontend milestones now have concrete bounded hosted observations:
+source loading/elaboration, strict Ansatz admission, macro execution and
+bidirectional calls. They do not establish arbitrary Lean-file, tactic, native
+ABI or package compatibility.
 
 | Milestone | Evidence and status |
 | --- | --- |
-| Bidirectional calls for a small Lean module | Implemented for small Nat and guest closures, including reentrant callbacks; reference, mutable and JVM paths agree |
-| Real Lean parser on the JVM | Scalar types/layouts now lower; linkage next rejects persistent RC operations; no hosted parser result yet |
-| Hosted elaboration with Ansatz admission | Native-elaborated declarations check in Ansatz and execute on the JVM; direct frontend-to-kernel extern adapters are not implemented |
-| Hosted file defining and invoking a macro/tactic | A custom macro file passes native elaboration, Ansatz checking and JVM execution; hosted macro registration/evaluation remains unimplemented |
+| Bidirectional calls for a small Lean module | Actual ordinary-file Nat/Unicode String callbacks pass; an already compiled function returns the same owned heap String Ref at RC1 in two independent forks, with isolated releases |
+| Real Lean parser on the JVM | All 3,190 parser initialization actions complete; seven header summaries and all 12 complete syntax/diagnostic observations match native Lean |
+| Hosted elaboration with Ansatz admission | All 8,052 full Lean initialization actions complete across 2,322 modules. The actual Init import passes strict checking of 65,994 constants with 15 explicit axioms; an ordinary implicit-Init definition returns 42. The bounded Init-plus-A import also passes a 65,995-constant whole-map check and B's actual imported-source witness/calls |
+| Hosted file defining and invoking a macro/tactic | The actual ordinary source-defined macro expands, compiles and returns 42 after reviewed staged recovery, without guest compilation replay. This is macro evidence; general hosted tactics remain unproven |
+
+The hosted path keeps native artifact preparation separate from per-file work.
+See the [Init check](measurements/hosted-full-init-kernel.json),
+[ordinary definition](measurements/hosted-ordinary-answer.json),
+[macro completion](measurements/hosted-ordinary-macro.json),
+[fresh-file interop](measurements/hosted-ordinary-interop.json),
+[heap-fork interop](measurements/hosted-ordinary-interop-heap-forks.json), and
+[bounded source A→B result](measurements/hosted-ordinary-library-b.json).
+Macro/B completion timings exclude their earlier guest work and are not fresh
+whole-file benchmarks. Ordinary classic imports here use an explicitly prepared
+verified Init prefix; general dependency/package loading is not established.
+Missing runtime operations still trap explicitly.
+
+```mermaid
+flowchart TD
+  P[Pinned native Lean: prepare bootstrap IR and module artifacts] --> R[Validate and link guest functions]
+  R --> I[Execute Lean initialization in the guest world]
+  P --> M[Verified disk-backed ModuleData DAG]
+  M --> F[Guest finalizeImport and extension reconstruction]
+  I --> F
+  F --> K[Strict Ansatz check of imported constants]
+  K --> E[Anchored guest Environment]
+  S[Lean file text] --> H[Guest header parser]
+  H --> E
+  E --> C[Guest command elaborator and compiler]
+  C --> D[Declaration admission callback]
+  D --> A[Ansatz Java kernel]
+  A --> U[Publish checked declarations into guest Environment]
+  U --> C
+  C --> B[Structural IR bundle and resulting Environment]
+  B --> V[Validate provenance, ABI and existing code identities]
+  V --> X[Install executable functions; initialization explicit]
+  X --> T[Reference, mutable or JVM execution]
+  T --> O[Explicit Clojure handlers and reentrant Lean calls]
+  O --> T
+```
+
+The native-assisted bootstrap remains useful independently:
 
 ```mermaid
 flowchart TD
@@ -324,7 +408,7 @@ including ownership; substituting Java string indices or hashes is insufficient.
 recovery state and diagnostics for five header inputs in
 [the oracle fixture](fixtures/parser-header-oracle.jsonl). SourceInfo annotations
 are omitted from that structural oracle; a complete parser compatibility test
-must eventually cover them too. No JVM parser is compared successfully yet.
+must cover them too. The later imported-initialization campaign below now executes the JVM parser and extends the comparison to SourceInfo.
 
 ```sh
 lean +leanprover/lean4:v4.33.1 --run lean/Export.lean --closure \
@@ -430,12 +514,14 @@ LEAN_PATH=target lean +leanprover/lean4:v4.33.1 --run lean/Export.lean --closure
   ScalarProbe.identitySize._boxed ScalarProbe.apply64 > fixtures/scalar.jsonl
 ```
 
-The [updated parser audit](measurements/parser-header-scalars.json) uses a fresh
-export with explicit ABI metadata. It lowers 573 declarations, up by 112, and
-next fails on persistent RC. Remaining first-failure groups are 304 declarations
+The historical [scalar-checkpoint parser audit](measurements/parser-header-scalars.json)
+used a fresh export with explicit ABI metadata. At that checkpoint it lowered
+573 declarations, up by 112, and next failed on persistent RC. Its remaining
+first-failure groups were 304 declarations
 with persistent RC, 96 extern declarations and 12 with other unsupported
 instructions. That classification can mask later failures and does not account
-for initialization or dynamic callback roots. The parser still does not run.
+for initialization or dynamic callback roots. These historical counts precede the imported-initialization campaign below;
+the later campaign now establishes successful JVM parser comparisons.
 The source review confirms that persistent RC cannot simply be ignored: global
 values must be initialized and made non-exclusive under Lean's ownership rules.
 Lean uses RC zero for persistent objects; marking persistence traverses their
@@ -1322,6 +1408,29 @@ values. It intentionally leaves imports, constants and types unchanged. Reload
 the block compiler normally to invalidate its cache generation. Do not reload
 guest record classes while retaining old values.
 
+`prototype.bootstrap-archive` consolidates the campaign's streaming archive
+format. `write!` writes a completed bootstrap world atomically and checks each
+serialized row against the original world without restoring another heap.
+`restore` requires an explicit expected SHA256 and the pinned Lean commit;
+record readers accept only the guest Ref, Tag and Builtin carriers. Function
+metadata, guest RC, globals and inactive completed control data survive restore.
+Native ModuleData sources, Java kernel associations, executable identity
+capabilities and opaque resources are outside this bootstrap-only format.
+
+```clojure
+(require '[prototype.bootstrap-archive :as archive])
+(def restored
+  (archive/restore "target/frontend-full-world-archive.edn"
+    {:expected-sha256 "21acd0e8e735f46232dcb64ea3071600a2b2b0973167d46517e91b0db58b8129"
+     :expected-lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"}))
+```
+
+This optional archive is a local campaign artifact, not a checked-in dependency.
+Reattach explicit host bindings and the verified declaration catalogue before
+using its world. Tiny archive tests cover round trips, malformed records,
+metadata and ownership; the consolidated API has not yet been rerun on the
+large archive. The earlier scratch reader restored that archive successfully.
+
 Refresh the extra fixtures with the pinned toolchain:
 
 ```sh
@@ -1391,3 +1500,268 @@ can implement transformations against it, with differential execution as an earl
 check. Compiling SCI or checking Ansatz declarations alone does not prove compiler,
 runtime, storage or host-interop correctness. The formal specification and backend
 refinement proofs remain future work.
+
+## Persistent globals and producer-time initialization plans
+
+The guest heap now implements Lean's persistent RC convention: RC zero prevents
+collection and constructor reuse. Marking a graph covers its constructor fields
+and closure captures. Persistent `inc`/`dec` annotations are checked at execution;
+they cannot silently make an ordinary owned object immortal. Constructor deletion
+frees the shell while preserving transferred child ownership. Tag updates require
+an exclusive constructor. These operations run in the reference interpreter,
+mutable machine, and eager/lazy JVM compilers, including exact-fuel pauses.
+
+Globals belong to a guest world. Frozen worlds include their cached values and
+initialization state; mutable restores clone that state. Pure value declarations
+use a cache and recursively mark object results persistent. IO-initialized globals
+reject reads before explicit initialization. Initializers return Lean's actual IO
+result constructor; successful object results become persistent before the result
+wrapper is released. Scalar results are unboxed before releasing that wrapper.
+Initialization errors are not converted into successful cached values.
+
+Imported artifacts lose the compiler's closed-term cache and declaration-order
+environment extensions. The exporter therefore identifies imported zero-parameter
+values structurally, without recognizing generated name suffixes. Exact local
+initialization order requires compilation from source:
+
+```sh
+LEAN_PATH=target lean +leanprover/lean4:v4.33.1 --run lean/Export.lean \
+  --source lean/GlobalProbe.lean --closure GlobalProbe \
+  readInitialized GlobalProbe.readValues > target/source-plan-probe.jsonl
+```
+
+The producer runs `Lean.Elab.runFrontend`, reads the final local LCNF declaration
+indices, and records the actions selected by the native emitter: eager values,
+IO-backed values, and anonymous IO registrations. Action roots and IR come from
+the same environment, preserving generated private names. Imported private bodies
+come from a separate full-visibility import environment; local IR takes priority.
+The plan lives in the manifest under `initializationPlan`.
+
+`prototype.initialization/link-local-plan` links every local action and its static
+dependencies. `run-local-plan` executes the explicit action order. The fixture
+checks Nat, full-range UInt64, list, and anonymous IO initialization, repeated
+execution, persistence, and ownership. `GlobalProbe.main` must be run through an
+importing module or compiled executable: Lean does not evaluate an initialized
+value inside the module that defines it using its source interpreter.
+
+This is **local initialization**, not a complete hosted Lean environment. Import
+plans must be supplied separately. Module-system runtime/comptime phase selection
+is rejected until modeled. The ordinary imported initializer attributes preserve
+their separate orders but do not recover their combined native order. Treating
+builtin and regular attributes as two arbitrary passes would be insufficient.
+Parser tables also depend on anonymous builtin registrations, not merely the
+initializers referenced by ordinary calls. A matching header parse alone would
+not establish that these registries were correctly initialized.
+
+The source-time producer was also exercised on pinned `Lean.Parser.Module.Syntax`:
+24 local actions pull in a much larger dependency closure than the header parser
+alone. This is export coverage, not JVM execution coverage. Remaining work includes
+the runtime extern ABI, UTF-8 and exact hashes, ordered imported initialization,
+dynamic constant loading, and the environment/kernel bridge.
+
+## Hosted elaboration and kernel adapter boundary
+
+The real guest frontend now initializes and creates empty environments. The
+`KernelDefinitionProbe` also checks and publishes a safe polymorphic identity
+through `prototype.kernel-host` and the guest `KernelBridgeShim`; its result is 1,
+matching native Lean. This probe constructs the declaration directly and does not
+establish source elaboration or execution of the new definition. The acceptance
+path uses pinned `Lean.Elab.process`, including its incremental tasks and collected
+diagnostics. The older synchronous command loop can hide asynchronous diagnostic
+failures and is not an acceptance substitute. The first end-to-end hosted source file now passes:
+[`PreludeIdentity.lean`](fixtures/hosted/PreludeIdentity.lean) is read, elaborated,
+strictly checked by Ansatz, compiled by the guest Lean compiler, installed and
+called, returning 42 with no diagnostics or pending initializers. The
+[observation](measurements/hosted-prelude-file.json) pins the source and actual
+[guest output IR](fixtures/hosted/PreludeIdentity.ir.jsonl). Native artifact
+preparation precedes this run; no native frontend compiles this input.
+
+The same returned Environment passes genuine guest `Lean.mkModuleData` export,
+including persistent extension/IR entries, four kernel constants and three extra
+compiler names. Its owned ModuleData also passes genuine guest import finalization
+and strict checking of all four constants in a fresh environment.
+[`PreludeSecond.lean`](fixtures/hosted/PreludeSecond.lean) then imports it, compiles
+through the guest frontend, installs with actual interpreter-witness provenance,
+and returns 42. The [owned source-import observation](measurements/hosted-source-import.json)
+records this dependency-free classic-module profile; it has no initializer actions.
+
+[`PreludeInterop.lean`](fixtures/hosted/PreludeInterop.lean) independently passes
+fresh guest source compilation and a Clojure → Lean → Clojure host binding → Lean
+→ Clojure round trip, returning 42. Two forks also return the same owned heap
+payload with reference counts intact. Its [observation](measurements/hosted-prelude-interop.json)
+and [actual output IR](fixtures/hosted/PreludeInterop.ir.jsonl) record this bounded
+polymorphic identity case. Subsequent ordinary implicit-Init gates passed a
+[Nat definition](measurements/hosted-ordinary-answer.json), a
+[source-defined macro](measurements/hosted-ordinary-macro.json) completed through
+reviewed staged recovery, and fresh-file
+[Nat/String host round trips](measurements/hosted-ordinary-interop.json).
+The already compiled ordinary wrapper also returned the exact same owned heap
+String Ref with RC1 in two independent forks; releasing either result left the
+other fork and seed unchanged ([heap ownership observation](measurements/hosted-ordinary-interop-heap-forks.json)).
+This second probe performs no new source compilation. General source imports and
+broader effectful/native interop remain separate integration work. The current
+regression suite now passes **691 tests / 58,784 assertions**
+([source-pinned validation](measurements/hosted-source-header-regression.json)); these
+regressions do not establish arbitrary Lean-file compatibility.
+
+The [prepared hosted file runner](research/HOSTED_FILE_RUNNER.md) exposes reusable
+file compilation, explicit initialization, boxed calls and guest module export;
+bootstrap preparation and import capabilities are supplied explicitly. A
+[resident context facade proposal](research/RESIDENT_FRONTEND_API.md) describes
+how to package that lifecycle without inventing imports or hiding ownership;
+it is not implemented.
+
+The [selective JVM compiler](research/ADAPTIVE_COMPILATION.md) keeps cold IR in
+the interpreter and promotes repeated blocks, preserving exact guest fuel and
+ownership. The [initializer runtime contract](research/INITIALIZER_RUNTIME_CONTRACT.md)
+distinguishes direct initializer evaluation from Lean's guest once-only guards.
+The [direct Json witness transport](research/WITNESS_JSON_VALUE.md) avoids guest
+string printing while retaining the same full IR and executable-identity checks.
+
+Keep full guest `Name`, `Level`, `Expr`, `Declaration` and `Environment` values.
+Translate closed declarations through a memoized DAG projection into Ansatz's
+Java checker, associate immutable guest kernel environments with immutable Java
+`Env` versions, and preserve the guest originals. Do not substitute Java kernel
+objects for generic guest constructors: numeric Name components are arbitrary Nat
+in Lean but Java `Name` uses `long`; guest local/metavariable IDs wrap Names while
+Java uses numeric IDs; guest `letE.nondep` is absent from Java `Expr.mkLet`; raw
+universe constructors and Lean-visible hashes also differ. Reject unrepresentable
+values explicitly. The durable kernel codec is not a complete live frontend codec.
+
+The main host admission seam is `lean_elab_add_decl`, whose pinned 4.33.1 ABI
+includes heartbeat and recursion limits plus a cancellation token. Decode the
+guest declaration, use `TypeChecker.checkConstant` for a supported ordinary closed
+definition, reconstruct the admitted guest constant and kernel environment, then
+run the guest `lean_elab_environment_update_base_after_kernel_add` path. Let guest
+`Environment.addDeclCore` maintain frontend constant maps. Return a guest `Except`
+with a mapped `Kernel.Exception` on failure, not a host boolean. Initially reject
+unsupported declaration kinds; mutual definitions, inductives, quotients and their
+generated declarations require their own complete admission paths. Heartbeat/fuel,
+recursion and cancellation mappings need explicit contracts rather than assuming
+identical units. `TypeChecker.inferType` is deliberately lenient; admission must
+use full checking. Do not use the REPL's replace-existing-definition path here.
+
+Distinguish real kernel services (`lean_kernel_check`, `lean_kernel_whnf`,
+`lean_kernel_is_def_eq`) from MetaM services. The symbols `lean_whnf`,
+`lean_infer_type`, `lean_is_expr_def_eq`, `lean_is_level_def_eq`,
+`lean_checked_assign` and `lean_synth_pending` have exported implementations in
+Lean itself. Execute those guest implementations with their metavariable context
+and elaboration state. Replacing them with Java kernel calls would change semantics.
+The metadata-only producer `lean/ExportAliases.lean` inventories all visible
+`@[export]` symbol mappings from a full-visibility `Lean` import. Its manifest has
+zero IR declaration rows and supplies no initialization plan; an alias does not
+establish that its target body has been linked. Resolve an alias only after checking
+target availability and ABI compatibility.
+
+Reproduce the separate alias inventory with the pinned toolchain:
+
+```sh
+LEAN_SYSROOT="$(lean +leanprover/lean4:v4.33.1 --print-prefix)" \
+  lean +leanprover/lean4:v4.33.1 --run lean/ExportAliases.lean \
+  > target/lean-export-aliases.jsonl
+```
+
+The observed `Lean` inventory has 224 unique exported symbols. The producer checks
+seven bootstrap canaries, including all six MetaM symbols above and
+`lean_eval_check_meta`, and records the actual Lean build commit. This is complete
+for the imported `Lean` constant environment, not for arbitrary downstream packages
+or every symbol exported by native libraries.
+
+After declaration admission, install newly compiled executable IR into the current
+world before claiming that the new definition runs. The next gate is a guest macro
+declaration followed by use in a later command: this requires compilation of the
+macro implementation, registration and current-world `evalConst` lookup. The
+native-assisted `FrontendProbe` remains a baseline, not evidence of that hosted path.
+Require completed checking, clean diagnostics and the configured axiom/sorry policy
+before publishing a candidate; Lean's provisional declarations and diagnostic
+fallback axioms cannot serve as acceptance signals.
+
+Source map, pinned to Lean 4.33.1:
+
+- [Frontend process loop](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/Elab/Frontend.lean): `processCommands` and `process`.
+- [Guest environment and kernel ABI](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/Environment.lean): `addDeclCheck`, `addDeclCore`, `updateBaseAfterKernelAdd` and `evalConst`.
+- [Admission and provisional publication](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/AddDecl.lean).
+- [Strict replay](../../src/ansatz/export/replay.clj), [environment wrappers](../../src/ansatz/kernel/env.clj), [Java checker](../../src-java/ansatz/kernel/TypeChecker.java) and [durable codec](../../src/ansatz/export/codec.clj).
+
+## Imported initialization campaign
+
+The source-time producer now records local initialization actions in the pinned
+compiler's declaration order. `prototype.module-plan` expands native module
+runtime/comptime import phases and once guards; `prototype.module-runtime`
+executes the resulting actions in one guest world. This includes anonymous
+registrations, rather than initializing only named global values.
+
+The current collected graph for `Lean.Parser.Module` plus implicit `Init` has
+828 modules, 97,401 declarations, and 3,190 initialization actions. Collection
+and packing are artifact preparation using native Lean, not hosted elaboration.
+The full HeaderProbe graph links to 62,298 runtime functions. All 3,190 actions
+complete, producing 18,710 globals and 64,029 heap objects after 17,293,770
+interpreter steps. Seven header summaries match native Lean, including malformed
+input and Unicode byte positions. The stronger `ParserOracle.observeFull`
+comparison additionally matches complete syntax, SourceInfo and identifier
+metadata and diagnostics on all 12 inputs. The real file loader exports only
+source-local declarations and resolves imported bodies from their producer
+catalogue; re-exporting installed import bodies had correctly failed the strict
+artifact-drift check. Full file elaboration is still pending; the later full
+Lean bootstrap completes all 8,052 actions and handles empty input and a
+namespace command without diagnostics.
+
+[The hosted-parser measurement](measurements/parser-hosted.json) records the
+fixture hash and timings. After collecting the pinned artifacts, reproduce the
+complete file-loader and parser comparison with:
+
+```sh
+clojure -J-Xss32m -J-Xmx2g -M scripts/parser-conformance.clj
+```
+
+A weak identity cache avoids rescanning the immutable program for register sizing
+on every call. The pre-cache scan alone took 4.0–4.4 seconds; the second full
+syntax observation after the change took 2.3 seconds. These are development REPL
+observations, not a competitive performance claim. Artifact collection and
+initialization remain separate from per-input parser execution.
+
+Reproduce the pinned source artifacts from this experiment directory:
+
+```sh
+scripts/build-exporter.sh
+python3 scripts/collect-init-plans.py Lean.Parser.Module Init
+clojure -J-Xss32m -J-Xmx4g -M scripts/pack-module-plans.clj
+clojure -M scripts/update-runtime-signatures.clj
+```
+
+The collector verifies source/exporter/output hashes before reusing bundles.
+The packer writes an immutable declaration index and checks that reopening it
+reads zero declaration blobs. The signature update is an explicit admission
+step: review its diff against the pinned native ABI before accepting it.
+Deep JSON decoding currently needs the larger packing stack; lowering and IR
+traversal use explicit work stacks.
+
+Runtime additions include world-local initialized globals, persistent RC flags,
+constructor shell deletion, arrays and refs, UTF-8 string positions and hashes,
+Name equality, ByteArray operations, exact scalar Float/Float32 storage,
+public float bitcasts with native NaN canonicalization, integer operations,
+Expr/Level cache packing and structural equality. These primitives remain an
+explicit subset. Unimplemented paths trap when reached.
+
+A clean initialization checkpoint contains the world after a completed action
+group. Failures preserve that checkpoint and report the failed partial world
+separately. `module-runtime/resume` restores the clean world and validates its
+plans, phases, action sequence, and ABI. Explicit implementation upgrades can
+replace a trapped extern while retaining those contracts. An interval of one
+captures every completed action; larger intervals replay the discarded portion
+of the guest world. This is an explicit rollback, not native Lean's retry behavior
+with sticky once guards.
+
+Entropy and environment variables are captured inputs. The host seeds an entropy
+tape with secure random bytes before execution; snapshots carry its cursor and
+forks replay the remaining bytes. This does not produce independent random
+streams after a fork. Environment lookup uses an immutable snapshot. The runtime
+primitives do not read process-global randomness or environment state during
+execution. Exhausted or missing inputs fail explicitly. General OS effects and
+rollback of external side effects remain unimplemented.
+
+The native `HeaderProbe.headerSummary` observations cover seven inputs, including
+module imports, malformed headers, Unicode comments, and command boundaries.
+They match guest execution, alongside all 12 full syntax/diagnostic cases. Exact scalar/integer/float,
+Expr/Level, entropy, and environment primitive tests include pinned native oracle
+comparisons; these tests do not establish full parser or elaborator hosting.

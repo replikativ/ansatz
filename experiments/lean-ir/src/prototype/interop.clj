@@ -3,15 +3,17 @@
   reentrant callbacks run in the same guest heap. No arbitrary host-state forks."
   (:refer-clojure :exclude [resolve])
   (:require [prototype.import-ir :as ir]
+            [prototype.runtime-abi :as runtime-abi]
+            [prototype.interop-codec :as codec]
             [prototype.machine :as m]
             [prototype.mutable :as u]
             [prototype.lazy-runtime :as lazy]))
 
 (defn extern-symbol [decl]
-  (or (some #(get-in % [:standard :fn]) (get-in decl [:ext :entries]))
+  (or (runtime-abi/symbol-for decl)
       (m/fail "Unsupported extern specification" {:extern decl})))
 
-(defn lower [bindings row]
+(defn- lower-host [bindings row]
   (if-let [ext (get-in row [:ir :extern])]
     (let [symbol (extern-symbol ext) binding (get bindings symbol)
           params (mapv #(get-in % [:x :idx]) (:xs ext))
@@ -31,14 +33,15 @@
                 :body [:host symbol (mapv #(vector :var %) params) dest [:return [:var dest]]]}])
     (ir/lower-declaration row)))
 
-(defn open-session
-  ([catalogue roots bindings] (open-session catalogue roots bindings :jvm))
-  ([catalogue roots bindings backend]
-   (open-session catalogue roots bindings backend (lazy/code-cache)))
-  ([catalogue roots bindings backend cache]
+(defn lower [bindings row]
+  (let [ext (get-in row [:ir :extern])]
+    (if (and ext (or (:redirect row) (runtime-abi/supported? ext)) (not (contains? bindings (extern-symbol ext))))
+      (runtime-abi/lower row)
+      (lower-host bindings row))))
+
+(defn open-functions [functions bindings backend cache]
    (when-not (contains? #{:reference :mutable :jvm} backend) (m/fail "Unknown backend" {:backend backend}))
-   (let [functions (ir/load-closure catalogue roots #(lower bindings %))
-         signatures (reduce (fn [signatures [_ f]]
+   (let [signatures (reduce (fn [signatures [_ f]]
                               (if-let [{:keys [symbol params]} (:extern f)]
                                 (let [shape (mapv #(select-keys % [:ty :borrow]) params)]
                                   (when-let [old (get signatures symbol)]
@@ -46,7 +49,14 @@
                                       (m/fail "Incompatible declarations for host symbol" {:symbol symbol})))
                                   (assoc signatures symbol params)) signatures)) {} functions)]
      {:functions functions :bindings bindings :signatures signatures :backend backend
-      :program (when (= :jvm backend) (lazy/open-program functions {} cache)) :fuel 1000000})))
+      :program (when (= :jvm backend) (lazy/open-program functions {} cache)) :fuel 1000000}))
+
+(defn open-session
+  ([catalogue roots bindings] (open-session catalogue roots bindings :jvm))
+  ([catalogue roots bindings backend]
+   (open-session catalogue roots bindings backend (lazy/code-cache)))
+  ([catalogue roots bindings backend cache]
+   (open-functions (ir/load-closure catalogue roots #(lower bindings %)) bindings backend cache)))
 
 (defn resolve [session name]
   (if (vector? name)
@@ -73,13 +83,14 @@
 
 (defn- invoke! [context target args]
   (let [{:keys [state session]} context parent @state
-        [child target args]
-        (if (m/ref? target)
-          ;; Borrow the callback for each invocation; application consumes this
-          ;; extra owner and retains its captured fields through normal guest RC.
-          (m/apply-target (assoc (m/retain parent target 1) :locals {0 target}) [:closure [:var 0]] args)
-          [parent (resolve session target) args])
-        child (m/start (apply dissoc child control-keys) target args)]
+        child (if (m/ref? target)
+                ;; Borrow for this invocation, then enter through the same boxed
+                ;; application path as guest IR, including partial/overapplication.
+                (m/call (-> (m/retain parent target 1)
+                            (dissoc :result :resume-var :host-request)
+                            (assoc :frames [] :status :running :locals {0 target} :joins {}))
+                        [:closure [:var 0]] (mapv #(vector :imm %) args) nil nil)
+                (m/start (apply dissoc parent control-keys) (resolve session target) args))]
     (reset! state child)
     (try
       (let [result (drive! context) finished @state]
@@ -126,21 +137,70 @@
         :paused (m/fail "Interop instruction budget exhausted" {:steps (get-in current [:stats :steps])})
         (m/fail "Unexpected interop boundary" {:status (:status current)})))))
 
-(defn call
-  "Call a linked Lean definition from Clojure. Each top-level call has its own
-  heap; nested host callbacks share that heap. Results currently must be Nat."
-  [session name args]
-  (let [[world args]
-        (reduce (fn [[s xs] arg]
-                  (if-let [target (and (map? arg) (:guest/function arg))]
-                    (let [[s closure] (m/expr s [:closure (resolve session target) []])]
-                      [s (conj xs closure)])
-                    [s (conj xs (nat! arg))]))
-                [(m/world (:functions session)) []] args)
-        initial (m/start world (resolve session name) args)
+(defn- run-call [session target world args decode]
+  (let [initial (m/start world target args)
         state (atom initial)
-        result (drive! {:state state :session session :step-limit (:fuel session) :owner (Thread/currentThread)})]
-    {:value (nat! result) :state @state}))
+        result (drive! {:state state :session session
+                        :step-limit (+ (get-in initial [:stats :steps]) (:fuel session))
+                        :owner (Thread/currentThread)})]
+    (try {:value (decode @state result) :state @state}
+         (catch clojure.lang.ExceptionInfo e
+           ;; In particular, IO errors carry a guest error owner. Keep the
+           ;; completed world available for inspecting or releasing that owner.
+           (throw (ex-info (.getMessage e) (assoc (ex-data e) :state @state) e))))))
+
+(defn- typed-options! [args {:keys [arguments] :as options}]
+  (when-not (and (map? options) (vector? arguments) (contains? options :result)
+                 (= (count arguments) (count args)))
+    (m/fail "Typed call requires one argument descriptor per value and a result descriptor"
+            {:arguments arguments :argument-count (count args)}))
+  options)
+
+(defn call
+  "Call a linked Lean definition in a heap forked from :initial-world.
+   Three arguments retain the small-Nat/function-ref adapter. The fourth
+   argument supplies explicit {:arguments [descriptors] :result descriptor}.
+   Returned :state owns any allocated guest result; decoding borrows it."
+  ([session name args]
+   (let [[world args]
+         (reduce (fn [[s xs] arg]
+                   (if-let [target (and (map? arg) (:guest/function arg))]
+                     (let [[s closure] (m/expr s [:closure (resolve session target) []])]
+                       [s (conj xs closure)])
+                     [s (conj xs (nat! arg))]))
+                 [(or (:initial-world session) (m/world (:functions session))) []] args)]
+     (run-call session (resolve session name) world args (fn [_ value] (nat! value)))))
+  ([session name args options]
+   (let [{:keys [arguments result]} (typed-options! args options)
+         target (resolve session name)
+         params (:params (get (:functions session) target))]
+     (when-not (= (count params) (count args))
+       (m/fail "Guest arity mismatch" {:target target :expected (count params) :actual (count args)}))
+     (let [[world encoded]
+           (reduce (fn [[world values] [descriptor value]]
+                     (let [[world value] (codec/encode world descriptor value)]
+                       [world (conj values value)]))
+                   [(or (:initial-world session) (m/world (:functions session))) []]
+                   (map vector arguments args))]
+       (run-call session target world encoded #(codec/decode %1 result %2))))))
+
+(defn call-io
+  "Call an explicitly selected IO entry, appending its erased world argument.
+   :result describes the successful IO payload. No IO type is inferred from an
+   object return type; when raw parameter metadata exists its last type must
+   be void. Guest IO errors throw with their completed :state attached."
+  [session name args options]
+  (let [{:keys [arguments result]} (typed-options! args options)
+        target (resolve session name)
+        f (get (:functions session) target)
+        runtime-types (:runtime-param-types (meta f))]
+    (when-not (= (count (:params f)) (inc (count args)))
+      (m/fail "IO entry requires explicit arguments followed by one world token"
+              {:target target :expected (count (:params f)) :actual (inc (count args))}))
+    (when (and runtime-types (not= "void" (peek runtime-types)))
+      (m/fail "IO entry does not have a void world parameter" {:target target :runtime-param-types runtime-types}))
+    (call session target (conj (vec args) nil)
+          {:arguments (conj arguments :world) :result [:io result]})))
 
 (defn function [session name]
   (resolve session name)

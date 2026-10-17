@@ -332,7 +332,7 @@
                     ;; regular def with a body, and NOT an @[extern] native primitive —
                     ;; extern reference bodies may not match native runtime reps (String),
                     ;; so they keep codegen's explanatory-throw path.
-                    (when (and (pos? (.getHints ci)) (some? (.getValue ci))
+                    (when (and (<= 0 (.getHintsCode ci)) (some? (.getValue ci))
                                (not (contains? (env/get-extension env :extern #{}) cname)))
                       (compile!* env cname ci)))
                   (catch Throwable _ nil))]

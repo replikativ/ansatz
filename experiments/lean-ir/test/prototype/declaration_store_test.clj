@@ -124,3 +124,117 @@
       (is (= #{numeric string} (set (keys functions))))
       (is (= 42 (get-in (execute functions numeric [] cache) [:state :result])))
       (is (= 99 (get-in (execute functions string [] cache) [:state :result]))))))
+
+(deftest catalogue-overlay-resolves-only-selected-rows
+  (let [a (modules/name-of "base") b (modules/name-of "overlay")
+        unused (modules/name-of "unused") missing (modules/name-of "missing")
+        reads (atom [])
+        row-a (modules/declaration a 1) row-b (modules/declaration b 2)
+        base {:manifests [{:base true}] :declarations {a :opaque-a unused :opaque-unused}
+              :read-declaration (fn [name] (swap! reads conj name)
+                                  (if (= name a) row-a (throw (ex-info "Unused blob read" {}))))}
+        addition {:manifests [{:overlay true}] :declarations {b row-b}}
+        combined (store/overlay base addition)]
+    (is (= [] @reads))
+    (is (= [{:base true} {:overlay true}] (:manifests combined)))
+    (is (= #{a b unused} (set (keys (:declarations combined)))))
+    (is (= :opaque-a (get-in combined [:declarations a])))
+    (is (= row-b ((:read-declaration combined) b)))
+    (is (= [] @reads))
+    (is (nil? ((:read-declaration combined) missing)))
+    (is (= row-a ((:read-declaration combined) a)))
+    (is (= [a] @reads))
+    (is (= {a :opaque-a unused :opaque-unused} (:declarations base)))
+    (is (= {b row-b} (:declarations addition)))))
+
+(deftest catalogue-overlay-reconciles-duplicates-lazily
+  (let [name modules/value-name row (modules/declaration name 42)
+        local (assoc row :sourceLocal true :runtime {:role "closed"})
+        reads (atom [])
+        indexed (fn [label row]
+                  {:declarations {name (keyword label)}
+                   :read-declaration (fn [n] (swap! reads conj [label n]) row)})
+        combined (store/overlay (indexed "base" row) (indexed "overlay" local))]
+    (is (empty? @reads))
+    (is (= local ((:read-declaration combined) name)))
+    (is (= [["base" name] ["overlay" name]] @reads))
+    (is (= row ((:read-declaration (store/overlay {:declarations {name row}}
+                                               {:declarations {name row}})) name)))
+    (is (= local ((:read-declaration (store/overlay {:declarations {name local}}
+                                                 {:declarations {name row}})) name)))))
+
+(deftest catalogue-overlay-rejects-selected-drift-without-touching-unrelated-rows
+  (let [name modules/value-name row (modules/declaration name 42)]
+    (doseq [changed [(assoc row :ir {:changed true})
+                     (assoc row :dependencies [(modules/name-of "unexpected")])
+                     (assoc row :redirect (modules/name-of "redirect"))
+                     (assoc row :runtime {:role "closed"})]]
+      (let [combined (store/overlay {:declarations {name row}}
+                                    {:declarations {name changed}})]
+        (is (nil? ((:read-declaration combined) (modules/name-of "absent"))))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Conflicting declaration"
+                              ((:read-declaration combined) name)))))))
+
+(deftest catalogue-overlay-keeps-durable-base-index-and-unused-blobs-untouched
+  (with-directory [dir]
+    (let [packed (store/pack! dir ["fixtures/list-map.jsonl"])
+          hash (store/checkpoint! packed)
+          base (store/open-index dir hash)
+          before (:declarations base)
+          name (modules/name-of "new-local") row (modules/declaration name 7)
+          combined (store/overlay base {:declarations {name row}})]
+      (is (zero? (:blob-reads (store/stats base))))
+      (is (= row ((:read-declaration combined) name)))
+      (is (zero? (:blob-reads (store/stats base))))
+      (is (zero? (:blob-publishes (store/stats base))))
+      (is (identical? before (:declarations base)))
+      (is (= hash (store/checkpoint! base))))))
+
+(deftest checkpoint-canonical-order-encodes-each-name-once
+  (with-directory [dir]
+    (let [names (vec (concat (for [i (range 40)] ["str" ["anonymous"] (str "entry" i)])
+                             [["num" ["anonymous"] 0] ["str" ["anonymous"] "0"]
+                              ["str" ["anonymous"] "λ界"]]))
+          declarations (zipmap names (repeat (apply str (repeat 64 "0"))))
+          catalogue (assoc (store/empty-store dir) :declarations declarations)
+          encode #'store/encode
+          original @encode
+          legacy-index {:schema "lean-ir-store/1" :manifests []
+                        :declarations (sort-by (comp original first) declarations)}
+          expected (:hash (#'store/publish! dir "indexes" legacy-index))
+          calls (atom 0)
+          actual (with-redefs-fn {encode (fn [value] (swap! calls inc) (original value))}
+                   #(store/checkpoint! catalogue))]
+      (is (= expected actual))
+      ;; One key per Name and the schema string; no full-index encoding.
+      (is (= (inc (count names)) @calls))
+      (is (= declarations (:declarations (store/open-index dir actual)))))))
+
+(deftest streaming-index-reopen-shares-name-prefixes-without-changing-content
+  (with-directory [dir]
+    (let [prefix ["str" ["anonymous"] "Shared"]
+          a ["str" prefix "a"] b ["str" prefix "b"]
+          declarations {a (apply str (repeat 64 "1")) b (apply str (repeat 64 "2"))}
+          packed (assoc (store/empty-store dir) :declarations declarations)
+          hash (store/checkpoint! packed)
+          reopened (store/open-index dir hash)
+          names (vec (keys (:declarations reopened)))]
+      (is (= declarations (:declarations reopened)))
+      (is (identical? (second (first names)) (second (second names))))
+      (is (= hash (store/checkpoint! reopened)))
+      (is (zero? (:blob-reads (store/stats reopened)))))))
+
+(deftest streaming-index-reader-rejects-invalid-json-and-duplicate-fields
+  (with-directory [dir]
+    (let [write! (fn [text]
+                   (let [bytes (#'store/utf8-bytes text)
+                         hash (#'store/digest bytes)
+                         file (io/file dir "indexes" (str hash ".json"))]
+                     (io/make-parents file)
+                     (spit file text :encoding "UTF-8") hash))]
+      (doseq [text ["{\"declarations\":[],\"manifests\":[],\"schema\":\"lean-ir-store/1\",}"
+                    "{\"declarations\":[],\"manifests\":[],\"schema\":\"lean-ir-store/1\"}null"
+                    "{\"declarations\":[],\"declarations\":[],\"manifests\":[],\"schema\":\"lean-ir-store/1\"}"]]
+        (is (thrown? clojure.lang.ExceptionInfo (store/open-index dir (write! text)))))
+      (let [text "{\"schema\":\"lean-ir-store/1\",\"manifests\":[],\"declarations\":[]}"]
+        (is (= {} (:declarations (store/open-index dir (write! text)))))))))

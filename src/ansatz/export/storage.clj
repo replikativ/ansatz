@@ -25,6 +25,7 @@
             [clojure.edn :as edn]
             [org.replikativ.persistent-sorted-set :as pss]
             [ansatz.kernel.name :as ansatz-name]
+            [ansatz.kernel.hints :as hints]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
   (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker InductiveBundle]
@@ -687,17 +688,12 @@
        0 (ConstantInfo/mkAxiom (:name m) lps type-expr
                                (boolean (:unsafe? m)))
       ;; DEF
-       1 (let [h (let [hints (:hints m)]
-                   (cond
-                     (= hints :opaque) ConstantInfo/HINTS_OPAQUE
-                     (= hints :abbrev) ConstantInfo/HINTS_ABBREV
-                     (map? hints) (:regular hints)
-                     :else ConstantInfo/HINTS_OPAQUE))
+       1 (let [h (hints/code (:hints m))
                s (case (:safety m)
                    :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
-           (ConstantInfo/mkDef (:name m) lps type-expr
+           (ConstantInfo/mkDefWithHints (:name m) lps type-expr
                                (resolve-expr-fn (:value-id m))
-                               (int h) s
+                               (long h) s
                                (into-array Object (:all m))))
       ;; THM
        2 (ConstantInfo/mkThm (:name m) lps type-expr
