@@ -2,7 +2,12 @@
   "The inferred surface forms over Real, against the Mathlib store: the README's and
    CLAUDE.md's gradient-descent statements, written without a type the operands carry."
   (:require [clojure.test :refer [deftest is use-fixtures]]
-            [ansatz.core :as a]))
+            [ansatz.core :as a]
+            [ansatz.codegen :as cg]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as e]
+            [ansatz.kernel.name :as name]
+            [ansatz.kernel.level :as level]))
 
 (def ^:private mathlib-store
   (delay ((requiring-resolve 'ansatz.store/resolve-existing) "mathlib")))
@@ -35,3 +40,33 @@
              (apply mul_le_of_le_one_left) (assumption)
              (apply pow_le_one₀) (all_goals (assumption)))
   (is true))
+
+(deftest real-double-profile-requires-standard-instances
+  (let [en (a/env)
+        c (fn [s]
+            (let [nm (name/from-string s) ci (env/lookup en nm)]
+              (e/const' nm (repeat (alength (.levelParams ^ansatz.kernel.ConstantInfo ci)) level/zero))))
+        real (c "Real") nat (c "Nat")
+        lower (fn [op beta instance]
+                (eval (cg/ansatz->clj
+                       en (e/lam "x" real
+                                 (e/lam "y" beta
+                                        (e/app* (c op) real beta real instance
+                                                (e/bvar 1) (e/bvar 0)) :default) :default) [])))]
+    (doseq [[op beta dict x y expected]
+            [["HAdd.hAdd" real (e/app* (c "instHAdd") real (c "Real.instAdd")) 5.0 2.0 7.0]
+             ["HMul.hMul" real (e/app* (c "instHMul") real (c "Real.instMul")) 5.0 2.0 10.0]
+             ["HSub.hSub" real (e/app* (c "instHSub") real (c "Real.instSub")) 5.0 2.0 3.0]
+             ["HDiv.hDiv" real (e/app* (c "instHDiv") real
+                                       (e/app* (c "DivInvMonoid.toDiv") real (c "Real.instDivInvMonoid")))
+              5.0 2.0 2.5]
+             ["HPow.hPow" nat (e/app* (c "instHPow") real nat
+                                      (e/app* (c "NPow.toPow") real
+                                              (e/app* (c "Monoid.toNPow") real (c "Real.instMonoid"))))
+              5.0 2 25.0]
+             ["HPow.hPow" real (e/app* (c "instHPow") real real (c "Real.instPow")) 5.0 2.0 25.0]]]
+      (is (= expected (((lower op beta dict) x) y)) [op :standard])
+      (let [cls (subs op 0 (.indexOf ^String op "."))
+            identity-op (e/lam "x" real (e/lam "y" beta (e/bvar 1) :default) :default)
+            custom (e/app* (c (str cls ".mk")) real beta real identity-op)]
+        (is (= x (((lower op beta custom) x) y)) [op :custom])))))

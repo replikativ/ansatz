@@ -25,6 +25,7 @@
    TAG NUMBERS are from CBOR's First-Come-First-Served range (>= 32768) and are durable wire
    state: an id's meaning must never change, and a new type takes the next free number."
   (:require [boring.core :as boring]
+            [ansatz.kernel.hints :as hints]
             [ansatz.export.types]
             [org.replikativ.persistent-sorted-set.cbor :as pss-cbor])
   (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule]
@@ -114,7 +115,7 @@
         base [tag (.name ci) (vec (.levelParams ci)) (.type ci)]]
     (case tag
       0 (conj base (.isUnsafe ci))                                             ;; AXIOM
-      1 (conj base (.value ci) (int (.hints ci)) (int (.safety ci)) (vec (.all ci))) ;; DEF
+      1 (conj base (.value ci) (hints/wire-value ci) (int (.safety ci)) (vec (.all ci))) ;; DEF
       2 (conj base (.value ci) (vec (.all ci)))                                ;; THM
       3 (conj base (.value ci) (vec (.all ci)) (.isUnsafe ci))                 ;; OPAQUE
       4 (conj base (.quotKind ci))                                             ;; QUOT
@@ -134,9 +135,9 @@
         ty (nth parts 3)]
     (case tag
       0 (ConstantInfo/mkAxiom nm lps ty (boolean (nth parts 4)))
-      1 (ConstantInfo/mkDef nm lps ty (nth parts 4)
-                            (int (nth parts 5)) (byte (int (nth parts 6)))
-                            (into-array Object (nth parts 7)))
+      1 (ConstantInfo/mkDefWithHints nm lps ty (nth parts 4)
+                                     (hints/wire-code (nth parts 5)) (byte (int (nth parts 6)))
+                                     (into-array Object (nth parts 7)))
       2 (ConstantInfo/mkThm nm lps ty (nth parts 4) (into-array Object (nth parts 5)))
       3 (ConstantInfo/mkOpaque nm lps ty (nth parts 4)
                                (into-array Object (nth parts 5)) (boolean (nth parts 6)))

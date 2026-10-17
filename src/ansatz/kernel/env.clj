@@ -9,7 +9,8 @@
 
    ConstantInfo variants:
      :axiom, :def, :thm, :opaque, :quot, :induct, :ctor, :recursor"
-  (:require [ansatz.kernel.name :as name])
+  (:require [ansatz.kernel.name :as name]
+            [ansatz.kernel.hints :as hints])
   (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env InductiveBundle Name TypeChecker]))
 
 ;; ============================================================
@@ -30,14 +31,10 @@
 
 (defn mk-def [name level-params type value & {:keys [hints safety all]
                                               :or {hints :opaque safety :safe all nil}}]
-  (let [h (cond
-            (= hints :opaque) ConstantInfo/HINTS_OPAQUE
-            (= hints :abbrev) ConstantInfo/HINTS_ABBREV
-            (map? hints) (:regular hints)
-            :else ConstantInfo/HINTS_OPAQUE)
+  (let [h (hints/code hints)
         s (case safety :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
-    (ConstantInfo/mkDef name (into-array Object level-params) type value
-                        (int h) s (into-array Object (or all [name])))))
+    (ConstantInfo/mkDefWithHints name (into-array Object level-params) type value
+                                 (long h) s (into-array Object (or all [name])))))
 
 (defn mk-thm [name level-params type value & {:keys [all]}]
   (ConstantInfo/mkThm name (into-array Object level-params) type value
@@ -180,11 +177,7 @@
   "Get reducibility hints for delta reduction ordering."
   [^ConstantInfo ci]
   (case (.tag ci)
-    1 (let [h (.hints ci)]  ;; DEF
-        (cond
-          (= h ConstantInfo/HINTS_OPAQUE) :opaque
-          (= h ConstantInfo/HINTS_ABBREV) :abbrev
-          :else {:regular h}))
+    1 (hints/symbolic ci)
     2 :opaque  ;; THM
     3 :opaque  ;; OPAQUE
     nil))

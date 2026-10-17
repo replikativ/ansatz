@@ -1,0 +1,1150 @@
+{"lean_expr_quick_lt" [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}], :return-type "uint8"}]
+ "lean_expr_lt" [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}], :return-type "uint8"}]
+ "lean_array_fget"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_array_fget_borrowed"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_array_fset"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_array_fswap"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_array_get"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_array_get_borrowed"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_array_get_size"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "object", :borrow true}],
+   :return-type "tagged"}],
+ "lean_array_mk"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_array_pop"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "object", :borrow false}],
+   :return-type "object"}],
+ "lean_array_push"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_array_set"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_array_size"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "object", :borrow true}],
+   :return-type "usize"}],
+ "lean_array_to_list"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "object", :borrow false}],
+   :return-type "tobject"}],
+ "lean_array_uget"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "usize", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_array_uget_borrowed"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "usize", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_array_uset"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "usize", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_bool_to_int16"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint16"}],
+ "lean_bool_to_int32"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint32"}],
+ "lean_bool_to_int64"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint64"}],
+ "lean_bool_to_int8"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint8"}],
+ "lean_bool_to_isize"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "usize"}],
+ "lean_bool_to_uint16"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint16"}],
+ "lean_bool_to_uint32"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint32"}],
+ "lean_bool_to_uint64"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint64"}],
+ "lean_bool_to_uint8"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint8"}],
+ "lean_bool_to_usize"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "usize"}],
+ "lean_byte_array_fget"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "uint8"}],
+ "lean_byte_array_fset"
+ [{:params
+   [{:ty "object", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "uint8", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_byte_array_get"
+ [{:params
+   [{:ty "object", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_byte_array_mk"
+ [{:params [{:ty "object", :borrow false}], :return-type "object"}],
+ "lean_byte_array_push"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "object"}],
+ "lean_byte_array_set"
+ [{:params
+   [{:ty "object", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "uint8", :borrow false}],
+   :return-type "object"}],
+ "lean_byte_array_size"
+ [{:params [{:ty "object", :borrow true}], :return-type "tagged"}],
+ "lean_byte_array_uget"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "usize", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "uint8"}],
+ "lean_byte_array_uset"
+ [{:params
+   [{:ty "object", :borrow false}
+    {:ty "usize", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_closure_max_args"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_eval_check_meta"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_eval_const"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_abstract"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_abstract_range"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_data"
+ [{:params [{:ty "object", :borrow true}], :return-type "uint64"}],
+ "lean_expr_equal"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "uint8"}],
+ "lean_expr_eqv"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "uint8"}],
+ "lean_expr_has_loose_bvar"
+ [{:params
+   [{:ty "object", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_expr_instantiate"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_instantiate1"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_instantiate_range"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_instantiate_rev"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_instantiate_rev_range"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_lift_loose_bvars"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_lower_loose_bvars"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}],
+   :return-type "object"}],
+ "lean_expr_mk_app_data"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_expr_mk_data"
+ [{:params
+   [{:ty "uint64", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint32", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "uint8", :borrow false}],
+   :return-type "uint64"}],
+ "lean_find_expr"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "tobject"}],
+ "lean_find_ext_expr"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "tobject"}],
+ "lean_float32_add"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "float32"}],
+ "lean_float32_beq"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_float32_decLe"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_float32_decLt"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_float32_div"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "float32"}],
+ "lean_float32_mul"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "float32"}],
+ "lean_float32_negate"
+ [{:params [{:ty "float32", :borrow false}], :return-type "float32"}],
+ "lean_float32_of_bits"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "float32"}],
+ "lean_float32_sub"
+ [{:params
+   [{:ty "float32", :borrow false} {:ty "float32", :borrow false}],
+   :return-type "float32"}],
+ "lean_float32_to_bits"
+ [{:params [{:ty "float32", :borrow false}], :return-type "uint32"}],
+ "lean_float_add"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "float"}],
+ "lean_float_beq"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "uint8"}],
+ "lean_float_decLe"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "uint8"}],
+ "lean_float_decLt"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "uint8"}],
+ "lean_float_div"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "float"}],
+ "lean_float_mul"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "float"}],
+ "lean_float_negate"
+ [{:params [{:ty "float", :borrow false}], :return-type "float"}],
+ "lean_float_of_bits"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "float"}],
+ "lean_float_sub"
+ [{:params [{:ty "float", :borrow false} {:ty "float", :borrow false}],
+   :return-type "float"}],
+ "lean_float_to_bits"
+ [{:params [{:ty "float", :borrow false}], :return-type "uint64"}],
+ "lean_get_githash"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_get_internal_linker_flags"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_get_leanc_extra_flags"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_get_leanc_internal_flags"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_get_linker_flags"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "object"}],
+ "lean_get_max_ctor_fields"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_get_max_ctor_scalars_size"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_get_max_ctor_tag"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_get_set_stderr"
+ [{:params [{:ty "object", :borrow false} {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_get_set_stdin"
+ [{:params [{:ty "object", :borrow false} {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_get_set_stdout"
+ [{:params [{:ty "object", :borrow false} {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_get_stderr"
+ [{:params [{:ty "void", :borrow false}], :return-type "object"}],
+ "lean_get_stdin"
+ [{:params [{:ty "void", :borrow false}], :return-type "object"}],
+ "lean_get_stdout"
+ [{:params [{:ty "void", :borrow false}], :return-type "object"}],
+ "lean_get_usize_size"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_instantiate_expr_mvars"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "object", :borrow false}],
+   :return-type "object"}],
+ "lean_instantiate_level_mvars"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_int16_add"
+ [{:params
+   [{:ty "uint16", :borrow false} {:ty "uint16", :borrow false}],
+   :return-type "uint16"}],
+ "lean_int16_mul"
+ [{:params
+   [{:ty "uint16", :borrow false} {:ty "uint16", :borrow false}],
+   :return-type "uint16"}],
+ "lean_int16_neg"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "uint16"}],
+ "lean_int16_of_int"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint16"}],
+ "lean_int16_of_nat"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint16"}],
+ "lean_int16_sub"
+ [{:params
+   [{:ty "uint16", :borrow false} {:ty "uint16", :borrow false}],
+   :return-type "uint16"}],
+ "lean_int16_to_int"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "tagged"}],
+ "lean_int32_add"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint32"}],
+ "lean_int32_mul"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint32"}],
+ "lean_int32_neg"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "uint32"}],
+ "lean_int32_of_int"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint32"}],
+ "lean_int32_of_nat"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint32"}],
+ "lean_int32_sub"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint32"}],
+ "lean_int32_to_int"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "tobject"}],
+ "lean_int64_add"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_int64_mul"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_int64_neg"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "uint64"}],
+ "lean_int64_of_int"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint64"}],
+ "lean_int64_of_nat"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint64"}],
+ "lean_int64_sub"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_int8_add"
+ [{:params [{:ty "uint8", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "uint8"}],
+ "lean_int8_mul"
+ [{:params [{:ty "uint8", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "uint8"}],
+ "lean_int8_neg"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint8"}],
+ "lean_int8_of_int"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint8"}],
+ "lean_int8_of_nat"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint8"}],
+ "lean_int8_sub"
+ [{:params [{:ty "uint8", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "uint8"}],
+ "lean_int8_to_int"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "tagged"}],
+ "lean_int_add"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_int_dec_eq"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_int_dec_le"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_int_dec_lt"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_int_div"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_int_div_exact"
+ [{:params
+   [{:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_int_ediv"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_int_emod"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_int_mod"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_int_mul"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_int_neg"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "tobject"}],
+ "lean_int_sub"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_internal_get_believer_trust_level"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint32"}],
+ "lean_internal_get_build_type"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_internal_get_default_max_heartbeat"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_internal_get_default_max_memory"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_internal_get_default_verbose"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_internal_has_llvm_backend"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_internal_is_multi_thread"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_io_as_task"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_io_basemutex_new"
+ [{:params [{:ty "void", :borrow false}], :return-type "tobject"}],
+ "lean_io_bind_task"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_io_cancel"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "void", :borrow false}],
+   :return-type "tagged"}],
+ "lean_io_check_canceled"
+ [{:params [{:ty "void", :borrow false}], :return-type "uint8"}],
+ "lean_io_get_num_heartbeats"
+ [{:params [{:ty "void", :borrow false}], :return-type "tobject"}],
+ "lean_io_get_random_bytes"
+ [{:params [{:ty "usize", :borrow false} {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_io_get_task_state"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "void", :borrow false}],
+   :return-type "uint8"}],
+ "lean_io_getenv"
+ [{:params [{:ty "object", :borrow true} {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_io_initializing"
+ [{:params [{:ty "void", :borrow false}], :return-type "uint8"}],
+ "lean_io_map_task"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "object"}],
+ "lean_io_promise_new"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_io_promise_resolve"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "void", :borrow false}],
+   :return-type "tagged"}],
+ "lean_io_promise_result_opt"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow true}],
+   :return-type "object"}],
+ "lean_io_set_heartbeats"
+ [{:params
+   [{:ty "tobject", :borrow false} {:ty "void", :borrow false}],
+   :return-type "tagged"}],
+ "lean_io_wait"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_io_wait_any"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_is_reserved_name"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "uint8"}],
+ "lean_isize_add"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_isize_mul"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_isize_neg"
+ [{:params [{:ty "usize", :borrow false}], :return-type "usize"}],
+ "lean_isize_of_int"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "usize"}],
+ "lean_isize_of_nat"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "usize"}],
+ "lean_isize_sub"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_isize_to_int"
+ [{:params [{:ty "usize", :borrow false}], :return-type "tobject"}],
+ "lean_level_eq"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_level_mk_data"
+ [{:params
+   [{:ty "uint64", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint8", :borrow false}
+    {:ty "uint8", :borrow false}],
+   :return-type "uint64"}],
+ "lean_libuv_version"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_manual_get_root"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_max_small_nat"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_mk_array"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_mk_empty_array_with_capacity"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow true}],
+   :return-type "object"}],
+ "lean_mk_empty_byte_array"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "object"}],
+ "lean_mk_empty_float_array"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "object"}],
+ "lean_mk_thunk"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_name_eq"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_nat_abs"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "tobject"}],
+ "lean_nat_add"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_dec_eq"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_nat_dec_le"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_nat_dec_lt"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_nat_div"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_div_exact"
+ [{:params
+   [{:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_nat_gcd"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_land"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_lor"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_mod"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_mul"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_pow"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_shiftl"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_shiftr"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_sub"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_nat_to_int"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "tobject"}],
+ "lean_openssl_version"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_option_get_or_block"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow false}],
+   :return-type "tobject"}],
+ "lean_panic_fn_borrowed"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "object", :borrow false}],
+   :return-type "tobject"}],
+ "lean_profileit"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "object", :borrow true}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow false}
+    {:ty "tobject", :borrow false}],
+   :return-type "tobject"}],
+ "lean_ptr_addr"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow true}],
+   :return-type "usize"}],
+ "lean_replace_expr"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_sharecommon_quick"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_st_mk_ref"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_st_ref_get"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_st_ref_set"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "tagged"}],
+ "lean_st_ref_swap"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow false}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_st_ref_take"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "void", :borrow false}],
+   :return-type "tobject"}],
+ "lean_string_append"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "object", :borrow true}],
+   :return-type "object"}],
+ "lean_string_compare"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "uint8"}],
+ "lean_string_contains"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_string_dec_eq"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "uint8"}],
+ "lean_string_dec_lt"
+ [{:params [{:ty "object", :borrow true} {:ty "object", :borrow true}],
+   :return-type "uint8"}],
+ "lean_string_from_utf8_unchecked"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_string_get_byte_fast"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "uint8"}
+  {:params
+   [{:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "uint8"}],
+ "lean_string_hash"
+ [{:params [{:ty "object", :borrow true}], :return-type "uint64"}],
+ "lean_string_is_valid_pos"
+ [{:params
+   [{:ty "object", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_string_length"
+ [{:params [{:ty "object", :borrow true}], :return-type "tobject"}
+  {:params [{:ty "object", :borrow true}], :return-type "tagged"}],
+ "lean_string_memcmp"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "uint8"}],
+ "lean_string_mk"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "object"}],
+ "lean_string_of_usize"
+ [{:params [{:ty "usize", :borrow true}], :return-type "object"}],
+ "lean_string_posof"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "tobject"}],
+ "lean_string_push"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "object"}],
+ "lean_string_utf8_at_end"
+ [{:params
+   [{:ty "object", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint8"}],
+ "lean_string_utf8_byte_size"
+ [{:params [{:ty "object", :borrow true}], :return-type "tagged"}],
+ "lean_string_utf8_extract"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "tobject", :borrow true}],
+   :return-type "object"}],
+ "lean_string_utf8_get"
+ [{:params
+   [{:ty "object", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "uint32"}],
+ "lean_string_utf8_get_fast"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "uint32"}],
+ "lean_string_utf8_next"
+ [{:params
+   [{:ty "object", :borrow true} {:ty "tobject", :borrow true}],
+   :return-type "tobject"}],
+ "lean_string_utf8_next_fast"
+ [{:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "tagged"}
+  {:params
+   [{:ty "object", :borrow true}
+    {:ty "tobject", :borrow true}
+    {:ty "erased", :borrow false}],
+   :return-type "tobject"}],
+ "lean_string_utf8_set"
+ [{:params
+   [{:ty "object", :borrow false}
+    {:ty "tobject", :borrow true}
+    {:ty "uint32", :borrow false}],
+   :return-type "object"}
+  {:params
+   [{:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint32", :borrow false}
+    {:ty "erased", :borrow false}],
+   :return-type "object"}],
+ "lean_string_validate_utf8"
+ [{:params [{:ty "object", :borrow true}], :return-type "uint8"}],
+ "lean_substring_beq"
+ [{:params
+   [{:ty "object", :borrow false} {:ty "object", :borrow false}],
+   :return-type "uint8"}],
+ "lean_system_platform_emscripten"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_system_platform_nbits"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_system_platform_osx"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_system_platform_target"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_system_platform_windows"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_task_bind"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint8", :borrow false}],
+   :return-type "object"}],
+ "lean_task_get_own"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "object", :borrow false}],
+   :return-type "tobject"}],
+ "lean_task_map"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "erased", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "object", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "uint8", :borrow false}],
+   :return-type "object"}],
+ "lean_task_pure"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_task_spawn"
+ [{:params
+   [{:ty "erased", :borrow false}
+    {:ty "tobject", :borrow false}
+    {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_thunk_get_own"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "object", :borrow true}],
+   :return-type "tobject"}],
+ "lean_thunk_pure"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "object"}],
+ "lean_uint16_of_nat"
+ [{:params [{:ty "tobject", :borrow true}], :return-type "uint16"}
+  {:params
+   [{:ty "tobject", :borrow true} {:ty "erased", :borrow false}],
+   :return-type "uint16"}],
+ "lean_uint16_of_nat_mk"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "uint16"}],
+ "lean_uint16_to_nat"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "tagged"}
+  {:params [{:ty "uint16", :borrow false}], :return-type "tobject"}],
+ "lean_uint16_to_uint32"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "uint32"}],
+ "lean_uint16_to_uint64"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "uint64"}],
+ "lean_uint16_to_uint8"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "uint8"}],
+ "lean_uint16_to_usize"
+ [{:params [{:ty "uint16", :borrow false}], :return-type "usize"}],
+ "lean_uint32_add"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint32"}],
+ "lean_uint32_dec_eq"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint32_dec_le"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint32_dec_lt"
+ [{:params
+   [{:ty "uint32", :borrow false} {:ty "uint32", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint32_of_nat"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "erased", :borrow false}],
+   :return-type "uint32"}
+  {:params [{:ty "tobject", :borrow true}], :return-type "uint32"}],
+ "lean_uint32_of_nat_mk"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "uint32"}],
+ "lean_uint32_to_float"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "float"}],
+ "lean_uint32_to_float32"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "float32"}],
+ "lean_uint32_to_nat"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "tobject"}],
+ "lean_uint32_to_uint16"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "uint16"}],
+ "lean_uint32_to_uint64"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "uint64"}],
+ "lean_uint32_to_uint8"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "uint8"}],
+ "lean_uint32_to_usize"
+ [{:params [{:ty "uint32", :borrow false}], :return-type "usize"}],
+ "lean_uint64_add"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_dec_eq"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint64_dec_lt"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint64_land"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_lor"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_mix_hash"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_mul"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_of_nat"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "erased", :borrow false}],
+   :return-type "uint64"}
+  {:params [{:ty "tobject", :borrow true}], :return-type "uint64"}],
+ "lean_uint64_of_nat_mk"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "uint64"}],
+ "lean_uint64_shift_left"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_shift_right"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_sub"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint64_to_float"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "float"}],
+ "lean_uint64_to_float32"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "float32"}],
+ "lean_uint64_to_nat"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "tobject"}],
+ "lean_uint64_to_uint16"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "uint16"}],
+ "lean_uint64_to_uint32"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "uint32"}],
+ "lean_uint64_to_uint8"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "uint8"}],
+ "lean_uint64_to_usize"
+ [{:params [{:ty "uint64", :borrow false}], :return-type "usize"}],
+ "lean_uint64_xor"
+ [{:params
+   [{:ty "uint64", :borrow false} {:ty "uint64", :borrow false}],
+   :return-type "uint64"}],
+ "lean_uint8_dec_eq"
+ [{:params [{:ty "uint8", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint8_dec_le"
+ [{:params [{:ty "uint8", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint8_land"
+ [{:params [{:ty "uint8", :borrow false} {:ty "uint8", :borrow false}],
+   :return-type "uint8"}],
+ "lean_uint8_of_nat"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "erased", :borrow false}],
+   :return-type "uint8"}
+  {:params [{:ty "tobject", :borrow true}], :return-type "uint8"}],
+ "lean_uint8_of_nat_mk"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "uint8"}],
+ "lean_uint8_to_nat"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "tagged"}
+  {:params [{:ty "uint8", :borrow false}], :return-type "tobject"}],
+ "lean_uint8_to_uint16"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint16"}],
+ "lean_uint8_to_uint32"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint32"}],
+ "lean_uint8_to_uint64"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "uint64"}],
+ "lean_uint8_to_usize"
+ [{:params [{:ty "uint8", :borrow false}], :return-type "usize"}],
+ "lean_usize_add"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_usize_dec_eq"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "uint8"}],
+ "lean_usize_dec_le"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "uint8"}],
+ "lean_usize_dec_lt"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "uint8"}],
+ "lean_usize_land"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_usize_mul"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_usize_of_nat"
+ [{:params
+   [{:ty "tobject", :borrow true} {:ty "erased", :borrow false}],
+   :return-type "usize"}
+  {:params [{:ty "tobject", :borrow true}], :return-type "usize"}],
+ "lean_usize_of_nat_mk"
+ [{:params [{:ty "tobject", :borrow false}], :return-type "usize"}],
+ "lean_usize_shift_left"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_usize_shift_right"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_usize_sub"
+ [{:params [{:ty "usize", :borrow false} {:ty "usize", :borrow false}],
+   :return-type "usize"}],
+ "lean_usize_to_nat"
+ [{:params [{:ty "usize", :borrow false}], :return-type "tobject"}],
+ "lean_usize_to_uint16"
+ [{:params [{:ty "usize", :borrow false}], :return-type "uint16"}],
+ "lean_usize_to_uint32"
+ [{:params [{:ty "usize", :borrow false}], :return-type "uint32"}],
+ "lean_usize_to_uint64"
+ [{:params [{:ty "usize", :borrow false}], :return-type "uint64"}],
+ "lean_usize_to_uint8"
+ [{:params [{:ty "usize", :borrow false}], :return-type "uint8"}],
+ "lean_version_get_is_release"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "uint8"}],
+ "lean_version_get_major"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_version_get_minor"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_version_get_patch"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "tobject"}],
+ "lean_version_get_special_desc"
+ [{:params [{:ty "tagged", :borrow false}], :return-type "object"}],
+ "lean_void_mk"
+ [{:params
+   [{:ty "erased", :borrow false} {:ty "tobject", :borrow false}],
+   :return-type "void"}]}

@@ -1595,8 +1595,8 @@ public final class TypeChecker {
                 }
             } else {
                 // Both sides are definitions — use hints to decide
-                int tHints = dtInfo.getHints();
-                int sHints = dsInfo.getHints();
+                long tHints = dtInfo.getHintsCode();
+                long sHints = dsInfo.getHintsCode();
                 int cmp = compareHints(tHints, sHints);
 
                 if (cmp < 0) {
@@ -1616,7 +1616,7 @@ public final class TypeChecker {
                     // resolves both sides to the same declaration object, even if
                     // the head constants carry syntactically different levels.
                     if (tn.tag == Expr.APP && sn.tag == Expr.APP &&
-                        sameDeclaration(dtInfo, dsInfo) && tHints > 0) {
+                        sameDeclaration(dtInfo, dsInfo) && tHints >= 0) {
                         emitPhase("lazyDelta.sameDefArgs");
                         // Same definition with Regular hints — identity-based failure cache
                         if (!failedBefore(tn, sn)) {
@@ -1827,12 +1827,12 @@ public final class TypeChecker {
         return deltaInfo(head) != null;
     }
 
-    /** Get reducibility hints for a head constant. Returns -1 for opaque, 0 for abbrev, >0 for regular. */
-    private int getHints(Expr head) {
+    /** Get exact reducibility hints: -1 opaque, -2 abbrev, UInt32 regular height. */
+    private long getHints(Expr head) {
         if (head.tag != Expr.CONST) return ConstantInfo.HINTS_OPAQUE;
         ConstantInfo ci = env.lookup((Name) head.o0);
         if (ci == null) return ConstantInfo.HINTS_OPAQUE;
-        return ci.getHints();
+        return ci.getHintsCode();
     }
 
     /**
@@ -1841,24 +1841,15 @@ public final class TypeChecker {
      * > 0: unfold s
      * = 0: unfold both
      */
-    private static int compareHints(int t, int s) {
-        // Both opaque: can't unfold
-        if (t == ConstantInfo.HINTS_OPAQUE && s == ConstantInfo.HINTS_OPAQUE) return 0;
-        // One opaque: unfold the non-opaque
-        if (t == ConstantInfo.HINTS_OPAQUE) return 1;
-        if (s == ConstantInfo.HINTS_OPAQUE) return -1;
-        // Abbrev (0) vs regular (>0): unfold abbrev first
-        if (t == ConstantInfo.HINTS_ABBREV && s > 0) return -1;
-        if (s == ConstantInfo.HINTS_ABBREV && t > 0) return 1;
-        // Both abbrev: unfold both
-        if (t == ConstantInfo.HINTS_ABBREV && s == ConstantInfo.HINTS_ABBREV) return 0;
-        // Both regular: unfold the one with higher height (defined later)
-        if (t > 0 && s > 0) {
-            if (t > s) return -1;  // t is higher, unfold t
-            if (t < s) return 1;   // s is higher, unfold s
-            return 0;              // same height, unfold both
-        }
-        return 0;
+    private static int compareHints(long t, long s) {
+        if (t == ConstantInfo.REDUCIBILITY_OPAQUE && s == ConstantInfo.REDUCIBILITY_OPAQUE) return 0;
+        if (t == ConstantInfo.REDUCIBILITY_OPAQUE) return 1;
+        if (s == ConstantInfo.REDUCIBILITY_OPAQUE) return -1;
+        if (t == ConstantInfo.REDUCIBILITY_ABBREV && s >= 0) return -1;
+        if (s == ConstantInfo.REDUCIBILITY_ABBREV && t >= 0) return 1;
+        if (t == ConstantInfo.REDUCIBILITY_ABBREV && s == ConstantInfo.REDUCIBILITY_ABBREV) return 0;
+        // Both regular: larger unsigned UInt32 height unfolds first.
+        return Long.compare(s, t);
     }
 
     private static boolean levelsEq(Object[] a, Object[] b) {
@@ -1975,8 +1966,8 @@ public final class TypeChecker {
             }
         } else {
             // Both delta
-            int tHints = dtInfo.getHints();
-            int sHints = dsInfo.getHints();
+            long tHints = dtInfo.getHintsCode();
+            long sHints = dsInfo.getHintsCode();
             int cmp = compareHints(tHints, sHints);
 
             if (cmp < 0) {
@@ -1997,7 +1988,7 @@ public final class TypeChecker {
                 Expr[] snArgs = (Expr[]) snFA[1];
                 if (sameDeclaration(dtInfo, dsInfo)
                     && tnArgs.length == snArgs.length
-                    && tHints > 0) { // regular hints (positive = regular in our encoding)
+                    && tHints >= 0) { // exact regular height, including zero
                     if (!failedBefore(tn, sn)) {
                         if (levelsEq(Reducer.constLevels(tnHead), Reducer.constLevels(snHead))
                             && isDefEqArgs(tn, sn)) {
@@ -2551,12 +2542,17 @@ public final class TypeChecker {
     public static Env checkMutualDefinitions(Env env, java.util.List<ConstantInfo> cis, long fuel) {
         if (cis.isEmpty()) throw new RuntimeException("invalid empty mutual definition");
         byte safety = cis.get(0).safety;
+        Object[] levelParams = cis.get(0).levelParams;
         if (safety == DEFN_SAFE)
             throw new RuntimeException("invalid mutual definition, declaration is not tagged as unsafe/partial: " + cis.get(0).name);
         for (ConstantInfo ci : cis) {
             if (!ci.isDef()) throw new RuntimeException("invalid mutual definition, not a definition: " + ci.name);
             if (ci.safety != safety)
                 throw new RuntimeException("invalid mutual definition, declarations must have the same safety annotation: " + ci.name);
+            // Lean environment::add_mutual compares the ordered universe-parameter lists,
+            // before checking headers; each member being well formed individually is insufficient.
+            if (!java.util.Arrays.equals(levelParams, ci.levelParams))
+                throw new RuntimeException("invalid mutual definition, declarations must have the same universe level parameters: " + ci.name);
             checkDuplicateUnivParams(ci.levelParams, ci.name);
             TypeChecker tc = new TypeChecker(env, safety, ci.levelParams);
             tc.setFuel(fuel);
@@ -2891,7 +2887,9 @@ public final class TypeChecker {
             retArgs.add(0, (Expr) retHead.o1);
             retHead = (Expr) retHead.o0;
         }
-        if (retHead.tag != Expr.CONST || !inductiveNames.contains((Name) retHead.o0)) {
+        // Recursive fields may refer to any member of the mutual block, but a
+        // constructor must return its own parent (Lean is_valid_ind_app(t, idx)).
+        if (retHead.tag != Expr.CONST || !indCi.name.equals(retHead.o0)) {
             throw new RuntimeException("Constructor " + ctorCi.name +
                 " return type is not an application of " + indCi.name);
         }

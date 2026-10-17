@@ -33,13 +33,59 @@ final class RecursorGenerator {
     private final int[] numIndices;
     private final Expr[] indConsts;
     private final Level elimLevel;
+    private final boolean kTarget;
     private final RecInfo[] recInfos;
     private long nextLocalId;
 
+    /** Preserve the original binary constructor descriptor for already loaded callers.
+     * Derive K-target from the checked family rather than assuming a legacy false flag. */
     RecursorGenerator(Env env, InductiveBundle bundle, long fuel,
             Object[] levelValues, boolean hasLevelParams,
             ArrayList<LocalDecl> params, int[] numIndices, Expr[] indConsts,
             Level elimLevel, long nextLocalId) {
+        this(env, bundle, fuel, levelValues, hasLevelParams, params, numIndices,
+            indConsts, elimLevel, deriveKTarget(env, bundle, fuel), nextLocalId);
+    }
+
+    private static boolean deriveKTarget(Env env, InductiveBundle bundle, long fuel) {
+        if (bundle.inductives.length != 1 || bundle.inductives[0].ctors == null
+                || bundle.inductives[0].ctors.length != 1) return false;
+        TypeChecker tc = new TypeChecker(env,
+            bundle.isUnsafe ? TypeChecker.DEFN_UNSAFE : TypeChecker.DEFN_SAFE, bundle.levelParams);
+        tc.setFuel(fuel);
+        Expr type = tc.whnfExpr(bundle.inductives[0].type);
+        long localId = 1;
+        while (type.tag == Expr.FORALL) {
+            long id = localId++;
+            tc.addLocal(id, type.o0, TypeChecker.consumeTypeAnnotations((Expr) type.o1));
+            type = tc.whnfExpr(Reducer.instantiate1((Expr) type.o2, Expr.fvar(id)));
+        }
+        return computeKTarget(env, bundle, (Level) tc.ensureSortExpr(type).o0);
+    }
+
+    /** Pinned inductive.cpp's K-target condition: one Prop family and one
+     * constructor with no fields after the shared parameters. */
+    static boolean computeKTarget(Env env, InductiveBundle bundle, Level resultLevel) {
+        if (bundle.inductives.length != 1 || !Level.isZero(resultLevel)
+                || bundle.inductives[0].ctors == null || bundle.inductives[0].ctors.length != 1)
+            return false;
+        ConstantInfo ctor = env.lookup(bundle.inductives[0].ctors[0]);
+        if (ctor == null || !ctor.isCtor())
+            throw new RuntimeException("missing constructor while deriving K-target");
+        Expr type = ctor.type;
+        int i = 0;
+        while (type.tag == Expr.FORALL) {
+            if (i >= bundle.numParams) return false;
+            type = (Expr) type.o2;
+            i++;
+        }
+        return true;
+    }
+
+    RecursorGenerator(Env env, InductiveBundle bundle, long fuel,
+            Object[] levelValues, boolean hasLevelParams,
+            ArrayList<LocalDecl> params, int[] numIndices, Expr[] indConsts,
+            Level elimLevel, boolean kTarget, long nextLocalId) {
         this.workingEnv = env;
         this.bundle = bundle;
         this.fuel = fuel;
@@ -49,6 +95,7 @@ final class RecursorGenerator {
         this.numIndices = numIndices;
         this.indConsts = indConsts;
         this.elimLevel = elimLevel;
+        this.kTarget = kTarget;
         this.nextLocalId = nextLocalId;
         this.recInfos = new RecInfo[bundle.inductives.length];
         for (int i = 0; i < recInfos.length; i++) {
@@ -163,6 +210,7 @@ final class RecursorGenerator {
         for (int i = 0; i < bundle.recursors.length; i++) {
             ConstantInfo rec = bundle.recursors[i];
             int indIdx = recursorInductiveIndex(rec.name);
+            compareGeneratedMetadata(rec, indIdx);
             Expr expectedType = buildExpectedRecursorType(indIdx);
             compareGeneratedType(rec, expectedType);
             ConstantInfo.RecursorRule[] expectedRules = buildExpectedRecursorRules(indIdx, rec);
@@ -345,8 +393,8 @@ final class RecursorGenerator {
      * Generate the complete recursor declarations for this (plain / mutual) bundle from scratch,
      * rather than validating provided ones. Used for nested inductives, whose aux mutual block has
      * no imported recursors — the standard mutual generation yields the correct nested induction
-     * hypotheses. K-target only applies to a single non-mutual Prop inductive, so isK is false for
-     * any block reached here.
+     * hypotheses. The K-target flag is computed by the inductive checker; an auxiliary
+     * nested mutual block naturally computes false.
      */
     ConstantInfo[] generateRecursors() {
         int numMotives = recInfos.length;
@@ -362,9 +410,24 @@ final class RecursorGenerator {
             out[dIdx] = ConstantInfo.mkRecursor(
                 recName, recLevelParams, type, allNames,
                 params.size(), numIndices[dIdx], numMotives, numMinors,
-                rules, false, bundle.isUnsafe);
+                rules, kTarget, bundle.isUnsafe);
         }
         return out;
+    }
+
+    /** Validate the reduction protocol as well as its expression type and rules. */
+    private void compareGeneratedMetadata(ConstantInfo rec, int indIdx) {
+        Object[] allNames = new Object[bundle.inductives.length];
+        for (int i = 0; i < allNames.length; i++) allNames[i] = bundle.inductives[i].name;
+        if (!java.util.Arrays.equals(rec.all, allNames)
+                || rec.numParams != params.size()
+                || rec.numIndices != numIndices[indIdx]
+                || rec.numMotives != recInfos.length
+                || rec.numMinors != collectMinors().size()
+                || rec.isK != kTarget
+                || rec.isUnsafe != bundle.isUnsafe) {
+            throw new RuntimeException("generated recursor computational metadata mismatch for " + rec.name);
+        }
     }
 
     private void compareGeneratedType(ConstantInfo importedRec, Expr expectedType) {

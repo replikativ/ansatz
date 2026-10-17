@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "scope": "parent-Clojure-formatting-only",
+  "source-commit-before-formatting": "548db1e",
+  "formatter": "cljfmt 0.9.2",
+  "check": "all src and test",
+  "file-count": 7,
+  "before-sha256": {
+    "src/ansatz/codegen.clj": "b8a963ad9e51293b883f2ecded801bef6396adbb89b21351b4786ba6d71c82a4",
+    "src/ansatz/export/codec.clj": "6932a3b121cc3625b78da3331e6a74462d0a8793a08ef1b872769417d2c68fea",
+    "src/ansatz/export/storage.clj": "b70fa975f626ec6f947c1e151c3f007a94915bd34445c9ec2d724ee27299a1ea",
+    "src/ansatz/kernel/env.clj": "08050a8a0bd9317611daecf9122e083c86890723767b139cda663210780dc539",
+    "test/ansatz/codegen_numeric_test.clj": "a75d9b905bbd238d30a98c8e1902327e474ac91167d38ee456daf8b0c2c56ea5",
+    "test/ansatz/kernel/constructor_parent_test.clj": "db653a1b83fd4be264fd68500cebed2bf4b93a7631d214401be8a624a8574468",
+    "test/ansatz/theory/inferred_real_test.clj": "d2140adc1e8b8cba8c8a0bd2fbda07d469418a5df3d115ac5c14ed21b80c1eea"
+  },
+  "after-sha256": {
+    "src/ansatz/codegen.clj": "ad1568bc815ba7fdc8b383ee0d20e01b88dfecac2319fb6b0db1296193771abe",
+    "src/ansatz/export/codec.clj": "19295931dc37375ee545f429b4b35263f22f069127f10fed174adc3d8bb61e1f",
+    "src/ansatz/export/storage.clj": "e0a0748b2e45e55ae99e94d66936c1dd63bcab1fa3ee643b5e5abc459ad37d72",
+    "src/ansatz/kernel/env.clj": "d6ba525e6ccf4acf98ca23c19664d74fba6fa5de5760071020df1530c5d235ce",
+    "test/ansatz/codegen_numeric_test.clj": "397ad553f5d4a203103a64668c2d49289e7d4e972360e55f1fc298875c1f8c31",
+    "test/ansatz/kernel/constructor_parent_test.clj": "944ad816ed5e011dbe90802686bf1574411c30bd42d8c22038bf904f50511fb8",
+    "test/ansatz/theory/inferred_real_test.clj": "570183865cdc502a8c5bfe59a1bce90466abefcbbdc2ecb12b634e07dd721d4d"
+  },
+  "whitespace-and-blank-lines-only": true,
+  "semantic-source-changes": false,
+  "experiment-source-test-hashes-changed": false,
+  "fix-peak-rss-bytes": 355188736,
+  "check-peak-rss-bytes": 409858048,
+  "guard-triggered": false,
+  "original-CI-format-job": 1518,
+  "original-CI-unittest-job": 1520,
+  "original-CI-unittest-status": "dependency-resolution HTTP 429 before tests"
+}

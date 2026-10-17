@@ -1,0 +1,22 @@
+{
+  "exit": 0,
+  "minimum-available-kib": 1560040,
+  "elapsed-seconds": 161.02552830497734,
+  "heap-limit-mib": 256,
+  "status": "passed",
+  "tests": 663,
+  "assertions": 58127,
+  "failures": 0,
+  "errors": 0,
+  "scope": "Lean IR experiment combined JVM suite; not parent Ansatz source/AOT/jar validation",
+  "source-sha256": {
+    "src/prototype/runtime_expr.cljc": "7c3feadd2ea45ebc65d554caa90891c01b34f3d6faa9b0cdad49435a1a1a3d03",
+    "src/prototype/runtime_prim.cljc": "b6559f2fd1e4f76fe7325e57cca2284162843550fb9a8efaf517a1533ab00a30",
+    "src/prototype/eval_const.clj": "d9b313d1a899efcc93ed7a076040e03c1ea95df87201011395a9d6c5f4853991",
+    "src/prototype/slot_count.clj": "975d4dc0fa6d0582281056c489db09c760d27f76e2b80f73a40ce0282f598392",
+    "src/prototype/mutable.clj": "88f51582478a091210a450146d9c0d031a5e847fbb038903890b4ebe384db44e",
+    "src/prototype/frontend.clj": "de4097dda014bd490bd7d92d3af98045045854c65b40faab323af104f7384470",
+    "src/prototype/hosted_file.clj": "e70427ede10135479ba5b39e9b7a02eaca25a77db4884953bf0e9ebcbc98876c",
+    "src/prototype/test_runner.clj": "2fb4aacb037891b6cdde81421c0d8db875039f98ebdc14e9fc9d3401e43a24ea"
+  }
+}

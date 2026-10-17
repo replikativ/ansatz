@@ -1,0 +1,20 @@
+{
+  "schema": "ansatz-hosted-module-import/1",
+  "lean_version": "4.33.1",
+  "lean_commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "backend": "mutable-jvm",
+  "fixture": "fixtures/imported-kernel-native.jsonl",
+  "fixture_sha256": "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3",
+  "status": "ok",
+  "constant_count": 17,
+  "constant_variants_checked": 8,
+  "elapsed_ms": 6854.768191,
+  "guest_finalization": "ModuleDataTransport.finalizeTransport invokes actual Lean.finalizeImport with loadExts=true",
+  "kernel_admission": "strict Java checking of final guest checked constant map, followed by exact checked-root association",
+  "assumptions": {
+    "allow_axioms": true,
+    "allow_unsafe": true
+  },
+  "native_initializer_availability": "unavailable symbol returns false; actual guest InitAttr fallback executes",
+  "full_Init_hosted_import_complete": false
+}
