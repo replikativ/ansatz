@@ -322,3 +322,48 @@ all three backends, with no handler before yield, no duplicate completion and
 complete result cleanup. This validates compiled-fixture interop, not actual
 Init witness production. The next actual REPL run combines this protocol with
 the smaller initializer graph and prepared typed/shared-name witness.
+
+The [actual cooperative run](../measurements/full-init-cooperative-run.json)
+subsequently completed 793 real `evalConst` callbacks without failure on a 2 GiB
+heap. It advanced 161,574,741 guest instructions from the assembled state and
+ended with 323,943 functions and 534,583 local heap objects. The first typed/shared
+witness callback took 2.51 seconds and 144,923 helper instructions. The scoped
+diagnostic process exited normally within its 2,560 MiB RSS policy, peaking at
+2,499,514,368 bytes. Guest finalization was still unfinished; no kernel checking,
+resident adoption or durable completed-world checkpoint occurred.
+
+The same run tested a short persistent-interpreter prefix before mutable
+execution, using a scoped REPL replacement of the boundary runner. A pure
+51-instruction helper over the same 379,342-object heap took 50–88 ms in the later
+mutable samples and 0.11–0.22 ms with the prefix. These are paired helper timings,
+not frontend throughput: actual initializer workloads differ, and the process
+also included REPL idle time and an accidental large diagnostic print outside
+the timed guest segments. No end-to-end startup comparison follows from it.
+
+The [prefix callable](../scripts/reference-prefix-experiment.clj) and
+[differential/microbenchmark helper](../scripts/reference-prefix-smoke.clj) are
+definitions-only experiments. Forty-two existing tests / 1,052 assertions passed
+under the scoped replacement, alongside 147 canonical-state comparisons and
+21 tail/fuel comparisons. A general runtime option remains deferred: it must
+preserve mutable code/register admission, define conservative canonical-snapshot
+eligibility, and survive frontend/resident session rebuilding. The default
+runtime has not changed.
+
+The [campaign runner](../scripts/full-init-campaign.clj) now retains the original
+catalogue, helpers, policy and session explicitly. Its independently callable
+preparation, automatic finalizer and strict-check phases claim owners once and
+preserve intermediate successful packets before fallible work. The
+[cooperative driver](../scripts/cooperative-full-init-drive.clj) authorizes the
+whole active binding registry, including nested callbacks. Both record successful
+events before observation, and publish a claimable phase only after its fallible
+logging completes. Failures retain named diagnostic alternatives, never an
+automatic retry of a consumed token or IO result. Source lifetime remains under
+the caller's control. The next actual run will stop after guest completion to
+inspect available resources before starting strict checking.
+
+[Orchestration validation](../measurements/campaign-orchestration-validation.json)
+passed 22 focused tests / 183 assertions, followed by the full runtime suite of
+764 tests / 66,084 assertions. The owner/publication tests use small models;
+they establish failure handling, not actual full-Init or resident acceptance.
+See the [REPL campaign instructions](../scripts/FULL_INIT_CAMPAIGN.md) for explicit
+phase entry points and resource/lifetime requirements.

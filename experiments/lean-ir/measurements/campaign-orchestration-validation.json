@@ -1,0 +1,59 @@
+{
+  "schema": "ansatz-campaign-orchestration-validation/1",
+  "date": "2026-10-18",
+  "runtime-base": "ca6447d",
+  "scope": "definitions-only experiment driver, phase/owner orchestration, canonical reference-prefix experiment; default raw runtime unchanged",
+  "focused": {
+    "test": 22,
+    "pass": 183,
+    "fail": 0,
+    "error": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-M",
+        "-e",
+        "(require 'prototype.full-init-campaign-test 'prototype.cooperative-driver-draft-test 'prototype.reference-prefix-experiment-test) (let [r (clojure.test/run-tests 'prototype.full-init-campaign-test 'prototype.cooperative-driver-draft-test 'prototype.reference-prefix-experiment-test)] (shutdown-agents) (System/exit (+ (:fail r) (:error r))))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 445947904,
+      "elapsed_seconds": 10.02
+    }
+  },
+  "full-runtime": {
+    "test": 764,
+    "pass": 66084,
+    "fail": 0,
+    "error": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-M:test"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 802369536,
+      "elapsed_seconds": 156.31
+    }
+  },
+  "review": "Independent Astra review, fixes, then re-review of binding scope, owner preservation, phase publication, source identity and terminal failures.",
+  "library-source-and-jar": "Not rerun in this change: production library/Java/packaging files unchanged.",
+  "sources-sha256": {
+    "experiments/lean-ir/scripts/cooperative-full-init-drive.clj": "58850d4ad3f29f9a7fc37c716eed2d401e77a334d20fedcd23688114df372e66",
+    "experiments/lean-ir/scripts/full-init-campaign.clj": "313816e07865e56c92f041a95c738d515833ab8b393f2d4c625dc1642bad3639",
+    "experiments/lean-ir/scripts/reference-prefix-experiment.clj": "31e9c087be10faaa79a2c83ab68b29f715bed7df3e28e5605148cb33957ee95c",
+    "experiments/lean-ir/scripts/reference-prefix-smoke.clj": "398549dbfc489d2b1ddbb20b94e6fb4a148065e1fdc78ab00cf202ce0c1389f8",
+    "experiments/lean-ir/src/prototype/test_runner.clj": "52799b44eaead22056c46ecfbd432937742bbfc1a7ff3f426cfdfe5a13c14ef6",
+    "experiments/lean-ir/test/prototype/cooperative_driver_draft_test.clj": "dc8abac7ab7a11f8bf7d89da41bf728462e3da164af1eb82b76a3beaa9eb5d9e",
+    "experiments/lean-ir/test/prototype/full_init_campaign_test.clj": "336d4b06e5eece0b2ddf147e038c821bde6c9cbf1d3d9cb33f52e0ed69e0cf9e",
+    "experiments/lean-ir/test/prototype/reference_prefix_experiment_test.clj": "ade32a05e93755448f520be7a3c256b98663ec8ae6c08a5ed022d0178c0eb081"
+  },
+  "limits": [
+    "Orchestration tests use small ownership models; no actual completed Init or strict/facade success is established.",
+    "The reference-prefix callable is not installed by the campaign/default runtime; admission/canonical-snapshot integration remains deferred.",
+    "Completed-finalizer serialization is not integrated."
+  ]
+}
