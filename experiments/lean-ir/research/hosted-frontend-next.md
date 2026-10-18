@@ -706,3 +706,24 @@ parameters/flags, alongside previous safe-axiom/definition checks. The refreshed
 kernel shim artifact includes `postCheckCompilerMarker`. The native canary now
 links against the pinned shared Lean runtime (`KernelBridgeShim-native-shared`,
 85KB executable), avoiding a second 221MB statically linked copy during experiments.
+
+
+Current assembly boundary: the [full Init assembly experiment](../measurements/full-init-assembly.json)
+passed with authenticated lazy ModuleData, explicit initializer capabilities,
+and the rebuilt kernel classes. It covers 631 module records and returns owned
+assembly roots, not a finalized or checked Environment. Finalization, strict
+association, ordinary resident adoption and durable checkpoints remain separate
+work. The next bounded performance comparison forks the same prepared input
+through mutable and demand-compiled JVM execution before attempting the long
+finalizer again.
+
+The next bundle-generation draft also needs lossless native Name identities.
+The [native-name evidence record](../measurements/native-name-evidence.json)
+captures a pinned Init inventory of 65,994 distinct Names, including quoted
+macro names which cannot all use Java display strings as native identifiers.
+The isolated draft reader retained every identity and matched 3,775 candidate
+ConstantInfo Names by structural equality. Planning found 40 missing metadata
+roots; the selected legacy metadata gate accepted 1,338 identities. These are
+research observations, not a promoted bundle: serialization must translate every
+selected global field, and declaration tags, safety, axiom completeness and
+native expression-equality obligations remain mandatory independent gates.

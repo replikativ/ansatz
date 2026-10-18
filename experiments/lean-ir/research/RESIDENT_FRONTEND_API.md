@@ -214,3 +214,17 @@ process-group RSS. Its explicit `:immutable-text-v1` ShareCommon profile covers
 host-backed immutable strings. This is acceptance evidence, not a throughput
 benchmark or ordinary/full-Init facade support. Completed full-Init checkpoints,
 warm dependency edits and broader native representation profiles remain open.
+
+
+The next [assembly-only probe](../scripts/full-init-assembly-probe.clj) also passed
+against the current runtime and rebuilt kernel. It opened the authenticated Init
+transport (631 modules, 11,233,359 backing nodes), prepared 312,102 executable
+functions, and ran the guest batch assembler. Preparation plus assembly took
+83,563 ms after bootstrap restoration, including diagnostic host GC. The 3 GiB
+heap process peaked at 3,534,254,080 RSS bytes; its 444-second guarded lifetime
+includes REPL idle and cleanup and is not an assembly throughput measurement.
+The [assembly record](../measurements/full-init-assembly.json) pins inputs and
+scope. Backing nodes remained lazy. The experiment released its two owned roots,
+discarded worlds, and closed the borrowed source. It did not run the finalizer,
+create a kernel association, or produce a durable Init checkpoint. Ordinary
+facade acceptance still requires those later gates.
