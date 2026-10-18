@@ -1,0 +1,39 @@
+{
+  "schema": "ansatz-typed-witness-host-controls/1",
+  "date": "2026-10-18",
+  "scope": "host-control models with stubbed raw driver; no guest execution",
+  "tests": {
+    "test": 7,
+    "pass": 119,
+    "fail": 0,
+    "error": 0
+  },
+  "guard": {
+    "command": [
+      "clojure",
+      "-J-Xmx512m",
+      "-M",
+      "-e",
+      "(load-file \"scripts/prepare-ir-witness.clj\") (load-file \"scripts/prepare-shared-names-witness.clj\") (load-file \"../../target/artifact-contract/full-init-next/typed-witness-next.clj\") (load-file \"../../target/artifact-contract/full-init-next/typed-witness-control-test.clj\") (let [r (clojure.test/run-tests 'user)] (spit \"../../target/artifact-contract/full-init-next/typed-hardened-control-observation.json\" (pr-str r)) (shutdown-agents) (System/exit (+ (:fail r) (:error r))))"
+    ],
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 426684416,
+    "elapsed_seconds": 11.04
+  },
+  "sources": {
+    "typed-witness-next.clj": "efb713e4fea27710803847195a61a019e025217ef64e8660b0fcd54e41d7a2b2",
+    "typed-witness-control-test.clj": "d509b47c67525fc35b9b2aa25c1fcdf23b30ad4a41c2308e69762bd6d703d789"
+  },
+  "checks": [
+    "Invalid world/function/source/root inputs reject before opening or claiming execution.",
+    "Two concurrent start callers execute the stubbed driver exactly once.",
+    "Two concurrent continuation callers execute the stubbed driver exactly once.",
+    "Only exact top-level guest fuel pauses gain a single-use continuation token.",
+    "Nested callback checkpoints cannot resume as outer guest states."
+  ],
+  "limits": [
+    "Actual assembly/witness preparation was measured at the prior script revision, captured in commit d01948f.",
+    "Stronger defensive preflights and race tests are model validated here; no full Init finalizer ran."
+  ]
+}

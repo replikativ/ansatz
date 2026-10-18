@@ -25,6 +25,23 @@
 
 (defn- tw-check [ok message]
   (when-not ok (throw (ex-info message {:scope :full-init-typed-witness-draft}))))
+(defn- tw-assembly-preflight! [assembled]
+  ;; Liveness/identity checks only, before opening or claiming an execution.
+  ;; This does not prove that external callers have observed affine ownership.
+  (let [world (:world assembled) session (:session assembled) source (:source assembled)
+        attached (:native-imports world)]
+    (tw-check (and (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world)))
+              "Assembly world must be idle")
+    (tw-check (and (map? (:functions session)) (identical? (:functions session) (:functions world)))
+              "Assembly/session executable identity mismatch")
+    (tw-check (and source (instance? clojure.lang.IDeref (:closed source)) (false? @(:closed source)))
+              "Expected original open source")
+    (tw-check (and (= 1 (count attached)) (identical? source (first attached)))
+              "Assembly world must attach the same singleton source")
+    (doseq [root [(:state assembled) (:imports assembled)]]
+      (tw-check (tw-m/ref? root) "Missing owned assembly roots")
+      (tw-check (map? (tw-m/node world root)) "Assembly root has no live guest node"))
+    assembled))
 (defn- tw-heap []
   (let [r (Runtime/getRuntime)] {:used (- (.totalMemory r) (.freeMemory r)) :committed (.totalMemory r) :max (.maxMemory r)}))
 (defn- tw-measure [phases phase f]
@@ -102,6 +119,7 @@
    Load the two existing defs-only helper scripts before invoking this function."
   [assembled]
   (tw-check (= :assembled-only (:status assembled)) "Expected fresh assembled-only result")
+  (tw-assembly-preflight! assembled)
   (let [world (:world assembled) source (:source assembled)
         session (:session assembled) functions (:functions session) bindings (:bindings session)
         phases (atom []) profile (atom {})
@@ -180,7 +198,8 @@
   (tw-check (= :typed-witness-prepared (:status prepared)) "Expected typed witness preparation")
   (tw-check (contains? #{:mutable :jvm} backend) "Choose measured backend explicitly")
   (tw-check (and (integer? fuel) (<= 1 fuel 20000000)) "Slice fuel must be1..20M")
-  (tw-check (false? @(:closed (:source prepared))) "Source already closed")
+  (tw-assembly-preflight! prepared)
+  (tw-check (instance? clojure.lang.Atom (:start-claimed? prepared)) "Missing start claim token")
   (let [session (:session prepared)
         session (tw-raw/open-functions (:functions session) (:bindings session)
                   {:backend backend :fuel fuel :compile-threshold 64})

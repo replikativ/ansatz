@@ -186,5 +186,7 @@
     "Slice helpers remain experimental, can resume only live top-level fuel pauses, and cannot resume unwound nested host callbacks.",
     "There is no durable finalized Init checkpoint or ordinary facade acceptance in this run.",
     "The current input assembly is genuine; stronger start preflights and a concurrent token-claim test remain review recommendations."
-  ]
+  ],
+  "captured-script-commit": "d01948f",
+  "later-host-control-validation": "full-init-typed-witness-controls.json"
 }

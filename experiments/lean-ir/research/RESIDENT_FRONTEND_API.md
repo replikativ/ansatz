@@ -265,3 +265,11 @@ the token, and unwound nested host callbacks cannot resume as outer guest states
 The slice helpers are experimental, preserve live checkpoints only, and do not
 provide durable restoration or nested host-continuation serialization. No finalizer
 was invoked in this run. All assembly roots were released and the source closed.
+
+
+A subsequent [host-control validation](../measurements/full-init-typed-witness-controls.json)
+passed seven tests / 119 assertions. The current draft also checks idle state,
+exact executable/source identity and live roots before opening or claiming a
+start. Two callers racing on either start or continuation enter the stubbed driver
+exactly once. These strengthen the captured preparation revision; the later
+preflight/race tests do not execute Init finalization.

@@ -727,3 +727,14 @@ roots; the selected legacy metadata gate accepted 1,338 identities. These are
 research observations, not a promoted bundle: serialization must translate every
 selected global field, and declaration tags, safety, axiom completeness and
 native expression-equality obligations remain mandatory independent gates.
+
+
+A [standalone exact native root preflight](../measurements/exact-root-native-preflight.json)
+now has positive and negative native evidence. The pinned helper accepted all 40
+missing metadata roots plus Nat and the quoted macro identity. It rejected a
+Nat spelling paired with Bool's identity, and a missing exact root. Four pure
+protocol tests also passed. The [helper](../scripts/validate_bundle_roots_v2.lean)
+and [harness](../scripts/exact_root_preflight.py) use a bounded structured request,
+explicit pinned sysroot and captured input hashes; they never invoke the exporter.
+This fills an experimental naming check, not declaration validation or bundle
+finalization. Concrete generator wiring and all other strict gates remain open.
