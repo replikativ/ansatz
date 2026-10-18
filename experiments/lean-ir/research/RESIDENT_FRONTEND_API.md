@@ -228,3 +228,19 @@ scope. Backing nodes remained lazy. The experiment released its two owned roots,
 discarded worlds, and closed the borrowed source. It did not run the finalizer,
 create a kernel association, or produce a durable Init checkpoint. Ordinary
 facade acceptance still requires those later gates.
+
+
+A [three-way assembly observation](../measurements/full-init-assembly-tiers.json)
+then forked the same prepared idle world, executable map, bindings and open source.
+Mutable interpretation took 4,301.82 ms; JVM demand compilation at threshold 64
+took 7,725.80 ms with an empty code cache and 5,147.54 ms reusing that cache.
+All three executed exactly 2,091,800 guest steps and produced identical local
+heap/global changes, roots, allocation identity and initialization state. The
+cold JVM branch compiled 237 blocks; the warm branch compiled none. Each branch
+released its two owned roots. This fixed-order observation shares source, OS and
+JVM caches; it measures assembly alone and cannot predict finalizer performance.
+For this workload, demand compilation did not improve elapsed time. The
+[definitions-only benchmark](../scripts/full-init-assembly-benchmark.clj) accepts
+a still-open result of the assembly probe; loading either script starts no guest
+work. The final input assembly was released and the source closed after all
+comparison branches were discarded.
