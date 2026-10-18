@@ -636,3 +636,126 @@
         (is (thrown? Exception
                      (TypeChecker/checkMutualDefinitions
                       env1 [(env/mk-def (nm "bad") [] A (mk-const "b") :safety :partial)] 1000000)))))))
+
+(deftest definition-effective-safety-test
+  (testing "both definition factories derive unsafe status from the current safety field"
+    (doseq [factory [(fn [safety]
+                       (ConstantInfo/mkDef (name/from-string "d") (object-array [])
+                                           type0 prop 0 safety (object-array [])))
+                     (fn [safety]
+                       (ConstantInfo/mkDefWithHints (name/from-string "d") (object-array [])
+                                                    type0 prop 0 safety (object-array [])))]]
+      (let [^ConstantInfo ci (factory (byte 1))]
+        (is (.isUnsafeDeclaration ci))
+        (is (false? (.isUnsafe ci)) "the other variants' wire field is not a second authority")
+        (set! (.safety ci) (byte 2))
+        (is (false? (.isUnsafeDeclaration ci)) "partial is distinct from unsafe")
+        (set! (.isUnsafe ci) true)
+        (is (false? (.isUnsafeDeclaration ci)) "a stale boolean cannot override partial")
+        (set! (.safety ci) (byte 0))
+        (is (false? (.isUnsafeDeclaration ci)))
+        (set! (.safety ci) (byte 1))
+        (is (.isUnsafeDeclaration ci)))))
+  (testing "theorem and quotient variants have no unsafe flag in Lean"
+    (doseq [^ConstantInfo ci [(env/mk-thm (name/from-string "t") [] prop prop)
+                              (ConstantInfo/mkQuot (name/from-string "q") (object-array [])
+                                                   prop nil)]]
+      (set! (.isUnsafe ci) true)
+      (is (false? (.isUnsafeDeclaration ci)))))
+  (testing "axiom and opaque variants retain their explicit unsafe flags"
+    (doseq [^ConstantInfo ci [(env/mk-axiom (name/from-string "a") [] prop :unsafe? true)
+                              (ConstantInfo/mkOpaque (name/from-string "o") (object-array [])
+                                                     type0 prop (object-array []) true)]]
+      (is (.isUnsafeDeclaration ci))
+      (set! (.isUnsafe ci) false)
+      (is (false? (.isUnsafeDeclaration ci))))))
+
+(deftest unsafe-definition-admission-boundary-test
+  (let [nm name/from-string
+        proposition (mk-const "P")
+        base (TypeChecker/checkConstant (Env.) (env/mk-axiom (nm "P") [] prop) 1000000)
+        unsafe-proof (env/mk-def (nm "unsafeProof") [] proposition (mk-const "unsafeProof")
+                                 :safety :unsafe)
+        partial-proof (env/mk-def (nm "partialProof") [] proposition (mk-const "partialProof")
+                                  :safety :partial)
+        with-unsafe (TypeChecker/checkMutualDefinitions base [unsafe-proof] 1000000)
+        with-both (TypeChecker/checkMutualDefinitions with-unsafe [partial-proof] 1000000)
+        wrapper (env/mk-def (nm "unsafeWrapper") [] proposition (mk-const "unsafeProof")
+                            :safety :unsafe)
+        with-wrapper (TypeChecker/checkConstant with-both wrapper 1000000)]
+    (testing "checked unsafe recursive declarations cannot prove a safe theorem directly or transitively"
+      (doseq [target ["unsafeProof" "unsafeWrapper"]]
+        (is (thrown-with-msg? Exception #"uses unsafe declaration"
+                              (TypeChecker/checkConstant
+                               with-wrapper (env/mk-thm (nm "safeTheorem") [] proposition
+                                                        (mk-const target)) 1000000)))
+        (is (thrown-with-msg? Exception #"uses unsafe declaration"
+                              (TypeChecker/checkConstant
+                               with-wrapper (env/mk-def (nm "safeWrapper") [] proposition
+                                                        (mk-const target)) 1000000)))))
+    (testing "safe / partial / unsafe checking contexts follow Lean's separate policies"
+      (doseq [[context target accepted? message]
+              [[:safe "unsafeProof" false #"uses unsafe declaration"]
+               [:partial "unsafeProof" false #"uses unsafe declaration"]
+               [:unsafe "unsafeProof" true nil]
+               [:safe "partialProof" false #"must not contain partial declaration"]
+               [:partial "partialProof" true nil]
+               [:unsafe "partialProof" true nil]]]
+        (let [ci (env/mk-def (nm "consumer") [] proposition (mk-const target) :safety context)]
+          (if accepted?
+            (is (instance? Env (TypeChecker/checkConstant with-both ci 1000000)))
+            (is (thrown-with-msg? Exception message
+                                  (TypeChecker/checkConstant with-both ci 1000000)))))))
+    (testing "unsafe references in safe declaration headers are rejected as well"
+      (let [unsafe-type (env/mk-def (nm "unsafeType") [] type0 prop :safety :unsafe)
+            with-type (TypeChecker/checkConstant base unsafe-type 1000000)]
+        (is (thrown-with-msg? Exception #"uses unsafe declaration"
+                              (TypeChecker/checkConstant
+                               with-type (env/mk-axiom (nm "badHeader") [] (mk-const "unsafeType"))
+                               1000000)))))))
+
+(deftest invalid-definition-safety-test
+  (doseq [invalid [-128 -1 3 127]]
+    (testing (str "invalid safety byte " invalid " is never a checking mode")
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (ConstantInfo/mkDef (name/from-string "bad") (object-array [])
+                                                type0 prop 0 (byte invalid) (object-array []))))
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (ConstantInfo/mkDefWithHints (name/from-string "bad") (object-array [])
+                                                         type0 prop 0 (byte invalid) (object-array []))))
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (TypeChecker. (Env.) (byte invalid))))
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (TypeChecker. (Env.) (byte invalid) (object-array []))))
+      (let [^ConstantInfo ci (env/mk-def (name/from-string "mutated") [] type0 prop)]
+        (set! (.safety ci) (byte invalid))
+        (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                              (.getDefinitionSafety ci)))
+        (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                              (.isUnsafeDeclaration ci)))
+        (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                              (TypeChecker/checkConstant (Env.) ci 1000000))))))
+  (testing "a forged non-safe mode cannot admit a recursive proof or escape via a safe theorem"
+    (let [nm name/from-string
+          proposition (mk-const "P")
+          base (TypeChecker/checkConstant (Env.) (env/mk-axiom (nm "P") [] prop) 1000000)
+          ^ConstantInfo recursive (env/mk-def (nm "forgedProof") [] proposition
+                                              (mk-const "forgedProof") :safety :unsafe)
+          admitted (TypeChecker/checkMutualDefinitions base [recursive] 1000000)]
+      ;; Simulate malformed data and mutation after admission; neither may manufacture
+      ;; a fourth mode that is both recursively admissible and safe to reference.
+      (set! (.safety recursive) (byte 3))
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (TypeChecker/checkMutualDefinitions base [recursive] 1000000)))
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (TypeChecker/checkConstant
+                             admitted (env/mk-thm (nm "falseSafeProof") [] proposition
+                                                  (mk-const "forgedProof")) 1000000)))
+      (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                            (TypeChecker/checkConstant
+                             admitted (env/mk-def (nm "unsafeConsumer") [] proposition
+                                                  (mk-const "forgedProof") :safety :unsafe) 1000000)))
+      (let [valid (env/mk-def (nm "otherUnsafe") [] proposition (mk-const "otherUnsafe")
+                              :safety :unsafe)]
+        (is (thrown-with-msg? IllegalArgumentException #"Invalid definition safety"
+                              (TypeChecker/checkMutualDefinitions base [valid recursive] 1000000)))))))

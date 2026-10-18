@@ -99,7 +99,7 @@ public final class ConstantInfo {
         if (hints < HINTS_OPAQUE)
             throw new IllegalArgumentException("Invalid legacy reducibility hints: " + hints);
         ci.hints = hints;
-        ci.safety = safety;
+        ci.safety = validateDefinitionSafety(safety);
         ci.all = all;
         return ci;
     }
@@ -117,7 +117,7 @@ public final class ConstantInfo {
         ci.value = value;
         ci.hints = legacy;
         ci.extendedRegularHeight = hintsCode;
-        ci.safety = safety;
+        ci.safety = validateDefinitionSafety(safety);
         ci.all = all;
         return ci;
     }
@@ -198,6 +198,32 @@ public final class ConstantInfo {
     }
 
     // --- Predicates ---
+
+    /** Validate the complete Lean DefinitionSafety domain; no other byte is a mode. */
+    public static byte validateDefinitionSafety(byte safety) {
+        if (safety < 0 || safety > 2)
+            throw new IllegalArgumentException("Invalid definition safety: " + safety);
+        return safety;
+    }
+
+    /** Revalidate mutable definition data whenever its safety is interpreted. */
+    public byte getDefinitionSafety() {
+        if (tag != DEF)
+            throw new IllegalStateException("Definition safety requested for non-definition: " + name);
+        return validateDefinitionSafety(safety);
+    }
+
+    /** Lean ConstantInfo.isUnsafe (Declaration.lean): definitions derive safety
+     * from their safety annotation, not the boolean field used by other variants.
+     * Compute this on every query because declaration fields remain mutable. */
+    public boolean isUnsafeDeclaration() {
+        switch (tag) {
+            case DEF: return getDefinitionSafety() == 1;
+            case THM:
+            case QUOT: return false;
+            default: return isUnsafe;
+        }
+    }
 
     public boolean isDef() { return tag == DEF; }
     public boolean isThm() { return tag == THM; }

@@ -135,3 +135,31 @@
   (testing "and a different library yields a different root"
     (is (not= (write-store! (tmp-dir "ca-c") entries)
               (write-store! (tmp-dir "ca-d") (conj entries [(long 200) (nm/from-string "Extra")]))))))
+
+(deftest definition-safety-round-trip
+  (testing "durable DEF safety stays authoritative across hints encodings and CBOR roundtrip"
+    (doseq [safety [0 1 2]
+            hints [-2 -1 0 1 4294967295]]
+      (let [^ConstantInfo ci (ConstantInfo/mkDefWithHints
+                              a-name (object-array []) nat nat hints (byte safety)
+                              (object-array [a-name]))
+            ^ConstantInfo restored (rt ci)]
+        (is (= safety (.safety restored)))
+        (is (= hints (.getHintsCode restored)))
+        (is (= (= 1 safety) (.isUnsafeDeclaration restored)))
+        (is (false? (.isUnsafe restored)) "DEF has no serialized unsafe boolean")
+        (is (= [a-name] (vec (.all restored))))))))
+
+(deftest malformed-definition-safety-cbor-rejected
+  (doseq [invalid [-128 -1 3 127]]
+    (let [^ConstantInfo ci (ConstantInfo/mkDefWithHints
+                            a-name (object-array []) nat nat 0 (byte 0) (object-array [a-name]))]
+      ;; The wire slot is unchanged. A corrupt producer can still supply any byte;
+      ;; the reader must reject it through the factory's central enum validation.
+      (set! (.safety ci) (byte invalid))
+      (let [encoded (boring/encode ci {:registry reg})]
+        (let [error (try (boring/decode encoded {:registry reg}) nil
+                         (catch clojure.lang.ExceptionInfo ex ex))]
+          (is (= :boring/handler-failed (:type (ex-data error))))
+          (is (instance? IllegalArgumentException (some-> error .getCause)))
+          (is (re-find #"Invalid definition safety" (or (some-> error .getCause .getMessage) ""))))))))

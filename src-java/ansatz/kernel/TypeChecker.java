@@ -463,7 +463,7 @@ public final class TypeChecker {
 
     public TypeChecker(Env env, byte definitionSafety, Object[] allowedLevelParams) {
         this.env = env;
-        this.definitionSafety = definitionSafety;
+        this.definitionSafety = ConstantInfo.validateDefinitionSafety(definitionSafety);
         this.allowedLevelParams = mkAllowedLevelParamSet(allowedLevelParams);
         this.reducer = new Reducer(env);
         this.inferCache = new ExprMap<>(1024);
@@ -746,10 +746,10 @@ public final class TypeChecker {
                         " levels=" + java.util.Arrays.toString(levels));
                 }
                 if (!inferOnly) {
-                    if (ci.isUnsafe && definitionSafety != DEFN_UNSAFE) {
+                    if (ci.isUnsafeDeclaration() && definitionSafety != DEFN_UNSAFE) {
                         throw new RuntimeException("Type error: invalid declaration, it uses unsafe declaration '" + e.o0 + "'");
                     }
-                    if (ci.isDef() && ci.safety == DEFN_PARTIAL && definitionSafety == DEFN_SAFE) {
+                    if (ci.isDef() && ci.getDefinitionSafety() == DEFN_PARTIAL && definitionSafety == DEFN_SAFE) {
                         throw new RuntimeException("Type error: invalid declaration, safe declaration must not contain partial declaration '" + e.o0 + "'");
                     }
                     for (Object level : levels) {
@@ -2541,13 +2541,13 @@ public final class TypeChecker {
      */
     public static Env checkMutualDefinitions(Env env, java.util.List<ConstantInfo> cis, long fuel) {
         if (cis.isEmpty()) throw new RuntimeException("invalid empty mutual definition");
-        byte safety = cis.get(0).safety;
+        byte safety = cis.get(0).getDefinitionSafety();
         Object[] levelParams = cis.get(0).levelParams;
         if (safety == DEFN_SAFE)
             throw new RuntimeException("invalid mutual definition, declaration is not tagged as unsafe/partial: " + cis.get(0).name);
         for (ConstantInfo ci : cis) {
             if (!ci.isDef()) throw new RuntimeException("invalid mutual definition, not a definition: " + ci.name);
-            if (ci.safety != safety)
+            if (ci.getDefinitionSafety() != safety)
                 throw new RuntimeException("invalid mutual definition, declarations must have the same safety annotation: " + ci.name);
             // Lean environment::add_mutual compares the ordered universe-parameter lists,
             // before checking headers; each member being well formed individually is insufficient.
@@ -2740,9 +2740,9 @@ public final class TypeChecker {
 
     private static byte getDefinitionSafety(ConstantInfo ci) {
         if (ci.isDef()) {
-            return ci.safety;
+            return ci.getDefinitionSafety();
         }
-        if (ci.isUnsafe) {
+        if (ci.isUnsafeDeclaration()) {
             return DEFN_UNSAFE;
         }
         return DEFN_SAFE;
