@@ -175,3 +175,13 @@ not establish full Init, ordinary implicit-Init files, macros, source A→B impo
 native extension-state parity or a shipped checkpoint/provider API. The next full
 Init retry was held before launch: 4,683,156 KiB available was below the existing
 5GiB admission requirement. No heavy process was started by that preflight.
+
+These limits apply to this fresh, pinned small-profile campaign. Earlier
+2026-10-17 low-level hosted-file observations recorded a completed Init finalizer,
+65,994-constant admission, ordinary definition/macro/interop and bounded
+Init+A→B execution; see the [historical full Init evidence](hosted-frontend-next.md#full-init-import-and-first-ordinary-file-success-2026-10-17).
+That long-lived development run used reviewed continuations/runtime upgrades,
+larger explicit fuel budgets and an earlier checker. It is not a reproduction
+under the current safety-fixed fresh-launch and callback-budget profile. The
+8,052 bootstrap initialization actions initialize the Lean runtime and its
+descriptors; they are distinct from finalizing the default Init Environment.

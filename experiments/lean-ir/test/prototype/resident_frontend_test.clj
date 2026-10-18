@@ -241,7 +241,7 @@
                          compiler (get-in p [:world :functions frontend/compile-target])
                          witness {:params [] :body [:return [:imm 0]]})
         p (assoc p :world (assoc (:world p) :functions functions)
-                   :session (raw/open-functions functions {} {:backend :reference}))
+                 :session (raw/open-functions functions {} {:backend :reference}))
         configuration {:trusted-functions functions :trusted-bindings {}
                        :frontend-configuration {:compile-target compiler
                                                 :install-options {:witness witness}}}]
@@ -250,7 +250,7 @@
                             (resident/adopt-prepared p (update configuration :trusted-functions dissoc target))))
       (let [changed (update functions target with-meta {:replaced true})
             candidate (assoc p :world (assoc (:world p) :functions changed)
-                               :session (raw/open-functions changed {} {:backend :reference}))]
+                             :session (raw/open-functions changed {} {:backend :reference}))]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"differs from authorized program"
                               (resident/adopt-prepared candidate configuration)))))
     (let [ctx (resident/adopt-prepared p configuration)
@@ -268,7 +268,7 @@
                                 changed (update (get-in compiled [:world :functions]) target
                                                 with-meta {:replaced true})]
                             (assoc compiled :world (assoc (:world compiled) :functions changed)
-                                            :session (raw/open-functions changed {} {:backend :reference}))))]
+                                   :session (raw/open-functions changed {} {:backend :reference}))))]
             (is (thrown-with-msg? clojure.lang.ExceptionInfo #"protected executable changed"
                                   (load-identity ctx))))))
       (resident/close! (:context called))
@@ -280,7 +280,57 @@
         witness ["str" ["str" ["anonymous"] "RuntimeCompileShim"] "exportEvalConstWitness"]
         functions (assoc (get-in p [:world :functions]) witness {:params [] :body [:return [:imm 0]]})
         p (assoc p :world (assoc (:world p) :functions functions)
-                   :session (raw/open-functions functions {} {:backend :reference}))]
+                 :session (raw/open-functions functions {} {:backend :reference}))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"differs from authorized program"
                           (resident/adopt-prepared p {:trusted-functions (dissoc functions witness)
-                                                     :trusted-bindings {}})))))
+                                                      :trusted-bindings {}})))))
+
+(deftest adoption-protects-default-and-explicitly-selected-guest-name-encoder-closures
+  (let [p (prepared :reference true @hosted-model/captured)
+        original (get-in p [:world :functions])
+        selected ["str" ["anonymous"] "selected-name-encoder"]
+        child ["str" ["anonymous"] "selected-name-child"]
+        selected-function {:params [] :body [:call 0 [:direct child] [] [:return [:var 0]]]}
+        functions (assoc original selected selected-function child {:params [] :body [:return [:imm 0]]})
+        p (-> p (assoc-in [:world :functions] functions)
+              (assoc :session (raw/open-functions functions {} {:backend :reference})))
+        configuration {:trusted-functions functions :trusted-bindings {}
+                       :frontend-configuration {:encoder-options {:helper selected}}}]
+    (let [ctx (resident/adopt-prepared p configuration)]
+      ;; The selected root AND its actual body closure stay protected in every
+      ;; returned Context, including against replacement after adoption.
+      (doseq [name [selected child]]
+        (let [atom (.-state ^prototype.resident_frontend.Context ctx)
+              before @atom]
+          (try
+            (swap! atom update-in [:prepared :world :functions] assoc name {:params [] :body [:return [:imm 99]]})
+            (swap! atom assoc-in [:prepared :session :functions] (get-in @atom [:prepared :world :functions]))
+            (is (thrown-with-msg? clojure.lang.ExceptionInfo #"protected executable"
+                                  (resident/fork ctx)))
+            (finally (reset! atom before)))))
+      (resident/close! ctx))
+    (doseq [configuration [{:trusted-functions original :trusted-bindings {}
+                            :frontend-configuration {:encoder-options {:helper selected}}}
+                           {:trusted-functions functions :trusted-bindings {}
+                            :frontend-configuration {:encoder-options {:helper [:absent]}}}
+                           {:trusted-functions functions :trusted-bindings {}
+                            :frontend-configuration {:encode-name (fn [& _] nil)
+                                                     :encoder-options {:helper [:absent]}}}
+                           {:trusted-functions functions :trusted-bindings {}
+                            :frontend-configuration {:encode-names (fn [& _] nil)
+                                                     :encoder-options {:helper [:absent]}}}]]
+      (is (thrown? clojure.lang.ExceptionInfo (resident/adopt-prepared p configuration))))))
+
+(deftest custom-host-name-encoders-remain-an-explicit-host-trust-decision
+  (let [p (prepared :reference true @hosted-model/captured)
+        functions (dissoc (get-in p [:world :functions]) encoding/names-helper)
+        p (-> p (assoc-in [:world :functions] functions)
+              (assoc :session (raw/open-functions functions {} {:backend :reference})))
+        configuration {:trusted-functions functions :trusted-bindings {}
+                       :frontend-configuration {:encode-name (fn [& _] (throw (ex-info "Not executed on adoption" {})))
+                                                :encode-names (fn [& _] (throw (ex-info "Not executed on adoption" {})))
+                                                :encoder-options {:helper [:host-specific-opaque]}}}
+        ctx (resident/adopt-prepared p configuration)]
+    ;; Callback code is supplied by the trusted host, not inspected or executed.
+    (is (some? ctx))
+    (resident/close! ctx)))

@@ -17,12 +17,23 @@ acceptance or a throughput benchmark. The REPL was closed before rebuilding the
 separately discovered kernel safety fix; the measurement records the loaded class
 hashes, so it does not imply acceptance under that later checker.
 
-The experiment already compiles an ordinary implicit-Init source file and calls
-Clojure from the emitted guest code. It also roundtrips a genuinely owned heap
-String Ref through the already compiled function in independent forks with
-isolated releases. These observations do not provide a one-command bootstrap,
-general package loader, native FFI, automatic IO rollback or arbitrary Lean-file
-compatibility.
+The earlier low-level `hosted-file` campaign recorded ordinary implicit-Init
+compilation, source-macro execution after reviewed recovery, and Lean–Clojure
+Nat/Unicode calls ([ordinary](../measurements/hosted-ordinary-answer.json),
+[macro](../measurements/hosted-ordinary-macro.json),
+[interop](../measurements/hosted-ordinary-interop.json)). Those 2026-10-17
+observations used a long-lived, resumed Init world and its then-loaded checker;
+they predate the later definition-safety fix. They do not establish ordinary-Init
+acceptance through this facade or `resident-preparation/open-checked`. Fresh
+safety-validated resident evidence covers the standalone KernelImportProbe
+profile, including [separate-process checkpoint restoration](KERNEL_PROBE_GENUINE_SOURCE.md)
+and the [checked preparation adapter](../measurements/checked-resident-provider-acceptance.json).
+Ordinary Init through that adapter and fresh bounded full-Init reproduction
+remain separate gates.
+An earlier already-compiled-code test also roundtripped a genuinely owned heap
+String Ref through independent forks with isolated releases. None of these
+observations provides a one-command bootstrap, general package loader, native
+FFI, automatic IO rollback or arbitrary Lean-file compatibility.
 
 ## Small first API
 
@@ -62,6 +73,106 @@ missing, not inferred. Existing live kernel authority comes only from the actual
 association, never a serialized boolean. Adoption rejects suspended/active worlds
 and validates session/world function-map identity. Bootstrap preparation, runtime capabilities,
 Init completion and import preparation remain separate explicit operations.
+
+### Opening an actually checked Environment
+
+`prototype.resident-preparation/open-checked` is the common adapter when strict
+import checking has returned an owned guest Environment but the caller has not
+acquired an Options owner yet:
+
+```clojure
+(def context
+  (preparation/open-checked
+    {:world checked-world :session checked-session :environment owned-environment}
+    {:catalogue trusted-catalogue
+     :trusted-functions trusted-preparation-functions
+     :trusted-bindings trusted-preparation-bindings
+     :kernel-helpers trusted-kernel-helpers
+     :frontend-configuration frontend-configuration
+     :application-extern-symbols #{"ansatz_host_identity"}}))
+```
+
+The adapter validates the independent executable/binding registries, producer
+manifests and selected frontend/helper closures before guest association lookup
+or Options acquisition. It then uses the identity-authorized kernel helpers to
+resolve the actual live checked association. Caller certificates, phase labels
+and restored checkpoint flags provide no checking authority. Only after this
+lookup succeeds does it retain one owner of the actual initialized
+`Lean.Options.empty` global and delegate to normal resident adoption. It does not
+import modules, run initialization, insert compiler markers or link missing code.
+
+Preparation must complete the selected guest Name-encoder closure before
+capturing its final trusted function registry and bindings. Resident adoption now
+protects this host-invoked closure alongside the compiler, header, witness and
+kernel helpers. `:encoder-options :helper` selects the guest helper; explicitly
+supplied custom host encoder callbacks remain trusted host code whose arbitrary
+dependencies cannot be inferred. The older source97 checkpoint profile retains
+its original 312,167-function registry and explicit additive-encoder compatibility
+step; it is not silently upgraded to a new preparation/build profile.
+
+Failure data keeps separately named `:resident-preparation-entry`,
+`:resident-preparation-associated-entry` and, after acquisition,
+`:resident-preparation-options-entry` packets. Adoption additionally preserves
+`:resident-adoption-entry`; `:checkpoint`/`:checkpoint-session` identify the newest
+helper checkpoint where available. These are alternative immutable branches,
+not extra owners in a later world. Inspect their exact ownership before cleanup;
+do not combine an earlier Options root with a different failure checkpoint or
+retry a guest operation because an old branch remains available.
+
+The returned Context owns Environment/Options in its branch. The startup caller
+continues to own the native source or checkpoint ResourceLease. Closing a Context
+or fork leaves that shared resource open; close every borrowing Context and
+discard diagnostic worlds before closing the shared lease. This adapter does not
+turn checkpoint publication into a checked kernel receipt or general file loader.
+
+The [genuine adapter run](../measurements/checked-resident-provider-acceptance.json)
+used fresh authenticated preparation with the Name encoder included before final
+binding capture. After actual guest finalization, native/guest checking of all
+17 declarations and the same-environment marker extension/check of 20 declarations,
+`open-checked` returned a Context. It compiled the matching-header source, returned
+Nat42 and exact Unicode, made exactly two Lean-to-Clojure callbacks and produced
+one expected diagnostic without an executable handle. All Contexts and alternative
+worlds were closed/discarded before closing the external source. The process exited
+0 under a 2GiB heap; its 335.72-second lifecycle includes preparation and interactive
+idle, not isolated provider or compilation timing. This new preparation is distinct
+from the old source97 checkpoint profile; it used no additive encoder repair or
+checkpoint reinterpretation.
+
+Final validation passed 782 experimental tests / 66,289 assertions and 822 library
+tests / 3,591 assertions. The library run used an isolated store root and loopback
+fixture servers, with optional Mathlib integration excluded. Earlier attempts hit
+the sandbox's durable-store/socket restrictions and a 512MiB corpus-test heap limit;
+the final isolated, loopback-enabled 1536MiB-heap run passed. The measurement pins
+the tested sources, harnesses and guard outcomes.
+
+### Next startup compatibility boundary
+
+The current checkpoint recipe conservatively pins the whole host source tree.
+That makes an unrelated resident-tool or benchmark edit invalidate a checkpoint.
+A proposed **new** profile can separate these identities:
+
+| Layer | Required identity |
+| --- | --- |
+| Guest image | Checkpoint bytes, Lean/runtime profile, source descriptors, catalogue/overlays and exact prepared code |
+| Execution and restore authority | Reviewed core source closure, actual loaded kernel classes, dependencies, factory and checking policy |
+| Host tooling | Separately approved frontend/resident/application code declaring its supported core profile |
+
+This is a planned compatibility improvement, not an implemented migration. Keep
+core byte identity initially; an ABI label alone is insufficient. Audit both static
+and dynamic dependencies, generated code, resources, classpath shadowing and `.cljc`
+branches. `interop-codec` and `guest-encoding` remain core dependencies today because
+evalConst and kernel capability implementations call them. The resident/frontend
+facades appear separable, subject to that complete dependency audit. This boundary
+does not sandbox arbitrary trusted Clojure host code.
+
+The existing source97 contract must remain unchanged. A new profile needs a new
+capture and launcher receipt for both core and host-tool identities, fresh checking
+after restore, rejection tests for core/checker/codec/factory/resource changes and
+an actual restore-to-source repetition. Core namespaces must stay loaded without
+reload/redefinition. Separately versioned tooling should improve REPL iteration
+without recapturing guest state for unrelated host edits.
+
+### Loading and calling source
 
 `load-source` accepts the existing exactly-one-of `:path` or `:text` plus file name
 contract and real kernel Names. It delegates to `hosted-file/run-file` without

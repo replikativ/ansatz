@@ -16,8 +16,14 @@ structured JSONL under a pinned schema. The prototype reads this export, not
 Lean's binary `.ir` files or its human-readable pretty printer. Native Lean
 prepares the pinned bootstrap artifacts. The hosted path executes Lean's parser,
 command elaborator and compiler as guest code, routing kernel admission to
-Ansatz. The hosted prelude-file path already compiles and runs small source
-files. The full implicit-Init path has now completed guest finalization and
+Ansatz. Fresh safety-validated evidence covers genuine standalone import,
+checkpoint restoration and resident source/interop execution; see the
+[current small-profile scope](research/KERNEL_PROBE_GENUINE_SOURCE.md) and
+[checked preparation adapter](measurements/checked-resident-provider-acceptance.json).
+
+The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
+resumed world and its then-loaded checker, before the later definition-safety
+fix. In that campaign, the full implicit-Init path completed guest finalization and
 strict kernel association for 65,994 constants, with 15 explicit axioms under
 the recorded policy. After adding the native-tested expression ordering primitive, an ordinary
 implicit-Init file compiled and returned `42`, with no diagnostics or pending
@@ -36,6 +42,8 @@ and [B completion](measurements/hosted-ordinary-library-b.json) records. B's tim
 covers reviewed completion only; neither guest compilation nor finalization was
 replayed. This establishes the observed two-source-module case. General package
 imports, complete runtime coverage, and competitive performance remain unproven.
+These historical observations do not establish ordinary-Init acceptance through
+the new provider or reproduction under the fresh bounded callback profile.
 See the [Init measurement](measurements/hosted-full-init-kernel.json) and
 [current gate notes](research/hosted-frontend-next.md).
 
@@ -232,8 +240,17 @@ source loading/elaboration, strict Ansatz admission, macro execution and
 bidirectional calls. They do not establish arbitrary Lean-file, tactic, native
 ABI or package compatibility.
 
+The ordinary-Init, macro and A→B observations below are historical low-level
+results from a long-lived, resumed development world and its earlier checker.
+They predate the later definition-safety fix. The current fresh-launch evidence
+and its narrower guarantees are recorded in the
+[genuine import/checkpoint campaign](research/KERNEL_PROBE_GENUINE_SOURCE.md).
+Runtime bootstrap initialization and finalization of an imported Environment are
+separate operations.
+
 | Milestone | Evidence and status |
 | --- | --- |
+| Fresh standalone import and checkpoint to resident execution | Genuine KernelImportProbe finalization, separate-JVM restoration, fresh strict17/native equality and producer CI-byte comparison, same-Environment markers/fresh20 check, Nat/Unicode calls, two host callbacks and expected diagnostic. This covers the pinned small fixture, not ordinary Init |
 | Bidirectional calls for a small Lean module | Actual ordinary-file Nat/Unicode String callbacks pass; an already compiled function returns the same owned heap String Ref at RC1 in two independent forks, with isolated releases |
 | Real Lean parser on the JVM | All 3,190 parser initialization actions complete; seven header summaries and all 12 complete syntax/diagnostic observations match native Lean |
 | Hosted elaboration with Ansatz admission | All 8,052 full Lean initialization actions complete across 2,322 modules. The actual Init import passes strict checking of 65,994 constants with 15 explicit axioms; an ordinary implicit-Init definition returns 42. The bounded Init-plus-A import also passes a 65,995-constant whole-map check and B's actual imported-source witness/calls |

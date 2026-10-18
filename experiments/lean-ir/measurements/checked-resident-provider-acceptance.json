@@ -1,0 +1,169 @@
+{
+  "scope": "genuine-checked-Environment-to-common-resident-preparation-provider",
+  "ansatz-base-commit": "eec1262",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "host-source-build-sha256": "71d47b7aef108cbe1f73dd5c842288159395abcf61d39664a3ef59f5c97ed9ff",
+  "source97-checkpoint-used": false,
+  "new-profile-name-encoder-before-binding-capture": true,
+  "additive-encoder-repair-used": false,
+  "finalizer-strict17": {
+    "failure-message": null,
+    "checkpoint-restored": false,
+    "resident-source-tested": false,
+    "native-whole-map-equal": true,
+    "functions": 312190,
+    "phase": "checked",
+    "heap-used": 2018897656,
+    "all-eight-constant-info-variants": true,
+    "scope": "actual-kernel-probe-full-bootstrap-finalizer-strict",
+    "axioms": [
+      "A"
+    ],
+    "payload-extension-coverage": 16,
+    "guest-steps": 23958549,
+    "local-heap": 131018,
+    "constants": 17
+  },
+  "markers": {
+    "phase": "markers-checked",
+    "scope": "same-genuine-finalized-kernel-probe-environment",
+    "constants": 20,
+    "failure-message": null,
+    "checkpoint-restored": false,
+    "source-result": null
+  },
+  "adoption": {
+    "scope": "actual-checked-provider-adoption",
+    "guest-name-encoder-in-original-preparation": true,
+    "options-acquired-by": "resident-preparation-open-checked",
+    "native-source-lease-remains-external": true,
+    "per-raw-call-fuel": 100000000
+  },
+  "resident": {
+    "scope": "resident-source-from-genuine-kernel-probe-finalization",
+    "phase": "source-passed",
+    "nat": 42,
+    "unicode": true,
+    "checkpoint-restored": false,
+    "failure-message": null
+  },
+  "interop": {
+    "scope": "interop-and-diagnostic-after-genuine-small-finalization",
+    "phase": "passed",
+    "host-calls": 2,
+    "nat": 42,
+    "unicode": true,
+    "diagnostic-count": 1,
+    "checkpoint-restored": false,
+    "failure-message": null
+  },
+  "cleanup": {
+    "scope": "actual-checked-provider-cleanup",
+    "contexts-closed": true,
+    "all-world-alternatives-discarded": true,
+    "source-closed": true,
+    "workers-done": true
+  },
+  "native-per-input-compilation": false,
+  "full-init-accepted-by-this-profile": false,
+  "macro-accepted-by-this-profile": false,
+  "native-extension-state-parity": false,
+  "process-envelope": {
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 2477645824,
+    "elapsed_seconds": 335.72
+  },
+  "timing-scope": "Whole guarded lifecycle including archive restore, preparation, all checks and interactive idle; not isolated startup/adoption/compile performance.",
+  "validation": {
+    "final-prototype-suite": {
+      "tests": 782,
+      "assertions": 66289,
+      "failures": 0,
+      "errors": 0
+    },
+    "final-library-suite": {
+      "tests": 822,
+      "assertions": 3591,
+      "failures": 0,
+      "errors": 0,
+      "isolated-store-root": true,
+      "optional-mathlib-integration": false,
+      "localhost-fixture-servers": true
+    },
+    "interim-focused-before-final-test-strengthening": {
+      "tests": 25,
+      "assertions": 240,
+      "failures": 0,
+      "errors": 0
+    },
+    "guard-envelopes": {
+      "focused-v1": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 437895168,
+        "elapsed_seconds": 9.02
+      },
+      "format-v1": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 318361600,
+        "elapsed_seconds": 6.01
+      },
+      "full-v1": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 882774016,
+        "elapsed_seconds": 172.38
+      },
+      "library-v3": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 2064818176,
+        "elapsed_seconds": 176.74
+      }
+    },
+    "initial-library-attempts": "v1 selected local durable Mathlib store; sandbox rejected writes. v2 used isolated store but blocked loopback sockets (5 errors) and exceeded512MiB heap in a kernel corpus test (1 failure). Final v3 isolated-store run with loopback access and1536MiB heap passed; no user-store writes were authorized."
+  },
+  "tested-tracked-source-sha256": {
+    "experiments/lean-ir/src/prototype/resident_frontend.clj": "de0442165a009079cb54211f0496a88ef7149dc9d94376a237b6501866c5a5f1",
+    "experiments/lean-ir/src/prototype/resident_preparation.clj": "3e574a86be500ddc8deec957516bdd28a6a879b5c8c2167cd6f8ecb394ed0cb2",
+    "experiments/lean-ir/src/prototype/test_runner.clj": "68baedc3564bc05e131910709d7312f4995c62f393e6b2cd6d6aa850275965be"
+  },
+  "tested-tracked-test-sha256": {
+    "experiments/lean-ir/test/prototype/resident_frontend_test.clj": "454fbf850710e7641b8e986e20bcabce5b6a5f39b0272ec5ca4e4a87bd4e9406",
+    "experiments/lean-ir/test/prototype/resident_preparation_test.clj": "d6d10c3cf0581f6bbfdc77e1a4db41a92c96cec3492129243ad657013e414832"
+  },
+  "executed-artifacts-sha256": {
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/assembly.clj": "6c9a59a5ac882cb8783d09482d12aac455167cee81e4488d193caa3683df90f2",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/base.clj": "ac6fdfb8e92b0521d7587904645a33868c14d7d602141434d1c5078bd2b3bba9",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/base.events.jsonl": "005206170325b328e4e475045dd87850efd5f95f93a2b4864b86fae6da785ee9",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/interop.clj": "12c6f53c2edf2b4f7769f707165f97c9df97ac548361306e1d8623b6273701e5",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/launch.py": "a088beab16939ba268f6008171e7cf80e599a115f5eec36a4797f3c2ed40c1b4",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/markers.clj": "e922b9e58a9cfcdc47f4c3b1d45c0adf6e7072a3d6f26f56e9c3e2f60022ac47",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checked-provider-v1/resident.clj": "ebe5e7dc7329062fa41bf0339e0fc8378923016d11b6c6057c54d4e4f087aca2",
+    "target/artifact-contract/campaign-checked-provider-genuine-v1.preflight.json": "95504da263483fb6d45dfc0581a72485dea6e03db093d627dd573a313a82c175",
+    "target/artifact-contract/campaign-checked-provider-genuine-v1.json": "bf35b6cc43019c763a2b55042c23532754a5de521818f67e177105698529b78d",
+    "target/artifact-contract/campaign-checked-provider-genuine-v1.log": "63332de0ef6faef269d4ba4864f90610930e4a8184382cbebf856d04c8acae34",
+    "target/artifact-contract/campaign-resident-preparation-focused-v1.json": "4acc51b772d4ada486c045e18ae6684217717b75db00ef2a80c04a5d3e9553b6",
+    "target/artifact-contract/campaign-resident-preparation-focused-v1.log": "c940b52ec78326cddf14e93cfb222365b3a4e89d997ee21a50f0abd83f63cc11",
+    "target/artifact-contract/campaign-resident-preparation-format-v1.json": "337d1be4b0910b1c08858f9f9b2369fc99acde1622c21f0a1882f5ac2db1d1cb",
+    "target/artifact-contract/campaign-resident-preparation-format-v1.log": "a771cbe347e39d65b67d3e114e9bb3897db257d18020d40f28a9184b37f9563b",
+    "target/artifact-contract/campaign-resident-preparation-full-v1.json": "2fa55725eb610c2ca14ef87f40bafb1951e6b040df00c5a04a31e4caf46fbed1",
+    "target/artifact-contract/campaign-resident-preparation-full-v1.log": "282d265887cfdf3831b32f41b2a96fb3bed52e139c032643988174f9310a6056",
+    "target/artifact-contract/campaign-resident-preparation-library-v3.json": "cf00a92193cd010ad5dbb9c68437baf24d4cae87f8a7076620b933ab1758be8a",
+    "target/artifact-contract/campaign-resident-preparation-library-v3.log": "efba90573fcfd7610db220b5ada98c92fff2e8a83cb44fc26e2854fdd8a860a2",
+    "target/artifact-contract/campaign-resident-preparation-library-v1.json": "38791eca28527f289075372734dfdc7ad605048874cfa7155ce58f9ca4d5862e",
+    "target/artifact-contract/campaign-resident-preparation-library-v1.log": "9c242d6417dd3390c69715ad60fd3c614a993a3b1491ca08fb6412d156d74bc9",
+    "target/artifact-contract/campaign-resident-preparation-library-v2.json": "7b424a986f77a2b173dd3716d27d9137117ec9df7d151ec7b78becb3ea824b5e",
+    "target/artifact-contract/campaign-resident-preparation-library-v2.log": "e5386d1e58aa70381011417a2f5100b915251bf9b1ed9b3363f6f3f416fd8bd2"
+  },
+  "limits": [
+    "Experimental provider; not a published ansatz.lean namespace",
+    "Actually finalized standalone KernelImportProbe only in this run",
+    "No new fullInit/macro/A-to-B or native extension-state parity acceptance",
+    "Original startup caller owns shared source lifetime; Context owns Environment/Options only",
+    "Earlier ordinary/macro/Init results are historical warm low-level observations under an earlier checker; preserved separately"
+  ]
+}

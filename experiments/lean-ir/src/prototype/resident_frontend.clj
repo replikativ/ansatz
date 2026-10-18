@@ -7,6 +7,7 @@
   (:require [prototype.machine :as m]
             [prototype.frontend :as frontend]
             [prototype.hosted-file :as hosted]
+            [prototype.guest-encoding :as encoding]
             [prototype.raw-interop :as raw]
             [prototype.interop-codec :as codec]
             [prototype.import-ir :as ir]
@@ -28,13 +29,16 @@
 (defn- context-data [context]
   (when-not (instance? Context context) (fail "Expected resident context" {}))
   (or @(.-state ^Context context) (fail "Resident context is closed" {})))
-(defn- matching! [{:keys [world session environment options] :as prepared}]
+(defn- matching-world! [{:keys [world session] :as prepared}]
   (when-not (and (map? world) (map? session) (map? (:functions world))
                  (identical? (:functions world) (:functions session)))
     (fail "Resident world and session must share executable identity" {}))
   (when-not (and (contains? #{nil :done} (:status world)) (empty? (:frames world))
                  (nil? (:host-request world)))
     (fail "Resident contexts require idle guest execution" {}))
+  prepared)
+(defn- matching! [{:keys [world environment options] :as prepared}]
+  (matching-world! prepared)
   (doseq [[label value] [[:environment environment] [:options options]]]
     (when-not (m/ref? value) (fail "Resident context requires owned guest roots" {:root label}))
     (m/node world value))
@@ -62,66 +66,100 @@
   [context]
   (:prepared (context-data context)))
 
-(defn- invoke-with [active]
-  (fn [world target args]
-    (let [result (raw/call @active world target args)]
-      (reset! active (:session result))
-      [(:state result) (:value result)])))
+(defn- guest-encoder-roots [configuration]
+  ;; hosted/run-file supplies these defaults, while frontend/compile-file passes
+  ;; encoder-options unchanged to BOTH encoders. Any selected default encoder
+  ;; can invoke the selected guest decodeNames helper; custom host callbacks are
+  ;; an explicit trust decision and cannot be introspected for dependencies.
+  (let [configuration (or configuration {})
+        encode-name (get configuration :encode-name encoding/encode-name)
+        encode-names (get configuration :encode-names encoding/encode-names)
+        options (:encoder-options configuration)]
+    (when-not (and (map? configuration) (fn? encode-name) (fn? encode-names)
+                   (or (nil? options) (map? options)))
+      (fail "Invalid resident Name encoder configuration" {}))
+    (when (or (identical? encode-name encoding/encode-name)
+              (identical? encode-names encoding/encode-names))
+      [(get options :helper encoding/names-helper)])))
+
+(defn adoption-readiness!
+  "Validate the independent host registry/catalogue and selected frontend/helper
+   closures without guest execution or Options acquisition. ENVIRONMENT must be
+   a live owned root in an idle matching world/session. This does not validate a
+   checked association or mint authority; adoption/open-checked still invoke the
+   identity-authorized live kernel helpers. Custom host encoders/lowering remain
+   explicit trusted code, not dependencies inferred from a callback's behavior."
+  [prepared configuration]
+  (matching-world! prepared)
+  (let [environment (:environment prepared) world (:world prepared)]
+    (when-not (m/ref? environment) (fail "Resident context requires owned Environment" {}))
+    (let [rc (:rc (m/node world environment))]
+      (when-not (and (integer? rc) (<= 0 rc)) (fail "Invalid resident Environment owner" {}))))
+  (when-not (and (map? (:trusted-functions configuration))
+                 (map? (:trusted-bindings configuration)))
+    (fail "Resident adoption requires explicit trusted preparation registries" {}))
+  (when-not (= (set (keys (:trusted-bindings configuration)))
+               (set (keys (get-in prepared [:session :bindings]))))
+    (fail "Resident bindings differ from trusted preparation" {}))
+  (doseq [[symbol binding] (:trusted-bindings configuration)]
+    (when-not (identical? binding (get-in prepared [:session :bindings symbol]))
+      (fail "Resident host capability differs from trusted preparation" {:symbol symbol})))
+  (when-not (seq (get-in prepared [:catalogue :manifests]))
+    (fail "Resident context requires producer manifests" {}))
+  (doseq [manifest (get-in prepared [:catalogue :manifests])]
+    (ir/validate-manifest! manifest)
+    (when-not (and (or (not (contains? manifest :leanCommit))
+                       (= (get prim/pinned-build "lean_get_githash") (:leanCommit manifest)))
+                   (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile manifest)))
+      (fail "Resident frontend requires pinned runtime profile" {})))
+  (let [helpers (or (:kernel-helpers configuration) imports/helpers)
+        _ (doseq [key [:root :constant-map :quot-init?]]
+            (when-not (vector? (get helpers key)) (fail "Missing resident kernel helper" {:helper key})))
+        frontend-configuration (:frontend-configuration configuration)
+        compile-target (or (:compile-target frontend-configuration) frontend/compile-target)
+        default-witness ["str" ["str" ["anonymous"] "RuntimeCompileShim"] "exportEvalConstWitness"]
+        witness (or (get-in frontend-configuration [:install-options :witness])
+                    (when (or (get-in frontend-configuration [:install-options :authorize-source-import])
+                              (contains? (get-in prepared [:world :functions]) default-witness))
+                      default-witness))
+        protected (eval/validate-executables! (:world prepared) (:trusted-functions configuration)
+                                              (concat (map helpers [:root :constant-map :quot-init?])
+                                                      [compile-target frontend/header-target]
+                                                      (when witness [witness])
+                                                      (guest-encoder-roots frontend-configuration)))]
+    {:kernel-helpers helpers :protected-functions protected}))
 
 (defn adopt-prepared
   "Adopt ONE existing owned Environment/Options pair in this branch. No implicit
    retain/import/bootstrap. The original immutable snapshot remains independent.
-   Validate actual live checked association using identity-authorized guest helpers.
-   Configuration REQUIRES :trusted-functions and :trusted-bindings captured by
-   trusted preparation independently of the candidate world. This is an explicit
-   host code/capability trust decision, not inferred provenance or a proof receipt.
-   Optional :kernel-helpers and :frontend-configuration customize prepared helpers.
-   Selected guest compiler/witness closures require the same executable authority.
-   Host encoders and custom lowering callbacks remain explicit trusted host code;
-   executable identity checking does not prove their behavior."
+   Configuration requires independently captured trusted functions/bindings and
+   an explicit catalogue. Actual live association and selected compiler/witness/
+   guest Name-encoder closures are checked; certificates/phase flags grant none.
+   Custom host callbacks remain trusted host code. Failures preserve the exact
+   owned entry packet plus latest named helper checkpoint/session alternatives."
   ([prepared] (adopt-prepared prepared {}))
   ([prepared configuration]
-   (matching! prepared)
-   (when-not (and (map? (:trusted-functions configuration))
-                  (map? (:trusted-bindings configuration)))
-     (fail "Resident adoption requires explicit trusted preparation registries" {}))
-   (when-not (= (set (keys (:trusted-bindings configuration)))
-                (set (keys (get-in prepared [:session :bindings]))))
-     (fail "Resident bindings differ from trusted preparation" {}))
-   (doseq [[symbol binding] (:trusted-bindings configuration)]
-     (when-not (identical? binding (get-in prepared [:session :bindings symbol]))
-       (fail "Resident host capability differs from trusted preparation" {:symbol symbol})))
-   (when-not (seq (get-in prepared [:catalogue :manifests]))
-     (fail "Resident context requires producer manifests" {}))
-   (doseq [manifest (get-in prepared [:catalogue :manifests])]
-     (ir/validate-manifest! manifest)
-     (when-not (and (or (not (contains? manifest :leanCommit))
-                        (= (get prim/pinned-build "lean_get_githash") (:leanCommit manifest)))
-                    (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile manifest)))
-       (fail "Resident frontend requires pinned runtime profile" {})))
-   (let [helpers (or (:kernel-helpers configuration) imports/helpers)
-         _ (doseq [key [:root :constant-map :quot-init?]]
-             (when-not (vector? (get helpers key)) (fail "Missing resident kernel helper" {:helper key})))
-         frontend-configuration (:frontend-configuration configuration)
-         compile-target (or (:compile-target frontend-configuration) frontend/compile-target)
-         default-witness ["str" ["str" ["anonymous"] "RuntimeCompileShim"] "exportEvalConstWitness"]
-         witness (or (get-in frontend-configuration [:install-options :witness])
-                     (when (or (get-in frontend-configuration [:install-options :authorize-source-import])
-                               (contains? (get-in prepared [:world :functions]) default-witness))
-                       default-witness))
-         protected (eval/validate-executables! (:world prepared) (:trusted-functions configuration)
-                                               (concat (map helpers [:root :constant-map :quot-init?])
-                                                       [compile-target frontend/header-target]
-                                                       (when witness [witness])))
-         active (atom (:session prepared))
-         [world checked] (kernel/inherit-checked-association
-                          {:invoke (invoke-with active)} (:world prepared) (:environment prepared) helpers)]
-     (when-not checked
-       (fail "Resident Environment has no existing checked association"
-             {:checkpoint world :checkpoint-session @active}))
-     (make-context {:prepared (assoc prepared :world world :session @active)
-                    :configuration configuration :protected-functions protected
-                    :protected-bindings (get-in prepared [:session :bindings])}))))
+   (let [active (atom (:session prepared)) progress (volatile! (:world prepared))
+         invoke (fn [world target args]
+                  (vreset! progress world)
+                  (let [result (raw/call @active world target args)]
+                    (reset! active (:session result)) (vreset! progress (:state result))
+                    [(:state result) (:value result)]))]
+     (try
+       (matching! prepared)
+       (let [{:keys [kernel-helpers protected-functions]} (adoption-readiness! prepared configuration)
+             [world checked] (kernel/inherit-checked-association
+                              {:invoke invoke} (:world prepared) (:environment prepared) kernel-helpers)]
+         (vreset! progress world)
+         (when-not checked (fail "Resident Environment has no existing checked association" {}))
+         (make-context {:prepared (assoc prepared :world world :session @active)
+                        :configuration configuration :protected-functions protected-functions
+                        :protected-bindings (get-in prepared [:session :bindings])}))
+       (catch Throwable cause
+         (let [data (ex-data cause)]
+           (throw (ex-info (or (.getMessage cause) "Resident adoption failed")
+                           (merge {:checkpoint @progress :checkpoint-session @active} data
+                                  {:resident-adoption-entry prepared :resident-operation :adopt-prepared}) cause))))))))
 
 (defn fork
   "Fork guest state with inherited code authority and shared optimization caches.
