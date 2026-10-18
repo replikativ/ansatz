@@ -3,6 +3,7 @@
 (ns ansatz.export.replay
   "Replays imported declarations through the Ansatz kernel type checker."
   (:require [ansatz.kernel.env :as env]
+            [ansatz.kernel.quotient :as quotient]
             [ansatz.export.parser :as parser])
   (:import [ansatz.kernel ConstantInfo InductiveBundle TypeChecker Env ExprStore Name]))
 
@@ -53,11 +54,14 @@
          name-str (.toString (.name ci))]
      (try
        (cond
-         ;; Quotient primitives.
+         ;; Native Lean initializes these as one complete package. A single
+         ;; primitive cannot establish that invariant in verified replay.
          (= 4 (int tag))
-         (let [env (.addConstant env ci)
-               env (.enableQuot env)]
-           [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
+         (if verify?
+           [env {:status :error :name name-str :tag :quot
+                 :error "verified quotient admission requires the complete canonical package; use replay"}]
+           [(.enableQuot (.addConstant env ci))
+            {:status :ok :name name-str :tag :quot}])
 
          ;; Inductives, constructors, recursors must be replayed as a bundle.
          (#{5 6 7} (int tag))
@@ -134,6 +138,16 @@
                             members)]
           [env results])))))
 
+(defn- replay-quotient-package
+  [^Env current declarations ^ConstantInfo ci]
+  (try
+    (let [already? (every? (fn [^ConstantInfo member]
+                             (identical? member (.lookup current (.name member)))) declarations)
+          next-env (if already? current (quotient/admit-package! current declarations default-fuel))]
+      [next-env {:status :ok :name (str (.name ci)) :tag :quot}])
+    (catch Exception ex
+      [current {:status :error :name (str (.name ci)) :tag :quot :error (.getMessage ex)}])))
+
 (defn replay
   "Replay all declarations through the type checker.
    Runs on a thread with a 64MB stack to handle deep recursion.
@@ -141,13 +155,18 @@
    `:verify?` (default true) re-typechecks every declaration — correct for
    validating an export. Pass `:verify? false` to TRUST a known-good export and
    admit definitions without re-checking (much faster; inductive bundles are
-   still admitted through the kernel)."
+   still admitted through the kernel). Verified quotient imports preflight the
+   complete four-member package, then atomically admit it at the first primitive;
+   unrelated declarations may separate the input primitive records. Package-shape
+   preflight failures throw before any declarations are replayed."
   [decls & {:keys [verbose? stop-on-error? verify?]
             :or {verbose? false stop-on-error? false verify? true}}]
   (run-with-large-stack
    (fn []
      (let [start-time (System/currentTimeMillis)
-           env (env/empty-env)]
+           env (env/empty-env)
+           quotient-package (when verify? (filterv #(.isQuot ^ConstantInfo %) decls))
+           _ (when (seq quotient-package) (quotient/validate-package! quotient-package))]
        (loop [decls (seq decls)
               env env
               results (transient [])
@@ -176,7 +195,9 @@
                       results'
                       (+ ok-count ok+)
                       (+ err-count err+)))
-             (let [[env' result] (replay-one env ci verify?)]
+             (let [[env' result] (if (and verify? (.isQuot ^ConstantInfo ci))
+                                   (replay-quotient-package env quotient-package ci)
+                                   (replay-one env ci verify?))]
                (when verbose?
                  (case (:status result)
                    :ok (print ".")
@@ -239,7 +260,7 @@
 
 (declare process-stream-decl)
 
-(defn- process-stream-decl
+(defn- process-stream-decl-ordinary
   [state ^ConstantInfo ci]
   (if-let [^objects pending-all (:pending-all-names state)]
     (if (bundle-member? pending-all ci)
@@ -281,9 +302,45 @@
       (let [[env' result] (replay-one (:env state) ci)]
         (record-stream-result (assoc state :env env') result)))))
 
+(defn- flush-stream-quotients
+  "Admit all buffered primitives atomically, then replay the buffered ordinary
+   declarations in original order. Eq must have been admitted before the first
+   primitive, matching native add_quot. No adjacency assumption is made."
+  [state]
+  (if-let [buffer (:pending-quotient-decls state)]
+    (let [package (filterv #(.isQuot ^ConstantInfo %) buffer)
+          base (assoc (dissoc state :pending-quotient-decls :pending-quotient-count) :quotient-package-seen? true)
+          [next-env admission] (replay-quotient-package (:env base) package (first package))
+          base (assoc base :env next-env)]
+      (reduce (fn [st ^ConstantInfo ci]
+                (if (.isQuot ci)
+                  (record-stream-result st (assoc admission :name (str (.name ci))))
+                  (process-stream-decl-ordinary st ci)))
+              base buffer))
+    state))
+
+(defn- process-stream-decl
+  [state ^ConstantInfo ci]
+  (cond
+    (:pending-quotient-decls state)
+    (let [state (cond-> (update state :pending-quotient-decls conj ci)
+                  (.isQuot ci) (update :pending-quotient-count inc))]
+      (if (= 4 (:pending-quotient-count state)) (flush-stream-quotients state) state))
+
+    (.isQuot ci)
+    (if (:quotient-package-seen? state)
+      (record-stream-result state {:status :error :name (str (.name ci)) :tag :quot
+                                   :error "duplicate quotient package primitive after initialization"})
+      (assoc (flush-stream-bundle state) :pending-quotient-decls [ci] :pending-quotient-count 1))
+
+    :else (process-stream-decl-ordinary state ci)))
+
 (defn replay-file-streaming
   "Parse and replay declarations in streaming mode.
-   Runs on a thread with a 64MB stack to handle deep recursion."
+   Runs on a thread with a 64MB stack to handle deep recursion. Quotient
+   initialization buffers from its first primitive through the fourth (including
+   interleaved declarations); a truncated package is rejected at EOF. A malformed
+   input with a missing primitive may therefore retain the remaining stream."
   [path & {:keys [verbose?] :or {verbose? false}}]
   (run-with-large-stack
    (fn []
@@ -303,9 +360,9 @@
                                        used (quot (- (.totalMemory rt) (.freeMemory rt)) 1048576)]
                                    (println (str "  [" (+ (:ok state) (:errors state)) "] ok=" (:ok state) " err=" (:errors state) " mem=" used "MB"))))
                            :error (println "ERROR:" (:name result) "-" (:error result))
-                           nil))
+                           nil nil))
                        state')))]
-       (let [st (flush-stream-bundle (:final-state result))
+       (let [st (flush-stream-bundle (flush-stream-quotients (:final-state result)))
              elapsed (- (System/currentTimeMillis) start-time)]
          (println "Done: ok=" (:ok st) "errors=" (:errors st) "elapsed=" elapsed "ms")
          (when (seq (:error-names st))
