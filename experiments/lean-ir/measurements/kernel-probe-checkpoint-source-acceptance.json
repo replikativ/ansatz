@@ -1,0 +1,220 @@
+{
+  "scope": "genuine-small-finalizer-capture-fresh-restore-strict-source-interop",
+  "checkpoint-restored": true,
+  "native-per-input-compilation": false,
+  "full-init-accepted": false,
+  "macro-accepted": false,
+  "native-extension-state-parity": false,
+  "producer": {
+    "scope": "actual-genuine-small-finalizer-capture-with-independent-capability-reconstruction",
+    "checkpoint-restored": false,
+    "strictly-checked-saved-state": false,
+    "producer-native-whole-map17-checked": true,
+    "factory": {
+      "elapsed-ms": 101419.601332,
+      "prepared-functions": 312167,
+      "guest-steps-delta": 0,
+      "owner-changes": false,
+      "old-host-roots-retired-before-reconstruction": true,
+      "original-signatures-equal": true,
+      "ordered-manifest-digests-equal": true,
+      "checkpoint-restored": false
+    },
+    "capture": {
+      "manifest-sha256": "a87a7015f8b23f25d232e13420e9b4d0e3009cdb9eb6c072e00a42153f7cfed6",
+      "manifest-path": "../../target/artifact-contract/full-init-next/genuine-checkpoint-next/checkpoint-v1/manifest.frames",
+      "counts": {
+        "functions": 312167,
+        "heap": 131018,
+        "globals": 50380,
+        "imported-declarations": 0
+      },
+      "data-sha256": "2d23e0d76024011653123cbf2073b2b65648c4dd31969057f674e5ff5b4c2f15",
+      "data-bytes": 431022247,
+      "strictly-checked?": false
+    },
+    "producer-cleanup": {
+      "scope": "genuine-kernel-probe-producer-cleanup",
+      "all-worlds-discarded": true,
+      "source-closed": true,
+      "workers-done": true
+    },
+    "process-envelope": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 2506948608,
+      "elapsed_seconds": 631.38
+    },
+    "runtime-and-dependencies": "Exact approved244-row build source97 independently authenticated by fresh launcher; no reload/redefs. CI17 encodings are comparison data, not restore authority.",
+    "executed-artifacts-sha256": {
+      "target/artifact-contract/campaign-kernel-factory-live-v1.preflight.json": "6116defd8cae35321ed06bcf5d311f52ddca67800c5391677d0d912fb3799141",
+      "target/artifact-contract/campaign-kernel-factory-live-v1.json": "f9aefc24c545a64254a3888f6bfa18bee3941c40a969101c475143da58ed0bb7",
+      "target/artifact-contract/campaign-kernel-factory-live-v1.log": "681bfea51e7ce3b0d73aeebc262e8a7dc4521d90fd5e394d97f8648c47a41119",
+      "target/artifact-contract/full-init-next/genuine-checkpoint-next/factory-capture-v1.events.jsonl": "a0c41d4a0c79e5270a3dbf15507b059de56a76ca45b363ef061cb03b0df38338",
+      "target/artifact-contract/full-init-next/genuine-checkpoint-next/factory-live-gate.clj": "0a80e4c182c1009439787f8d89818aed0b81e07788900ab7194ea46dfc29ff14",
+      "target/artifact-contract/full-init-next/genuine-checkpoint-next/launch-factory-gate.py": "2547e83f373d6d819e4e66729082a1e799cd3ac957d62d3bcad08576816f80e3",
+      "target/artifact-contract/full-init-next/genuine-checkpoint-next/checkpoint-v1.external-pin.json": "6a1988cbae28875e6f63d169457759cd47ec7c625490a6d5b137e1c326e9ed75",
+      "target/artifact-contract/full-init-next/genuine-checkpoint-next/checkpoint-v1.producer-ci17.json": "e927eeb83e7a33e902e7aded56fdb78cd23f855633e05c15f3b4f4a5826fd4d9"
+    },
+    "limits": [
+      "standalone KernelImportProbe only",
+      "no full Init acceptance",
+      "no native extension-state parity",
+      "capture does not establish restore"
+    ]
+  },
+  "restored-precheck": {
+    "native-nodes": 516,
+    "failure-message": null,
+    "checkpoint-restored": true,
+    "next-id": 366239,
+    "finalizer-replayed": false,
+    "functions": 312167,
+    "source-open": true,
+    "phase": "restored-precheck",
+    "heap-used": 1727029480,
+    "scope": "separate-process-genuine-kernel-probe-checkpoint",
+    "prepared-functions": 312167,
+    "strictly-checked": false,
+    "guest-steps": 23954795,
+    "local-heap": 131018,
+    "kernel-associations": 0,
+    "native-base": 352932,
+    "manifest-sha256": "a87a7015f8b23f25d232e13420e9b4d0e3009cdb9eb6c072e00a42153f7cfed6"
+  },
+  "restored-strict": {
+    "native-extension-state-parity": false,
+    "failure-message": null,
+    "checkpoint-restored": true,
+    "next-id": 366312,
+    "all-eight-ci-variants": true,
+    "finalizer-replayed": false,
+    "native-whole-map-equal": true,
+    "functions": 312167,
+    "source-open": true,
+    "phase": "checked",
+    "heap-used": 1712109656,
+    "scope": "separate-process-genuine-kernel-probe-checkpoint",
+    "strictly-checked": true,
+    "guest-steps": 23958549,
+    "local-heap": 131018,
+    "kernel-associations": 1,
+    "constants": 17,
+    "manifest-sha256": "a87a7015f8b23f25d232e13420e9b4d0e3009cdb9eb6c072e00a42153f7cfed6"
+  },
+  "producer-full-ci-comparison": {
+    "scope": "restored-strict17-producer-comparison",
+    "checkpoint-restored": true,
+    "constants": 17,
+    "producer-full-ci-bytes-equal": true,
+    "producer-reference-sha256": "e927eeb83e7a33e902e7aded56fdb78cd23f855633e05c15f3b4f4a5826fd4d9",
+    "comparison-data-is-kernel-authority": false
+  },
+  "markers": {
+    "phase": "markers-checked",
+    "scope": "same-genuine-finalized-kernel-probe-environment",
+    "constants": 20,
+    "failure-message": null,
+    "checkpoint-restored": true,
+    "source-result": null
+  },
+  "resident": {
+    "scope": "resident-source-from-genuine-kernel-probe-finalization",
+    "phase": "source-passed",
+    "nat": 42,
+    "unicode": true,
+    "checkpoint-restored": true,
+    "failure-message": null
+  },
+  "interop": {
+    "scope": "interop-and-diagnostic-after-genuine-small-finalization",
+    "phase": "passed",
+    "host-calls": 2,
+    "nat": 42,
+    "unicode": true,
+    "diagnostic-count": 1,
+    "checkpoint-restored": true,
+    "failure-message": null
+  },
+  "cleanup": {
+    "failure-message": null,
+    "checkpoint-restored": true,
+    "next-id": null,
+    "finalizer-replayed": false,
+    "borrowers-discarded": true,
+    "functions": 0,
+    "source-open": null,
+    "phase": "closed",
+    "heap-used": 1675329544,
+    "scope": "separate-process-genuine-kernel-probe-checkpoint",
+    "source-closed": true,
+    "driver-snapshots-discarded": true,
+    "strictly-checked": true,
+    "lease-closed": true,
+    "guest-steps": null,
+    "local-heap": 0,
+    "kernel-associations": 0,
+    "manifest-sha256": "a87a7015f8b23f25d232e13420e9b4d0e3009cdb9eb6c072e00a42153f7cfed6"
+  },
+  "process-envelope": {
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 2483163136,
+    "elapsed_seconds": 316.68
+  },
+  "timing-scope": "Whole guarded restore lifecycle including interactive idle and later tests; not compilation or isolated restore performance.",
+  "pins": {
+    "lean-version": "4.33.1",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "ansatz-runtime-commit": "a3d7ff954be17b5fd12539c4ff15830d77c6b3d8",
+    "approved-build-identity": "97e7f5ef4627d95c108f4662cb9d38718859780e95f5c13876e610edfd4cc2cf",
+    "build-inventory-rows": 244
+  },
+  "definitions-only-validation": {
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 451776512,
+    "elapsed_seconds": 9.02
+  },
+  "executed-artifacts-sha256": {
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/README.md": "03dffb4e5c96b763db68d1635ac1a3a0957078822872a98256ec3a565ce5db4e",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/SHA256SUMS": "99677fe062f27309a70a8535282b816701bd99b73d805e542c5f71ca479c26cf",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/compare-producer-ci17.clj": "a792a1026dc1cf8980d69b4d8b74919ca4d79487c81e921729dd69b40852caca",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/launch.py": "a5cda749d9120ad4bc4abb54b5c03e2f81465ff4e672622044d3f63776372213",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/restore-driver.clj": "5efff6d098a21c32b570c44a92ffcb69d4bbb7f1b9de73d3ce75e5b618f2aa28",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/restored-interop.clj": "a799a2194280da0fc994c8ce1cc36a21f3837fce51865d86292a3ed6cd38c95c",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/restored-markers.clj": "2b705b894c24b6bc6a6ca23ed752bf5719a336eb65de8451ef151f94d0ce74a0",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/restore-v1/restored-resident.clj": "cd336551eeafa8ccec481ee0e81149720a9cbafcb7bcdc8a9268cea76e38a327",
+    "target/artifact-contract/campaign-kernel-checkpoint-restore-v1.preflight.json": "bb77b4c6e9b9f6c733230b44a199c108bba97cd647c6d9afbe950414f496a5df",
+    "target/artifact-contract/campaign-kernel-checkpoint-restore-v1.json": "49be1fb48c129092ef4b47652a808ef98d4c173ecf864bd417db13a245e42f13",
+    "target/artifact-contract/campaign-kernel-checkpoint-restore-v1.log": "012cd95ebdd9c75feda670d969ecd2a93cbffeb5446a64826b92e133d9fe4796",
+    "target/artifact-contract/campaign-kernel-checkpoint-restore-v1.events.jsonl": "f49c32ec3b919edbf1a8bed00e453b7ee7fc2ac76af7c75b5abb91c46235c587",
+    "target/artifact-contract/campaign-kernel-restore-definitions-v1.json": "4de23ab61a70762ba3394ef014877fccd5df6390d24514b594276dbafe4bfb9a",
+    "target/artifact-contract/campaign-kernel-restore-definitions-v1.log": "64b8ae76fe99c3037366b739a6d5e8c54b80bf2ce3b80a5be2652cf3a94733de",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checkpoint-v1.capture-acceptance.json": "46fbe7652facefeda108126a8ccd528908d51fa0748969b9f0da5ab03606c82c",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checkpoint-v1.external-pin.json": "6a1988cbae28875e6f63d169457759cd47ec7c625490a6d5b137e1c326e9ed75",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/checkpoint-v1.producer-ci17.json": "e927eeb83e7a33e902e7aded56fdb78cd23f855633e05c15f3b4f4a5826fd4d9",
+    "target/artifact-contract/full-init-next/ordinary-draft/resident-ordinary-acceptance.clj": "025a859be01de45926a0fad54f774ce087541809ea440b823a1849d848091734",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/RestoredKernelProbe.lean": "aaf590ecb320aeb1efef1e0281a671978e10d9ad0465b67b11a989e0ad4f0104",
+    "target/artifact-contract/full-init-next/genuine-checkpoint-next/KernelProbeInterop.lean": "cc95cff111c113b1490cd51182d25fc1a9790727de60b4e3cfc15d90bdd8e8ba"
+  },
+  "limits": [
+    "Standalone classic KernelImportProbe; no implicit Init acceptance",
+    "No native extension-state parity from registration or CI equality",
+    "No macro or source A-to-B import acceptance",
+    "Experimental ignored harnesses; no shipped checkpoint/provider API",
+    "No isolated cold-start or source compile performance benchmark"
+  ],
+  "review-follow-up": "Driver cleanup-callback failure should retain prior diagnostic snapshot in next revision. This successful run explicitly escrowed it externally until lease-close completed; no reload/redefs occurred.",
+  "preserved-approved-build-inputs": {
+    "scope": "All244 inventoried build inputs authenticated and copied before subsequent tracked API changes; preserved bytes, not an executed alternate classpath",
+    "rows": 244,
+    "bytes": 4110953,
+    "artifacts-sha256": {
+      "target/artifact-contract/full-init-next/factory-draft/approved-source97-inputs/inventory.json": "31ed531735cccedff9d195497cd53fcd042d364997006758c65d2ab3af58dfa8",
+      "target/artifact-contract/full-init-next/factory-draft/approved-source97-inputs/resolver.json": "c35618ff321ecf2839608eab4a022e2f0b33e356b092629ebfa124ce4ec060c9",
+      "target/artifact-contract/full-init-next/factory-draft/approved-source97-inputs/original-recipe.edn": "db645f455695c1f300955324fdabdde28e3cc61f6d320f07092e969570f9d8e7",
+      "target/artifact-contract/full-init-next/factory-draft/approved-source97-inputs/original-resolver.json": "8886c46aae94abcf370cb86774ecfcc99a4f280c8e539001969f2625081d924a"
+    }
+  }
+}

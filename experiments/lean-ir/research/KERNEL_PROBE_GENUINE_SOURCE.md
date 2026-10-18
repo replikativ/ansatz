@@ -91,7 +91,87 @@ This acceptance does not establish full Init hosting, ordinary implicit-Init or
 macro acceptance, source-module A→B importing, all-extension parity, or checkpoint
 restoration. The separate full Init attempt reached 883 recorded evalConst calls
 with zero recorded failures before the system-memory guard stopped it; its active
-state was discarded with the process. The next checkpoint gate needs a fresh
-successful raw finalizer event and an independently pinned reconstruction factory
-for this small profile. Scalar result JSON is evidence of the completed run, not
-restoration authority.
+state was discarded with the process. The subsequent checkpoint gate below used a
+fresh successful raw finalizer event and an independently pinned reconstruction
+factory for this small profile. Scalar result JSON is evidence of a completed
+run, not restoration authority.
+
+## Fresh-process checkpoint acceptance
+
+A subsequent pair of guarded JVMs completed capture and restoration of the genuine
+raw finalizer result, followed by fresh checking and the same source/interop tests.
+The [separate measurement](../measurements/kernel-probe-checkpoint-source-acceptance.json)
+pins both process records, the executed harnesses, approved preparation, producer
+comparison data and externally retained manifest digest.
+
+```mermaid
+flowchart TD
+  A[Fresh authenticated preparation] --> B[Retire old host catalogue and capabilities]
+  B --> C[Independently derive all 312167 prepared functions]
+  C --> D[Fresh genuine guest finalization]
+  D --> E[Capture raw successful IO before Java checking]
+  E --> F[Durable data and externally retained manifest hash]
+  E --> G[Producer branch: fresh native and guest 17-CI comparison]
+  G --> H[Save full CI comparison data and close producer JVM]
+  F --> I[New JVM: authenticate checkpoint and reopen verified source]
+  H --> I
+  I --> J[Rebuild source-bound capabilities without guest execution]
+  J --> K[Fresh strict17 check and full producer CI byte comparison]
+  K --> L[Same-Environment markers and fresh20 check]
+  L --> M[Compile source and call Nat, Unicode and Clojure binding]
+  M --> N[Diagnostic fork; close contexts and shared resource lease]
+```
+
+Before retiring the original host roots, the producer checked that its independently
+captured preparation session and candidate world shared the original function map,
+both assembly roots were live, and the same open native Store was attached once.
+After releasing the old catalogue/session/binding roots, reconstruction authenticated
+the pinned bootstrap and artifacts, independently derived every one of the 312,167
+prepared functions, and required their exact canonical objects, binding signatures
+and ordered manifest digests. The factory completed in 101,419.6 ms without guest
+steps, root changes or initializer replay. This is one measured reconstruction;
+it does not establish general startup or source-compilation performance.
+
+Fresh guest finalization then returned a successful raw IO Environment. Capture
+streamed and round-trip checked each row against that producer, without building a
+second whole runtime. The resulting 431,022,247-byte data file contains 312,167
+functions, 131,018 heap nodes and 50,380 globals. The producer-returned manifest
+SHA256 was saved independently as
+`a87a7015f8b23f25d232e13420e9b4d0e3009cdb9eb6c072e00a42153f7cfed6`.
+An independent producer branch freshly checked all 17 native/guest declarations
+and saved full binary Ansatz/Java ConstantInfo encodings as comparison data. It then discarded
+its worlds, closed the source and exited successfully.
+
+The new JVM received that explicit manifest hash and independently approved
+preparation; neither was discovered from checkpoint contents or a latest-file
+convention. Its trusted launcher authenticated the 244 inventoried source/class
+inputs before loading; the factory also checked selected actual kernel classloader
+resources. This is an explicit fresh-launch trust assumption, not proof of arbitrary
+JVM bytecode. No namespace reload or redefinition occurred. Restoration reopened the
+original verified source at base 352,932 and preserved next ID 366,239, guest steps
+23,954,795 and the recorded function/heap counts, with zero Java kernel associations.
+Initialization and finalization were not rerun.
+
+Fresh `finish-finalization` checking matched the complete native 17-CI map, all eight
+variants, axiom inventory and quotient state. Every full CI encoding also matched
+the separately pinned producer reference exactly. Only then did the same-environment
+marker helper, fresh 20-CI check and resident adoption run. The actual Lean guest
+frontend compiled the matching-header source and returned Nat42 and the exact
+Unicode value; interop made exactly two host calls, and the diagnostic fork returned
+one diagnostic with no executable handle. No native compiler ran per input file.
+
+The restore JVM closed its final resident Context, discarded the alternative helper
+worlds and closed the shared resource lease last. Both processes exited 0 with no
+guard stop. Producer and restore peak RSS were 2,506,948,608 and 2,483,163,136 bytes,
+respectively, under 2GiB heaps and 2.5GiB RSS guards. Their 631.38- and 316.68-second
+lifecycles include interactive idle and later checking/source tests; they are not
+isolated restore or compile timings. A review found a cleanup-callback failure path
+that should retain the prior diagnostic snapshot in the next driver revision. This
+run retained that snapshot externally until successful cleanup; loaded code stayed
+unchanged.
+
+This establishes the standalone small fixture's checkpoint-to-source path. It does
+not establish full Init, ordinary implicit-Init files, macros, source A→B imports,
+native extension-state parity or a shipped checkpoint/provider API. The next full
+Init retry was held before launch: 4,683,156 KiB available was below the existing
+5GiB admission requirement. No heavy process was started by that preflight.
