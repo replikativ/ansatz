@@ -4,6 +4,105 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Resident facade preparation (2026-10-18)
+
+The explicit facade passes its actual archived-prelude REPL and fresh-JVM sequences: identity
+over Nat and Unicode String, a second source, an expected diagnostic, and two
+Lean-to-Clojure callbacks. See the
+[source/class-pinned observation](../measurements/resident-preparation-progress.json)
+and [facade scope](RESIDENT_FRONTEND_API.md). Name-prefix sharing restores the
+entire authenticated archive with about 1.12 GiB retained after host GC, where
+the unshared 3 GiB attempt saturated its heap. Existing executable bodies now
+receive dependency completion before trusted identity capture. No initializers
+or source statements are elided by these storage/linking changes.
+
+The successful REPL segment took 47.2 seconds from an already restored archive.
+The later fresh-JVM run, against the safety-validated rebuilt kernel, took
+163.58 seconds including startup and authenticated archive restoration. Neither
+uses a native per-input compiler. These are prelude-only facade observations,
+not a replacement for
+the earlier ordinary-Init chronology below or proof of general package coverage.
+
+## Proposed coordinated Lean 4.33 bundle completion
+
+This sequence is proposed work, not a shipped capability. The shipped bundle
+remains the explicitly inventoried legacy cohort. The current staging generator
+has checked the three candidate kernel closures and their overlaps, but metadata
+target closure remains incomplete; no generated replacement has been promoted.
+The effective-unsafe-definition checker fix passed its focused regression,
+including rejection of a safe theorem through an unsafe wrapper. That fix does
+not retrospectively certify previously loaded environments.
+
+1. **Strict non-safe admission foundation is implemented.** The
+   [vector and streaming replay paths](../../../src/ansatz/export/replay.clj)
+   now share finite batch admission with the lazy prelude loader. Streaming
+   retains its checked prefix and buffers the suffix from its first non-safe
+   definition, potentially most of a large input. Pinned Lean `Declaration.lean`
+   defines `DefinitionVal.all` as user mutual-block bookkeeping, not kernel
+   admission-group authority. That field is preserved; actual body-reference
+   strongly connected components determine recursive groups. The checker
+   validates headers before extending the environment and enforces equal safety
+   and ordered universe parameters. Missing dependencies and incomplete packages
+   fail. Tests cover self/mutual recursion, interleaving, misleading `.all`, mixed
+   safety, header cycles, and safe references to non-safe declarations, alongside
+   a captured native kernel
+   [comparison](../../../test/ansatz/export/fixtures/non-safe-native-4.33.md).
+
+2. **Introduce a versioned checked-runtime-CI generation profile.** Retain the
+   existing six resource roles and legacy profile. The proposed profile records
+   unsafe export explicitly and strictly checks every emitted declaration; it
+   does not replace bodies with axioms or skip checking. Record exact unsafe,
+   partial and axiom inventories, the accepted axiom policy, producer identity,
+   and all derived-root evidence. Limit export to selected roots and their
+   dependency closure. Admitting declaration data grants no automatic extern
+   capabilities, `implemented_by` execution, or authority to convert runtime
+   results into proofs. A separate runtime artifact lane is unnecessary for this
+   bounded release and would add another loading/identity boundary.
+
+3. **Compute metadata closure separately for each kernel role.** The current
+   [candidate validator](../../../scripts/validate-bundle.clj) selects companions
+   against the union of `init`, `lex` and `sizeof`; this can hide a target absent
+   from the initially active Env. The pure metadata planner now exposes per-role
+   missing roots and typed edges, including an explicit planner-only witness
+   profile; generator wiring and serialized profile support remain open.
+   For each role, repeatedly export its closure,
+   select applicable metadata, and add referenced targets, witnesses, instance
+   classes and unfolding theorems until no roots change. Record each edge and
+   iteration; unresolved names or an exceeded iteration bound fail. Explicit
+   public roots and derived private compiler dependencies remain distinct policy
+   categories. Keep actual native names and metadata instead of silently dropping
+   unsupported rows. Generated metadata must also preserve structured Name
+   identity, or reject names that cannot round-trip through the consumer's
+   representation. [Java Name](../../../src-java/ansatz/kernel/Name.java) parses
+   dot-separated numeric components rather than Lean's quoted-identifier grammar;
+   string components containing dots or numeric text can otherwise disappear or
+   collide during selection. This is a proposed profile gate, not an observed
+   failure in the current Init cohort; structural expression equality is unaffected.
+
+4. **Preserve typed csimp witnesses.** The
+   [attribute dumper](../../../scripts/dump_attrs.lean) currently loses the
+   `thmName` carried by native `Lean.Compiler.CSimp.Entry`. A versioned metadata
+   row must retain it, include it in closure expansion, and validate its checked
+   equality type against the source/target constants and native universe-argument
+   constraints. Require a safe proof-bearing witness under the explicit axiom
+   policy, not merely an existing name. Preserve this evidence through Env
+   installation. `implemented_by` instead records a type-compatible runtime
+   implementation, not an equality proof; it must never become a proof rewrite.
+
+5. **Complete active Env companions and release acceptance.** The
+   [lazy prelude loader](../../../src/ansatz/wf.clj) currently adds declarations
+   without refreshing attrs, matchers or instances filtered during initial
+   setup. Prepare checked declarations and newly applicable companion extensions
+   together, preserve user extensions, invalidate affected caches, and activate
+   through the existing session boundary. Reject conflicting declarations;
+   matching names or a sentinel alone are insufficient. Test both prelude orders,
+   idempotence, new instance/simp visibility, session isolation and failure
+   atomicity. Promotion additionally requires strict independent replay, exact
+   overlaps, witness validation, bundled activation and representative compiled
+   calls. Unsupported selected simp semantics remain an activation failure;
+   [codegen](../../../src/ansatz/codegen.clj) must retain its actual lowerability
+   checks. Checked metadata presence is not general native runtime support.
+
 ## Hybrid finalizer completion and strict kernel admission
 
 The [actual Init-plus-OrdinaryLibraryA finalizer](../measurements/hosted-ordinary-hybrid-finalization.json)

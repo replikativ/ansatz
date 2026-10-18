@@ -4,8 +4,18 @@
 `hosted-file`, `frontend`, `raw-interop`, and the value codecs. It is experimental,
 not a published `ansatz.lean` API. Boundary tests use clearly labeled helper
 models and captured emitted IR; actual full-Init acceptance through this new
-facade remains a separate gate. The previous resident REPL port was unreachable
-on October 18; no successful replacement/bootstrap is implied here.
+facade remains a separate gate.
+
+The [archived prelude acceptance](../measurements/resident-preparation-progress.json)
+now passes the real facade: Nat/Unicode calls, a second source, expected command
+diagnostics, and two host callbacks. It restores the full authenticated runtime
+bootstrap, then prepares a prelude-only Environment with exactly three checked
+compiler markers. It uses explicit immutable-text sharing and guest cancellation
+helpers. The 47.2-second observation includes fresh preparation and source checks,
+excluding archive restore and earlier failed attempts. It is not ordinary-Init
+acceptance or a throughput benchmark. The REPL was closed before rebuilding the
+separately discovered kernel safety fix; the measurement records the loaded class
+hashes, so it does not imply acceptance under that later checker.
 
 The experiment already compiles an ordinary implicit-Init source file and calls
 Clojure from the emitted guest code. It also roundtrips a genuinely owned heap
@@ -190,8 +200,17 @@ changing native representation profiles or weakening interpreter-witness checks.
 
 
 The [foundation validation record](../measurements/resident-session-foundation.json)
-distinguishes passing model/source/JAR checks from actual facade acceptance.
-`scripts/resident-prelude-probe.clj` now provides the latter probe over explicit
-prepared artifacts. Its 2 GiB attempt exhausted the archive-restoration heap before
-frontend execution; the larger attempt was deferred by the memory preflight.
-This does not extend the earlier lower-level ordinary-file observations to the facade.
+preserves the earlier model/source/JAR checks and unsuccessful archive attempts.
+The later [preparation record](../measurements/resident-preparation-progress.json)
+records actual **prelude-only facade acceptance**, both in the REPL and from a
+fresh JVM against the rebuilt, safety-validated kernel. The standalone probe
+loads two Lean sources, calls Nat/Unicode values, preserves an expected diagnostic,
+and makes exactly two Lean-to-Clojure callbacks. It checks the actual three
+compiler markers before associating the kernel environment.
+
+The fresh run used a 3 GiB heap, completed in 163.58 seconds including JVM startup
+and authenticated archive restoration, and peaked at 3,276,877,824 bytes of
+process-group RSS. Its explicit `:immutable-text-v1` ShareCommon profile covers
+host-backed immutable strings. This is acceptance evidence, not a throughput
+benchmark or ordinary/full-Init facade support. Completed full-Init checkpoints,
+warm dependency edits and broader native representation profiles remain open.

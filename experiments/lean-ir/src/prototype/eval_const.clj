@@ -53,16 +53,14 @@
 (defn- raw-dependencies [row]
   (into #{} (keep (fn [x] (when (map? x) (or (get-in x [:fap :c]) (get-in x [:pap :c])))))
         (walk/forms (get-in row [:ir :fdecl :body]))))
-(defn- executable-dependencies [f]
-  (into (set (:runtime-dependencies f))
-        (keep (fn [x]
-                (when (vector? x)
-                  (case (first x)
-                    :direct (second x)
-                    :closure (when (= 3 (count x)) (second x))
-                    (:global :begin-init) (nth x 2)
-                    nil))))
-        (walk/forms (:body f))))
+(defn executable-dependencies
+  "Canonical static executable closure, shared by authority checks and trusted
+   preparation. Runtime helper edges are explicit; literal data is not code."
+  [f]
+  (let [runtime (if (contains? f :runtime-dependencies) (:runtime-dependencies f) [])]
+    (when-not (and (or (sequential? runtime) (set? runtime)) (not-any? nil? runtime))
+      (m/fail "Malformed runtime executable dependencies" {}))
+    (into (ir/static-targets (:body f)) runtime)))
 
 (defn- validate-witness [w target]
   (when-not (and (= "lean-eval-const-witness/1" (:schema w))
@@ -98,12 +96,14 @@
 
 (defn- check-function-closure! [world registry roots]
   (loop [pending (vec roots) seen {}]
-    (if-let [name (peek pending)]
-      (if (contains? seen name) (recur (pop pending) seen)
-          (let [actual (get-in world [:functions name]) expected (get registry name)]
-            (when-not (and actual expected (identical? actual expected))
-              (m/fail "evalConst executable differs from authorized program" {:name name}))
-            (recur (into (pop pending) (executable-dependencies actual)) (assoc seen name expected))))
+    (if (seq pending)
+      (let [name (peek pending)]
+        (when (nil? name) (m/fail "Malformed executable root" {}))
+        (if (contains? seen name) (recur (pop pending) seen)
+            (let [actual (get-in world [:functions name]) expected (get registry name)]
+              (when-not (and actual expected (identical? actual expected))
+                (m/fail "evalConst executable differs from authorized program" {:name name}))
+              (recur (into (pop pending) (executable-dependencies actual)) (assoc seen name expected)))))
       seen)))
 
 (defn validate-executables!

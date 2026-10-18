@@ -25,28 +25,28 @@
 (defn expression
   ([e] (expression e nil))
   ([e target-type]
-  (let [[op data] (first e)]
-    (case op
-      :ctor (do (layout! (:i data))
-                (when-not (= (count (:ys data)) (get-in data [:i :size]))
-                  (m/fail "Constructor field count mismatch" {:constructor data}))
-                (let [{:keys [size usize ssize cidx]} (:i data) fields (mapv operand (:ys data))]
-                  (if (pos? (+ usize ssize))
-                    [:scalar-ctor cidx fields {:objects size :usize usize :ssize ssize}]
-                    [:ctor cidx fields])))
-      :proj [:project [:var (get-in data [:x :idx])] (:i data)]
-      :uproj [:scalar-get [:var (get-in data [:x :idx])] {:index (:i data) :offset 0 :type "usize" :region :usize}]
-      :sproj (do (scalar/width target-type)
-                 [:scalar-get [:var (get-in data [:x :idx])]
-                  {:index (:n data) :offset (:offset data) :type target-type :region :scalar}])
-      :box (do (scalar/width (:ty data)) [:box (:ty data) [:var (get-in data [:x :idx])]])
-      :unbox (do (scalar/width target-type) [:unbox target-type [:var (get-in data [:x :idx])]])
-      :isShared [:shared? [:var (get-in data [:x :idx])]]
-      :fap [:invoke [:direct (:c data)] (mapv operand (:ys data))]
-      :pap [:closure (:c data) (mapv operand (:ys data))]
-      :ap [:invoke [:closure [:var (get-in data [:x :idx])]] (mapv operand (:ys data))]
-      :lit [:literal (or (get-in data [:v :num :v]) (get-in data [:v :str :v]))]
-      (m/fail "Unsupported imported expression" {:expression e})))))
+   (let [[op data] (first e)]
+     (case op
+       :ctor (do (layout! (:i data))
+                 (when-not (= (count (:ys data)) (get-in data [:i :size]))
+                   (m/fail "Constructor field count mismatch" {:constructor data}))
+                 (let [{:keys [size usize ssize cidx]} (:i data) fields (mapv operand (:ys data))]
+                   (if (pos? (+ usize ssize))
+                     [:scalar-ctor cidx fields {:objects size :usize usize :ssize ssize}]
+                     [:ctor cidx fields])))
+       :proj [:project [:var (get-in data [:x :idx])] (:i data)]
+       :uproj [:scalar-get [:var (get-in data [:x :idx])] {:index (:i data) :offset 0 :type "usize" :region :usize}]
+       :sproj (do (scalar/width target-type)
+                  [:scalar-get [:var (get-in data [:x :idx])]
+                   {:index (:n data) :offset (:offset data) :type target-type :region :scalar}])
+       :box (do (scalar/width (:ty data)) [:box (:ty data) [:var (get-in data [:x :idx])]])
+       :unbox (do (scalar/width target-type) [:unbox target-type [:var (get-in data [:x :idx])]])
+       :isShared [:shared? [:var (get-in data [:x :idx])]]
+       :fap [:invoke [:direct (:c data)] (mapv operand (:ys data))]
+       :pap [:closure (:c data) (mapv operand (:ys data))]
+       :ap [:invoke [:closure [:var (get-in data [:x :idx])]] (mapv operand (:ys data))]
+       :lit [:literal (or (get-in data [:v :num :v]) (get-in data [:v :str :v]))]
+       (m/fail "Unsupported imported expression" {:expression e})))))
 
 (declare body)
 (defn alternative [[op a b]]
@@ -141,10 +141,10 @@
       (when (and initialized? (nil? (get-in row [:runtime :initializer])))
         (m/fail "Initialized global has no initializer" {:name (:name row)}))
       [(:f f) (with-meta (cond-> {:params (mapv #(get-in % [:x :idx]) (:xs f))
-                       :body (if initialized? [:read-global (:f f)] (body (:body f)))}
-                initialized? (assoc :runtime-initializer (get-in row [:runtime :initializer]) :result-type (:type f))
-                (contains? #{"closed" "ground" "value"} role) (assoc :global-role role))
-                 {:runtime-param-types (mapv :ty (:xs f))})])))
+                                  :body (if initialized? [:read-global (:f f)] (body (:body f)))}
+                           initialized? (assoc :runtime-initializer (get-in row [:runtime :initializer]) :result-type (:type f))
+                           (contains? #{"closed" "ground" "value"} role) (assoc :global-role role))
+                {:runtime-param-types (mapv :ty (:xs f))})])))
 
 (defn- check-function-profile! [manifests row function]
   ;; The raw lowering function is also used by static audits. Executable bundle
@@ -162,32 +162,32 @@
 (defn- wrap-globals
   ([functions] (wrap-globals functions {}))
   ([functions existing]
-  (let [all-functions (merge existing functions)]
-  (reduce-kv
-   (fn [result name function]
-     (if (or (:global-role function) (:runtime-initializer function))
-       (let [target ["str" name "_ansatz_global_initializer"]]
-         (when (contains? all-functions target) (m/fail "Global initializer name collision" {:name name}))
-         (when (seq (:params function)) (m/fail "Global has parameters" {:name name}))
-         (if-let [initializer (:runtime-initializer function)]
-           (let [callee (get all-functions initializer)
-                 params (:params callee)]
-             (when-not (contains? #{[] ["void"] ["erased"]} (:runtime-param-types (meta callee)))
-               (m/fail "Module initializer must accept only an erased world" {:name name}))
-             (when-not (and callee (<= (count params) 1))
-               (m/fail "Unsupported module initializer signature" {:name name :initializer initializer}))
-             (-> result
-                 (assoc target {:params [] :body [:begin-init name initializer (mapv (constantly [:imm m/erased]) params) (:result-type function)]})
-                 (assoc name (assoc function :init-target target))))
-           (-> result (assoc target (dissoc function :global-role))
-               (assoc name {:params [] :body [:global name target]}))))
-       (assoc result name function))) existing functions))))
+   (let [all-functions (merge existing functions)]
+     (reduce-kv
+      (fn [result name function]
+        (if (or (:global-role function) (:runtime-initializer function))
+          (let [target ["str" name "_ansatz_global_initializer"]]
+            (when (contains? all-functions target) (m/fail "Global initializer name collision" {:name name}))
+            (when (seq (:params function)) (m/fail "Global has parameters" {:name name}))
+            (if-let [initializer (:runtime-initializer function)]
+              (let [callee (get all-functions initializer)
+                    params (:params callee)]
+                (when-not (contains? #{[] ["void"] ["erased"]} (:runtime-param-types (meta callee)))
+                  (m/fail "Module initializer must accept only an erased world" {:name name}))
+                (when-not (and callee (<= (count params) 1))
+                  (m/fail "Unsupported module initializer signature" {:name name :initializer initializer}))
+                (-> result
+                    (assoc target {:params [] :body [:begin-init name initializer (mapv (constantly [:imm m/erased]) params) (:result-type function)]})
+                    (assoc name (assoc function :init-target target))))
+              (-> result (assoc target (dissoc function :global-role))
+                  (assoc name {:params [] :body [:global name target]}))))
+          (assoc result name function))) existing functions))))
 
 (defn load-bundle [path]
   (let [rows (rows path)]
     (wrap-globals (into {} (map (fn [row]
-                    (let [[name function :as pair] (lower-declaration row)]
-                      (check-function-profile! [(first rows)] row function) pair)) (rest rows))))))
+                                  (let [[name function :as pair] (lower-declaration row)]
+                                    (check-function-profile! [(first rows)] row function) pair)) (rest rows))))))
 
 (defn reconcile-declarations
   "A source-local row may restore nonserialized closed/ground metadata only
@@ -216,23 +216,29 @@
                       (update catalogue :manifests conj (first rows)) (rest rows))))
           {:manifests [] :declarations {}} paths))
 
-(defn- static-targets [root]
-  (loop [pending [root] targets #{}]
-    (if (empty? pending) targets
-      (let [[op a b c d] (peek pending) pending (pop pending)]
-        (case op
-          :let (recur (conj pending c) (cond-> targets (= :closure (first b)) (conj (second b))))
-          :call (recur (conj pending d) (cond-> targets (= :direct (first b)) (conj (second b))))
-          :tail (recur pending (cond-> targets (= :direct (first a)) (conj (second a))))
-          :join (recur (conj pending d c) targets)
-          :case (recur (into pending (map second b)) targets)
-          (:inc :dec :set-tag) (recur (conj pending c) targets)
-          :del (recur (conj pending b) targets)
-          (:set :scalar-set :host) (recur (conj pending d) targets)
-          :suspend (recur (conj pending b) targets)
-          (:global :begin-init) (recur pending (conj targets b))
-          (:return :jump :publish-global :unreachable :read-global :publish-io-global :trap)
-          (recur pending targets))))))
+(defn static-targets
+  "Static executable edges at instruction/rvalue positions only. Literal data
+   is never executable merely because it contains :direct or :closure vectors."
+  [root]
+  (let [add-target (fn [targets name]
+                     (when (nil? name) (m/fail "Malformed static executable dependency" {}))
+                     (conj targets name))]
+    (loop [pending [root] targets #{}]
+      (if (empty? pending) targets
+          (let [[op a b c d] (peek pending) pending (pop pending)]
+            (case op
+              :let (recur (conj pending c) (cond-> targets (= :closure (first b)) (add-target (second b))))
+              :call (recur (conj pending d) (cond-> targets (= :direct (first b)) (add-target (second b))))
+              :tail (recur pending (cond-> targets (= :direct (first a)) (add-target (second a))))
+              :join (recur (conj pending d c) targets)
+              :case (recur (into pending (map second b)) targets)
+              (:inc :dec :set-tag) (recur (conj pending c) targets)
+              :del (recur (conj pending b) targets)
+              (:set :scalar-set :host) (recur (conj pending d) targets)
+              :suspend (recur (conj pending b) targets)
+              (:global :begin-init) (recur pending (add-target targets b))
+              (:return :jump :publish-global :unreachable :read-global :publish-io-global :trap)
+              (recur pending targets)))))))
 
 (defn load-closure
   "Link a trusted catalogue's selected closure. :existing-functions preserves
@@ -243,19 +249,19 @@
   ([catalogue roots lower]
    (load-closure catalogue roots lower {}))
   ([catalogue roots lower {:keys [existing-functions] :or {existing-functions {}}}]
-  (loop [pending (vec roots) functions {}]
-    (if (empty? pending)
-      (wrap-globals functions existing-functions)
-      (let [name (peek pending) pending (pop pending)]
-        (if (or (contains? functions name) (contains? existing-functions name)) (recur pending functions)
-          (let [row (or (if-let [read-declaration (:read-declaration catalogue)]
-                         (read-declaration name)
-                         (get-in catalogue [:declarations name]))
-                        (m/fail "Missing declaration dependency" {:name name}))
-                [actual function] (lower row)]
-            (when-not (= name actual) (m/fail "Declaration name mismatch" {:name name :actual actual}))
-            (check-function-profile! (:manifests catalogue) row function)
+   (loop [pending (vec roots) functions {}]
+     (if (empty? pending)
+       (wrap-globals functions existing-functions)
+       (let [name (peek pending) pending (pop pending)]
+         (if (or (contains? functions name) (contains? existing-functions name)) (recur pending functions)
+             (let [row (or (if-let [read-declaration (:read-declaration catalogue)]
+                             (read-declaration name)
+                             (get-in catalogue [:declarations name]))
+                           (m/fail "Missing declaration dependency" {:name name}))
+                   [actual function] (lower row)]
+               (when-not (= name actual) (m/fail "Declaration name mismatch" {:name name :actual actual}))
+               (check-function-profile! (:manifests catalogue) row function)
             ;; Derive dependencies from the admitted body, rather than trusting
             ;; optional producer dependency metadata.
-            (recur (into pending (cond-> (into (static-targets (:body function)) (:runtime-dependencies function))
-                                  (:runtime-initializer function) (conj (:runtime-initializer function)))) (assoc functions name function)))))))))
+               (recur (into pending (cond-> (into (static-targets (:body function)) (:runtime-dependencies function))
+                                      (:runtime-initializer function) (conj (:runtime-initializer function)))) (assoc functions name function)))))))))
