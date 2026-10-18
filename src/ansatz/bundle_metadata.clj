@@ -127,6 +127,91 @@
   (when-not (and (roles role) (sequential? rows)) (fail "Invalid companion rows" {:role role}))
   (mapv #(row! role %1 (inc %2)) rows (range)))
 
+(defn- planner-profile! [options]
+  (when-not (keys? options #{} #{:metadata-profile})
+    (fail "Invalid metadata planner options" {}))
+  (let [profile (get options :metadata-profile "ansatz-global-companions/1")]
+    (when-not (contains? #{"ansatz-global-companions/1" "ansatz-global-companions/2"} profile)
+      (fail "Unknown metadata planner profile" {:metadata-profile profile}))
+    profile))
+
+(defn- checked-planner-rows [role rows options]
+  (let [profile (planner-profile! options)]
+    (if (= "ansatz-global-companions/1" profile)
+      (checked-rows role rows)
+      (do
+        (when-not (and (roles role) (sequential? rows))
+          (fail "Invalid companion rows" {:role role}))
+        (mapv (fn [row index]
+                (if (and (= :attrs role) (= "csimp" (:kind row)))
+                  (do
+                    (when-not (name? (:witness row))
+                      (fail "Explicit csimp witness required by metadata planner profile"
+                            {:role role :line (inc index) :name (:name row)}))
+                    (row! role (dissoc row :witness) (inc index))
+                    row)
+                  (row! role row (inc index)))) rows (range))))))
+
+(defn select-rows
+  "Validate all rows, then select by source declaration without requiring targets.
+   Default options use the existing row format. Planner-only metadata profile
+   ansatz-global-companions/2 requires an explicit :witness on every csimp row;
+   it does not enable a serialized format, activation, or witness verification."
+  ([role rows names] (select-rows role rows names {}))
+  ([role rows names options]
+   (when-not (and (set? names) (every? name? names))
+     (fail "Expected exported declaration-name set" {}))
+   (filterv #(contains? names (:name %)) (checked-planner-rows role rows options))))
+
+(defn references
+  "Typed declaration dependency edges, preserving row and reference order.
+   :row-index addresses the supplied row vector. Duplicate edges are preserved.
+   Matcher discriminants are local binder annotations, never global dependencies.
+   A csimp witness edge exists only for explicitly supplied profile-2 evidence."
+  ([role rows] (references role rows {}))
+  ([role rows options]
+   (into []
+         (mapcat
+          (fn [index row]
+            (let [targets (case role
+                            :attrs (case (:kind row)
+                                     "csimp" (cond-> [[:csimp-target (:target row)]]
+                                               (contains? row :witness)
+                                               (conj [:csimp-witness (:witness row)]))
+                                     "impl" [[:implementation-target (:target row)]]
+                                     "unfold-thms" (mapv #(vector :unfold-theorem %) (:theorems row))
+                                     [])
+                            :instances [[:instance-class (:class row)]]
+                            :matchers [])]
+              (map (fn [[kind target]]
+                     {:role role :row-index index :source (:name row) :kind kind :target target})
+                   targets)))
+          (range) (checked-planner-rows role rows options)))))
+
+(defn plan-role
+  "Plan one kernel role against its own exported-name set, never a union of roles.
+   Requires all three companion corpora. Returns selected :rows, typed :edges,
+   :missing-edges and stable distinct :missing-roots. Edge row indices address
+   the selected rows for that companion role. The caller re-exports and supplies
+   the next actual name set; this function does not assume roots were admitted.
+   No missing roots means only that supplied metadata dependencies are present,
+   not that witnesses, names, declarations, or executable capabilities are trusted."
+  ([kernel-role companions names] (plan-role kernel-role companions names {}))
+  ([kernel-role companions names options]
+   (when-not (contains? #{:init :lex :sizeof} kernel-role)
+     (fail "Unknown kernel role for metadata planning" {:kernel-role kernel-role}))
+   (when-not (and (map? companions) (= roles (set (keys companions))))
+     (fail "Metadata planning requires all companion roles" {}))
+   (let [profile (planner-profile! options)
+         role-order [:attrs :matchers :instances]
+         selected (into {} (map (fn [role]
+                                  [role (select-rows role (get companions role) names options)]) role-order))
+         edges (into [] (mapcat #(references % (get selected %) options)) role-order)
+         missing (filterv #(not (contains? names (:target %))) edges)]
+     {:kernel-role kernel-role :metadata-profile profile
+      :rows selected :edges edges :missing-edges missing
+      :missing-roots (vec (distinct (map :target missing)))})))
+
 (defn select-for-names
   "Select by each row's declaration :name, preserving order. Every selected
    csimp/impl target, unfolding theorem, and instance class must also exist.
