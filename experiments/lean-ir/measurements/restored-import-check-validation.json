@@ -1,0 +1,115 @@
+{
+  "schema": "ansatz-restored-import-check-validation/1",
+  "date": "2026-10-18",
+  "runtime-base": "79ee09ed93b49bd6f3a5382de8e23caea67d05d7",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "scope": "Definitions-only one-shot post-restore/completed-IO strict checking helper; no restore/bootstrap/finalizer/source acquisition or closure",
+  "focused-final": {
+    "tests": 9,
+    "assertions": 107,
+    "failures": 0,
+    "errors": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-M",
+        "-e",
+        "(require 'prototype.restored-import-check-test) (let [r (clojure.test/run-tests 'prototype.restored-import-check-test)] (spit \"../../target/artifact-contract/restored-check-focused-final.edn\" (pr-str r)) (shutdown-agents) (System/exit (+ (:fail r) (:error r))))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 444116992,
+      "elapsed_seconds": 10.02
+    }
+  },
+  "full-runtime": {
+    "tests": 791,
+    "assertions": 66396,
+    "failures": 0,
+    "errors": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-M",
+        "-e",
+        "(require 'prototype.test-runner 'prototype.restored-import-check-test) (let [namespaces (sort (filter #(re-find #\"^prototype\\..*-test$\" (str %)) (map ns-name (all-ns)))) r (apply clojure.test/run-tests namespaces)] (spit \"../../target/artifact-contract/restored-check-runtime-final.edn\" (pr-str r)) (shutdown-agents) (System/exit (+ (:fail r) (:error r))))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 890986496,
+      "elapsed_seconds": 166.37
+    },
+    "source-scope": "Before whitespace-only cljfmt normalization; focused tests rerun on final formatted sources"
+  },
+  "original-preparation-inputs": {
+    "scope": "On-disk original v4 preparation source/resource/kernel class inventory; no loaded-code attestation",
+    "rows": 242,
+    "changed": []
+  },
+  "review": "Independent Astra planning review, implementation review, reserved-exception-field fix and real checker-policy rejection regression, then re-review with no remaining blockers",
+  "test-evidence": "Model Environment layout/helper IR, actual reference/mutable/JVM helper execution, transported native 17-CI fixture/all8variants and current strict Java checker; real host callback backend switch before failure",
+  "parent-source": {
+    "status": "incomplete",
+    "shared-store-attempt": {
+      "command": [
+        "clojure",
+        "-J-Xmx768m",
+        "-M:test",
+        "-e",
+        ":wip"
+      ],
+      "exit_code": 1,
+      "guard_stop": null,
+      "peak_rss_bytes": 1268645888,
+      "elapsed_seconds": 93.39
+    },
+    "reason": "Optional Mathlib tests attempted writes to a read-only shared durable store; no full suite result",
+    "interim-isolated-attempt": {
+      "command": [
+        "clojure",
+        "-J-Xmx1024m",
+        "-M:test",
+        "-e",
+        ":wip"
+      ],
+      "exit_code": 143,
+      "guard_stop": "explicit scoped stop requested",
+      "peak_rss_bytes": 907493376,
+      "elapsed_seconds": 42.3
+    },
+    "interim-stop-reason": "Explicitly stopped the incomplete lower-heap attempt to reuse the previously validated library resource/loopback profile",
+    "known-profile-preflight": {
+      "available-kib": 2576556,
+      "minimum-launch-kib": 3670016,
+      "launch": false,
+      "heap-mib": 1536,
+      "group-rss-mib": 2560,
+      "lifecycle-seconds": 900,
+      "minimum-available-mib": 1024,
+      "store-isolation": true,
+      "optional-mathlib-integration": false,
+      "localhost-fixture-server": true
+    }
+  },
+  "jar-validation": "Not rerun; no production Ansatz Java/source/packaging files changed",
+  "sources-sha256": {
+    "experiments/lean-ir/scripts/check-restored-import.clj": "deeb76b082a40c26ee37282747a59711a94af78d15238ff868aa562eb738d043",
+    "experiments/lean-ir/test/prototype/restored_import_check_test.clj": "dfd8da825f8a3218f385cee76fdf0a108197e47bc8538b645eaef07b6723bee3",
+    "experiments/lean-ir/scripts/RESTORED_IMPORT_CHECK.md": "500e89bc94d9efa09c524eba22bac9364dc85acc78df77edc18b6372e237c907",
+    "experiments/lean-ir/research/hosted-frontend-next.md": "328f4309b2d97f6a230fdee5858298a235a6890d076547716bcd0d96deeffe4a"
+  },
+  "fixture-sha256": {
+    "experiments/lean-ir/fixtures/imported-kernel-native.jsonl": "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3"
+  },
+  "limits": [
+    "No genuine new archive restore or finalizer provenance established by model tests.",
+    "No fresh full Init finalization/checkpoint/strict/source acceptance; earlier global-memory stop remains.",
+    "New helper must be independently pinned by a future launcher; old approved factory inputs unchanged.",
+    "Controller/exception diagnostic worlds borrow native sources; callers discard all borrowers before lease close.",
+    "Independent native-versus-guest complete-map parity remains a separate optional gate.",
+    "Full parent source suite and optional Mathlib integration were not successfully rerun."
+  ]
+}

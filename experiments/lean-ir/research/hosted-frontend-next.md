@@ -25,6 +25,23 @@ invalidate the separately recorded fresh standalone KernelImportProbe results
 or establish a guest semantic failure. Another heavy run requires adequate
 stable system headroom under the existing launch and execution limits.
 
+## Post-restore strict-checking readiness (2026-10-18)
+
+The definitions-only [restored import checker](../scripts/RESTORED_IMPORT_CHECK.md)
+adds a separately testable consumer for a completed/restored guest IO result. It
+validates independent helpers and host bindings, calls the existing whole-map
+checker once, and preserves exact owners and newer callback sessions on failure.
+It does not restore an archive, replay finalization or own the native source lease.
+The tests execute model helper IR with genuine native ConstantInfos and actual
+strict Java checking; they are not a fresh full-Init acceptance result. Existing
+source-bound factory inputs and the ignored v4 control files remain unchanged.
+[Validation](../measurements/restored-import-check-validation.json) records 9 focused
+tests / 107 assertions and 791 runtime tests / 66,396 assertions, all passing.
+The new final sources pass focused revalidation after whitespace-only formatting.
+The parent source suite could not complete against read-only shared Mathlib; the
+isolated known-profile launch then refused insufficient memory headroom. No fresh
+parent-suite, full Init or checkpoint-restore success is inferred.
+
 ## Resident facade preparation (2026-10-18)
 
 The explicit facade passes its actual archived-prelude REPL and fresh-JVM sequences: identity
