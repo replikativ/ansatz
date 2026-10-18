@@ -3,8 +3,7 @@
    Mirrors Lean 4.33.1 ir_interpreter.cpp lean_run_mod_init_core: unavailable
    symbols return IO.ok false, enabling the REAL guest InitAttr fallback.
    This capability never executes, invents or marks module initializers."
-  (:require [clojure.set :as set] [prototype.module-plan :as plan]
-            [prototype.machine :as m] [prototype.runtime-string :as string]
+  (:require [prototype.machine :as m] [prototype.runtime-string :as string]
             [prototype.runtime-prim :as prim]))
 
 (def signature
@@ -12,6 +11,62 @@
    :return-type "object"})
 (def ^:private ops {:ref? m/ref? :node m/node})
 (defn- fail [message data] (throw (ex-info message data)))
+
+(defn- guard-dependencies [plans [module phase]]
+  (when-not (contains? #{:all :runtime :comptime} phase)
+    (fail "Unknown module initialization phase" {:module module :phase phase}))
+  (let [producer (get plans module)]
+    (when-not producer
+      (fail "Missing producer module initialization plan" {:module module :phase phase}))
+    (when (and (not (:moduleSystem producer)) (not= :all phase))
+      (fail "Classic Lean module has no split initialization entry" {:module module :phase phase}))
+    ;; Preserve expand's eager traversal/destructuring failures for reachable
+    ;; action collections, without constructing or retaining its action list.
+    ;; This is not a new strict action-schema validator: legacy opaque action
+    ;; payloads remain data. Split :all has no separate local action pass.
+    (when-not (and (:moduleSystem producer) (= :all phase))
+      (reduce (fn [_ {:keys [action meta]}]
+                (when (or (= :all phase) (= (boolean meta) (= :comptime phase)))
+                  (do action (boolean meta) nil)))
+              nil (:actions producer)))
+    (cond->
+      (into []
+        (comp (filter (fn [{:keys [meta]}]
+                        (or (= :all phase) (= (boolean meta) (= :comptime phase)))))
+              (map (fn [{:keys [module meta]}]
+                     [module (if (or (= :all phase) (not meta)) phase :runtime)])))
+        (:imports producer))
+      (and (:moduleSystem producer) (= :all phase))
+      (conj [module :runtime] [module :comptime]))))
+
+(defn- guard-dependency-graph [plans roots]
+  ;; One validated node per reachable [module phase], not one entire transitive
+  ;; closure per symbol. Mark on discovery, exactly as plan/expand handles cycles.
+  (loop [pending (vec roots) graph {}]
+    (if-let [entry (peek pending)]
+      (if (contains? graph entry)
+        (recur (pop pending) graph)
+        (let [children (guard-dependencies plans entry)]
+          (recur (into (pop pending) children) (assoc graph entry children))))
+      graph)))
+
+(defn- guards-present? [graph root guards]
+  ;; Query-local scratch only: never mutate the shared graph or guest guards,
+  ;; and never reuse a result/visited set across worlds. Preserve stack order.
+  (let [pending (java.util.ArrayDeque.)
+        visited (java.util.HashSet.)]
+    (.addLast pending root)
+    (loop []
+      (if (.isEmpty pending)
+        true
+        (let [entry (.removeLast pending)]
+          (cond
+            (not (.add visited entry)) (recur)
+            (not (contains? guards entry)) false
+            :else (let [children (get graph entry)]
+                    (dotimes [i (count children)]
+                      (.addLast pending (nth children i)))
+                    (recur))))))))
 
 (defn make-bindings
   "Options are trusted HOST inputs, never names inferred from guest strings:
@@ -25,7 +80,9 @@
    split :all needs both runtime and comptime guards. Merely entered or failed
    partial phases cannot suppress the guest fallback. Unknown, unentered and
    incomplete entries return false, even for a genuinely empty initializer.
-   Guards are snapshot-local and never modified by this capability."
+   Guards are snapshot-local and never modified by this capability. Shared
+   validated dependency edges are retained once; queries traverse only the
+   selected root and never retain per-symbol transitive guard sets."
   ([] (make-bindings {}))
   ([{:keys [module-plans initialized-symbols]
      :or {module-plans {} initialized-symbols {}}}]
@@ -41,7 +98,8 @@
                (when-not (and (string? symbol) (seq symbol) (not (.contains ^String symbol "\u0000"))
                               (contains? #{:all :runtime :comptime} phase))
                  (fail "Invalid trusted native initializer mapping" {:symbol symbol :module module :phase phase}))
-               [symbol (:initialized (plan/expand module-plans module phase))])))]
+               [symbol [module phase]])))
+         graph (guard-dependency-graph module-plans (vals required))]
      {"lean_run_mod_init_core"
       {:signature signature
        :handler
@@ -52,7 +110,7 @@
              (fail "World initialization guards must be a set" {}))
            (m/allocate world :ctor 0
              [(if-let [needed (get required symbol)]
-                (if (set/subset? needed guards) 1 0)
+                (if (guards-present? graph needed guards) 1 0)
                 0)])))}})))
 
 (defn options-from-witness

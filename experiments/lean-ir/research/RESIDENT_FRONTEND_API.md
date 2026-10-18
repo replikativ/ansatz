@@ -273,3 +273,26 @@ exact executable/source identity and live roots before opening or claiming a
 start. Two callers racing on either start or continuation enter the stubbed driver
 exactly once. These strengthen the captured preparation revision; the later
 preflight/race tests do not execute Init finalization.
+
+
+Initializer setup had a measurable retained-memory cost independent of guest
+execution: it expanded and kept a separate transitive guard set for each of 6,966
+native symbols. The [same-input host measurement](../measurements/initializer-guard-memory.json)
+uses 2,326 actual plans extracted from the authenticated declaration index and
+pinned overlay manifests, without loading the unrelated declaration map. The
+shared dependency graph reduces retained binding data from approximately 414 MB
+to 3.6 MB. Construction took 19.8 seconds before and 0.11 seconds after in separate
+fresh JVM observations. Every reachable guard is still checked against the current
+world; cycles, split phases and partially entered closures preserve the earlier
+availability policy. No initializer actions or completion receipts are invented.
+
+Checking all 6,966 symbols on complete tiny host worlds took 3.67 seconds with the
+old retained sets and 9.29 seconds with query-local ArrayDeque/HashSet scratch.
+This CPU/memory tradeoff is explicit: the guest world stays immutable and no
+availability result is cached across snapshots. These figures do not predict full
+frontend/finalizer timing or establish a smaller JVM resource ceiling. Differential,
+alternating-world and concurrent-query tests cover guard and ownership behavior.
+The [input extractor](../scripts/prepare-initializer-memory-inputs.py) and
+[host benchmark](../scripts/initializer-memory-benchmark.clj) reproduce this scoped
+experiment using the pinned artifacts. Full runtime validation is recorded with
+the measurement when complete.
