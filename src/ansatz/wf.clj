@@ -406,6 +406,7 @@
           {:requirements (if-let [manifest (env/get-extension base :bundled-artifacts nil)]
                            {:artifact/cohort (:artifact/cohort manifest)} {})}
           (fn [_]
+            (bundle/assert-consumable!)
             (let [payload (bundle/verified-bytes resource)
                   ndjson (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))] (slurp in))
                   decls (:decls (parser/parse-ndjson-string ndjson))

@@ -104,8 +104,50 @@ resources before archiving them.
 This is a legacy byte inventory: kernel exports record Lean 4.29.0-rc2, while
 metadata producer history and common generation remain unrecorded. Hash agreement
 does not establish proof validity, authenticity, or Lean 4.33 frontend compatibility.
-The existing regeneration scripts do not yet produce a coordinated six-artifact
-release; changing resource bytes without updating a valid inventory is rejected.
+The former individual regeneration scripts now fail before writing anything;
+changing resource bytes without updating a valid inventory is rejected.
+
+An experimental schema-2 generator creates a separate six-resource candidate:
+
+```sh
+python3 scripts/generate-bundle.py --exporter-source /path/to/lean4export \
+  --lean-root /path/to/pinned/lean/toolchain --output target/bundle-candidate
+```
+
+It pins Lean 4.33.1 and the exporter commit, captures their actual generation
+inputs, rebuilds the exporter and Java checker in staging, checks public roots,
+replays each kernel closure, compares overlapping declarations, and validates
+selected companion rows. The final manifest is written last. Public roots from
+the legacy inventory require an explicit version migration when absent; private
+generated names are reached through dependency closure. The generator never
+ignores missing requested roots or installs the result into the repository.
+
+The staged exporter applies the captured
+`scripts/lean4export-structural-exprs.patch`: upstream's alpha-equivalence cache
+can otherwise change emitted binder annotations with traversal order. The base
+and effective source inventories are recorded separately, and the manifest
+identifies the effective source hash. Full declaration overlap checks retain
+binder metadata; the source checkout is not modified.
+
+`validation.edn` distinguishes structural generation from consumer support and
+records actual supplemental dependencies in the Init closure. Unsupported
+unfolding or simp-phase fields remain preserved in staging but reject
+activation. Generic attribute imports now reject the same unsupported semantics
+before mutation, while retaining legacy absent-priority rows and four-element
+persisted tuples. Existing stores do not require a tuple-format migration.
+
+Promotion still requires active-environment companion coverage, including lazy
+prelude admission and replacement targets, plus WF/SizeOf acceptance. The shipped
+inventory remains schema 1; a staged candidate is neither a prepared frontend nor
+a kernel proof certificate.
+
+The first real 4.33 candidate passes all three kernel replays and exact overlap
+checks, then fails companion closure: selected compiler replacements reference
+declarations outside the seed closures. The first pass finds 23 missing attribute
+targets, including four unsafe implementations. Completing that closure requires
+an explicit runtime safety profile and metadata-derived roots, plus replacement
+proof witnesses; it is not addressed by silently dropping rows or enabling unsafe
+exports. No generated 4.33 bundle has been promoted.
 
 ## Scoped proof sessions
 

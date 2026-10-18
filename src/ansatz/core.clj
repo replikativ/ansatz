@@ -193,7 +193,8 @@
                           (count (:instance-index prepared)) "classes indexed"
                           (when (:recall-keys derived) ", recall keys")
                           (when (:simp-trie derived) ", simp index"))))))]
-     (if derived (install) (bundle/with-verified (fn [_] (install)))))))
+     (if derived (install)
+         (bundle/with-verified (fn [_] (bundle/assert-consumable!) (install)))))))
 
 (clojure.core/defn- init!*
   [store-path branch]
@@ -235,6 +236,7 @@
 (clojure.core/defn- init!-bundled-medium! []
   (bundle/with-verified
     (fn [manifest]
+      (bundle/assert-consumable!)
       (let [loaded (env/with-extension (bundled-medium-env) :bundled-artifacts manifest)]
         (setup-env! loaded)
         (println (str "Ansatz: loaded the bundled medium Init tier ("
@@ -244,12 +246,13 @@
         :medium))))
 
 (clojure.core/defn load-init!
-  "Load the bundled Init export and companion metadata after integrity preflight.
-   Kernel declarations are replayed in TRUST mode. The recorded legacy producer
-   and unrecorded metadata provenance remain visible on the immutable Env."
+  "Load the bundled Init export and companion metadata after integrity and
+   consumer preflight. Kernel declarations are replayed in TRUST mode. The
+   manifest's producer and provenance remain visible on the immutable Env."
   []
   (bundle/with-verified
     (fn [manifest]
+      (bundle/assert-consumable!)
       (let [loaded (env/with-extension (bundled-medium-env) :bundled-artifacts manifest)]
         (setup-env! loaded)
         (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))

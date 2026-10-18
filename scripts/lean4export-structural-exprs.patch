@@ -1,0 +1,43 @@
+diff --git a/Export.lean b/Export.lean
+--- a/Export.lean
++++ b/Export.lean
+@@ -35,9 +35,12 @@
+ structure State where
+   visitedNames : HashMap Name Nat := HashMap.emptyWithCapacity 200000 |>.insert .anonymous 0
+   visitedLevels : HashMap Level Nat := HashMap.emptyWithCapacity 1000 |>.insert .zero 0
+-  visitedExprs : HashMap Expr Nat := HashMap.emptyWithCapacity 10000000
++  -- `BEq Expr` ignores binder names and annotations. Exported JSON preserves
++  -- both, so alpha-equivalent expressions must not share their export index.
++  visitedExprs : ExprStructMap Nat := HashMap.emptyWithCapacity 10000000
+   visitedConstants : NameHashSet := {}
+-  noMDataExprs : HashMap Expr Expr := HashMap.emptyWithCapacity 100000
++  -- Metadata removal must preserve the same structural distinctions too.
++  noMDataExprs : ExprStructMap Expr := HashMap.emptyWithCapacity 100000
+   exportMData : Bool := false
+   exportUnsafe : Bool := false
+   ignoreMissing : Bool := false
+@@ -128,7 +131,7 @@
+   return nameIdxs.toJson
+ 
+ def removeMData (e : Expr) : M Expr := do
+-  if let some x := (← get).noMDataExprs[e]? then
++  if let some x := (← get).noMDataExprs[ExprStructEq.mk e]? then
+     return x
+   let e' ← match e with
+   | .mdata _ e' => removeMData e'
+@@ -149,13 +152,13 @@
+     pure <| e.updateForallE! (← removeMData d) (← removeMData b)
+   | .proj _ _ e2 =>
+     pure <| e.updateProj! (← removeMData e2)
+-  modify (fun st => { st with noMDataExprs := st.noMDataExprs.insert e e' })
++  modify (fun st => { st with noMDataExprs := st.noMDataExprs.insert (ExprStructEq.mk e) e' })
+   pure e'
+ 
+ mutual
+ 
+ partial def dumpExprAux (e : Expr) : M Nat := do
+-  getIdx e "ie" (·.visitedExprs) ({ · with visitedExprs := · }) do
++  getIdx (ExprStructEq.mk e) "ie" (·.visitedExprs) ({ · with visitedExprs := · }) do
+     match e with
+     | .fvar .. | .mvar .. => panic! "cannot export free variables or metavariables"
+     | .mdata a e' =>

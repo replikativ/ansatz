@@ -9,9 +9,58 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as expr]
             [ansatz.kernel.name :as name]
+            [ansatz.state :as state]
             [ansatz.attrs :as attrs]))
 
 (use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+
+(deftest structured-attribute-json-preserves-escaping-and-legacy-priority
+  (let [escaped "Escaped.\"quote\\slashλ"
+        lines ["{ \"name\": \"Escaped.\\\"quote\\\\slash\\u03bb\", \"kind\": \"simp\", \"post\": true, \"inv\": false }"
+               "{\"kind\":\"csimp\",\"name\":\"Source\\u03bb\",\"target\":\"Target\\\"quoted\"}"
+               "{\"kind\":\"simp\",\"name\":\"Explicit\",\"prio\":4294967295}"]
+        tuples (attrs/parse-attr-lines lines)
+        [loaded _] (attrs/import-attr-tuples (a/env) tuples {:present? (constantly true)})]
+    (is (= [["simp" escaped nil nil]
+            ["csimp" "Sourceλ" "Target\"quoted" nil]
+            ["simp" "Explicit" nil 4294967295]] tuples))
+    (is (contains? (env/get-extension loaded :simp-lemmas #{}) escaped))
+    (is (= "Target\"quoted" (get (env/get-extension loaded :csimp {}) "Sourceλ")))
+    (is (= 4294967295 (get (env/get-extension loaded :simp-priorities {}) "Explicit")))))
+
+(deftest unsupported-and-malformed-attributes-never-mutate-or-probe-presence
+  (let [before (a/env)
+        valid "{\"kind\":\"extern\",\"name\":\"WouldBeInstalled\"}"
+        bad ["{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":true,\"inv\":true}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":false,\"inv\":false}"
+             "{\"kind\":\"unfold-thms\",\"name\":\"Absent\",\"theorems\":[\"Replacement\"]}"
+             "{\"kind\":\"unknown\",\"name\":\"Absent\"}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\",\"name\":\"Duplicate\"}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\",\"extra\":true}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\",\"prio\":-1}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\",\"prio\":4294967296}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":true}"
+             "{\"kind\":\"csimp\",\"name\":\"Absent\"}"
+             "{\"kind\":\"simp\",\"name\":\"Absent\"} trailing"
+             "not json" ""]]
+    (doseq [line bad]
+      (let [global (atom before) probes (atom 0)]
+        (with-redefs [state/ansatz-env global]
+          (is (thrown? Exception
+                       (attrs/import-attrs! [valid line]
+                                            {:present? (fn [_] (swap! probes inc) true)})))
+          (is (identical? before @global))
+          (is (zero? @probes)))))))
+
+(deftest persisted-tuples-are-validated-as-a-complete-batch
+  (doseq [bad [["unknown" "x" nil nil] ["unfold-thms" "x" nil nil]
+               ["csimp" "x" nil nil] ["simp" "x" nil -1]
+               ["simp" "x" nil nil :ignored]]]
+    (let [before (a/env) global (atom before)]
+      (with-redefs [state/ansatz-env global]
+        (is (thrown? clojure.lang.ExceptionInfo
+                     (attrs/install-tuples! [["extern" "WouldBeInstalled" nil nil] bad])))
+        (is (identical? before @global))))))
 
 (deftest load-init-auto-inherits-lean-attributes
   ;; load-init! ran attrs/load-bundled-attrs!, so the env carries Lean's @[simp] corpus (intersected

@@ -30,14 +30,19 @@ partial def conclHead : Expr → Expr
 
 def emit (entry : InstanceEntry) : CoreM Unit := do
   match entry.globalName? with
-  | none => pure ()
+  | none => throwError "global instance entry has no declaration name"
   | some name =>
     match (← getEnv).find? name with
-    | none => pure ()
+    | none => throwError "global instance declaration is missing: {name}"
     | some ci =>
       match conclHead ci.type with
-      | .const className .. => IO.println s!"{className}\t{name}\t{entry.priority}"
-      | _ => pure ()
+      | .const className .. =>
+        let classText := className.toString
+        let nameText := name.toString
+        if [classText, nameText].any (fun text => text.toList.any (fun c => c == '\t' || c == '\r' || c == '\n')) then
+          throwError "instance name cannot be represented in TSV: {name}"
+        IO.println s!"{classText}\t{nameText}\t{entry.priority}"
+      | _ => throwError "global instance does not conclude in a class: {name}"
 
 -- Only GLOBAL registrations: a `scoped instance` is inactive unless its namespace is opened,
 -- and after `importModules` none is — emitting it would hand synthesis an instance Lean itself

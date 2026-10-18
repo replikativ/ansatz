@@ -13,6 +13,7 @@
    and `Bool.true_eq` are confluent only because they are low.
    The tactic / optimizer / codegen layers can then consult the inherited set instead of hand-curating."
   (:require [ansatz.bundle :as bundle]
+            [ansatz.bundle-metadata :as metadata]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.state :as state]
@@ -34,15 +35,35 @@
    The rest are stored as sets of names."
   #{"csimp" "impl"})
 
-(defn- parse-line [l]
-  (when-let [[_ k n] (re-find #"\"kind\":\"([^\"]+)\"[^}]*\"name\":\"([^\"]+)\"" l)]
-    [k n (second (re-find #"\"target\":\"([^\"]+)\"" l))
-     (some-> (second (re-find #"\"prio\":(\d+)" l)) parse-long)]))
-
 (defn parse-attr-lines
-  "NDJSON lines → `[kind name target prio]` tuples (the persisted, importer-side form)."
+  "Strict JSON lines → persisted `[kind name target prio]` tuples. Legacy simp
+   rows may omit priority (nil). Unsupported native semantics, malformed/unknown
+   fields and duplicate keys fail before any tuple is installed or name probed."
   [lines]
-  (into [] (keep parse-line) lines))
+  (mapv (fn [line]
+          (let [{:keys [kind name target prio] :as row}
+                (metadata/parse-attribute-row line {:legacy-priority? true})]
+            (when (metadata/unsupported-attribute? row)
+              (throw (ex-info "Unsupported native attribute semantics" {:kind kind :name name})))
+            [kind name target prio])) lines))
+
+(defn- attribute-lines [text]
+  (if (empty? text) []
+      (let [lines (str/split text #"\r?\n" -1)]
+        (if (= "" (peek lines)) (pop lines) lines))))
+
+(defn- checked-tuples [tuples]
+  (mapv (fn [tuple]
+          (let [[kind declaration target priority] (when (sequential? tuple) tuple)
+                valid-name? #(and (string? %) (not (str/blank? %)))]
+            (when-not (and (sequential? tuple) (= 4 (count tuple))
+                           (contains? kind->ext kind) (valid-name? declaration)
+                           (if (map-kinds kind) (valid-name? target) (nil? target))
+                           (if (= "simp" kind)
+                             (or (nil? priority) (and (integer? priority) (<= 0 priority metadata/max-priority)))
+                             (nil? priority)))
+              (throw (ex-info "Invalid persisted attribute tuple" {:kind kind :name declaration})))
+            tuple)) tuples))
 
 (defn import-attr-tuples
   "Return [env' stats]: `env` with `[kind name target prio]` tuples loaded into the matching
@@ -50,7 +71,8 @@
    {name → target} maps (the f→g replacement / impl); the rest are name sets. `stats` maps each
    extension key to the count loaded, plus :skipped."
   [env tuples {:keys [present?]}]
-  (let [present? (or present?
+  (let [tuples (checked-tuples tuples)
+        present? (or present?
                      (fn [n] (some? (env/lookup env (name/from-string n)))))]
     (reduce (fn [[e stats] [k n target prio]]
               (if-let [ext-key (kind->ext k)]
@@ -79,7 +101,7 @@
    (see storage/contains-name-checker)."
   ([env ndjson] (import-attrs env ndjson {}))
   ([env ndjson opts]
-   (let [lines (if (sequential? ndjson) ndjson (str/split-lines (slurp ndjson)))]
+   (let [lines (if (sequential? ndjson) ndjson (attribute-lines (slurp ndjson :encoding "UTF-8")))]
      (import-attr-tuples env (parse-attr-lines lines) opts))))
 
 (defn import-attrs!
@@ -106,29 +128,39 @@
   (let [f (io/file path)]
     (when (.exists f)
       (let [text (if (str/ends-with? (.getName f) ".gz")
-                   (with-open [in (java.util.zip.GZIPInputStream. (io/input-stream f))] (slurp in))
-                   (slurp f))]
-        (parse-attr-lines (str/split-lines text))))))
+                   (with-open [in (java.util.zip.GZIPInputStream. (io/input-stream f))]
+                     (slurp in :encoding "UTF-8"))
+                   (slurp f :encoding "UTF-8"))]
+        (parse-attr-lines (attribute-lines text))))))
 
 (def ^:private bundled-attrs-resource "ansatz/init-attrs.ndjson.gz")
 
 (defn bundled-attrs
-  "Read verified bundled attribute tuples without changing proof state."
+  "Read verified bundled attribute tuples without changing proof state. Schema 2
+   uses strictly decoded JSON rows and rejects unsupported native semantics."
   []
-  (let [payload (bundle/verified-bytes bundled-attrs-resource)
-        text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
-               (slurp in))]
-    (parse-attr-lines (str/split-lines text))))
+  (bundle/with-verified
+    (fn [manifest]
+      (bundle/assert-consumable!)
+      (if (= "ansatz-bundle/2" (:bundle/schema manifest))
+        (mapv (fn [{:keys [kind name target prio]}] [kind name target prio])
+              (bundle/verified-companion-rows :attrs))
+        (let [payload (bundle/verified-bytes bundled-attrs-resource)
+              text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
+                     (slurp in :encoding "UTF-8"))]
+          (parse-attr-lines (attribute-lines text)))))))
 
 (defn load-bundled-attrs!
-  "Import the bundled Lean attribute corpus (the gzipped NDJSON dumped from Init by
-   scripts/dump_attrs.lean) into the GLOBAL env's extensions, intersected with the loaded store.
-   Called by ansatz.core/init! + load-init! so Lean's @[simp]/@[csimp]/@[extern] are inherited by
-   default. Missing or inconsistent bundled resources fail before installation. Returns the load stats."
+  "Import verified bundled attribute tuples into the GLOBAL env, intersected
+   with its declarations. Unsupported schema-2 semantics fail before mutation.
+   Returns load stats; store imports retain their separate persisted tuple path."
   ([] (load-bundled-attrs! {}))
   ([opts]
-   (let [payload (bundle/verified-bytes bundled-attrs-resource)]
-     (let [lines (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
-                   (str/split-lines (slurp in)))]
-       (import-attrs! lines opts)))))
-
+   (let [tuples (bundled-attrs)
+         stats (atom nil)]
+     (swap! state/ansatz-env
+            (fn [e]
+              (let [[loaded result] (import-attr-tuples e tuples opts)]
+                (reset! stats result)
+                loaded)))
+     @stats)))
