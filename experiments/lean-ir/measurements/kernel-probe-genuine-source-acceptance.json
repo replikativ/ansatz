@@ -139,7 +139,8 @@
     "target/artifact-contract/full-init-next/genuine-checkpoint-next/launch-small-finalizer-repl.py": "614a8b09a234b097ac675d4c7bc14d6c5a7180515116c0f144ec6638e74ba4a7",
     "target/artifact-contract/campaign-kernel-probe-small-v2.preflight.json": "3d95fb5393b27bd5fd46b151406c6696704597949e26a1a445002630ba3b67b7",
     "target/artifact-contract/campaign-kernel-probe-small-v2.json": "6218cf3d0213f07c8aa67c9272abea06898237d4799710a44c5d7fa0bdd4af2d",
-    "target/artifact-contract/campaign-kernel-probe-small-v2.log": "80994b9dd32f82fb031f8c4f2e2a7c7a048342b0f51821546726c50068cb6d6b"
+    "target/artifact-contract/campaign-kernel-probe-small-v2.log": "80994b9dd32f82fb031f8c4f2e2a7c7a048342b0f51821546726c50068cb6d6b",
+    "target/artifact-contract/full-init-next/ordinary-draft/resident-ordinary-acceptance.clj": "025a859be01de45926a0fad54f774ce087541809ea440b823a1849d848091734"
   },
   "integration-tests": {
     "ordinary-preparation-host-models": {
