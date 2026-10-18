@@ -96,3 +96,59 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"(unsupported|Unsupported)"
                          (raw/call (raw/open-functions (:functions world) {} {:backend :reference})
                                    world scalar-root [21])))))
+
+(deftest native-compiled-uint32-and-unicode-io-use-cooperative-host-boundaries
+  (let [installed (install/install (m/world {}) @bundle {:lower-extern (selected-lowerer bindings)})
+        world (:world installed)]
+    (doseq [backend [:reference :mutable :jvm]]
+      (let [calls (atom [])
+            tracked (into {} (map (fn [[symbol binding]]
+                                   [symbol (assoc binding :handler
+                                             (fn [context state args]
+                                               (swap! calls conj symbol)
+                                               ((:handler binding) context state args)))])) bindings)
+            session (raw/open-functions (:functions world) tracked {:backend backend :fuel 10000})
+            scalar (raw/advance-to-boundary session (m/start world scalar-root [2147483649]))]
+        (is (= :boundary (:status scalar)))
+        (is (= "ansatz_host_double" (get-in scalar [:state :host-request :symbol])))
+        (is (= [2147483649] (get-in scalar [:state :host-request :arguments])))
+        (is (= [] @calls) "The native guest reached the extern, but its handler has not started")
+        (let [completed (raw/complete-host-boundary (:token scalar) {:helper-fuel 0})
+              done (raw/advance-to-boundary (:session completed) (:state completed))]
+          (is (= :handler-completed (:status completed)))
+          (is (= 0 (:helper-steps completed)))
+          (is (= (get-in scalar [:state :stats :steps]) (get-in completed [:state :stats :steps])))
+          (is (= ["ansatz_host_double"] @calls))
+          (is (= :done (:status done)))
+          (is (= 2 (:value done)) "Preserve native UInt32 wraparound without a Nat conversion")
+          (is (empty? (get-in done [:state :heap])))
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already been consumed"
+                               (raw/complete-host-boundary (:token scalar) {:helper-fuel 0})))
+          (is (= ["ansatz_host_double"] @calls) "A consumed boundary never silently repeats its handler")
+          (let [[input-world input] (m/allocate (:state done) :string 249 [])
+                text "λ\u0000🙂"
+                input-world (assoc-in input-world [:heap (:id input) :text] text)
+                boundary (raw/advance-to-boundary (:session done)
+                           (m/start input-world string-root [input m/erased]))]
+            (is (= :boundary (:status boundary)))
+            (is (= "ansatz_host_string" (get-in boundary [:state :host-request :symbol])))
+            (is (= [input m/erased] (get-in boundary [:state :host-request :arguments])))
+            (is (= ["ansatz_host_double"] @calls))
+            (is (= 1 (:rc (m/node (:state boundary) input))))
+            (is (= text (codec/decode (:state boundary) :string input)))
+            (let [completed (raw/complete-host-boundary (:token boundary) {:helper-fuel 0})
+                  after (:state completed)
+                  done (raw/advance-to-boundary (:session completed) after)]
+              (is (= :handler-completed (:status completed)))
+              (is (= 0 (:helper-steps completed)))
+              (is (= (get-in boundary [:state :stats :steps]) (get-in completed [:state :stats :steps])))
+              (is (= :running (:status after)))
+              (is (identical? (:session boundary) (:session completed)))
+              (is (not (contains? (:heap after) (:id input))) "The owned heap String is consumed exactly once")
+              (is (= :done (:status done)))
+              (is (= "Clojure: λ\u0000🙂" (codec/decode (:state done) [:io :string] (:value done))))
+              (is (= ["ansatz_host_double" "ansatz_host_string"] @calls))
+              (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already been consumed"
+                                   (raw/complete-host-boundary (:token boundary) {:helper-fuel 0})))
+              (is (= ["ansatz_host_double" "ansatz_host_string"] @calls))
+              (is (empty? (:heap (m/release (:state done) (:value done) 1)))))))))))

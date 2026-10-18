@@ -106,6 +106,8 @@
 (defn- invoke-helper [context parent parent-session world target args]
   (let [session (active-session context)]
     (try
+      (when (some-> (:helper-run-failed context) deref)
+        (fail "Completion helper budget is poisoned by a failed backend run" {}))
       (boundary! session parent world)
       (when-not (vector? args) (fail "Raw helper arguments must be a vector" {}))
       (let [clean (apply dissoc world control-keys)
@@ -115,7 +117,7 @@
                             [:closure [:var 0]] (mapv #(vector :imm %) args) nil nil)
                     (m/start clean (resolve-target session target) args))
             _ (reset! (:checkpoint context) child)
-            finished (drive context child)
+            finished (drive (dissoc context :yield-host? :pause-on-fuel?) child)
             restored (merge (apply dissoc finished control-keys) (select-keys world control-keys))]
         (reset! (:checkpoint context) restored)
         [restored (:result finished)])
@@ -134,15 +136,7 @@
                                  :failed-helper (:helper boundary)
                                  :host-boundaries (into [boundary] (:host-boundaries (ex-data cause)))) cause)))))))
 
-(defn- drive [context world]
-  (loop [world world]
-    (reset! (:checkpoint context) world)
-    (let [remaining (max 0 (- (:step-limit context) (get-in world [:stats :steps])))
-          current (run-boundary (active-session context) world remaining)]
-      (reset! (:checkpoint context) current)
-      (case (:status current)
-        :done current
-        :host-call
+(defn- dispatch-host [context current]
         (let [host-session (active-session context)
               {:keys [symbol arguments]} (:host-request current)
               binding (binding! symbol (get-in (active-session context) [:bindings symbol]))
@@ -233,8 +227,41 @@
             (boundary! (active-session context) current state)
             (reset! (:checkpoint context) state)
             ;; Ownership has already been discharged/transferred by the handler.
-            (recur (m/resume state (raw-value! state (:return-type signature) result)))))
-        :paused (fail "Raw runtime instruction budget exhausted" {:steps (get-in current [:stats :steps])})
+            (when (some-> (:helper-run-failed context) deref)
+              ;; A handler may catch its helper error, but the opt-in completion
+              ;; still cannot claim exact accounting or publish a success.
+              (fail "Completion helper budget is poisoned by a failed backend run"
+                    {:unresumed-host-result result :unresumed-host-signature signature}))
+            (m/resume state (raw-value! state (:return-type signature) result)))))
+
+(defn- drive [context world]
+  (loop [world world]
+    (reset! (:checkpoint context) world)
+    (let [remaining (if-let [budget (:helper-fuel-left context)]
+                      @budget
+                      (max 0 (- (:step-limit context) (get-in world [:stats :steps]))))
+          current (try
+                    (run-boundary (active-session context) world remaining)
+                    (catch Throwable cause
+                      ;; A throwing backend need not expose its exact consumed
+                      ;; steps. Only the opt-in completion budget is poisoned:
+                      ;; catching a failed helper and retrying an older world
+                      ;; must not recover uncharged guest execution capacity.
+                      (when-let [budget (:helper-fuel-left context)]
+                        (reset! budget 0)
+                        (reset! (:helper-run-failed context) true))
+                      (throw cause)))]
+      ;; This separate aggregate counter is opt-in only. Counting run deltas
+      ;; prevents repeated helpers on older immutable forks resetting the budget.
+      (when-let [budget (:helper-fuel-left context)]
+        (swap! budget - (- (get-in current [:stats :steps]) (get-in world [:stats :steps]))))
+      (reset! (:checkpoint context) current)
+      (case (:status current)
+        :done current
+        :host-call (if (:yield-host? context) current
+                     (recur (dispatch-host context current)))
+        :paused (if (:pause-on-fuel? context) current
+                  (fail "Raw runtime instruction budget exhausted" {:steps (get-in current [:stats :steps])}))
         (fail "Unexpected raw runtime boundary" {:status (:status current)})))))
 
 (defn continue
@@ -266,3 +293,85 @@
   (world! session world)
   (when-not (vector? args) (fail "Raw call arguments must be a vector" {}))
   (continue session (m/start world (resolve-target session target) args)))
+
+
+;; Deliberately process-local and non-serializable. Possession is a trusted host
+;; capability, not a durable checkpoint or an untrusted deserialization format.
+(deftype ^:private HostBoundaryToken [world session request binding claim])
+
+(defn advance-to-boundary
+  "Opt-in cooperative execution. Run at most session :fuel guest instructions,
+   stopping BEFORE an outer host handler starts. Returns :boundary plus an opaque
+   once-only token, :paused, or :done. Existing call/continue are unchanged.
+   A subsequent advance has its own explicit session budget; this is not an
+   implicit total-budget extension of an existing call. No handler IO is run."
+  [session world]
+  (world! session world)
+  (let [world (if (= :paused (:status world)) (m/resume world m/erased) world)
+        context {:active-session (atom session) :owner (Thread/currentThread)
+                 :checkpoint (atom world) :yield-host? true :pause-on-fuel? true
+                 :step-limit (+ (get-in world [:stats :steps]) (:fuel session))}]
+    (try
+      (let [state (drive context world) session (active-session context)]
+        (case (:status state)
+          :host-call
+          (let [request (:host-request state)
+                binding (binding! (:symbol request) (get-in session [:bindings (:symbol request)]))]
+            {:status :boundary :state state :session session
+             :token (HostBoundaryToken. state session request binding (atom :unstarted))})
+          :paused {:status :paused :state state :session session}
+          :done {:status :done :state state :session session :value (:result state)}))
+      (catch Throwable cause
+        (throw (ex-info (or (.getMessage cause) "Raw boundary advance failed")
+                 (assoc (ex-data cause) :checkpoint @(:checkpoint context)
+                                       :checkpoint-session (active-session context)) cause))))))
+
+(defn complete-host-boundary
+  "Consume an advance-to-boundary token once. Execute exactly one outer handler
+   using the existing dispatcher/capabilities, then m/resume once and RETURN;
+   no outer guest instruction is run. :helper-fuel is mandatory and bounds the
+   AGGREGATE guest instructions across synchronous helpers and nested callbacks.
+   It does not bound host CPU, native IO, checker work, compilation or wall time.
+
+   A throwing backend poisons this completion even if its handler catches the
+   helper exception: no further helper call or success receipt is permitted.
+   A started failure consumes the token permanently. Its child checkpoint and
+   named outer boundary are diagnostics, NOT retry/resume authorization: the
+   host continuation was unwound and external effects cannot be rolled back.
+   Tokens do not prevent IO replay by a caller deliberately forking old worlds."
+  [token {:keys [helper-fuel] :as options}]
+  (when-not (and (instance? HostBoundaryToken token)
+                (map? options) (= #{:helper-fuel} (set (keys options)))
+                (integer? helper-fuel) (<= 0 helper-fuel Long/MAX_VALUE))
+    (fail "Expected a boundary token and explicit nonnegative helper-fuel" {}))
+  (let [world (.-world ^HostBoundaryToken token)
+        session (.-session ^HostBoundaryToken token)
+        request (.-request ^HostBoundaryToken token)
+        binding (.-binding ^HostBoundaryToken token)
+        claim (.-claim ^HostBoundaryToken token)]
+    (world! session world)
+    (when-not (and (= :host-call (:status world))
+                  (identical? request (:host-request world))
+                  (identical? binding (get-in session [:bindings (:symbol request)])))
+      (fail "Boundary token does not match its captured request/session" {}))
+    ;; Allocate the complete context before consuming the token. Allocation
+    ;; failure here leaves it unstarted; after CAS, dispatch is inside try.
+    (let [context {:active-session (atom session) :owner (Thread/currentThread)
+                   :checkpoint (atom world) :step-limit Long/MAX_VALUE
+                   :helper-fuel-left (atom helper-fuel) :helper-run-failed (atom false)}]
+      (when-not (compare-and-set! claim :unstarted :started)
+        (fail "Boundary token has already been consumed" {}))
+      (try
+        (let [state (dispatch-host context world)]
+          (reset! claim :completed)
+          {:status :handler-completed :state state :session (active-session context)
+           :helper-steps (- helper-fuel @(:helper-fuel-left context))})
+        (catch Throwable cause
+          (reset! claim :failed)
+          (throw (ex-info (or (.getMessage cause) "Raw boundary handler failed")
+                   (assoc (ex-data cause)
+                          :checkpoint @(:checkpoint context)
+                          :checkpoint-session (active-session context)
+                          :boundary-completion :failed :boundary-token-consumed? true
+                          :unstarted-outer-checkpoint world :unstarted-outer-session session)
+                   cause)))))))

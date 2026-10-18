@@ -296,3 +296,29 @@ The [input extractor](../scripts/prepare-initializer-memory-inputs.py) and
 [host benchmark](../scripts/initializer-memory-benchmark.clj) reproduce this scoped
 experiment using the pinned artifacts. Full runtime validation is recorded with
 the measurement when complete.
+
+
+The [cooperative boundary validation](../measurements/cooperative-host-boundaries.json)
+adds an opt-in raw API for the next finalizer experiment. `advance-to-boundary`
+runs a bounded outer guest segment and yields before an unstarted host handler.
+`complete-host-boundary` claims its process-local token once, completes that one
+synchronous handler under a separate aggregate helper-instruction budget, and
+returns immediately after resuming the outer control state. It executes no next
+outer instruction. Nested helpers stay synchronous; a failed completion cannot
+resume its lost host continuation. Tokens grant no durable restoration or IO
+isolation across deliberately forked worlds.
+
+The same dispatcher serves existing `raw/call`/`continue`, preserving their exact
+fuel and capability behavior. Cooperative completion conservatively poisons its
+helper budget on a throwing backend; catching that error cannot produce further
+helper work or a success receipt. Existing ordinary calls retain their earlier
+catch-and-return behavior. Fuel bounds guest instructions, while host checking,
+parsing, bytecode compilation and IO still need their own resource policies.
+
+Focused checks passed 36 tests / 749 assertions; the full runtime suite passed
+742 tests / 65,901 assertions. A genuine native-compiled fixture exercised UInt32
+wraparound and owned Unicode/NUL/emoji IO Strings through the new boundaries on
+all three backends, with no handler before yield, no duplicate completion and
+complete result cleanup. This validates compiled-fixture interop, not actual
+Init witness production. The next actual REPL run combines this protocol with
+the smaller initializer graph and prepared typed/shared-name witness.
