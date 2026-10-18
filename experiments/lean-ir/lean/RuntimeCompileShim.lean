@@ -621,3 +621,77 @@ array introduces no cross-invocation cache or independently trusted state. -/
 
 
 end RuntimeCompileShim
+
+
+namespace RuntimeCompileShim
+
+/-- Project the immutable environment header module names once per invocation.
+The selected declarations, dependency preorder including duplicates, row order, source provenance and
+all authority evidence are identical to the original typed witness. Dependency collection uses
+the existing append-only bodyDepsLinear collector, avoiding recursive suffix copies. This local
+array introduces no cross-invocation cache or independently trusted state. -/
+@[noinline] def exportEvalConstWitnessIRSharedNamesLinear (env : Environment) (name : Name) : IO EvalConstWitnessIR := do
+  let selected := findInterpreterDecl env name
+  let boxed := match selected with
+    | some decl => if decl.params.isEmpty then none else findInterpreterDeclBoxed env name
+    | none => none
+  let mut forced : NameMap IR.Decl := {}
+  if let some decl := selected then forced := forced.insert name decl
+  if let some decl := boxed then forced := forced.insert decl.name decl
+  let mut pending := #[name] ++ (boxed.map (·.name)).toArray
+  let mut seen : NameSet := {}
+  let mut rows := #[]
+  let mut missing := #[]
+  let moduleNames := env.header.moduleNames
+  while !pending.isEmpty do
+    let current := pending.back!
+    pending := pending.pop
+    if seen.contains current then continue
+    seen := seen.insert current
+    match forced.find? current <|> findInterpreterDecl env current with
+    | none => missing := missing.push current
+    | some decl =>
+      let moduleIdx? := env.getModuleIdxFor? (if boxed.any (·.name == current) then name else current)
+      let local? := moduleIdx?.isNone
+      let sourceModule := moduleIdx?.map fun idx => moduleNames[idx.toNat]!
+      rows := rows.push {
+        name := current
+        decl := decl
+        sourceLocal := local?
+        sourceModule := sourceModule
+      }
+      match decl with
+      | .fdecl (body := body) .. => pending := pending ++ bodyDepsLinear body
+      | _ => pure ()
+  return {
+    schema := "lean-eval-const-witness/1"
+    producer := "RuntimeCompileShim.exportEvalConstWitness"
+    leanCommit := Lean.githash
+    wordBits := System.Platform.numBits
+    target := System.Platform.target
+    name := name
+    boxedTarget := (boxed.map (·.name)).getD name
+    rows := rows
+    missingDependencies := missing
+    sorryDep := IR.getSorryDep env name
+  }
+
+
+end RuntimeCompileShim
+
+namespace RuntimeCompileShim
+
+/-- Oracle-only exposure of the existing append-only collector. Unlike the
+old paired probe, this permits isolated guest instruction-count observations. -/
+@[noinline] def bodyDepsLinearOnlyProbe (body : IR.FnBody) : Array Name :=
+  bodyDepsLinear body
+
+end RuntimeCompileShim
+
+namespace RuntimeCompileShim
+
+/-- Oracle-only original collector, allowing independent old/new guest budgets. -/
+@[noinline] def bodyDepsOriginalOnlyProbe (body : IR.FnBody) : Array Name :=
+  bodyDeps body
+
+end RuntimeCompileShim

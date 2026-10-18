@@ -97,6 +97,37 @@
           (is (not-any? #(contains? support %) [:world :state :imports :start-claimed?])))
         (is (false? @(:closed source)))))))
 
+(deftest malformed-witness-policy-is-rejected-before-resource-or-phase-acquisition
+  (let [restores (atom 0)]
+    (with-redefs [campaign/restore-full-init-runtime (fn [] (swap! restores inc))]
+      (doseq [policy [nil [] {:unknown true} {:shared-linear nil}
+                      {:shared-linear {:artifact "candidate.json"}}
+                      {:shared-linear {:artifact "" :expected-sha256 (apply str (repeat 64 "0"))}}
+                      {:shared-linear {:artifact "candidate.json" :expected-sha256 "unverified"}}]]
+        (is (failure #(campaign/prepare! (prefix) policy)))
+        (is (nil? @(campaign-atom)))
+        (is (not (.exists (io/file (str (prefix) ".events.jsonl"))))))
+    (is (zero? @restores)))))
+
+(deftest explicit-additive-policy-is-forwarded-before-independent-authority-capture
+  (let [fixture (prepared-fixture)
+        ;; Host model only: no candidate artifact is read or authenticated here.
+        policy {:shared-linear {:artifact "target/model-candidate.json"
+                                :expected-sha256 (apply str (repeat 64 "0"))}}
+        received (atom nil)]
+    (with-preparation fixture
+      (fn [calls _]
+        (with-redefs [campaign/prepare-full-init-shared-witness
+                      (fn [assembled actual]
+                        (is (true? (:assembly-model assembled)))
+                        (reset! received actual)
+                        (:prepared fixture))]
+          (is (= :prepared (:phase (campaign/prepare! (prefix) policy))))
+          (is (= policy @received))
+          (is (= [:restore :assemble] @calls))
+          (is (identical? (get-in fixture [:prepared :session])
+                         (get-in (campaign/checkpoint) [:support :session]))))))))
+
 (deftest actual-driver-finalizer-transfers-the-owned-io-once-without-replay
   (let [{:keys [prepared io env source session catalogue] :as fixture} (prepared-fixture)]
     (with-preparation fixture
@@ -276,3 +307,123 @@
         (is (false? @(:start-claimed? prepared)))
         (is (not (contains? (campaign/checkpoint) :driver)))
         (is (false? @(:closed source)))))))
+
+(defn- with-witness-stage-model
+  "MODEL only: replace artifact stages, retain actual final session construction.
+   No source bytes/Lean compiler/native imports or evalConst execution are used."
+  [fixture reject-stage4? run]
+  (let [calls (atom []) selected (atom nil) captured (atom nil)
+        signature {:params [] :return-type "object"}
+        old-binding {:signature signature :handler (fn [_ world _] [world 0])}
+        other-binding {:signature signature :handler (fn [_ world _] [world 0])}
+        base-functions (get-in fixture [:prepared :session :functions])
+        bindings {"lean_eval_const" old-binding "model_unrelated" other-binding}
+        base-session (raw/open-functions base-functions bindings {:backend :reference})
+        ;; The real preparation preflight requires BOTH transferred assembly
+        ;; roots to be references. Other campaign models intentionally use0.
+        [assembly-world imports-owner] (m/allocate (get-in fixture [:prepared :world]) :array 246 [])
+        assembly-world (assoc assembly-world :status :done :frames [])
+        assembled (-> (:prepared fixture)
+                      (assoc :status :assembled-only :session base-session
+                             :world assembly-world :imports imports-owner)
+                      (assoc :loaded {:source (:source fixture) :world assembly-world}))
+        linked (atom nil)
+        stage (fn [number]
+                (fn [catalogue functions actual-bindings & rest]
+                  (is (identical? bindings actual-bindings))
+                  (when-let [previous @selected]
+                    (is (identical? (:catalogue previous) catalogue))
+                    (is (identical? (:functions previous) functions)))
+                  (swap! calls conj (keyword (str "stage" number)))
+                  (when (= 4 number)
+                    (is (= [{:artifact "model-authenticated-candidate.json"
+                             :expected-sha256 (apply str (repeat 64 "0"))}] rest))
+                    (when reject-stage4?
+                      (throw (ex-info "model shared-linear artifact authentication rejected" {:stage :authentication}))))
+                  (let [name (keyword (str "stage-target-" number))
+                        result {:catalogue {:model-stage number :identity (Object.)}
+                                :functions (assoc functions name {:params [] :body [:return [:imm 0]]})
+                                :target name :artifact-sha256 (apply str (repeat 64 "0"))
+                                :added-declarations 1 :added-functions 1}]
+                    (reset! selected result) result)))
+        original-open raw/open-functions
+        ns (the-ns 'prototype.full-init-campaign)
+        redefinitions {(ns-resolve ns 'tw-stage-json) (stage 1)
+                       (ns-resolve ns 'prepare-ir-witness) (stage 2)
+                       (ns-resolve ns 'prepare-shared-names-witness) (stage 3)
+                       (ns-resolve ns 'prepare-shared-names-linear-witness) (stage 4)
+                       #'prototype.preparation/complete-functions
+                       (fn [catalogue functions roots _]
+                         (swap! calls conj :complete)
+                         (is (identical? (:catalogue @selected) catalogue))
+                         (is (identical? (:functions @selected) functions))
+                         (is (= [(:target @selected) (var-get (ns-resolve ns 'tw-exporter))] roots))
+                         (reset! linked (assoc functions :model-final-closure
+                                              {:params [] :body [:return [:imm 0]]})))
+                       #'prototype.eval-const/make-binding
+                       (fn [_ options]
+                         (swap! calls conj :capture)
+                         (is (identical? (:catalogue @selected) (:catalogue options)))
+                         (is (identical? @linked (:trusted-functions options)))
+                         (is (= (:target @selected) (:witness options)))
+                         (is (= :typed-ir (:witness-format options)))
+                         (reset! captured options)
+                         {:signature signature :handler (fn [_ world _] [world 0])})
+                       #'raw/open-functions
+                       (fn [functions actual-bindings options]
+                         (swap! calls conj :open)
+                         (is (identical? @linked functions))
+                         (is (identical? other-binding (get actual-bindings "model_unrelated")))
+                         (original-open functions actual-bindings options))}]
+    (with-redefs-fn redefinitions
+      #(binding [*ns* ns]
+         (run {:assembled assembled :calls calls :selected selected :captured captured
+               :linked linked :base-functions base-functions :other-binding other-binding})))))
+
+(deftest selected-witness-stages-finish-before-final-capability-captures-authority
+  (let [fixture (prepared-fixture)
+        optional {:shared-linear {:artifact "model-authenticated-candidate.json"
+                                  :expected-sha256 (apply str (repeat 64 "0"))}}]
+    (doseq [options [{} optional]]
+      (with-witness-stage-model fixture false
+        (fn [{:keys [assembled calls selected captured linked base-functions other-binding]}]
+          (let [result (if (empty? options)
+                         (campaign/prepare-full-init-shared-witness assembled)
+                         (campaign/prepare-full-init-shared-witness assembled options))]
+            (is (= (if (empty? options)
+                     [:stage1 :stage2 :stage3 :complete :capture :open]
+                     [:stage1 :stage2 :stage3 :stage4 :complete :capture :open]) @calls))
+            (is (= (if (empty? options) 3 4) (count (get-in result [:summary :stage-additions]))))
+            (is (identical? (:catalogue @selected) (:catalogue result)))
+            (is (identical? @linked (get-in result [:world :functions])))
+            (is (identical? @linked (get-in result [:session :functions])))
+            (is (identical? (:catalogue result) (:catalogue @captured)))
+            (doseq [[name function] base-functions]
+              (is (identical? function (get @linked name))))
+            (is (identical? other-binding (get-in result [:session :bindings "model_unrelated"])))
+            (is (identical? (:state assembled) (:state result)))
+            (is (identical? (:imports assembled) (:imports result)))
+            (is (= 1 (:rc (m/node (:world result) (:state result)))))
+            (is (= 1 (:rc (m/node (:world result) (:imports result)))))
+            (is (false? @(:closed (:source fixture))))))))))
+
+(deftest additive-authentication-failure-keeps-assembled-owners-and-captures-no-capability
+  (let [fixture (prepared-fixture)
+        options {:shared-linear {:artifact "model-authenticated-candidate.json"
+                                 :expected-sha256 (apply str (repeat 64 "0"))}}]
+    (with-witness-stage-model fixture true
+      (fn [{:keys [assembled calls captured]}]
+        (with-redefs [campaign/restore-full-init-runtime (fn [] :model-restored)
+                      campaign/assemble-full-init-only (fn [_] assembled)]
+          (is (= :failed (:phase (campaign/prepare! (prefix) options))))
+          (let [record (campaign/checkpoint) packet (get-in record [:preparation-entry :packet])]
+            (is (= [:stage1 :stage2 :stage3 :stage4] @calls))
+            (is (nil? @captured))
+            (is (= :assembled (get-in record [:preparation-entry :stage])))
+            (is (identical? assembled packet))
+            (is (identical? (:source fixture) (:source packet)))
+            (is (= 1 (:rc (m/node (:world packet) (:state packet)))))
+            (is (= 1 (:rc (m/node (:world packet) (:imports packet)))))
+            (is (not (contains? record :prepared)))
+            (is (not (contains? record :support)))
+            (is (false? @(:closed (:source fixture))))))))))

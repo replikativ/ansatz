@@ -40,6 +40,30 @@ still unchecked. `:guest-io-error` retains its actual owned error IO result.
 `:failed` retains the terminal cause and named owner/checkpoint alternatives.
 No phase retries a started callback, finalizer, or strict-check operation.
 
+The subsequent default 3 GiB run stopped on callback 1,123: the shared-name
+witness exhausted its 20M helper budget on a generated UInt macro. See the
+[terminal observation](../measurements/full-init-default-fuel-failure.json).
+Increasing the process lifecycle alone does not address this failure.
+
+The additive shared-name/linear-collector candidate is selected explicitly. Build
+and validate it with `scripts/build-witness-shared-names-linear-oracle.sh` first;
+the build preserves the adopted artifacts and checks every old declaration.
+Then pass the authenticated artifact and digest as the second `prepare!` argument:
+
+```clojure
+{:shared-linear
+ {:artifact "target/witness-ir-shared-names-linear/RuntimeCompileShim.source.jsonl"
+  :expected-sha256 "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4"}}
+```
+
+This option runs the additive stage before final closure completion and capture
+of the new typed witness capability. Existing function objects and unrelated
+binding objects are preserved. The default helper is unchanged. Option syntax
+is rejected before campaign acquisition; artifact-byte authentication occurs in
+the selected stage, with assembled owner/source diagnostics retained on failure.
+Native witness parity and collector benchmarks do not establish full Init or
+ordinary resident acceptance; record the actual selected helper and result.
+
 After `:finalized`, inspect the remaining resource budget and actual heap before
 explicitly starting strict checking:
 

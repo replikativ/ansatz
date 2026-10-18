@@ -238,3 +238,82 @@
         (is (thrown? clojure.lang.ExceptionInfo (store/open-index dir (write! text)))))
       (let [text "{\"schema\":\"lean-ir-store/1\",\"manifests\":[],\"declarations\":[]}"]
         (is (= {} (:declarations (store/open-index dir (write! text)))))))))
+
+(deftest verified-stream-index-authenticates-without-reading-declaration-bodies
+  (with-directory [dir]
+    (let [name (modules/name-of "absent-body")
+          declarations {name (apply str (repeat 64 "a"))}
+          hash (store/checkpoint! (assoc (store/empty-store dir) :declarations declarations))
+          file (io/file dir "indexes" (str hash ".json"))
+          text (slurp file :encoding "UTF-8")
+          reopened (store/open-index-verified-stream dir hash)]
+      ;; The referenced blob deliberately does not exist: index authentication
+      ;; must stay lazy rather than attempting to authenticate declaration bodies.
+      (is (= declarations (:declarations reopened)))
+      (is (= 0 (:blob-reads (store/stats reopened))))
+      (is (= 1 (:index-reads (store/stats reopened))))
+      (is (= hash (store/checkpoint! reopened)))
+      ;; Equal-length, well-formed replacement JSON under the original digest
+      ;; filename must never produce an authenticated catalogue.
+      (spit file (.replace text "absent-body" "forged-body") :encoding "UTF-8")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Store digest mismatch"
+                            (store/open-index-verified-stream dir hash))))))
+
+(deftest verified-stream-index-hashes-exactly-the-opened-stream
+  (with-directory [dir]
+    (let [name (modules/name-of "absent-body")
+          declarations {name (apply str (repeat 64 "a"))}
+          hash (store/checkpoint! (assoc (store/empty-store dir) :declarations declarations))
+          file (io/file dir "indexes" (str hash ".json"))
+          original-text (slurp file :encoding "UTF-8")
+          bytes (#'store/utf8-bytes original-text)
+          open-input io/input-stream
+          opens (atom 0)
+          reopened (with-redefs [io/input-stream
+                                (fn [input & options]
+                                  (if (= file input)
+                                    (do (swap! opens inc)
+                                        ;; Model path replacement after opening a
+                                        ;; stream: authenticate the bytes parsed,
+                                        ;; without a second read of the pathname.
+                                        (spit file (.replace original-text "absent-body" "forged-body")
+                                              :encoding "UTF-8")
+                                        (java.io.ByteArrayInputStream. bytes))
+                                    (apply open-input input options)))]
+                     (store/open-index-verified-stream dir hash))]
+      (is (= 1 @opens))
+      (is (= declarations (:declarations reopened)))
+      (is (= 0 (:blob-reads (store/stats reopened))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Store digest mismatch"
+                            (store/open-index-verified-stream dir hash))))))
+
+(deftest verified-stream-index-preserves-real-ir-selection-and-execution
+  (with-directory [dir]
+    (let [packed (store/pack! dir ["fixtures/list-map.jsonl"])
+          hash (store/checkpoint! packed)
+          reopened (store/open-index-verified-stream dir hash)
+          root (h/entry (ir/load-bundle "fixtures/list-map.jsonl") "List.map._redArg")
+          _ (is (zero? (:blob-reads (store/stats reopened))))
+          selected (ir/load-closure reopened [root])
+          [world input] (m/guest-list (m/world selected) [1 2 3])
+          result (m/run (m/start world root [(m/->Builtin :inc) input]))]
+      (is (= 1 (:blob-reads (store/stats reopened))))
+      (is (= [2 3 4] (m/list-values result (:result result))))
+      (is (= hash (store/checkpoint! reopened))))))
+
+(deftest verified-stream-index-rejects-malformed-json-and-invalid-utf8
+  (with-directory [dir]
+    (doseq [bytes [(#'store/utf8-bytes
+                    "{\"schema\":\"lean-ir-store/1\",\"schema\":\"lean-ir-store/1\",\"manifests\":[],\"declarations\":[]}")
+                   (#'store/utf8-bytes
+                    "{\"schema\":\"lean-ir-store/1\",\"manifests\":[],\"declarations\":[]}null")
+                   ;; Invalid UTF-8 inside an otherwise legal JSON string. The
+                   ;; digest is correct; replacement decoding would accept it.
+                   (byte-array (concat
+                                 (#'store/utf8-bytes "{\"ignored\":\"") [-61]
+                                 (#'store/utf8-bytes "\",\"schema\":\"lean-ir-store/1\",\"manifests\":[],\"declarations\":[]}")))]]
+      (let [hash (#'store/digest bytes)
+            file (io/file dir "indexes" (str hash ".json"))]
+        (io/make-parents file)
+        (with-open [output (io/output-stream file)] (.write output ^bytes bytes))
+        (is (thrown? Exception (store/open-index-verified-stream dir hash)))))))

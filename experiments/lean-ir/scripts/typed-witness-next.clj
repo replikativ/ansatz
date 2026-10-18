@@ -111,20 +111,38 @@
                         (tw-profile-call profile [:eval-helper target] w #(invoke w target arguments) first)))]
         (tw-profile-call profile :eval-const world #((:handler binding) context world args) first)))))
 
+(defn tw-witness-options!
+  "Validate explicit additive preparation policy before acquiring resources."
+  [options]
+  (tw-check (and (map? options) (every? #{:shared-linear} (keys options)))
+            "Unknown witness preparation option")
+  (when (contains? options :shared-linear)
+    (let [stage (:shared-linear options)]
+      (tw-check (and (map? stage) (= #{:artifact :expected-sha256} (set (keys stage)))
+                     (string? (:artifact stage)) (seq (:artifact stage))
+                     (string? (:expected-sha256 stage))
+                     (boolean (re-matches #"[0-9a-f]{64}" (:expected-sha256 stage))))
+                "Shared-linear preparation requires an explicit artifact and SHA256")))
+  options)
+
 (defn prepare-full-init-shared-witness
   "PREPARATION ONLY, on a fresh assemble-full-init-only result. Link additions,
    finish closures, THEN capture exact catalogue/functions in new evalConst cap.
    Preserve all other binding objects, source, roots and guest world fields.
    No guest instructions, initializers, finalizer or kernel association execute.
    Load the two existing defs-only helper scripts before invoking this function."
-  [assembled]
+  ([assembled] (prepare-full-init-shared-witness assembled {}))
+  ([assembled options]
+  (tw-witness-options! options)
   (tw-check (= :assembled-only (:status assembled)) "Expected fresh assembled-only result")
   (tw-assembly-preflight! assembled)
   (let [world (:world assembled) source (:source assembled)
         session (:session assembled) functions (:functions session) bindings (:bindings session)
         phases (atom []) profile (atom {})
-        stage2 (resolve 'prepare-ir-witness) stage3 (resolve 'prepare-shared-names-witness)]
+        stage2 (resolve 'prepare-ir-witness) stage3 (resolve 'prepare-shared-names-witness)
+        stage4 (when (:shared-linear options) (resolve 'prepare-shared-names-linear-witness))]
     (tw-check (and stage2 stage3) "Load both witness preparation helper scripts first")
+    (tw-check (or (nil? (:shared-linear options)) stage4) "Load the selected additive shared-linear preparation script first")
     (tw-check (and (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world))) "Assembly world must be idle")
     (tw-check (and source (false? @(:closed source)) (identical? source (get-in assembled [:loaded :source]))) "Expected original open source")
     (tw-check (identical? functions (:functions world)) "Assembly/session executable identity mismatch")
@@ -133,11 +151,14 @@
     (let [s1 (tw-measure phases :json-additive #(tw-stage-json (:catalogue assembled) functions bindings))
           s2 (tw-measure phases :typed-additive #(stage2 (:catalogue s1) (:functions s1) bindings))
           s3 (tw-measure phases :shared-names-additive #(stage3 (:catalogue s2) (:functions s2) bindings))
-          catalogue (:catalogue s3) target (:target s3)
+          s4 (when stage4 (tw-measure phases :shared-names-linear-additive
+                          #(stage4 (:catalogue s3) (:functions s3) bindings (:shared-linear options))))
+          selected (or s4 s3)
+          catalogue (:catalogue selected) target (:target selected)
           lower #(if (contains? bindings (some-> % :ir :extern tw-abi/symbol-for))
                    (tw-raw/lower bindings %) (tw-abi/lower-deferred-catalogue catalogue %))
           linked (tw-measure phases :complete-actual-bodies
-                   #(tw-prep/complete-functions catalogue (:functions s3) [target tw-exporter] lower))
+                   #(tw-prep/complete-functions catalogue (:functions selected) [target tw-exporter] lower))
           _ (tw-preserved-functions! functions linked)
           ;; Only NOW bind final authority; a stale catalogue causes the actual
           ;; evalConst profile check to fail, even if helper code was loaded.
@@ -158,10 +179,13 @@
        :kernel-policy (:kernel-policy assembled) :profile profile :start-claimed? (atom false)
        :summary {:scope :full-init-witness-preparation-only :phases @phases
                  :functions-before (count functions) :functions-after (count linked)
-                 :stage-additions (mapv #(select-keys % [:added-declarations :added-functions]) [s1 s2 s3])
-                 :witness target :format :typed-ir :artifacts full-init-witness-artifacts
+                 :stage-additions (mapv #(select-keys % [:added-declarations :added-functions])
+                                    (cond-> [s1 s2 s3] s4 (conj s4)))
+                 :witness target :format :typed-ir
+                 :artifacts (cond-> full-init-witness-artifacts
+                              s4 (assoc (get-in options [:shared-linear :artifact]) (:artifact-sha256 s4)))
                  :original-functions-preserved true :other-capabilities-preserved true
-                 :guest-steps-delta 0 :finalizer-executed false :strict-association false}})))
+                 :guest-steps-delta 0 :finalizer-executed false :strict-association false}}))))
 
 (defn- tw-run-one-slice [session world source profile continue-claimed?]
   (let [started (System/nanoTime) before (tw-heap) steps (get-in world [:stats :steps])]

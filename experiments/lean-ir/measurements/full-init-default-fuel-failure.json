@@ -1,0 +1,129 @@
+{
+  "schema": "ansatz-full-init-terminal-fuel-observation/1",
+  "date": "2026-10-18",
+  "runtime-commit": "8167c6e",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "execution": "default mutable; no reference-prefix substitution",
+  "resource-policy": {
+    "heap-mib": 3072,
+    "group-rss-mib": 3584,
+    "lifecycle-seconds": 5400,
+    "minimum-available-mib": 1024
+  },
+  "process": {
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 3551911936,
+    "elapsed_seconds": 2001.91
+  },
+  "elapsed-limit": "Whole REPL lifecycle includes restoration, preparation, guest work and idle failure diagnosis; not an import benchmark.",
+  "outer": {
+    "failure-message": "Cooperative driver stopped; no automatic retry",
+    "failed-phase": "finalizing",
+    "functions": 329043,
+    "source-open": true,
+    "phase": "failed",
+    "heap-used": 2163164464,
+    "guest-status": "host-call",
+    "eval-const-failures": 1,
+    "guest-steps": 257035651,
+    "kernel-associations": 0,
+    "heap-maximum": 3221225472,
+    "eval-const-calls": 1123,
+    "heap-objects": 737221
+  },
+  "failure": {
+    "failure-class": "clojure.lang.ExceptionInfo",
+    "failure-message": "Raw runtime instruction budget exhausted",
+    "target": "_aux_Init_Data_UInt_Lemmas___macroRules_commandDeclare_uint_theorems___1",
+    "failed-helper": {
+      "target": [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "RuntimeCompileShim"
+        ],
+        "exportEvalConstWitnessIRSharedNames"
+      ],
+      "argument-count": 3
+    },
+    "boundary-token-consumed": true,
+    "boundary-completion": "failed",
+    "helper-budget": 20000000,
+    "helper-entry-steps": 282084243,
+    "child-steps": 302084243,
+    "child-step-delta": 20000000,
+    "child-status": "paused",
+    "child-frame-count": 79,
+    "child-local-heap": 737291,
+    "child-functions": 329043,
+    "frame-call-targets": [
+      [
+        "direct",
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Array"
+            ],
+            "append"
+          ],
+          "_redArg"
+        ]
+      ]
+    ]
+  },
+  "eval-const-profile": {
+    "calls": 1123,
+    "failures": 1,
+    "inclusive-ms": 1185140.5887290004,
+    "max-ms": 86198.719889,
+    "completed-guest-steps": 185414391
+  },
+  "interpretation": {
+    "confirmed": "Actual witness helper exhausted its 20M aggregate completion budget; paused stack includes Array.append._redArg.",
+    "source-finding": "SharedNames uses recursive bodyDeps, whose suffix-array appends can take quadratic work. Existing bodyDepsLinear preserves preorder and duplicates.",
+    "limit": "Authenticated macro catalogue body supports the diagnosis; selected paused guest declaration was not projected and compared before process disposal."
+  },
+  "acceptance": {
+    "guest-finalizer-done": false,
+    "strict-checking-started": false,
+    "ordinary-file-acceptance": false,
+    "callback-retried": false,
+    "durable-world-checkpoint": false
+  },
+  "cleanup": "Recorded bounded failure evidence then discarded the terminal process and all source-borrowing worlds; no callback replay.",
+  "artifacts": {
+    "target/artifact-contract/full-init-next/headless-default-v2.failure.json": {
+      "bytes": 12597,
+      "sha256": "5ba0dc9d213b22d215e7a3b3327fe9f775bbaf9ff42a6e32897f3ca55deb08f5"
+    },
+    "target/artifact-contract/full-init-next/headless-default-v2.culprit-row.json": {
+      "bytes": 692677,
+      "sha256": "b64c286b31378d82830942f0b56ecd4bcb71d76f273f7543de2d2b28df50419a"
+    },
+    "target/artifact-contract/campaign-headless-init-v2.preflight.json": {
+      "bytes": 1443,
+      "sha256": "050bdd6739b8a2a56c08445ee084f26115d26942a6f3c55d9bc32f7a1a358f2a"
+    }
+  },
+  "executed-sources-sha256": {
+    "experiments/lean-ir/scripts/full-init-campaign.clj": "313816e07865e56c92f041a95c738d515833ab8b393f2d4c625dc1642bad3639",
+    "experiments/lean-ir/scripts/cooperative-full-init-drive.clj": "58850d4ad3f29f9a7fc37c716eed2d401e77a334d20fedcd23688114df372e66",
+    "experiments/lean-ir/scripts/full-init-assembly-probe.clj": "a0b588ea25dcae097b86e49df4d6325ace289d2c185efc9c53ff3a0b279601e4",
+    "experiments/lean-ir/scripts/typed-witness-next.clj": "efb713e4fea27710803847195a61a019e025217ef64e8660b0fcd54e41d7a2b2",
+    "experiments/lean-ir/src/prototype/raw_interop.clj": "432260c3170e16e192071c27197b083efc227eaf7742acd309ff0aeacd5daea2",
+    "experiments/lean-ir/src/prototype/machine.cljc": "1353a5e051f84cf753f44815f2339b39a51392646e735445d057183601e5c4ed",
+    "experiments/lean-ir/src/prototype/mutable.clj": "75dbeff5c01e1dc643ba3280541bc2ca20b4d9560e2625810377efa944bf4277",
+    "experiments/lean-ir/src/prototype/eval_const.clj": "81bcbf9d38b2105c6165e1b42609908757adc09a2686f05ec48195bb94be91be"
+  }
+}

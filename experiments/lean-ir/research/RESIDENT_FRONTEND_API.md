@@ -367,3 +367,56 @@ passed 22 focused tests / 183 assertions, followed by the full runtime suite of
 they establish failure handling, not actual full-Init or resident acceptance.
 See the [REPL campaign instructions](../scripts/FULL_INIT_CAMPAIGN.md) for explicit
 phase entry points and resource/lifetime requirements.
+
+The [subsequent default-mutable run](../measurements/full-init-default-fuel-failure.json)
+stopped terminally on callback 1,123 after 1,122 successful `evalConst` callbacks.
+The shared-name witness for the generated UInt theorem macro exhausted its
+20-million-instruction completion budget. The paused helper had 79 frames and
+included `Array.append._redArg`; it did not exhaust the memory guard. Source
+review found that this witness still uses the recursive dependency collector,
+whose repeated suffix-array appends can take quadratic work on long IR bodies.
+The authenticated catalogue body supports that diagnosis; the selected paused
+guest declaration was not separately projected and compared before disposal.
+
+The run used a 3 GiB heap, peaked at 3,551,911,936 bytes RSS, and exited cleanly
+after bounded failure evidence was saved. Its 2,001.91-second process lifecycle
+includes preparation and idle diagnosis and is not an import benchmark. The
+failed callback was not retried. Guest finalization, strict checking and ordinary
+resident acceptance remain incomplete. The next experiment combines shared-name
+projection with the existing order-preserving linear dependency collector in an
+additive helper, with exact parity checks before another actual campaign.
+
+The [shared-name/linear witness validation](../measurements/shared-linear-witness-validation.json)
+now establishes that additive helper's isolated behavior. All 497 previous shim
+declarations remain unchanged. Native checks cover dependency order and duplicates,
+four complete small witnesses, and the actual failing UInt macro: original and
+new complete witnesses have identical 1,409,498-byte output covering 930
+declarations, with no missing dependency or sorry evidence.
+
+An independently verified compacted fixture carries the actual native-selected
+macro body, its declaration and native dependency oracle. Guest preparation
+matches body, declaration, native JSON and authenticated catalogue IR exactly.
+Only 46 functions are linked, without restoring the frontend or replaying Init.
+Under the same 20M instruction budget, the original collector exhausts fuel;
+the linear collector completes in 154,177 instructions and returns all 1,522
+dependency occurrences in the exact native order. Its result owner and all three
+backing Stores are closed after the separate branches are discarded.
+
+Twenty-six synthetic mutable-backend samples also pass: at depth 8,192, the
+linear path completes in 1,573,098 instructions while the original exhausts 20M.
+Wall times include shared native lookup caches and are not cold frontend timings;
+native compilation has different costs and no general native speedup is claimed.
+The expanded orchestration checks pass 26 tests / 295 assertions, followed by
+768 runtime tests / 66,196 assertions. Full guest witness completion and the next
+Init finalization remain separate acceptance gates. The campaign selects the
+candidate through an explicit authenticated preparation option before capturing
+the final capability; its default remains unchanged.
+
+The canary builder, guest probe and same-stream verified-index API are now
+tracked with [reproduction instructions](../scripts/ACTUAL_UINT_COLLECTOR.md).
+The integrated native build passes; the probe's tracked definitions load without
+starting work. Four additional index tests cover lazy blob reads, same-open-stream
+authentication under path replacement, real IR execution, and malformed input.
+The integrated focused run passes 30 tests / 307 assertions and the full runtime
+passes 772 tests / 66,212 assertions. These checks do not advance the unfinished
+Init finalizer or grant a restored kernel verdict.

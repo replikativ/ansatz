@@ -1,0 +1,641 @@
+{
+  "schema": "ansatz-shared-linear-witness-validation/1",
+  "date": "2026-10-18",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "runtime-base-commit": "8167c6e",
+  "scope": "Additive witness and isolated collector validation, before a fresh full Init campaign",
+  "native": {
+    "build": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 993497088,
+      "elapsed_seconds": 38.09
+    },
+    "hardened-actual-macro": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 843063296,
+      "elapsed_seconds": 3.01
+    },
+    "old-declarations-unchanged": 497,
+    "new-declarations": 505,
+    "constructor-dependency-cases": 30,
+    "adversarial-collection-cases": 20,
+    "complete-toy-witness-cases": 4,
+    "typed-variants-compared-to-original-per-case": 4,
+    "actual-macro": {
+      "name": "_aux_Init_Data_UInt_Lemmas___macroRules_commandDeclare_uint_theorems___1",
+      "selected-fdecl": true,
+      "missing-dependencies": 0,
+      "sorry": false,
+      "witness-declarations": 930,
+      "witness-bytes": 1409498,
+      "old-and-new-witness-sha256": "564b3226001e0d8f1145a01f9cdc84242dd1bbdfe60d749abcff5c3dae761bc4"
+    }
+  },
+  "synthetic-guest": {
+    "guard": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 870535168,
+      "elapsed_seconds": 331.64
+    },
+    "evidence": {
+      "scope": "actual-guest-synthetic-body-collector-only",
+      "status": "pass",
+      "samples": 26,
+      "backends": [
+        "mutable"
+      ],
+      "artifact": {
+        "index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+        "aliases-sha256": "51b80c4da0634b7f9d11496923865d6e9c171e29b0d5e0cc738480ba18d01e84",
+        "shim-sha256": "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4",
+        "probe-sha256": "9752d31b369f05702b457086cb72f14c8d8e8aa85ced6221619e6dff099b999d",
+        "linked-functions": 139,
+        "bootstrap-restored": false
+      },
+      "results": [
+        {
+          "io-owner-released": true,
+          "steps": 234,
+          "size": 0,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 69.576909,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 517,
+          "size": 1,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 18.28427,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 15727,
+          "size": 31,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 240.204239,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 588802,
+          "size": 256,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 2524.168618,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 242,
+          "size": 0,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 1,
+          "budget": 20000000,
+          "elapsed-ms": 2.714287,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 635,
+          "size": 1,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 1,
+          "budget": 20000000,
+          "elapsed-ms": 22.758538,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 18995,
+          "size": 31,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 1,
+          "budget": 20000000,
+          "elapsed-ms": 106.127209,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 615695,
+          "size": 256,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 1,
+          "budget": 20000000,
+          "elapsed-ms": 1741.825731,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 319,
+          "size": 0,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 2,
+          "budget": 20000000,
+          "elapsed-ms": 2.794465,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 1288,
+          "size": 1,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 2,
+          "budget": 20000000,
+          "elapsed-ms": 4.651063,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 24448,
+          "size": 31,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 2,
+          "budget": 20000000,
+          "elapsed-ms": 53.007285,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 198148,
+          "size": 256,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 2,
+          "budget": 20000000,
+          "elapsed-ms": 459.004825,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 238,
+          "size": 0,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 3,
+          "budget": 20000000,
+          "elapsed-ms": 1.575199,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 527,
+          "size": 1,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 3,
+          "budget": 20000000,
+          "elapsed-ms": 2.639366,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 15917,
+          "size": 31,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 3,
+          "budget": 20000000,
+          "elapsed-ms": 50.234812,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 590342,
+          "size": 256,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionSummary",
+          "kind": 3,
+          "budget": 20000000,
+          "elapsed-ms": 1690.56763,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 2182287,
+          "size": 512,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionOriginalSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 6841.590754,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 98538,
+          "size": 512,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionLinearSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 242.377511,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 8558735,
+          "size": 1024,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionOriginalSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 31738.067525,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 196842,
+          "size": 1024,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionLinearSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 465.307963,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": false,
+          "steps": 20000000,
+          "size": 2048,
+          "host-bindings": 0,
+          "status": "budget-exhausted",
+          "collector": "collectionOriginalSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 86282.824527,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 393450,
+          "size": 2048,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionLinearSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 954.580673,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": false,
+          "steps": 20000000,
+          "size": 4096,
+          "host-bindings": 0,
+          "status": "budget-exhausted",
+          "collector": "collectionOriginalSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 85522.309449,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 786666,
+          "size": 4096,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionLinearSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 2398.153469,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": false,
+          "steps": 20000000,
+          "size": 8192,
+          "host-bindings": 0,
+          "status": "budget-exhausted",
+          "collector": "collectionOriginalSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 85297.020643,
+          "backend": "mutable"
+        },
+        {
+          "io-owner-released": true,
+          "steps": 1573098,
+          "size": 8192,
+          "host-bindings": 0,
+          "status": "ok",
+          "collector": "collectionLinearSummary",
+          "kind": 0,
+          "budget": 20000000,
+          "elapsed-ms": 6586.518176,
+          "backend": "mutable"
+        }
+      ],
+      "native-bootstrap": false,
+      "full-init": false
+    },
+    "limit": "Identical constructed inputs; counts include body construction and validation. This is not whole witness or frontend timing."
+  },
+  "actual-native-body": {
+    "native-export-guard": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 935100416,
+      "elapsed_seconds": 6.02
+    },
+    "guest-guard": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 1018900480,
+      "elapsed_seconds": 108.21
+    },
+    "body-decl-native-json-catalogue-ir-exact": true,
+    "body-native-roundtrip-verified": true,
+    "expected-dependency-order-and-duplicates-verified": true,
+    "result": {
+      "samples": [
+        {
+          "dependency-count": 1522,
+          "result-owner-released": false,
+          "fuel": 20000000,
+          "host-bindings": 0,
+          "status": "budget-exhausted",
+          "collector": "original",
+          "guest-steps": 20000000,
+          "local-heap": 55,
+          "elapsed-ms": 84126.808296,
+          "paused-frames": 76,
+          "backend": "mutable",
+          "native-output-parity": false,
+          "source-bases": [
+            0,
+            8484,
+            16973
+          ]
+        },
+        {
+          "dependency-count": 1522,
+          "result-owner-released": true,
+          "fuel": 20000000,
+          "host-bindings": 0,
+          "status": "done",
+          "collector": "linear",
+          "guest-steps": 154177,
+          "local-heap": 6,
+          "elapsed-ms": 699.345272,
+          "paused-frames": 0,
+          "backend": "mutable",
+          "native-output-parity": true,
+          "source-bases": [
+            0,
+            8484,
+            16973
+          ]
+        }
+      ],
+      "old-new-guest-parity": false,
+      "full-init-replayed": false,
+      "source": {
+        "index-sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+        "shim-sha256": "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4",
+        "aliases-sha256": "51b80c4da0634b7f9d11496923865d6e9c171e29b0d5e0cc738480ba18d01e84",
+        "descriptors": {
+          "body": "24ba316176fa0c28ecfb00acd69910b33f47b7af6d90edd4d3bcee3e5724deae",
+          "decl": "4fe177aa9cf12b6db0e9da24b2f376971eedf95d1071ac3679baf6a378e9f002",
+          "expected": "a2e32ca0d4a8c637ad54b576d3c80b02210e7fbfaa65479f4c5d209133a76832"
+        }
+      },
+      "scope": "actual-native-selected-UInt-body-guest-collectors",
+      "whole-witness-measured": false,
+      "linear-native-parity": true,
+      "regression-reproduced": true,
+      "backend": "mutable"
+    },
+    "closed": {
+      "phase": "closed",
+      "functions": 0,
+      "native-sources": 0,
+      "samples": [
+        {
+          "dependency-count": 1522,
+          "result-owner-released": false,
+          "fuel": 20000000,
+          "host-bindings": 0,
+          "status": "budget-exhausted",
+          "collector": "original",
+          "guest-steps": 20000000,
+          "local-heap": 55,
+          "elapsed-ms": 84126.808296,
+          "paused-frames": 76,
+          "backend": "mutable",
+          "native-output-parity": false,
+          "source-bases": [
+            0,
+            8484,
+            16973
+          ]
+        },
+        {
+          "dependency-count": 1522,
+          "result-owner-released": true,
+          "fuel": 20000000,
+          "host-bindings": 0,
+          "status": "done",
+          "collector": "linear",
+          "guest-steps": 154177,
+          "local-heap": 6,
+          "elapsed-ms": 699.345272,
+          "paused-frames": 0,
+          "backend": "mutable",
+          "native-output-parity": true,
+          "source-bases": [
+            0,
+            8484,
+            16973
+          ]
+        }
+      ],
+      "failure-message": null
+    },
+    "loaded-index-api": {
+      "resource": "target/artifact-contract/full-init-next/factory-draft/src/prototype/declaration_store.clj",
+      "sha256": "d9f24ac2e41d737cec01e88e25c65d3aab955f738d25da705dec456307723150"
+    },
+    "limit": "Exact native selection and saved catalogue match. The failed campaign child was not resumed or directly reprojected; cache lookups are shared, so wall times are not cold-run comparisons."
+  },
+  "orchestration-tests": {
+    "tests": 26,
+    "assertions": 295,
+    "failures": 0,
+    "errors": 0,
+    "guard": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 432259072,
+      "elapsed_seconds": 8.02
+    }
+  },
+  "full-runtime-tests": {
+    "tests": 768,
+    "assertions": 66196,
+    "failures": 0,
+    "errors": 0,
+    "guard": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 815915008,
+      "elapsed_seconds": 156.32
+    }
+  },
+  "acceptance": {
+    "new-helper-selected-by-default": false,
+    "actual-guest-whole-witness-completion": false,
+    "full-init-guest-completion": false,
+    "strict-init-association": false,
+    "ordinary-resident-acceptance": false,
+    "failed-callback-replayed": false
+  },
+  "executed-sources": {
+    "experiments/lean-ir/lean/RuntimeCompileShim.lean": {
+      "bytes": 33312,
+      "sha256": "ca97feadb9b4668aaa933a91c7b35052c34fc22b4d519317d09b10fe5c55cd19"
+    },
+    "experiments/lean-ir/lean/IRSharedNamesLinearGuestProbe.lean": {
+      "bytes": 2764,
+      "sha256": "2451c05395e4be89fa6fffdbab3c2bf3a1ff7967bc9717f9661afdea1cb56779"
+    },
+    "experiments/lean-ir/lean/IRSharedNamesLinearInitOracle.lean": {
+      "bytes": 3313,
+      "sha256": "f3d9900ad73a01b33a0350239d00d859dfbfbfc51c93a38a2be75daeb661f3ab"
+    },
+    "experiments/lean-ir/lean/IRSharedNamesLinearWitnessOracle.lean": {
+      "bytes": 9969,
+      "sha256": "7757cf78ebbac7b6fccf2f50a47b8274a85bf03981f0c491cf556aaa1a893208"
+    },
+    "experiments/lean-ir/scripts/prepare-shared-names-linear-witness.clj": {
+      "bytes": 6474,
+      "sha256": "ab98488a63cdf6bb2b54c2fa72fcfa8bb9c6158ef5f3ef75ff92e5c76c6c650c"
+    },
+    "experiments/lean-ir/scripts/typed-witness-next.clj": {
+      "bytes": 17846,
+      "sha256": "b50b33a894f79fad0cdee8fa70a2b779bbffb903f30b9002428ee4cfafe3cd2f"
+    },
+    "experiments/lean-ir/scripts/full-init-campaign.clj": {
+      "bytes": 11316,
+      "sha256": "901ffdd99513c893f9a1b85ad84a989c732d532b68c0c96bd09d4beb97d4d05c"
+    },
+    "target/artifact-contract/full-init-next/actual-body-canary/guest-runner.clj": {
+      "bytes": 20586,
+      "sha256": "4a2865069c9653a9d13a8d7fd6500bcefa81b30789866b70bbfc3615906fc64b"
+    },
+    "target/artifact-contract/full-init-next/factory-draft/src/prototype/declaration_store.clj": {
+      "bytes": 15884,
+      "sha256": "d9f24ac2e41d737cec01e88e25c65d3aab955f738d25da705dec456307723150"
+    }
+  },
+  "native-artifacts": {
+    "experiments/lean-ir/target/witness-ir-shared-names-linear/RuntimeCompileShim.source.jsonl": {
+      "bytes": 1808327,
+      "sha256": "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4"
+    },
+    "experiments/lean-ir/target/witness-ir-shared-names-linear/GuestProbe.source.jsonl": {
+      "bytes": 189200,
+      "sha256": "9752d31b369f05702b457086cb72f14c8d8e8aa85ced6221619e6dff099b999d"
+    },
+    "experiments/lean-ir/target/actual-uint-body-canary-v3/uint-macro.body.verified.json": {
+      "bytes": 3253,
+      "sha256": "24ba316176fa0c28ecfb00acd69910b33f47b7af6d90edd4d3bcee3e5724deae"
+    },
+    "experiments/lean-ir/target/actual-uint-body-canary-v3/uint-macro.decl.verified.json": {
+      "bytes": 3251,
+      "sha256": "4fe177aa9cf12b6db0e9da24b2f376971eedf95d1071ac3679baf6a378e9f002"
+    },
+    "experiments/lean-ir/target/actual-uint-body-canary-v3/uint-macro.expected.verified.json": {
+      "bytes": 2364,
+      "sha256": "a2e32ca0d4a8c637ad54b576d3c80b02210e7fbfaa65479f4c5d209133a76832"
+    }
+  },
+  "integrated-validation": {
+    "full-runtime": {
+      "tests": 772,
+      "assertions": 66212,
+      "failures": 0,
+      "errors": 0,
+      "guard": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 803639296,
+        "elapsed_seconds": 154.3
+      },
+      "tracked-probe-definitions-loaded": true
+    },
+    "focused-index-and-campaign": {
+      "tests": 30,
+      "assertions": 307,
+      "failures": 0,
+      "errors": 0,
+      "guard": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 437301248,
+        "elapsed_seconds": 8.02
+      }
+    },
+    "tracked-native-build": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 933859328,
+      "elapsed_seconds": 6.02
+    },
+    "relative-documentation-links": 30,
+    "missing-links": 0,
+    "scope": "Tracked native build paths, tracked probe namespace load, and additive verified-index API; historical accepted actual guest measurement remains separately recorded.",
+    "sources": {
+      "experiments/lean-ir/src/prototype/declaration_store.clj": "d9f24ac2e41d737cec01e88e25c65d3aab955f738d25da705dec456307723150",
+      "experiments/lean-ir/test/prototype/declaration_store_test.clj": "7c7339bd4ac0f07daf7a106bb8485199f0eab4368fe026da21db26a0a9cab14b",
+      "experiments/lean-ir/scripts/actual-uint-collector-probe.clj": "5116909d58733d3a09e99ce593fdb31e9f34c91aedebb7ccb98582498e73d1ce",
+      "experiments/lean-ir/lean/UIntCollectorBodyCanary.lean": "eea7fc4a98b7c390c36506e3ee18f9ed1ecf111ccb9c6a46f3e644cf1f579c8c",
+      "experiments/lean-ir/native/UIntCollectorBodyAdapter.cpp": "f9b7c33aac79c67d4f7586d53ac22d2e274e5d855b33e8c034e85520df6114e3",
+      "experiments/lean-ir/scripts/build-uint-collector-body-canary.sh": "3472ae5575572852dedb146e0ef91ee7dba81759e7da154fc93c5bd9f035e216"
+    }
+  }
+}

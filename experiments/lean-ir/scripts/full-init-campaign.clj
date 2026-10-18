@@ -16,6 +16,7 @@
 (doseq [path ["scripts/full-init-assembly-probe.clj"
               "scripts/prepare-ir-witness.clj"
               "scripts/prepare-shared-names-witness.clj"
+              "scripts/prepare-shared-names-linear-witness.clj"
               "scripts/typed-witness-next.clj"
               "scripts/cooperative-full-init-drive.clj"]]
   (binding [*ns* (the-ns 'prototype.full-init-campaign)] (load-file path)))
@@ -82,7 +83,9 @@
   "Authenticate/restore/assemble once, retaining the original catalogue/helpers/
    policy/session independently of the execution candidate. PREFIX is explicit;
    its JSONL file must not exist. Caller owns the process/resource guard."
-  [prefix]
+  ([prefix] (prepare! prefix {}))
+  ([prefix witness-options]
+  (tw-witness-options! witness-options)
   (when-not (and (string? prefix) (seq prefix)) (fail "Expected output prefix" {}))
   (when-not (compare-and-set! campaign nil {:phase :preparing})
     (fail "Campaign already exists; no implicit restart" {}))
@@ -99,14 +102,16 @@
                            _ (swap! campaign assoc :preparation-entry {:stage :restored :packet restored})
                            assembled (assemble-full-init-only restored)
                            _ (swap! campaign assoc :preparation-entry {:stage :assembled :packet assembled})]
-                       (prepare-full-init-shared-witness assembled)))
+                       (if (empty? witness-options)
+                         (prepare-full-init-shared-witness assembled)
+                         (prepare-full-init-shared-witness assembled witness-options))))
           support (select-keys prepared [:source :catalogue :kernel-helpers :kernel-policy :session :profile :summary])]
       (swap! campaign #(-> % (assoc :prepared prepared :support support
                                     :guest-base (get-in prepared [:world :stats :steps]))
                             (dissoc :preparation-entry)))
       (emit! {:phase :preparation-evidence :evidence (:summary prepared)})
       (finish-phase! :prepared))
-    (catch Throwable cause (terminal! :preparing cause))))
+    (catch Throwable cause (terminal! :preparing cause)))))
 
 (defn finalize!
   "Drive the actual guest finalizer automatically, stopping on owned IO success

@@ -255,3 +255,45 @@
     (catalogue root (:declarations index) (:manifests index)
                (atom {:blob-reads 0 :blob-bytes 0 :blob-publishes 0
                       :index-reads 1 :index-bytes (Files/size (.toPath file))}))))
+
+(defn open-index-verified-stream
+  "Authenticate exactly the streamed index bytes being parsed. No declaration
+   bodies retained/read until requested. Existing open-index API is unchanged."
+  [root hash]
+  (let [file (path root "indexes" hash)
+        digest (MessageDigest/getInstance "SHA-256")
+        index (with-open [input (DigestInputStream. (io/input-stream file) digest)
+                          reader (PushbackReader.
+                                   (java.io.InputStreamReader. input
+                                     (doto (.newDecoder StandardCharsets/UTF_8)
+                                       (.onMalformedInput java.nio.charset.CodingErrorAction/REPORT)
+                                       (.onUnmappableCharacter java.nio.charset.CodingErrorAction/REPORT))) 64)]
+                (expect-character! reader \{)
+                (loop [index {}]
+                  (let [c (next-character reader)]
+                    (if (= (int \}) c)
+                      (if (empty? index) index (m/fail "Malformed store index JSON" {}))
+                      (do (.unread reader c)
+                        (let [key (json/read reader)
+                              _ (when-not (string? key) (m/fail "Malformed store index JSON" {}))
+                              key (keyword key)
+                              _ (when (contains? index key) (m/fail "Duplicate store index field" {:field key}))
+                              _ (expect-character! reader \:)
+                              value (if (= :declarations key) (read-index-entries reader)
+                                      (json/read reader :key-fn keyword :bigdec false))
+                              index (assoc index key value)
+                              separator (next-character reader)]
+                          (case separator
+                            44 (recur index)
+                            125 (do (when-not (= -1 (next-character reader))
+                                      (m/fail "Trailing store index JSON" {})) index)
+                            (m/fail "Malformed store index JSON" {}))))))))]
+    (when-not (= hash (.formatHex (java.util.HexFormat/of) (.digest digest)))
+      (m/fail "Store digest mismatch" {:file (str file) :digest hash}))
+    (when-not (and (= "lean-ir-store/1" (:schema index))
+                   (vector? (:manifests index)) (map? (:declarations index)))
+      (m/fail "Unsupported store index" {}))
+    (doseq [manifest (:manifests index)] (ir/validate-manifest! manifest))
+    (catalogue root (:declarations index) (:manifests index)
+               (atom {:blob-reads 0 :blob-bytes 0 :blob-publishes 0
+                      :index-reads 1 :index-bytes (Files/size (.toPath file))}))))
