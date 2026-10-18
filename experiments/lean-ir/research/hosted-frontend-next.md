@@ -4,6 +4,27 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Fresh full Init resource stop (2026-10-18)
+
+The [fresh full-Init v4 run](../measurements/full-init-fresh-resource-stop-v4.json)
+was terminated by the unchanged global available-memory guard before guest
+finalization completed. It observed 82,266,885 finalizer steps beyond the
+25,048,592-step bootstrap/assembly base and 320 `lean_eval_const` boundaries.
+The last complete campaign summary reported zero callback failures; the last
+observed callback boundary has no completion receipt. Peak process-group RSS
+was 3,384,029,184 bytes, below its 3,584 MiB limit, but system-wide available
+memory fell below 1 GiB. The 745.99-second lifecycle is an interrupted run,
+not full startup or finalization latency.
+
+The approved full-profile factory constructor and the reviewed capture control
+loaded successfully. The queued capture required actual finalizer success,
+so no checkpoint was published, no fresh full strict checking occurred, and
+there is no resumable active guest state. Full-profile restoration and ordinary
+implicit-Init source acceptance remain open gates. This resource stop does not
+invalidate the separately recorded fresh standalone KernelImportProbe results
+or establish a guest semantic failure. Another heavy run requires adequate
+stable system headroom under the existing launch and execution limits.
+
 ## Resident facade preparation (2026-10-18)
 
 The explicit facade passes its actual archived-prelude REPL and fresh-JVM sequences: identity
