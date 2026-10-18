@@ -244,3 +244,24 @@ For this workload, demand compilation did not improve elapsed time. The
 a still-open result of the assembly probe; loading either script starts no guest
 work. The final input assembly was released and the source closed after all
 comparison branches were discarded.
+
+
+The next [typed-witness preparation](../measurements/full-init-typed-witness-preparation.json)
+passed on those actual full-Init assembly inputs. Three pinned additive stages
+added 24 declarations and 14 executable functions in approximately 2.64 seconds.
+Every existing executable and every other capability object was preserved.
+An independent comparison confirmed the entire guest world except its function
+map was equal, with identical heap/global maps, unchanged owned roots and source,
+and zero additional guest steps. The final evalConst binding captures the completed
+catalogue and executable map. This validates preparation and identity preservation;
+it does not execute the typed witness or finalize Init.
+
+The [preparation/slice draft](../scripts/typed-witness-next.clj) and
+[host-control tests](../scripts/typed-witness-control-test.clj) are definitions-only.
+Load the existing typed/shared-name helper scripts first, then the preparation
+draft. Five host-control tests passed 43 assertions with a stubbed driver: duplicate
+starts/continuations do not replay work, invalid continuation preflights preserve
+the token, and unwound nested host callbacks cannot resume as outer guest states.
+The slice helpers are experimental, preserve live checkpoints only, and do not
+provide durable restoration or nested host-continuation serialization. No finalizer
+was invoked in this run. All assembly roots were released and the source closed.
