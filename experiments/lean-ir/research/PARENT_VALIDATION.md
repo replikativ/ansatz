@@ -1,4 +1,28 @@
-# Parent Ansatz validation after hosted source imports
+# Parent Ansatz validation
+
+The latest coordinated-bundle/runtime batch passes the complete available non-WIP
+source **and rebuilt AOT JAR** suites: **832 tests / 3,653 assertions each**, zero
+failures or errors. The independent IR runtime suite passes **721 tests / 60,148
+assertions**. Fresh prelude-only facade acceptance also passes against the rebuilt
+kernel; ordinary/full-Init facade acceptance remains open. Exact source hashes,
+profiles, guard metrics, reviews and remaining work are in the
+[coordinated progress record](../measurements/coordinated-bundle-progress.json)
+and [actual facade record](../measurements/resident-preparation-progress.json).
+
+The JAR contains all 83 intended AOT namespaces, no dependency classes, and Malli
+as source only. Tests exclude project source/classes/resources from their
+classpath. Packaged resources match repository bytes; packaged kernel classes
+match the rebuild and the actual facade probe. Java rebuild, packaging preflight,
+whole-library formatting and relative-link checks pass. Conditional missing-Init
+fixture cases and the optional Datahike/uberjar omissions below remain.
+
+The shipped six-resource cohort remains the inventoried legacy bundle. Pinned
+4.33 staging checks reached complete CI replay and exact overlap checks, then
+failed metadata target closure; no generated replacement was promoted. The pure
+per-role planner is implemented, but generation/witness-profile integration and
+complete lazy companion activation remain separate gates.
+
+## Earlier hosted source-import partition
 
 The local source and AOT jar checks each pass **602 tests / 2,067 assertions
 across 66 namespaces**. This is a bounded partition, not a local full-suite pass.

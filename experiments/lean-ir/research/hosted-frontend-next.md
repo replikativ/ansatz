@@ -11,7 +11,7 @@ over Nat and Unicode String, a second source, an expected diagnostic, and two
 Lean-to-Clojure callbacks. See the
 [source/class-pinned observation](../measurements/resident-preparation-progress.json)
 and [facade scope](RESIDENT_FRONTEND_API.md). Name-prefix sharing restores the
-entire authenticated archive with about 1.12 GiB retained after host GC, where
+entire authenticated archive with about 1.12 GB (1.04 GiB) retained after host GC, where
 the unshared 3 GiB attempt saturated its heap. Existing executable bodies now
 receive dependency completion before trusted identity capture. No initializers
 or source statements are elided by these storage/linking changes.
@@ -25,7 +25,7 @@ the earlier ordinary-Init chronology below or proof of general package coverage.
 
 ## Proposed coordinated Lean 4.33 bundle completion
 
-This sequence is proposed work, not a shipped capability. The shipped bundle
+The remaining sequence is proposed work, not a shipped capability. The shipped bundle
 remains the explicitly inventoried legacy cohort. The current staging generator
 has checked the three candidate kernel closures and their overlaps, but metadata
 target closure remains incomplete; no generated replacement has been promoted.
