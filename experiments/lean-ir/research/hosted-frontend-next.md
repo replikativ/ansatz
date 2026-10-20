@@ -4,6 +4,32 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Typed file witness and fresh execution measurements (2026-10-20)
+
+The B failure is now traced to an archived capability mismatch: the pinned JSON
+FILE witness emits `name`, `ir` and `sourceLocal`, omitting imported module origin.
+Current Lean helper source includes that field, but is not the archived executable.
+The independently pinned typed shared-linear executable has the required origin
+lookup, confirmed by review of its actual structured IR. The new
+[explicit FILE profile](../measurements/source-file-typed-witness-validation.json)
+selects that existing helper without changing runtime code, bindings or ownership.
+No missing origin is inferred or injected, and admission checks remain exact.
+
+Bounded integration passes three tests and 77 assertions across reference,
+mutable and JVM backends: actual native mixed-source typed witness data, real
+file installation/source authorization and Java checking, with modeled small
+guest environment/getters/finalizer. Missing/wrong origin, changed IR/runtime and
+missing receipt still reject; borrowed owners remain unchanged. The complete
+runtime suite passes 805 tests and 88,695 assertions. This is not a new full
+frontend acceptance. A reviewed, pinned fresh typed A-to-B pipeline is now launched;
+its actual B result remains pending.
+
+[Fresh execution measurements](EXECUTION_PERFORMANCE.md) also compare native C,
+default Lean `--run`, native-preference-disabled `--run`, persistent/mutable
+machines and eager JVM blocks. The heap kernels remain far from competitive.
+The full accepted frontend currently uses mutable execution; these microbenchmarks
+do not establish a full frontend slowdown ratio.
+
 ## Fresh source-module continuation (2026-10-20)
 
 The [source-module progress receipt](../measurements/full-init-source-module-progress.json)
@@ -42,8 +68,9 @@ declarations and records the exact A-only receipt (121.792 seconds). B subsequen
 fails source-import authorization with `Source import witness differs from admitted
 source unit`; no successful B compilation/call or origin-witness result follows.
 The guarded process exits one after recording the terminal failure. These timings
-are scoped observations, not competitive benchmarks. The next gate is a targeted
-module/IR/runtime witness comparison, without weakening admission checks.
+are scoped observations, not competitive benchmarks. That failure required a targeted
+module/IR/runtime witness comparison, without weakening admission checks; the
+subsequent typed-profile diagnosis and bounded validation are recorded above.
 
 Consolidation should separate independently authorized code preparation from
 guest value readiness, preserve optional genuine publication receipts through
