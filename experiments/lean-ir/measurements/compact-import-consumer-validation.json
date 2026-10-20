@@ -73,7 +73,7 @@
   "limits": [
     "Copied experimental consumer and read-only private implementation adapters remain to be consolidated behind public APIs.",
     "Original full strict consumer resource-stopped after GC pressure; saved full capture and restored-precheck remain separate successes.",
-    "Full compact-consumer check, native independent full-map parity, ordinary files/macros/interop remain unverified.",
+    "Subsequent genuine full compact-consumer strict and ordinary resident acceptance passed; independent native full-map parity, source-module A-to-B/edit, Mathlib and broader FFI remain unverified.",
     "No new production Java/kernel/packaging changes; jar tests not rerun."
   ],
   "review": {
@@ -82,5 +82,6 @@
     "blocking-findings": [],
     "caveat": "Full-run memory fit unverified; resize temporarily retains old and new memo arrays.",
     "nonblocking-future-test": "Mixed integer-boxing and metadata-only Ref equality parity."
-  }
+  },
+  "subsequent-full-profile-evidence": "full-init-strict-resident-acceptance.json"
 }

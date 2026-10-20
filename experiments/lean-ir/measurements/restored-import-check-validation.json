@@ -130,19 +130,20 @@
   "sources-sha256": {
     "experiments/lean-ir/scripts/check-restored-import.clj": "deeb76b082a40c26ee37282747a59711a94af78d15238ff868aa562eb738d043",
     "experiments/lean-ir/test/prototype/restored_import_check_test.clj": "dfd8da825f8a3218f385cee76fdf0a108197e47bc8538b645eaef07b6723bee3",
-    "experiments/lean-ir/scripts/RESTORED_IMPORT_CHECK.md": "067543b763237466ab022a8b88fc05675f2a93b8c0de57dba2e1ffa3f0118bb5",
-    "experiments/lean-ir/research/hosted-frontend-next.md": "1cfddb1dddde212fa1f7a516b00f5ddefddf2bba7aa81a9bfdbecc057b19cacd"
+    "experiments/lean-ir/scripts/RESTORED_IMPORT_CHECK.md": "d5968889f78faae3ddac817a8b46b403fa67ce2da4827861d847767c0bc153ea",
+    "experiments/lean-ir/research/hosted-frontend-next.md": "281809982a0fe8a77938921f224199f0411b594ff8acbd030f2a5440b32c84ef"
   },
   "fixture-sha256": {
     "experiments/lean-ir/fixtures/imported-kernel-native.jsonl": "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3"
   },
   "limits": [
     "No genuine new archive restore or finalizer provenance established by model tests.",
-    "Full Init finalized, captured and restored to precheck on 2026-10-20; original strict projection was resource-stopped. Full strict/source acceptance remain open. See full-init-finalized-capture-oct20.json.",
+    "Full Init finalized/captured/restored and subsequently passed compact-consumer strict and resident acceptance on 2026-10-20; original strict projection resource stop remains historical. See full-init-strict-resident-acceptance.json.",
     "New helper must be independently pinned by a future launcher; old approved factory inputs unchanged.",
     "Controller/exception diagnostic worlds borrow native sources; callers discard all borrowers before lease close.",
     "Independent native-versus-guest complete-map parity remains a separate optional gate.",
     "Optional Mathlib integration was not rerun; isolated parent library suite passed on 2026-10-20."
   ],
-  "documentation-reconciled-on": "2026-10-20"
+  "documentation-reconciled-on": "2026-10-20",
+  "subsequent-full-profile-evidence": "full-init-strict-resident-acceptance.json"
 }

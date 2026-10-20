@@ -165,5 +165,6 @@
     "producer-finalizer-done": 1965.11,
     "producer-capture-returned-pin": 2217.93,
     "fresh-restore-precheck": 266.72
-  }
+  },
+  "subsequent-strict-resident-evidence": "full-init-strict-resident-acceptance.json"
 }

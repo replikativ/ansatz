@@ -9,8 +9,10 @@ This fills the post-restore checking boundary needed by the full-Init campaign. 
 [Oct20 producer run](../measurements/full-init-finalized-capture-oct20.json) completed
 full-Init finalization and durable capture. Fresh restoration subsequently reached
 precheck without replay. The original strict projection attempt was stopped for
-resource pressure; strict acceptance remains open. Small genuine KernelImportProbe checkpoint/source
-acceptance is separate earlier evidence.
+resource pressure. The subsequent [compact full-profile run](../measurements/full-init-strict-resident-acceptance.json)
+passes fresh strict checking and the ordinary resident source/macro/diagnostic/interop
+sequence. Small genuine KernelImportProbe checkpoint/source acceptance is separate
+earlier evidence.
 
 ## Explicit operation
 
@@ -88,7 +90,9 @@ association stages. Partial projection state is not resumable.
 
 The [compact validation receipt](../measurements/compact-import-consumer-validation.json)
 records 802 tests / 88,618 assertions passing on the final formatted sources,
-including complete small-fixture parity. Full-Init strict acceptance is a separate gate.
+including complete small-fixture parity. The separately recorded genuine full-profile
+sequence subsequently passes all 65,994 declarations and resident acceptance;
+independent native-map/extension-state parity remains unverified.
 
 ## Result and failure ownership
 
@@ -158,4 +162,5 @@ tests / 107 assertions and 791 runtime tests / 66,396 assertions passing, indepe
 and preservation of the 242 original on-disk preparation inputs. The full runtime run preceded
 whitespace-only formatting; the final formatted sources pass the focused tests. The isolated parent library suite subsequently passed 822 tests / 3,591 assertions
 on 2026-10-20. Optional Mathlib integration was excluded. Earlier shared-store and
-resource refusals remain recorded. Full-Init strict acceptance is still unverified.
+resource refusals remain recorded. The subsequent full-profile strict and resident acceptance is recorded above;
+independent native-map/extension-state parity and source-module import/edit remain open.

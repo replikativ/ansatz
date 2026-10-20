@@ -4,6 +4,30 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Full Init strict and resident acceptance (2026-10-20)
+
+The [new full-profile sequence](../measurements/full-init-strict-resident-acceptance.json)
+freshly checks all 65,994 actual guest declarations with the compact consumer and
+associates the exact guest root/map/quotient state. Its receipt records 15 admitted
+axioms/assumptions, including `sorryAx` and compiler/runtime assumptions. The
+original 242-input runtime/factory remains unchanged; consumer identities are
+separate. Independent repeated native whole-map/extension-state parity is still open.
+
+The same checked environment passes resident adoption and ordinary implicit-Init
+source execution: Nat42, macro expansion returning Nat42 and unchanged Unicode,
+an invalid file producing two diagnostics without a handle on a successfully
+closed fork, and exactly two explicit Lean-to-Clojure callbacks returning Nat42
+and Unicode. There is no native per-input compiler. The diagnostic phase took
+1.782 seconds; the interop phase, including binding/compilation/initialization and
+two calls, took 36.668 seconds. These are scoped monotonic observations, not a
+competitive performance benchmark. Source-module A-to-B publication/import/edit,
+public packaging and broad package/FFI coverage remain separate gates.
+
+A separate small verified Store also confirms that the genuine compact-consumer
+certificate can supply projection reuse to the original verifier while every CI
+is checked again from a fresh Java Env. The fixture Source closes after the check;
+this is compatibility evidence, not independent full native parity.
+
 ## Full Init finalization and durable capture (2026-10-20)
 
 The [fresh Oct20 run](../measurements/full-init-finalized-capture-oct20.json)
@@ -19,7 +43,8 @@ time in full GC near its unchanged 3 GiB heap limit and was explicitly resource-
 this establishes neither kernel acceptance nor semantic rejection. A separately
 pinned compact checking consumer preserves the original runtime/checkpoint identity
 and strict rules while reducing projection-memo overhead. Its small-fixture validation
-is separate from the still-open full strict and ordinary implicit-Init source gates.
+preceded the genuine full strict and ordinary implicit-Init resident acceptance above.
+Native-map/extension-state parity and source-module import/edit remain separate gates.
 
 The isolated parent library suite also passed after reboot: 822 tests and 3,591
 assertions, with no failures or errors. Optional Mathlib integration was excluded;
@@ -41,7 +66,8 @@ The approved full-profile factory constructor and the reviewed capture control
 loaded successfully. The queued capture required actual finalizer success,
 so no checkpoint was published, no fresh full strict checking occurred, and
 there is no resumable active guest state. Full-profile restoration and ordinary
-implicit-Init source acceptance remain open gates. This resource stop does not
+implicit-Init source acceptance were open gates at that stage; the Oct20 results
+above supersede that status. This resource stop does not
 invalidate the separately recorded fresh standalone KernelImportProbe results
 or establish a guest semantic failure. Another heavy run requires adequate
 stable system headroom under the existing launch and execution limits.

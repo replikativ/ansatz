@@ -1,0 +1,285 @@
+{
+  "schema": "ansatz-full-init-strict-resident-acceptance/1",
+  "date": "2026-10-20",
+  "consumer-commit": "8561153",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "launch": {
+    "scope": "separate-process-full-init-checkpoint-restore",
+    "approved-build-identity": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+    "inventory-rows-verified-before-JVM": 242,
+    "manifest-path": "target/artifact-contract/full-init-next/full-run-oct20/checkpoint-v1/manifest.frames",
+    "external-manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6",
+    "recipe-sha256": "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70",
+    "resolver-sha256": "5a2d94134b00fc7f4905f1e99c01381bf8e8229dfe5b9320016112d46a21b3ba",
+    "loaded-build-attestation": "trusted fresh launcher verifies inventoried project source/class bytes before namespace load; no reload/redefs permitted; factory rechecks actual selected kernel class resources",
+    "checking-consumer": "ansatz-compact-import-check/1",
+    "checking-consumer-files": {
+      "experiments/lean-ir/src/prototype/compact_kernel_projection.clj": "1cd1e34de39a6fb660b85dcab85bfef58df11d552b69563f19c93cc0e03fc111",
+      "experiments/lean-ir/src/prototype/compact_import_check.clj": "e34c406045b6dccabb3582d4648b4d60e6c3df4fa70fdc72566bfb69db9f113e",
+      "experiments/lean-ir/java/prototype/TypedLongMemo.java": "d425c4a7780f9fa89c6fdbe52093475f4ec636187bbcbec3440a127aa62dbdb3",
+      "experiments/lean-ir/target/compact-projection-classes/prototype/TypedLongMemo.class": "e1b71cfcae645559024eaa6c77bd07ba91672d811e3bf98ced8f98e2a2bd63ff"
+    },
+    "driver-sha256": "dcee62bfe574170d930f8726cfb8ce45b365cd6072f3dca6621f8f989fb2b5de",
+    "launcher-sha256": "b8dacf5e1c558c0146b3c973c17950e82f0442d3e07ac7d976087941475081ed",
+    "heap-mib": 3072,
+    "group-rss-mib": 3584,
+    "lifecycle-seconds": 5400,
+    "minimum-available-mib": 1024,
+    "available-kib": 10387664,
+    "minimum-launch-kib": 5242880,
+    "launch": true,
+    "auto-stage": "restore-precheck-only",
+    "guest-finalizer-replayed": false
+  },
+  "strict": {
+    "scope": "actual fresh restored full-Init strict acceptance",
+    "receipt": {
+      "failure-message": null,
+      "checkpoint-restored": true,
+      "next-id": 14695908,
+      "finalizer-replayed": false,
+      "strict-summary": {
+        "verification-progress": {
+          "phase": "association",
+          "constants": 65994,
+          "heap-used": 2771225112,
+          "time-nanos": 26464848659967
+        },
+        "phase": "checked",
+        "checking-completed": true,
+        "guest-io-error": false,
+        "constants": 65994,
+        "failure-message": null
+      },
+      "bootstrap-replayed": false,
+      "functions": 334467,
+      "source-open": true,
+      "phase": "checked",
+      "heap-used": 2817373856,
+      "scope": "full-init-oct20-restore-compact-consumer-v1",
+      "axioms": [
+        "Classical.choice",
+        "Lean.ofReduceBool",
+        "Lean.ofReduceNat",
+        "Lean.trustCompiler",
+        "Quot.lcInv",
+        "Quot.sound",
+        "isScalarObj",
+        "lcAny",
+        "lcCast",
+        "lcErased",
+        "lcProof",
+        "lcUnreachable",
+        "lcVoid",
+        "propext",
+        "sorryAx"
+      ],
+      "prepared-functions": 312132,
+      "strictly-checked": true,
+      "guest-steps": 335467964,
+      "local-heap": 776060,
+      "checking-consumer": "ansatz-compact-import-check/1",
+      "kernel-associations": 1,
+      "globals": 56126,
+      "manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6"
+    },
+    "independent-native-whole-map-parity": false,
+    "time-unix": 1792492643.8689344
+  },
+  "resident-control": {
+    "scope": "fresh full-Init resident adoption control",
+    "control-sha256": "48c515e2eb5df4f3530718fa0fe5b1959606737807d26d831e21db8331647906",
+    "review": "Independent Astra review of fresh namespace with tracked open-checked; no blockers",
+    "time-unix": 1792492685.0835285,
+    "fuel-per-raw-invocation": 100000000,
+    "auto-start": false
+  },
+  "host-encoder-preparation": {
+    "fuel-after": 100000000,
+    "original-executable-identities-preserved": true,
+    "scope": "explicit-host-only-name-encoder-completion",
+    "catalogue-changed": false,
+    "owner-changes": false,
+    "fuel-explicit?": true,
+    "root": [
+      "str",
+      [
+        "str",
+        [
+          "str",
+          [
+            "anonymous"
+          ],
+          "KernelEncoding"
+        ],
+        "decodeNames"
+      ],
+      "_boxed"
+    ],
+    "fuel-scope": "per-raw-call-with-shared-nested-limit",
+    "added-functions": 23,
+    "host-bindings-recaptured": false,
+    "resident-operation-may-have-multiple-calls": true,
+    "guest-steps-delta": 0,
+    "fuel-before": 20000000,
+    "imported-authority-changed": false
+  },
+  "resident-stages": [
+    {
+      "failure-message": null,
+      "interop-nat": null,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "resident-ready",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": null,
+      "host-calls": null,
+      "macro-unicode": null,
+      "answer": null,
+      "interop-unicode": null,
+      "macro-nat": null
+    },
+    {
+      "failure-message": null,
+      "interop-nat": null,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "answer-passed",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": null,
+      "host-calls": null,
+      "macro-unicode": null,
+      "answer": 42,
+      "interop-unicode": null,
+      "macro-nat": null
+    },
+    {
+      "failure-message": null,
+      "interop-nat": null,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "macro-passed",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": null,
+      "host-calls": null,
+      "macro-unicode": true,
+      "answer": 42,
+      "interop-unicode": null,
+      "macro-nat": 42
+    },
+    {
+      "failure-message": null,
+      "interop-nat": null,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "diagnostic-passed",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": 2,
+      "host-calls": null,
+      "macro-unicode": true,
+      "answer": 42,
+      "interop-unicode": null,
+      "macro-nat": 42
+    },
+    {
+      "failure-message": null,
+      "interop-nat": 42,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "passed",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": 2,
+      "host-calls": 2,
+      "macro-unicode": true,
+      "answer": 42,
+      "interop-unicode": true,
+      "macro-nat": 42
+    }
+  ],
+  "fixture-sha256": {
+    "experiments/lean-ir/fixtures/hosted/OrdinaryAnswer.lean": "58b1b31b7e51585fed513c8d6abc52beffed138f4edc463662aeacd908add0db",
+    "experiments/lean-ir/fixtures/hosted/OrdinaryMacro.lean": "8ee7161a169723e09ddbbbf39c42d50b87be7da63396d3a9767f0a3c9551c231",
+    "experiments/lean-ir/fixtures/hosted/OrdinaryInterop.lean": "cf8ef1ebfc1ee521a14ee4d2ea87e7e06cfcd2e3af8b07a50ea8381aad062a93"
+  },
+  "limits": [
+    "Actual strict checking admits the explicitly recorded 15 axioms/assumptions; not an axiom-free result.",
+    "Independent repeated native whole-map/extension-state parity was not run.",
+    "Ordinary Nat42, macro Nat/Unicode, diagnostic fork/no handle, and two admitted host callbacks passed through the same full resident profile. No general package coverage inferred.",
+    "Source-module A-to-B import/edit, Mathlib, broader FFI and competitive performance remain later gates.",
+    "Owned resident contexts and source lease remain live in guarded separate restore/consumer process; no cleanup acceptance claimed yet."
+  ],
+  "resident-timed-stages": [
+    {
+      "stage": "ordinary-diagnostic-duration",
+      "elapsed-ms": 1782.015436,
+      "phase": "diagnostic-passed"
+    },
+    {
+      "stage": "ordinary-interop-duration",
+      "elapsed-ms": 36667.688853,
+      "phase": "passed"
+    }
+  ],
+  "certificate-reuse-compatibility": {
+    "stage": "compact-certificate-reuse-compatibility",
+    "passed": true,
+    "constants": 17,
+    "same-projected-objects": true,
+    "fresh-kernel-env": true,
+    "fixture-source-closed": true,
+    "descriptor-sha256": "609732edd2fcbf20cab33e5cf2f571965722f02785ace14dfe96d3d2237c0d90",
+    "source-sha256": "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3",
+    "scope": "Separate genuine native17-CI Store; no mocks/redefs, no changes to main source/context."
+  },
+  "final-resident-observation": {
+    "stage": "full-resident-acceptance-final",
+    "resident": {
+      "failure-message": null,
+      "interop-nat": 42,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "passed",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": 2,
+      "host-calls": 2,
+      "macro-unicode": true,
+      "answer": 42,
+      "interop-unicode": true,
+      "macro-nat": 42
+    },
+    "heap-used": 2577721472,
+    "uptime-ms": 1769898,
+    "gc": [
+      {
+        "name": "G1 Young Generation",
+        "count": 1063,
+        "ms": 22176
+      },
+      {
+        "name": "G1 Concurrent GC",
+        "count": 316,
+        "ms": 1021
+      },
+      {
+        "name": "G1 Old Generation",
+        "count": 8,
+        "ms": 11613
+      }
+    ]
+  },
+  "timing-scope": {
+    "exact-monotonic-phases": "Only explicitly instrumented diagnostic and interop calls; no cold/warm comparative benchmark.",
+    "filesystem-wall-clock": "Publication timestamp differences may include suspension or clock changes; do not infer active execution time.",
+    "strict-admission-jvm-uptime-ms": 297146,
+    "first-observed-completed-jvm-uptime-ms": 993438,
+    "strict-bound-includes": "Admission-to-first-observation delay; not an exact strict-check duration.",
+    "strict-jvm-uptime-observation-upper-bound-ms": 696292
+  },
+  "wall-clock-strict-publication-delay-seconds": 9749.27
+}
