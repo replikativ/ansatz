@@ -211,7 +211,7 @@
     "Independent repeated native whole-map/extension-state parity was not run.",
     "Ordinary Nat42, macro Nat/Unicode, diagnostic fork/no handle, and two admitted host callbacks passed through the same full resident profile. No general package coverage inferred.",
     "Source-module A-to-B import/edit, Mathlib, broader FFI and competitive performance remain later gates.",
-    "Owned resident contexts and source lease remain live in guarded separate restore/consumer process; no cleanup acceptance claimed yet."
+    "Owned contexts/source were live at acceptance. Later whole-process disposal is recorded separately; no semantic cleanup acceptance."
   ],
   "resident-timed-stages": [
     {
@@ -281,5 +281,13 @@
     "strict-bound-includes": "Admission-to-first-observation delay; not an exact strict-check duration.",
     "strict-jvm-uptime-observation-upper-bound-ms": 696292
   },
-  "wall-clock-strict-publication-delay-seconds": 9749.27
+  "wall-clock-strict-publication-delay-seconds": 9749.27,
+  "subsequent-process-disposal": {
+    "scope": "After separate source-import experiment stopped at its100M raw budget, all source workers joined and successful original resident profile was re-observed unchanged. Whole process disposed; no semantic cleanup verification.",
+    "guard-exit-code": 0,
+    "guard-stop": null,
+    "peak-rss-bytes": 3689578496,
+    "guard-lifecycle-seconds": 4207.67,
+    "evidence": "full-init-source-module-progress.json"
+  }
 }

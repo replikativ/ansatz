@@ -4,6 +4,48 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Fresh source-module continuation (2026-10-20)
+
+The [source-module progress receipt](../measurements/full-init-source-module-progress.json)
+records a separate pre-user branch of the checked full Init environment. An
+explicit source-import profile independently derives 258 helper functions,
+including two export wrappers absent from the lazy original closure. Existing
+executables remain identical. The earlier preparation assumption that those
+wrappers were already linked failed before guest execution; its controller is
+retained separately. Helper manifests have legacy provenance limitations recorded
+in the receipt; this is a new reviewed host profile, not original-factory authority.
+
+The actual helper value initializer executes once in five guest instructions.
+`OrdinaryLibraryA.lean` then compiles, initializes and returns Nat42 in 34.310
+seconds with no diagnostics or local initializer actions. The complete genuine
+compilation packet authorizes publication; a FileHandle alone is insufficient.
+Lean's guest helpers assemble A with the 631-module native Init prefix and B's
+actual parsed `[Init, meta Init, OrdinaryLibraryA]` header in 16.662 seconds.
+Genuine Init+A finalization, fresh strict union checking and B execution are
+subsequent gates, not established by assembly. These scoped timings include
+hosted execution and are not competitive benchmarks.
+
+The monolithic finalizer call subsequently exhausts its enclosing 100M guest
+instruction budget inside a child helper. That does not establish an intrinsic
+100M helper cost. The paused child has no resumable host continuation; the failed
+branch is terminal and is not replayed. The original resident profile still
+passes immediately before whole-process disposal, after all source workers join.
+Process exit zero records disposal, not source-finalization or semantic-cleanup
+success. A fresh attempt should use the existing cooperative driver with separate
+2M outer slices, 20M helper-completion budgets and an explicit 500M total cap.
+That fresh guarded pipeline is now launched after independent source/ownership,
+launcher and frozen-pin review, definitions compilation and generated-code reader
+checks. It restores the saved Init IO and repeats strict checking before the new
+source experiment. Its finalization/union/B results remain pending.
+
+Consolidation should separate independently authorized code preparation from
+guest value readiness, preserve optional genuine publication receipts through
+the resident facade, and expose assembly/finalization/checking as distinct
+one-shot operations. Tests should cover absent/already-linked helpers,
+candidate-only collisions, initializer ownership/failure, stale or wrong-world
+receipts, source/header drift and prevention of replay. Keep the current
+initializer-free classic-over-Init profile explicit.
+
 ## Full Init strict and resident acceptance (2026-10-20)
 
 The [new full-profile sequence](../measurements/full-init-strict-resident-acceptance.json)

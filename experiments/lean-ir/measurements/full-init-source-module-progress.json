@@ -1,0 +1,465 @@
+{
+  "schema": "ansatz-full-init-source-module-progress/1",
+  "date": "2026-10-20",
+  "base-acceptance": "full-init-strict-resident-acceptance.json",
+  "consumer-commit": "8561153",
+  "host-controller-provenance": "Independently reviewed local definitions-only campaign controllers. These are explicit new trusted host inputs; original 242 runtime/factory inputs remain unchanged. No source reload/redefs.",
+  "controller-sha256": {
+    "target/artifact-contract/full-init-next/full-run-oct20/source-import-preparation.clj": "47a523d2bd3e8d8e85a9bfc55b7f8b4dfa76b0abf539757f141ea83b28865680",
+    "target/artifact-contract/full-init-next/full-run-oct20/source-import-preparation-v2.clj": "47a97dfd350f83747271d81bf35906b74ee3a185330dc86c8b0a932ac61d354d",
+    "target/artifact-contract/full-init-next/full-run-oct20/source-import-helper-value-v2.clj": "e1f8ff3b9d00dd1ce68ff7e3c1597fbc7c1f8f94903aa2d6eb8a3068b9fe35a0",
+    "target/artifact-contract/full-init-next/full-run-oct20/source-library-a.clj": "c32fa92c56637932ebeb8f5cc2d44a402660fbee052f7f5ec4581f0e85bdc8da",
+    "target/artifact-contract/full-init-next/full-run-oct20/source-import-assembly.clj": "da6aa843d1abb4846456ee0abb7cb63b9619fd2da68f7a79fd349f60a5ad9932",
+    "target/artifact-contract/full-init-next/full-run-oct20/source-import-finalization.clj": "d7dae5bfb58186222bae985bcdb75aa7fa79c254de9e6a43bb65c3fba3b8dc2d"
+  },
+  "completed-stages": [
+    {
+      "scope": "ansatz-explicit-full-init-source-import/1",
+      "phase": "failed",
+      "guest-executed": false,
+      "owner-changes": false,
+      "source-closed": false,
+      "runnable?": false,
+      "failure-message": "Approved export wrapper absent from original support"
+    },
+    {
+      "stage": "source-wrapper-inventory",
+      "wrappers": [
+        {
+          "name": [
+            "str",
+            [
+              "str",
+              [
+                "num",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "_private"
+                    ],
+                    "Lean"
+                  ],
+                  "Environment"
+                ],
+                "0"
+              ],
+              "Lean"
+            ],
+            "exportIREntries"
+          ],
+          "trusted": false,
+          "actual": false,
+          "catalogue": true
+        },
+        {
+          "name": [
+            "str",
+            [
+              "str",
+              [
+                "num",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "str",
+                      [
+                        "anonymous"
+                      ],
+                      "_private"
+                    ],
+                    "Lean"
+                  ],
+                  "Environment"
+                ],
+                "0"
+              ],
+              "Lean"
+            ],
+            "getIRExtraConstNames"
+          ],
+          "trusted": false,
+          "actual": false,
+          "catalogue": true
+        }
+      ]
+    },
+    {
+      "failure-message": null,
+      "explicit-relinks": [],
+      "independently-trusted-functions": 312413,
+      "per-call-fuel": 100000000,
+      "binding-replacements": [
+        "lean_compacted_region_free",
+        "lean_compacted_region_read",
+        "lean_eval_const"
+      ],
+      "guest-steps-before": 335467964,
+      "provenance-limitation": "Legacy helper manifests contain version/ABI but no commit or exporter identity; authority is this explicitly reviewed host profile and independent tracked artifact/source SHA pins.",
+      "functions": 334748,
+      "guest-steps-after": 335467964,
+      "approved-export-wrappers": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Environment"
+              ],
+              "0"
+            ],
+            "Lean"
+          ],
+          "exportIREntries"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Environment"
+              ],
+              "0"
+            ],
+            "Lean"
+          ],
+          "getIRExtraConstNames"
+        ]
+      ],
+      "phase": "prepared-missing-helper-values",
+      "scope": "ansatz-explicit-full-init-source-import/1",
+      "guest-executed": false,
+      "source-closed": false,
+      "helper-artifact-pins": [
+        {
+          "path": "target/source-module-export-source.jsonl",
+          "sha256": "6ceba2be15b28ed2668dc7832f62e579abc69ba14e799dac9fe47be0df4b0a2f",
+          "source": "lean/SourceModuleExport.lean",
+          "source-sha256": "d71d095a2c9b198aea4228f7fad1aafb5f4c07f0157f175d9829ab0b53e9945c"
+        },
+        {
+          "path": "target/source-module-import-hybrid-source.jsonl",
+          "sha256": "70fc78e688eb5d237aadc97fff4c6fc64f45d694b6541d4929435fe45436928d",
+          "source": "lean/SourceModuleImport.lean",
+          "source-sha256": "0ae75ffdd258bac3fe3879baaa76cd9e43e309a9ee95555e244aceea7945a6a9"
+        },
+        {
+          "path": "target/source-module-import-source.jsonl",
+          "sha256": "d6bfbb219bf981f17c7975892ab49cdb14c1c78e31fb0bb5669ac22778719506"
+        }
+      ],
+      "existing-value-actions": 1,
+      "added-export-wrappers": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Environment"
+              ],
+              "0"
+            ],
+            "Lean"
+          ],
+          "exportIREntries"
+        ],
+        [
+          "str",
+          [
+            "str",
+            [
+              "num",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "str",
+                    [
+                      "anonymous"
+                    ],
+                    "_private"
+                  ],
+                  "Lean"
+                ],
+                "Environment"
+              ],
+              "0"
+            ],
+            "Lean"
+          ],
+          "getIRExtraConstNames"
+        ]
+      ],
+      "owner-changes": false,
+      "new-initialization-actions": 0,
+      "helper-value-ready": false,
+      "runnable?": false,
+      "missing-helper-values": [
+        [
+          "str",
+          [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "SourceModuleImport"
+            ],
+            "finalizeClassic"
+          ],
+          "_boxed_const_1"
+        ]
+      ],
+      "new-functions": 258
+    },
+    {
+      "failure-message": null,
+      "preparation-controller-mutated": false,
+      "result-release-count": 1,
+      "phase": "initialized",
+      "scope": "ansatz-full-init-source-import-helper-value/1",
+      "guest-invocation-count": 1,
+      "native-import-replayed": false,
+      "native-initializers-replayed": false,
+      "result-owner-state": "released",
+      "guest-steps-delta": 5,
+      "host-value-seeded": false,
+      "runnable?": true
+    },
+    {
+      "failure-message": null,
+      "diagnostics": 0,
+      "stage": "source-library-a",
+      "native-per-input-compilation": false,
+      "unit-digest": "f6c9961f209d43e4b463a5b762218d47085c1623f2ff8eccd83cd625dd8aa0b2",
+      "phase": "passed",
+      "module": [
+        "str",
+        [
+          "anonymous"
+        ],
+        "OrdinaryLibraryA"
+      ],
+      "success": true,
+      "result": 42,
+      "elapsed-ms": 34309.62933
+    },
+    {
+      "stage": "source-import-assembly",
+      "phase": "assembled",
+      "native-prefix-modules": 631,
+      "requested-imports": [
+        {
+          "importAll": false,
+          "isExported": true,
+          "isMeta": false,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ]
+        },
+        {
+          "importAll": false,
+          "isExported": true,
+          "isMeta": true,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "Init"
+          ]
+        },
+        {
+          "importAll": false,
+          "isExported": true,
+          "isMeta": false,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "OrdinaryLibraryA"
+          ]
+        }
+      ],
+      "finalizer-executed": false,
+      "elapsed-ms": 16661.971148,
+      "failure-message": null
+    }
+  ],
+  "status": "A compilation and authenticated assembly passed; Init+A finalization terminal-stopped at enclosing100M guest budget inside helper. No full union/B acceptance from this attempt.",
+  "limits": [
+    "Initial v1 preparation failed before guest execution because lazy original closure contained neither export wrapper. New v2 derives both from authenticated catalogue and retains v1 failure.",
+    "Native helper legacy manifests omit commit/exporter identity; artifact/source SHA pins and explicit profile review provide experiment authority, not original factory attestation.",
+    "The main resident profile still passed immediately before whole-process disposal. All source workers had joined. No source/Context semantic cleanup acceptance.",
+    "Not packaged/released; native whole-map/extension-state parity and dependency edit validation remain open."
+  ],
+  "finalization-budget-stop": {
+    "stage": "source-finalizer-budget-boundary",
+    "ex-data-keys": [
+      ":failed-helper",
+      ":helper-entry-checkpoint",
+      ":checkpoint",
+      ":helper-entry-session",
+      ":steps",
+      ":checkpoint-session",
+      ":host-boundaries",
+      ":host-boundary-session",
+      ":host-boundary-checkpoint"
+    ],
+    "host-request?": false,
+    "frames": 5,
+    "phase": "failed",
+    "world-session-functions-identical": true,
+    "status": "paused",
+    "guest-steps": 454175000,
+    "session-fuel": 100000000,
+    "message": "Raw runtime instruction budget exhausted",
+    "boundary-scope": "100M enclosing raw-call budget exhausted inside child helper; not an intrinsic helper-cost measurement. Child snapshot is terminal diagnostic, not resumable host continuation.",
+    "same-branch-replayed": false
+  },
+  "final-main-observation": {
+    "stage": "pre-disposal-final-observation",
+    "resident": {
+      "failure-message": null,
+      "interop-nat": 42,
+      "failed-phase": null,
+      "native-per-input-compilation": false,
+      "source-open": true,
+      "phase": "passed",
+      "scope": "ordinary-resident-after-actual-checked-full-init",
+      "expected-diagnostic-count": 2,
+      "host-calls": 2,
+      "macro-unicode": true,
+      "answer": 42,
+      "interop-unicode": true,
+      "macro-nat": 42
+    },
+    "source-import": {
+      "failure-message": "Raw runtime instruction budget exhausted",
+      "stage": "source-import-finalization",
+      "source-receipt-constants": null,
+      "phase": "failed",
+      "checking-ms": null,
+      "strictly-checked": false,
+      "constants": null,
+      "raw-guest-completed": false,
+      "finalizer-ms": null
+    },
+    "all-source-workers-joined": true,
+    "uptime-ms": 4160142,
+    "process-disposal-planned": true,
+    "semantic-cleanup-verified": false
+  },
+  "process-disposal": {
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 3689578496,
+    "elapsed_seconds": 4207.67,
+    "scope": "Whole-process disposal after all source workers joined; exit0 means intentional disposal, not successful source finalization or verified semantic cleanup."
+  },
+  "next-attempt": "Fresh guarded process; restore saved raw Init IO and repeat strict/preparation/A/assembly independently; existing cooperative driver with2M outer slices,20M helper completions and explicit500M total attempt bound; no failed child reuse.",
+  "next-cooperative-attempt": {
+    "status": "Fresh guarded process launched; restoration/strict/source-module pipeline results pending.",
+    "controller-pinset-sha256": "ac1bf6ee8af9a93b3cba8017315230492a2f2e0276e324ae035c6080c3b17bd4",
+    "launcher-sha256": "7a6e659c44c9c97b7e32480f7cc1ca08547be445e8a593dc686c5330a9de32c0",
+    "controller-inputs": {
+      "target/artifact-contract/full-init-next/full-run-oct20/resident-acceptance.clj": "48c515e2eb5df4f3530718fa0fe5b1959606737807d26d831e21db8331647906",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-import-preparation-v2.clj": "47a97dfd350f83747271d81bf35906b74ee3a185330dc86c8b0a932ac61d354d",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-import-helper-value-v2.clj": "e1f8ff3b9d00dd1ce68ff7e3c1597fbc7c1f8f94903aa2d6eb8a3068b9fe35a0",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-library-a.clj": "c32fa92c56637932ebeb8f5cc2d44a402660fbee052f7f5ec4581f0e85bdc8da",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-import-assembly.clj": "da6aa843d1abb4846456ee0abb7cb63b9619fd2da68f7a79fd349f60a5ad9932",
+      "experiments/lean-ir/scripts/cooperative-full-init-drive.clj": "58850d4ad3f29f9a7fc37c716eed2d401e77a334d20fedcd23688114df372e66",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-import-finalization-cooperative.clj": "2478eeb816afaf7fcb3a64c5f181ca43fd23a5f8d6f0193ceac2e43e4c56ea4c",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-library-b-cooperative.clj": "345c8bf341a333a6f0fb4f688b326622e12156f5d54dac6f6f3f1224ce3bff97",
+      "target/artifact-contract/full-init-next/full-run-oct20/source-import-pipeline.clj": "270778474eb56816d8ba114247ee72fa37ffbb52a34cfe0201754ac3b33ac1f7"
+    },
+    "outer-slice-guest-budget": 2000000,
+    "helper-completion-guest-budget": 20000000,
+    "total-finalizer-guest-budget": 500000000,
+    "subsequent-B-per-call-budget": 100000000,
+    "definitions-compile": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 355782656,
+      "elapsed_seconds": 7.02
+    },
+    "generated-launcher-reader-check": {
+      "top-level-forms": 8,
+      "last-form": "clojure.main/repl",
+      "generated-forms-evaluated": false,
+      "pipeline-definitions-compiled": true,
+      "guest-invocations": 0,
+      "exit-code": 0
+    },
+    "dry-run-execv-intercepted": true,
+    "dry-run-JVM-launches": 0,
+    "review": "Independent Astra source, ownership/accounting, launcher and frozen ordered pinset review passed. Reader and definitions compile checks passed.",
+    "launch-preflight": {
+      "launch": true,
+      "available-kib": 11687688,
+      "minimum-launch-kib": 5242880,
+      "heap-mib": 3072,
+      "group-rss-mib": 3584,
+      "minimum-available-mib": 1024,
+      "lifecycle-seconds": 5400,
+      "previous-failed-branch-reused": false,
+      "output-prefix": "target/artifact-contract/full-init-next/full-run-oct20/source-import-cooperative-v1/run"
+    }
+  }
+}
