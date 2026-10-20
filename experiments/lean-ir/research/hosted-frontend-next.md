@@ -36,7 +36,14 @@ success. A fresh attempt should use the existing cooperative driver with separat
 That fresh guarded pipeline is now launched after independent source/ownership,
 launcher and frozen-pin review, definitions compilation and generated-code reader
 checks. It restores the saved Init IO and repeats strict checking before the new
-source experiment. Its finalization/union/B results remain pending.
+source experiment. That attempt now completes genuine Init+A finalization in
+300,115,127 guest instructions (993.347 seconds), then freshly checks all 65,995
+declarations and records the exact A-only receipt (121.792 seconds). B subsequently
+fails source-import authorization with `Source import witness differs from admitted
+source unit`; no successful B compilation/call or origin-witness result follows.
+The guarded process exits one after recording the terminal failure. These timings
+are scoped observations, not competitive benchmarks. The next gate is a targeted
+module/IR/runtime witness comparison, without weakening admission checks.
 
 Consolidation should separate independently authorized code preparation from
 guest value readiness, preserve optional genuine publication receipts through
