@@ -3,8 +3,16 @@
 `prototype.resident-frontend` now implements the explicit context facade over
 `hosted-file`, `frontend`, `raw-interop`, and the value codecs. It is experimental,
 not a published `ansatz.lean` API. Boundary tests use clearly labeled helper
-models and captured emitted IR; actual full-Init acceptance through this new
-facade remains a separate gate.
+models and captured emitted IR. The separate
+[fresh full-Init acceptance](../measurements/full-init-strict-resident-acceptance.json)
+now passes through `resident-preparation/open-checked`: ordinary Nat42, macro
+Nat/Unicode, isolated diagnostics and two explicit host callbacks. Its 65,994-CI
+strict receipt records 15 admitted assumptions. Source-module publication/import
+is a separate capability: fresh Init+A strict checking passes, and the
+[typed FILE witness campaign](../measurements/source-file-typed-witness-validation.json)
+now passes B compilation, Nat/Unicode calls and its actual imported-origin witness.
+No public packaging or general package support is
+inferred from these profiles.
 
 The [archived prelude acceptance](../measurements/resident-preparation-progress.json)
 now passes the real facade: Nat/Unicode calls, a second source, expected command
@@ -28,7 +36,9 @@ acceptance through this facade or `resident-preparation/open-checked`. Fresh
 safety-validated resident evidence covers the standalone KernelImportProbe
 profile, including [separate-process checkpoint restoration](KERNEL_PROBE_GENUINE_SOURCE.md)
 and the [checked preparation adapter](../measurements/checked-resident-provider-acceptance.json).
-Ordinary Init through that adapter and fresh bounded full-Init reproduction
+Ordinary Init through that adapter and fresh bounded full-Init reproduction were
+open at that stage; the subsequent full-profile receipt above establishes them.
+Reusable source publication/import APIs, dependency edits and public packaging
 remain separate gates.
 An earlier already-compiled-code test also roundtripped a genuinely owned heap
 String Ref through independent forks with isolated releases. None of these

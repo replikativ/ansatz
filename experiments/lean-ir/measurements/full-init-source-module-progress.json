@@ -342,7 +342,7 @@
       "failure-message": null
     }
   ],
-  "status": "Fresh cooperative attempt establishes genuine Init+A finalization, fresh65995-CI strict checking and A-only receipt; B currently rejects a source-import witness/unit mismatch.",
+  "status": "Historical JSON-profile cooperative attempt: Init+A finalization/strict65995 checking passed, then B origin witness mismatch. Subsequent explicit typed-profile fresh A-to-B success is recorded separately in source-file-typed-witness-validation.json.",
   "limits": [
     "Initial v1 preparation failed before guest execution because lazy original closure contained neither export wrapper. New v2 derives both from authenticated catalogue and retains v1 failure.",
     "Native helper legacy manifests omit commit/exporter identity; artifact/source SHA pins and explicit profile review provide experiment authority, not original factory attestation.",
@@ -878,5 +878,6 @@
       "B exception names no failed predicate beyond source unit/witness mismatch; exact module/IR/runtime diagnostics and targeted reproduction required.",
       "Source dependency edits, reusable public API, packaging, broader FFI and Mathlib remain unverified."
     ]
-  }
+  },
+  "subsequent-typed-campaign-evidence": "source-file-typed-witness-validation.json"
 }

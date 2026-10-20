@@ -1,12 +1,25 @@
 # Loading a second hosted source module
 
-The ordinary two-file import experiment now passes: the hosted frontend compiles
+The historical 2026-10-17 ordinary two-file import experiment passed in its
+long-lived development world and then-loaded checker: the hosted frontend compiles
 `OrdinaryLibraryA.lean`, exports its actual ModuleData, finalizes Init plus A, and
 compiles `OrdinaryLibraryB.lean` against that fresh environment. The JVM function
 calls A's admitted implementation and returns both a Nat and a Unicode String.
 The complete imported map contains 65,995 strictly checked constants; source
 installation additionally requires A's exact checked-declaration receipt and
 actual interpreter witness. See the [recorded B gate](../measurements/hosted-ordinary-library-b.json).
+
+The fresh bounded campaign is tracked separately. It now completes genuine Init+A
+finalization and freshly checks all 65,995 declarations with an exact A-only
+receipt. B then exposed a FILE profile mismatch: the archived JSON witness omits
+imported module origin. The
+[explicit typed FILE profile](../measurements/source-file-typed-witness-validation.json)
+selects an already authenticated origin-bearing helper; its bounded regression
+passes on all three backends. The fresh full A-to-B run also passes: B compiles
+without diagnostics, returns Nat42 and Unicode, and its actual guest witness
+identifies imported A. The process exits successfully after recording the result;
+semantic context cleanup is not inferred from process disposal. Native-map
+parity, dependency edits, public packaging and general package coverage remain open.
 
 ```mermaid
 flowchart TD
@@ -23,8 +36,11 @@ flowchart TD
   B --> W[Actual IR witness and source authority checks]
   D --> W
   E --> W
-  W --> J[Clojure forms and JVM bytecode]
-  J --> R[Call B, then imported A]
+  W --> J[Admitted structured IR]
+  J --> M[Mutable JVM interpreter: current full campaign]
+  J --> C2[Optional JVM block compiler: bounded tests]
+  M --> R[Call B, then imported A]
+  C2 --> R
 ```
 
 Native artifacts prepare the runtime and Init prefix. A and B are compiled inside
@@ -81,8 +97,9 @@ not the current header-only map-identity shortcut.
 Decisive cases are A defining a function, B importing/calling it; a macro defined
 in A and used in B; a source initializer with an observable once-only effect;
 changed A in independent forks; failed and cyclic imports; and module-system
-public/meta/import-all visibility. The ordinary A-to-B function case now passes;
-the other cases remain integration gates. The earlier owned prelude finalization
+public/meta/import-all visibility. The historical ordinary A-to-B function case
+passed, and fresh typed-profile B acceptance now also passes. The other cases
+remain integration gates. The earlier owned prelude finalization
 below records the first reconstruction step without native module transport.
 
 ## Concrete next gates

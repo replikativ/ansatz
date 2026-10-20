@@ -61,7 +61,7 @@
     "Not a new full Lean frontend/finalizer execution; no complete native environment parity inferred."
   ],
   "fresh-typed-campaign": {
-    "status": "Launched; actual typed full frontend A-to-B result pending.",
+    "status": "Passed: fresh full Init+A finalization, strict 65995-CI admission, B compilation/Nat/Unicode and actual guest imported-origin witness.",
     "controller-pinset-sha256": "ac8bc74eb9c8db51806dbf0d80f0d95e75dee718117f9094c64a76f6b1dd50fa",
     "launcher-sha256": "948ec272cd7147d41732cdeb02b6eef768a01109bcc54de0dbb50d11ee5ec436",
     "controller-inputs": {
@@ -118,9 +118,200 @@
     },
     "output-prefix": "target/artifact-contract/full-init-next/full-run-oct20/source-import-cooperative-typed-v1/run",
     "remaining-gates": [
-      "Actual B compilation/Nat/Unicode/import-origin witness",
-      "Source dependency edits/forks",
+      "Source dependency semantic edits/forks and shared optimizer-cache invalidation",
+      "Reusable source publication API and lifecycle",
       "Public API/packaging/Mathlib/native whole-map parity/performance"
-    ]
+    ],
+    "result": {
+      "phase": "passed",
+      "pipeline-receipt-sha256": "81bec50201b691b029dead1a14c1e767103c92761bebbe32c30951dcffd0b447",
+      "guard": {
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 3586351104,
+        "elapsed_seconds": 2229.29
+      },
+      "stage-records": [
+        {
+          "file-witness": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "RuntimeCompileShim"
+            ],
+            "exportEvalConstWitnessIRSharedNamesLinear"
+          ],
+          "failure-message": null,
+          "bindings-changed": false,
+          "stage": "source-file-typed-profile",
+          "file-witness-format": "typed-ir",
+          "phase": "prepared",
+          "owner-changes": false,
+          "guest-steps-delta": 0,
+          "code-changed": false,
+          "file-witness-profile": "ansatz-source-file-shared-linear-typed/1"
+        },
+        {
+          "failure-message": null,
+          "diagnostics": 0,
+          "stage": "source-library-a",
+          "native-per-input-compilation": false,
+          "unit-digest": "f6c9961f209d43e4b463a5b762218d47085c1623f2ff8eccd83cd625dd8aa0b2",
+          "phase": "passed",
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "OrdinaryLibraryA"
+          ],
+          "success": true,
+          "result": 42,
+          "elapsed-ms": 42474.686664
+        },
+        {
+          "stage": "source-import-assembly",
+          "phase": "assembled",
+          "native-prefix-modules": 631,
+          "requested-imports": [
+            {
+              "importAll": false,
+              "isExported": true,
+              "isMeta": false,
+              "module": [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Init"
+              ]
+            },
+            {
+              "importAll": false,
+              "isExported": true,
+              "isMeta": true,
+              "module": [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Init"
+              ]
+            },
+            {
+              "importAll": false,
+              "isExported": true,
+              "isMeta": false,
+              "module": [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "OrdinaryLibraryA"
+              ]
+            }
+          ],
+          "finalizer-executed": false,
+          "elapsed-ms": 16863.67851,
+          "failure-message": null
+        },
+        {
+          "failure-message": null,
+          "outer-steps": 78694904,
+          "stage": "source-import-finalization-cooperative",
+          "attempt-fuel": 500000000,
+          "source-receipt-constants": null,
+          "attempt-steps-scope": "completed-operation-charges",
+          "strict-helper-fuel": 20000000,
+          "phase": "finalized",
+          "checking-ms": null,
+          "failed-inflight-work-counted": false,
+          "prepared-execution-fuel": null,
+          "last-guest-steps": 654290127,
+          "helper-steps": 221420223,
+          "strictly-checked": false,
+          "outer-fuel": 2000000,
+          "operations": 3666,
+          "failed-work-evidence": "terminal-Throwable-child-checkpoints",
+          "budget-reservation-stop": null,
+          "constants": null,
+          "raw-guest-completed": true,
+          "finalizer-ms": 1061631.912856,
+          "helper-fuel": 20000000,
+          "attempt-steps": 300115127
+        },
+        {
+          "failure-message": null,
+          "outer-steps": 78694904,
+          "stage": "source-import-finalization-cooperative",
+          "attempt-fuel": 500000000,
+          "source-receipt-constants": 1,
+          "attempt-steps-scope": "completed-operation-charges",
+          "strict-helper-fuel": 20000000,
+          "phase": "checked",
+          "checking-ms": 177494.766567,
+          "failed-inflight-work-counted": false,
+          "prepared-execution-fuel": 100000000,
+          "last-guest-steps": 654290127,
+          "helper-steps": 221420223,
+          "strictly-checked": true,
+          "outer-fuel": 2000000,
+          "operations": 3666,
+          "failed-work-evidence": "terminal-Throwable-child-checkpoints",
+          "budget-reservation-stop": null,
+          "constants": 65995,
+          "raw-guest-completed": true,
+          "finalizer-ms": 1061631.912856,
+          "helper-fuel": 20000000,
+          "attempt-steps": 300115127
+        },
+        {
+          "origin-witness-ms": 180.115752,
+          "file-witness": [
+            "str",
+            [
+              "str",
+              [
+                "anonymous"
+              ],
+              "RuntimeCompileShim"
+            ],
+            "exportEvalConstWitnessIRSharedNamesLinear"
+          ],
+          "failure-message": null,
+          "diagnostics": 0,
+          "released-result-indexes": [
+            0,
+            1
+          ],
+          "stage": "source-library-b",
+          "b-compile-call-steps": 16080505,
+          "finalizer-replayed": false,
+          "b-compile-call-ms": 42373.86808,
+          "native-per-input-compilation": false,
+          "decoded-results": [
+            42,
+            "Imported source: λ 🦉"
+          ],
+          "file-witness-format": "typed-ir",
+          "phase": "passed",
+          "authorization-path-evidence": "actual-B-succeeded-with-required-production-source-authorization",
+          "success": true,
+          "string-argument-owner-state": "transferred",
+          "authorization-callback-logged": false,
+          "elapsed-ms": 42556.159722,
+          "guest-steps-delta": 16097479,
+          "source-origin-witness-rows": 1,
+          "origin-witness-steps": 16974,
+          "origin-witness-evidence": "independent-postsuccess-actual-guest-interpreter-witness",
+          "file-witness-profile": "ansatz-source-file-shared-linear-typed/1"
+        }
+      ],
+      "process-disposal": true,
+      "semantic-cleanup-verified": false
+    }
   }
 }

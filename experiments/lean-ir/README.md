@@ -21,6 +21,20 @@ checkpoint restoration and resident source/interop execution; see the
 [current small-profile scope](research/KERNEL_PROBE_GENUINE_SOURCE.md) and
 [checked preparation adapter](measurements/checked-resident-provider-acceptance.json).
 
+The subsequent [fresh full-Init profile](measurements/full-init-strict-resident-acceptance.json)
+passes strict checking of all 65,994 declarations under its 15 recorded assumptions,
+resident ordinary-file execution, macro Nat/Unicode, isolated diagnostics and two
+host callbacks through `open-checked`. A separate fresh source-module branch also
+finalizes Init+A and strictly checks 65,995 declarations with A's exact receipt.
+Its B gate uncovered an archived JSON witness missing module origin; the
+[explicit typed FILE profile](measurements/source-file-typed-witness-validation.json)
+now passes the fresh full A-to-B gate: B returns Nat42 and Unicode without
+diagnostics, and the actual guest witness identifies imported A. Dependency
+edits, package coverage, packaging and independent native-map parity remain open.
+The full campaign currently uses mutable execution. See the
+[fresh execution-mode comparison](research/EXECUTION_PERFORMANCE.md) for measured
+native/interpreter/JVM kernel timings and their limits.
+
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety
 fix. In that campaign, the full implicit-Init path completed guest finalization and
