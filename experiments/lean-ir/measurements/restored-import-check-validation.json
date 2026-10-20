@@ -52,7 +52,7 @@
   "review": "Independent Astra planning review, implementation review, reserved-exception-field fix and real checker-policy rejection regression, then re-review with no remaining blockers",
   "test-evidence": "Model Environment layout/helper IR, actual reference/mutable/JVM helper execution, transported native 17-CI fixture/all8variants and current strict Java checker; real host callback backend switch before failure",
   "parent-source": {
-    "status": "incomplete",
+    "status": "passed-isolated-library-suite",
     "shared-store-attempt": {
       "command": [
         "clojure",
@@ -66,7 +66,7 @@
       "peak_rss_bytes": 1268645888,
       "elapsed_seconds": 93.39
     },
-    "reason": "Optional Mathlib tests attempted writes to a read-only shared durable store; no full suite result",
+    "reason": "Earlier shared-store and insufficient-memory attempts are retained below; the isolated library suite subsequently passed. Optional Mathlib integration was not exercised.",
     "interim-isolated-attempt": {
       "command": [
         "clojure",
@@ -92,24 +92,57 @@
       "store-isolation": true,
       "optional-mathlib-integration": false,
       "localhost-fixture-server": true
+    },
+    "isolated-oct20": {
+      "date": "2026-10-20",
+      "tests": 822,
+      "assertions": 3591,
+      "failures": 0,
+      "errors": 0,
+      "preflight": {
+        "available-kib": 4647796,
+        "minimum-launch-kib": 3670016,
+        "launch": true,
+        "heap-mib": 1536,
+        "group-rss-mib": 2560,
+        "lifecycle-seconds": 900,
+        "minimum-available-mib": 1024,
+        "store-isolation": true,
+        "optional-mathlib-integration": false,
+        "localhost-fixture-server": true
+      },
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1536m",
+          "-M:test",
+          "-e",
+          ":wip"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 2049224704,
+        "elapsed_seconds": 218.95
+      }
     }
   },
   "jar-validation": "Not rerun; no production Ansatz Java/source/packaging files changed",
   "sources-sha256": {
     "experiments/lean-ir/scripts/check-restored-import.clj": "deeb76b082a40c26ee37282747a59711a94af78d15238ff868aa562eb738d043",
     "experiments/lean-ir/test/prototype/restored_import_check_test.clj": "dfd8da825f8a3218f385cee76fdf0a108197e47bc8538b645eaef07b6723bee3",
-    "experiments/lean-ir/scripts/RESTORED_IMPORT_CHECK.md": "500e89bc94d9efa09c524eba22bac9364dc85acc78df77edc18b6372e237c907",
-    "experiments/lean-ir/research/hosted-frontend-next.md": "328f4309b2d97f6a230fdee5858298a235a6890d076547716bcd0d96deeffe4a"
+    "experiments/lean-ir/scripts/RESTORED_IMPORT_CHECK.md": "067543b763237466ab022a8b88fc05675f2a93b8c0de57dba2e1ffa3f0118bb5",
+    "experiments/lean-ir/research/hosted-frontend-next.md": "1cfddb1dddde212fa1f7a516b00f5ddefddf2bba7aa81a9bfdbecc057b19cacd"
   },
   "fixture-sha256": {
     "experiments/lean-ir/fixtures/imported-kernel-native.jsonl": "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3"
   },
   "limits": [
     "No genuine new archive restore or finalizer provenance established by model tests.",
-    "No fresh full Init finalization/checkpoint/strict/source acceptance; earlier global-memory stop remains.",
+    "Full Init finalized, captured and restored to precheck on 2026-10-20; original strict projection was resource-stopped. Full strict/source acceptance remain open. See full-init-finalized-capture-oct20.json.",
     "New helper must be independently pinned by a future launcher; old approved factory inputs unchanged.",
     "Controller/exception diagnostic worlds borrow native sources; callers discard all borrowers before lease close.",
     "Independent native-versus-guest complete-map parity remains a separate optional gate.",
-    "Full parent source suite and optional Mathlib integration were not successfully rerun."
-  ]
+    "Optional Mathlib integration was not rerun; isolated parent library suite passed on 2026-10-20."
+  ],
+  "documentation-reconciled-on": "2026-10-20"
 }

@@ -5,9 +5,11 @@ completed guest finalizer IO result through the existing strict checker and kern
 path. It performs no archive restore, bootstrap, assembly, guest finalization, source compilation,
 or source/lease acquisition or closure. It is not a public Ansatz bootstrap API.
 
-This fills the post-restore checking boundary needed by the full-Init campaign. It does not
-establish successful full-Init capture or restoration: the last fresh full run stopped at its
-memory guard before finalization completed. Small genuine KernelImportProbe checkpoint/source
+This fills the post-restore checking boundary needed by the full-Init campaign. Its tests do not establish full-Init capture or restoration. A later
+[Oct20 producer run](../measurements/full-init-finalized-capture-oct20.json) completed
+full-Init finalization and durable capture. Fresh restoration subsequently reached
+precheck without replay. The original strict projection attempt was stopped for
+resource pressure; strict acceptance remains open. Small genuine KernelImportProbe checkpoint/source
 acceptance is separate earlier evidence.
 
 ## Explicit operation
@@ -52,6 +54,41 @@ Fuel applies separately to every raw helper invocation. It does not bound Java c
 work, total guest instructions, wall time or memory; keep the external process/resource guard.
 Finalizer attestation/header overrides are deliberately outside this helper's admitted options.
 The normal strict quotient-state rule remains in force.
+
+## Separate compact checking consumer
+
+`prototype.compact-import-check` offers the same explicit `prepare`, `check!`,
+`summary` and `checkpoint` lifecycle with a separately named host consumer. It
+uses `prototype.compact-kernel-projection` and a primitive typed long-ID memo to
+avoid retaining vector/reference keys for every projected node. Non-reference
+keys retain the original equality semantics. This is an experiment, not a default
+runtime change or a new checkpoint format.
+
+Compile its new helper from `experiments/lean-ir`:
+
+```sh
+javac -d target/compact-projection-classes java/prototype/TypedLongMemo.java
+```
+
+Add `target/compact-projection-classes` to the experiment classpath and explicitly
+require `prototype.compact-import-check`. A full restore launcher must separately
+pin its source, helper class and selected class resource, in addition to authenticating
+the unchanged original factory inventory. Restoring build50f and checking through
+this consumer are distinct identities; no checkpoint is relabeled or initializer
+replayed.
+
+The consumer reuses the pinned projection specification and grouping/quotient
+helpers through read-only private Var adapters. It preserves duplicate/dependency,
+axiom/safety, mutual/inductive, fresh-Env checking and exact association rules. It
+rejects injected projection certificates. The admission/control code is an explicit
+experimental copy so the original factory inputs remain unchanged; consolidating
+these adapters behind public shared APIs is later work. No live Var replacement is
+used. `summary` additionally reports scalar projection, dependency, admission and
+association stages. Partial projection state is not resumable.
+
+The [compact validation receipt](../measurements/compact-import-consumer-validation.json)
+records 802 tests / 88,618 assertions passing on the final formatted sources,
+including complete small-fixture parity. Full-Init strict acceptance is a separate gate.
 
 ## Result and failure ownership
 
@@ -119,6 +156,6 @@ restore profile or checkpoint pin. Existing ignored `full-run-v4` control files 
 The [validation receipt](../measurements/restored-import-check-validation.json) records 9 focused
 tests / 107 assertions and 791 runtime tests / 66,396 assertions passing, independent review,
 and preservation of the 242 original on-disk preparation inputs. The full runtime run preceded
-whitespace-only formatting; the final formatted sources pass the focused tests. Parent source
-validation remains incomplete because of the read-only shared Mathlib store and a refused
-isolated launch with insufficient memory. No new full-Init acceptance is claimed.
+whitespace-only formatting; the final formatted sources pass the focused tests. The isolated parent library suite subsequently passed 822 tests / 3,591 assertions
+on 2026-10-20. Optional Mathlib integration was excluded. Earlier shared-store and
+resource refusals remain recorded. Full-Init strict acceptance is still unverified.

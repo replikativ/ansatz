@@ -4,6 +4,27 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Full Init finalization and durable capture (2026-10-20)
+
+The [fresh Oct20 run](../measurements/full-init-finalized-capture-oct20.json)
+completed the actual guest finalizer and captured its successful IO result before
+strict checking. The checkpoint contains 334,467 functions, 776,060 heap objects,
+56,125 globals and 13,003 imported declarations; its data stream is 610,021,608
+bytes. The externally retained manifest digest was verified independently. No
+`evalConst` failures were recorded. The producer subsequently reached its 5,400-second
+REPL lifecycle limit after publication; that process stop is separate from capture
+success. A fresh JVM subsequently restored the exact captured counts and native
+source without replay. The original strict projection attempt then spent prolonged
+time in full GC near its unchanged 3 GiB heap limit and was explicitly resource-stopped;
+this establishes neither kernel acceptance nor semantic rejection. A separately
+pinned compact checking consumer preserves the original runtime/checkpoint identity
+and strict rules while reducing projection-memo overhead. Its small-fixture validation
+is separate from the still-open full strict and ordinary implicit-Init source gates.
+
+The isolated parent library suite also passed after reboot: 822 tests and 3,591
+assertions, with no failures or errors. Optional Mathlib integration was excluded;
+earlier resource/shared-store attempts remain historical evidence below.
+
 ## Fresh full Init resource stop (2026-10-18)
 
 The [fresh full-Init v4 run](../measurements/full-init-fresh-resource-stop-v4.json)
