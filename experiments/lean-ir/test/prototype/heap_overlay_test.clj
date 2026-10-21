@@ -39,7 +39,7 @@
     (is (= {"a" 8} (into {} left)))
     (is (= base (into {} right)))))
 
-(deftest views-stay-live-and-removals-mark-dirty-with-immutable-entries
+(deftest views-stay-live-and-removals-track-net-deltas-with-immutable-entries
   (let [dirty (HashSet.) ^Map map (overlay/overlay {"a" 1 "b" nil} dirty)
         entries (.entrySet map) keys (.keySet map) values (.values map)]
     (.put map "c" 3)
@@ -49,7 +49,7 @@
     (is (.remove keys "a"))
     (is (not (.containsKey map "a")))
     (is (.remove values 3))
-    (is (.contains dirty "c"))
+    (is (not (.contains dirty "c")))
     (let [it (.iterator entries) e (.next it)]
       (is (thrown? UnsupportedOperationException (.setValue ^java.util.Map$Entry e 10)))
       (.remove it)
@@ -78,7 +78,8 @@
     (is (nil? (.compute map "a" (binary (fn [_ _] nil)))))
     (.replaceAll map (binary (fn [_ v] (inc v))))
     (is (= {"nil" 4} (into {} map)))
-    (is (.containsAll dirty ["a" "nil" "b"]))
+    (is (.containsAll dirty ["a" "nil"]))
+    (is (not (.contains dirty "b")))
     (is (thrown? NullPointerException (.replaceAll map nil)))))
 
 (deftest java-key-equality-is-consistent-with-eager-hashmap
@@ -133,3 +134,71 @@
     (is (nil? (.put map (long 3) :new)))
     (is (= 2 (.size map) (.size (.entrySet map))))
     (is (= {(long 1) :stored (long 3) :new} (into {} map)))))
+
+
+(deftest net-zero-removals-preserve-java-map-contract-and-real-base-deletions
+  (doseq [canonical? [false true]]
+    (let [base (if canonical? {(long 1) nil (long 2) 7} {(long 1) nil "old" 7 nil :nil-key})
+          old-key (if canonical? (long 2) "old")
+          dirty (HashSet.) ^Map map (overlay/overlay base dirty canonical?)
+          expected (HashMap. ^Map base)]
+      ;; Java-distinct numeric keys must cancel independently of Clojure equality.
+      (doseq [key [(int 1) (bigint 1) "new" "new-nil"]]
+        (let [value (when-not (= key "new-nil") :new)]
+          (is (= (.put expected key value) (.put map key value)))
+          (is (.contains dirty key))
+          (is (= (.remove expected key) (.remove map key)))
+          (is (not (.contains dirty key)))
+          (is (= (.containsKey expected key) (.containsKey map key)))
+          (is (.equals expected map))))
+      (is (.isEmpty dirty))
+      (is (nil? (.remove map "absent")))
+      (is (.isEmpty dirty))
+      ;; Null-valued ORIGINAL entries are present and their deletions stay dirty.
+      (is (nil? (.remove map (long 1))))
+      (.remove expected (long 1))
+      (is (.contains dirty (long 1)))
+      (is (not (.containsKey map (long 1))))
+      (.put map old-key 9) (.put expected old-key 9)
+      (is (= (.remove expected old-key) (.remove map old-key)))
+      (is (.contains dirty old-key))
+      (is (.equals expected map))
+      (is (= (if canonical? {(long 1) nil (long 2) 7} {(long 1) nil "old" 7 nil :nil-key}) base)))))
+
+(deftest cancellation-after-clear-remains-conservative
+  (let [base {"original" 1} dirty (HashSet.) ^Map map (overlay/overlay base dirty)]
+    (.clear map)
+    (.put map "original" 2) (.remove map "original")
+    (.put map "new" nil) (.remove map "new")
+    (is (.isEmpty map))
+    (is (.containsAll dirty ["original" "new"]))
+    (is (= {"original" 1} base))))
+
+(deftest mutable-net-zero-allocation-freeze-reuses-retained-base-with-monotone-ids
+  (let [functions {"read" {:params [0] :body [:let 1 [:project [:var 0] 0] [:return [:var 1]]]}}
+        [world anchor] (m/allocate (m/world functions) :ctor 0 [41])
+        world (reduce (fn [world i] (first (m/allocate world :ctor 0 [i]))) world (range 2048))
+        state (u/thaw world) before (:next-id world)]
+    (dotimes [i 4096]
+      (let [temporary (u/constructor! state 0 [i])]
+        (u/release! state temporary 1)))
+    (is (.isEmpty ^HashSet (:heap-dirty state)))
+    (let [frozen (u/freeze state)]
+      (is (identical? (:heap world) (:heap frozen)))
+      (is (= (+ before 4096) (:next-id frozen)))
+      (is (= (+ (get-in world [:stats :allocations]) 4096) (get-in frozen [:stats :allocations])))
+      (is (= 41 (u/project (u/thaw world) anchor 0)))
+      (is (= 41 (:result (m/run (m/start world "read" [anchor])))))
+      (is (= 41 (:result (m/run (m/start frozen "read" [anchor]))))))
+    ;; Retain one live allocation and a real old-node modification/deletion.
+    (u/set-constructor-tag! state anchor 1)
+    (let [live (u/constructor! state 0 [99])
+          doomed (m/->Ref (inc (:id anchor)))]
+      (u/release! state doomed 1)
+      (let [frozen (u/freeze state)]
+        (is (not (identical? (:heap world) (:heap frozen))))
+        (is (= 1 (:tag (m/node frozen anchor))))
+        (is (= [99] (:fields (m/node frozen live))))
+        (is (not (contains? (:heap frozen) (:id doomed))))
+        (is (= 0 (:tag (m/node world anchor))))
+        (is (contains? (:heap world) (:id doomed)))))))
