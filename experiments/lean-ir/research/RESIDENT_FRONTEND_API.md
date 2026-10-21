@@ -14,6 +14,13 @@ now passes B compilation, Nat/Unicode calls and its actual imported-origin witne
 No public packaging or general package support is
 inferred from these profiles.
 
+The optional [`prototype.resident-source` consumer](RESIDENT_SOURCE_PUBLICATION.md)
+adds immediate source publication through public resident APIs, without changing
+this facade or the captured runtime. Its separate
+[validation receipt](../measurements/resident-source-publication-validation.json)
+records focused branch/ownership/failure tests and the full prototype suite.
+Actual frontend acceptance of that new operation remains a separate gate.
+
 The [archived prelude acceptance](../measurements/resident-preparation-progress.json)
 now passes the real facade: Nat/Unicode calls, a second source, expected command
 diagnostics, and two host callbacks. It restores the full authenticated runtime

@@ -38,6 +38,13 @@ The full campaign currently uses mutable execution. See the
 [fresh execution-mode comparison](research/EXECUTION_PERFORMANCE.md) for measured
 native/interpreter/JVM kernel timings and their limits.
 
+The optional [resident source publication consumer](research/RESIDENT_SOURCE_PUBLICATION.md)
+adds `load-and-publish` for explicit initializer-free standalone/over-Init profiles.
+It uses public resident APIs and leaves the authenticated runtime unchanged.
+Its focused ownership/failure tests and full prototype suite pass; actual frontend
+acceptance through this new operation is tracked separately. Import assembly and
+finalization still require explicit orchestration.
+
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety
 fix. In that campaign, the full implicit-Init path completed guest finalization and
