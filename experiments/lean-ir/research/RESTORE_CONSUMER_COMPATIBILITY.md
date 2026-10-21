@@ -79,12 +79,19 @@ The corrected genuine host-only constructor probe passed in 10.03 seconds with
 442,605,568 bytes peak process-group RSS and no guard stop. It created an issued
 factory capability after authenticating all 255 inputs; it did not invoke the
 factory, open a native lease, restore a checkpoint or execute guest code.
-The full archive run remains a separate execution gate.
+The full archive run is a separate gate, completed below.
 The existing narrow checkpoint has a different producer contract and is not
 silently accepted as a small positive fixture for this full `/2` profile.
 The complete runtime regression suite now passes 848 tests / 89,380 assertions
-with the selected support overrides. The actual externally authenticated
-archive/seed/public-file workflow remains an independent execution gate.
+with the selected support overrides. The actual externally authenticated archive/seed/public-file workflow also
+passed: 334,467 functions, 776,060 local heap entries and 56,125 globals restored
+as unchecked state with zero kernel associations; a fresh three-marker seed
+then supported A publication, actual B import preparation with four freshly
+checked constants, and calls returning Nat 42 and `Resident publication: λ 🦉`.
+Retained A returned 43 and the input Context stayed unchanged. The standalone
+workflow took 14,191.68 ms in this run; that single run is not a warm benchmark.
+The native source lease remains borrowed/open; semantic lease cleanup is not
+claimed by this acceptance.
 
 
 This layer remains an optional experiment rather than a published `ansatz.lean`
@@ -92,3 +99,43 @@ API. Its three support overrides need the explicitly configured experimental
 classpath; default Ansatz packaging does not provide that staging directory.
 The [validation receipt](../measurements/restore-consumer-validation.json) records
 runtime source pins, selected inventory and the focused/full test results.
+
+## Real frontend performance
+
+The same two warmups and three measured trials passed under both runtimes.
+All 30 trial-created Contexts closed, the borrowed base stayed unchanged, and
+both campaigns executed exactly 24,451,226 guest instructions. Stage medians:
+
+| Public operation | Original | Globals consumer |
+| --- | ---: | ---: |
+| Fork | 10.47 ms | 12.87 ms |
+| Load and publish A | 6,015.83 ms | 5,227.46 ms |
+| Prepare B's import | 4,114.89 ms | 3,696.20 ms |
+| Load B | 5,130.87 ms | 4,018.80 ms |
+| Call Nat | 364.02 ms | 387.10 ms |
+| Call Unicode | 71.51 ms | 20.82 ms |
+
+The complete five-trial campaign took 79.018 s originally and 66.089 s under
+the globals consumer, including controller bookkeeping. These are exploratory
+separate-process measurements with three measured samples, not native Lean
+comparisons or universal speedup claims. The Nat and fork medians increased.
+The [raw profiles and all samples](../measurements/resident-import-globals-profile.json)
+retain the tradeoffs. The guarded process exited 0 with no guard stop and peak
+RSS 3,581,124,608 bytes; its 655.37-second lifecycle includes restore, preparation,
+REPL idle time and the separate probes, not just frontend work.
+
+A host-only probe after the benchmark alternated the actual 334,755- and
+334,761-function maps through `slot-count/program-slots`. Median sizing times
+were 362.53 and 363.91 ms; repeating the second map took 0.007236 ms. No guest
+execution or new Context was involved and borrowed snapshots stayed identical.
+This exposes a cache-miss cost, not an exact attribution of the Nat call.
+
+The first call after deferred B loading also has a genuinely new function map:
+final bundle installation extends code after frontend execution, and no guest
+call sizes that final map before return. A multi-program cache helps revisits
+but cannot by itself remove this first sizing pass. The next experiment should
+propagate independently validated register widths through authorized program
+installation, preserving validation, replacements and weak retention.
+
+The next integration feature is the separately reviewed
+[checked Init-prefix plan](RESIDENT_INIT_PREFIX_PLAN.md). It remains planned.

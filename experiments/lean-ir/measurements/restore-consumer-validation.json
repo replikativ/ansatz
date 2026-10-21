@@ -1,7 +1,7 @@
 {
   "schema": "ansatz-dual-identity-restore-consumer-validation/1",
   "date": "2026-10-21",
-  "status": "corrected profile focused/full regression and genuine host constructor passed; genuine archive frontend execution running",
+  "status": "focused/full regression, genuine constructor, archive restore, standalone frontend and warm profile passed; process exited0",
   "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
   "producer-recipe-sha256": "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70",
   "producer-resolver-sha256": "5a2d94134b00fc7f4905f1e99c01381bf8e8229dfe5b9320016112d46a21b3ba",
@@ -1331,7 +1331,7 @@
       "elapsed_seconds": 9.03
     }
   },
-  "review": "Independent Astra actual-code mechanical diff and source/test review passed after closing public-field factory capability forgery with private weak issued-identity registry. Original parsing/descriptor/index/cleanup/executable authorization preserved; writer removed; separate producer/consumer fields. Exact five build scripts now pinned filesystem provenance rather than classpath namespace resources; legacy source/AOT exclusion explicit. Independent Astra reviewed correction.",
+  "review": "Independent Astra actual-code mechanical diff and source/test review passed after closing public-field factory capability forgery with private weak issued-identity registry. Original parsing/descriptor/index/cleanup/executable authorization preserved; writer removed; separate producer/consumer fields. Exact five build scripts now pinned filesystem provenance rather than classpath namespace resources; legacy source/AOT exclusion explicit. Independent Astra reviewed correction. Independent actual-run audit verified captured bytes,255inputs,producer/consumer fields, fresh3marker check and4CI import receipt; warm workload/cleanup unchanged from baseline.",
   "limits": [
     "Focused tests include explicitly modeled profile/parser/envelope checks and real canary Store cleanup, not a fabricated successful full archive or generic arbitrary-factory positive path.",
     "Consumer inventory describes selected available project resources; fresh source-only loading/absence of AOT shadows/no reloads requires a trusted externally pinned launcher attestation.",
@@ -1490,5 +1490,387 @@
       "peak_rss_bytes": 846700544,
       "elapsed_seconds": 162.33
     }
-  }
+  },
+  "actual-resident": {
+    "preflight": {
+      "scope": "producer50f-globals-consumer-launch/1",
+      "mode": "run",
+      "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+      "consumer-implementation-sha256": "fccc22c1304838b1ea3f05563eea17a34c31404bf4f2e4d61409bc924014b4ca",
+      "external-manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6",
+      "producer-recipe-sha256": "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70",
+      "producer-resolver-sha256": "5a2d94134b00fc7f4905f1e99c01381bf8e8229dfe5b9320016112d46a21b3ba",
+      "consumer-inventory-sha256": "c07b2e95d482f0a0c72a7a7ac6f481c95ee538ed43ab5e3e96dbb365e2e09e31",
+      "consumer-paths-sha256": "5674340bfcd693169573fd7b82618b00f2a80838e9bf834ae92b4494b5a863f0",
+      "source-pinset-sha256": "59f8997ee0f9ee4ca3f1741a44261f9fabf1f447aff1479f8f7c85eb92d51fd2",
+      "launcher-sha256": "8535c9f53651ae75bcfc25e766c1f30b88c22dffe8812270bfd5eba6b6b65274",
+      "guard-sha256": "c874f11849a1038ae990254cb3fe196e4205de823d2f02b6696b77888d072d63",
+      "producer-inventory-rows": 242,
+      "selected-consumer-inventory-rows": 255,
+      "namespace-attestation": "fresh source-only classpath; actual selected resource/class bytes and locations verified before project NS loading; no reload/redefs; inventory means selected runtime resources plus separately verified Java/provenance script files, not every namespace executed",
+      "heap-mib": 3072,
+      "group-rss-mib": 3584,
+      "lifecycle-seconds": 5400,
+      "minimum-available-mib": 1024,
+      "minimum-launch-kib": 5242880,
+      "available-kib": 7431096,
+      "dry-run": false,
+      "launch": true,
+      "hold-after-pass": true,
+      "payload-sha256": "6d7c82a863299d9d4472928733b06994abeb63cea15a27dbfcd81a985ad60670",
+      "repl-sha256": "26afceea20ec9e153558ad3176004abe908cd0d7546ac37a32cabac8abcc75a5",
+      "constructor-restore-invoked": false,
+      "constructor-native-leases": 0,
+      "constructor-factory-invocations": 0,
+      "constructor-guest-steps": 0
+    },
+    "restore": {
+      "native-nodes": 11233359,
+      "native-module-roots": 3155,
+      "checkpoint-restored": true,
+      "compatibility-profile": "ansatz-producer50f-globals-overlay-consumer/1",
+      "next-id": 14431927,
+      "finalizer-replayed": false,
+      "constructor-guest-steps": 0,
+      "constructor-archive-invocations": 0,
+      "bootstrap-replayed": false,
+      "functions": 334467,
+      "source-open": true,
+      "phase": "restored-precheck",
+      "scope": "producer50f-globals-consumer-restore/1",
+      "prepared-functions": 312132,
+      "constructor-native-leases": 0,
+      "strictly-checked": false,
+      "guest-steps": 325204702,
+      "native-initializer-replayed": false,
+      "local-heap": 776060,
+      "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+      "kernel-associations": 0,
+      "native-base": 352932,
+      "consumer-implementation-sha256": "fccc22c1304838b1ea3f05563eea17a34c31404bf4f2e4d61409bc924014b4ca",
+      "globals": 56125,
+      "manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6"
+    },
+    "pipeline": {
+      "semantic-cleanup-verified": false,
+      "events": [
+        {
+          "association-origin": "actual-preparePrelude-strict-declaration-admission",
+          "failure-message": null,
+          "fresh-verification-env-installed": false,
+          "checked-marker-count": 0,
+          "seed-checked?": false,
+          "evidence": {
+            "host-preparation-guest-steps": 0,
+            "functions": 334755,
+            "independent-functions": 312420,
+            "artifact-pins": {
+              "seed": {
+                "path": "target/hosted-file-probe-source.jsonl",
+                "rows": 28,
+                "sha256": "1ed0989b997ac9f74baf6747ac195405bca2ebade13a83d133311747149435a7",
+                "source": "lean/HostedFileProbe.lean",
+                "source-sha256": "88c9f569d43112b5258fab61fa8056a5970e728a0bff7854af24060b7709a2b4"
+              },
+              "encoding": {
+                "path": "fixtures/kernel-encoding.jsonl",
+                "rows": 142,
+                "sha256": "9eb84bf93d8e389377dfeeceac5e4d4552d68f933586a366dbf6316cbb612922"
+              },
+              "export": {
+                "path": "target/source-module-export-source.jsonl",
+                "rows": 73,
+                "sha256": "6ceba2be15b28ed2668dc7832f62e579abc69ba14e799dac9fe47be0df4b0a2f",
+                "source": "lean/SourceModuleExport.lean",
+                "source-sha256": "d71d095a2c9b198aea4228f7fad1aafb5f4c07f0157f175d9829ab0b53e9945c"
+              },
+              "import": {
+                "path": "target/source-module-import-source.jsonl",
+                "rows": 43,
+                "sha256": "d6bfbb219bf981f17c7975892ab49cdb14c1c78e31fb0bb5669ac22778719506"
+              },
+              "typed": {
+                "path": "target/witness-ir-shared-names-linear/RuntimeCompileShim.source.jsonl",
+                "sha256": "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4"
+              }
+            },
+            "binding-replacements": [
+              "lean_compacted_region_free",
+              "lean_compacted_region_read",
+              "lean_elab_add_decl",
+              "lean_eval_const",
+              "lean_run_mod_init_core",
+              "lean_runtime_mark_persistent"
+            ],
+            "source-helper-value-initialized": false,
+            "legacy-manifest-provenance": "explicit-artifact-pins-not-compiler-attestation"
+          },
+          "full-Init-checked": false,
+          "phase": "prepared",
+          "scope": "ansatz-restored-runtime-standalone-prelude/1",
+          "seed-call-attempts": 0,
+          "source-finalization-runnable?": false,
+          "native-import-replayed": false,
+          "missing-helper-values": [
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "SourceModuleImport"
+                ],
+                "finalizeClassic"
+              ],
+              "_boxed_const_1"
+            ]
+          ]
+        },
+        {
+          "association-origin": "actual-preparePrelude-strict-declaration-admission",
+          "failure-message": null,
+          "fresh-verification-env-installed": false,
+          "checked-marker-count": 3,
+          "seed-checked?": true,
+          "evidence": {
+            "host-preparation-guest-steps": 0,
+            "functions": 334755,
+            "independent-functions": 312420,
+            "artifact-pins": {
+              "seed": {
+                "path": "target/hosted-file-probe-source.jsonl",
+                "rows": 28,
+                "sha256": "1ed0989b997ac9f74baf6747ac195405bca2ebade13a83d133311747149435a7",
+                "source": "lean/HostedFileProbe.lean",
+                "source-sha256": "88c9f569d43112b5258fab61fa8056a5970e728a0bff7854af24060b7709a2b4"
+              },
+              "encoding": {
+                "path": "fixtures/kernel-encoding.jsonl",
+                "rows": 142,
+                "sha256": "9eb84bf93d8e389377dfeeceac5e4d4552d68f933586a366dbf6316cbb612922"
+              },
+              "export": {
+                "path": "target/source-module-export-source.jsonl",
+                "rows": 73,
+                "sha256": "6ceba2be15b28ed2668dc7832f62e579abc69ba14e799dac9fe47be0df4b0a2f",
+                "source": "lean/SourceModuleExport.lean",
+                "source-sha256": "d71d095a2c9b198aea4228f7fad1aafb5f4c07f0157f175d9829ab0b53e9945c"
+              },
+              "import": {
+                "path": "target/source-module-import-source.jsonl",
+                "rows": 43,
+                "sha256": "d6bfbb219bf981f17c7975892ab49cdb14c1c78e31fb0bb5669ac22778719506"
+              },
+              "typed": {
+                "path": "target/witness-ir-shared-names-linear/RuntimeCompileShim.source.jsonl",
+                "sha256": "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4"
+              }
+            },
+            "binding-replacements": [
+              "lean_compacted_region_free",
+              "lean_compacted_region_read",
+              "lean_elab_add_decl",
+              "lean_eval_const",
+              "lean_run_mod_init_core",
+              "lean_runtime_mark_persistent"
+            ],
+            "source-helper-value-initialized": false,
+            "legacy-manifest-provenance": "explicit-artifact-pins-not-compiler-attestation"
+          },
+          "full-Init-checked": false,
+          "phase": "seeded",
+          "scope": "ansatz-restored-runtime-standalone-prelude/1",
+          "seed-call-attempts": 1,
+          "source-finalization-runnable?": false,
+          "native-import-replayed": false,
+          "missing-helper-values": [
+            [
+              "str",
+              [
+                "str",
+                [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "SourceModuleImport"
+                ],
+                "finalizeClassic"
+              ],
+              "_boxed_const_1"
+            ]
+          ]
+        },
+        {
+          "failure-message": null,
+          "preparation-controller-mutated": false,
+          "result-release-count": 1,
+          "phase": "initialized",
+          "scope": "ansatz-prelude-source-import-helper-value/1",
+          "guest-invocation-count": 1,
+          "native-import-replayed": false,
+          "native-initializers-replayed": false,
+          "result-owner-state": "released",
+          "guest-steps-delta": 5,
+          "host-value-seeded": false,
+          "runnable?": true
+        },
+        {
+          "failure-message": null,
+          "semantic-cleanup-verified": false,
+          "diagnostics": {
+            "published-A": [],
+            "loaded-B": []
+          },
+          "import-receipt-count": 4,
+          "input-context-unchanged": true,
+          "checked-constant-count": 4,
+          "full-Init-checked": false,
+          "phase": "passed",
+          "scope": "ansatz-actual-resident-import-preparation/1",
+          "retained-A-value": 43,
+          "source-initializers-run": false,
+          "values": [
+            42,
+            "Resident publication: λ 🦉"
+          ],
+          "elapsed-ms": 14191.682717,
+          "resource-lease-closed": false,
+          "backend": "mutable",
+          "publication-descriptor": {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ResidentSourceA"
+            ],
+            "unit-digest": "e83f17c8c8585b63b53c1bf3aff370005cdf13090118349fb32cdaa7e3a5816d",
+            "profile": "standalone"
+          },
+          "imported-A-dependency-count": 1
+        },
+        {
+          "failure-message": null,
+          "semantic-cleanup-verified": false,
+          "diagnostics": {
+            "published-A": [],
+            "loaded-B": []
+          },
+          "import-receipt-count": 4,
+          "input-context-unchanged": true,
+          "checked-constant-count": 4,
+          "full-Init-checked": false,
+          "phase": "passed",
+          "scope": "ansatz-actual-resident-import-preparation/1",
+          "retained-A-value": 43,
+          "source-initializers-run": false,
+          "values": [
+            42,
+            "Resident publication: λ 🦉"
+          ],
+          "elapsed-ms": 14191.682717,
+          "resource-lease-closed": false,
+          "backend": "mutable",
+          "publication-descriptor": {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ResidentSourceA"
+            ],
+            "unit-digest": "e83f17c8c8585b63b53c1bf3aff370005cdf13090118349fb32cdaa7e3a5816d",
+            "profile": "standalone"
+          },
+          "imported-A-dependency-count": 1
+        }
+      ],
+      "call-backend": "mutable",
+      "full-Init-checked": false,
+      "phase": "passed",
+      "scope": "actual-resident-import-preparation-pipeline/1",
+      "full-Init-finalizer-replayed": false,
+      "kernel-authority": "actual-strict-three-marker-prelude-seed",
+      "frontend-backend": "mutable"
+    },
+    "process": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx3072m",
+          "-J-Xss16m",
+          "-Sdeps",
+          "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+          "-M",
+          "-e",
+          "(let [path \"/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-consumer-compatibility/target/artifact-contract/consumer-compatibility/actual-resident-v2.generated-repl.clj\" bytes (with-open [s (java.io.FileInputStream. path)] (.readNBytes s 1048577))] (when (> (alength bytes) 1048576) (throw (ex-info \"Generated REPL exceeds bound\" {}))) (when-not (= \"26afceea20ec9e153558ad3176004abe908cd0d7546ac37a32cabac8abcc75a5\" (.formatHex (java.util.HexFormat/of) (.digest (java.security.MessageDigest/getInstance \"SHA-256\") bytes))) (throw (ex-info \"Generated REPL bytes drift\" {}))) (binding [*ns* *ns* *file* path] (load-string (String. bytes java.nio.charset.StandardCharsets/UTF_8))))"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 3581124608,
+        "elapsed_seconds": 655.37
+      },
+      "disposal": "explicit exit0 after completed acceptance/warm/hostprobe; semantic source lease cleanup not claimed"
+    },
+    "semantic-source-lease-cleanup": false,
+    "capture-sha256": {
+      ".inputs.json": "6d7c82a863299d9d4472928733b06994abeb63cea15a27dbfcd81a985ad60670",
+      ".generated-repl.clj": "26afceea20ec9e153558ad3176004abe908cd0d7546ac37a32cabac8abcc75a5",
+      ".pipeline.json": "3e6975a7250288a0d527e1e15cb0ac6aacd2e733c2d29c27ea57d8ec485ed610",
+      ".events.jsonl": "bb325f69be380a86c81b317b471fa4e829943b111664b447ac280cca40498684",
+      ".log": "9dd139366b6d6de773ab823957d9f4f1cc7401ca1d673788e913ca37bfd22871"
+    },
+    "source-pins": [
+      {
+        "role": "bootstrap",
+        "path": "../../target/artifact-contract/consumer-compatibility/launch-v2/bootstrap.clj",
+        "sha256": "a07ac60574c8fbbbcd458231429acbea5f739a6cf17c50cb845647f933aed3ec"
+      },
+      {
+        "role": "driver",
+        "path": "../../target/artifact-contract/consumer-compatibility/launch-v2/restore-driver.clj",
+        "sha256": "f83e4fa4fd7bad38ced0c9824c90da51ba402a7012111209ab2a1eb0a885791a"
+      },
+      {
+        "role": "probe",
+        "path": "../../target/artifact-contract/consumer-compatibility/launch-v2/constructor-probe.clj",
+        "sha256": "c9377683594c258dd334b33a95d29f7c0516d57486b51db0240b725dff080759"
+      },
+      {
+        "role": "pipeline",
+        "path": "../../target/artifact-contract/consumer-compatibility/launch-v2/pipeline.clj",
+        "sha256": "640ac7cfa78307172ae8624e2492e19134bd9256fc70d016ce53883646fa4f45"
+      },
+      {
+        "role": "publication",
+        "path": "src/prototype/resident_source.clj",
+        "sha256": "5d4fa45e72dfede9e4d3b65f0bc5ea61e00bde37df651f15f639aec695a88a33"
+      },
+      {
+        "role": "imports",
+        "path": "src/prototype/resident_import.clj",
+        "sha256": "fc161a306569bd6ab6c3d57bdbcdbfd76bcd8cdad9935128e56ea0581d8623d7"
+      },
+      {
+        "role": "seed",
+        "path": "../../target/artifact-contract/consumer-compatibility/controllers/prelude-runtime-seed.clj",
+        "sha256": "3e2e34b434ede9cf7d415b1f87fa5aea28879303bc37475694d920722b8735c7"
+      },
+      {
+        "role": "value",
+        "path": "../../target/artifact-contract/consumer-compatibility/controllers/prelude-source-helper-value.clj",
+        "sha256": "06fb0e184b23f9969b36a600530547533387bb72e54ca26a25839300b92e7861"
+      },
+      {
+        "role": "acceptance",
+        "path": "../../target/artifact-contract/consumer-compatibility/controllers/resident-import-acceptance.clj",
+        "sha256": "76b8aad2792f24bdf841322a43f2b23faa4cfbf1699246fe2e4fb797efb2d8d6"
+      }
+    ]
+  },
+  "warm-profile-receipt": "resident-import-globals-profile.json"
 }
