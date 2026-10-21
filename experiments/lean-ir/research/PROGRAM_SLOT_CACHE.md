@@ -1,7 +1,7 @@
 # Program register sizing experiment
 
-This experiment reduces repeated sizing of large immutable program maps. It has
-no frontend performance result yet. The direct host probe in the preceding build
+This experiment reduces repeated sizing of large immutable program maps. The
+matched standalone frontend workload now passes with the new consumer. The direct host probe in the preceding build
 measured roughly 363 ms when alternating two retained programs and a negligible
 immediate repeat. That establishes sizing/cache behavior, not call-time attribution.
 
@@ -64,10 +64,39 @@ invalid additions, nested custom views, deep unhashable code, native compiled
 fixtures, and final global/IO wrappers. The final focused set passes 62 tests /
 1,144 assertions; the complete experimental suite passes 861 tests / 89,557
 assertions. A genuine closed constructor probe also passed for the new consumer.
-The full archive/frontend run remains a separate gate: its preflight verified
-all inputs but did not launch a JVM, because 3,470,368 KiB available memory was
-below this experiment's chosen 5,242,880 KiB launch threshold. No actual frontend
-speed result is claimed for this candidate.
+The earlier memory-deferred launch remains recorded as a historical attempt.
+A later genuine archive restore, standalone A→B frontend acceptance and matched
+warm profile passed with consumer `ed0640a7…`, without changing producer bytes.
+The workload used two warmups and three measured independent forks. All five
+trials passed, with 24,451,226 guest steps, 30 created Contexts closed, no
+initializers, and the base Context unchanged.
+
+| Public operation, measured median | Original | Globals overlay | Plus register sizing |
+| --- | ---: | ---: | ---: |
+| Fork | 10.47 ms | 12.87 ms | 9.43 ms |
+| Publish A | 6,015.83 ms | 5,227.46 ms | 4,197.57 ms |
+| Prepare source import | 4,114.89 ms | 3,696.20 ms | 3,468.52 ms |
+| Load B | 5,130.87 ms | 4,018.80 ms | 3,858.52 ms |
+| Call Nat | 364.02 ms | 387.10 ms | 16.39 ms |
+| Call Unicode | 71.51 ms | 20.82 ms | 16.54 ms |
+
+Complete five-trial controller wall time was 79.018 → 66.089 → 58.752 seconds,
+including warmups, bookkeeping and Context closure. Each Nat/Unicode operation
+executes eight guest steps and allocates zero guest nodes. These are separate
+sequential JVM runs with three measured samples each: JIT, GC and machine
+conditions differ. They support the practical latency improvement, not a
+statistical guarantee, exclusive cost attribution or native Lean parity claim.
+The [frontend measurement record](../measurements/resident-import-program-slot-cache-profile.json)
+retains the new raw receipt, all three measured samples per stage/build, source
+pins, archive identities and guard results.
+
+The held JVM was later terminated with exit 143 when global available memory fell
+below 1 GiB. Its guard lifetime was **564.89 seconds**, including restore,
+acceptance, warm work and subsequent hold; that is separate from benchmark wall
+time. The successful warm receipt precedes termination. Closing the 30 warm
+Contexts does not establish native Source lease closure, complete semantic
+cleanup or graceful process disposal. This standalone profile also does not
+establish full Init checking or the future over-Init import API.
 
 The candidate's closed restore profile is `/2`, with exactly the reviewed
 `slot_count.clj` and `program_install.clj` substitutions in addition to the

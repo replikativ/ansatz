@@ -1,7 +1,7 @@
 {
   "schema": "validated-program-slot-append-optimization/1",
   "date": "2026-10-21",
-  "status": "reviewed candidate, focused/full regression, synthetic sizing and genuine constructor passed; actual frontend deferred by memory launch guard",
+  "status": "reviewed candidate; focused/full regression, synthetic sizing, genuine constructor, actual standalone frontend and matched warm profile passed; held JVM later stopped by global-memory guard",
   "baseline-revision": "64bf3a0",
   "benchmark-script-sha256": "f4390feafde3dd06291984f126271ee2e90818c60b3687dbe0102a51be8cd4ac",
   "baseline": [
@@ -1935,5 +1935,20 @@
       "path": "../../target/artifact-contract/consumer-compatibility/controllers/resident-import-acceptance.clj",
       "sha256": "76b8aad2792f24bdf841322a43f2b23faa4cfbf1699246fe2e4fb797efb2d8d6"
     }
-  ]
+  ],
+  "actual-frontend-follow-up": {
+    "record": "resident-import-program-slot-cache-profile.json",
+    "consumer-implementation-sha256": "ed0640a76f3892d68cfb4ba7d7618eb60083cfdc6e95f376ca629a26390d3fc8",
+    "warm-receipt-sha256": "e90bc5e036cd9bb522846b2c15f66fa8ef14bc5fe82b3257234f98683c95768d",
+    "phase": "passed",
+    "controller-wall-ms": 58751.89759,
+    "completed-guest-steps": 24451226,
+    "created-context-count": 30,
+    "closed-context-count": 30,
+    "base-context-unchanged": true,
+    "guard-exit-code": 143,
+    "guard-stop": "available system memory below 1 GiB",
+    "guard-elapsed-seconds": 564.89,
+    "semantic-source-cleanup-verified": false
+  }
 }
