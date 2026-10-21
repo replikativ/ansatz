@@ -94,6 +94,9 @@ consumer, publication/import, fork and register-sizing tests, passes **867 tests
 the full suite took 192.47 seconds with 890,556,416 bytes peak group RSS. The
 [validation record](../measurements/resident-init-prefix-validation.json) retains
 source hashes, command/driver and guard receipts. Independent Astra source,
-ownership, test and documentation review found no blocking issue. Genuine full
-Init-prefix preparation/release acceptance remains pending; these tests do not
-replace it.
+ownership, test and documentation review found no blocking issue. Separate
+[genuine native Init-prefix acceptance](../measurements/native-init-prefix-runtime.json)
+now passes: fresh checking of 65,994 constants, native assembly of 631 effective
+modules, two independent branch releases, and closure of all three test Contexts
+while preserving the original Contexts and borrowed Source. End-to-end source
+loading over Init+A still requires separate acceptance.

@@ -1,0 +1,2233 @@
+{
+  "schema": "native-init-import-runtime/1",
+  "date": "2026-10-21",
+  "status": "passed genuine A publication, staged Init+A finalization/fresh checking, B loading, Nat/Unicode and retained A calls",
+  "scope": "Actual Lean guest frontend/compiler over archived native Init under the optimized Ansatz consumer, with additive optional staged-import extension. Instrumented acceptance evidence, not a matched performance comparison.",
+  "identity": {
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+    "consumer-implementation-sha256": "ed0640a76f3892d68cfb4ba7d7618eb60083cfdc6e95f376ca629a26390d3fc8",
+    "manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6"
+  },
+  "source-sha256": {
+    "src/prototype/resident_init_prefix.clj": "5c39b2d07e5cedc7d987e9c7272e1a9e6a3ab192b53dc9324e04143ca25a2738",
+    "test/prototype/resident_init_import_test.clj": "b258196b5c6b521d521fe8c4ec1b48c58e4dcdaa811aa411d9900db2536b93f5"
+  },
+  "controller-sha256": {
+    "native-init-publication-v1.clj": "3d4f7d389299115062f8d18c956b1fe3bad5bd6319250a838caedcc654cb5c2e",
+    "native-init-import-acceptance-v1.clj": "250555d3f149b816a1083132dfbdb4e11eed794c49edeaef5f889e04d0f7ee1f",
+    "additive-extension-v1.clj": "5e6ff913bf03d939b567610b27552d6a0f67ce45916508b2a628d1c4b060dd65"
+  },
+  "artifact-locations": {
+    "runtime": "import experiment target/artifact-contract/resident-init-import/",
+    "publication-and-acceptance-controller": "prefix experiment target/artifact-contract/resident-init-prefix/",
+    "availability": "Raw ignored local artifacts are retained separately, not published by this tracked record; hashes identify their unmodified bytes."
+  },
+  "prerequisite": "native-init-prefix-runtime.json records original Init fresh checking, independent code preparation and issued native prefix; that original certificate remains private to the capability.",
+  "additive-extension": {
+    "pins": {
+      "artifact": "additive-extension-v1.pins.json",
+      "raw-sha256": "46cfc418cfcce46381b48f7096a40f6af0a7ca223599dfe81cc529d1494b5741",
+      "receipt": {
+        "schema": "resident-init-import-additive-extension/1",
+        "old-source-sha256": "23f891ab3597e0e3fd0c9b5cae0bb7e733dce3897bb37de0391ce8ac197b6bd4",
+        "new-source-sha256": "5c39b2d07e5cedc7d987e9c7272e1a9e6a3ab192b53dc9324e04143ca25a2738",
+        "original-definition-body-sha256": "8888b97f32b9e63f7744de40dd1792bfc39aef4d74fcfd8d30d273d76b1c68ec",
+        "new-definition-tail-sha256": "4aa41668d844ab5a1ac80753c78777c31c22845a7b4b5bd3a67bc461584e7ca4",
+        "extension-sha256": "5e6ff913bf03d939b567610b27552d6a0f67ce45916508b2a628d1c4b060dd65",
+        "old-var-names": [
+          "->InitPrefix",
+          "issued",
+          "fail",
+          "capability!",
+          "preparation-roots",
+          "preparation-readiness!",
+          "checked!",
+          "packet",
+          "prepare-init-prefix",
+          "descriptor",
+          "release-prefix"
+        ],
+        "new-var-names": [
+          "->InitImport",
+          "imports-issued",
+          "import-control!",
+          "positive-long!",
+          "import-policy!",
+          "import-budgets!",
+          "capture-import-request",
+          "import-progress",
+          "import-failure!",
+          "prepare-source-import-over-init",
+          "continuation-readiness!",
+          "advance-import!",
+          "finish-import!"
+        ],
+        "guest-invocations": 0,
+        "scope": "Exact reviewed new source; evaluate new requires and definition tail only. All old Var/root/mapping/alias identities checked before/after. Prior loaded original source attestation remains trusted host precondition; files alone do not prove earlier Var provenance."
+      }
+    },
+    "actual-admission": {
+      "artifact": "actual-additive-extension-v1.json",
+      "raw-sha256": "fd10c2effe03e5d4d90ced4934e22d7c7e17497fbd57e2301959b73532e3b91e",
+      "receipt": {
+        "stage": "resident-init-import-additive-extension-loaded",
+        "source-sha256": "5c39b2d07e5cedc7d987e9c7272e1a9e6a3ab192b53dc9324e04143ca25a2738",
+        "original-source-sha256": "23f891ab3597e0e3fd0c9b5cae0bb7e733dce3897bb37de0391ce8ac197b6bd4",
+        "original-var-count": 11,
+        "new-var-count": 13,
+        "original-var-roots-unchanged": true,
+        "guest-invocations": 0,
+        "finalizers-started": 0
+      }
+    }
+  },
+  "publication": {
+    "artifact": "actual-native-publication-v1.json",
+    "raw-sha256": "42b38e750fdff10f0cd36cdf6f54612ac5c000ebc08c8053e835128163a4b8c0",
+    "receipt": {
+      "source-close-attempts": 0,
+      "failure-message": null,
+      "publication": {
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ResidentNativeA"
+        ],
+        "unit-digest": "51ed583df7179f31690acbb85eb411430ec1067b7699e8423d5dc249a2c793f1",
+        "profile": "over-init"
+      },
+      "input-context-unchanged": true,
+      "source-open": true,
+      "phase": "published",
+      "scope": "native-init-publication-v1",
+      "diagnostic-count": 0,
+      "source-initializers-run": false,
+      "elapsed-ms": 40356.74798
+    }
+  },
+  "runtime-receipts": [
+    {
+      "artifact": "actual-import-preparation-v1.json",
+      "raw-sha256": "626c3651d7571d4233776f58c91f2f50bb48d74ce3dff90fe715035b83fe6f45",
+      "receipt": {
+        "source-close-attempts": 0,
+        "init-replayed": false,
+        "failure-message": null,
+        "retained-A-Nat": null,
+        "context-cleanup-performed": false,
+        "Unicode": null,
+        "import-receipt": null,
+        "source-open": true,
+        "phase": "prepared",
+        "failure-phase": null,
+        "scope": "native-init-import-acceptance-v1",
+        "slices": 0,
+        "Nat": null,
+        "source-initializers-run": false,
+        "B-diagnostic-count": null,
+        "stage-elapsed-ms": {
+          "prepare": 1333.0151
+        },
+        "requested-imports": null,
+        "progress": {
+          "phase": "assembled",
+          "guest-steps": 0,
+          "outer-steps": 0,
+          "helper-steps": 0,
+          "completed-operations": 0
+        },
+        "retained-inputs-unchanged": true
+      }
+    },
+    {
+      "artifact": "actual-finalizer-terminal-v1.json",
+      "raw-sha256": "dc300cfcc409564fd018085f727163e283b7d814698429abfb7198b968052f46",
+      "receipt": {
+        "source-close-attempts": 0,
+        "init-replayed": false,
+        "failure-message": null,
+        "retained-A-Nat": null,
+        "context-cleanup-performed": false,
+        "Unicode": null,
+        "import-receipt": null,
+        "source-open": true,
+        "phase": "io-completed",
+        "failure-phase": null,
+        "scope": "native-init-import-acceptance-v1",
+        "slices": 77,
+        "Nat": null,
+        "source-initializers-run": false,
+        "B-diagnostic-count": null,
+        "stage-elapsed-ms": {
+          "prepare": 1333.0151,
+          "last-slice": 6303.990949
+        },
+        "requested-imports": null,
+        "progress": {
+          "phase": "io-completed",
+          "guest-steps": 300115656,
+          "outer-steps": 78695469,
+          "helper-steps": 221420187,
+          "completed-operations": 3666
+        },
+        "driver-elapsed-ms": 828586.205797,
+        "retained-inputs-unchanged": true
+      }
+    },
+    {
+      "artifact": "actual-import-finish-v1.json",
+      "raw-sha256": "047300145c2be561ac667da3af032c7b0c544263b54e57e3499edab52ebf7c71",
+      "receipt": {
+        "source-close-attempts": 0,
+        "init-replayed": false,
+        "failure-message": null,
+        "retained-A-Nat": null,
+        "context-cleanup-performed": false,
+        "Unicode": null,
+        "import-receipt": {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ResidentNativeA"
+          ],
+          "unit-digest": "51ed583df7179f31690acbb85eb411430ec1067b7699e8423d5dc249a2c793f1",
+          "constant-count": 2
+        },
+        "source-open": true,
+        "phase": "finished",
+        "failure-phase": null,
+        "scope": "native-init-import-acceptance-v1",
+        "slices": 77,
+        "Nat": null,
+        "source-initializers-run": false,
+        "B-diagnostic-count": null,
+        "stage-elapsed-ms": {
+          "prepare": 1333.0151,
+          "last-slice": 6303.990949,
+          "finish": 148187.191901
+        },
+        "requested-imports": [
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": false
+          },
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": true
+          },
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ResidentNativeA"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": false
+          }
+        ],
+        "progress": {
+          "phase": "io-completed",
+          "guest-steps": 300115656,
+          "outer-steps": 78695469,
+          "helper-steps": 221420187,
+          "completed-operations": 3666
+        },
+        "retained-inputs-unchanged": true
+      }
+    },
+    {
+      "artifact": "actual-load-B-v1.json",
+      "raw-sha256": "33fcf3ab34179b7d2de3c3ebcb7d5f9488ab7152a02b36565508380e0e258dd4",
+      "receipt": {
+        "source-close-attempts": 0,
+        "init-replayed": false,
+        "failure-message": null,
+        "retained-A-Nat": null,
+        "context-cleanup-performed": false,
+        "Unicode": null,
+        "import-receipt": {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ResidentNativeA"
+          ],
+          "unit-digest": "51ed583df7179f31690acbb85eb411430ec1067b7699e8423d5dc249a2c793f1",
+          "constant-count": 2
+        },
+        "source-open": true,
+        "phase": "B-loaded",
+        "failure-phase": null,
+        "scope": "native-init-import-acceptance-v1",
+        "slices": 77,
+        "Nat": null,
+        "source-initializers-run": false,
+        "B-diagnostic-count": 0,
+        "stage-elapsed-ms": {
+          "prepare": 1333.0151,
+          "last-slice": 6303.990949,
+          "finish": 148187.191901,
+          "load-B": 36913.415361
+        },
+        "requested-imports": [
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": false
+          },
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": true
+          },
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ResidentNativeA"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": false
+          }
+        ],
+        "progress": {
+          "phase": "io-completed",
+          "guest-steps": 300115656,
+          "outer-steps": 78695469,
+          "helper-steps": 221420187,
+          "completed-operations": 3666
+        },
+        "retained-inputs-unchanged": true
+      }
+    },
+    {
+      "artifact": "actual-import-acceptance-v1.json",
+      "raw-sha256": "cd57dbfe1c6b3a0dc128d4920c9a4cc8dc541d193044b232ef807fc008beb565",
+      "receipt": {
+        "source-close-attempts": 0,
+        "init-replayed": false,
+        "failure-message": null,
+        "retained-A-Nat": 41,
+        "context-cleanup-performed": false,
+        "Unicode": "Native prefix: λ 🦉",
+        "import-receipt": {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ResidentNativeA"
+          ],
+          "unit-digest": "51ed583df7179f31690acbb85eb411430ec1067b7699e8423d5dc249a2c793f1",
+          "constant-count": 2
+        },
+        "source-open": true,
+        "phase": "passed",
+        "failure-phase": null,
+        "scope": "native-init-import-acceptance-v1",
+        "slices": 77,
+        "Nat": 42,
+        "source-initializers-run": false,
+        "B-diagnostic-count": 0,
+        "stage-elapsed-ms": {
+          "prepare": 1333.0151,
+          "last-slice": 6303.990949,
+          "finish": 148187.191901,
+          "load-B": 36913.415361,
+          "calls": 104.84747
+        },
+        "requested-imports": [
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": false
+          },
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": true
+          },
+          {
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ResidentNativeA"
+            ],
+            "importAll": false,
+            "isExported": true,
+            "isMeta": false
+          }
+        ],
+        "progress": {
+          "phase": "io-completed",
+          "guest-steps": 300115656,
+          "outer-steps": 78695469,
+          "helper-steps": 221420187,
+          "completed-operations": 3666
+        },
+        "retained-inputs-unchanged": true
+      }
+    }
+  ],
+  "finalizer-slices": {
+    "artifact": "actual-finalizer-slices-v1.jsonl",
+    "raw-sha256": "9690bbab4cbde30b0a428a320fc8ded6290551f9f9cf0f0485dc12d0bdadcf82",
+    "count": 77,
+    "summary-scope": "Every original slice is represented by its ordinal, controller phase, exact progress counters and per-slice elapsed milliseconds; repeated full controller summaries remain in the raw hashed JSONL.",
+    "slices": [
+      {
+        "slice": 1,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 6000000,
+          "outer-steps": 6000000,
+          "helper-steps": 0,
+          "completed-operations": 3
+        },
+        "elapsed-ms": 14072.650751
+      },
+      {
+        "slice": 2,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 12000000,
+          "outer-steps": 12000000,
+          "helper-steps": 0,
+          "completed-operations": 6
+        },
+        "elapsed-ms": 13085.479729
+      },
+      {
+        "slice": 3,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 18000000,
+          "outer-steps": 18000000,
+          "helper-steps": 0,
+          "completed-operations": 9
+        },
+        "elapsed-ms": 14364.181325
+      },
+      {
+        "slice": 4,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 22000000,
+          "outer-steps": 22000000,
+          "helper-steps": 0,
+          "completed-operations": 11
+        },
+        "elapsed-ms": 10343.516029
+      },
+      {
+        "slice": 5,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 26000000,
+          "outer-steps": 26000000,
+          "helper-steps": 0,
+          "completed-operations": 13
+        },
+        "elapsed-ms": 16980.603756
+      },
+      {
+        "slice": 6,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 26564475,
+          "outer-steps": 26564475,
+          "helper-steps": 0,
+          "completed-operations": 467
+        },
+        "elapsed-ms": 10000.627312
+      },
+      {
+        "slice": 7,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 27083361,
+          "outer-steps": 27083361,
+          "helper-steps": 0,
+          "completed-operations": 1018
+        },
+        "elapsed-ms": 10012.093041
+      },
+      {
+        "slice": 8,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 29294187,
+          "outer-steps": 29294187,
+          "helper-steps": 0,
+          "completed-operations": 1278
+        },
+        "elapsed-ms": 10257.760355
+      },
+      {
+        "slice": 9,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 32890711,
+          "outer-steps": 32586584,
+          "helper-steps": 304127,
+          "completed-operations": 1283
+        },
+        "elapsed-ms": 10098.121065
+      },
+      {
+        "slice": 10,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 35650364,
+          "outer-steps": 32596693,
+          "helper-steps": 3053671,
+          "completed-operations": 1319
+        },
+        "elapsed-ms": 10187.15956
+      },
+      {
+        "slice": 11,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 38862889,
+          "outer-steps": 32610675,
+          "helper-steps": 6252214,
+          "completed-operations": 1361
+        },
+        "elapsed-ms": 10238.119203
+      },
+      {
+        "slice": 12,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 42106912,
+          "outer-steps": 32628698,
+          "helper-steps": 9478214,
+          "completed-operations": 1405
+        },
+        "elapsed-ms": 10317.028039
+      },
+      {
+        "slice": 13,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 45543959,
+          "outer-steps": 32641362,
+          "helper-steps": 12902597,
+          "completed-operations": 1439
+        },
+        "elapsed-ms": 10126.65321
+      },
+      {
+        "slice": 14,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 48769396,
+          "outer-steps": 32660804,
+          "helper-steps": 16108592,
+          "completed-operations": 1483
+        },
+        "elapsed-ms": 10022.069171
+      },
+      {
+        "slice": 15,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 52084248,
+          "outer-steps": 32783472,
+          "helper-steps": 19300776,
+          "completed-operations": 1529
+        },
+        "elapsed-ms": 10161.846928
+      },
+      {
+        "slice": 16,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 54613138,
+          "outer-steps": 32955072,
+          "helper-steps": 21658066,
+          "completed-operations": 1627
+        },
+        "elapsed-ms": 10107.476259
+      },
+      {
+        "slice": 17,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 57744117,
+          "outer-steps": 33259676,
+          "helper-steps": 24484441,
+          "completed-operations": 1707
+        },
+        "elapsed-ms": 10075.569354
+      },
+      {
+        "slice": 18,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 61113397,
+          "outer-steps": 33644740,
+          "helper-steps": 27468657,
+          "completed-operations": 1771
+        },
+        "elapsed-ms": 10004.78485
+      },
+      {
+        "slice": 19,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 64300296,
+          "outer-steps": 34094601,
+          "helper-steps": 30205695,
+          "completed-operations": 1847
+        },
+        "elapsed-ms": 10163.205824
+      },
+      {
+        "slice": 20,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 68987791,
+          "outer-steps": 34725254,
+          "helper-steps": 34262537,
+          "completed-operations": 1867
+        },
+        "elapsed-ms": 10633.509972
+      },
+      {
+        "slice": 21,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 73695521,
+          "outer-steps": 35596392,
+          "helper-steps": 38099129,
+          "completed-operations": 1880
+        },
+        "elapsed-ms": 10096.370468
+      },
+      {
+        "slice": 22,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 78498950,
+          "outer-steps": 36325686,
+          "helper-steps": 42173264,
+          "completed-operations": 1893
+        },
+        "elapsed-ms": 10215.202729
+      },
+      {
+        "slice": 23,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 83090650,
+          "outer-steps": 37916480,
+          "helper-steps": 45174170,
+          "completed-operations": 1921
+        },
+        "elapsed-ms": 10694.822122
+      },
+      {
+        "slice": 24,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 86882476,
+          "outer-steps": 38712496,
+          "helper-steps": 48169980,
+          "completed-operations": 1965
+        },
+        "elapsed-ms": 10043.95374
+      },
+      {
+        "slice": 25,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 91243830,
+          "outer-steps": 39612361,
+          "helper-steps": 51631469,
+          "completed-operations": 1997
+        },
+        "elapsed-ms": 10157.264609
+      },
+      {
+        "slice": 26,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 95529565,
+          "outer-steps": 40169082,
+          "helper-steps": 55360483,
+          "completed-operations": 2029
+        },
+        "elapsed-ms": 10496.80535
+      },
+      {
+        "slice": 27,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 98627343,
+          "outer-steps": 40452128,
+          "helper-steps": 58175215,
+          "completed-operations": 2111
+        },
+        "elapsed-ms": 10066.633355
+      },
+      {
+        "slice": 28,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 102510596,
+          "outer-steps": 41027386,
+          "helper-steps": 61483210,
+          "completed-operations": 2159
+        },
+        "elapsed-ms": 11508.534689
+      },
+      {
+        "slice": 29,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 107275595,
+          "outer-steps": 41958910,
+          "helper-steps": 65316685,
+          "completed-operations": 2169
+        },
+        "elapsed-ms": 10694.770245
+      },
+      {
+        "slice": 30,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 111676125,
+          "outer-steps": 42761639,
+          "helper-steps": 68914486,
+          "completed-operations": 2217
+        },
+        "elapsed-ms": 11322.293839
+      },
+      {
+        "slice": 31,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 116679811,
+          "outer-steps": 43731703,
+          "helper-steps": 72948108,
+          "completed-operations": 2255
+        },
+        "elapsed-ms": 11719.267607
+      },
+      {
+        "slice": 32,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 120773069,
+          "outer-steps": 44732517,
+          "helper-steps": 76040552,
+          "completed-operations": 2293
+        },
+        "elapsed-ms": 10050.256161
+      },
+      {
+        "slice": 33,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 125128288,
+          "outer-steps": 45683361,
+          "helper-steps": 79444927,
+          "completed-operations": 2328
+        },
+        "elapsed-ms": 10443.99989
+      },
+      {
+        "slice": 34,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 129900270,
+          "outer-steps": 46525404,
+          "helper-steps": 83374866,
+          "completed-operations": 2340
+        },
+        "elapsed-ms": 10031.523275
+      },
+      {
+        "slice": 35,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 133476797,
+          "outer-steps": 46903379,
+          "helper-steps": 86573418,
+          "completed-operations": 2389
+        },
+        "elapsed-ms": 10355.377698
+      },
+      {
+        "slice": 36,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 137830663,
+          "outer-steps": 47636153,
+          "helper-steps": 90194510,
+          "completed-operations": 2401
+        },
+        "elapsed-ms": 10423.432207
+      },
+      {
+        "slice": 37,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 141097821,
+          "outer-steps": 48040714,
+          "helper-steps": 93057107,
+          "completed-operations": 2466
+        },
+        "elapsed-ms": 10006.116963
+      },
+      {
+        "slice": 38,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 145267630,
+          "outer-steps": 48655932,
+          "helper-steps": 96611698,
+          "completed-operations": 2497
+        },
+        "elapsed-ms": 10085.7756
+      },
+      {
+        "slice": 39,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 149209100,
+          "outer-steps": 49219806,
+          "helper-steps": 99989294,
+          "completed-operations": 2539
+        },
+        "elapsed-ms": 10269.211177
+      },
+      {
+        "slice": 40,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 153131573,
+          "outer-steps": 49838601,
+          "helper-steps": 103292972,
+          "completed-operations": 2575
+        },
+        "elapsed-ms": 10016.122609
+      },
+      {
+        "slice": 41,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 156291805,
+          "outer-steps": 50306101,
+          "helper-steps": 105985704,
+          "completed-operations": 2651
+        },
+        "elapsed-ms": 10267.35726
+      },
+      {
+        "slice": 42,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 159385690,
+          "outer-steps": 50656826,
+          "helper-steps": 108728864,
+          "completed-operations": 2722
+        },
+        "elapsed-ms": 10041.321804
+      },
+      {
+        "slice": 43,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 163124993,
+          "outer-steps": 51253799,
+          "helper-steps": 111871194,
+          "completed-operations": 2767
+        },
+        "elapsed-ms": 10034.272736
+      },
+      {
+        "slice": 44,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 166120963,
+          "outer-steps": 51524595,
+          "helper-steps": 114596368,
+          "completed-operations": 2849
+        },
+        "elapsed-ms": 10202.622911
+      },
+      {
+        "slice": 45,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 171939391,
+          "outer-steps": 55774120,
+          "helper-steps": 116165271,
+          "completed-operations": 2883
+        },
+        "elapsed-ms": 14115.083705
+      },
+      {
+        "slice": 46,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 177939391,
+          "outer-steps": 61774120,
+          "helper-steps": 116165271,
+          "completed-operations": 2886
+        },
+        "elapsed-ms": 13392.517147
+      },
+      {
+        "slice": 47,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 183939391,
+          "outer-steps": 67774120,
+          "helper-steps": 116165271,
+          "completed-operations": 2889
+        },
+        "elapsed-ms": 13582.397763
+      },
+      {
+        "slice": 48,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 188180026,
+          "outer-steps": 71399924,
+          "helper-steps": 116780102,
+          "completed-operations": 2902
+        },
+        "elapsed-ms": 10031.119679
+      },
+      {
+        "slice": 49,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 191669067,
+          "outer-steps": 71416016,
+          "helper-steps": 120253051,
+          "completed-operations": 2940
+        },
+        "elapsed-ms": 10200.93176
+      },
+      {
+        "slice": 50,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 195335166,
+          "outer-steps": 71425930,
+          "helper-steps": 123909236,
+          "completed-operations": 2970
+        },
+        "elapsed-ms": 10360.336572
+      },
+      {
+        "slice": 51,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 198940302,
+          "outer-steps": 71436560,
+          "helper-steps": 127503742,
+          "completed-operations": 3000
+        },
+        "elapsed-ms": 10196.174847
+      },
+      {
+        "slice": 52,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 202553882,
+          "outer-steps": 71446767,
+          "helper-steps": 131107115,
+          "completed-operations": 3030
+        },
+        "elapsed-ms": 10037.219748
+      },
+      {
+        "slice": 53,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 206373675,
+          "outer-steps": 71464474,
+          "helper-steps": 134909201,
+          "completed-operations": 3060
+        },
+        "elapsed-ms": 10640.548859
+      },
+      {
+        "slice": 54,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 210093016,
+          "outer-steps": 71473577,
+          "helper-steps": 138619439,
+          "completed-operations": 3088
+        },
+        "elapsed-ms": 10196.864233
+      },
+      {
+        "slice": 55,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 213517686,
+          "outer-steps": 71486523,
+          "helper-steps": 142031163,
+          "completed-operations": 3128
+        },
+        "elapsed-ms": 10115.037262
+      },
+      {
+        "slice": 56,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 217122550,
+          "outer-steps": 71497119,
+          "helper-steps": 145625431,
+          "completed-operations": 3164
+        },
+        "elapsed-ms": 10281.971958
+      },
+      {
+        "slice": 57,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 220430060,
+          "outer-steps": 71512010,
+          "helper-steps": 148918050,
+          "completed-operations": 3216
+        },
+        "elapsed-ms": 10008.597796
+      },
+      {
+        "slice": 58,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 223829899,
+          "outer-steps": 71526085,
+          "helper-steps": 152303814,
+          "completed-operations": 3264
+        },
+        "elapsed-ms": 10155.223994
+      },
+      {
+        "slice": 59,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 227286708,
+          "outer-steps": 71551397,
+          "helper-steps": 155735311,
+          "completed-operations": 3295
+        },
+        "elapsed-ms": 10010.988337
+      },
+      {
+        "slice": 60,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 231073492,
+          "outer-steps": 71561816,
+          "helper-steps": 159511676,
+          "completed-operations": 3330
+        },
+        "elapsed-ms": 10658.889449
+      },
+      {
+        "slice": 61,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 235008135,
+          "outer-steps": 71571207,
+          "helper-steps": 163436928,
+          "completed-operations": 3358
+        },
+        "elapsed-ms": 10515.80048
+      },
+      {
+        "slice": 62,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 238684505,
+          "outer-steps": 71578388,
+          "helper-steps": 167106117,
+          "completed-operations": 3380
+        },
+        "elapsed-ms": 10219.784866
+      },
+      {
+        "slice": 63,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 242779825,
+          "outer-steps": 71583027,
+          "helper-steps": 171196798,
+          "completed-operations": 3396
+        },
+        "elapsed-ms": 10504.047934
+      },
+      {
+        "slice": 64,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 246017064,
+          "outer-steps": 71591438,
+          "helper-steps": 174425626,
+          "completed-operations": 3426
+        },
+        "elapsed-ms": 10217.445997
+      },
+      {
+        "slice": 65,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 249165788,
+          "outer-steps": 71598237,
+          "helper-steps": 177567551,
+          "completed-operations": 3450
+        },
+        "elapsed-ms": 12067.871959
+      },
+      {
+        "slice": 66,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 252352231,
+          "outer-steps": 71601009,
+          "helper-steps": 180751222,
+          "completed-operations": 3460
+        },
+        "elapsed-ms": 10202.48304
+      },
+      {
+        "slice": 67,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 256187814,
+          "outer-steps": 71608929,
+          "helper-steps": 184578885,
+          "completed-operations": 3482
+        },
+        "elapsed-ms": 10044.822699
+      },
+      {
+        "slice": 68,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 260023334,
+          "outer-steps": 71617811,
+          "helper-steps": 188405523,
+          "completed-operations": 3508
+        },
+        "elapsed-ms": 10207.030035
+      },
+      {
+        "slice": 69,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 265885320,
+          "outer-steps": 71629471,
+          "helper-steps": 194255849,
+          "completed-operations": 3534
+        },
+        "elapsed-ms": 14763.870571
+      },
+      {
+        "slice": 70,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 270276803,
+          "outer-steps": 71635810,
+          "helper-steps": 198640993,
+          "completed-operations": 3546
+        },
+        "elapsed-ms": 10823.822537
+      },
+      {
+        "slice": 71,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 274360325,
+          "outer-steps": 71644237,
+          "helper-steps": 202716088,
+          "completed-operations": 3570
+        },
+        "elapsed-ms": 10650.091987
+      },
+      {
+        "slice": 72,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 278522071,
+          "outer-steps": 71656023,
+          "helper-steps": 206866048,
+          "completed-operations": 3596
+        },
+        "elapsed-ms": 10938.920958
+      },
+      {
+        "slice": 73,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 283016866,
+          "outer-steps": 71668461,
+          "helper-steps": 211348405,
+          "completed-operations": 3620
+        },
+        "elapsed-ms": 11595.91942
+      },
+      {
+        "slice": 74,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 287373575,
+          "outer-steps": 71678402,
+          "helper-steps": 215695173,
+          "completed-operations": 3636
+        },
+        "elapsed-ms": 11098.732566
+      },
+      {
+        "slice": 75,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 291170283,
+          "outer-steps": 71682363,
+          "helper-steps": 219487920,
+          "completed-operations": 3650
+        },
+        "elapsed-ms": 10041.756545
+      },
+      {
+        "slice": 76,
+        "phase": "paused",
+        "progress": {
+          "phase": "running",
+          "guest-steps": 297106735,
+          "outer-steps": 75686548,
+          "helper-steps": 221420187,
+          "completed-operations": 3664
+        },
+        "elapsed-ms": 13822.248639
+      },
+      {
+        "slice": 77,
+        "phase": "io-completed",
+        "progress": {
+          "phase": "io-completed",
+          "guest-steps": 300115656,
+          "outer-steps": 78695469,
+          "helper-steps": 221420187,
+          "completed-operations": 3666
+        },
+        "elapsed-ms": 6303.990949
+      }
+    ]
+  },
+  "admission": {
+    "kernel-policy": {
+      "allow-axioms?": true,
+      "allow-unsafe?": true,
+      "allow-compiler-markers?": true,
+      "fuel": 20000000
+    },
+    "budgets": {
+      "outer-fuel": 2000000,
+      "helper-fuel": 20000000,
+      "attempt-fuel": 500000000
+    },
+    "slice-limits": {
+      "max-operations": 1000,
+      "wall-ms": 10000
+    },
+    "policy-scope": "Same explicit policy flags as original Init support; this permits the original 15 assumptions including sorryAx. No caller certificate is accepted.",
+    "budget-scope": "Finalizer operation charges only; setup, Java checking and post-IO helpers are outside that aggregate. Wall bound is checked between operations and cannot preempt a running helper."
+  },
+  "checking-evidence": {
+    "whole-map": "Reviewed finish-import! freshly admits every Init+A constant into a new Java Environment; only immutable native projections reuse the privately retained original certificate.",
+    "source-only-receipt-constant-count": 2,
+    "requested-imports": "exact classic [Init, meta Init, ResidentNativeA]",
+    "B-diagnostics": 0,
+    "calls": {
+      "B.incNat(41)": 42,
+      "B.echo": "Native prefix: λ 🦉",
+      "retained-A.incNat(40)-in-B-descendant": 41
+    },
+    "whole-map-count-direct-observation": {
+      "fresh-Java-Environment-constants": 65996,
+      "source-A-constants": 2,
+      "original-native-constants": 65994,
+      "fresh-Environment-distinct": true,
+      "native-projection-identities-reused": true,
+      "receipt-anchor-world-matches": true
+    }
+  },
+  "timing-ms": {
+    "A-publication": 40356.74798,
+    "import-preparation": 1333.0151,
+    "cooperative-finalizer-driver": 828586.205797,
+    "finish-fresh-check-and-adoption": 148187.191901,
+    "load-B": 36913.415361,
+    "three-calls": 104.84747
+  },
+  "timing-scope": "Separate explicitly admitted calls in a retained guarded process. Finalizer driver timing includes host slice/controller bookkeeping and the diagnostic JFR interval. No native Lean baseline, repeatability claim, or compiler parity measurement.",
+  "instrumentation": {
+    "type": "Java Flight Recorder diagnostic sample during finalizer",
+    "duration-seconds": 20,
+    "start-UTC": "2026-10-21 15:42:48 UTC",
+    "start-source": "root-reported diagnostic admission time",
+    "raw-recording-sha256": "654b308cecae18165ed4fd8583709a036176723419d0d59195ecc1d7a272cb87",
+    "raw-recording-published": false,
+    "privacy": "Raw JFR may contain environment events; only its hash and sanitized aggregate are included here.",
+    "sanitized-aggregate": {
+      "artifact": "native-finalizer-profile-aggregate-v2.json",
+      "raw-sha256": "118acd88f59e9f88fe6cbb0d0e64f6feb8896284c3a88bf1e470e6d0afef3f6e",
+      "receipt": {
+        "scope": "20-second diagnostic interval; sampled stacks and weighted allocation estimates, not benchmark attribution",
+        "execution-samples": 1532,
+        "top-leaf-frames": [
+          [
+            "prototype.runtime_prim$evaluate.invokeStatic",
+            299
+          ],
+          [
+            "clojure.lang.PersistentHashMap.hash",
+            100
+          ],
+          [
+            "clojure.lang.PersistentHashMap$BitmapIndexedNode.assoc",
+            69
+          ],
+          [
+            "clojure.lang.PersistentHashMap$ArrayNode.find",
+            62
+          ],
+          [
+            "clojure.lang.PersistentArrayMap.indexOfObject",
+            52
+          ],
+          [
+            "prototype.mutable$step_BANG_.invokeStatic",
+            28
+          ],
+          [
+            "clojure.lang.PersistentHashMap$TransientHashMap.doAssoc",
+            24
+          ],
+          [
+            "clojure.lang.PersistentHashMap$BitmapIndexedNode.find",
+            24
+          ],
+          [
+            "clojure.lang.PersistentArrayMap.indexOf",
+            22
+          ],
+          [
+            "clojure.lang.Util.equiv",
+            21
+          ],
+          [
+            "clojure.lang.PersistentHashMap$ArrayNode.assoc",
+            20
+          ],
+          [
+            "clojure.lang.PersistentVector.reduce",
+            20
+          ],
+          [
+            "clojure.lang.PersistentVector.arrayFor",
+            18
+          ],
+          [
+            "java.util.HashMap.getNode",
+            15
+          ],
+          [
+            "prototype.mutable$call_values_BANG_.invokeStatic",
+            15
+          ]
+        ],
+        "first-prototype-frames": [
+          [
+            "prototype.runtime_prim$evaluate.invokeStatic",
+            401
+          ],
+          [
+            "prototype.mutable$runtime_value_BANG_.invokeStatic",
+            141
+          ],
+          [
+            "prototype.mutable$call_values_BANG_.invokeStatic",
+            71
+          ],
+          [
+            "prototype.runtime_prim$numeric.invokeStatic",
+            57
+          ],
+          [
+            "prototype.eval_const$authorize_existing_BANG_.invokeStatic",
+            46
+          ],
+          [
+            "prototype.mutable$step_BANG_.invokeStatic",
+            43
+          ],
+          [
+            "prototype.machine$native_reference_QMARK_.invokeStatic",
+            41
+          ],
+          [
+            "prototype.module_store$parse.invokeStatic",
+            40
+          ],
+          [
+            "prototype.eval_const$make_binding$fn__8710.invoke",
+            38
+          ],
+          [
+            "prototype.machine$node.invokeStatic",
+            38
+          ],
+          [
+            "prototype.eval_const$check_function_closure_BANG_.invokeStatic",
+            36
+          ],
+          [
+            "prototype.mutable$node.invokeStatic",
+            32
+          ],
+          [
+            "prototype.import_ir$static_targets.invokeStatic",
+            25
+          ],
+          [
+            "prototype.mutable$call_BANG_.invokeStatic",
+            25
+          ],
+          [
+            "prototype.mutable$expr_BANG_.invokeStatic",
+            23
+          ],
+          [
+            "prototype.mutable.Machine.valAt",
+            21
+          ],
+          [
+            "prototype.ir_value$project.invokeStatic",
+            21
+          ],
+          [
+            "prototype.module_store.Store.lookup_node",
+            17
+          ],
+          [
+            "prototype.scalar$read_bytes.invokeStatic",
+            17
+          ],
+          [
+            "prototype.mutable$heap_put_BANG_.invokeStatic",
+            14
+          ]
+        ],
+        "weighted-allocation-types": [
+          [
+            "[Ljava/lang/Object;",
+            2861816232
+          ],
+          [
+            "clojure/lang/PersistentVector$ChunkedSeq",
+            721001064
+          ],
+          [
+            "clojure/lang/PersistentHashMap$BitmapIndexedNode",
+            521459488
+          ],
+          [
+            "[Lclojure/lang/PersistentHashMap$INode;",
+            517685520
+          ],
+          [
+            "java/lang/Long",
+            448531648
+          ],
+          [
+            "clojure/lang/PersistentVector",
+            379357992
+          ],
+          [
+            "clojure/lang/PersistentHashMap",
+            213785752
+          ],
+          [
+            "[C",
+            133517736
+          ],
+          [
+            "clojure/lang/PersistentVector$Node",
+            105845928
+          ],
+          [
+            "clojure/lang/PersistentHashMap$NodeSeq",
+            104796792
+          ],
+          [
+            "[B",
+            101641240
+          ],
+          [
+            "java/util/concurrent/atomic/AtomicReference",
+            86980256
+          ],
+          [
+            "clojure/lang/ArrayChunk",
+            81743288
+          ],
+          [
+            "java/math/BigInteger",
+            72310400
+          ],
+          [
+            "clojure/lang/LazySeq",
+            69167168
+          ]
+        ],
+        "gc-events": 34,
+        "gc-durations": [
+          "PT0.005845806S",
+          "PT0.003637603S",
+          "PT0.004871518S",
+          "PT0.004856669S",
+          "PT0.004366532S",
+          "PT0.004529534S",
+          "PT4.830664685S",
+          "PT0.004384341S",
+          "PT0.00662659S",
+          "PT0.00666808S",
+          "PT0.003992124S",
+          "PT0.004215643S",
+          "PT0.00526388S",
+          "PT0.004482251S",
+          "PT0.003733309S",
+          "PT0.004257523S",
+          "PT0.004266053S",
+          "PT4.95082118S",
+          "PT0.00505427S",
+          "PT0.006736283S",
+          "PT0.003981436S",
+          "PT0.004213925S",
+          "PT0.003290446S",
+          "PT0.004772955S",
+          "PT0.003511558S",
+          "PT0.004601877S",
+          "PT0.004243928S",
+          "PT4.866133221S",
+          "PT0.003120059S",
+          "PT0.007229941S",
+          "PT0.006645939S",
+          "PT0.004658491S",
+          "PT0.003999423S",
+          "PT0.004337765S"
+        ],
+        "redefined-classes": [
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/VirtualThreadSubmitFailedEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/ThreadSleepEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/SocketWriteEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/SocketReadEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/SerializationMisdeclarationEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/ProcessStartEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/FileWriteEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/FileReadEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/FileForceEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/ExceptionThrownEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/ExceptionStatisticsEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/internal/event/ErrorThrownEvent",
+            "package": {
+              "name": "jdk/internal/event",
+              "module": {
+                "name": "java.base",
+                "version": "25.0.1",
+                "location": "jrt:/java.base",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/MethodTimingEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/MethodTraceEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ContainerIOUsageEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ContainerMemoryUsageEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ContainerCPUThrottlingEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ContainerCPUUsageEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 1,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ContainerConfigurationEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/InitialSecurityPropertyEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/DirectBufferStatisticsEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ActiveRecordingEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          },
+          {
+            "classLoader": {
+              "type": null,
+              "name": "bootstrap"
+            },
+            "name": "jdk/jfr/events/ActiveSettingEvent",
+            "package": {
+              "name": "jdk/jfr/events",
+              "module": {
+                "name": "jdk.jfr",
+                "version": "25.0.1",
+                "location": "jrt:/jdk.jfr",
+                "classLoader": {
+                  "type": null,
+                  "name": "bootstrap"
+                }
+              },
+              "exported": true
+            },
+            "modifiers": 17,
+            "hidden": false
+          }
+        ],
+        "allocation-sampling-limits": "First allocation sample per thread discarded: its weight can cover allocations before recording. Remaining weighted estimates are not exact allocation totals.",
+        "discarded-initial-sample-weights": [
+          375175926768,
+          936,
+          11579208,
+          29600,
+          94192
+        ],
+        "gc-duration-sum-seconds": 14.794014838000002,
+        "gc-duration-limits": "GC event durations may include concurrent phases and overlap; this sum is not stop-the-world pause time."
+      }
+    },
+    "sampling-limits": "Sampled CPU stacks and weighted allocation estimates for a brief interval; not whole-run attribution. See aggregate limitations."
+  },
+  "lifetime-at-recording": {
+    "heavy-process": "still guarded and retained for campaign work; no final exit receipt claimed",
+    "heap-mib": 3072,
+    "group-rss-guard-mib": 3584,
+    "minimum-system-available-mib": 1024,
+    "lifecycle-limit-seconds": 5400,
+    "original-native-source-lease": "held open by original driver",
+    "input-contexts": "unchanged and retained open",
+    "created-import-load-call-contexts": "retained, no cleanup performed",
+    "semantic-cleanup-verified": false
+  },
+  "independent-review": {
+    "agent": "astra_campaign_review_v2",
+    "source-test-and-controllers": "passed at recorded frozen hashes; original prefix definitions/Var roots preserved by additive admission",
+    "measurement-review": "passed: all original raw artifacts, semantic receipts, 77 slices/counters, controllers/source pins, sanitized JFR aggregate and raw hash, guide/validation linkage, and final direct v2 whole-map count/identity receipt with invalid host probes excluded; reviewer ran no JVM",
+    "reviewer-jvm-execution": false
+  },
+  "limits": [
+    "This gate runs Lean source text through the hosted frontend/compiler; it is not independent frontend self-hosting or arbitrary Lean package resolution.",
+    "The 2-CI receipt authenticates A only. Fresh whole-map checking is a separate requirement and is performed by the reviewed completion implementation.",
+    "The original Init bootstrap, completed old finalizer and native/source initializers were not replayed. The new Init+A finalizer was executed once cooperatively.",
+    "No source/native lease closure, automatic rollback, or failure retry is established.",
+    "JFR instrumentation and retained prior work make these acceptance timings unsuitable for a matched before/after or native Lean comparison.",
+    "No native whole-map parity, Mathlib-wide compatibility, native bindings portability or general dependency resolution claim."
+  ],
+  "fresh-environment-counts": {
+    "artifact": "actual-fresh-environment-counts-v2.json",
+    "raw-sha256": "cffae0798e0c1cc3126b0477d16ff8b687acb04c1c333e5d3b4c2e9cf7fd78ee",
+    "receipt": {
+      "scope": "native-import-fresh-environment-counts-v2",
+      "fresh-environment-constants": 65996,
+      "source-receipt-constants": 2,
+      "native-certificate-constants": 65994,
+      "fresh-environment-distinct": true,
+      "native-projection-identities-reused": true,
+      "receipt-anchor-matches-world": true,
+      "diagnostic-accessor": "Env.lookup(Name); allConstants returns Collection, not Map"
+    }
+  },
+  "diagnostic-probe-correction": {
+    "scope": "Host-only readback probes after successful pipeline; no guest state changed.",
+    "excluded-invalid-probe": "An earlier diagnostic treated Env.allConstants(), a Collection, as a Name-keyed map; its false identity result is invalid and not used as acceptance evidence. The reviewed v2 probe uses Env.lookup(Name).",
+    "other-invalid-probe": "An earlier diagnostic selected the Environment node ID instead of the constant-map receipt root and raised an NPE. It is not acceptance evidence.",
+    "accepted-evidence": "actual-fresh-environment-counts-v2.json only"
+  }
+}
