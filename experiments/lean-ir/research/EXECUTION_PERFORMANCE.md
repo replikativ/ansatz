@@ -75,3 +75,46 @@ fresh output directory. Native-interpreter rows run their `lean/Bench.lean` and
 and once with `-Dinterpreter.prefer_native=false`, using the same workload,
 warmup/sample arguments and internal timers. All three guarded runs exited zero;
 all native checksums and JVM reference-equality checks passed.
+
+## Next checkpoint: resident source iteration
+
+Measure restoration/certification once, then repeat actual source edits on
+independent forks of one authenticated prelude context. Keep the fresh-process
+correctness gate separate from steady-state iteration. The public frontend finish
+operation can separate guest compilation from FILE installation without compiling
+the source twice; a profiling controller must retain the actual raw result and
+preserve the production ownership sequence.
+
+Record encoding, guest compiler work, FILE decoding/lowering/installation,
+publication, import assembly, finalization/checking and calls separately. Include
+guest-step deltas, GC counters, program/heap sizes and compiled/cache-hit counts.
+Nested helper timings need explicit nesting; summing inclusive parent and child
+measurements would count work twice. Sampling or a separately identified JFR run
+can examine costs inside public boundaries without redefining trusted functions.
+
+The source review identifies candidates to measure, rather than established
+bottlenecks:
+
+- Resident readiness rediscovers selected transitive closures; publication checks
+  readiness before compilation, afterward and during adoption.
+- `raw/open-functions` scans every function for raw-extern ABI compatibility,
+  including when opening a mutable session. Installation and host-link paths can
+  reopen sessions.
+- `mutable/thaw` consults `slot-count/program-slots`. Its program cache holds one
+  weak map identity, so alternating different branch maps can repeat aggregate
+  width reductions. Individual function widths already have weak caching.
+- Heap overlays already reuse attested persistent bases and freeze dirty nodes.
+  A thaw does not necessarily copy or scan the complete heap. Distinguish cold
+  proof checks, changed nodes, globals and continuation restoration.
+
+If measurements implicate these costs, first consider a warm resident context,
+reusable independently authenticated closure descriptions, ABI validation cached
+by exact immutable code/binding identities, or bounded weak program-width hints.
+If guest execution dominates instead, select hot compiler helpers for tiering.
+Demand-program creation itself does not eagerly JIT the whole frontend.
+
+Any change must preserve old-fork results, unit/function/receipt identities,
+explicit binding authority, compiler-token compatibility, checked Environment
+associations and independent root ownership. Performance hints grant no checking
+authority. Changes to core runtime semantics require an explicit producer/consumer
+compatibility contract; they cannot relabel the old checkpoint's build identity.

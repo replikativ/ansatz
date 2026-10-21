@@ -88,8 +88,8 @@ closed by the consumer.
 ## Validation boundary
 
 The [validation receipt](../measurements/resident-source-publication-validation.json)
-records the focused tests, full prototype suite, source hashes and independent
-review. Actual frontend acceptance of this operation is tracked separately.
+records the focused tests, full prototype suite, source hashes, independent
+review and separate actual frontend acceptance.
 
 Focused tests model the frontend/export environment while exercising captured
 native identity IR, guest Name encoding, raw execution, production registration,
@@ -97,4 +97,15 @@ modeled starting Java Environment associations and resident calls. They do not
 perform fresh kernel checking themselves. They distinguish that boundary
 from a genuine full-frontend execution of the new API. The fresh prelude source
 fork result above already runs the real frontend, but uses the lower-level
-orchestration; a separate acceptance run must exercise `load-and-publish` itself.
+orchestration.
+
+The separate genuine acceptance now passes through `load-and-publish`: actual
+standalone A publication, genuine import finalization and fresh strict checking
+of four constants, resident B compilation, Nat42/Unicode calls, and a retained
+A-context call returning 43. The original input Context stays unchanged. All
+execution in this acceptance uses the mutable backend; the JVM output-cache fork
+proof remains the separate experiment above. The active workflow takes 16.330
+seconds, excluding restore/seed preparation; the guarded process takes 303.59
+seconds and exits successfully. Process disposal does not establish Context or
+Source-lease semantic cleanup. Full-Init publication through this consumer and
+a reusable import-preparation facade remain separate gates.

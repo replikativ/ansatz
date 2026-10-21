@@ -19,7 +19,9 @@ adds immediate source publication through public resident APIs, without changing
 this facade or the captured runtime. Its separate
 [validation receipt](../measurements/resident-source-publication-validation.json)
 records focused branch/ownership/failure tests and the full prototype suite.
-Actual frontend acceptance of that new operation remains a separate gate.
+Its separate actual standalone acceptance also passes: publish A, genuinely
+finalize/check the import, load/call B and retain A's earlier Context. Full-Init
+publication through this consumer and a reusable import facade remain separate.
 
 The [archived prelude acceptance](../measurements/resident-preparation-progress.json)
 now passes the real facade: Nat/Unicode calls, a second source, expected command
@@ -45,8 +47,8 @@ profile, including [separate-process checkpoint restoration](KERNEL_PROBE_GENUIN
 and the [checked preparation adapter](../measurements/checked-resident-provider-acceptance.json).
 Ordinary Init through that adapter and fresh bounded full-Init reproduction were
 open at that stage; the subsequent full-profile receipt above establishes them.
-Reusable source publication/import APIs, ordinary full-Init dependency edits and
-public packaging remain separate gates. A separate
+Reusable import preparation, ordinary full-Init dependency edits and public
+packaging remain separate gates. A separate
 [prelude campaign](../measurements/prelude-semantic-forks.json) passes actual
 semantic dependency edits and retained old-fork calls through a shared JVM output
 cache; that orchestration has not yet been integrated into this facade.

@@ -41,9 +41,11 @@ native/interpreter/JVM kernel timings and their limits.
 The optional [resident source publication consumer](research/RESIDENT_SOURCE_PUBLICATION.md)
 adds `load-and-publish` for explicit initializer-free standalone/over-Init profiles.
 It uses public resident APIs and leaves the authenticated runtime unchanged.
-Its focused ownership/failure tests and full prototype suite pass; actual frontend
-acceptance through this new operation is tracked separately. Import assembly and
-finalization still require explicit orchestration.
+Its focused ownership/failure tests, full prototype suite and separate actual
+standalone frontend acceptance pass: publish A, strictly finalize its import,
+load/call B and retain A's earlier Context. Full-Init acceptance of this new
+consumer remains separate; import assembly and finalization still require
+explicit orchestration.
 
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety
