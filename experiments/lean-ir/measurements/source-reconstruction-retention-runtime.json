@@ -1,0 +1,737 @@
+{
+  "schema": "source-reconstruction-retention-runtime/1",
+  "date": "2026-10-21",
+  "status": "original-and-edited-imported-macro-branches-and-retained-interleave-passed-process-disposed",
+  "overall-semantic-acceptance-passed": true,
+  "scope": "Fresh mutable hosted frontend campaign under the separately authenticated heap-net-dirty reconstruction profile. Original and edited initializer-free macro A siblings, callbacks during imported finalization, fresh source checking, byte-identical B and retained old/new/old behavior pass. The owned process is explicitly disposed; backend comparison was not loaded or executed.",
+  "identity": {
+    "runtime-source-commit": "24794100a1f02870ed66b507badcfac792dfe9a2",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "profile": "ansatz-producer50f-heap-net-dirty-reconstruction-consumer/1",
+    "consumer-implementation-sha256": "fd08d79dc01516b7c47d06b51f705e59467876738d01a0eeb32c744b4450db6b",
+    "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+    "frozen-launch-manifest-sha256": "b206cdd34d2832b2fa855bca3fcbf3604f1e98b36804950c856c5e2f64413c47",
+    "archive-manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6",
+    "producer-recipe-sha256": "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70",
+    "producer-resolver-sha256": "5a2d94134b00fc7f4905f1e99c01381bf8e8229dfe5b9320016112d46a21b3ba",
+    "selected-consumer-resources": 256,
+    "captured-files": 272,
+    "selected-source-and-class-sha256": {
+      "ansatz/runtime/HeapOverlay$1$1.class": "4c75d95b12c89109d90817be2ba75fd462b9fc2b72885b4548e7ac85519afaf7",
+      "ansatz/runtime/HeapOverlay$1.class": "2bca732e5873101637bcf66105019081ee3a060591acf5495aec78c54e04aafc",
+      "ansatz/runtime/HeapOverlay.class": "ed674ee7e30fd30c4592f5093d5207a7849970e21b62665451751b548435f715",
+      "prototype/globals_consumer_factory.clj": "85b9182b553003683562ae4c6ee098cadb5754d06824fcb9c1fc2f824edb1903",
+      "prototype/globals_consumer_profile.clj": "c1809cf1aa39d095bda20c8cf21b6b08fa0ab67e92492ae03771aecf38222316",
+      "prototype/resident_init_prefix.clj": "ff34e8d75f7a2f8c9089ff8a652bec203c32fb97667d09cd3ccdcc4196a0434b",
+      "src-java/ansatz/runtime/HeapOverlay.java": "e89abd25eaa1815be7fc2a5136ee06e9a6b9d784958652ae6acbde9c4617c75a"
+    },
+    "fixture-sha256": {
+      "A-edited": "f38823229389e6fa07ae096d0464b8064107f4f6ef78899429d81d901661cd30",
+      "A-original": "339732c27002dc867da6a73907800ebddc502394e48e54f91554d29d691bf551",
+      "B-identical": "9376dd0b2e0ee8b2d2ab0b1c15dc463e40c2a9b7fddad3d5cecdd867f0010a04",
+      "old-source-import": "d6bfbb219bf981f17c7975892ab49cdb14c1c78e31fb0bb5669ac22778719506",
+      "source-export": "6ceba2be15b28ed2668dc7832f62e579abc69ba14e799dac9fe47be0df4b0a2f",
+      "source-import": "70fc78e688eb5d237aadc97fff4c6fc64f45d694b6541d4929435fe45436928d",
+      "visibility": "9d067007df4fa3a7a0d019009a76244cd0988a001f2a407f54660d510a2c078f",
+      "visibility-source": "2d028f90d50ce2ca812c27c80a8cd9a806ce1670fb655c0541e0b3ee449bb4e3"
+    }
+  },
+  "artifact-evidence": {
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-constructor-v1.json": {
+      "sha256": "ff830d4077e0f1bb443c02269c6c83dd9b86ce34ea0123ec1c8bf9f3696d9769",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-helper-prefix-v1.json": {
+      "sha256": "c1748f1c186106b203c871c1a8f45cbed218d21a6f3fdc9da5e46009b934d322",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-original-A-B-calls-passed-v1.json": {
+      "sha256": "bf6f657c8cd426928b19fa8b3a3d3f375536452bb84bc15b2007fde0bb5505c3",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-original-callback-running-v1.json": {
+      "sha256": "fe1994bc7bc1d67ba39bd2d58e409725330b745adafd1af18bab232517432123",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-original-control-compacted-v1.json": {
+      "sha256": "ffb82efd6e85d9efc04c5ed3258e719dc5a7db08ad702536c68e76b491452efa",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-original-io-completed-v1.json": {
+      "sha256": "0498e295ca7e5057cfebae700ba38b8df7945afeb30b36c1e9829e46a0d2aa72",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-original-publication-v1.json": {
+      "sha256": "9610a7d58ad2220c91173728fe9076d6ebbbf84c5cea828d940c5326505dd017",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-strict-check-v1.json": {
+      "sha256": "4f0456a0eb8673b3f6343f3a23041d9c6206d08d915c8603d7e2ee8ebea7ef26",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/acceptance-prep/launcher-retention-v1/constructor-provisional-v1/manifest.reviewed-frozen.json": {
+      "sha256": "a1f25cb0cf27c9ea530ff9a79ef12a32396ca8b51733f48ab481f59b212f27c1",
+      "scope": "Exact independently reviewed captured launch manifest; prior producer/archive unchanged."
+    },
+    "target/artifact-contract/reconstruction-runtime/acceptance-prep/launcher-retention-v1/proven-provisional-v1/manifest.reviewed-frozen.json": {
+      "sha256": "b206cdd34d2832b2fa855bca3fcbf3604f1e98b36804950c856c5e2f64413c47",
+      "scope": "Exact independently reviewed captured launch manifest; prior producer/archive unchanged."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-backend-not-executed-v1.json": {
+      "sha256": "0a819cbb09669dba6843cd8472b8e626f7ccb4d6fd53543561acf5ad7493d880",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-check-pressure-observations-v1.json": {
+      "sha256": "ab30af3ec18cd3611d055ced4ce5a55c0a3ed7ecc0a9c74038b2a88e3a97c887",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-A-B-calls-passed-v1.json": {
+      "sha256": "a4acb7ed713795ebb99d34c7d0cedae51ff7888cdcd892bfe8fe558c8a347b77",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-B-loaded-v1.json": {
+      "sha256": "1c37e841450b0ade6a8be4de3b15d7a94cf99f6a4feedc74fba042244052178e",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-callback-running-v1.json": {
+      "sha256": "33942af5c73827803a208209d35f83ffa7e724d231e2af46d679d328aec9b6e0",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-fresh-check-v1.json": {
+      "sha256": "b5d9a815b0b53191c413ecfe6f98ffa98aba104b3656685da057babc78bca371",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-io-completed-v1.json": {
+      "sha256": "c2ebea30d456c20c34325b0cfc3f9b218632745a4d08043d29c0fb3f62ecd508",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-prepared-v1.json": {
+      "sha256": "430db4d59c00f5001eb1e5fc8bad983148f69fd10e0a9cf9a2896bbb4bd2b1b8",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-primary-callback-running-v1.json": {
+      "sha256": "0746a78fcb188678a8ba4f0abd52fc51210d4973be1264f2dadb6a024cb64b07",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-edited-publication-v1.json": {
+      "sha256": "3d8f3505e641095ce980dc5c6eaac42879ad4755c76de46f3b23a9e6cca3ac5f",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-finished-controls-v1.json": {
+      "sha256": "beb62bdc66fb0e29dafbead0170330e969642ffc264a76d65fbcb8b202ec91be",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-process-disposal-v1.json": {
+      "sha256": "1af59b822a8e7f35f7ba29edf9cd7c716756bd2ad165499ed86a993bf5bcba85",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/fresh-retention-semantic-passed-v1.json": {
+      "sha256": "b6894ce11799755ff9c6ecb405bddef846fa8b7918fbd85562532d154b456ee5",
+      "scope": "Bounded relevant observed data copied below. Hash identifies evidence; it is not a portable checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/acceptance-prep/launcher-retention-v1/proven-provisional-v1/semantic.clj": {
+      "sha256": "caea93e6aaed145cc383ceb508b382b408656a146eb5b3fc8d36a2dcba4a21b7",
+      "scope": "Exact captured controller/provenance or raw completed process guard receipt; relevant values reproduced below."
+    },
+    "target/artifact-contract/reconstruction-runtime/acceptance-prep/launcher-retention-v1/proven-provisional-v1/campaign.json": {
+      "sha256": "52288f27e922c1bda11d7f6e10f95c3936afb71f920d005d45cad4ee76deffc9",
+      "scope": "Exact captured controller/provenance or raw completed process guard receipt; relevant values reproduced below."
+    }
+  },
+  "constructor": {
+    "schema": "retention-campaign-constructor-acceptance/1",
+    "status": "passed",
+    "consumer": "fd08d79dc01516b7c47d06b51f705e59467876738d01a0eeb32c744b4450db6b",
+    "profile": "ansatz-producer50f-heap-net-dirty-reconstruction-consumer/1",
+    "manifestSha256": "a1f25cb0cf27c9ea530ff9a79ef12a32396ca8b51733f48ab481f59b212f27c1",
+    "constructorReceiptSha256": "87a5a092fa9dc524366406a044a87b08e2cc1b6a57500872cc8bfa8ad77cfefa",
+    "guardReceiptSha256": "54223c25a5868b3893532e1cbb603438490e4fce800f3bfc9454207b9addacc9",
+    "guestSteps": 0,
+    "nativeLeases": 0,
+    "archiveInvocations": 0,
+    "peakRSSBytes": 450625536,
+    "elapsedSecondsIncludingRetainedReplIdle": 66.13,
+    "exitCode": 0,
+    "guardStop": null,
+    "strictInitCheckEstablished": false
+  },
+  "strict-Init-check": {
+    "phase": "checked",
+    "full-Init-checked": true,
+    "constants": 65994,
+    "axioms": [
+      "Classical.choice",
+      "Lean.ofReduceBool",
+      "Lean.ofReduceNat",
+      "Lean.trustCompiler",
+      "Quot.lcInv",
+      "Quot.sound",
+      "isScalarObj",
+      "lcAny",
+      "lcCast",
+      "lcErased",
+      "lcProof",
+      "lcUnreachable",
+      "lcVoid",
+      "propext",
+      "sorryAx"
+    ],
+    "check-attempts": 1,
+    "raw-helper-fuel": 500000000,
+    "elapsed-ms": 563252.933594,
+    "timing-scope": "check-call-and-host-postconditions",
+    "bootstrap-replayed": false,
+    "finalizer-replayed": false,
+    "source-lease-close-performed": false,
+    "native-whole-map-parity-verified": false,
+    "prelude-seed-used": false
+  },
+  "helper-and-prefix": {
+    "status": "passed",
+    "helper": {
+      "phase": "initialized",
+      "guest-invocation-count": 1,
+      "guest-steps-delta": 5,
+      "result-release-count": 1,
+      "result-owner-state": "released",
+      "runnable?": true
+    },
+    "prefix": "ready",
+    "source-publication-started": false,
+    "consumer": "fd08d79dc01516b7c47d06b51f705e59467876738d01a0eeb32c744b4450db6b"
+  },
+  "limits": {
+    "ordinary-session-fuel": 500000000,
+    "publication-helper-reservation": 20000000,
+    "finalizer-outer-reservation": 2000000,
+    "finalizer-helper-reservation": 20000000,
+    "aggregate-fuel": 500000000,
+    "controller-max-slices": 1024,
+    "publication-max-units": 1024,
+    "publication-max-declarations": 1000000,
+    "external-resources": {
+      "group-RSS-MiB": 3584,
+      "heap-MiB": 3072,
+      "minimum-system-available-MiB": 1024,
+      "preflight-MemAvailable-MiB": 5120,
+      "seconds": 5400
+    },
+    "scope": "Per-call session limits and separate helper/attempt ledgers; no single global budget across source compilation, preparation and finalization."
+  },
+  "branches": {
+    "original": {
+      "status": "passed",
+      "A-unit-count": 5,
+      "empty-source-actions": true,
+      "publication-descriptor": {
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ReconstructionMacroA"
+        ],
+        "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516",
+        "profile": "over-init"
+      },
+      "macro-primary-names": [
+        "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+        "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+      ],
+      "admission-preflight": {
+        "baseline-table-counts": {
+          "executables": 334750,
+          "units": 0,
+          "unit-digests": 0,
+          "declarations": 0,
+          "functions": 22335
+        },
+        "doubled-baseline-entries": 714170,
+        "doubled-baseline-units": 0,
+        "max-declarations": 1000000,
+        "max-units": 1024,
+        "actual-after-delta-bound-checked-by-runtime": true
+      },
+      "callback-audit": {
+        "authorization-count": 34,
+        "requested-names": [
+          "termHostedNat_",
+          "termHostedString_",
+          "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+          "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+        ],
+        "names-truncated?": false,
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ReconstructionMacroA"
+        ],
+        "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516"
+      },
+      "callback-evidence-before-finish": true,
+      "callback-observed-running": true,
+      "IO-progress": {
+        "phase": "io-completed",
+        "guest-steps": 306607080,
+        "outer-steps": 78711515,
+        "helper-steps": 227895565,
+        "completed-operations": 3674,
+        "reconstruction": {
+          "authorization-count": 34,
+          "requested-names": [
+            "termHostedNat_",
+            "termHostedString_",
+            "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+            "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+          ],
+          "names-truncated?": false,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516"
+        }
+      },
+      "cooperative-slices": 72,
+      "fresh-import-receipt": {
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ReconstructionMacroA"
+        ],
+        "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516",
+        "constant-count": 6
+      },
+      "B-unit-count": 1,
+      "B-diagnostics": 0,
+      "Nat": 41,
+      "Unicode": "λ 🦉",
+      "retained-A-Nat": 41,
+      "retained-A-Unicode": "λ 🦉",
+      "retained-inputs-unchanged": true
+    },
+    "edited": {
+      "status": "passed",
+      "A-unit-count": 5,
+      "empty-source-actions": true,
+      "publication-descriptor": {
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ReconstructionMacroA"
+        ],
+        "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2",
+        "profile": "over-init"
+      },
+      "macro-primary-names": [
+        "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+        "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+      ],
+      "admission-preflight": {
+        "baseline-table-counts": {
+          "executables": 334750,
+          "units": 0,
+          "unit-digests": 0,
+          "declarations": 0,
+          "functions": 22335
+        },
+        "doubled-baseline-entries": 714170,
+        "doubled-baseline-units": 0,
+        "max-declarations": 1000000,
+        "max-units": 1024,
+        "actual-after-delta-bound-checked-by-runtime": true
+      },
+      "callback-audit": {
+        "authorization-count": 62,
+        "requested-names": [
+          "termHostedNat_",
+          "termHostedString_",
+          "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+          "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+        ],
+        "names-truncated?": false,
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ReconstructionMacroA"
+        ],
+        "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2"
+      },
+      "callback-evidence-before-finish": true,
+      "callback-observed-running": true,
+      "IO-progress": {
+        "phase": "io-completed",
+        "guest-steps": 307901479,
+        "outer-steps": 78713627,
+        "helper-steps": 229187852,
+        "completed-operations": 3674,
+        "reconstruction": {
+          "authorization-count": 62,
+          "requested-names": [
+            "termHostedNat_",
+            "termHostedString_",
+            "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+            "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+          ],
+          "names-truncated?": false,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2"
+        }
+      },
+      "cooperative-slices": 74,
+      "fresh-import-receipt": {
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "ReconstructionMacroA"
+        ],
+        "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2",
+        "constant-count": 6
+      },
+      "B-unit-count": 1,
+      "B-diagnostics": 0,
+      "Nat": 42,
+      "Unicode": "λ 🦉λ 🦉",
+      "retained-A-Nat": 42,
+      "retained-A-Unicode": "λ 🦉λ 🦉",
+      "retained-inputs-unchanged": true
+    }
+  },
+  "successful-control-compaction": {
+    "actual-observation": {
+      "scope": "retention-finished-controls-observation/1",
+      "semantic-phase": "passed",
+      "controls": {
+        "original": {
+          "phase": "finished",
+          "busy?": false,
+          "state-field-count": 7,
+          "finished-packet-present": false,
+          "last-helper-target": null
+        },
+        "edited": {
+          "phase": "finished",
+          "busy?": false,
+          "state-field-count": 7,
+          "finished-packet-present": false,
+          "last-helper-target": null
+        }
+      }
+    },
+    "scope": "Both actual successful controls are finished, not busy, with seven descriptive fields and no finished-packet reference. This bounded observation does not replace the separate retained-object identity tests or measure retained bytes/GC effects."
+  },
+  "retained-interleave": {
+    "status": "passed",
+    "completed": true,
+    "order": [
+      "original",
+      "edited",
+      "original"
+    ],
+    "calls": 12,
+    "total-campaign-calls": 20,
+    "original-values": {
+      "Nat": 41,
+      "Unicode": "λ 🦉"
+    },
+    "edited-values": {
+      "Nat": 42,
+      "Unicode": "λ 🦉λ 🦉"
+    },
+    "A-and-B-retained-handles-used": true,
+    "both-branch-inputs-unchanged": true,
+    "scope": "Twelve interleaved calls use each branch retained B and A handles, after four original and four edited calls. Both branch input snapshots and issuers remain unchanged."
+  },
+  "terminal": {
+    "semantic-result": "passed",
+    "phase": "passed",
+    "semantic-acceptance": true,
+    "call-count": 20,
+    "failure-phase": null,
+    "process-disposal": {
+      "schema": "fresh-retention-process-disposal/1",
+      "consumer": "fd08d79dc01516b7c47d06b51f705e59467876738d01a0eeb32c744b4450db6b",
+      "semanticAcceptancePassed": true,
+      "semanticReceipt": "fresh-retention-semantic-passed-v1.json",
+      "semanticReceiptSHA256": "b6894ce11799755ff9c6ecb405bddef846fa8b7918fbd85562532d154b456ee5",
+      "exitCode": 0,
+      "guardStop": null,
+      "peakRSSBytes": 3696009216,
+      "elapsedSecondsIncludingRetainedREPLIdle": 5183.76,
+      "guardReceiptSHA256": "52288f27e922c1bda11d7f6e10f95c3936afb71f920d005d45cad4ee76deffc9",
+      "shutdown": "Explicit owned JVM System/exit0 after semantic acceptance and evidence capture",
+      "backendDisposition": "not-executed;reviewed-lifetime-and-RSS-gates-failed",
+      "backendDispositionSHA256": "0a819cbb09669dba6843cd8472b8e626f7ccb4d6fd53543561acf5ad7493d880",
+      "forcedGC": false,
+      "sourceCloseAttemptClaim": false,
+      "guestOwnerCleanupClaim": false,
+      "scope": "OS process disposal; no borrowed Source.close or guest owner cleanup inferred",
+      "guardImplementation": "Original frozen retention-v1 poll/reap guard; future prepared WNOWAIT guard not used by this run"
+    },
+    "source-close-attempts-observed": 0,
+    "guest-owner-cleanup-performed": false,
+    "source-open-at-final-semantic-observation": true,
+    "native-Init-replayed": false,
+    "source-initializers-run": false,
+    "elapsed-scope": "5183.76seconds (about86.4minutes) includes retained REPL idle and the contended checking/GC work. It is not a frontend throughput or edit-latency benchmark.",
+    "guard-scope": "This completed process used the original frozen poll/reap retention guard. Future prepared WNOWAIT launchers were not used and do not retroactively strengthen this receipt."
+  },
+  "backend-output-comparison": {
+    "scope": "backend-output-comparison-disposition/1",
+    "status": "not-executed",
+    "definitionsLoaded": false,
+    "guestBackendWorkStarted": false,
+    "semanticAcceptancePassed": true,
+    "minimumLifetimeMs": 300000,
+    "maximumProcessRSSKiB": 3407872,
+    "actualGate": {
+      "scope": "retention-post-semantic-resource-gate/1",
+      "semantic-phase": "passed",
+      "semantic-job-realized": true,
+      "MemAvailable-KiB": 2891044,
+      "process-RSS-KiB": 3502372,
+      "heap-used-bytes": 3169173088,
+      "uptime-ms": 5127793,
+      "conservative-lifetime-left-ms": 212207
+    },
+    "reasons": [
+      "Conservative lifetime left below required five minutes",
+      "Process RSS above reviewed backend ceiling"
+    ],
+    "forcedGC": false,
+    "existingGuardUnchanged": true
+  },
+  "prior-campaign": {
+    "receipt": "source-reconstruction-hosted-runtime.json",
+    "consumer": "742d8e49cd934083ba390b0be19a64192adf6a06e8eba4b255f147fb9e3b9326",
+    "status": "original-passed-edited-incomplete-at128slice-bound-process-disposed",
+    "failed-control-resumed": false,
+    "scope": "Separate frozen process and evidence, preserved unchanged. This fresh campaign does not revise that terminal outcome."
+  },
+  "interpretation-limits": [
+    "This establishes the narrow genuine initializer-free original/edited two-file macro acceptance and retained old/new/old interleaving under consumerfd08 at2479410; it is separate from modeled frontend/finalizer regressions.",
+    "Both branches have five initializer-free A units and one B unit, zero B diagnostics and fresh six-CI source receipts. Source initializers did not run; general initializer/IO/FFI/module-DAG/package coverage is not established.",
+    "Heap overlay, successful-control compaction, closed compatibility profile, session fuel and controller slice bound differ from the earlier742d campaign. No controlled before/after latency, retained-byte measurement or causal attribution is established.",
+    "Current checking stack/GC snapshots are observations only. Later imported-kernel allocation and checking-plan lifetime patches (PR140/141) are not part of this captured2479410 source; no improvement is attributed to them.",
+    "The completed run used its frozen poll/reap guard. Future WNOWAIT/4GiB launcher preparation remains provisional/unexecuted and is not evidence for this process.",
+    "Backend comparison definitions and guest work were not executed: postpass lifetime/RSS gates failed. No JVM compilation or output-backend performance acceptance is inferred.",
+    "Fresh Init checking records15 explicit assumptions. Independent native whole-map parity, general dependency resolution and production packaging remain separate gates.",
+    "Existing completed-import authorization retains its actual completed receipt requirement. Explicit OS process exit establishes disposal only, not Source.close or guest owner cleanup."
+  ],
+  "callback-audit-scope": "authorization-count counts successful row authorizations, not macro invocations. Both actual macro-rule primary names are recorded before finish; edited primary requests were explicitly observed while finalizer IO was running.",
+  "edited-primary-before-IO-observation": {
+    "scope": "retention-edited-progress/1",
+    "phase": "edited-advancing",
+    "failure-phase": null,
+    "call-count": 4,
+    "branch": {
+      "phase": "paused",
+      "slice-count": 72,
+      "progress": {
+        "phase": "running",
+        "guest-steps": 300892634,
+        "outer-steps": 71704782,
+        "helper-steps": 229187852,
+        "completed-operations": 3670,
+        "reconstruction": {
+          "authorization-count": 62,
+          "requested-names": [
+            "termHostedNat_",
+            "termHostedString_",
+            "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+            "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+          ],
+          "names-truncated?": false,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2"
+        }
+      },
+      "callback-observed-running?": true
+    },
+    "uptime-ms": 3183999
+  },
+  "publication-and-sibling-controller-assertions": {
+    "same-pre-A-prefix-context": true,
+    "B-request-bytes-identical": true,
+    "independent-publication-capabilities": true,
+    "different-final-unit-digests": true,
+    "different-macro-function-identities": true,
+    "scope": "The captured byte-pinned controller asserts these conditions before reaching phase passed; these booleans summarize reached assertions, not newly serialized authority."
+  },
+  "checking-pressure-observations": {
+    "scope": "read-only-check-observations/1",
+    "observations": [
+      {
+        "scope": "retention-edited-finish-observation/1",
+        "phase": "checking-started",
+        "busy?": true,
+        "last-helper-target": [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "KernelBridgeShim"
+          ],
+          "checkedConstants"
+        ],
+        "heap-used-bytes": 3108171840,
+        "uptime-ms": 3341986,
+        "gc": [
+          {
+            "name": "G1 Young Generation",
+            "count": 6045,
+            "ms": 51741
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 980,
+            "ms": 3713
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 66,
+            "ms": 101607
+          }
+        ]
+      },
+      {
+        "scope": "retention-edited-finish-observation/1",
+        "phase": "checking-started",
+        "busy?": true,
+        "last-helper-target": [
+          "str",
+          [
+            "str",
+            [
+              "anonymous"
+            ],
+            "KernelBridgeShim"
+          ],
+          "checkedConstants"
+        ],
+        "heap-used-bytes": 3188342248,
+        "uptime-ms": 3436105,
+        "gc": [
+          {
+            "name": "G1 Young Generation",
+            "count": 6113,
+            "ms": 52130
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 980,
+            "ms": 3713
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 124,
+            "ms": 191502
+          }
+        ]
+      },
+      {
+        "scope": "retention-check-thread-observation/1",
+        "threads": [
+          {
+            "name": "clojure-agent-send-off-pool-0",
+            "state": "RUNNABLE",
+            "frames": [
+              "clojure.lang.PersistentHashMap/assoc",
+              "clojure.lang.RT/assoc",
+              "clojure.core$assoc__5500/invokeStatic",
+              "clojure.core$update/invokeStatic",
+              "clojure.core$update/invoke",
+              "prototype.imported_kernel$verify_constants$fn__6858$fn__6859/invoke",
+              "clojure.core.protocols$iterator_reduce_BANG_/invokeStatic",
+              "clojure.core.protocols$iter_reduce/invokeStatic",
+              "clojure.core.protocols$fn__8256/invokeStatic",
+              "clojure.core.protocols$fn__8256/invoke",
+              "clojure.core.protocols$fn__8203$G__8198__8216/invoke",
+              "clojure.core$reduce/invokeStatic"
+            ]
+          }
+        ]
+      },
+      {
+        "scope": "retention-check-progress/1",
+        "phase": "edited-finishing",
+        "failure-phase": null,
+        "semantic-job-realized": false,
+        "call-count": 4,
+        "heap-used-bytes": 3156366992,
+        "uptime-ms": 3514727,
+        "gc": [
+          {
+            "name": "G1 Young Generation",
+            "count": 6181,
+            "ms": 52491
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 980,
+            "ms": 3713
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 172,
+            "ms": 268503
+          }
+        ]
+      },
+      {
+        "scope": "retention-check-progress/1",
+        "phase": "edited-finishing",
+        "failure-phase": null,
+        "semantic-job-realized": false,
+        "call-count": 4,
+        "heap-used-bytes": 3148020776,
+        "uptime-ms": 3625142,
+        "gc": [
+          {
+            "name": "G1 Young Generation",
+            "count": 6246,
+            "ms": 52741
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 980,
+            "ms": 3713
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 231,
+            "ms": 377281
+          }
+        ]
+      }
+    ],
+    "interpretation": "Stack and GC observations only; no retained-byte or causal dominance conclusion."
+  }
+}
