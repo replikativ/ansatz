@@ -305,8 +305,9 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? runtime-ops? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
-  (let [consumer-description (cond runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
+  [profile reconstruction? runtime-ops? heap-net-dirty? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
+  (let [consumer-description (cond heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
+                                     runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
                                      reconstruction? (compatibility/authenticate-reconstruction! options)
                                      :else (compatibility/authenticate! options))
         expected-preparation producer-preparation
@@ -412,12 +413,13 @@
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? runtime-ops? options]
+  [reconstruction? runtime-ops? heap-net-dirty? options]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? options)
+        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? options)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (cond runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
+                     :compatibility-profile (cond heap-net-dirty? compatibility/heap-net-dirty-reconstruction-profile-id
+                                                  runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
                                                   reconstruction? compatibility/reconstruction-profile-id
                                                   :else compatibility/profile-id)}]
     (let [factory (Factory.)]
@@ -428,15 +430,21 @@
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
   [options]
-  (issue-factory false false options))
+  (issue-factory false false false options))
 (defn make-reconstruction-factory
   "Issue the separately named closed reconstruction consumer capability. Producer
    recipe/archive and option contract are identical to make-factory."
   [options]
-  (issue-factory true false options))
+  (issue-factory true false false options))
 
 (defn make-runtime-ops-reconstruction-factory
   "Issue the closed ops-table reconstruction capability with its exact mutable pin.
    The original factory APIs retain their original inventories and identities."
   [options]
-  (issue-factory true true options))
+  (issue-factory true true false options))
+
+(defn make-heap-net-dirty-reconstruction-factory
+  "Issue the distinct net-dirty heap/ops reconstruction capability with its exact
+   HeapOverlay source pin. All older factory source contracts remain unchanged."
+  [options]
+  (issue-factory true true true options))

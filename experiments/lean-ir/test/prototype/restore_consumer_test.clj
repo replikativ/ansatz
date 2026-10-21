@@ -310,7 +310,8 @@
                          (profile/authenticate-reconstruction!
                            (options (changed reconstruction-inventory "prototype/machine.cljc"
                                              #(assoc % :sha256 model-hash))))))
-    (doseq [authenticate [profile/authenticate! profile/authenticate-reconstruction! profile/authenticate-runtime-ops-reconstruction!]
+    (doseq [authenticate [profile/authenticate! profile/authenticate-reconstruction! profile/authenticate-runtime-ops-reconstruction!
+                         profile/authenticate-heap-net-dirty-reconstruction!]
             extra [{:compatibility-profile "invented"} {:substitutions #{"anything"}} {:authenticator identity}]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options"
                            (authenticate (merge (options reconstruction-inventory) extra)))))
@@ -327,12 +328,14 @@
         description {:producer-preparation producer :consumer-implementation-sha256 consumer}
         result (assoc description :catalogue {} :bindings {})
         manifest {:binding-signatures {}}]
-    (doseq [id [profile/profile-id profile/reconstruction-profile-id profile/runtime-ops-reconstruction-profile-id]]
+    (doseq [id [profile/profile-id profile/reconstruction-profile-id profile/runtime-ops-reconstruction-profile-id
+                profile/heap-net-dirty-reconstruction-profile-id]]
       (is (= id (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer)))
       (is (= id (:compatibility-profile
                   (private-call 'factory-result! (assoc result :compatibility-profile id) producer consumer id manifest))))
       (doseq [other (remove #{id} ["unknown" nil profile/profile-id profile/reconstruction-profile-id
-                                  profile/runtime-ops-reconstruction-profile-id])]
+                                  profile/runtime-ops-reconstruction-profile-id
+                                  profile/heap-net-dirty-reconstruction-profile-id])]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
                              (private-call 'factory-result! (assoc result :compatibility-profile other)
                                            producer consumer id manifest)))))
@@ -391,6 +394,80 @@
     (let [rows (changed runtime-ops-inventory "prototype/mutable.clj" #(assoc % :sha256 model-hash))]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved mutable consumer"
                            (profile/authenticate-runtime-ops-reconstruction!
+                             (assoc options :consumer-inventory rows
+                                    :expected-consumer-implementation-sha256 (profile/consumer-identity rows)
+                                    :loaded-consumer-implementation-sha256 (profile/consumer-identity rows))))))
+    (is (empty? @calls))))
+
+
+(def heap-source-id "src-java/ansatz/runtime/HeapOverlay.java")
+(def heap-class-ids ["ansatz/runtime/HeapOverlay.class" "ansatz/runtime/HeapOverlay$1.class"
+                     "ansatz/runtime/HeapOverlay$1$1.class"])
+(def heap-net-dirty-inventory
+  (changed runtime-ops-inventory heap-source-id #(assoc % :sha256 profile/heap-net-dirty-source-sha256)))
+(defn heap-net-dirty-valid! [rows]
+  (profile/validate-heap-net-dirty-reconstruction-inventory! recipe rows (profile/consumer-identity rows)))
+
+(deftest heap-net-dirty-is-a-fourth-closed-source-contract
+  (is (= 4 (count (set [profile/profile-id profile/reconstruction-profile-id
+                        profile/runtime-ops-reconstruction-profile-id profile/heap-net-dirty-reconstruction-profile-id]))))
+  (is (= 256 (count heap-net-dirty-inventory)))
+  (is (identical? heap-net-dirty-inventory (heap-net-dirty-valid! heap-net-dirty-inventory)))
+  ;; Each old API still rejects the new Heap source under its OWN old shape.
+  (doseq [[validate rows] [[valid! inventory] [reconstruction-valid! reconstruction-inventory]
+                           [runtime-ops-valid! runtime-ops-inventory]]]
+    (is (identical? rows (validate rows)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (validate (changed rows heap-source-id #(assoc % :sha256 profile/heap-net-dirty-source-sha256))))))
+  (let [old-sha (:sha256 (first (filter #(= heap-source-id (:id %)) (:build-inventory recipe))))
+        nearby (str (subs profile/heap-net-dirty-source-sha256 0 63) "b")]
+    (doseq [sha [old-sha nearby model-hash]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved net-dirty heap overlay source"
+                           (heap-net-dirty-valid! (changed heap-net-dirty-inventory heap-source-id #(assoc % :sha256 sha)))))))
+  (doseq [id ["prototype/raw_interop.clj" "prototype/machine.cljc" "ansatz/kernel/TypeChecker.class"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (heap-net-dirty-valid! (changed heap-net-dirty-inventory id #(assoc % :sha256 model-hash))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved mutable consumer"
+                       (heap-net-dirty-valid! (changed heap-net-dirty-inventory "prototype/mutable.clj"
+                                                       #(assoc % :sha256 profile/mutable-sha256)))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (heap-net-dirty-valid! (conj heap-net-dirty-inventory
+                                                   {:id "unreviewed/extra.clj" :kind :host-source :sha256 model-hash})))))
+
+(deftest heap-net-dirty-inventory-uses-actual-changed-source-and-loaded-class-bytes
+  ;; The remaining baseline rows are the explicit model above. These four rows
+  ;; use genuine current bytes; this is NOT whole-consumer loaded-code attestation.
+  (let [path (io/file "../.." heap-source-id)
+        actual-sha (wire/file-sha256 path)
+        rows (changed runtime-ops-inventory heap-source-id #(assoc % :sha256 actual-sha))
+        rows (reduce (fn [rows id]
+                       (with-open [input (io/input-stream (io/resource id))]
+                         (changed rows id #(assoc % :sha256 (wire/sha256 (.readAllBytes input)))))) rows heap-class-ids)]
+    (is (= profile/heap-net-dirty-source-sha256 actual-sha))
+    (is (identical? rows (heap-net-dirty-valid! rows)))
+    (doseq [row (filter #(contains? (set (conj heap-class-ids heap-source-id)) (:id %)) rows)]
+      (is (true? (profile/authenticate-input! row (fn [id] (is (= heap-source-id id)) path))))
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (profile/authenticate-input! (assoc row :sha256 model-hash) (constantly path)))))))
+
+(deftest heap-net-dirty-authentication-keeps-fresh-attestation-and-closed-options
+  (let [calls (atom [])
+        resolver (fn [id] (swap! calls conj id) (throw (AssertionError. "Must reject before resource lookup")))
+        options {:producer-preparation producer :producer-recipe-source recipe-source
+                 :producer-resolve-artifact resolver :store-root "unused-model-store"
+                 :consumer-inventory heap-net-dirty-inventory
+                 :expected-consumer-implementation-sha256 (profile/consumer-identity heap-net-dirty-inventory)
+                 :loaded-consumer-implementation-sha256 (profile/consumer-identity heap-net-dirty-inventory)
+                 :consumer-resolve-source resolver}]
+    (doseq [extra [{:compatibility-profile "invented"} {:substitutions #{heap-source-id}} {:authenticator identity}]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options"
+                           (profile/authenticate-heap-net-dirty-reconstruction! (merge options extra)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fresh loaded-consumer attestation"
+                         (profile/authenticate-heap-net-dirty-reconstruction!
+                           (assoc options :loaded-consumer-implementation-sha256 profile/producer-implementation-sha256))))
+    (let [rows (changed heap-net-dirty-inventory heap-source-id #(assoc % :sha256 model-hash))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved net-dirty heap overlay source"
+                           (profile/authenticate-heap-net-dirty-reconstruction!
                              (assoc options :consumer-inventory rows
                                     :expected-consumer-implementation-sha256 (profile/consumer-identity rows)
                                     :loaded-consumer-implementation-sha256 (profile/consumer-identity rows))))))
