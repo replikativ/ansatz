@@ -1,6 +1,15 @@
 ;; Complete JVM runtime campaign suite. LLVM/Pattern integration remains optional.
 ;; Supply the authenticated consumer-support source and compact-projection Java
 ;; classes on the classpath, as for the other restored-runtime campaign checks.
+(require '[clojure.java.io :as io])
+
+;; Several native Store fixtures create scoped temporary files under target.
+;; A fresh worktree must satisfy that precondition without a prior build.
+(let [directory (io/file "target")]
+  (.mkdirs directory)
+  (when-not (.isDirectory directory)
+    (throw (ex-info "Runtime test output path is not a directory" {:path "target"}))))
+
 (require '[clojure.test :as t]
          'prototype.test-runner
          'prototype.compact-kernel-projection-test

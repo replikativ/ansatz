@@ -578,15 +578,110 @@
 
 (defn- reconstruction-limits! [limits]
   (when-not (and (map? limits)
-                 (= #{:max-constants :name-limits :max-nodes :max-edges :max-bytes} (set (keys limits))))
-    (fail "Reconstruction requires explicit constant, Name and local-DAG limits" {}))
-  (doseq [key [:max-constants :max-nodes :max-edges :max-bytes]]
+                 (= #{:max-constants :name-limits :max-nodes :max-edges :max-bytes
+                      :max-units :max-declarations} (set (keys limits))))
+    (fail "Reconstruction requires explicit constant, Name, unit/declaration and local-DAG limits" {}))
+  (doseq [key [:max-constants :max-nodes :max-edges :max-bytes :max-units :max-declarations]]
     (positive-long! (get limits key) key))
   (when-not (and (map? (:name-limits limits))
                  (= #{:max-nodes :max-chars} (set (keys (:name-limits limits)))))
     (fail "Reconstruction requires explicit Name limits" {}))
   (doseq [[key value] (:name-limits limits)] (positive-long! value key))
   limits)
+
+(def ^:private admission-keys [:units :unit-digests :declarations :functions])
+
+(defn- bounded-admission-scans!
+  "Count before traversal. max-declarations bounds the AGGREGATE registry entries
+   visited, including both executable maps and existing authority. Unit declaration
+   occurrences have their own aggregate check against that same explicit bound."
+  [before after {:keys [max-units max-declarations]}]
+  (let [maps (concat [(:functions before) (:functions after)]
+                     (for [world [before after] key admission-keys]
+                       (get-in world [:eval-const-authorizations key])))
+        units (map #(get-in % [:eval-const-authorizations :units]) [before after])]
+    (when-not (and (every? #(or (nil? %) (map? %)) maps)
+                   (<= (reduce + 0 (map count maps)) max-declarations)
+                   (<= (reduce + 0 (map count units)) max-units))
+      (fail "Reconstruction publication authority exceeds its aggregate bounds" {}))))
+
+(defn- preserve-admission-baseline!
+  [before after limits]
+  (bounded-admission-scans! before after limits)
+  (doseq [[old current] (cons [(:functions before) (:functions after)]
+                            (for [key admission-keys]
+                              [(get-in before [:eval-const-authorizations key])
+                               (get-in after [:eval-const-authorizations key])]))]
+    (reduce-kv (fn [_ key value]
+                 (when-not (and (contains? current key) (identical? value (get current key)))
+                   (fail "Reconstruction publication overwrote baseline authority" {}))
+                 nil) nil (or old {})))
+  true)
+
+(defn- capture-publication-admission!
+  "Capture only the exact successful before->after compilation delta. A module
+   may have several evalConst compilation units before its final file-handle unit.
+   Same module names or same-shaped rows never substitute for these identities."
+  [before after proof limits]
+  (preserve-admission-baseline! before after limits)
+  (let [old (get-in before [:eval-const-authorizations :units])
+        all (get-in after [:eval-const-authorizations :units])
+        units (reduce-kv (fn [out digest unit]
+                          (if (contains? old digest) out (assoc out digest unit))) {} (or all {}))
+        module (:module proof)
+        occurrences (reduce-kv (fn [n _ unit]
+                                 (when-not (vector? (:declarations unit))
+                                   (fail "Reconstruction publication unit declarations are not a vector" {}))
+                                 (+ n (count (:declarations unit)))) 0 units)]
+    (when-not (and (seq units) (<= occurrences (:max-declarations limits))
+                   (identical? (:unit proof) (get units (:unit-digest proof))))
+      (fail "Reconstruction publication final handle is outside its bounded unit delta" {}))
+    (let [rows
+          (reduce-kv
+            (fn [rows digest unit]
+              (when-not (and (string? digest) (re-matches #"[0-9a-f]{64}" digest)
+                             (= module (get-in unit [:manifest :initializationPlan :module]))
+                             (= [] (:actions unit))
+                             (= [] (get-in unit [:manifest :initializationPlan :actions])))
+                (fail "Reconstruction publication has a foreign or initialized compilation unit" {}))
+              (reduce
+                (fn [rows name]
+                  (let [row (get-in after [:eval-const-authorizations :declarations name])
+                        function (get-in after [:functions name])]
+                    (when-not (and (not (contains? rows name))
+                                   (not (contains? (get-in before [:eval-const-authorizations :declarations]) name))
+                                   (not (contains? (get-in before [:eval-const-authorizations :unit-digests]) name))
+                                   (= name (:name row)) (= module (:sourceModule row)) (true? (:sourceLocal row))
+                                   (= digest (get-in after [:eval-const-authorizations :unit-digests name]))
+                                   function (identical? function (get-in after [:eval-const-authorizations :functions name])))
+                      (fail "Reconstruction publication row/unit/function delta is not exact" {}))
+                    (assoc rows name {:digest digest :unit unit :row row :function function})))
+                rows (:declarations unit))) {} units)]
+      ;; New row provenance cannot hide outside a captured unit's declarations.
+      (doseq [key [:declarations :unit-digests]]
+        (reduce-kv (fn [_ name _]
+                     (when-not (or (contains? (get-in before [:eval-const-authorizations key]) name)
+                                    (contains? rows name))
+                       (fail "Reconstruction publication has an uncaptured new authority row" {}))
+                     nil) nil (get-in after [:eval-const-authorizations key])))
+      {:baseline before :units units :rows rows :declaration-count occurrences})))
+
+(defn- publication-admission-matches!
+  [world proof limits]
+  (let [{:keys [baseline units rows]} (:admission proof)]
+    (when-not (and (map? baseline) (seq units) (map? rows))
+      (fail "Reconstruction publication has no captured admission delta" {}))
+    (preserve-admission-baseline! baseline world limits)
+    (doseq [[digest unit] units]
+      (when-not (identical? unit (get-in world [:eval-const-authorizations :units digest]))
+        (fail "Reconstruction publication unit identity changed" {})))
+    (doseq [[name {:keys [digest row function]}] rows]
+      (when-not (and (= digest (get-in world [:eval-const-authorizations :unit-digests name]))
+                     (identical? row (get-in world [:eval-const-authorizations :declarations name]))
+                     (identical? function (get-in world [:functions name]))
+                     (identical? function (get-in world [:eval-const-authorizations :functions name])))
+        (fail "Reconstruction publication row/unit/function identity changed" {})))
+    true))
 
 (defn- local-ci-graph!
   "Bound before expansion/hash/equality. Native leaves belong to the exact closed
@@ -758,7 +853,8 @@
                                          (get-in result [:publication :module]) invoke
                                          (select-keys limits [:max-constants :name-limits]))
               _ (swap! state assoc :world (:world proved) :phase :proof-completed)
-              proof (:proof proved)
+              proof (assoc (:proof proved) :admission
+                           (capture-publication-admission! (:world entry) (:world original) (:proof proved) limits))
               graph (local-ci-graph! (:world original) (vals (:constants proof)) limits)
               next-packet (assoc original :world (:world proved)
                                 :session (assoc (:session @state) :fuel (get-in original [:session :fuel])))
@@ -793,6 +889,7 @@
                      (identical? (:source (:prefix issued)) (first (:native-imports world)))
                      (identical? (get-in proof [:original :world :kernel-environments (:id (:anchor proof))])
                                  (get-in world [:kernel-environments (:id (:anchor proof))]))
+                     (publication-admission-matches! world proof (get-in issued [:profile-data :limits]))
                      (= (:graph published)
                         (local-ci-graph! world (vals (:constants proof)) (get-in issued [:profile-data :limits]))))
         (fail "Reconstruction candidate differs from its exact original checked publication" {}))
@@ -843,9 +940,20 @@
           (when (<= characters 4096)
             (recur (.prefix value) (conj parts part) characters)))))))
 
+(defn- bounded-row-display [value]
+  (loop [value value parts [] characters 0]
+    (cond
+      (= ["anonymous"] value) (if (seq parts) (str/join "." (rseq parts)) "[anonymous]")
+      (or (>= (count parts) 4096) (not (vector? value)) (not= 3 (count value))
+          (not (contains? #{"str" "num"} (first value))) (not (string? (nth value 2)))) nil
+      :else (let [part (nth value 2) characters (+ characters (count part) (if (seq parts) 1 0))]
+              (when (<= characters 4096)
+                (recur (second value) (conj parts part) characters))))))
+
 (defn- authorize-reconstruction-row [token active world context environment row local unit]
   (let [state (:state active) data @state recon (:reconstruction data)
         proof (:proof recon) requested (.get reconstruction-request)
+        captured (get-in proof [:admission :rows (:name row)])
         limits (:limits recon) checkpoint! (:checkpoint! context)
         progress (volatile! world)
         temporary (volatile! {})
@@ -866,27 +974,37 @@
                    (vswap! temporary assoc-in [owner :status] :released)
                    (swap! state assoc-in [:reconstruction :temporary] @temporary)
                    (save! @progress))]
-    (when-not (and (identical? token (:token (reconstruction-profile! (:profile recon))))
-                   (identical? (:thread active) (Thread/currentThread))
-                   (= :running (:phase data)) (:busy? data) (not (:proof-in-progress? recon))
-                   (identical? (:assembly recon) (:assembly data)) requested
-                   (fn? checkpoint!) (fn? (:check-trusted-functions! context))
-                   (identical? (:entry proof) (get-in world [:source-modules (:module proof)]))
-                   (identical? unit (:unit proof))
-                   (identical? unit (get-in world [:eval-const-authorizations :units (:unit-digest proof)]))
-                   (identical? local (get-in proof [:original :world :eval-const-authorizations :declarations (:name row)]))
-                   (= (:module proof) (:sourceModule row)) (false? (:sourceLocal row))
-                   (contains? (:constants proof) (:name requested)))
-      (fail "Source reconstruction callback is outside its exact active publication/primary CI" {}))
+    (let [predicates
+          {:profile-token? (identical? token (:token (reconstruction-profile! (:profile recon))))
+           :active-thread? (identical? (:thread active) (Thread/currentThread))
+           :running? (= :running (:phase data)) :busy? (true? (:busy? data))
+           :no-proof-reentry? (not (:proof-in-progress? recon))
+           :same-assembly? (identical? (:assembly recon) (:assembly data))
+           :requested? (some? requested) :checkpoint? (fn? checkpoint!)
+           :trusted-function-check? (fn? (:check-trusted-functions! context))
+           :same-publication? (identical? (:entry proof) (get-in world [:source-modules (:module proof)]))
+           :captured-row? (some? captured)
+           :same-row-unit? (and (some? captured) (identical? unit (:unit captured)))
+           :same-current-unit? (and (some? captured)
+                                    (identical? unit (get-in world [:eval-const-authorizations :units (:digest captured)])))
+           :same-row-digest? (and (some? captured)
+                                  (= (:digest captured) (get-in world [:eval-const-authorizations :unit-digests (:name row)])))
+           :same-local-row? (and (some? captured) (identical? local (:row captured)))
+           :same-source-module? (= (:module proof) (:sourceModule row))
+           :imported-row? (false? (:sourceLocal row))
+           :exported-primary-ci? (contains? (:constants proof) (:name requested))}]
+      (when-not (every? true? (vals predicates))
+        (fail "Source reconstruction callback is outside its exact active publication/primary CI"
+              {:reconstruction-guard
+               {:predicates predicates :row-name (bounded-row-display (:name row))
+                :requested-name (when requested (bounded-name-display (:name requested)))
+                :publication-unit-digest (:unit-digest proof) :captured-row-unit-digest (:digest captured)
+                :current-row-unit-digest (let [digest (get-in world [:eval-const-authorizations :unit-digests (:name row)])]
+                                           (when (and (string? digest) (<= (count digest) 64)) digest))}})))
     (swap! state assoc-in [:reconstruction :proof-in-progress?] true)
     (try
       ((:check-trusted-functions! context) world reconstruction-roots)
-      (doseq [name (:declarations unit)]
-        (when-not (and (identical? (get-in world [:functions name])
-                                 (get-in proof [:original :world :functions name]))
-                       (identical? (get-in world [:eval-const-authorizations :declarations name])
-                                   (get-in proof [:original :world :eval-const-authorizations :declarations name])))
-          (fail "Source reconstruction admitted unit identities changed" {})))
+      (publication-admission-matches! world proof limits)
       (let [root (call! (:root imports/helpers) [environment] :root)
             constant-map (call! (:constant-map imports/helpers) [environment] :map)
             flag (call! (:quot-init? imports/helpers) [environment] nil)

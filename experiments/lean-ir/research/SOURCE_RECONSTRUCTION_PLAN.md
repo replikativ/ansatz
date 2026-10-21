@@ -86,8 +86,33 @@ For reconstruction controls, existing progress reports include a descriptive
 `:reconstruction` audit after successful row authorization. `:authorization-count`
 counts authorized witness rows, not macro invocations. Distinct actual requested
 primary names are capped at 64 entries and 4,096 characters per name, with
-truncation marked. The module and unit digest identify the attempt. These fields
+truncation marked. The module and unit digest identify the attempt; the digest retains its final
+file-handle meaning even when a callback row belongs to an earlier unit. These fields
 grant no authority; observers still run only after the private scope is disarmed.
+
+The [hosted unit diagnosis](../measurements/source-reconstruction-unit-diagnosis.json)
+records a successful initializer-free A publication with five units followed by
+a terminal imported-finalizer failure and zero row authorizations. Both macro
+primaries belonged to earlier units; neither belonged to the final-handle unit.
+It is failure evidence, and does not establish hosted imported macro acceptance.
+
+An actual hosted publication can contain several compiler units: source macros
+may be compiled during elaboration, before the final file-handle unit. The
+reconstruction publication captures the exact successful before/after admission
+delta, with each row's original digest, unit, declaration and executable identity.
+The final file-handle unit remains separately pinned; sharing its module name is
+insufficient. Every newly captured unit must have empty action inventories.
+Previously admitted units and rows cannot be overwritten or claimed as new.
+
+The profile's explicit `:limits` also require `:max-units` and
+`:max-declarations`. Unit counts cover the combined baseline/current unit maps.
+The declaration bound covers the aggregate entries in both baseline/current
+executable maps and all four admission registries, counted before traversal; it
+also separately bounds aggregate declaration occurrences across new units.
+These are aggregate bounds, rather than a fresh allowance for every unit. For
+example, a baseline with 334,750 executable functions needs a declaration bound
+above 669,500 even before its admission entries are counted. These limits grant
+no additional source authority.
 
 The publication wrapper owns the actual `resident-source/load-and-publish` call
 and captures its full returned result before deriving private provenance. It
@@ -102,8 +127,9 @@ armed by calling evalConst out of band; no public permission setter exists.
 
 ## Proof required before execution
 
-Capture the exact source publication entry, immutable admitted unit object,
-original local declaration rows, source function identities and original checked
+Capture the exact source publication entry, final-handle unit and bounded delta
+of immutable admitted units, original local declaration rows, source function
+identities and original checked
 compilation anchor. Derive exported A name-to-guest-CI references from its actual
 ModuleData. Prove that these are the same references protected by the original
 compilation's checked constant map and that the corresponding Java CIs are the
