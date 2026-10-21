@@ -91,7 +91,7 @@
       (is (true? (profile/authenticate-input! row (fn [_] (throw (AssertionError. "Class must not use source resolver"))))))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Selected consumer class drift"
                            (profile/authenticate-input! (assoc row :sha256 model-hash) identity)))))
-  (let [id "prototype/mutable.clj" row {:id id :kind :host-source :sha256 profile/mutable-sha256}]
+  (let [id "prototype/mutable.clj" row {:id id :kind :host-source :sha256 profile/runtime-ops-mutable-sha256}]
     (is (true? (profile/authenticate-input! row identity)))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Selected consumer resource drift"
                          (profile/authenticate-input! (assoc row :sha256 model-hash) identity))))
@@ -310,7 +310,7 @@
                          (profile/authenticate-reconstruction!
                            (options (changed reconstruction-inventory "prototype/machine.cljc"
                                              #(assoc % :sha256 model-hash))))))
-    (doseq [authenticate [profile/authenticate! profile/authenticate-reconstruction!]
+    (doseq [authenticate [profile/authenticate! profile/authenticate-reconstruction! profile/authenticate-runtime-ops-reconstruction!]
             extra [{:compatibility-profile "invented"} {:substitutions #{"anything"}} {:authenticator identity}]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options"
                            (authenticate (merge (options reconstruction-inventory) extra)))))
@@ -327,14 +327,71 @@
         description {:producer-preparation producer :consumer-implementation-sha256 consumer}
         result (assoc description :catalogue {} :bindings {})
         manifest {:binding-signatures {}}]
-    (doseq [id [profile/profile-id profile/reconstruction-profile-id]]
+    (doseq [id [profile/profile-id profile/reconstruction-profile-id profile/runtime-ops-reconstruction-profile-id]]
       (is (= id (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer)))
       (is (= id (:compatibility-profile
                   (private-call 'factory-result! (assoc result :compatibility-profile id) producer consumer id manifest))))
-      (doseq [other ["unknown" nil (if (= id profile/profile-id) profile/reconstruction-profile-id profile/profile-id)]]
+      (doseq [other (remove #{id} ["unknown" nil profile/profile-id profile/reconstruction-profile-id
+                                  profile/runtime-ops-reconstruction-profile-id])]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
                              (private-call 'factory-result! (assoc result :compatibility-profile other)
                                            producer consumer id manifest)))))
     (doseq [id ["unknown" nil]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"capability identity mismatch"
                            (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer))))))
+
+(def runtime-ops-inventory
+  (changed reconstruction-inventory "prototype/mutable.clj"
+           #(assoc % :sha256 profile/runtime-ops-mutable-sha256)))
+(defn runtime-ops-valid! [rows]
+  (profile/validate-runtime-ops-reconstruction-inventory! recipe rows (profile/consumer-identity rows)))
+
+(deftest runtime-ops-reconstruction-preserves-both-original-closed-contracts
+  (is (= 256 (count runtime-ops-inventory)))
+  (is (= 3 (count (set [profile/profile-id profile/reconstruction-profile-id
+                        profile/runtime-ops-reconstruction-profile-id]))))
+  (is (not= profile/mutable-sha256 profile/runtime-ops-mutable-sha256))
+  (is (identical? inventory (valid! inventory)))
+  (is (identical? reconstruction-inventory (reconstruction-valid! reconstruction-inventory)))
+  (is (identical? runtime-ops-inventory (runtime-ops-valid! runtime-ops-inventory)))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved mutable consumer"
+                       (reconstruction-valid! runtime-ops-inventory)))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved mutable consumer"
+                       (runtime-ops-valid! reconstruction-inventory)))
+  (doseq [sha [profile/mutable-sha256 model-hash]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved mutable consumer"
+                         (runtime-ops-valid! (changed runtime-ops-inventory "prototype/mutable.clj"
+                                                     #(assoc % :sha256 sha))))))
+  (doseq [id ["prototype/raw_interop.clj" "prototype/machine.cljc"
+              "prototype/checkpoint_wire.clj" "ansatz/kernel/TypeChecker.class"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (runtime-ops-valid! (changed runtime-ops-inventory id #(assoc % :sha256 model-hash))))))
+  (doseq [id (map :id runtime-ops-inventory)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                         (runtime-ops-valid! (vec (remove #(= id (:id %)) runtime-ops-inventory))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (runtime-ops-valid! (conj runtime-ops-inventory
+                                                {:id "unreviewed/extra.clj" :kind :host-source :sha256 model-hash})))))
+
+(deftest runtime-ops-authentication-is-closed-before-resource-acquisition
+  (let [calls (atom [])
+        resolver (fn [id] (swap! calls conj id) (throw (AssertionError. "Must reject before resource lookup")))
+        options {:producer-preparation producer :producer-recipe-source recipe-source
+                 :producer-resolve-artifact resolver :store-root "unused-model-store"
+                 :consumer-inventory runtime-ops-inventory
+                 :expected-consumer-implementation-sha256 (profile/consumer-identity runtime-ops-inventory)
+                 :loaded-consumer-implementation-sha256 (profile/consumer-identity runtime-ops-inventory)
+                 :consumer-resolve-source resolver}]
+    (doseq [extra [{:compatibility-profile "invented"} {:substitutions #{"anything"}} {:authenticator identity}]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options"
+                           (profile/authenticate-runtime-ops-reconstruction! (merge options extra)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fresh loaded-consumer attestation"
+                         (profile/authenticate-runtime-ops-reconstruction!
+                           (assoc options :loaded-consumer-implementation-sha256 profile/producer-implementation-sha256))))
+    (let [rows (changed runtime-ops-inventory "prototype/mutable.clj" #(assoc % :sha256 model-hash))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved mutable consumer"
+                           (profile/authenticate-runtime-ops-reconstruction!
+                             (assoc options :consumer-inventory rows
+                                    :expected-consumer-implementation-sha256 (profile/consumer-identity rows)
+                                    :loaded-consumer-implementation-sha256 (profile/consumer-identity rows))))))
+    (is (empty? @calls))))
