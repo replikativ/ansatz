@@ -201,3 +201,11 @@ conservative conversion fallback for unsupported maps. Preserve initializing,
 recursive initialization, IO success/error and reference-ownership behavior, as
 well as independent fork snapshots. Performance hints must not change checking
 or binding authority.
+
+
+A separate [globals boundary candidate](GLOBALS_BOUNDARY_OPTIMIZATION.md) now
+implements deferred HashMap materialization and passes differential, full
+prototype, library and built-JAR checks. Synthetic measurements show much cheaper
+read-only boundaries alongside additional borrowed-map lookup cost. Actual hosted
+frontend performance remains an explicit authenticated compatibility gate; the
+candidate does not substitute its build for the archived checkpoint producer.
