@@ -277,8 +277,12 @@
            missing (set/difference (reduce set/union #{} (map :dependencies groups)) (set names))]
        (when (seq missing) (fail "Unresolved imported kernel dependencies" {:missing missing}))
        (let [blockers (into {} (map (fn [group] [(:key group) (set (map name->group (:dependencies group)))]) groups))
-             dependents (reduce-kv (fn [out key dependencies]
-                                     (reduce #(update %1 %2 (fnil conj []) key) out dependencies)) {} blockers)
+             dependents (persistent!
+                          (reduce-kv (fn [out key dependencies]
+                                       (reduce (fn [out dependency]
+                                                 (assoc! out dependency (conj (get out dependency []) key)))
+                                               out dependencies))
+                                     (transient {}) blockers))
              initial-degrees (into {} (map (fn [[key deps]] [key (count deps)]) blockers))
              initial-ready (mapv :key (filter #(zero? (get initial-degrees (:key %))) groups))]
          (loop [queue initial-ready cursor 0 degrees initial-degrees ^Env checked (Env.) order []]
