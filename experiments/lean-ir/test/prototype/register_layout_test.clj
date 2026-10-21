@@ -107,9 +107,19 @@
           buckets ^HashMap (:buckets cache)
           key (System/identityHashCode f)
           entry (first (filter #(identical? f (.get ^WeakReference (first %))) (.get buckets key)))
-          reference ^WeakReference (first entry)]
+          reference ^WeakReference (first entry)
+          proof (second entry)]
       (is (instance? WeakReference reference))
-      (is (= 10 (second entry)))
+      (is (identical? f (.get reference)))
+      (is (= 2 (count entry)))
+      (is (nil? (meta entry)))
+      ;; Only weak code identity plus scalar width/eligibility may be retained;
+      ;; adding a body/base/delta reference would fail this exact shape check.
+      (is (= #{:slots :reusable?} (set (keys proof))))
+      (is (nil? (meta proof)))
+      (is (= 10 (:slots proof)))
+      (is (true? (:reusable? proof)))
+      (is (every? #(or (integer? %) (boolean? %)) (vals proof)))
       ;; Deterministically exercise queue cleanup, without relying on forced GC.
       (.clear reference) (.enqueue reference)
       (slots/function-slots {:params [] :body [:return [:imm 7]]})

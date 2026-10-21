@@ -36,9 +36,9 @@ reconstruction, binding signatures and executable-authorization checks. It retur
 `:compatibility-profile` fields. Restoration does not install a checked kernel
 Environment or run guest initializers.
 
-## Closed selected-resource profile
+## First globals consumer: profile `/1`
 
-The original producer inventory has 242 rows. The current consumer selects 255:
+The original producer inventory has 242 rows. The first globals consumer selects 255:
 the original entries except the two legacy factory/restorer sources, the approved
 `mutable.clj` substitution, and fixed additions for the compatibility APIs,
 existing optional consumers, Java provenance and selected runtime classes.
@@ -62,6 +62,11 @@ The public constructor cannot infer that history from current disk hashes. The
 consumer digest is externally pinned so compatibility source files can be
 included without a self-hash cycle. Driver/controllers have separate captured
 source pins.
+
+The results recorded below belong to that explicitly pinned `/1` consumer.
+The subsequent [program register-sizing experiment](PROGRAM_SLOT_CACHE.md) uses
+profile `/2` with two further exact source substitutions and a new consumer
+digest. The older measurements remain evidence for their original build.
 
 ## Validation boundary
 
