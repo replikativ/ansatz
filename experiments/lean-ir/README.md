@@ -35,6 +35,17 @@ invocations; strict Init checking is recorded separately.
 The [validation record](measurements/heap-consumer-compatibility.json) records the
 focused and comprehensive suite results and their exact source/class hashes.
 
+The fixed fifth consumer uses `make-source-graph-reconstruction-factory` and
+`ansatz-producer50f-source-graph-reconstruction-consumer/1`. Its closed 257-row
+inventory requires exact reviewed `source_import.clj` and `source_graph_plan.clj`
+bytes, retaining the fourth consumer's heap/ops requirements. All four prior
+contracts remain unchanged. The [compatibility record](measurements/source-graph-consumer-compatibility.json)
+records 26 tests / 1,104 assertions: modeled inventory and restore-profile
+boundaries, existing Java/class checks, and authentication of the two actual
+frozen graph resources. This does not establish whole-consumer loaded-code
+attestation, helper admission or a completed source graph import. The complete
+optional runtime suite awaits its reviewed memory gate.
+
 From this directory, reproduce with the normal experiment classpath after preparing
 the Java classes described below:
 

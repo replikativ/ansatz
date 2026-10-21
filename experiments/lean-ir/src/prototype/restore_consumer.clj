@@ -309,7 +309,8 @@
                      (= consumer (:consumer-implementation-sha256 description))
                      (contains? #{compatibility/profile-id compatibility/reconstruction-profile-id
                                   compatibility/runtime-ops-reconstruction-profile-id
-                                  compatibility/heap-net-dirty-reconstruction-profile-id} profile))
+                                  compatibility/heap-net-dirty-reconstruction-profile-id
+                                  compatibility/source-graph-reconstruction-profile-id} profile))
                 "Restore consumer capability identity mismatch")
     profile))
 (defn- factory-result! [produced producer consumer compatibility-profile manifest]

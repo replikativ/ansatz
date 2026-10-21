@@ -13,6 +13,9 @@
 (def reconstruction-profile-id "ansatz-producer50f-reconstruction-consumer/1")
 (def runtime-ops-reconstruction-profile-id "ansatz-producer50f-runtime-ops-reconstruction-consumer/1")
 (def heap-net-dirty-reconstruction-profile-id "ansatz-producer50f-heap-net-dirty-reconstruction-consumer/1")
+(def source-graph-reconstruction-profile-id "ansatz-producer50f-source-graph-reconstruction-consumer/1")
+(def source-graph-import-sha256 "c329a591447aa37d40030f382eaeec21ca1e94d06367c5919f5248ad4668436f")
+(def source-graph-plan-sha256 "8a8d9a59002ecd5b440af478589874cbd7b7cf46fad8e834b13349b3971540ee")
 (def heap-net-dirty-source-sha256 "e89abd25eaa1815be7fc2a5136ee06e9a6b9d784958652ae6acbde9c4617c75a")
 (def runtime-ops-mutable-sha256 "d9661df032553e12efeaef20965089ed0dd2e9832e63e974714ed3f8ecf700ee")
 (def ^:private reconstruction-substitutions
@@ -82,20 +85,22 @@
 (defn- validate-inventory*
   "Check the closed delta before ANY consumer resource is trusted. New API hashes
    are pinned by the externally accepted consumer digest, avoiding a self-hash cycle."
-  [reconstruction? runtime-ops? heap-net-dirty? recipe inventory expected]
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? recipe inventory expected]
   (wire/check (and (wire/hash? expected) (= expected (consumer-identity inventory)))
               "Consumer implementation digest mismatch")
   (let [original (:build-inventory recipe)
         by-id (into {} (map (juxt :id identity)) inventory)
         baseline (remove #(contains? excluded-producer-sources (:id %)) original)
         required (merge (into {} (map (juxt :id :kind)) baseline) added-inputs
-                        (when reconstruction? {"prototype/resident_init_prefix.clj" :host-source}))]
+                        (when reconstruction? {"prototype/resident_init_prefix.clj" :host-source})
+                        (when source-graph? {"prototype/source_graph_plan.clj" :host-source}))]
     (wire/check (= (set (keys required)) (set (keys by-id))) "Consumer selected-input inventory drift")
     (doseq [[id kind] required]
       (wire/check (= kind (get-in by-id [id :kind])) "Consumer input role drift"))
     (doseq [{:keys [id sha256]} baseline
             :when (and (not= id "prototype/mutable.clj") (not (contains? program-substitutions id))
                        (not (and heap-net-dirty? (= id "src-java/ansatz/runtime/HeapOverlay.java")))
+                       (not (and source-graph? (= id "prototype/source_import.clj")))
                        (not (and reconstruction? (contains? reconstruction-substitutions id))))]
       (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved consumer substitution"))
     (doseq [[id sha256] program-substitutions]
@@ -109,26 +114,36 @@
       (wire/check (= heap-net-dirty-source-sha256
                      (get-in by-id ["src-java/ansatz/runtime/HeapOverlay.java" :sha256]))
                   "Unapproved net-dirty heap overlay source"))
+    (when source-graph?
+      (doseq [[id sha256] {"prototype/source_import.clj" source-graph-import-sha256
+                           "prototype/source_graph_plan.clj" source-graph-plan-sha256}]
+        (wire/check (= sha256 (get-in by-id [id :sha256]))
+                    "Unapproved source graph consumer source")))
     inventory))
 (defn validate-inventory!
   "Validate the original closed globals inventory without reconstruction deltas."
   [recipe inventory expected]
-  (validate-inventory* false false false recipe inventory expected))
+  (validate-inventory* false false false false recipe inventory expected))
 (defn validate-reconstruction-inventory!
   "Validate the closed reconstruction delta. The external digest pins exact bytes
    of the three reviewed baseline substitutions and added resident prefix source."
   [recipe inventory expected]
-  (validate-inventory* true false false recipe inventory expected))
+  (validate-inventory* true false false false recipe inventory expected))
 (defn validate-runtime-ops-reconstruction-inventory!
   "Validate the closed reconstruction inventory with the separately pinned ops-table
    mutable implementation. Original globals/reconstruction contracts remain exact."
   [recipe inventory expected]
-  (validate-inventory* true true false recipe inventory expected))
+  (validate-inventory* true true false false recipe inventory expected))
 (defn validate-heap-net-dirty-reconstruction-inventory!
   "Validate only the separately named net-dirty heap consumer: exact reviewed heap
    source plus the existing ops/reconstruction deltas. No caller substitutions."
   [recipe inventory expected]
-  (validate-inventory* true true true recipe inventory expected))
+  (validate-inventory* true true true false recipe inventory expected))
+(defn validate-source-graph-reconstruction-inventory!
+  "Validate the fifth closed graph consumer: exact source-import/planner bytes,
+   alongside the unchanged fourth heap/ops/reconstruction prerequisites."
+  [recipe inventory expected]
+  (validate-inventory* true true true true recipe inventory expected))
 (def provenance-scripts
   #{"experiments/lean-ir/scripts/full-init-assembly-probe.clj"
     "experiments/lean-ir/scripts/prepare-ir-witness.clj"
@@ -175,7 +190,7 @@
    rejects project __init.class AOT shadows before loading namespaces, and which
    prohibits reload/redefs. This API cannot infer that
    fact from disk/resource hashes. No source leases or guest owners are acquired."
-  [reconstruction? runtime-ops? heap-net-dirty? {:keys [producer-preparation producer-recipe-source consumer-inventory
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? {:keys [producer-preparation producer-recipe-source consumer-inventory
            expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256
            producer-resolve-artifact consumer-resolve-source store-root] :as options}]
   (exact! options option-keys "globals consumer factory options")
@@ -184,7 +199,7 @@
                    (= expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256))
               "Explicit producer/consumer resolvers and fresh loaded-consumer attestation required")
   (let [recipe (producer-recipe! producer-preparation producer-recipe-source)]
-    (validate-inventory* reconstruction? runtime-ops? heap-net-dirty? recipe consumer-inventory expected-consumer-implementation-sha256)
+    (validate-inventory* reconstruction? runtime-ops? heap-net-dirty? source-graph? recipe consumer-inventory expected-consumer-implementation-sha256)
     (doseq [id excluded-producer-sources]
       (wire/check (and (nil? (io/resource id))
                        (nil? (io/resource (str (subs id 0 (- (count id) 4)) "__init.class"))))
@@ -192,7 +207,8 @@
     (doseq [row consumer-inventory] (authenticate-input! row consumer-resolve-source))
     {:producer-preparation producer-preparation
      :consumer-implementation-sha256 expected-consumer-implementation-sha256
-     :compatibility-profile (cond heap-net-dirty? heap-net-dirty-reconstruction-profile-id
+     :compatibility-profile (cond source-graph? source-graph-reconstruction-profile-id
+                                  heap-net-dirty? heap-net-dirty-reconstruction-profile-id
                                   runtime-ops? runtime-ops-reconstruction-profile-id
                                   reconstruction? reconstruction-profile-id
                                   :else profile-id)}))
@@ -200,21 +216,27 @@
 (defn authenticate!
   "Authenticate the original closed globals consumer and fresh loaded-code attestation."
   [options]
-  (authenticate* false false false options))
+  (authenticate* false false false false options))
 (defn authenticate-reconstruction!
   "Authenticate the separately named closed reconstruction consumer. Same exact
    options and fresh-process loaded-code attestation as authenticate!."
   [options]
-  (authenticate* true false false options))
+  (authenticate* true false false false options))
 
 (defn authenticate-runtime-ops-reconstruction!
   "Authenticate the separately named ops-table reconstruction consumer. Same closed
    options and mandatory fresh-process loaded-code attestation as authenticate!."
   [options]
-  (authenticate* true true false options))
+  (authenticate* true true false false options))
 
 (defn authenticate-heap-net-dirty-reconstruction!
   "Authenticate the distinct net-dirty heap consumer, with the unchanged closed
    option set and mandatory fresh-process external loaded-code attestation."
   [options]
-  (authenticate* true true true options))
+  (authenticate* true true true false options))
+
+(defn authenticate-source-graph-reconstruction!
+  "Authenticate only the fifth fixed graph consumer. Same exact option set and
+   mandatory fresh-process loaded-code attestation; no graph authority is issued."
+  [options]
+  (authenticate* true true true true options))
