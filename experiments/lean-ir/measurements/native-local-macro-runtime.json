@@ -1,0 +1,213 @@
+{
+  "schema": "native-local-macro-runtime/1",
+  "date": "2026-10-21",
+  "status": "passed local Lean macro elaboration, explicit closed-value initialization and Nat42 call on genuine checked native Init+A descendant",
+  "scope": "Local source-defined syntax expansion; distinct from reconstruction of imported macro/attribute callbacks. No new import finalizer ran for this gate.",
+  "identity": {
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+    "consumer-implementation-sha256": "ed0640a76f3892d68cfb4ba7d7618eb60083cfdc6e95f376ca629a26390d3fc8",
+    "manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6"
+  },
+  "prerequisite": {
+    "record": "native-init-import-runtime.json",
+    "sha256": "92496755c0a01f2d3fa90fe2a87a78ce4e71c1f6afd01f790ebad7dcfcead0d7",
+    "profile": "Retained successful B-call descendant from freshly checked Init+A, with original independent Source lease. This gate borrows that Context rather than typed application bindings."
+  },
+  "source-sha256": {
+    "src/prototype/resident_frontend.clj": "de0442165a009079cb54211f0496a88ef7149dc9d94376a237b6501866c5a5f1",
+    "src/prototype/eval_const.clj": "81bcbf9d38b2105c6165e1b42609908757adc09a2686f05ec48195bb94be91be",
+    "src/prototype/resident_init_prefix.clj": "5c39b2d07e5cedc7d987e9c7272e1a9e6a3ab192b53dc9324e04143ca25a2738",
+    "src/prototype/raw_interop.clj": "432260c3170e16e192071c27197b083efc227eaf7742acd309ff0aeacd5daea2",
+    "fixtures/hosted/OrdinaryMacro.lean": "8ee7161a169723e09ddbbbf39c42d50b87be7da63396d3a9767f0a3c9551c231",
+    "fixtures/hosted/OrdinaryMacroLocal.lean": "d44ef2d1d9e3f94be53836e89c4cf1d88daf9af749f167fed9b21c996f8aaba2"
+  },
+  "controllers": {
+    "local-macro-acceptance-v1.clj": {
+      "sha256": "43ff3cbd6cd1f7169387eb00f2ca716f4157141ae5e2ca7d933cb2aabb25f14f",
+      "namespace": "prototype.local-macro-acceptance-v1",
+      "admission": "Independently reviewed definitions-only loading, then explicit one-shot run!. No namespace reload or old controller mutation."
+    },
+    "local-macro-completion-v1.clj": {
+      "sha256": "95e6f1819d7b505ecae1611edb80811f206cc393f4037e6d7399b520e60094f9",
+      "namespace": "prototype.local-macro-completion-v1",
+      "admission": "Independently reviewed definitions-only loading, then explicit one-shot run!. No namespace reload or old controller mutation."
+    }
+  },
+  "artifact-location": "Typed experiment target/artifact-contract/local-macro/; ignored raw artifacts are retained locally and identified here by hashes, not published in this record.",
+  "lean-input": {
+    "fixture": "fixtures/hosted/OrdinaryMacroLocal.lean",
+    "file-name": "OrdinaryMacroLocal.lean",
+    "module-name": "OrdinaryMacroLocal",
+    "root": "localMacroAnswer",
+    "text": "import ResidentNativeA\nmacro \"hostedIdentity\" : term => `(fun x => x)\n\ndef macroAnswer.{u} (α : Sort u) (x : α) : α := hostedIdentity x\n\ndef localMacroAnswer : Nat := macroAnswer Nat 42\n",
+    "text-sha256": "d44ef2d1d9e3f94be53836e89c4cf1d88daf9af749f167fed9b21c996f8aaba2",
+    "original-fixture": "fixtures/hosted/OrdinaryMacro.lean",
+    "original-fixture-sha256": "8ee7161a169723e09ddbbbf39c42d50b87be7da63396d3a9767f0a3c9551c231",
+    "construction": "The original fixture remains byte-identical as an embedded substring. Added import ResidentNativeA matches the actual retained Environment header; a monomorphic closed Nat wrapper gives an ordinary boxed call target.",
+    "initialization": "defer"
+  },
+  "execution-order": [
+    {
+      "stage": "compile-and-attempt-call",
+      "receipt": {
+        "artifact": "actual-local-macro-v1.json",
+        "raw-sha256": "2ab5af8013c2f1db1a2e5ff12abbc51a54e65b686f167c71c75282ba1f61b3be",
+        "receipt": {
+          "source-close-attempts": 0,
+          "failure-message": "Source unit has pending initializers",
+          "fixture-sha256": "8ee7161a169723e09ddbbbf39c42d50b87be7da63396d3a9767f0a3c9551c231",
+          "context-cleanup-performed": false,
+          "compiled-text-sha256": "d44ef2d1d9e3f94be53836e89c4cf1d88daf9af749f167fed9b21c996f8aaba2",
+          "value": null,
+          "source-open": null,
+          "phase": "failed",
+          "scope": "local-macro-after-genuine-native-import-v1",
+          "diagnostic-count": 0,
+          "exported-initialization-action-count": 1,
+          "input-unchanged": null,
+          "added-unit-count": 3,
+          "explicit-source-initialization": false,
+          "exported-initialization-actions": [
+            {
+              "action": {
+                "kind": "value",
+                "name": [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "localMacroAnswer"
+                ],
+                "target": [
+                  "str",
+                  [
+                    "anonymous"
+                  ],
+                  "localMacroAnswer"
+                ]
+              },
+              "meta": false
+            }
+          ],
+          "elapsed-ms": 196806.069966,
+          "new-import-finalizer": false
+        }
+      },
+      "interpretation": "Source loading succeeded with zero diagnostics and three newly admitted units. The final wrapper unit has one compiler value action for localMacroAnswer. The call was rejected before guest invocation because its unit was deliberately deferred. The controller phase is failed and remains terminal; it was not retried.",
+      "elapsed-ms": 196806.069966,
+      "timing-scope": "Original controller run from load admission through successful compilation, unit inspection and rejected pre-call check; not an isolated compiler timing."
+    },
+    {
+      "stage": "separate-explicit-value-completion",
+      "receipt": {
+        "artifact": "actual-local-macro-completion-v1.json",
+        "raw-sha256": "d92122abd0a587f0679609ceae5d4844387d38fb169617fe315ed288e781cf68",
+        "receipt": {
+          "source-close-attempts": 0,
+          "initialization-actions": 1,
+          "recompiled": false,
+          "original-B-unchanged": true,
+          "failure-message": null,
+          "context-cleanup-performed": false,
+          "value": 42,
+          "source-open": true,
+          "phase": "passed",
+          "scope": "local-macro-explicit-value-completion-v1",
+          "diagnostic-count": 0,
+          "input-unchanged": true,
+          "failed-guest-call-replayed": false,
+          "new-import-finalizer": false
+        }
+      },
+      "interpretation": "Fresh completion controller borrowed the exact successfully loaded Context and FileHandle; authenticated the original pending-value failure, final unit action and absent guest call result; invoked public resident/initialize once, then resident/call returned Nat42. No source recompile, macro registration replay or failed guest-call retry."
+    }
+  ],
+  "initializer-distinction": {
+    "actual-final-unit-actions": [
+      {
+        "action": {
+          "kind": "value",
+          "name": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "localMacroAnswer"
+          ],
+          "target": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "localMacroAnswer"
+          ]
+        },
+        "meta": false
+      }
+    ],
+    "source-of-action": "Compiler closed-value initialization for the monomorphic Nat wrapper; not registration of the macro itself.",
+    "local-macro-path": "Source-defined macro was elaborated and used in the same source file. This does not prove that import extension reconstruction can execute a macro closure before final checking.",
+    "publication-limit": "This closed-value fixture has a nonempty initializer plan and is not eligible for the current initializer-free source publication profile."
+  },
+  "final-process-disposal": {
+    "request": {
+      "artifact": "process-disposal-request-v1.json",
+      "raw-sha256": "04d6dc19263f699ee10e758781bb2d3774be093ccfde568ef736027a7b380115",
+      "receipt": {
+        "scope": "guarded-native-campaign-disposal-v1",
+        "reason": "completed-acceptance-gates-before-lifecycle-limit",
+        "typed-callback-phase": "passed-with-expected-failure",
+        "local-macro-phase": "passed",
+        "source-close-attempts": 0,
+        "semantic-context-cleanup-verified": false,
+        "os-process-exit-requested": true
+      }
+    },
+    "guard-artifact": "restore-for-init-v4.json in frozen program-slot-cache experiment target/artifact-contract/consumer-compatibility/",
+    "guard-raw-sha256": "3012ce80df288e610ab862bfbeefb0677fd85ebf00c67eda109d0840a30d13b2",
+    "guard-receipt": {
+      "command": [
+        "clojure",
+        "-J-Xmx3072m",
+        "-J-Xss16m",
+        "-Sdeps",
+        "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+        "-M",
+        "-e",
+        "(let [path \"frozen-program-slot-cache-experiment/target/artifact-contract/consumer-compatibility/restore-for-init-v4.generated-repl.clj\" bytes (with-open [s (java.io.FileInputStream. path)] (.readNBytes s 1048577))] (when (> (alength bytes) 1048576) (throw (ex-info \"Generated REPL exceeds bound\" {}))) (when-not (= \"cd6ed164d0c6607edbb928ed0e28aff92837efe304909132adb1088c514fc60d\" (.formatHex (java.util.HexFormat/of) (.digest (java.security.MessageDigest/getInstance \"SHA-256\") bytes))) (throw (ex-info \"Generated REPL bytes drift\" {}))) (binding [*ns* *ns* *file* path] (load-string (String. bytes java.nio.charset.StandardCharsets/UTF_8))))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 3625000960,
+      "elapsed_seconds": 5356.86
+    },
+    "normalization": "The command retains its captured generated-code and hash checks; only the machine-specific absolute frozen experiment root is replaced by frozen-program-slot-cache-experiment. The raw SHA identifies the original bytes.",
+    "heap-mib": 3072,
+    "group-rss-guard-mib": 3584,
+    "lifecycle-limit-seconds": 5400,
+    "minimum-system-available-mib": 1024,
+    "process-outcome": "Explicit process disposal after completed gates: exit0, no guard stop. This is the whole retained campaign lifecycle, not local macro elapsed time.",
+    "source-close-attempts": 0,
+    "semantic-context-cleanup-verified": false
+  },
+  "independent-review": {
+    "agent": "astra_campaign_review_v2",
+    "controllers": "passed at recorded final hashes",
+    "measurement-and-guide": "passed: source/controller/fixture/prerequisite hashes, both execution receipts, disposal request, exact final guard normalization/scalars, guide and local/imported macro scope; reviewer ran no JVM",
+    "reviewer-jvm-execution": false
+  },
+  "validation": {
+    "new-JVM-tests-run": false,
+    "reason": "Evidence, explanatory guide and exact previously executed input fixture only; runtime implementation is unchanged, so no additional JVM tests are needed.",
+    "artifact-audit": "Original fixture and combined text hashes verified; scalar receipts and final guard matched to raw files; links and recorded source hashes audited."
+  },
+  "limits": [
+    "Imported source macro/attribute callback reconstruction remains a future gate; suspected pre-finalization imported evalConst authority ordering is being investigated separately.",
+    "One deferred compiler value action was explicitly initialized. This is not general user initialize/run_init/native-module initialization coverage.",
+    "The original compile-and-call controller failed its pre-call readiness check as expected for defer. Only the separate completion controller passed; neither record is concealed or relabeled.",
+    "Nat42 is an actual resident call result after initialization, not merely an elaborated expression or host seed.",
+    "Original loaded/B Contexts and Source remained unchanged/open through success. The later exit0 releases the OS process; semantic Context or native lease cleanup was not performed or verified.",
+    "No native Lean performance comparison, imported macro support, edited macro module fork isolation, Mathlib-wide coverage or independent frontend self-hosting claim."
+  ]
+}
