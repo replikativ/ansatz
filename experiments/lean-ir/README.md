@@ -8,6 +8,34 @@ The JVM experiment now also includes a mutable interpreter, a numeric compiler
 and a constructor/closure block compiler. These are experimental alternatives to the portable reference machine,
 not changes to Ansatz's production lowering or library runtime.
 
+## Mutable primitive operations table
+
+The mutable interpreter reuses its machine-independent primitive operations map.
+Machine-dependent operations receive the current machine; five directly stored function values
+retain their original call-entry redefinition behavior through a guarded fallback.
+The [paired primitive microbenchmark](measurements/runtime-ops-table.json) observed
+median 491.7 ms before and 337.2 ms after for 100,000 primitive calls, with current-thread
+allocations falling from 341.4 MB to 75.0 MB. These are isolated primitive measurements;
+cold frontend, compilation, import and REPL edit latency were not measured.
+Checkpoint consumers use the separately named
+`make-runtime-ops-reconstruction-factory` and its exact ops-table mutable source pin.
+The original globals and reconstruction profile IDs keep their original pins.
+
+From this directory, reproduce with the normal experiment classpath after preparing
+the Java classes described below:
+
+```sh
+clojure -J-Xmx384m -J-Xss8m -M scripts/benchmark-runtime-ops.clj
+```
+
+The driver runs focused runtime tests, loads the exact renamed historical baseline
+from `scripts/benchmarks/runtime-ops-baseline.clj` into its isolated JVM, then writes
+raw paired trials to `target/runtime-ops-benchmark.json`. Use a separate process;
+this driver is not a live frontend command. Five warmups precede seven alternating
+paired trials; it reports current-thread allocations and does not force GC.
+A [separate portable reproduction](measurements/runtime-ops-table-portable-reproduction.json)
+passes the exact tracked driver starting without an experiment `target` directory.
+
 ## Architecture: loading and execution
 
 The producer is native Lean, which imports compiled modules and exposes their

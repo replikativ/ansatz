@@ -3,6 +3,7 @@
             [prototype.lean-ir-test]
             [prototype.preparation-test]
             [prototype.mutable-test]
+            [prototype.runtime-ops-table-test]
             [prototype.mutable-field-cow-test]
             [prototype.heap-overlay-test]
             [prototype.numeric-compile-test]
@@ -122,7 +123,7 @@
             [prototype.persistent-snapshot-test]))
 
 (defn -main [& _]
-  (let [result (t/run-tests 'prototype.preparation-test 'prototype.lean-ir-test 'prototype.mutable-test 'prototype.mutable-field-cow-test 'prototype.heap-overlay-test
+  (let [result (t/run-tests 'prototype.preparation-test 'prototype.lean-ir-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.mutable-field-cow-test 'prototype.heap-overlay-test
                             'prototype.numeric-compile-test 'prototype.block-compile-test
                             'prototype.region-compile-test 'prototype.call-compile-test
                             'prototype.lazy-runtime-test 'prototype.declaration-store-test

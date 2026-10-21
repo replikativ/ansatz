@@ -11,6 +11,8 @@
 
 (def profile-id "ansatz-producer50f-globals-overlay-consumer/2")
 (def reconstruction-profile-id "ansatz-producer50f-reconstruction-consumer/1")
+(def runtime-ops-reconstruction-profile-id "ansatz-producer50f-runtime-ops-reconstruction-consumer/1")
+(def runtime-ops-mutable-sha256 "d9661df032553e12efeaef20965089ed0dd2e9832e63e974714ed3f8ecf700ee")
 (def ^:private reconstruction-substitutions
   #{"prototype/imported_kernel.clj" "prototype/kernel_bridge.clj" "prototype/test_runner.clj"})
 (def producer-implementation-sha256 "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849")
@@ -78,7 +80,7 @@
 (defn- validate-inventory*
   "Check the closed delta before ANY consumer resource is trusted. New API hashes
    are pinned by the externally accepted consumer digest, avoiding a self-hash cycle."
-  [reconstruction? recipe inventory expected]
+  [reconstruction? runtime-ops? recipe inventory expected]
   (wire/check (and (wire/hash? expected) (= expected (consumer-identity inventory)))
               "Consumer implementation digest mismatch")
   (let [original (:build-inventory recipe)
@@ -95,7 +97,8 @@
       (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved consumer substitution"))
     (doseq [[id sha256] program-substitutions]
       (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved program sizing implementation"))
-    (wire/check (= mutable-sha256 (get-in by-id ["prototype/mutable.clj" :sha256]))
+    (wire/check (= (if runtime-ops? runtime-ops-mutable-sha256 mutable-sha256)
+                   (get-in by-id ["prototype/mutable.clj" :sha256]))
                 "Unapproved mutable consumer implementation")
     (wire/check (= globals-source-sha256 (get-in by-id ["src-java/ansatz/runtime/GlobalsOverlay.java" :sha256]))
                 "Unapproved globals overlay source")
@@ -103,12 +106,17 @@
 (defn validate-inventory!
   "Validate the original closed globals inventory without reconstruction deltas."
   [recipe inventory expected]
-  (validate-inventory* false recipe inventory expected))
+  (validate-inventory* false false recipe inventory expected))
 (defn validate-reconstruction-inventory!
   "Validate the closed reconstruction delta. The external digest pins exact bytes
    of the three reviewed baseline substitutions and added resident prefix source."
   [recipe inventory expected]
-  (validate-inventory* true recipe inventory expected))
+  (validate-inventory* true false recipe inventory expected))
+(defn validate-runtime-ops-reconstruction-inventory!
+  "Validate the closed reconstruction inventory with the separately pinned ops-table
+   mutable implementation. Original globals/reconstruction contracts remain exact."
+  [recipe inventory expected]
+  (validate-inventory* true true recipe inventory expected))
 (def provenance-scripts
   #{"experiments/lean-ir/scripts/full-init-assembly-probe.clj"
     "experiments/lean-ir/scripts/prepare-ir-witness.clj"
@@ -155,7 +163,7 @@
    rejects project __init.class AOT shadows before loading namespaces, and which
    prohibits reload/redefs. This API cannot infer that
    fact from disk/resource hashes. No source leases or guest owners are acquired."
-  [reconstruction? {:keys [producer-preparation producer-recipe-source consumer-inventory
+  [reconstruction? runtime-ops? {:keys [producer-preparation producer-recipe-source consumer-inventory
            expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256
            producer-resolve-artifact consumer-resolve-source store-root] :as options}]
   (exact! options option-keys "globals consumer factory options")
@@ -164,7 +172,7 @@
                    (= expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256))
               "Explicit producer/consumer resolvers and fresh loaded-consumer attestation required")
   (let [recipe (producer-recipe! producer-preparation producer-recipe-source)]
-    (validate-inventory* reconstruction? recipe consumer-inventory expected-consumer-implementation-sha256)
+    (validate-inventory* reconstruction? runtime-ops? recipe consumer-inventory expected-consumer-implementation-sha256)
     (doseq [id excluded-producer-sources]
       (wire/check (and (nil? (io/resource id))
                        (nil? (io/resource (str (subs id 0 (- (count id) 4)) "__init.class"))))
@@ -172,14 +180,22 @@
     (doseq [row consumer-inventory] (authenticate-input! row consumer-resolve-source))
     {:producer-preparation producer-preparation
      :consumer-implementation-sha256 expected-consumer-implementation-sha256
-     :compatibility-profile (if reconstruction? reconstruction-profile-id profile-id)}))
+     :compatibility-profile (cond runtime-ops? runtime-ops-reconstruction-profile-id
+                                  reconstruction? reconstruction-profile-id
+                                  :else profile-id)}))
 
 (defn authenticate!
   "Authenticate the original closed globals consumer and fresh loaded-code attestation."
   [options]
-  (authenticate* false options))
+  (authenticate* false false options))
 (defn authenticate-reconstruction!
   "Authenticate the separately named closed reconstruction consumer. Same exact
    options and fresh-process loaded-code attestation as authenticate!."
   [options]
-  (authenticate* true options))
+  (authenticate* true false options))
+
+(defn authenticate-runtime-ops-reconstruction!
+  "Authenticate the separately named ops-table reconstruction consumer. Same closed
+   options and mandatory fresh-process loaded-code attestation as authenticate!."
+  [options]
+  (authenticate* true true options))
