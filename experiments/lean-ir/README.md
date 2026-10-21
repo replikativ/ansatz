@@ -47,6 +47,16 @@ paired trials; it reports current-thread allocations and does not force GC.
 A [separate portable reproduction](measurements/runtime-ops-table-portable-reproduction.json)
 passes the exact tracked driver starting without an experiment `target` directory.
 
+## Imported kernel dependency graph
+
+Strict imported checking builds its reverse dependency map with an invocation-local
+transient outer map, then persists it before checking. Dependency traversal and
+immutable adjacency-vector order stay unchanged. The [bounded allocation comparison](measurements/kernel-check-graph-allocation.json)
+passes the existing 12-test / 63-assertion imported-kernel suite and nine graph
+comparisons. Its synthetic 16,384-group case allocates 84.3 MB with the historical
+construction and 12.2 MB with the candidate. This measures graph construction;
+retained heap, full checking and hosted frontend performance were not measured.
+
 ## Architecture: loading and execution
 
 The producer is native Lean, which imports compiled modules and exposes their
