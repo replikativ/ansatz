@@ -1,0 +1,73 @@
+{
+  "schema": "resident-init-prefix-validation/1",
+  "date": "2026-10-21",
+  "status": "focused and full experimental regression passed; actual full Init-prefix acceptance pending",
+  "source-sha256": {
+    "src/prototype/resident_init_prefix.clj": "23f891ab3597e0e3fd0c9b5cae0bb7e733dce3897bb37de0391ce8ac197b6bd4",
+    "test/prototype/resident_init_prefix_test.clj": "b399eb7be21e0b93b51c83607ca340ebd90dbd7ba9175b777339762c2bd4ab6c",
+    "research/RESIDENT_INIT_PREFIX.md": "ff6ec1f0447cd51b136cc046d76d0235e1f11b171141781d73a2fefb9f60cd20"
+  },
+  "focused": {
+    "tests": 6,
+    "assertions": 91,
+    "failures": 0,
+    "errors": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+        "-M",
+        "-e",
+        "(require (quote prototype.resident-init-prefix-test)) (let [r (clojure.test/run-tests (quote prototype.resident-init-prefix-test))] (System/exit (if (zero? (+ (:fail r) (:error r))) 0 1)))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 482676736,
+      "elapsed_seconds": 10.02
+    },
+    "log-sha256": "7c6be30fe36bca584c60bd30d4e0497b2d8eae579766f0020c07d1aafea1eb84"
+  },
+  "full-experimental-suite": {
+    "tests": 867,
+    "assertions": 89648,
+    "failures": 0,
+    "errors": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+        "-M",
+        "../../target/artifact-contract/resident-init-prefix/full-runtime-v1.clj"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 890556416,
+      "elapsed_seconds": 192.47
+    },
+    "log-sha256": "ac278bfad01d624b861fc4cf9df572c89c5f699bbac367c43313c3f95a8912eb",
+    "driver-sha256": "aff3feb566c5f4a7abdbcebf9da198a20fdb8234ff489d80c6287e56a4ac228b",
+    "driver-source": "(require '[clojure.test :as t]\n         'prototype.test-runner\n         'prototype.compact-kernel-projection-test\n         'prototype.compact-import-check-test\n         'prototype.source-file-typed-witness-test\n         'prototype.source-file-fork-receipt-test\n         'prototype.resident-source-test\n         'prototype.resident-import-test\n         'prototype.globals-overlay-test\n         'prototype.restore-consumer-test\n         'prototype.program-slot-cache-test\n         'prototype.resident-init-prefix-test)\n(let [r (t/run-all-tests #\"^prototype\\..*-test$\")]\n  (shutdown-agents)\n  (System/exit (if (zero? (+ (:fail r) (:error r))) 0 1)))\n"
+  },
+  "independent-review": {
+    "agent": "astra_campaign_review_v2",
+    "result": "passed, no blocking finding",
+    "source-and-test-hashes-reviewed": {
+      "src/prototype/resident_init_prefix.clj": "23f891ab3597e0e3fd0c9b5cae0bb7e733dce3897bb37de0391ce8ac197b6bd4",
+      "test/prototype/resident_init_prefix_test.clj": "b399eb7be21e0b93b51c83607ca340ebd90dbd7ba9175b777339762c2bd4ab6c"
+    },
+    "guide-reviewed-sha256-before-validation-count-append": "9f11a6dfc2bcb389102e97e48747dfbc3e20dafeca9da82c24ddade498bf84cf",
+    "review-scope": "Branch-local ownership, trusted original checked-result boundary, issued-object registry, executable/native identity checks, exact failure escrow, focused tests and explanatory guide. Reviewer ran no JVM."
+  },
+  "limits": [
+    "Focused fixture uses small verified native Store and actual fresh Java kernel checking, with explicitly modelled guest import helper bodies.",
+    "Actual full Init assembly, original Init certificate transfer and wrapper acceptance require a separate genuine runtime experiment.",
+    "No new over-Init source import API, full frontend portability or native performance claim.",
+    "Only optional experiment namespace, tests and documentation changed; no new Java/kernel behavior or packaging change."
+  ]
+}

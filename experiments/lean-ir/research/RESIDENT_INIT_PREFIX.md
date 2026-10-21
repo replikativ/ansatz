@@ -86,3 +86,14 @@ pre-execution checking and registry rejection, altered scaffold/native-range
 rejection, closed Sources, and adoption failure with owned evidence. They do not
 claim to execute Lean's full Init assembly/frontend. Genuine full-Init acceptance
 and the future over-Init import API require separate campaign evidence.
+
+Validation: the focused set passes **6 tests / 91 assertions** across reference,
+mutable and JVM backends. The complete experimental suite, including the optional
+consumer, publication/import, fork and register-sizing tests, passes **867 tests /
+89,648 assertions**. Both jobs exited 0 under a 512 MiB heap and 1 GiB RSS guard;
+the full suite took 192.47 seconds with 890,556,416 bytes peak group RSS. The
+[validation record](../measurements/resident-init-prefix-validation.json) retains
+source hashes, command/driver and guard receipts. Independent Astra source,
+ownership, test and documentation review found no blocking issue. Genuine full
+Init-prefix preparation/release acceptance remains pending; these tests do not
+replace it.
