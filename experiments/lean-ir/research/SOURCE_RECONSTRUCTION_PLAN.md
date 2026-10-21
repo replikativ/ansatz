@@ -241,6 +241,20 @@ retains accurate remaining ownership. This is an explicit successful transition,
 not automatic `finally` cleanup. Failures retain exact owner packets, not guessed
 cleanup.
 
+After all successful owner releases, Context adoption and return-value construction,
+the exhausted import control keeps only its issued identity, finished phase and
+descriptive accounting/audit. It drops obsolete private continuation snapshots,
+sessions, configuration and proof references. This changes host reachability only;
+it performs no additional guest release or Source close. Returned Contexts and
+borrowed input snapshots retain their existing ownership. Unfinished and failed
+controls keep their exact packets, and repeat advance/finish calls still reject.
+No retained-byte or hosted campaign speed improvement is inferred from this change.
+The [compaction record](../measurements/resident-control-compaction.json) separates
+the 38-test / 1,033-assertion focused run from the 934-test / 91,697-assertion
+composed runtime run with the heap-overlay fix. The latter includes the final
+packet-identity regression; the additional ordinary staged-import assertions
+were checked in the focused run.
+
 Callback provenance helpers use the raw handler's existing shared `:invoke`
 budget and failure poisoning. They must not open a fresh raw session or reset
 helper fuel. Post-publication proof helpers have a separate explicit aggregate

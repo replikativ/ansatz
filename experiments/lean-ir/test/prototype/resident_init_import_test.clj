@@ -158,9 +158,20 @@
             (is (identical? before (resident/snapshot context)))
             (is (false? @(:closed source)))
             (is (= 1 @finalizer-calls))
-            (is (some? (error-of #(sut/finish-import! control))))
-            (is (some? (error-of #(run-to-io! control))))
-            (resident/close! (:context result))))))))
+            ;; Exhausted controls remain issued and reject with the same public
+            ;; phase, without running another helper or changing either branch.
+            (doseq [attempt [#(sut/finish-import! control) #(run-to-io! control)]]
+              (let [error (error-of attempt)]
+                (is (some? error))
+                (is (= {:phase :finished} (ex-data error)))))
+            (is (= 1 @finalizer-calls))
+            (doseq [snapshot [before after]]
+              (let [called (raw/call (:session snapshot) (:world snapshot) ["answer"] [])]
+                (is (= 42 (:value called)))))
+            (is (identical? before (resident/snapshot context)))
+            (is (identical? after (resident/snapshot (:context result))))
+            (resident/close! (:context result))
+            (is (false? @(:closed source)))))))))
 
 (deftest header-policy-and-budget-bypasses-reject-before-assembly
   (doseq [change [#(assoc % :requestedImports [])
