@@ -185,17 +185,17 @@
                 :compatibility-profile profile/profile-id :catalogue {}
                 :bindings {"model" {:signature signature :handler identity}}}
         manifest {:binding-signatures {"model" signature}}]
-    (is (identical? result (private-call 'factory-result! result producer consumer manifest)))
+    (is (identical? result (private-call 'factory-result! result producer consumer profile/profile-id manifest)))
     (doseq [changed [(assoc result :producer-preparation (assoc producer :implementation-sha256 model-hash))
                      (assoc result :consumer-implementation-sha256 profile/producer-implementation-sha256)
                      (assoc result :compatibility-profile "unreviewed")
                      (assoc-in result [:bindings "model" :signature :return-type] "uint32")
                      (update result :bindings dissoc "model")]]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
-                           (private-call 'factory-result! changed producer consumer manifest))))
+                           (private-call 'factory-result! changed producer consumer profile/profile-id manifest))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid consumer factory result"
                          (private-call 'factory-result! (assoc result :implementation-sha256 profile/producer-implementation-sha256)
-                                       producer consumer manifest)))))
+                                       producer consumer profile/profile-id manifest)))))
 
 (deftest preserved-executable-authority-is-identity-sensitive
   (let [name ["str" ["anonymous"] "model"]
@@ -255,3 +255,86 @@
     (is (nil? @owned))
     (.close ^Closeable lease)
     (is (= [:first :second] @calls))))
+
+(def reconstruction-baseline-ids
+  ["prototype/imported_kernel.clj" "prototype/kernel_bridge.clj" "prototype/test_runner.clj"])
+(def reconstruction-inventory
+  (conj (reduce (fn [rows id] (changed rows id #(assoc % :sha256 model-hash)))
+                inventory reconstruction-baseline-ids)
+        {:id "prototype/resident_init_prefix.clj" :kind :host-source :sha256 model-hash}))
+(defn reconstruction-valid! [rows]
+  (profile/validate-reconstruction-inventory! recipe rows (profile/consumer-identity rows)))
+
+(deftest reconstruction-is-a-distinct-closed-inventory
+  (is (= 255 (count inventory)))
+  (is (= 256 (count reconstruction-inventory)))
+  (is (not= profile/profile-id profile/reconstruction-profile-id))
+  (is (identical? reconstruction-inventory (reconstruction-valid! reconstruction-inventory)))
+  ;; The old API keeps its original ID set and baseline hash contract.
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (valid! reconstruction-inventory)))
+  (doseq [id reconstruction-baseline-ids]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (valid! (changed inventory id #(assoc % :sha256 model-hash))))))
+  ;; The new contract never relaxes unrelated baseline or pinned substitutions.
+  (doseq [id ["prototype/raw_interop.clj" "prototype/machine.cljc"
+              "prototype/checkpoint_wire.clj" "ansatz/kernel/TypeChecker.class"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (reconstruction-valid! (changed reconstruction-inventory id #(assoc % :sha256 model-hash))))))
+  (doseq [id (map :id reconstruction-inventory)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                         (reconstruction-valid! (vec (remove #(= id (:id %)) reconstruction-inventory))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (reconstruction-valid! (conj reconstruction-inventory
+                                                   {:id "unreviewed/extra.clj" :kind :host-source :sha256 model-hash}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"role drift"
+                       (reconstruction-valid! (changed reconstruction-inventory "prototype/resident_init_prefix.clj"
+                                                       #(assoc % :kind :host-resource)))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"digest mismatch"
+                       (profile/validate-reconstruction-inventory!
+                         recipe reconstruction-inventory (profile/consumer-identity inventory)))))
+
+(deftest closed-authentication-rejects-before-resource-acquisition
+  (let [calls (atom [])
+        resolver (fn [id] (swap! calls conj id) (throw (AssertionError. "Must reject before resource lookup")))
+        options (fn [rows]
+                  {:producer-preparation producer :producer-recipe-source recipe-source
+                   :producer-resolve-artifact resolver :store-root "unused-model-store"
+                   :consumer-inventory rows
+                   :expected-consumer-implementation-sha256 (profile/consumer-identity rows)
+                   :loaded-consumer-implementation-sha256 (profile/consumer-identity rows)
+                   :consumer-resolve-source resolver})]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                         (profile/authenticate! (options reconstruction-inventory))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (profile/authenticate-reconstruction!
+                           (options (changed reconstruction-inventory "prototype/machine.cljc"
+                                             #(assoc % :sha256 model-hash))))))
+    (doseq [authenticate [profile/authenticate! profile/authenticate-reconstruction!]
+            extra [{:compatibility-profile "invented"} {:substitutions #{"anything"}} {:authenticator identity}]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options"
+                           (authenticate (merge (options reconstruction-inventory) extra)))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fresh loaded-consumer attestation"
+                         (profile/authenticate-reconstruction!
+                           (assoc (options reconstruction-inventory)
+                                  :loaded-consumer-implementation-sha256 profile/producer-implementation-sha256))))
+    (is (empty? @calls))))
+
+(deftest restore-captures-known-profile-and-requires-exact-returned-profile
+  ;; Read-only model checks at the same pre-resource descriptor gate used by
+  ;; restore!. No opaque factory is fabricated and no guest owner is allocated.
+  (let [consumer (profile/consumer-identity reconstruction-inventory)
+        description {:producer-preparation producer :consumer-implementation-sha256 consumer}
+        result (assoc description :catalogue {} :bindings {})
+        manifest {:binding-signatures {}}]
+    (doseq [id [profile/profile-id profile/reconstruction-profile-id]]
+      (is (= id (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer)))
+      (is (= id (:compatibility-profile
+                  (private-call 'factory-result! (assoc result :compatibility-profile id) producer consumer id manifest))))
+      (doseq [other ["unknown" nil (if (= id profile/profile-id) profile/reconstruction-profile-id profile/profile-id)]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
+                             (private-call 'factory-result! (assoc result :compatibility-profile other)
+                                           producer consumer id manifest)))))
+    (doseq [id ["unknown" nil]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"capability identity mismatch"
+                           (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer))))))

@@ -305,8 +305,10 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
-  (let [consumer-description (compatibility/authenticate! options)
+  [profile reconstruction? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
+  (let [consumer-description (if reconstruction?
+                               (compatibility/authenticate-reconstruction! options)
+                               (compatibility/authenticate! options))
         expected-preparation producer-preparation
         resolve-artifact producer-resolve-artifact
         recipe (:catalogue-recipe expected-preparation)
@@ -405,18 +407,28 @@
    identities. No guest steps, initializer replay, Java association or source close."
   [factory parsed]
   ((:invoke (capability! factory)) parsed))
-(defn make-factory
+(defn- issue-factory
   "Authenticate the archived producer separately from this actual consumer.
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [options]
+  [reconstruction? options]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile options)
+        invoke (make-factory* profile reconstruction? options)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile compatibility/profile-id}]
+                     :compatibility-profile (if reconstruction? compatibility/reconstruction-profile-id compatibility/profile-id)}]
     (let [factory (Factory.)]
       (locking issued-factories
         (.put issued-factories factory {:descriptor description :invoke invoke}))
       factory)))
+
+(defn make-factory
+  "Issue the original closed globals consumer capability with exact captured options."
+  [options]
+  (issue-factory false options))
+(defn make-reconstruction-factory
+  "Issue the separately named closed reconstruction consumer capability. Producer
+   recipe/archive and option contract are identical to make-factory."
+  [options]
+  (issue-factory true options))

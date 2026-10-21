@@ -1,0 +1,21 @@
+;; Complete JVM runtime campaign suite. LLVM/Pattern integration remains optional.
+;; Supply the authenticated consumer-support source and compact-projection Java
+;; classes on the classpath, as for the other restored-runtime campaign checks.
+(require '[clojure.test :as t]
+         'prototype.test-runner
+         'prototype.compact-kernel-projection-test
+         'prototype.compact-import-check-test
+         'prototype.source-file-typed-witness-test
+         'prototype.source-file-fork-receipt-test
+         'prototype.resident-source-test
+         'prototype.resident-import-test
+         'prototype.globals-overlay-test
+         'prototype.restore-consumer-test
+         'prototype.program-slot-cache-test
+         'prototype.resident-init-prefix-test
+         'prototype.resident-init-import-test
+         'prototype.typed-extern-test)
+
+(let [result (t/run-all-tests #"^prototype\..*-test$")]
+  (shutdown-agents)
+  (System/exit (if (zero? (+ (:fail result) (:error result))) 0 1)))
