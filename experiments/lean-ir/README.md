@@ -21,6 +21,17 @@ Checkpoint consumers use the separately named
 `make-runtime-ops-reconstruction-factory` and its exact ops-table mutable source pin.
 The original globals and reconstruction profile IDs keep their original pins.
 
+The [net-zero heap fix](research/HEAP_OVERLAY_NET_DIRTY.md) has a separate consumer:
+`make-heap-net-dirty-reconstruction-factory`, with profile
+`ansatz-producer50f-heap-net-dirty-reconstruction-consumer/1`. It adds only the
+exact reviewed `HeapOverlay.java` source substitution to the existing ops and
+reconstruction contract. All three older profiles retain their original heap
+source requirement. Actual outer/nested class bytes still require an externally
+accepted consumer digest and a fresh trusted launcher's loaded-code attestation.
+Modeled compatibility regressions do not replace that genuine constructor gate.
+The [validation record](measurements/heap-consumer-compatibility.json) records the
+focused and comprehensive suite results and their exact source/class hashes.
+
 From this directory, reproduce with the normal experiment classpath after preparing
 the Java classes described below:
 
