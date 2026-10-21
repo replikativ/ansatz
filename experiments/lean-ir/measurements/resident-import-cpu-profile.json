@@ -1669,5 +1669,744 @@
     "elapsed_seconds": 3.23,
     "guest-stage-invocations": 0
   },
-  "analysis-review": "Independent Astra verified actual-code filtering by sampledThread Java ID and name, category accounting, bounds and actual output. Broad guest-dispatch category includes runtime helpers/map construction; counts are not dispatch-loop cost or wall-time shares."
+  "analysis-review": "Independent Astra verified actual-code filtering by sampledThread Java ID and name, category accounting, bounds and actual output. Broad guest-dispatch category includes runtime helpers/map construction; counts are not dispatch-loop cost or wall-time shares.",
+  "sample-detail": {
+    "schema": "ansatz-resident-import-jfr-sample-detail/1",
+    "recording-sha256": "4a982b4f57f93b7eba2083340e52e02047d0247d75ad06393595eec1361a2549",
+    "thread-filter": {
+      "name": "clojure-agent-send-off-pool-3",
+      "java-id": 38
+    },
+    "selected-sample-counts": {
+      "jdk.ExecutionSample": 1640
+    },
+    "inclusive-count-warning": "Groups overlap: one sample can include thaw, slot sizing, overlay and register frames. Do NOT sum these groups.",
+    "inclusive-group-rules": [
+      {
+        "group": "thaw-entry",
+        "class-names": [
+          "prototype.mutable$thaw"
+        ]
+      },
+      {
+        "group": "thaw-heap",
+        "class-prefixes": [
+          "prototype.mutable$thaw_heap"
+        ]
+      },
+      {
+        "group": "thaw-node",
+        "class-prefixes": [
+          "prototype.mutable$thaw_node"
+        ]
+      },
+      {
+        "group": "freeze-entry",
+        "class-names": [
+          "prototype.mutable$freeze"
+        ]
+      },
+      {
+        "group": "freeze-heap",
+        "class-prefixes": [
+          "prototype.mutable$freeze_heap"
+        ]
+      },
+      {
+        "group": "freeze-node",
+        "class-prefixes": [
+          "prototype.mutable$freeze_node"
+        ]
+      },
+      {
+        "group": "heap-overlay",
+        "class-prefixes": [
+          "prototype.heap_overlay"
+        ]
+      },
+      {
+        "group": "storage-proof-hints",
+        "class-prefixes": [
+          "prototype.heap_hint",
+          "prototype.heap_snapshot"
+        ]
+      },
+      {
+        "group": "register-restoration",
+        "class-prefixes": [
+          "prototype.mutable$restored_registers",
+          "prototype.mutable$registers",
+          "prototype.mutable$bindings"
+        ]
+      },
+      {
+        "group": "frame-join-conversion",
+        "class-prefixes": [
+          "prototype.mutable$frame_in",
+          "prototype.mutable$frame_out",
+          "prototype.mutable$joins_in",
+          "prototype.mutable$joins_out"
+        ]
+      },
+      {
+        "group": "ref-construction-functions",
+        "class-prefixes": [
+          "prototype.machine$__GT_Ref",
+          "prototype.machine$map__GT_Ref"
+        ]
+      },
+      {
+        "group": "ref-record-methods",
+        "class-prefixes": [
+          "prototype.machine.Ref"
+        ]
+      },
+      {
+        "group": "ref-type-tests",
+        "class-prefixes": [
+          "prototype.machine$ref_QMARK_"
+        ]
+      },
+      {
+        "group": "runtime-value-adapter",
+        "class-prefixes": [
+          "prototype.mutable$runtime_value_BANG_"
+        ]
+      },
+      {
+        "group": "runtime-primitive-evaluator",
+        "class-prefixes": [
+          "prototype.runtime_prim$evaluate"
+        ]
+      },
+      {
+        "group": "mutable-step-loop",
+        "class-prefixes": [
+          "prototype.mutable$step_BANG_",
+          "prototype.mutable$run_BANG_"
+        ]
+      },
+      {
+        "group": "mutable-expression-evaluation",
+        "class-prefixes": [
+          "prototype.mutable$expr_BANG_"
+        ]
+      },
+      {
+        "group": "mutable-call-dispatch",
+        "class-prefixes": [
+          "prototype.mutable$call_BANG_",
+          "prototype.mutable$call_values_BANG_"
+        ]
+      },
+      {
+        "group": "mutable-retain-release",
+        "class-prefixes": [
+          "prototype.mutable$retain_BANG_",
+          "prototype.mutable$release_BANG_"
+        ]
+      },
+      {
+        "group": "mutable-heap-node-access",
+        "class-prefixes": [
+          "prototype.mutable$node",
+          "prototype.mutable$heap_put_BANG_",
+          "prototype.mutable$heap_remove_BANG_"
+        ]
+      }
+    ],
+    "inclusive-groups": {
+      "jdk.ExecutionSample": {
+        "mutable-step-loop": 899,
+        "freeze-heap": 9,
+        "freeze-entry": 298,
+        "mutable-expression-evaluation": 636,
+        "register-restoration": 7,
+        "runtime-value-adapter": 582,
+        "mutable-retain-release": 71,
+        "thaw-entry": 262,
+        "runtime-primitive-evaluator": 452,
+        "storage-proof-hints": 8,
+        "thaw-heap": 13,
+        "ref-type-tests": 1,
+        "mutable-heap-node-access": 103,
+        "frame-join-conversion": 4,
+        "mutable-call-dispatch": 120
+      }
+    },
+    "nearest-application-by-original-category": {
+      "readiness-traversal": [
+        {
+          "frame": {
+            "class": "prototype.resident_frontend$valid_context_BANG_",
+            "line": 53
+          },
+          "sample-presence-count": 12
+        },
+        {
+          "frame": {
+            "class": "prototype.eval_const$check_function_closure_BANG_",
+            "line": 103
+          },
+          "sample-presence-count": 11
+        },
+        {
+          "frame": {
+            "class": "prototype.import_ir$static_targets$add_target__3775",
+            "line": 225
+          },
+          "sample-presence-count": 8
+        },
+        {
+          "frame": {
+            "class": "prototype.import_ir$static_targets",
+            "line": 234
+          },
+          "sample-presence-count": 6
+        },
+        {
+          "frame": {
+            "class": "prototype.eval_const$check_function_closure_BANG_",
+            "line": 102
+          },
+          "sample-presence-count": 4
+        },
+        {
+          "frame": {
+            "class": "prototype.eval_const$check_function_closure_BANG_",
+            "line": 106
+          },
+          "sample-presence-count": 4
+        },
+        {
+          "frame": {
+            "class": "prototype.import_ir$static_targets",
+            "line": 229
+          },
+          "sample-presence-count": 4
+        },
+        {
+          "frame": {
+            "class": "prototype.import_ir$static_targets",
+            "line": 228
+          },
+          "sample-presence-count": 3
+        },
+        {
+          "frame": {
+            "class": "prototype.import_ir$validate_manifest_BANG_",
+            "line": 118
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.resident_frontend$adoption_readiness_BANG_",
+            "line": 109
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.import_ir$static_targets",
+            "line": 231
+          },
+          "sample-presence-count": 1
+        }
+      ],
+      "slot-sizing": [
+        {
+          "frame": {
+            "class": "prototype.slot_count$cached_function_slots",
+            "line": 63
+          },
+          "sample-presence-count": 53
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$measure$fn__3910",
+            "line": 89
+          },
+          "sample-presence-count": 18
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$cached_function_slots",
+            "line": 64
+          },
+          "sample-presence-count": 14
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count.proxy$java.lang.ref.WeakReference$ff19274a",
+            "line": -1
+          },
+          "sample-presence-count": 7
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$measure",
+            "line": 88
+          },
+          "sample-presence-count": 7
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$cached_function_slots$fn__3894",
+            "line": 64
+          },
+          "sample-presence-count": 2
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$local_slots",
+            "line": 110
+          },
+          "sample-presence-count": 2
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$cached_function_slots",
+            "line": 50
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$cached_function_slots",
+            "line": 48
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.slot_count$cached_function_slots",
+            "line": 51
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$function_slots",
+            "line": 110
+          },
+          "sample-presence-count": 1
+        }
+      ],
+      "thaw-freeze": [
+        {
+          "frame": {
+            "class": "prototype.mutable$freeze",
+            "line": 226
+          },
+          "sample-presence-count": 288
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$thaw",
+            "line": 217
+          },
+          "sample-presence-count": 145
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$freeze_heap$fn__4146",
+            "line": 184
+          },
+          "sample-presence-count": 7
+        },
+        {
+          "frame": {
+            "class": "prototype.heap_hint$standard_map_QMARK_",
+            "line": 13
+          },
+          "sample-presence-count": 6
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$thaw_heap",
+            "line": 147
+          },
+          "sample-presence-count": 5
+        },
+        {
+          "frame": {
+            "class": "prototype.heap_hint$storage_node_QMARK_",
+            "line": 16
+          },
+          "sample-presence-count": 2
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$ids_slots",
+            "line": 41
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$thaw",
+            "line": 221
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$freeze_heap",
+            "line": 183
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$freeze_heap$fn__4146",
+            "line": 188
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$bindings",
+            "line": 35
+          },
+          "sample-presence-count": 1
+        }
+      ],
+      "guest-dispatch": [
+        {
+          "frame": {
+            "class": "prototype.mutable$runtime_value_BANG_",
+            "line": 383
+          },
+          "sample-presence-count": 129
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$node",
+            "line": 249
+          },
+          "sample-presence-count": 30
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 327
+          },
+          "sample-presence-count": 28
+        },
+        {
+          "frame": {
+            "class": "prototype.machine$native_reference_QMARK_",
+            "line": 27
+          },
+          "sample-presence-count": 25
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$call_values_BANG_",
+            "line": 483
+          },
+          "sample-presence-count": 24
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable.Machine",
+            "line": 18
+          },
+          "sample-presence-count": 20
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$call_BANG_",
+            "line": 586
+          },
+          "sample-presence-count": 19
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$numeric",
+            "line": 239
+          },
+          "sample-presence-count": 16
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 358
+          },
+          "sample-presence-count": 16
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 323
+          },
+          "sample-presence-count": 15
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 351
+          },
+          "sample-presence-count": 14
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 325
+          },
+          "sample-presence-count": 14
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 343
+          },
+          "sample-presence-count": 13
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 336
+          },
+          "sample-presence-count": 12
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 332
+          },
+          "sample-presence-count": 12
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$expr_BANG_",
+            "line": 433
+          },
+          "sample-presence-count": 11
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 341
+          },
+          "sample-presence-count": 11
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_string$remember_valid_BANG_$fn__491",
+            "line": 115
+          },
+          "sample-presence-count": 11
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 348
+          },
+          "sample-presence-count": 10
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 319
+          },
+          "sample-presence-count": 10
+        },
+        {
+          "frame": {
+            "class": "prototype.module_store.Store",
+            "line": 51
+          },
+          "sample-presence-count": 10
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 337
+          },
+          "sample-presence-count": 9
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$heap_put_BANG_",
+            "line": 127
+          },
+          "sample-presence-count": 9
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$bump_BANG_",
+            "line": 23
+          },
+          "sample-presence-count": 9
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$step_BANG_",
+            "line": 636
+          },
+          "sample-presence-count": 9
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 349
+          },
+          "sample-presence-count": 8
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 368
+          },
+          "sample-presence-count": 8
+        },
+        {
+          "frame": {
+            "class": "prototype.runtime_prim$evaluate",
+            "line": 340
+          },
+          "sample-presence-count": 8
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$step_BANG_",
+            "line": 637
+          },
+          "sample-presence-count": 7
+        },
+        {
+          "frame": {
+            "class": "prototype.mutable$step_BANG_",
+            "line": 638
+          },
+          "sample-presence-count": 7
+        }
+      ],
+      "other": [
+        {
+          "frame": {
+            "class": "prototype.program_install$install",
+            "line": 200
+          },
+          "sample-presence-count": 50
+        },
+        {
+          "frame": {
+            "class": "prototype.program_install$install$fn__5248",
+            "line": 331
+          },
+          "sample-presence-count": 23
+        },
+        {
+          "frame": {
+            "class": "prototype.program_install$install",
+            "line": 331
+          },
+          "sample-presence-count": 10
+        },
+        {
+          "frame": {
+            "class": "prototype.imported_kernel$reusable_projection_sources",
+            "line": 66
+          },
+          "sample-presence-count": 9
+        },
+        {
+          "frame": {
+            "class": "prototype.eval_const$code_registry",
+            "line": 271
+          },
+          "sample-presence-count": 8
+        },
+        {
+          "frame": {
+            "class": "prototype.imported_kernel$reusable_projection_sources$fn__6583",
+            "line": 66
+          },
+          "sample-presence-count": 4
+        },
+        {
+          "frame": {
+            "class": "prototype.eval_const$authorize_source_transitions$fn__5350",
+            "line": 154
+          },
+          "sample-presence-count": 2
+        },
+        {
+          "frame": {
+            "class": "prototype.module_import$module_string",
+            "line": 45
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$metrics",
+            "line": 53
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.machine$release",
+            "line": 108
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$metrics",
+            "line": 56
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.machine$heap_dissoc",
+            "line": 52
+          },
+          "sample-presence-count": 1
+        },
+        {
+          "frame": {
+            "class": "prototype.module_store.Store",
+            "line": 51
+          },
+          "sample-presence-count": 1
+        }
+      ],
+      "abi-scan": [
+        {
+          "frame": {
+            "class": "prototype.raw_interop$open_functions",
+            "line": 62
+          },
+          "sample-presence-count": 13
+        }
+      ]
+    },
+    "jfr-truncated-stack-samples": 298,
+    "full-detail-local-path": "target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.detail.json",
+    "full-detail-sha256": "5a917b0ad9f23738b22412233a5989304a2c527bcf092eeffc25a6febd1992b2"
+  },
+  "detail-analysis-guard": {
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M",
+      "-e",
+      "(do (load-file \"../../target/artifact-contract/full-init-next/full-run-oct20/resident-import-jfr-detail-v1.clj\") (println (pr-str ((ns-resolve (quote prototype.resident-import-jfr-detail-v1-oct21) (quote analyze!)) \"/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.receipt.json\" \"/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.detail.json\"))) (System/exit 0))"
+    ],
+    "command-cwd": "experiments/lean-ir",
+    "analysis-source-sha256": "8f827d96431f0bcb2250c4d4e1c90bc4732e7b496994fbdf14bf10b353adb810",
+    "preflight-memavailable-bytes": 12012003328,
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 378486784,
+    "elapsed_seconds": 3.63,
+    "guest-stage-invocations": 0
+  },
+  "detail-analysis-review": "Independent Astra actual-code/output review passed for this recording: 288 freeze-line226 and 145 thaw-line217 are nearest observed application-frame counts, not self time. Detail class/line tables pool event types, but all 1640 selected samples here are Java execution samples with zero selected native samples; do not generalize pooled tables across differing rates."
 }

@@ -180,3 +180,24 @@ then rerun the same fork/import/call workload. ABI scans and readiness traversal
 remain measurable candidates, but this trial does not make them the dominant
 whole-workflow cost. A core implementation change requires a new authenticated
 runtime identity and an explicit checkpoint compatibility decision.
+
+
+A separate offline refinement of the same immutable recording localizes 288 of
+the 458 thaw/freeze-category samples to `freeze` line 226 (globals to persistent
+map), and 145 to `thaw` line 217 (globals to HashMap), using the nearest observed
+application frame. These are not self-time measurements; JVM frames can appear
+above that application frame. The overlapping function-presence counts include only nine
+`freeze-heap` and thirteen `thaw-heap` samples. This strengthens the case for
+measuring a globals base-plus-delta representation first. Within the broad guest
+runtime category, 582 samples contain `runtime-value!` and 452 contain the
+primitive evaluator; these overlapping counts must not be summed. All capture
+and attribution limitations above still apply.
+
+The globals experiment must preserve the current Java HashMap key relation.
+Direct persistent-map lookup/association can treat numeric keys or nested name
+segments differently (for example boxed Integer versus Long); globals also use
+synthetic IO-key vectors. Reuse an equality-preserving overlay or retain a
+conservative conversion fallback for unsupported maps. Preserve initializing,
+recursive initialization, IO success/error and reference-ownership behavior, as
+well as independent fork snapshots. Performance hints must not change checking
+or binding authority.
