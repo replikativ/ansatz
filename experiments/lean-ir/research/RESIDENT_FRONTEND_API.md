@@ -273,13 +273,15 @@ checks. Do not infer a signature from a Clojure function or reinterpret an unkno
 extern as a host call. Protect bootstrap/kernel/import/compiler capabilities from
 incidental replacement; distinguish application extern configuration explicitly.
 
-Raw handlers remain responsible for their owned arguments/results, as in the
-successful identity capability. A later typed host-handler adapter may decode
-borrowed views and encode returned host values, but it needs a separate policy
-for consuming owned arguments, transferring existing guest values and callback
-failure checkpoints. Do not silently release a transferred result as an input,
-or treat a borrowed Ref as a new owner. Reuse the actual raw callback scope for
-guest reentry; no global current-world variable or escaping synchronous callback.
+Raw handlers remain responsible for their owned arguments/results. The optional
+[Nat/String typed adapter](TYPED_EXTERNS.md) accepts explicit ABI, codec and
+ownership descriptors. It decodes borrowed semantic values, independently encodes
+the host result, then consumes each owned input occurrence once. Borrowed
+positions cause no decrement; an owned alias may release the same header after
+decoding. It preserves actual raw callback scope and terminal failure ownership
+packets. Existing guest Ref transfer, IO, bytes and closures need separate
+contracts; they are not inferred or accepted by this adapter. Guest reentry still
+uses the actual raw callback scope, without an escaping synchronous callback.
 
 `prototype.interop/call` has useful codec code but a different session model:
 it starts calls from `:initial-world` and its existing host lowering is narrower.
