@@ -1,0 +1,238 @@
+{
+  "schema": "source-reconstruction-ordering/1",
+  "date": "2026-10-21",
+  "base-commit": "3d58e57",
+  "status": "passed focused receipt/ordering controls, default runner classpath load and full experimental suite; reconstruction capability is proposed only",
+  "scope": "Source-derived staged-finalizer ordering model, completed-model Java checking/receipt control and real evalConst witness/raw transport negative. No genuine imported-macro failure or new execution authority.",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source-sha256": {
+    "test/prototype/source_reconstruction_test.clj": "94fc904c92a855757b6b1b191c88ea270b134c060eb341c76dda7c6826fe23fc",
+    "test/prototype/resident_init_import_test.clj": "36088d15452bd662bb8f1dc58c1ca58245c97c116d8efb77e94513b807a7b89a",
+    "src/prototype/test_runner.clj": "6db3e50e6f49525c56af08d2e3a7edf97266db2dfefd41b7526acd9cd2d58863",
+    "research/SOURCE_RECONSTRUCTION_PLAN.md": "81394017bfaf6ec2b6b0698fdffd05f4e5920cd6877eac0394cb4e4866bb23b9",
+    "research/INITIALIZER_RUNTIME_CONTRACT.md": "fce2b5e8b033e4ed85c577ca303fd7532834943ede50910c9fc6c67a22225f5c"
+  },
+  "unchanged-authority-source-sha256": {
+    "src/prototype/source_import.clj": "300817550f1d95f8006af320d619178948cda63a18be719425cc5790c193ab4c",
+    "src/prototype/eval_const.clj": "81bcbf9d38b2105c6165e1b42609908757adc09a2686f05ec48195bb94be91be",
+    "src/prototype/resident_init_prefix.clj": "5c39b2d07e5cedc7d987e9c7272e1a9e6a3ab192b53dc9324e04143ca25a2738"
+  },
+  "regressions": [
+    {
+      "test": "imported-source-transition-before-finalizer-completion-has-no-final-receipt",
+      "profile": "All3 backends; real staged operation and raw callback with modeled finalizer/source row and complete18 CI values (17 native +1 A).",
+      "result": "Denies before completed finalizer IO/receipt, preserves exact child checkpoint/session, no kernel association or source receipt manufactured. Repeated finish/advance rethrow same terminal failure without replay; original Context unchanged and Source open.",
+      "model-boundary": "Local row and per-name unit/digest membership are deliberately supplied by the test fixture; they are not independent evidence of actual emitted macro code."
+    },
+    {
+      "test": "completed-target-checking-alone-does-not-replace-the-source-import-receipt",
+      "profile": "All3 backends; complete modeled staged finalizer and fresh real Java checking of18 CIs via normal finish.",
+      "result": "Remove only A source import receipt from the otherwise identical checked target: authorization denies. Restore exact original receipt: authorization succeeds. Heap and kernel association owners unchanged."
+    },
+    {
+      "test": "real-evalconst-witness-transport-still-requires-explicit-source-authority",
+      "profile": "All3 backends; actual raw evalConst callback, validated witness parsing/static closure and admitted local compiler unit, no source publication/import receipt.",
+      "result": "Invokes unchanged completed-import authorizer exactly once with actual selected/local rows and original unit; denies imported transition and retains canonical checkpoint/session without changing unit authority."
+    }
+  ],
+  "focused-combined": {
+    "artifact": "focused-ordering-v4.json",
+    "raw-sha256": "b9942498d509a9d25de2a693d205438d6f032de25f3cd44393a6b9f4151c1aa3",
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+        "-M",
+        "-e",
+        "(require (quote prototype.source-reconstruction-test) (quote prototype.resident-init-import-test) (quote prototype.source-import-authorization-test)) (let [r (clojure.test/run-tests (quote prototype.source-reconstruction-test) (quote prototype.resident-init-import-test) (quote prototype.source-import-authorization-test))] (System/exit (if (zero? (+ (:fail r) (:error r))) 0 1)))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 514310144,
+      "elapsed_seconds": 15.03
+    },
+    "log-sha256": "379fd1e4a1c8a82a392db98b14ce269a34f92328d6759dc90f069bc64cd13898",
+    "tests": 21,
+    "assertions": 535,
+    "failures": 0,
+    "errors": 0,
+    "namespaces": [
+      "prototype.source-reconstruction-test",
+      "prototype.resident-init-import-test",
+      "prototype.source-import-authorization-test"
+    ]
+  },
+  "corrected-ordering-control": {
+    "artifact": "focused-ordering-v3.json",
+    "raw-sha256": "632c86941c6b2a3fee264794e67acbe30f3cf5e9d18842a15141c5e174d4c976",
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+        "-M",
+        "-e",
+        "(require (quote prototype.source-reconstruction-test)) (let [r (clojure.test/run-tests (quote prototype.source-reconstruction-test))] (System/exit (if (zero? (+ (:fail r) (:error r))) 0 1)))"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 491098112,
+      "elapsed_seconds": 13.06
+    },
+    "log-sha256": "1003f4eec9c54703f16ffc4e4963a2186ac9cb749fe4d8dcd2bfb7c31baee52e",
+    "tests": 2,
+    "assertions": 72,
+    "failures": 0,
+    "errors": 0
+  },
+  "default-runner-load": {
+    "artifact": "default-runner-load-v1.json",
+    "raw-sha256": "4c913778c84aea69034c26e908b94db73bb0fec0f3a3c638f1eef76f01bd82a5",
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-M",
+        "-e",
+        "(require (quote prototype.test-runner)) (println {:new-test-loaded (boolean (find-ns (quote prototype.source-reconstruction-test))) :scope :ordinary-experiment-classpath-load-only}) (shutdown-agents)"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 569290752,
+      "elapsed_seconds": 25.05
+    },
+    "log-sha256": "4ea0c7031257df390afbb7fb78861e4db83910cfe571f15f57872dd93faf559e",
+    "result": {
+      "new-test-loaded": true,
+      "scope": "ordinary experiment classpath load only; no tests executed in this command"
+    },
+    "registration": "New source-reconstruction-test appears in both default require and explicit run-tests lists. Existing optional suites are not swept into those lists; new test dependencies load normally without TypedLongMemo/support paths."
+  },
+  "full-experimental-suite": {
+    "artifact": "full-runtime-v1.json",
+    "raw-sha256": "72b45a870cfc43a2825d42571e9705dc0579b002b3eb02ccaf43bf84c0480398",
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+        "-M",
+        "../../target/artifact-contract/source-reconstruction/full-runtime-v1.clj"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 976543744,
+      "elapsed_seconds": 176.34
+    },
+    "log-sha256": "e2430917d9f0e0a358d46c35c96cdd4bf04ac15608778d8b67aca09300142717",
+    "tests": 892,
+    "assertions": 90162,
+    "failures": 0,
+    "errors": 0,
+    "driver_artifact": "full-runtime-v1.clj",
+    "driver_sha256": "6ed4073aa30c60b4269e8c058c84e2cfb0b2c378d0b87393f77484f44330eb25",
+    "scope": "Prior full driver889 tests plus3 new regressions; uses recorded optional class/support paths. Distinct from the default-runner load-only check."
+  },
+  "historical-attempts": [
+    {
+      "artifact": "focused-ordering-v1.json",
+      "raw-sha256": "af0fd0495a5c7837a71465bb229834bc99412dff1de04b225f41de96ffb62ef5",
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx512m",
+          "-J-Xss8m",
+          "-Sdeps",
+          "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+          "-M",
+          "-e",
+          "(require (quote prototype.source-reconstruction-test)) (let [r (clojure.test/run-tests (quote prototype.source-reconstruction-test))] (System/exit (if (zero? (+ (:fail r) (:error r))) 0 1)))"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 451960832,
+        "elapsed_seconds": 15.04
+      },
+      "log-sha256": "8720f9f6e22ce8ab7ff41cde26a269ab01077a9bc4606b756e34ffe6b3a53b12",
+      "outcome": "Passed1test51assertions, but fixture omitted per-name unit-digest association, so rejection occurred too early. Invalid evidence for receipt-cycle dependence; superseded by corrected controls."
+    },
+    {
+      "artifact": "focused-ordering-v2.json",
+      "raw-sha256": "636f70e71adb99642b2b796d8c58733f2605d5adc09dc5e6e878e98e3345bcc0",
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx512m",
+          "-J-Xss8m",
+          "-Sdeps",
+          "{:paths [\"../../target/consumer-support/src\" \"target/compact-projection-classes\" \"src\" \"test\"]}",
+          "-M",
+          "-e",
+          "(require (quote prototype.source-reconstruction-test)) (let [r (clojure.test/run-tests (quote prototype.source-reconstruction-test))] (System/exit (if (zero? (+ (:fail r) (:error r))) 0 1)))"
+        ],
+        "exit_code": 1,
+        "guard_stop": null,
+        "peak_rss_bytes": 497291264,
+        "elapsed_seconds": 12.02
+      },
+      "log-sha256": "9901aff619bee6dad4280a3c76e39a275813d274dd1d518dfaf242c0f64cec29",
+      "outcome": "Two tests/72 assertions ran with3 positive-control failures and0 errors: missing per-name unit-digest fixture mapping prevented expected completed-receipt authorization. Corrected fixture only, no production authority workaround; v3/v4/full pass."
+    }
+  ],
+  "helper-inventory": {
+    "artifact": "reconstruction-helper-inventory-v1.json",
+    "raw-sha256": "aa8f6a72fba6358108ae10f207964d226056ac8bab09bc5131f506230f90dae1",
+    "scope": "Read-only streaming inspection of pinned immutable catalogue, authenticated bootstrap function archive and helper overlay source artifacts; no JVM or native exporter executed for this inventory.",
+    "declaration-index": {
+      "sha256": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+      "entries": 375258,
+      "full-file-hash-verified": true,
+      "method": "Streaming JSON declaration entries; individual selected content-addressed rows bounded to 2MiB and checked against their hashes."
+    },
+    "bootstrap-archive": {
+      "sha256": "21acd0e8e735f46232dcb64ea3071600a2b2b0973167d46517e91b0db58b8129",
+      "functions": 311523,
+      "full-file-hash-verified": true,
+      "method": "Streamed line records and decoded exact function names; no full archive world deserialization."
+    },
+    "findings": [
+      "Public Environment.header/imports/allImportedModuleNames/getModuleIdxFor?/toKernelEnv are actual archived functions, not inferred merely from Lean names. Factory verifies every archived function then includes that base in its independent trusted registry.",
+      "Environment.const2ModIdx has exact pinned catalogue IR but is not in the bootstrap executable archive. This inventory does not claim it is in later reconstructed closure; it may be explicitly linked from existing trusted catalogue without new native export.",
+      "No exact Lean.Environment.isExporting or its boxed adapter appears in the streamed declaration index or executable archive. Helper overlay scan also found no such root. A tiny explicit witness is needed if this predicate is required.",
+      "KernelBridgeShim.checkedKernelRoot/checkedConstantMapRoot/checkedConstants/checkedQuotInit are explicit factory helper roots in existing authenticated overlays. They inspect the checked private kernel environment rather than provisional frontend declarations.",
+      "getModuleIdxFor? selects env.base through the isExporting visibility flag; it is not interchangeable with the complete checked private const2ModIdx map.",
+      "toKernelEnv and const2ModIdx consume their Env argument according to exported ABI. Retain an owned caller Env first or use existing borrowed bridge helpers. Other listed unboxed public getters borrow their Env."
+    ],
+    "pinned-source-semantics": {
+      "Environment.lean:614": "Environment.isExporting : Bool",
+      "Environment.lean:617-618": "VisibilityMap.get selects public iff isExporting",
+      "Environment.lean:633-637": "imports and allImportedModuleNames read actual header fields",
+      "Environment.lean:648-650": "toKernelEnv returns env.checked.get",
+      "Environment.lean:737-739": "const2ModIdx returns toKernelEnv.const2ModIdx",
+      "Environment.lean:1195-1197": "getModuleIdxFor? reads env.base.get env const2ModIdx"
+    },
+    "admission": "Read-only inventory, not new helper admission or capability implementation. Required isExporting witness is a separate follow-up."
+  },
+  "independent-review": {
+    "agent": "astra_campaign_review_v2",
+    "test-and-proposed-API-contract": "Passed; distinguishes staged ordering, receipt-only removal/restore and complementary real witness transport. Original-publication correspondence and actual accessor admission explicitly unresolved. Reviewer ran no JVM.",
+    "final-evidence-review": "Passed: source/document and unchanged authority hashes, six original guards/logs, full driver, helper inventory, suite counts, default registration, proposal linkage and historical fixture limitations independently verified. Reviewer ran no JVM.",
+    "reviewer-jvm-execution": false
+  },
+  "limits": [
+    "No new execution permission, prefix binding expansion, reconstruction capability or initializer runtime implementation. Existing source/evalConst/prefix authority sources unchanged.",
+    "The target18CI check is a real Java kernel check over explicit small guest models, not full native Init reconstruction or imported macro execution.",
+    "No authentic imported macro unit was emitted by these tests; manually supplied local row/unit membership is a fixture contract.",
+    "No genuine imported-macro failure is recorded. Upstream source establishes the possible pre-return evalConst ordering; actual local macro success is separate in native-local-macro-runtime.json.",
+    "No full native/exporter/JVM frontend process or heavy kernel/Mathlib verification was run for this regression work. The guarded512MiB test jobs reuse byte-identical Java classes/support and preserve the borrowed source lease within fixtures.",
+    "Original projection/reference proof, selected-view witness admission, private issued profile implementation, full negative ownership/budget coverage and a fresh genuine initializer-free macro A-to-B gate remain follow-up work."
+  ]
+}
