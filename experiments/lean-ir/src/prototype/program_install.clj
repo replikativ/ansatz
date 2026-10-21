@@ -8,7 +8,8 @@
             [prototype.machine :as m]
             [prototype.runtime-abi :as abi]
             [prototype.runtime-prim :as prim]
-            [prototype.walk :as walk]))
+            [prototype.walk :as walk]
+            [prototype.slot-count :as slots]))
 
 (defn- name! [n]
   (loop [p n]
@@ -160,7 +161,7 @@
                  (assoc name (assoc f :init-target target)))
              (-> (add! functions target (dissoc f :global-role))
                  (assoc name (with-meta (assoc f :body [:global name target]) (meta f))))))
-         (assoc functions name f))) old-functions new-functions)))
+         (assoc functions name f))) {} new-functions)))
 
 (defn install
   "Install NEW compiled IR in an immutable idle world. Options:
@@ -173,7 +174,9 @@
   :research-traps? explicitly admit unknown externs as named execution traps.
   Returns :world, :boxed-entrypoints, and ordered :pending-local-initializers.
   Pending actions contain :call-target and :completion-key. No guest code runs;
-  caller must execute and record completed IO actions explicitly."
+  caller must execute and record completed IO actions explicitly. Final added
+  functions/wrappers also undergo eager register sizing validation; malformed
+  trusted lowerer output is rejected independently of execution-cache state."
   ([world bundle] (install world bundle {}))
   ([world bundle {:keys [catalogue protected-names completed-local-actions research-traps? existing-signatures lower-extern]
                  :or {completed-local-actions #{}}}]
@@ -295,10 +298,11 @@
              (when-not (= (count (:params (get all name))) (count (:params (get all boxedTarget))))
                (m/fail "Compiled boxed entry point arity mismatch" {:name name :boxed-target boxedTarget})))
          reserved (into protected (keys (:declarations candidate)))
-         functions (wrap-new-globals old new-functions (:globals world) reserved)
-         [functions pending]
+         new-functions (wrap-new-globals old new-functions (:globals world) reserved)
+         functions (merge old new-functions)
+         [functions pending new-functions]
          (reduce
-          (fn [[functions pending] {:keys [action] :as planned}]
+          (fn [[functions pending added] {:keys [action] :as planned}]
             (when-not (map? action) (m/fail "Malformed compiled initializer action" {}))
             (let [key (if (= "io" (:kind action))
                         [:prototype.initialization/io (:name action)] (:name action))
@@ -307,7 +311,7 @@
               (when (and present? (not ready?))
                 (m/fail "Compiled action has incomplete prior initialization" {:action action :key key}))
             (if (or (contains? completed-local-actions action) ready?)
-              [functions pending]
+              [functions pending added]
               (let [kind (:kind action) name (:name action)
                     _ (name! name)
                     target (case kind
@@ -323,12 +327,17 @@
                                 functions)]
                 (when-not (and (get functions target) (empty? (:params (get functions target))))
                   (m/fail "Compiled initializer action target arity mismatch" {:name name :target target}))
-                [functions (conj pending (assoc planned :call-target target :completion-key action))]))))
-          [functions []] (:actions plan))]
+                [functions (conj pending (assoc planned :call-target target :completion-key action))
+                 (if (= "io" kind) (assoc added target (get functions target)) added)]))))
+          [functions [] new-functions] (:actions plan))
+         ;; This constructor sees EVERY final wrapper, after all action rewrites.
+         ;; It can propagate an existing sizing proof without trusting this map
+         ;; or a caller-supplied width; code admission above remains independent.
+         functions (slots/append-functions old new-functions)]
      {:world (assoc world :functions functions)
       :boxed-entrypoints (into {} (map (juxt :name :boxedTarget)) entries)
       :pending-local-initializers pending
-      :new-functions (select-keys functions (remove #(contains? old %) (keys functions)))
+      :new-functions new-functions
       :initialization-plan plan :manifest manifest})))
 
 (defn install-at-host-boundary

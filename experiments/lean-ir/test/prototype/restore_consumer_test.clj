@@ -25,7 +25,9 @@
   (vec (concat
          (for [row (:build-inventory recipe)
                :when (not (contains? profile/excluded-producer-sources (:id row)))]
-           (if (= "prototype/mutable.clj" (:id row)) (assoc row :sha256 profile/mutable-sha256) row))
+           (if-let [sha (get (assoc profile/program-substitutions "prototype/mutable.clj" profile/mutable-sha256)
+                            (:id row))]
+             (assoc row :sha256 sha) row))
          (for [[id kind] (sort-by key profile/added-inputs)]
            {:id id :kind kind :sha256 (if (= id "src-java/ansatz/runtime/GlobalsOverlay.java")
                                       profile/globals-source-sha256 model-hash)}))))
@@ -72,6 +74,9 @@
                        (valid! (changed inventory "prototype/mutable.clj" #(assoc % :sha256 model-hash)))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"globals overlay source"
                        (valid! (changed inventory "src-java/ansatz/runtime/GlobalsOverlay.java" #(assoc % :sha256 model-hash)))))
+  (doseq [id (keys profile/program-substitutions)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"program sizing implementation"
+                         (valid! (changed inventory id #(assoc % :sha256 model-hash))))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"digest mismatch"
                        (profile/validate-inventory! recipe inventory profile/producer-implementation-sha256))))
 

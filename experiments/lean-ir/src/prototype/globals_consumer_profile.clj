@@ -9,11 +9,14 @@
             [prototype.checkpoint-wire :as wire])
   (:import [java.nio.charset StandardCharsets]))
 
-(def profile-id "ansatz-producer50f-globals-overlay-consumer/1")
+(def profile-id "ansatz-producer50f-globals-overlay-consumer/2")
 (def producer-implementation-sha256 "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849")
 (def producer-recipe-sha256 "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70")
 (def mutable-sha256 "64e2ecdaec7708d3041b9260af41ed32d2d8cdeb87ee268e0ddeb2928d569188")
 (def globals-source-sha256 "440cc5132b27cd5b65f58240d7620ac21ecfb01f3959a3c89d619e5aa16fe9bb")
+(def program-substitutions
+  {"prototype/slot_count.clj" "fc679048c071613ed1c7c0b6d4a28a0bae15a138452657ab6f37cfad2eddea7e"
+   "prototype/program_install.clj" "c69df77e5b85a7894759bcdce715aaf0b0eac1cb24ea57e22660ce1f3d56a9b4"})
 (def excluded-producer-sources
   #{"prototype/finalizer_checkpoint.clj" "prototype/full_init_checkpoint_factory.clj"})
 (def added-inputs
@@ -82,8 +85,11 @@
     (wire/check (= (set (keys required)) (set (keys by-id))) "Consumer selected-input inventory drift")
     (doseq [[id kind] required]
       (wire/check (= kind (get-in by-id [id :kind])) "Consumer input role drift"))
-    (doseq [{:keys [id sha256]} baseline :when (not= id "prototype/mutable.clj")]
+    (doseq [{:keys [id sha256]} baseline
+            :when (and (not= id "prototype/mutable.clj") (not (contains? program-substitutions id)))]
       (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved consumer substitution"))
+    (doseq [[id sha256] program-substitutions]
+      (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved program sizing implementation"))
     (wire/check (= mutable-sha256 (get-in by-id ["prototype/mutable.clj" :sha256]))
                 "Unapproved mutable consumer implementation")
     (wire/check (= globals-source-sha256 (get-in by-id ["src-java/ansatz/runtime/GlobalsOverlay.java" :sha256]))
