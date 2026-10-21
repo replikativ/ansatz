@@ -26,8 +26,8 @@
 (def options {:kernel-policy {:allow-axioms? true :allow-unsafe? true} :budgets budgets})
 (defn error-of [f] (try (f) nil (catch clojure.lang.ExceptionInfo e e)))
 
-(defn with-fixture [backend f & {:keys [header-change assembly-error? finalizer-error? omit-source? throw-finalizer? bad-adoption? world-transform finalizer-hook]
-                               :or {header-change identity world-transform identity}}]
+(defn with-fixture [backend f & {:keys [header-change assembly-error? finalizer-error? omit-source? throw-finalizer? bad-adoption? world-transform finalizer-hook configure]
+                               :or {header-change identity world-transform identity configure identity}}]
   (prefix-model/with-fixture backend
     (fn [{:keys [context checked native-bindings configuration source] :as base}]
       (let [original (resident/snapshot context)
@@ -84,7 +84,7 @@
                                ((:checkpoint! ctx) world)
                                ((:switch-backend! ctx) world :mutable)
                                (throw (ex-info "Exact child callback failure" {:fixture-child-failure? true}))))
-                           (if finalizer-error?
+                           (if (if (fn? finalizer-error?) (finalizer-error?) finalizer-error?)
                              (let [[world message] (m/resource world "finalizer-error")]
                                (m/allocate world :ctor 1 [message]))
                              (source-model/final-result world values)))
@@ -112,6 +112,9 @@
             functions (merge (:functions (:world original)) (:functions (:world registered)) helpers
                              {frontend/header-target header-function})
             world (assoc (:world registered) :functions functions)
+            configured (configure {:world world :functions functions :native native :hybrid hybrid})
+            world (:world configured) functions (:functions configured)
+            native (:native configured) hybrid (:hybrid configured)
             config (cond-> {:trusted-functions functions :trusted-bindings hybrid}
                      bad-adoption? (assoc :kernel-helpers (assoc imports/helpers :root adoption-root)))
             prepared (assoc original :world world :session (raw/open-functions functions hybrid {:backend backend :fuel 1000000}))
