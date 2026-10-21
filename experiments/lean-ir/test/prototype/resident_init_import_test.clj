@@ -26,8 +26,8 @@
 (def options {:kernel-policy {:allow-axioms? true :allow-unsafe? true} :budgets budgets})
 (defn error-of [f] (try (f) nil (catch clojure.lang.ExceptionInfo e e)))
 
-(defn with-fixture [backend f & {:keys [header-change assembly-error? finalizer-error? omit-source? throw-finalizer? bad-adoption?]
-                               :or {header-change identity}}]
+(defn with-fixture [backend f & {:keys [header-change assembly-error? finalizer-error? omit-source? throw-finalizer? bad-adoption? world-transform finalizer-hook]
+                               :or {header-change identity world-transform identity}}]
   (prefix-model/with-fixture backend
     (fn [{:keys [context checked native-bindings configuration source] :as base}]
       (let [original (resident/snapshot context)
@@ -37,6 +37,7 @@
             [world type] (guest/ctor world 3 [level] 8)
             [world body] (guest/ctor world 3 [guest/nil-tag] 8)
             [world answer] (guest/declaration world "answer" type body)
+            world (world-transform world)
             compiled (assoc compiled :world world)
             exporter (source-model/ordinary-invoke root)
             export-invoke (fn [world target args]
@@ -74,8 +75,10 @@
                                    [world assembly] (m/allocate (m/retain world region 1) :ctor 0 [state imports region])]
                                (m/allocate world :ctor 0 [assembly]))))
                          (= target (:finalize source/helpers))
-                         (let [[state imports] args world (-> world (m/release state 1) (m/release imports 1))]
-                           (swap! finalizer-calls inc)
+                         (let [[state imports] args
+                               _ (swap! finalizer-calls inc)
+                               world (if finalizer-hook (finalizer-hook ctx world values) world)
+                               world (-> world (m/release state 1) (m/release imports 1))]
                            (when throw-finalizer?
                              (let [world (assoc world :fixture-child-checkpoint true)]
                                ((:checkpoint! ctx) world)

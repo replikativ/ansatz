@@ -113,7 +113,10 @@ replayed. This value action initializes the closed wrapper, not macro registrati
 
 Imported macro/attribute reconstruction and edited-module fork isolation remain
 future gates. Local macro success does not resolve imported evalConst authority
-during extension reconstruction before final checking. Value initialization for
+during extension reconstruction before final checking. The
+[scoped reconstruction plan](SOURCE_RECONSTRUCTION_PLAN.md) records focused
+ordering/receipt controls and the proposed distinct profile without changing
+current permission. Value initialization for
 imported named globals, custom attributes and newly registered extensions also
 remains separate. The complete retained campaign process later exited 0 without
 a guard stop; semantic Context/Source cleanup was not performed or verified.
