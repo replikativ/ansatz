@@ -125,5 +125,12 @@ The [validation record](../measurements/resident-init-import-validation.json)
 retains source hashes, guards, command/driver and additive experiment-loader
 checks. The existing native Init prefix is separately exercised by the
 [actual prefix acceptance](../measurements/native-init-prefix-runtime.json).
-Genuine end-to-end B-over-Init+A acceptance remains a separate pending gate;
-these model-helper tests do not replace it.
+Separate [genuine B-over-Init+A acceptance](../measurements/native-init-import-runtime.json)
+now passes: A publication, 77 cooperative finalizer slices, fresh whole-map
+checking with an A-only receipt, B loading without diagnostics, Nat and Unicode
+calls, and a retained A call in the B descendant. Original inputs remain unchanged
+and the borrowed Source stays open. The finalizer executed 300,115,656 guest steps;
+its instrumented driver took 828.6 seconds, followed by 148.2 seconds for completion
+and checking. These are acceptance timings with a diagnostic JFR interval, not a
+matched performance comparison. Contexts and the native lease remain retained;
+this run does not claim cleanup or general dependency resolution.

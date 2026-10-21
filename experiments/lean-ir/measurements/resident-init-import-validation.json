@@ -1,11 +1,11 @@
 {
   "schema": "resident-init-import-validation/1",
   "date": "2026-10-21",
-  "status": "focused/full regression and additive extension probe passed; actual end-to-end B-over-Init+A acceptance pending",
+  "status": "focused/full regression, additive extension and genuine end-to-end B-over-Init+A acceptance passed",
   "source-sha256": {
     "src/prototype/resident_init_prefix.clj": "5c39b2d07e5cedc7d987e9c7272e1a9e6a3ab192b53dc9324e04143ca25a2738",
     "test/prototype/resident_init_import_test.clj": "b258196b5c6b521d521fe8c4ec1b48c58e4dcdaa811aa411d9900db2536b93f5",
-    "research/RESIDENT_INIT_IMPORT.md": "d561cc23a3152d79fb6f416afc72aab413e089e3ed93f1adf211f652f54a5a42",
+    "research/RESIDENT_INIT_IMPORT.md": "d29fe7de762cf32fcb98468d4740f101027eec4d026e05ff54dc752388578099",
     "research/RESIDENT_INIT_PREFIX_PLAN.md": "9f0c4e1e41ce3cc35c50c6a5369d834c99d1c0bb32817492c24e68402f5fefc9"
   },
   "focused": {
@@ -151,8 +151,9 @@
   "limits": [
     "Focused fixtures use small verified native Store and actual fresh Java checking, with explicitly modelled frontend/import helper bodies.",
     "Finalizer attempt charges cover completed execution operations; per-call setup/checking helper fuel and Java checker fuel are separate from that aggregate. Slice wall limit is only checked between operations.",
-    "Native Init-prefix acceptance is separately recorded in native-init-prefix-runtime.json; this record does not yet establish genuine end-to-end B-over-Init+A acceptance.",
+    "Native Init-prefix acceptance is separately recorded in native-init-prefix-runtime.json; genuine end-to-end B-over-Init+A acceptance is separately recorded in native-init-import-runtime.json. Model-helper regression alone does not establish that gate.",
     "Borrowed Source/native Store lifetime remains external; no initializer replay, cleanup/rollback authority or automatic lease closure.",
     "Only optional experiment source/tests/docs change. No new Java/kernel or packaging behavior."
-  ]
+  ],
+  "runtime-acceptance-record": "native-init-import-runtime.json"
 }
