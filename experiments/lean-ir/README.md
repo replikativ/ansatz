@@ -29,6 +29,9 @@ reconstruction contract. All three older profiles retain their original heap
 source requirement. Actual outer/nested class bytes still require an externally
 accepted consumer digest and a fresh trusted launcher's loaded-code attestation.
 Modeled compatibility regressions do not replace that genuine constructor gate.
+The separate [fresh captured campaign](measurements/source-reconstruction-retention-runtime.json)
+now passes this constructor gate with zero guest steps, native leases and archive
+invocations; strict Init checking is recorded separately.
 The [validation record](measurements/heap-consumer-compatibility.json) records the
 focused and comprehensive suite results and their exact source/class hashes.
 
@@ -112,14 +115,23 @@ over-Init import preparation, finalization and fresh checking. Its distinct
 original checked source publication for callbacks during finalization, before the
 completed target receipt exists. Focused tests use actual raw evalConst transport
 and small real Java checks with modeled frontend/finalizer bodies. A separate
-[hosted original-branch receipt](measurements/source-reconstruction-hosted-runtime.json)
-now passes actual initializer-free macro A publication, callbacks during imported
-finalization, fresh completion checking and B Nat/Unicode calls. Edited A also
-publishes, but its import stops at the controller's 128-slice limit before IO,
-fresh checking or B. The full edited-branch/interleave gate remains unestablished;
-a separate original-B recall after that stop still passes. The owned process exits
-0 without an outer guard stop, which does not establish guest-owner or Source
-cleanup. Existing completed-import authorization keeps its receipt requirement.
+[earlier hosted receipt](measurements/source-reconstruction-hosted-runtime.json)
+passes the original macro A→B branch; its edited import stops at the controller's
+128-slice limit and its process later exits 0. That evidence remains unchanged.
+A [fresh authenticated campaign](measurements/source-reconstruction-retention-runtime.json)
+uses the distinct heap consumer, successful-control compaction, consistent session
+fuel and a predeclared 1,024-slice bound. It passes fresh checking of all 65,994
+Init declarations, the actual helper/prefix gate, original initializer-free macro
+publication, callbacks before finalizer completion, fresh source checking and
+B Nat41/Unicode calls with retained A behavior. The edited sibling also completes
+import and fresh checking; byte-identical B returns Nat42 and doubled Unicode
+with zero diagnostics. Twenty calls include retained old/new/old A and B handles,
+with both branch inputs unchanged. Both successful controls are compacted. The
+process exits 0 without a guard stop; its roughly 86-minute lifetime includes
+retained REPL idle and checking/GC work, so this is not a speed measurement.
+Backend comparison remains unexecuted because its postpass resource gates fail.
+No Source close or guest-owner cleanup is inferred from process disposal.
+Existing completed-import authorization keeps its receipt requirement.
 
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety

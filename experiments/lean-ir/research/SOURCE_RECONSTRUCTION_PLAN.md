@@ -20,15 +20,29 @@ acceptance. A separate composed regression at `d7595b3`, after integrating the
 optional facade and pure source-graph planner, passes **931 tests / 91,594 assertions**. This adds
 no genuine graph or edited-branch acceptance.
 
-The [current hosted receipt](../measurements/source-reconstruction-hosted-runtime.json)
-now records a passed original A→B macro branch on the frozen `742d8e49…` consumer:
-fresh Init checking, actual initializer-free publication and imported callbacks,
-fresh import completion checking, B compilation, and Nat/Unicode calls. The
-edited-A sibling publication also passes, but its import stops at the fixed
-128-slice controller limit. A separate original-B recall after that stop passes
-with unchanged input/issuer identities. Edited import completion, checking, B and
-the full original/edited interleave remain **unestablished**. The owned process
-has exited successfully; no failed attempt was resumed.
+The [earlier hosted receipt](../measurements/source-reconstruction-hosted-runtime.json)
+records the original A→B macro branch on consumer `742d8e49…`. Its edited import
+stops at the fixed 128-slice controller limit; independent original-B recall
+passes afterward. That process exits successfully, and no failed attempt resumes.
+Those terminal facts remain historical evidence.
+
+The [fresh retention campaign](../measurements/source-reconstruction-retention-runtime.json)
+uses consumer `fd08d79d…` at `2479410`, with the exact heap-net-dirty profile and
+successful-control compaction. It passes the genuine constructor gate, fresh
+checking of 65,994 Init declarations, the one-call/five-step/one-release helper
+gate, original macro publication/import/checking, B Nat41/Unicode calls and
+retained A behavior. The edited sibling also completes finalizer IO and fresh
+checking, then compiles byte-identical B with zero diagnostics, Nat42 and doubled
+Unicode. Both actual macro-rule primary names are requested before completion;
+audit counts are successful row authorizations, not macro invocation counts.
+Twenty calls include twelve old/new/old retained A/B calls with unchanged inputs.
+Both controls have descriptive finished tombstones. This narrow original/edited
+macro gate now **passes**. The owned process exits 0 with no outer guard stop;
+backend comparison is not loaded/executed because its lifetime/RSS gates fail.
+The roughly 86-minute process lifetime includes REPL idle and checking/GC work.
+No controlled performance, retained-byte, Source-close or guest-cleanup claim is
+established. Later imported-kernel allocation/lifetime changes are outside this
+captured source; they do not explain this run's results.
 
 ## What is established
 
@@ -249,7 +263,9 @@ it performs no additional guest release or Source close. Returned Contexts and
 borrowed input snapshots retain their existing ownership. Unfinished and failed
 controls keep their exact packets, and repeat advance/finish calls still reject.
 No retained-byte or hosted campaign speed improvement is inferred from this change.
-The [compaction record](../measurements/resident-control-compaction.json) separates
+The [fresh hosted record](../measurements/source-reconstruction-retention-runtime.json)
+adds bounded observations of both actual completed import controls; it
+does not measure retained bytes. The [compaction record](../measurements/resident-control-compaction.json) separates
 the 38-test / 1,033-assertion focused run from the 934-test / 91,697-assertion
 composed runtime run with the heap-overlay fix. The latter includes the final
 packet-identity regression; the additional ordinary staged-import assertions
@@ -294,9 +310,12 @@ not a sandbox against reflective host mutation of private registries or heaps.
    reservations, source closure, observer/helper errors, finalizer IO errors,
    current-policy fresh check rejection and adoption failures without early
    associations or receipts.
-5. The original genuine A→B branch now passes. A separate fresh bounded campaign
-   must still establish edited-A import completion and byte-identical B behavior,
-   then full old/new/old interleaving. The terminal edited attempt cannot resume.
+5. The fresh genuine original/edited A→B macro campaign now passes import,
+   checking, byte-identical B behavior and old/new/old interleaving. General
+   dependency resolution, source initializers and backend performance remain
+   separate gates. The earlier terminal edited attempt cannot resume.
+
+### Earlier `742d8e49…` campaign
 
 The [hosted original-branch receipt](../measurements/source-reconstruction-hosted-runtime.json)
 records five actual A units with empty action inventories and two discovered
