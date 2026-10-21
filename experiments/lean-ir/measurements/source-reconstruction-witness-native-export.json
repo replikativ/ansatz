@@ -1,0 +1,334 @@
+{
+  "schema": "source-reconstruction-witness-native-export/1",
+  "date": "2026-10-21",
+  "status": "passed isolated pinned native export; not admitted into hosted runtime",
+  "purpose": "Supply the missing actual Environment.isExporting visibility predicate for a future reviewed import-reconstruction capability, without changing current authorization.",
+  "base-commit": "3d58e57",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source": {
+    "path": "lean/SourceReconstructionWitness.lean",
+    "sha256": "2d028f90d50ce2ca812c27c80a8cd9a806ce1670fb655c0541e0b3ee449bb4e3",
+    "minimal-import": "Lean.Environment",
+    "semantics": "Read the public Environment.isExporting field through pinned Lean compilation. The source contains no hardcoded runtime offset."
+  },
+  "artifact": {
+    "path": "fixtures/source-reconstruction-witness.jsonl",
+    "sha256": "9d067007df4fa3a7a0d019009a76244cd0988a001f2a407f54660d510a2c078f",
+    "rows": 3,
+    "manifest": {
+      "exports": [],
+      "initializationPlan": {
+        "actions": [],
+        "imports": [
+          {
+            "meta": false,
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ]
+          },
+          {
+            "meta": true,
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "Init"
+            ]
+          },
+          {
+            "meta": false,
+            "module": [
+              "str",
+              [
+                "str",
+                [
+                  "anonymous"
+                ],
+                "Lean"
+              ],
+              "Environment"
+            ]
+          }
+        ],
+        "kind": "initialization-plan",
+        "module": [
+          "str",
+          [
+            "anonymous"
+          ],
+          "SourceReconstructionWitness"
+        ],
+        "moduleSystem": false,
+        "schema": "lean-init-plan/1"
+      },
+      "kind": "manifest",
+      "leanVersion": "4.33.1",
+      "modules": [],
+      "runtimeProfile": {
+        "target": "x86_64-unknown-linux-gnu",
+        "wordBits": 64
+      },
+      "schema": "lean-ir-probe/1"
+    },
+    "unboxed": {
+      "name": "SourceReconstructionWitness.isExporting",
+      "params": [
+        {
+          "type": "object",
+          "borrow": true
+        }
+      ],
+      "result": "uint8",
+      "dependencies": []
+    },
+    "boxed": {
+      "name": "SourceReconstructionWitness.isExporting._boxed",
+      "params": [
+        {
+          "type": "object",
+          "borrow": false
+        }
+      ],
+      "result": "tagged",
+      "dependencies": [
+        "SourceReconstructionWitness.isExporting"
+      ]
+    },
+    "closure": "Exactly the two emitted local declarations; no missing rows, externs or additional dependencies. Both have exact sourceModule SourceReconstructionWitness and sourceLocal=true.",
+    "initializer-actions": []
+  },
+  "toolchain-provenance": {
+    "scope": "isolated-source-reconstruction-witness-export/1",
+    "environment": {
+      "PATH": "pinned-toolchain/bin:/usr/bin:/bin",
+      "LEAN_SYSROOT": "pinned-toolchain",
+      "LEAN_PATH": "pinned-toolchain/lib/lean",
+      "LD_LIBRARY_PATH": "pinned-toolchain/lib/lean",
+      "LEAN_NUM_THREADS": "1",
+      "LANG": "C.UTF-8"
+    },
+    "lean-githash": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "lean-version": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+    "lean-prefix": "pinned-toolchain",
+    "inputs": {
+      "witness-source": {
+        "path": "witness-experiment/experiments/lean-ir/lean/SourceReconstructionWitness.lean",
+        "sha256": "2d028f90d50ce2ca812c27c80a8cd9a806ce1670fb655c0541e0b3ee449bb4e3",
+        "bytes": 265
+      },
+      "exporter-binary": {
+        "path": "producer-experiment/target/lean-ir-export",
+        "sha256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+        "bytes": 231073528
+      },
+      "exporter-source": {
+        "path": "producer-experiment/lean/Export.lean",
+        "sha256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
+        "bytes": 10514
+      },
+      "exporter-generated-C": {
+        "path": "producer-experiment/target/Export.c",
+        "sha256": "a6b98647b80b14790b39d6b46202714beaf98d70af760fbbf461f481cf457558",
+        "bytes": 409060
+      },
+      "exporter-olean": {
+        "path": "producer-experiment/target/Export.olean",
+        "sha256": "daa53a763adc5c225b494a4f934b3f13a9b1b43e427970a997d185f627b51bad",
+        "bytes": 1427440
+      },
+      "exporter-build-script": {
+        "path": "witness-experiment/experiments/lean-ir/scripts/build-exporter.sh",
+        "sha256": "646c3be0b51253c045502b9210984a732e7e6192dd163b6f26a8fd2f4e3b3a7d",
+        "bytes": 454
+      },
+      "pinned-lean-executable": {
+        "path": "pinned-toolchain/bin/lean",
+        "sha256": "e8baaa71855a616dc351028f3ad2200051b0671f423a1696a100e809302d5550",
+        "bytes": 9024
+      },
+      "pinned-Lean.olean": {
+        "path": "pinned-toolchain/lib/lean/Lean.olean",
+        "sha256": "b6d86d9546713512afdbbaecee5fbc5355e06a30cd70a405f4fa061dce3d56a7",
+        "bytes": 6216
+      },
+      "pinned-Init.olean": {
+        "path": "pinned-toolchain/lib/lean/Init.olean",
+        "sha256": "9ed3667be31b6ce04b831418a8bc9e99c44804b8ddaf52f6ebbdebfd26d8409e",
+        "bytes": 5784
+      },
+      "pinned-Environment-source": {
+        "path": "pinned-toolchain/src/lean/Lean/Environment.lean",
+        "sha256": "ee364e4788ce0560c87f621eeb3c4c3dfec62e8db4e15e099fd80e6adc533b86",
+        "bytes": 137725
+      },
+      "pinned-Path-source": {
+        "path": "pinned-toolchain/src/lean/Lean/Util/Path.lean",
+        "sha256": "52cf9aa41a82db18d0d3c93bf6257d064f773af9e62b8b43be89ce1b0e00055f",
+        "bytes": 7382
+      },
+      "matching-installed-libLean.a": {
+        "path": "pinned-toolchain/lib/lean/libLean.a",
+        "sha256": "341abb242489224c46197e4ba7b6b7660ec0764a53aaf6fc8234368c8436c625",
+        "bytes": 315493554
+      },
+      "matching-installed-libInit.a": {
+        "path": "pinned-toolchain/lib/lean/libInit.a",
+        "sha256": "b77dbf30e0fcade67388aea9c7bae141b72361023150c77cb725871a898df4b3",
+        "bytes": 26476892
+      }
+    },
+    "exporter-DT_NEEDED": "\nDynamic section at offset 0x9aef0d8 contains 31 entries:\n  Tag        Type                         Name/Value\n 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]\n 0x0000000000000001 (NEEDED)             Shared library: [ld-linux-x86-64.so.2]\n 0x0000000000000001 (NEEDED)             Shared library: [libpthread.so.0]\n 0x0000000000000001 (NEEDED)             Shared library: [libdl.so.2]\n 0x0000000000000001 (NEEDED)             Shared library: [librt.so.1]\n 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]\n 0x000000006ffffffb (FLAGS_1)            Flags: PIE\n 0x0000000000000015 (DEBUG)              0x0\n 0x0000000000000007 (RELA)               0x1e227c0\n 0x0000000000000008 (RELASZ)             4045032 (bytes)\n 0x0000000000000009 (RELAENT)            24 (bytes)\n 0x000000006ffffff9 (RELACOUNT)          168526\n 0x0000000000000017 (JMPREL)             0x21fe0a8\n 0x0000000000000002 (PLTRELSZ)           8376 (bytes)\n 0x0000000000000003 (PLTGOT)             0x9aff810\n 0x0000000000000014 (PLTREL)             RELA\n 0x0000000000000006 (SYMTAB)             0x320\n 0x000000000000000b (SYMENT)             24 (bytes)\n 0x0000000000000005 (STRTAB)             0x7239bc\n 0x000000000000000a (STRSZ)              24112642 (bytes)\n 0x000000006ffffef5 (GNU_HASH)           0x591e40\n 0x0000000000000019 (INIT_ARRAY)         0x9808b98\n 0x000000000000001b (INIT_ARRAYSZ)       40 (bytes)\n 0x000000000000001a (FINI_ARRAY)         0x9808bc0\n 0x000000000000001c (FINI_ARRAYSZ)       24 (bytes)\n 0x000000000000000c (INIT)               0x9806464\n 0x000000000000000d (FINI)               0x980647c\n 0x000000006ffffff0 (VERSYM)             0x524228\n 0x000000006ffffffe (VERNEED)            0x591cc0\n 0x000000006fffffff (VERNEEDNUM)         5\n 0x0000000000000000 (NULL)               0x0\n",
+    "linkage-limitation": "ELF has no dynamic Lean/Init dependencies. Matching installed static archive hashes are context, not a reproducible-linkage proof for the existing exporter. Actual exporter manifest will corroborate compiled Lean version."
+  },
+  "native-result": {
+    "artifact": "attempt-v3/native-export-v1.json",
+    "raw-sha256": "5d56a9e39006f60297720842c5f471fc9b4bd48af213cbff68b714e8c8b4b52f",
+    "receipt": {
+      "observed-Lean-shared-objects": [],
+      "command": [
+        "producer-experiment/target/lean-ir-export",
+        "--source",
+        "lean/SourceReconstructionWitness.lean",
+        "--closure",
+        "--local",
+        "SourceReconstructionWitness"
+      ],
+      "exit_code": 0,
+      "elapsed-seconds": 0.7748942429998351,
+      "child-ru-maxrss-bytes": 309215232,
+      "explicit-environment": {
+        "PATH": "pinned-toolchain/bin:/usr/bin:/bin",
+        "LEAN_SYSROOT": "pinned-toolchain",
+        "LEAN_PATH": "pinned-toolchain/lib/lean",
+        "LD_LIBRARY_PATH": "pinned-toolchain/lib/lean",
+        "LEAN_NUM_THREADS": "1",
+        "LANG": "C.UTF-8"
+      },
+      "source-unmodified": true,
+      "old-exporter-unmodified": true,
+      "stdout-sha256": "9d067007df4fa3a7a0d019009a76244cd0988a001f2a407f54660d510a2c078f",
+      "stderr-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "mapped-files-summary": {
+      "scope": "The full mapped-file list remains in the raw hashed ignored native receipt; this tracked record projects it to bounded provenance evidence.",
+      "mapped-file-count": 3508,
+      "mapped-files-under-pinned-toolchain": 3500,
+      "mapped-files-outside-pinned-toolchain": [
+        "/etc/ld.so.cache",
+        "producer-experiment/target/lean-ir-export",
+        "/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2",
+        "/usr/lib/x86_64-linux-gnu/libc.so.6",
+        "/usr/lib/x86_64-linux-gnu/libdl.so.2",
+        "/usr/lib/x86_64-linux-gnu/libm.so.6",
+        "/usr/lib/x86_64-linux-gnu/libpthread.so.0",
+        "/usr/lib/x86_64-linux-gnu/librt.so.1"
+      ],
+      "normalized-list-sha256": "7ec325755f9479915a7495d7d45e360d4eef750a6e7f069508ab3de41ee13619",
+      "unexpected-Lean-library-tree-mappings": 0
+    }
+  },
+  "guard": {
+    "artifact": "attempt-v3/guard-v3.json",
+    "raw-sha256": "3b06ab29d82205c2b37f4413b2c6021e2e16d1810c2526b39d7117b53336dd91",
+    "receipt": {
+      "command": [
+        "python3",
+        "/tmp/ansatz-export-reconstruction-witness-v3.py"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 326545408,
+      "elapsed_seconds": 3.01
+    }
+  },
+  "resource-policy": {
+    "RSS-mib": 768,
+    "seconds": 120,
+    "minimum-system-available-mib": 1024,
+    "JVM-used": false
+  },
+  "historical-attempts": [
+    {
+      "description": "Initial full import Lean source exceeded 512MiB group RSS guard before export completion.",
+      "source-sha256": "4b17f129e3078092ac2af6ee1f507045588ff3ac1b01b4f1625ee8861d6757cf",
+      "source-copy": "attempt-v1-original-source.lean",
+      "source-copy-sha256": "4b17f129e3078092ac2af6ee1f507045588ff3ac1b01b4f1625ee8861d6757cf",
+      "preflight-sha256": "79fea2e5039826d06acc1f4c1973972b1487dbae94ac0e043eebf4180709d482",
+      "guard": {
+        "artifact": "guard-v1.json",
+        "raw-sha256": "fcb75ce08cc8be14424e8d1ec1621e13535116b9fcc330237b7f45e52966a36e",
+        "receipt": {
+          "command": [
+            "python3",
+            "/tmp/ansatz-export-reconstruction-witness.py"
+          ],
+          "exit_code": -15,
+          "guard_stop": "process group RSS exceeded configured limit",
+          "peak_rss_bytes": 588361728,
+          "elapsed_seconds": 17.04
+        }
+      },
+      "RSS-mib": 512
+    },
+    {
+      "description": "Second full import Lean source exceeded 768MiB group RSS guard before export completion. Preserved; not a supported export.",
+      "source-sha256": "4b17f129e3078092ac2af6ee1f507045588ff3ac1b01b4f1625ee8861d6757cf",
+      "source-copy": "attempt-v2/original-source.lean",
+      "source-copy-sha256": "4b17f129e3078092ac2af6ee1f507045588ff3ac1b01b4f1625ee8861d6757cf",
+      "preflight-sha256": "79fea2e5039826d06acc1f4c1973972b1487dbae94ac0e043eebf4180709d482",
+      "guard": {
+        "artifact": "attempt-v2/guard-v2.json",
+        "raw-sha256": "15dfd0f46d2d9d4e364432be49d2feeee32301dfeae681550c8f86a8dea64882",
+        "receipt": {
+          "command": [
+            "python3",
+            "/tmp/ansatz-export-reconstruction-witness-v2.py"
+          ],
+          "exit_code": -15,
+          "guard_stop": "process group RSS exceeded configured limit",
+          "peak_rss_bytes": 824762368,
+          "elapsed_seconds": 6.02
+        }
+      },
+      "RSS-mib": 768
+    }
+  ],
+  "resolution": "Import only Lean.Environment, which directly owns the required type/field. This preserves accessor semantics and lowers dependency footprint; the successful attempt retains the 768MiB RSS limit rather than raising it again.",
+  "ignored-controller-sha256": {
+    "export-controller-v1.py": "26712731778dde53470b13272019d3fa1bd852c795d24ed2fa9331aae40e3736",
+    "attempt-v2/export-controller-v2.py": "c27674d041a432664b075bc6df2a8bfe16cb263694ae0ba2d2b4030598981a1d",
+    "attempt-v3/export-controller-v3.py": "0c688fa840fc57f354817496ebfc0e792c08fbb183a55f0531b8b47f02bab068"
+  },
+  "input-preservation": {
+    "existing-exporter-unchanged": true,
+    "current-source-unchanged-during-successful-export": true,
+    "original-producer-artifacts": "Read only; neither exporter, Lean source/toolchain, old IR assets nor bootstrap/archive/store inputs were modified.",
+    "source-revision": "Only this new isolated source changed between attempts; the previous full-Lean bytes were saved beside both diagnostics before narrowing its import."
+  },
+  "helper-inventory": {
+    "ignored-record": "reconstruction-helper-inventory-v1.json in typed experiment target/artifact-contract/local-macro/",
+    "sha256": "aa8f6a72fba6358108ae10f207964d226056ac8bab09bc5131f506230f90dae1",
+    "summary": "Existing archived trusted public getters cover header/imports/allImportedModuleNames/getModuleIdxFor?/toKernelEnv; checked private map and complete CI helpers are explicit factory roots. Exact isExporting root is absent from existing catalogue/archive, motivating this tiny export.",
+    "const2ModIdx": "Exact existing catalogue IR is available but not in the base bootstrap archive; no claim that it is already in later trusted closure."
+  },
+  "normalization": "Only machine-specific witness/producer experiment roots and pinned toolchain prefix are replaced by role names in captured provenance/guard commands; raw hashes identify original ignored bytes.",
+  "validation": {
+    "source-and-ABI-plan": "approved independently by Astra before both full and reduced dependency attempts",
+    "actual-artifact-review": "passed: exact source/IR/closure/ownership ABI/empty actions, normalized provenance/native/guard receipts, bounded mapping projection and raw-list hash, controller/preserved source/toolchain/exporter/build-input hashes, portable recipe and no-hosted-admission limits; reviewer ran no JVM or native process",
+    "checks": "Actual manifest version/target/module/empty initialization actions, exact local name/sourceModule/borrow/result ABI, complete root/boxed dependency closure, empty stderr, preserved source/exporter and all recorded hashes."
+  },
+  "limits": [
+    "This is a native export artifact and source witness, not a hosted Ansatz import or executed JVM helper test.",
+    "No source execution permission, pre-finalization authorization, early import receipt, or CI provenance bypass is added. Future runtime use needs independent pinned closure/artifact preparation and actual capability checks.",
+    "Bool unboxed/boxed ABI is measured from emitted IR, not inferred from the source type alone.",
+    "The legacy exporter manifest contains Lean version/runtime ABI but no leanCommit field. Authority additionally rests on explicit toolchain githash, source/exporter hashes and approved host provenance; no self-contained manifest commit attestation is claimed.",
+    "The existing exporter statically links Lean; matching installed static archive hashes do not prove reproducible historical linkage. No dynamic Lean/Init shared libraries were observed in the successful child mappings.",
+    "Guard lifecycle includes provenance hashing/preflight; exporter elapsed time is separately recorded and is not a benchmark against Clojure or native Lean compilation.",
+    "Both earlier full-Lean attempts were RSS-guard terminations, not successful exports; their failures and exact source hashes remain recorded."
+  ]
+}
