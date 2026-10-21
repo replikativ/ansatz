@@ -100,10 +100,23 @@ Sources: [macro rules](https://github.com/leanprover/lean4/blob/819816b2e0a3bf40
 [local attribute execution](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/KeyedDeclsAttribute.lean#L163),
 [builtin registration](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/Compiler/InitAttr.lean#L149).
 
-The next ordinary macro acceptance case is therefore the existing
-`fixtures/hosted/OrdinaryMacro.lean` against a fully reconstructed Init Environment
-and initialized Lean compiler runtime. Value initializers are a separate gate for
-imported named globals, custom attributes and newly registered extensions.
+The [actual local macro acceptance](../measurements/native-local-macro-runtime.json)
+now passes against a retained descendant of genuinely reconstructed, freshly
+checked Init+A. It embeds the existing `OrdinaryMacro.lean` fixture in
+[`OrdinaryMacroLocal.lean`](../fixtures/hosted/OrdinaryMacroLocal.lean), adding the
+matching import header and a monomorphic Nat wrapper. Compilation produced zero
+diagnostics and three admitted units. The wrapper introduces one compiler value
+action, so the deferred call correctly stopped before guest invocation. A separate
+explicit `resident/initialize` operation on the already loaded unit followed by
+`resident/call` returned **42**; neither compilation nor a failed guest call was
+replayed. This value action initializes the closed wrapper, not macro registration.
+
+Imported macro/attribute reconstruction and edited-module fork isolation remain
+future gates. Local macro success does not resolve imported evalConst authority
+during extension reconstruction before final checking. Value initialization for
+imported named globals, custom attributes and newly registered extensions also
+remains separate. The complete retained campaign process later exited 0 without
+a guard stop; semantic Context/Source cleanup was not performed or verified.
 
 ## Guard coordination required before broader source imports
 
