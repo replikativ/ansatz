@@ -53,8 +53,9 @@ The full Mathlib store lives in the durable store root (`~/.local/share/ansatz/s
 `scripts/setup-mathlib.sh`); `(a/init! "mathlib")` resolves it there (`$ANSATZ_STORE_DIR`
 overrides the root — see ansatz.store). The store's branch is `"mathlib"`, not `"main"` —
 `rebuild-catalogue!`/`rebuild-instances!` need `:branch "mathlib"`. A store is versioned by its `manifest.edn` (`:store/format`); `init!`
-refuses another format and there is NO migration: re-run `./scripts/setup-mathlib.sh`, which runs
-Lean for the inputs and then `ansatz.import` (one pass produces the complete store). Node blobs
+reads the formats in `ansatz.store/readable-formats`; new imports use
+`ansatz.store/write-format`. Existing readable stores need no migration. Unsupported formats
+require an updated reader or re-import with `./scripts/setup-mathlib.sh`. Node blobs
 are content-addressed, so the same export always yields the same store.
 
 ### Setup

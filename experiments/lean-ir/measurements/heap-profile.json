@@ -1,0 +1,29 @@
+{
+  "workload": "200 executions of compiled map on 1000 unique nodes",
+  "measured_at": "2026-10-16T17:44:26.809079+00:00",
+  "selected_events": {
+    "jdk.ExecutionSample": 42,
+    "jdk.ObjectAllocationSample": 128
+  },
+  "allocation_sample_weight_by_class": {
+    "[Ljava/lang/Object;": 189996992,
+    "java/lang/Long": 161304080,
+    "clojure/lang/PersistentVector": 10997640,
+    "clojure/core$map$fn__5958": 3139960,
+    "java/util/HashMap": 2131496,
+    "java/util/concurrent/locks/ReentrantLock$NonfairSync": 2098752,
+    "clojure/lang/ArraySeq": 2094800,
+    "clojure/lang/LazySeq": 2092528,
+    "java/util/concurrent/locks/ReentrantLock": 1047416
+  },
+  "interpretation": "Sample weights are not total allocation counts; setup/startup stacks are filtered out. Truncated stacks can be omitted.",
+  "source_sha256": {
+    "src/prototype/heap_profile.clj": "f961d37dc23c1aef4bc609ed769692c2319d5d7d68632fb1adf27ce27d9cc9df",
+    "src/prototype/heap_examples.clj": "f6aad7aeca09aae813639a0c8bbeb6e4ddcc6ca4a4c0aebf9afbb5fbbb64b7e4",
+    "src/prototype/block_compile.clj": "8a90937a1cdd2bcf686c277ec1315efc60b19e87a2d40184c8ab27a696360248",
+    "src/prototype/mutable.clj": "8c4cfcc695f5270527bfda55f0676cb33d79e42bf9d24b7a4f392511398f924e",
+    "src/prototype/machine.cljc": "57335eb24362bebe87067cbcc4c728d7aff0f8f608e78ff60278d66dbed9962a",
+    "profile_heap.py": "ef2de02b9739e9bc7ffd577dcd385d0917d194eca0231296739a62492624359f"
+  },
+  "recording_sha256": "fab5d6ba0ec175da239767964433608f844fbf98290faa027a27b089f5cbe1f8"
+}

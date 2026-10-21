@@ -1,0 +1,50 @@
+{
+  "schema": "ansatz-hosted-file-interop-observation/1",
+  "lean_version": "4.33.1",
+  "lean_commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "source": "fixtures/hosted/PreludeInterop.lean",
+  "source_sha256": "9b04d0e5813759922d2dbbd5338ac8fac60e02777a30e5f1d1a596ca856ea8ba",
+  "compiled_ir": "fixtures/hosted/PreludeInterop.ir.jsonl",
+  "compiled_ir_sha256": "72689ce9effe1741b08b678a0d445a09a522c6ded541c8a36ade6859740a1890",
+  "backend": "mutable",
+  "pipeline": [
+    "actual source file read",
+    "guest frontend and strict Ansatz kernel admission",
+    "guest Lean compiler",
+    "ABI-checked source IR installation",
+    "Clojure calls boxed Lean interopAnswer",
+    "Lean calls Clojure ansatz_host_identity",
+    "value returned through Lean to Clojure"
+  ],
+  "native_per_input_compilation": false,
+  "preparation": "Completed pinned runtime bootstrap; actual empty logical environment with three compiler markers",
+  "result": 42,
+  "diagnostics": [],
+  "pending_initializers": 0,
+  "host_callback_calls_for_first_run": 1,
+  "extern_abi": {
+    "params": [
+      {
+        "ty": "erased",
+        "borrow": false
+      },
+      {
+        "ty": "tobject",
+        "borrow": false
+      }
+    ],
+    "return-type": "tobject"
+  },
+  "heap_payload_forks": {
+    "branches": 2,
+    "result_pointer_preserved": true,
+    "original_rc": 1,
+    "result_rc": 1
+  },
+  "elapsed_ms": 17144.106238,
+  "timing_scope": "Single development observation including source compilation and call, excludes bootstrap/preparation, concurrent Init import; not a benchmark",
+  "limitations": [
+    "Prelude polymorphic identity extern only; scalar/string/IO source-file combinations pending",
+    "Ordinary implicit Init files and hosted macros remain pending"
+  ]
+}

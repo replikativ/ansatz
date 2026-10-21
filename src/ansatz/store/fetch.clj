@@ -4,7 +4,7 @@
 
    A store is published once per IMPORT, not per ansatz release: its identity is the library
    tag, the store format and a revision of our own import — `mathlib-v4.33.1-f1`. An INDEX
-   (`stores.edn`) maps a store name and the format an ansatz build reads to the current id;
+   (`stores.edn`) maps a store name and a format an ansatz build reads to the current id;
    ansatz reads the index at fetch time, so a new import reaches existing users without a new
    ansatz release. The index bundled in the jar is the offline fallback, never the authority.
 
@@ -70,10 +70,33 @@
         (bundled)
         (throw (ex-info "no store index available (no network and none bundled)" {})))))
 
+(defn- entry-metadata [entry format store-name]
+  (let [provenance (:provenance entry)
+        top-tag? (contains? entry :library/tag)
+        nested-tag? (contains? provenance :library/tag)]
+    (when (and top-tag? nested-tag?
+               (not= (:library/tag entry) (:library/tag provenance)))
+      (throw (ex-info "Published store entry has conflicting library tags"
+                      {:store (name store-name) :format format
+                       :library/tag (:library/tag entry)
+                       :provenance/library-tag (:library/tag provenance)})))
+    (cond-> (assoc entry :store/format format :branch (name store-name))
+      top-tag? (assoc-in [:provenance :library/tag] (:library/tag entry)))))
+
+(defn- select-entry [index store-name requirements]
+  (some (fn [format]
+          (when-let [e (get-in index [:stores (name store-name) format])]
+            (let [metadata (entry-metadata e format store-name)]
+              (when (empty? (store/compatibility-errors metadata requirements))
+                [format e]))))
+        (sort > store/readable-formats)))
+
 (defn entry
-  "The index entry for `store-name` at the store format this build reads, or nil."
-  [index store-name]
-  (get-in index [:stores (name store-name) store/store-format]))
+  "Highest readable published entry satisfying optional manifest requirements, or nil.
+   Missing required producer/cohort/capability metadata is incompatible."
+  ([index store-name] (entry index store-name {}))
+  ([index store-name requirements]
+   (second (select-entry index store-name requirements))))
 
 (defn- sha256-hex [^java.io.File f]
   (let [md (MessageDigest/getInstance "SHA-256")
@@ -148,8 +171,9 @@
 (defn fetch!
   "Download and install the store named `store-name` into the data root, and return its path.
    Refuses to overwrite an existing store. Options: `:index` (an index map, else read),
-   `:base` (artifact base URL, else `ANSATZ_STORE_BASE` or the index's), `:verbose?`."
-  [store-name & {:keys [index base verbose?] :or {verbose? true}}]
+   `:base` (artifact base URL, else `ANSATZ_STORE_BASE` or the index's),
+   `:requirements` (manifest constraints), `:verbose?`."
+  [store-name & {:keys [index base verbose? requirements] :or {verbose? true requirements {}}}]
   (when (offline?)
     (throw (ex-info (str "ANSATZ_OFFLINE is set and there is no store named '" (name store-name) "'")
                     {:store store-name})))
@@ -158,11 +182,11 @@
         _ (when (.exists (io/file dest))
             (throw (ex-info (str "a store already exists at " dest) {:store nm :path dest})))
         index (or index (read-index))
-        e (or (entry index nm)
-              (throw (ex-info (str "no published store named '" nm "' for store format "
-                                   store/store-format " in the index (" (:index/source index) ")")
-                              {:store nm :format store/store-format
-                               :available (keys (:stores index))})))
+        [format e] (or (select-entry index nm requirements)
+                       (throw (ex-info (str "no published store named '" nm "' compatible with readable formats "
+                                            (sort store/readable-formats) " in the index (" (:index/source index) ")")
+                                       {:store nm :readable store/readable-formats :requirements requirements
+                                        :available (keys (:stores index))})))
         base (or base (env "ANSATZ_STORE_BASE") (:base e) (:base index))
         id (:id e)
         parts (:parts e)
@@ -186,7 +210,13 @@
         (when verbose? (println "   unpacking" file))
         (archive/unpack! (io/file staging file) incoming))
       ;; the manifest must be there and readable by this build before anything is moved
-      (store/check-format! (str incoming))
+      ;; Keep advertised constraints and consumer constraints independent: neither
+      ;; may overwrite the other when validating the actual unpacked manifest.
+      (store/check-compatible! (str incoming) requirements)
+      (store/check-compatible!
+       (str incoming)
+       (select-keys (entry-metadata e format nm)
+                    [:store/format :branch :artifact/cohort :store/capabilities :provenance]))
       (archive/move-into-place! incoming dest)
       (run! io/delete-file (reverse (file-seq staging)))
       (when verbose?
@@ -196,8 +226,11 @@
       dest)))
 
 (defn ensure-store!
-  "The path of the store named `store-name`, fetching it when it is absent. This is what
-   `(a/init! \"mathlib\")` calls: a user adds the dependency, asks for Mathlib, and gets it."
-  [store-name & opts]
-  (or (store/resolve-existing store-name)
-      (apply fetch! store-name opts)))
+  "Resolve or fetch a named store and validate any explicit requirements."
+  [store-name & {:keys [requirements] :as opts}]
+  (if-let [path (store/resolve-existing store-name)]
+    (do
+      (store/check-compatible! path {:branch (name store-name)})
+      (store/check-compatible! path (or requirements {}))
+      path)
+    (apply fetch! store-name (mapcat identity opts))))

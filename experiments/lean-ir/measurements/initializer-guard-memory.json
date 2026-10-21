@@ -1,0 +1,185 @@
+{
+  "schema": "ansatz-initializer-guard-memory/1",
+  "date": "2026-10-18",
+  "scope": "same actual trusted initialization inputs; host binding construction/availability only",
+  "input-capture": {
+    "original-source-sha256": "4f2a0dd44b1c1a2023df8efdc4465da7a9e46b73bf5331593e210e5a386460d0",
+    "persistent-dfs-source-sha256": "0bf9e377fa73a56d52f2e11f98d478987e5f3f0573f75581125d491cec019875",
+    "input-sha256": "c01bfd4403badf2f3cb10e1ad7ebdd2e256845d1c0337a8749f72c62ae398cf9",
+    "original-probe-sha256": "6d9a60c15329b448f36e2cdc26ca2ce0978ff77d6825f05f1a6aa1cc9d053a3f",
+    "graph-probe-sha256": "e745eb968d9252c9e6856c94f9ef2ee1c2902a3889a82b7f46cac513fac5f05f"
+  },
+  "plans": 2326,
+  "symbols": 6966,
+  "variants": {
+    "legacy": {
+      "construction": {
+        "retained-binding-delta-bytes": 413894880,
+        "witness-symbols": 6966,
+        "plans": 2326,
+        "scope": "actual-initializer-binding-construction-only",
+        "construction-ms": 19824.925094,
+        "guest-executed": false,
+        "archive-restored": false,
+        "catalogue-index": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+        "admitted-symbols": 6966,
+        "retained-before-bytes": 133788960,
+        "module-data-opened": false,
+        "retained-after-bytes": 547683840
+      },
+      "queries": {
+        "scope": "actual-initializer-host-queries-no-guest",
+        "queries": 6966,
+        "world-guards": 6966,
+        "available": 6966,
+        "elapsed-ms": 3672.425923
+      },
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1024m",
+          "-J-Xss16m",
+          "-M",
+          "../../target/artifact-contract/full-init-next/initializer-original-query-probe.clj"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 1169498112,
+        "elapsed_seconds": 36.09
+      }
+    },
+    "shared-graph-persistent-dfs": {
+      "construction": {
+        "retained-binding-delta-bytes": 3555248,
+        "witness-symbols": 6966,
+        "plans": 2326,
+        "scope": "actual-initializer-binding-construction-only",
+        "construction-ms": 263.774953,
+        "guest-executed": false,
+        "archive-restored": false,
+        "catalogue-index": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+        "admitted-symbols": 6966,
+        "retained-before-bytes": 133791048,
+        "module-data-opened": false,
+        "retained-after-bytes": 137346296
+      },
+      "queries": {
+        "scope": "actual-initializer-host-queries-no-guest",
+        "queries": 6966,
+        "world-guards": 6966,
+        "available": 6966,
+        "elapsed-ms": 15258.646238
+      },
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1024m",
+          "-J-Xss16m",
+          "-M",
+          "../../target/artifact-contract/full-init-next/initializer-compact-graph-memory-probe.clj"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 561500160,
+        "elapsed_seconds": 26.05
+      }
+    },
+    "shared-graph-local-scratch": {
+      "construction": {
+        "retained-binding-delta-bytes": 3555248,
+        "witness-symbols": 6966,
+        "plans": 2326,
+        "scope": "actual-initializer-binding-construction-only",
+        "construction-ms": 105.566818,
+        "guest-executed": false,
+        "archive-restored": false,
+        "catalogue-index": "74d833d577923821b982e8a9e872a38b5cad011513eb18870b51417e13397f0e",
+        "admitted-symbols": 6966,
+        "retained-before-bytes": 133750736,
+        "module-data-opened": false,
+        "retained-after-bytes": 137305984
+      },
+      "queries": {
+        "scope": "actual-initializer-host-queries-no-guest",
+        "queries": 6966,
+        "world-guards": 6966,
+        "available": 6966,
+        "elapsed-ms": 9287.087014
+      },
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1024m",
+          "-J-Xss16m",
+          "-M",
+          "../../target/artifact-contract/full-init-next/initializer-memory-benchmark.clj",
+          "../../target/artifact-contract/full-init-next/initializer-inputs.json",
+          "../../target/artifact-contract/full-init-next/initializer-queries-scratch.json"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 564596736,
+        "elapsed_seconds": 19.04
+      }
+    }
+  },
+  "source-after-sha256": "00ce40d748980888ca9e553ddde8202313371bb0858a225b732dafc78144fb89",
+  "focused-tests": {
+    "test": 12,
+    "pass": 5495,
+    "fail": 0,
+    "error": 0
+  },
+  "limits": [
+    "One fresh JVM observation per variant; not a statistical performance benchmark.",
+    "Guest code, source frontend, finalizer and native initializer actions are not executed by this microbenchmark.",
+    "Availability queries use the same complete guard set and fresh tiny host worlds; finalizer callback timings remain unmeasured.",
+    "The graph checks the same entered-guard policy as before; guard presence does not prove local actions succeeded.",
+    "Query-local scratch does not escape or memoize across worlds; JVM collection equality relies on trusted immutable structured module Names."
+  ],
+  "reproduction": [
+    "Run scripts/prepare-initializer-memory-inputs.py OUTPUT from experiments/lean-ir, with the pinned prior artifacts available.",
+    "Run clojure -J-Xmx1024m -J-Xss16m -M scripts/initializer-memory-benchmark.clj INPUT OUTPUT under the external process-group guard.",
+    "For the legacy comparison, capture module_init_capabilities.clj from commit f9a341b and pass its path as the optional third argument; its exact bytes are hash checked."
+  ],
+  "setup-observations": {
+    "whole-catalogue-probe-preflight": {
+      "available-kib": 2702556,
+      "minimum-kib": 2883584,
+      "launch": false
+    },
+    "first-compact-probe": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1024m",
+          "-J-Xss16m",
+          "-M",
+          "../../target/artifact-contract/full-init-next/initializer-compact-memory-probe.clj"
+        ],
+        "exit_code": 1,
+        "guard_stop": null,
+        "peak_rss_bytes": 173359104,
+        "elapsed_seconds": 2.01
+      },
+      "failure": "Optional null initializationPlan stopped input preparation; launch incorrectly continued without its generated script. Generator was corrected to skip null plans, matching the original when-let, before the successful same-cap run."
+    }
+  },
+  "full-runtime-suite": {
+    "test": 729,
+    "pass": 65578,
+    "fail": 0,
+    "error": 0,
+    "guard": {
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-M:test"
+      ],
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 830017536,
+      "elapsed_seconds": 181.46
+    }
+  }
+}

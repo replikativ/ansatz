@@ -181,7 +181,7 @@
                              nil))
             ;; 9. inputs kept alongside, then the manifest LAST
             inputs (vec (keep #(copy-input! % (io/file store-path "inputs")) [attrs instances modules]))
-            manifest {:store/format store/store-format
+            manifest {:store/format store/write-format
                       :ansatz/version (or (System/getProperty "ansatz.version") "dev")
                       :branch branch
                       :created (java.util.Date.)

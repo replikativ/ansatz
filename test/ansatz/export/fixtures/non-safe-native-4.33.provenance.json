@@ -1,0 +1,62 @@
+{
+  "profile": "ansatz-native-non-safe-scc/1",
+  "lean": {
+    "version": "4.33.1",
+    "githash": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  },
+  "exporter": {
+    "commit": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+    "binary-sha256": "f490a3c0529308e852e38757e363d2e7b1e6bf7e776cd797a2e6f8f228855b5e",
+    "source-sha256": "47a099cf21ef82e4de9415432f4b29d30343b8e672f14cfffcd3e7816a03346b",
+    "toolchain": "leanprover/lean4:v4.33.1"
+  },
+  "source": {
+    "resource": "ansatz/export/fixtures/NativeNonSafeSCC.lean",
+    "sha256": "c90dd80f41ed4c92b9013ed3f3b93169e078c9e8a4e75d4643f9c3f520fcef05"
+  },
+  "capture": {
+    "resource": "ansatz/export/fixtures/non-safe-native-4.33.ndjson",
+    "sha256": "f418258c793b7a57da7484e6b68c83d519a3e0607b5cd1faa743677f16aab3a0",
+    "bytes": 1110
+  },
+  "roots": [
+    "NativeNonSafeSCC.unsafeLeft",
+    "NativeNonSafeSCC.partialLeft"
+  ],
+  "flags": [
+    "--export-unsafe"
+  ],
+  "constants": {
+    "NativeNonSafeSCC.P": {
+      "kind": "axiom",
+      "safety": null
+    },
+    "NativeNonSafeSCC.unsafeRight": {
+      "kind": "def",
+      "safety": "unsafe"
+    },
+    "NativeNonSafeSCC.unsafeLeft": {
+      "kind": "def",
+      "safety": "unsafe"
+    },
+    "NativeNonSafeSCC.partialRight": {
+      "kind": "def",
+      "safety": "partial"
+    },
+    "NativeNonSafeSCC.partialLeft": {
+      "kind": "def",
+      "safety": "partial"
+    }
+  },
+  "native-checks": {
+    "unsafe-mutual": "accepted",
+    "partial-mutual": "accepted",
+    "safe-theorems-using-non-safe": "rejected",
+    "rejection-count": 2
+  },
+  "guard": {
+    "preflight-kib": 1572864,
+    "floor-kib": 1048576,
+    "minimum-available-kib": 2857452
+  }
+}

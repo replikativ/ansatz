@@ -1,0 +1,10 @@
+{:paths ["src" "test"]
+ :deps {org.replikativ/ansatz {:local/root "../.."}}
+ :aliases {:test {:main-opts ["-m" "prototype.test-runner"]}
+           :repl {:jvm-opts ["-Xmx1g"]}
+           :nrepl {:extra-deps {nrepl/nrepl {:mvn/version "1.3.1"}}
+                   :jvm-opts ["-Xmx1g"]
+                   :main-opts ["-m" "nrepl.cmdline" "--bind" "127.0.0.1" "--port" "0"]}
+           :sci {:extra-deps {org.replikativ/sci {:mvn/version "0.15.59-replikativ.1"}}
+                 :main-opts ["-m" "prototype.sci-bridge"]}
+           :cljs {:extra-deps {org.clojure/clojurescript {:mvn/version "1.12.134"}}}}}

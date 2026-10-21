@@ -512,20 +512,33 @@
 ;; Public API
 ;; ============================================================
 
+(defn- close-after-failure!
+  [state ^Throwable failure]
+  (try
+    (.close ^ExprStore (:exprs state))
+    (catch Throwable cleanup
+      (when-not (identical? failure cleanup) (.addSuppressed failure cleanup)))))
+
 (defn parse-ndjson-string
-  "Parse a lean4export NDJSON string. Returns parser state with :decls."
+  "Parse a lean4export NDJSON string. Returns state with caller-owned :exprs
+   (ExprStore); close it after use. Parsing failures close the allocated store."
   [s]
-  (let [lines (clojure.string/split-lines s)]
-    (reduce (fn [st line]
-              (let [line (clojure.string/trim line)]
-                (if (empty? line)
-                  st
-                  (parse-line st (json/read-str line)))))
-            (mk-parser-state)
-            lines)))
+  (let [lines (clojure.string/split-lines s)
+        initial (mk-parser-state)]
+    (try
+      (reduce (fn [st line]
+                (let [line (clojure.string/trim line)]
+                  (if (empty? line)
+                    st
+                    (parse-line st (json/read-str line)))))
+              initial lines)
+      (catch Throwable failure
+        (close-after-failure! initial failure)
+        (throw failure)))))
 
 (defn parse-ndjson-file
-  "Parse a lean4export NDJSON file. Returns parser state with :decls."
+  "Parse an NDJSON file. Successful state contains caller-owned :exprs;
+   parsing failures close the allocated ExprStore."
   [path]
   (parse-ndjson-string (slurp path)))
 
@@ -565,11 +578,13 @@
    CI-shells contain expression IDs instead of resolved Expr objects.
    decl-fn receives [state ci-shell] and returns updated state.
    Returns {:final-state state :parser-state parser-state :parser-meta meta}.
-   The parser-state contains :exprs (ExprStore), :names, :levels for bulk export."
+   The parser-state contains caller-owned :exprs (ExprStore), :names, :levels
+   for bulk export. Close :exprs after successful use; parse/callback failures
+   close it before rethrowing, because no parser-state is returned."
   [path init-state decl-fn]
-  (with-open [rdr (io/reader path)]
-    (let [parser-st (atom (mk-parser-state))]
-      (try
+  (let [parser-st (atom (mk-parser-state))]
+    (try
+      (with-open [rdr (io/reader path)]
         (loop [state init-state
                lines (line-seq rdr)]
           (if-let [line (first lines)]
@@ -588,10 +603,10 @@
                     (recur new-state (next lines))))))
             {:final-state state
              :parser-state @parser-st
-             :parser-meta (:meta @parser-st)}))
-        (catch Exception e
-          ;; Don't close ExprStore here — caller needs it for bulk export
-          (throw e))))))
+             :parser-meta (:meta @parser-st)})))
+      (catch Throwable failure
+        (close-after-failure! @parser-st failure)
+        (throw failure)))))
 
 (defn build-env
   "Build a kernel environment from parsed declarations.

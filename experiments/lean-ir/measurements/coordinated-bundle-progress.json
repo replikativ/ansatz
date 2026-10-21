@@ -1,0 +1,328 @@
+{
+  "schema": "ansatz-coordinated-bundle-progress/1",
+  "date": "2026-10-18",
+  "tested-source-commit": "a82298a5ac57129ea88a190c2286d1af003da34b",
+  "baseline-commit": "8e9fe6789545803507336b2e86ebc874d543eed7",
+  "source-run-note": "Source bytes remained unchanged during the full run; commits during the run changed git metadata only.",
+  "lean": {
+    "version": "4.33.1",
+    "githash": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  },
+  "validation": {
+    "java-enum-rebuild": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx512m",
+          "-T:build",
+          "javac"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 383426560,
+        "elapsed_seconds": 10.03
+      },
+      "log-sha256": "26fa626baf7895fcd0d08f113f212f947589f186e8b499782bb72fb397165910"
+    },
+    "source-full": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1536m",
+          "-M:test",
+          "-e",
+          ":wip"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 2387742720,
+        "elapsed_seconds": 492.21
+      },
+      "log-sha256": "3d129327349a8cae3c3cdeea6b50a8dd221b4ac2bfad19c8620d26139d54f337",
+      "summary": {
+        "tests": 832,
+        "assertions": 3653,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    "runtime-full": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx512m",
+          "-M:test"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 755560448,
+        "elapsed_seconds": 188.42
+      },
+      "log-sha256": "12578b5511f927217d61abce4ce2252feb953c9bda2b47005f3c4140aae0c305",
+      "summary": {
+        "tests": 721,
+        "assertions": 60148,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    "jar-build": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx512m",
+          "-T:build",
+          "jar-stable"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 954642432,
+        "elapsed_seconds": 56.2
+      },
+      "log-sha256": "7641ba4e981c15ccd54c9b658208cf39cb8cf2978fdb858bdf7f9112b5e33045"
+    },
+    "jar-audit": {
+      "sha256": "05e6a5b525bf4a1cd178da49cb6517c7dddf31447fa3d41ea0cd53b2c94d978f",
+      "class-count": 4247,
+      "all-classes-ansatz-only": true,
+      "malli-source-only": true,
+      "source-resource-byte-equality": {
+        "ansatz/init-attrs.ndjson.gz": "1d1aa13ca17e15657ae102d2498446c4d0f408d014faef75a845112821fdef94",
+        "ansatz/bundle.edn": "578889f946574beb910e998e4b58fbe6a5432c3fdde0bb5f4936994b51231227",
+        "ansatz/init-instances.tsv.gz": "2f3ef33a3be1a525ea420ba982df40018926c0caee038f0a2d2c20d2a9fce90a",
+        "ansatz/stores.edn": "fb2825faa21016a31956a05a0b8f09079f815f462225886dc27214d1507dd19e",
+        "ansatz/sizeof-prelude.ndjson.gz": "b1eabaea9fecd4c34c9ba664b4772bd004c5c5e8e4c58ce05086de2a4a917ee6",
+        "ansatz/init-matchers.ndjson.gz": "8b3eda934a69658b9cdf25a693e482a44b983550b18bad97fa06bd1686018852",
+        "ansatz/lex-prelude.ndjson.gz": "b6132c0cf48f8e8ea6f575c15704f6cb33a451abf4e1e0e7b61527ee115fae4e",
+        "ansatz/init-medium.ndjson.gz": "1fa6384e5a694d5f8d96bdd49511f77443b2c0783d879818e2d7aadf89e72370"
+      },
+      "project-source-classes-resources-off-test-classpath": true,
+      "aot-project-namespace-count": 83,
+      "packaged-java-kernel-equals-rebuilt-classes": true,
+      "kernel-class-count": 42,
+      "core-kernel-class-hashes-match-actual-facade-probe": true
+    },
+    "enum-activation-focused": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx768m",
+          "-M:test",
+          "-n",
+          "ansatz.export.codec-test",
+          "-n",
+          "ansatz.kernel.typechecker-test",
+          "-n",
+          "ansatz.bundled-init-test",
+          "-n",
+          "ansatz.bundle-activation-test",
+          "-n",
+          "ansatz.wf-bundle-test",
+          "-n",
+          "ansatz.bundle-metadata-test",
+          "-n",
+          "ansatz.session-test"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 1158930432,
+        "elapsed_seconds": 46.15
+      },
+      "log-sha256": "d4b5e36b5020d84b1d993eb7bb89f831b50736be2796bebf38408bf4ed57416b",
+      "summary": {
+        "tests": 60,
+        "assertions": 486,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    "jar-full": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx1536m",
+          "-M:jar-test",
+          "-e",
+          ":wip"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 2366353408,
+        "elapsed_seconds": 299.48
+      },
+      "log-sha256": "107b3b2509e5f452270a76c9dab6216878821ab55f4d2f5d5d56756caaff5f87",
+      "summary": {
+        "tests": 832,
+        "assertions": 3653,
+        "failures": 0,
+        "errors": 0
+      }
+    },
+    "format": {
+      "guard": {
+        "command": [
+          "clojure",
+          "-J-Xmx256m",
+          "-M:format"
+        ],
+        "exit_code": 0,
+        "guard_stop": null,
+        "peak_rss_bytes": 410247168,
+        "elapsed_seconds": 24.05
+      },
+      "log-sha256": "4f2ad2e91c807e35f46a40f093cb4315e07993730c68b2ad984946ff71f8fc94"
+    }
+  },
+  "actual-facade": {
+    "record": "resident-preparation-progress.json",
+    "run": "standalone-final-kernel-run",
+    "scope": "archived-prelude-only",
+    "success": true,
+    "native-per-input-compiler": false
+  },
+  "native-replay-capture": {
+    "record": "../../../test/ansatz/export/fixtures/non-safe-native-4.33.provenance.json",
+    "scope": "native kernel declaration API, not surface partial-def lowering"
+  },
+  "staging": {
+    "shipped-resources-changed": false,
+    "promoted-cohort": false,
+    "candidate-c": {
+      "directory": "target/bundle-candidate-4.33.1-20261018-c",
+      "checker": "captured pre-safety-fix checker; not retrospectively certified by later fixes",
+      "kernel-replay": {
+        "init": {
+          "ok": 3775,
+          "errors": 0
+        },
+        "lex": {
+          "ok": 130,
+          "errors": 0
+        },
+        "sizeof": {
+          "ok": 54,
+          "errors": 0
+        }
+      },
+      "exact-ci-overlaps": "passed after structural Expr cache patch",
+      "first-missing-metadata-target": {
+        "source": "Nat.rec",
+        "target": "Nat.recCompiled"
+      },
+      "final-manifest-written": false
+    },
+    "metadata-planner": "Per-role presence planning implemented; generator wiring and serialized witness profile remain open."
+  },
+  "reviews": {
+    "safety": "astra_ordinary_import_strategy and compatibility_review",
+    "scc-and-streaming": "compatibility_review implementation; ir_web_review independent review and native capture",
+    "lazy-wf-and-parser": "compatibility_review implementation; ir_web_review independent review",
+    "pure-metadata-planner": "astra_ordinary_import_strategy implementation; compatibility_review independent review"
+  },
+  "remaining": [
+    "Versioned runtime-CI generation profile, per-role fixed point and native structured-Name evidence",
+    "Preserve and check csimp witnesses and implementation type compatibility",
+    "Atomically install complete lazy companion metadata while preserving user extensions and registration order",
+    "Ordinary/full-Init facade acceptance and durable checked-environment reattachment",
+    "Warm dependency edits, wider native bindings/representation profiles, Mathlib and performance"
+  ],
+  "existing-validation-omissions": [
+    "Conditional cases requiring absent Init fixture files remain conditional; earlier PARENT_VALIDATION.md describes these.",
+    "Optional Datahike alias and uberjar not exercised."
+  ],
+  "changed-input-sha256": {
+    "experiments/lean-ir/src/prototype/bootstrap_archive.clj": "95799052d1a865ec4eb3ee55983a561fb5be9c934a3133b5a9118fd963fb5215",
+    "experiments/lean-ir/src/prototype/eval_const.clj": "81bcbf9d38b2105c6165e1b42609908757adc09a2686f05ec48195bb94be91be",
+    "experiments/lean-ir/src/prototype/import_ir.clj": "5c07984f825a907873bdb435f5457f583d619c89b626619d393e20f6c8e1d9ce",
+    "experiments/lean-ir/src/prototype/preparation.clj": "744bc3c5ce68268fce08be1e4b1061c35e6eca8de8163c423c800ff746931b0e",
+    "experiments/lean-ir/src/prototype/test_runner.clj": "883409165f069f5e21c93e0d371232519e78a389c687d0553264f578c40df8b4",
+    "experiments/lean-ir/test/prototype/bootstrap_archive_test.clj": "e919e907d889751b6dc35e2a9ad4fb1101f0fa98d4413bd1765bca62af6695a9",
+    "experiments/lean-ir/test/prototype/preparation_test.clj": "66e3fc4c3dc182de7c7dfce483074690f416bd5f9b2e8d13c93ecc24364dca94",
+    "scripts/bundle-init-roots.txt": "4c5ecb2a64bf9f62ef411f1b6f3a77960711546477a27bd5b1bf02ada2a2879e",
+    "scripts/bundle-lex-roots.txt": "770d35b395914c5628ad186777c8ee61b1256edce8b6f9474dc7bd3b908cd84b",
+    "scripts/bundle-root-migrations.json": "2d04313cc184fa03e98c5af8259a2b7400283a48665357d939710109d6cbfc4f",
+    "scripts/bundle-sizeof-roots.txt": "b657a374611681558bea2ad0704ec5a0ca4f4efe1c487406837e0baf015dcf4e",
+    "scripts/dump_attrs.lean": "b699114559d6fc1b62a8001ccfe3eba98bd9d32071d528c8ed5b5227f26d1a9c",
+    "scripts/dump_instances.lean": "0ecc33be6a8c2d5a85749290f2cbef0f64921e9293e22bbb5c0d3d4419f39bf6",
+    "scripts/dump_matchers.lean": "df499c5c01265736e6e3aea2bad75483cac42b2c587dc4c65cbb6c9aa9d4c190",
+    "scripts/generate-bundle.py": "682331d836e11ccf893120b04c656354e62006dcb29443890ad04710769d685f",
+    "scripts/lean4export-structural-exprs.patch": "d7626826e9c940c4ecbf6d81e25241c174aca800ea7f89fbd8cc89429ce92235",
+    "scripts/regen-bundled-attrs.sh": "07d6e27823dd61b62c1510e7df693094d8a6fccb45091c4181790c0d8d6520cd",
+    "scripts/regen-bundled-store.sh": "07d6e27823dd61b62c1510e7df693094d8a6fccb45091c4181790c0d8d6520cd",
+    "scripts/validate-bundle.clj": "6fc4d593e3a4ddafd7bc1ae8b90e8cead2b7d43f633eee0bd2f79d318555ddbf",
+    "scripts/validate_bundle_roots.lean": "7389d9f2cd6d2b8af20741e6623306bffa807c4eb50dc73fbd2581a0c5977946",
+    "src-java/ansatz/kernel/ConstantInfo.java": "27dfd667db96e30da2e3f4805370f4aa3d7fe6a76821c28aaa1f7b42b8c98058",
+    "src-java/ansatz/kernel/TypeChecker.java": "ddba7692ffe373525404913c8a408ef06a676a3bab59e58b91b43af9df56a103",
+    "src/ansatz/attrs.clj": "23837f6f693f8d7daf5986f582975fcc9640065a3d4ece721182ffe5b793d63e",
+    "src/ansatz/bundle.clj": "1175f7010b59b53d676d6ea849d27ff205e71500e3add4b14fa6f7e2720632f8",
+    "src/ansatz/bundle_metadata.clj": "be9f4737f9bbfa35f00ec396966bf328d48e053f2f422cab8f3a2105316ca977",
+    "src/ansatz/core.clj": "ad3ca2ac76f255e3248be9f5fcc5ea882069794ee2f1b7a360c2110224b7fa9c",
+    "src/ansatz/export/non_safe.clj": "15af4e5369975c9aebf8d3671ec23a599cb0084fb94bc8565ea9973e642a281d",
+    "src/ansatz/export/parser.clj": "44dba08dd5d48155f67ee238b59b958fc5dd1edebce8468992671818ce20f435",
+    "src/ansatz/export/replay.clj": "f97595d00a8fc55ae7109e655241e7a1a8aa687a949557d0f5fa7dcab5e3f41c",
+    "src/ansatz/kernel/quotient.clj": "0d607f3c55611835747531a78f1e0336f9f2996b583a15eb7931b5e23a9ab78f",
+    "src/ansatz/wf.clj": "d331dca39af18d4f1d791fb733604700e28cac4e9ee298a4cab42d0b946a8914",
+    "test/ansatz/attrs_test.clj": "7fbc58b065babd4006b61faaba0af7c2452228e77e2f374430805cd36c56dffb",
+    "test/ansatz/bundle_activation_test.clj": "134a50e87f1363af7a4802073fee9c77879bfd67c60ed69e1ed6b01dfc99c524",
+    "test/ansatz/bundle_metadata_test.clj": "7a2ba51fa2078799491ff2de34f25ebf0a9dbc70326ca46d61902fd417ef384e",
+    "test/ansatz/bundle_test.clj": "42edeb228a6407bade30fa84e4cccc593d77f2161740d88380c2c93786d1395b",
+    "test/ansatz/export/codec_test.clj": "1fb69923ec76d9c66c957b2f62d141fb7edbecac53d61cb8428be155c5d762a6",
+    "test/ansatz/export/fixtures/NativeNonSafeSCC.lean": "c90dd80f41ed4c92b9013ed3f3b93169e078c9e8a4e75d4643f9c3f520fcef05",
+    "test/ansatz/export/fixtures/non-safe-native-4.33.md": "43067c766b559756eccc4ad405dbced159878ebf878c1195421fa87347771233",
+    "test/ansatz/export/fixtures/non-safe-native-4.33.ndjson": "f418258c793b7a57da7484e6b68c83d519a3e0607b5cd1faa743677f16aab3a0",
+    "test/ansatz/export/fixtures/non-safe-native-4.33.provenance.json": "f1e91c98972ad911550675e6c2a6839c2fd5389a35af8117c9f57a6da688b42a",
+    "test/ansatz/export/fixtures/quotient-4.29.ndjson": "485d5ec62d813ca032efc640a2fd9ee92ead384f36d208890e73b5dae2d29f3a",
+    "test/ansatz/export/non_safe_replay_test.clj": "0ca19c3620587a6551b941134fb316144b4f577a5bf5b7a1db046241137d1496",
+    "test/ansatz/export/parser_test.clj": "ecd2105f2fdabb5d16532d2a6280eaa5595428fe6e94f7045b3860efe34d962a",
+    "test/ansatz/export/quotient_test.clj": "b58dac8e6f0cf6ab1046b78cddc79904b09651a3679ae0f74c2828f60c58708d",
+    "test/ansatz/kernel/typechecker_test.clj": "be0b00368e35aaedcca4d9bb58294386cd47673a7fe69c5f9cbca4094e76d72e",
+    "test/ansatz/wf_bundle_test.clj": "425d2ba53b8e64f94ed7dc08ec90715caa847cddb85cb86a9c312817813e4ce9"
+  },
+  "development-retries": {
+    "first-scc-safety-focused": {
+      "run": {
+        "guard": {
+          "command": [
+            "clojure",
+            "-J-Xmx768m",
+            "-M:test",
+            "-n",
+            "ansatz.export.non-safe-replay-test",
+            "-n",
+            "ansatz.export.quotient-test",
+            "-n",
+            "ansatz.export.replay-test",
+            "-n",
+            "ansatz.kernel.typechecker-test",
+            "-n",
+            "ansatz.export.codec-test",
+            "-n",
+            "ansatz.kernel-soundness-test",
+            "-n",
+            "ansatz.bundle-test",
+            "-n",
+            "ansatz.wf-test"
+          ],
+          "exit_code": 1,
+          "guard_stop": null,
+          "peak_rss_bytes": 940175360,
+          "elapsed_seconds": 44.15
+        },
+        "log-sha256": "fb46444afd98a7f829d68796e765e3e1a05bfdaf3d6605bb101edc8f0ed8b705",
+        "summary": {
+          "tests": 94,
+          "assertions": 745,
+          "failures": 0,
+          "errors": 4
+        }
+      },
+      "resolution": "Four malformed-CBOR regression expectations assumed a direct IllegalArgumentException; boring correctly wrapped factory rejection in ExceptionInfo. Tests now assert handler-failed plus the precise validation cause. The complete source/JAR suites pass with the corrected test."
+    }
+  },
+  "jar-build-profile": {
+    "JAVA_TOOL_OPTIONS": "-Xmx512m",
+    "launcher-heap": "512m",
+    "staging-cleanup": "Only target/classes removed before build; other target evidence retained."
+  },
+  "existing-parser-cleanup-limit": "Resolved streaming parser retains its earlier finally-close behavior: if cleanup itself fails, it can mask the primary failure. Newly hardened string/raw entrypoints preserve it."
+}

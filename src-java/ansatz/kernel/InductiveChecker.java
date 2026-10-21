@@ -207,23 +207,7 @@ final class InductiveChecker {
     }
 
     private void initKTarget() {
-        kTarget =
-            bundle.inductives.length == 1 &&
-            resultLevel.equals(Level.ZERO_LEVEL) &&
-            bundle.inductives[0].ctors != null &&
-            bundle.inductives[0].ctors.length == 1;
-        if (!kTarget) return;
-        ConstantInfo ctor = workingEnv.lookup(bundle.inductives[0].ctors[0]);
-        Expr type = ctor.type;
-        int i = 0;
-        while (type.tag == Expr.FORALL) {
-            if (i >= bundle.numParams) {
-                kTarget = false;
-                break;
-            }
-            type = (Expr) type.o2;
-            i++;
-        }
+        kTarget = RecursorGenerator.computeKTarget(workingEnv, bundle, resultLevel);
     }
 
     private void initRecursorGenerator() {
@@ -237,6 +221,7 @@ final class InductiveChecker {
             numIndices,
             indConsts,
             elimLevel,
+            kTarget,
             nextLocalId);
     }
 

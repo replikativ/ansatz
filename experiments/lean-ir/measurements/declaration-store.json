@@ -1,0 +1,376 @@
+{
+  "java-version": "25.0.1",
+  "clojure-version": "1.12.0",
+  "source-sha256": {
+    "src/prototype/lazy_runtime.clj": "a7afe457773a999cb189cce63c4c107867861a2a2d8f793ac2a1191b0275253f",
+    "src/prototype/block_compile.clj": "083a6d88ed743d410d75f814348798c707358fd961b977617dc7bb9c19e81891",
+    "src/prototype/mutable.clj": "0c9dc7d91943e7c4464d775a0a64638739215e3c2c4b3b4b0678d0ecc44b9cd1",
+    "src/prototype/machine.cljc": "57335eb24362bebe87067cbcc4c728d7aff0f8f608e78ff60278d66dbed9962a",
+    "src/prototype/declaration_store.clj": "b1b7e7b79e7dc1f19d5c8369b03b23c999036e626c70a3024fdc5aa682c55890",
+    "src/prototype/store_bench.clj": "8fbf0b54307fe68847b6b8ce314fb170dd8c990c7a9405dc7f6bd88807320053",
+    "src/prototype/module_bench.clj": "b8b8f14f4965ac57301560f0f4d3687ac720b246d1349a7628ff9d4ebcf62df8",
+    "src/prototype/import_ir.clj": "4c7a8629552be41bd2e1f2a2ad283fe96109cd91ef413a0b9110e4c37c02ca94",
+    "src/prototype/compact_bench.clj": "c290bfbd7a85201092c9b4f61175fd10cb06cae01afa09e4bd1131d183e9231d",
+    "src/prototype/leaf_compile.clj": "5f8ebf5af1dae0040376f4a24c0347609d94e555bc3befaaa4bf6264466b01a5",
+    "src/prototype/bench.clj": "1fd3d20a877198bdce42c6ba1cda20b41293e34711710aa05005a0870f101fe0"
+  },
+  "samples": 7,
+  "cases": [
+    {
+      "edit-reused": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "old-world-result": 42,
+      "selected-declarations": 2,
+      "raw-json-reopen": {
+        "samples": 7,
+        "median-ns": 1437324,
+        "min-ns": 1137733,
+        "max-ns": 1694123,
+        "median-bytes": 1372272,
+        "raw-ns": [
+          1694123,
+          1496742,
+          1437324,
+          1465366,
+          1246874,
+          1190184,
+          1137733
+        ]
+      },
+      "checkpoint": {
+        "ns": 4451053,
+        "bytes": 3135288
+      },
+      "total-declarations": 102,
+      "edit-publish-load-run-freeze": {
+        "samples": 7,
+        "median-ns": 3547260,
+        "min-ns": 2522295,
+        "max-ns": 4639684,
+        "median-bytes": 648072,
+        "raw-ns": [
+          4639684,
+          4510716,
+          4243145,
+          3547260,
+          2938071,
+          2591814,
+          2522295
+        ]
+      },
+      "blobs-read-on-open": 0,
+      "first-counts": {
+        "compiled": 3,
+        "cache-hits": 0,
+        "dispatch-blocks": 3,
+        "cached-blocks": 3
+      },
+      "edit-compiled": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "input-bytes": 25665,
+      "selected-first-load-run-freeze": {
+        "ns": 8266840,
+        "bytes": 1331392
+      },
+      "selected-blob-bytes": 599,
+      "selected-blob-reads": 2,
+      "edit-blob-reads": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "selected-load": {
+        "ns": 476309,
+        "bytes": 87912
+      },
+      "edit-blob-publishes": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "index-bytes": 10332,
+      "pack": {
+        "ns": 40967307,
+        "bytes": 10159600
+      },
+      "store-index-reopen": {
+        "samples": 7,
+        "median-ns": 611699,
+        "min-ns": 484145,
+        "max-ns": 885708,
+        "median-bytes": 324392,
+        "raw-ns": [
+          885708,
+          673651,
+          723952,
+          536482,
+          611699,
+          484145,
+          572885
+        ]
+      }
+    },
+    {
+      "edit-reused": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "old-world-result": 42,
+      "selected-declarations": 2,
+      "raw-json-reopen": {
+        "samples": 7,
+        "median-ns": 9615101,
+        "min-ns": 9016888,
+        "max-ns": 24636206,
+        "median-bytes": 13145216,
+        "raw-ns": [
+          15232501,
+          9615101,
+          9198358,
+          9151892,
+          9873290,
+          24636206,
+          9016888
+        ]
+      },
+      "checkpoint": {
+        "ns": 44043437,
+        "bytes": 45882104
+      },
+      "total-declarations": 1002,
+      "edit-publish-load-run-freeze": {
+        "samples": 7,
+        "median-ns": 2540626,
+        "min-ns": 2378455,
+        "max-ns": 3089073,
+        "median-bytes": 647752,
+        "raw-ns": [
+          2970582,
+          2531051,
+          2437449,
+          2378455,
+          2540626,
+          3089073,
+          2927832
+        ]
+      },
+      "blobs-read-on-open": 0,
+      "first-counts": {
+        "compiled": 3,
+        "cache-hits": 0,
+        "dispatch-blocks": 3,
+        "cached-blocks": 3
+      },
+      "edit-compiled": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "input-bytes": 252465,
+      "selected-first-load-run-freeze": {
+        "ns": 7310392,
+        "bytes": 1330208
+      },
+      "selected-blob-bytes": 599,
+      "selected-blob-reads": 2,
+      "edit-blob-reads": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "selected-load": {
+        "ns": 495802,
+        "bytes": 87912
+      },
+      "edit-blob-publishes": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "index-bytes": 101232,
+      "pack": {
+        "ns": 201035390,
+        "bytes": 99540616
+      },
+      "store-index-reopen": {
+        "samples": 7,
+        "median-ns": 3710443,
+        "min-ns": 3592750,
+        "max-ns": 4064415,
+        "median-bytes": 2966200,
+        "raw-ns": [
+          4064415,
+          3592750,
+          3710443,
+          3597908,
+          3842570,
+          3633643,
+          3902917
+        ]
+      }
+    },
+    {
+      "edit-reused": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "old-world-result": 42,
+      "selected-declarations": 2,
+      "raw-json-reopen": {
+        "samples": 7,
+        "median-ns": 105619770,
+        "min-ns": 96366380,
+        "max-ns": 165153745,
+        "median-bytes": 134627888,
+        "raw-ns": [
+          116179797,
+          105619770,
+          165153745,
+          96366380,
+          101962438,
+          106880573,
+          99109332
+        ]
+      },
+      "checkpoint": {
+        "ns": 623208440,
+        "bytes": 620019656
+      },
+      "total-declarations": 10002,
+      "edit-publish-load-run-freeze": {
+        "samples": 7,
+        "median-ns": 5235891,
+        "min-ns": 4755825,
+        "max-ns": 5731383,
+        "median-bytes": 647472,
+        "raw-ns": [
+          5731383,
+          4796714,
+          4755825,
+          5356638,
+          5235891,
+          5133232,
+          5287876
+        ]
+      },
+      "blobs-read-on-open": 0,
+      "first-counts": {
+        "compiled": 3,
+        "cache-hits": 0,
+        "dispatch-blocks": 3,
+        "cached-blocks": 3
+      },
+      "edit-compiled": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "input-bytes": 2539465,
+      "selected-first-load-run-freeze": {
+        "ns": 12030212,
+        "bytes": 1329992
+      },
+      "selected-blob-bytes": 599,
+      "selected-blob-reads": 2,
+      "edit-blob-reads": [
+        2,
+        2,
+        2,
+        2,
+        2,
+        2,
+        2
+      ],
+      "selected-load": {
+        "ns": 1127061,
+        "bytes": 87688
+      },
+      "edit-blob-publishes": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ],
+      "index-bytes": 1019232,
+      "pack": {
+        "ns": 2087479196,
+        "bytes": 993632384
+      },
+      "store-index-reopen": {
+        "samples": 7,
+        "median-ns": 40750301,
+        "min-ns": 35942135,
+        "max-ns": 61368751,
+        "median-bytes": 28493872,
+        "raw-ns": [
+          36171737,
+          35942135,
+          61368751,
+          40750301,
+          52570519,
+          37801260,
+          49615848
+        ]
+      }
+    }
+  ],
+  "limitations": [
+    "Synthetic modules with two reachable declarations",
+    "One shared JVM and warm filesystem cache; no isolated cold-start claim",
+    "Pack decodes every declaration once; index reopen and checkpoint remain O(N)",
+    "Edit includes publishing one blob but excludes full index checkpoint",
+    "No Lean elaboration, producer export or proof admission in timings",
+    "Append-only prototype; no blob GC, fsync durability or lower-body cache"
+  ]
+}

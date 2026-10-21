@@ -8,7 +8,9 @@
             [ansatz.store.archive :as archive]
             [ansatz.store.fetch :as fetch]
             [ansatz.store.pack :as pack]
-            [ansatz.export.storage :as storage])
+            [ansatz.export.storage :as storage]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name])
   (:import [com.sun.net.httpserver HttpServer HttpHandler]
            [java.net InetSocketAddress]
            [java.io File]
@@ -56,6 +58,8 @@
     (storage/close-store sm)
     (store/write-manifest! dir {:store/format store/store-format
                                 :ansatz/version "test"
+                                :artifact/cohort "test-cohort"
+                                :store/capabilities #{:kernel}
                                 :branch branch
                                 :provenance {:library/tag "v0.0.1-test"}})
     dir))
@@ -85,7 +89,10 @@
             (is (= #{"blobs.tar.gz" "meta.tar.gz"} (set (map :file (:parts d)))))
             (is (every? #(and (pos? (:size %)) (= 64 (count (:sha256 %)))) (:parts d)))
             (is (= "mathlib-v0.0.1-test-f1" (:store/id d)))
-            (is (= store/store-format (:store/format d))))
+            (is (= store/store-format (:store/format d)))
+            (is (= "test-cohort" (:artifact/cohort d) (:artifact/cohort entry)))
+            (is (= #{:kernel} (:store/capabilities d) (:store/capabilities entry)))
+            (is (= (:provenance d) (:provenance entry))))
 
           (with-redefs [store/data-root (fn [] data-root)]
             (testing "a fetched store is a store: same declarations, readable manifest"
@@ -188,3 +195,111 @@
             (is (= "two" (slurp (io/file dest "a" "b" "two.txt"))))
             (is (= "{:a 1}" (slurp (io/file dest "top.edn")))))))
       (finally (delete-dir root)))))
+
+(deftest unpacked-metadata-must-match-the-selected-entry
+  (with-fixture
+    (fn [root src artifacts]
+      (let [d (pack/pack! src artifacts)
+            e (get-in (edn/read-string (slurp (io/file artifacts (:store/id d) "index-entry.edn")))
+                      ["mathlib" store/write-format])
+            server (serve! artifacts {})
+            base (str "http://127.0.0.1:" (.getPort (.getAddress server)))
+            data-root (str (io/file root "data"))]
+        (try
+          (with-redefs [store/data-root (constantly data-root)]
+            (doseq [[format entry] [[1 e]
+                                    [store/write-format (-> e
+                                                            (assoc :library/tag "wrong")
+                                                            (assoc-in [:provenance :library/tag] "wrong"))]
+                                    [store/write-format (assoc e :artifact/cohort "missing")]
+                                    [store/write-format (assoc e :store/capabilities #{:frontend})]]]
+              (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not match"
+                                    (fetch/fetch! "mathlib" :verbose? false
+                                                  :index {:base base :stores {"mathlib" {format entry}}})))
+              (is (not (.exists (io/file data-root "mathlib"))))))
+          (finally (.stop server 0)))))))
+
+(deftest format-one-store-is-still-fetchable
+  (with-fixture
+    (fn [root src artifacts]
+      ;; Streaming storage uses the existing CIShell encoding; its wire layout did
+      ;; not change. Package a format-1 manifest and ensure discovery installs it.
+      (store/write-manifest! src (-> (store/read-manifest src)
+                                     (assoc :store/format 1)
+                                     (dissoc :artifact/cohort :store/capabilities)))
+      (let [d (pack/pack! src artifacts)
+            e (select-keys (get-in (edn/read-string (slurp (io/file artifacts (:store/id d) "index-entry.edn")))
+                                   ["mathlib" 1])
+                           [:id :library/tag :parts])
+            server (serve! artifacts {})
+            base (str "http://127.0.0.1:" (.getPort (.getAddress server)))]
+        (try
+          (with-redefs [store/data-root (constantly (str (io/file root "data")))]
+            (let [path (fetch/fetch! "mathlib" :verbose? false
+                                     :index {:base base :stores {"mathlib" {1 e}}})
+                  sm (storage/open-store path)]
+              (try
+                (is (= 1 (:store/format (store/check-format! path))))
+                (is (seq (storage/load-names sm "mathlib")))
+                (let [loaded-env (storage/load-env sm "mathlib")]
+                  (is (some? (env/lookup loaded-env (name/from-string "Nat.add_succ")))))
+                (doseq [[nm hint] [["Nat.add" {:regular 1}] ["Add.add" :abbrev]]]
+                  (let [ci (env/lookup (storage/load-env sm "mathlib") (name/from-string nm))]
+                    (is (some? ci))
+                    (when ci (is (= hint (env/get-reducibility-hints ci))))))
+                (finally (storage/close-store sm)))))
+          (finally (.stop server 0)))))))
+
+(deftest contradictory-library-tags-are-rejected-before-download
+  (let [root (temp-dir)
+        downloaded? (atom false)
+        entry {:id "conflicting" :library/tag "new"
+               :provenance {:library/tag "old"}
+               :parts [{:file "never-downloaded.tar.gz"}]}
+        index {:base "http://127.0.0.1:1" :stores {"mathlib" {store/write-format entry}}}]
+    (try
+      (with-redefs [store/data-root (constantly root)
+                    fetch/download-part! (fn [& _] (reset! downloaded? true))]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"conflicting library tags"
+                              (fetch/entry index "mathlib")))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"conflicting library tags"
+                              (fetch/fetch! "mathlib" :index index :verbose? false)))
+        (is (false? @downloaded?)))
+      (finally (delete-dir root)))))
+
+(deftest explicit-fetch-requirements-are-checked-before-download-and-installation
+  (with-fixture
+    (fn [root src artifacts]
+      (let [d (pack/pack! src artifacts)
+            e (get-in (edn/read-string (slurp (io/file artifacts (:store/id d) "index-entry.edn")))
+                      ["mathlib" store/write-format])
+            server (serve! artifacts {})
+            base (str "http://127.0.0.1:" (.getPort (.getAddress server)))
+            index {:base base :stores {"mathlib" {store/write-format e}}}
+            data-root (str (io/file root "data"))
+            requirements {:artifact/cohort "test-cohort"
+                          :provenance {:library/tag "v0.0.1-test"}
+                          :store/capabilities #{:kernel}}]
+        (try
+          (with-redefs [store/data-root (constantly data-root)]
+            (testing "incompatible advertised metadata fails before downloading"
+              (doseq [bad [{:artifact/cohort "other"}
+                           {:provenance {:library/tag "other"}}
+                           {:store/capabilities #{:frontend}}]]
+                (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no published store"
+                                      (fetch/fetch! "mathlib" :index index :requirements bad :verbose? false)))
+                (is (not (.exists (io/file data-root ".mathlib.fetch"))))))
+            (testing "a compatible advertisement cannot hide a mismatching unpacked manifest"
+              (let [wrong (assoc e :artifact/cohort "other")
+                    wrong-index (assoc-in index [:stores "mathlib" store/write-format] wrong)]
+                (is (thrown-with-msg? clojure.lang.ExceptionInfo #"does not match"
+                                      (fetch/fetch! "mathlib" :index wrong-index
+                                                    :requirements (assoc requirements :artifact/cohort "other")
+                                                    :verbose? false)))
+                (is (not (.exists (io/file data-root "mathlib"))))))
+            (testing "matching requirements install and remain valid for existing-store lookup"
+              (let [path (fetch/fetch! "mathlib" :index index :requirements requirements :verbose? false)]
+                (is (= requirements (select-keys (store/check-compatible! path requirements)
+                                                 (keys requirements))))
+                (is (= path (fetch/ensure-store! "mathlib" :requirements requirements))))))
+          (finally (.stop server 0)))))))

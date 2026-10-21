@@ -79,13 +79,42 @@
 ;; Store format + manifest
 ;; ============================================================
 
+(def write-format
+  "Format emitted by this build. Format 2 preserves exact full-ConstantInfo hints,
+   including regular zero and the entire UInt32 range."
+  2)
+
+(def readable-formats
+  "Formats this build can decode. Reading format 1 retains its legacy full-CI
+   interpretation; it cannot recover information an old writer discarded."
+  #{1 2})
+
 (def store-format
-  "The on-disk format this build reads and writes. Bumped on ANY incompatible change to the
-   blob encoding, the tree layout or the derived state. There is no migration: a store of
-   another format is refused at open and re-imported from the Lean export (ansatz.import),
-   which is cheaper than maintaining compatibility code and is what the format is designed
-   around (content-addressed blobs make re-import produce the same store for the same input)."
-  1)
+  "Compatibility alias for the writer format. Use readable-formats for readers."
+  write-format)
+
+(defn compatibility-errors
+  "Pure comparison of manifest metadata with explicit consumer requirements.
+   Supported requirements: :store/format, :branch, :artifact/cohort (exact),
+   :provenance (required key/value subset), :store/capabilities (required subset).
+   Metadata compatibility is not kernel verification or artifact authentication."
+  [manifest requirements]
+  (let [known #{:store/format :branch :artifact/cohort :provenance :store/capabilities}
+        unknown (remove known (keys requirements))]
+    (when (seq unknown)
+      (throw (ex-info "Unknown store compatibility requirements" {:unknown (vec unknown)})))
+    (into {}
+          (keep (fn [[k expected]]
+                  (let [found (get manifest k)
+                        matches? (case k
+                                   :provenance (and (map? found)
+                                                    (every? (fn [[pk pv]]
+                                                              (and (contains? found pk)
+                                                                   (= pv (get found pk)))) expected))
+                                   :store/capabilities (every? (set found) expected)
+                                   (= expected found))]
+                    (when-not matches? [k {:expected expected :found found}]))))
+          requirements)))
 
 (defn manifest-file ^java.io.File [store-path] (io/file store-path "manifest.edn"))
 
@@ -104,20 +133,28 @@
         (with-out-str (pprint/pprint m))))
 
 (defn check-format!
-  "The manifest of the store at `store-path`, or an exception saying to re-import. `init!`
-   calls this before opening a store."
+  "Return a readable store manifest, or reject an incomplete/unsupported store.
+   This checks schema compatibility, not declaration validity or producer trust."
   [store-path]
   (let [m (read-manifest store-path)
         f (:store/format m)]
     (cond
       (nil? m)
-      (throw (ex-info (str "No store manifest at " store-path " — either the import did not "
-                           "finish or this is a store from before format " store-format
-                           ". Re-import it: ./scripts/setup-<name>.sh, or (ansatz.import/import! ...).")
-                      {:store store-path :expected store-format}))
-      (not= f store-format)
-      (throw (ex-info (str "Store " store-path " is format " f ", this ansatz reads format "
-                           store-format ". There is no migration — re-import it: "
-                           "./scripts/setup-<name>.sh, or (ansatz.import/import! ...).")
-                      {:store store-path :found f :expected store-format}))
+      (throw (ex-info (str "No store manifest at " store-path
+                           " — the import is incomplete or predates manifests. Re-import it.")
+                      {:store store-path :readable readable-formats}))
+      (not (contains? readable-formats f))
+      (throw (ex-info (str "Store " store-path " is format " f ", this ansatz reads formats "
+                           (sort readable-formats) ". Re-import with a supported writer or update ansatz.")
+                      {:store store-path :found f :readable readable-formats}))
       :else m)))
+
+(defn check-compatible!
+  "Check readable format and consumer requirements before opening/installing a store."
+  [store-path requirements]
+  (let [m (check-format! store-path)
+        errors (compatibility-errors m requirements)]
+    (when (seq errors)
+      (throw (ex-info "Store manifest does not match the requested artifacts"
+                      {:store store-path :mismatches errors})))
+    m))

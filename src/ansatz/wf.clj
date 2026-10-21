@@ -4,10 +4,12 @@
    which dispatches here (define-verified-wf) for non-structural recursion. Reads the live env from
    ansatz.state; the few core elaboration/API callbacks are resolved at runtime (core requires this
    ns, so a static require back would cycle)."
-  (:require [ansatz.kernel.expr :as e]
+  (:require [ansatz.bundle :as bundle]
+            [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.quotient :as quotient]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]
@@ -21,8 +23,8 @@
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.ingest :as ingest
              :refer [parse-params binder-type metadata-params? arity-registry structure-registry codegen-registry]]
-            [ansatz.state :refer [ansatz-env ansatz-instance-index]])
-  (:import [ansatz.kernel ConstantInfo]))
+            [ansatz.state :as state :refer [ansatz-env ansatz-instance-index]])
+  (:import [ansatz.kernel ConstantInfo ExprStore]))
 
 ;; ── core callbacks resolved at runtime (core requires this ns → no static require back) ──────────
 (defn- run-tactic [ps tac] ((requiring-resolve 'ansatz.core/run-tactic) ps tac))
@@ -395,34 +397,56 @@
 ;; lexicographic :termination-by is first used: each missing declaration is kernel-VERIFIED on
 ;; admission (verify? true); declarations already in the env are skipped (the export carries its
 ;; full dependency closure).
+(clojure.core/defn- missing-prelude-declarations
+  "Skip existing declarations, preserving whole inductive/quotient packages.
+   A partially present package cannot be completed by orphan CI admission."
+  [base declarations]
+  (let [quots (filterv #(.isQuot ^ConstantInfo %) declarations)
+        present? #(some? (env/lookup base (.name ^ConstantInfo %)))
+        _ (when (seq quots)
+            (quotient/validate-package! quots)
+            (let [present (mapv present? quots)]
+              (when (and (some true? present) (not-every? true? present))
+                (throw (ex-info "Partially present quotient package in lazy prelude environment" {})))))]
+    (loop [remaining (seq declarations) missing []]
+      (if-let [^ConstantInfo ci (first remaining)]
+        (if (.isInduct ci)
+          (let [{:keys [members rest]} (replay/collect-inductive-bundle remaining)
+                present (mapv present? members)]
+            (when (and (some true? present) (not-every? true? present))
+              (throw (ex-info "Partially present inductive package in lazy prelude environment"
+                              {:name (str (.name ci))})))
+            (recur rest (if (every? true? present) missing (into missing members))))
+          (recur (next remaining) (if (present? ci) missing (conj missing ci))))
+        missing))))
+
 (clojure.core/defn- wf-fix-ensure-prelude!
-  "Ensure a bundled prelude export is loaded into the global env (idempotent via sentinel)."
+  "Strictly replay a finite missing dependency set, including non-safe DEF SCCs.
+   Publish only after checking and closing parser resources. Existing extensions
+   and instance indexes are preserved. Complete lazy companion metadata activation
+   remains a separate preparation/merge step; this loader does not refresh it."
   [sentinel resource label]
-  (when-not (env/lookup @ansatz-env (name/from-string sentinel))
-    (let [res (clojure.java.io/resource resource)
-          _ (when-not res (throw (ex-info (str label " prelude not on classpath (" resource ")") {})))
-          ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))] (slurp in))
-          decls (:decls (parser/parse-ndjson-string ndjson))
-          env'
-          (loop [ds (seq decls) env @ansatz-env]
-            (if-let [ci (first ds)]
-              (cond
-                (env/lookup env (.name ^ansatz.kernel.ConstantInfo ci))
-                (recur (next ds) env)
-                (.isInduct ^ansatz.kernel.ConstantInfo ci)
-                (let [{:keys [members rest]} (replay/collect-inductive-bundle ds)
-                      [env2 rs] (replay/replay-inductive-bundle env members)]
-                  (when-let [err (first (filter #(= :error (:status %)) rs))]
-                    (throw (ex-info (str "lex prelude replay failed: " (:name err) " — " (:error err)) {})))
-                  (recur rest env2))
-                :else
-                (let [[env2 r] (replay/replay-one env ci true)]
-                  (when (= :error (:status r))
-                    (throw (ex-info (str "lex prelude replay failed: " (:name r) " — " (:error r)) {})))
-                  (recur (next ds) env2)))
-              env))]
-      (reset! ansatz-env env')
-      (when (verbose?) (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))
+  (locking state/session-lock
+    (let [base @ansatz-env]
+      (when-not (env/lookup base (name/from-string sentinel))
+        (bundle/with-verified
+          {:requirements (if-let [manifest (env/get-extension base :bundled-artifacts nil)]
+                           {:artifact/cohort (:artifact/cohort manifest)} {})}
+          (fn [_]
+            (bundle/assert-consumable!)
+            (let [payload (bundle/verified-bytes resource)
+                  ndjson (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
+                           (slurp in :encoding "UTF-8"))
+                  parsed (parser/parse-ndjson-string ndjson)
+                  env' (try
+                         (let [missing (missing-prelude-declarations base (:decls parsed))]
+                           (if (seq missing)
+                             (:env (replay/replay-from-env base missing :verify? true :stop-on-error? true))
+                             base))
+                         (finally
+                           (when-let [^ExprStore expressions (:exprs parsed)] (.close expressions))))]
+              (reset! ansatz-env env')
+              (when (verbose?) (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))))))
 
 (clojure.core/defn wf-fix-ensure-lex-prelude!
   "Ensure the Prod.Lex prelude is loaded (idempotent)."

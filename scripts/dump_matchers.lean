@@ -16,35 +16,27 @@
 import Lean
 open Lean Meta Match
 
-def jBool (b : Bool) : String := if b then "true" else "false"
+def jAlt (a : AltParamInfo) : Json :=
+  Json.mkObj [("numFields", toJson a.numFields), ("numOverlaps", toJson a.numOverlaps),
+              ("unitThunk", toJson a.hasUnitThunk)]
 
-def jAlt (a : AltParamInfo) : String :=
-  "{\"numFields\":" ++ toString a.numFields ++
-  ",\"numOverlaps\":" ++ toString a.numOverlaps ++
-  ",\"unitThunk\":" ++ jBool a.hasUnitThunk ++ "}"
-
-def jDiscr (d : DiscrInfo) : String :=
+def jDiscr (d : DiscrInfo) : Json :=
   match d.hName? with
-  | some n => "\"" ++ toString n ++ "\""
-  | none   => "null"
+  | some n => Json.str n.toString
+  | none   => Json.null
 
-def jOverlaps (o : Overlaps) : String :=
+def jOverlaps (o : Overlaps) : Json :=
   -- emit as a flat list of [overlapping,overlapped] pairs; empty for non-overlapping matchers
   let pairs := o.map.toList.flatMap (fun (k, vs) => vs.toArray.toList.map (fun v => (v, k)))
-  "[" ++ String.intercalate "," (pairs.map (fun (a, b) => "[" ++ toString a ++ "," ++ toString b ++ "]")) ++ "]"
+  toJson (pairs.map (fun (a, b) => #[a, b]))
 
 def emit (name : Name) (info : MatcherInfo) : IO Unit := do
-  let alts := "[" ++ String.intercalate "," (info.altInfos.toList.map jAlt) ++ "]"
-  let discrs := "[" ++ String.intercalate "," (info.discrInfos.toList.map jDiscr) ++ "]"
-  let uElim := match info.uElimPos? with | some p => toString p | none => "null"
-  IO.println <|
-    "{\"name\":\"" ++ toString name ++ "\"" ++
-    ",\"numParams\":" ++ toString info.numParams ++
-    ",\"numDiscrs\":" ++ toString info.numDiscrs ++
-    ",\"uElimPos\":" ++ uElim ++
-    ",\"discrs\":" ++ discrs ++
-    ",\"overlaps\":" ++ jOverlaps info.overlaps ++
-    ",\"alts\":" ++ alts ++ "}"
+  IO.println (Json.mkObj [("name", Json.str name.toString),
+                         ("numParams", toJson info.numParams), ("numDiscrs", toJson info.numDiscrs),
+                         ("uElimPos", toJson info.uElimPos?),
+                         ("discrs", Json.arr (info.discrInfos.map jDiscr)),
+                         ("overlaps", jOverlaps info.overlaps),
+                         ("alts", Json.arr (info.altInfos.map jAlt))]).compress
 
 -- The matcher info lives in a SimplePersistentEnvExtension (Match.Extension.extension). getState only
 -- sees the local env; fold the raw per-module imported entries (like dump_attrs does for simp).

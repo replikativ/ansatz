@@ -273,7 +273,10 @@ name up in that repository's index, downloads the parts (resuming if interrupted
 against its SHA-256 and installs the store under the durable store root
 (`$ANSATZ_STORE_DIR` → `$XDG_DATA_HOME/ansatz/stores` → `~/.local/share/ansatz/stores`). It
 unpacks to about 5 GB and is used from then on; nothing is downloaded again. Because the index
-is read at fetch time, a new import reaches you without a new ansatz release.
+is read at fetch time, a new compatible import reaches you without a new ansatz release.
+New imports write format 2; this build also reads the published format-1 Mathlib store.
+See [store compatibility and verification](doc/stores.md#reader-compatibility-and-verification)
+for the distinction between readable artifacts and checked declarations.
 
 | variable | effect |
 |---|---|

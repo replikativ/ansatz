@@ -1,0 +1,7 @@
+# Native Init/SizeOf dependency closure used by the WF encoder.
+instSizeOfNat
+SizeOf.sizeOf
+List._sizeOf_inst
+List.cons.sizeOf_spec
+List.nil.sizeOf_spec
+Prod._sizeOf_inst

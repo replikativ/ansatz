@@ -7,7 +7,7 @@
 
    Storage stack: PSS → CachedStorage (IStorage) → konserve filestore at `<store>/blobs`.
 
-   STORE FORMAT 1 (see ansatz.store/store-format): every PSS node is one CBOR blob
+   STORE FORMATS 1 AND 2 (see ansatz.store/readable-formats): every PSS node is one CBOR blob
    (ansatz.export.codec) written as BINARY under a CONTENT ADDRESS — the SHA-256 of its
    bytes as a UUID — so an identical node has one address everywhere: two imports of the
    same library produce the same roots, an unchanged subtree costs nothing across library
@@ -18,6 +18,7 @@
    (ansatz.import), not to migrate."
   (:require [konserve.core :as k]
             [ansatz.export.codec :as codec]
+            [ansatz.store :as store]
             [boring.core :as boring]
             [konserve.filestore :as fs]
             [konserve.serializers :as ser]
@@ -25,6 +26,7 @@
             [clojure.edn :as edn]
             [org.replikativ.persistent-sorted-set :as pss]
             [ansatz.kernel.name :as ansatz-name]
+            [ansatz.kernel.hints :as hints]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
   (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker InductiveBundle]
@@ -125,20 +127,29 @@
   "Open the store rooted at `store-path` (creating `<store>/blobs` if absent). Returns
    {:store konserve, :storage CachedStorage, :settings-atom, :path}.
 
-   Opening does NOT check the manifest — `ansatz.store/check-format!` does, and `init!` calls
-   it; the importer opens a store that has no manifest yet.
+   Existing manifests must be readable and determine the writer's compatibility.
+   Unmanifested stores default to the current writer (the importer creates these).
+   :write-format explicitly selects an unmanifested store's writer; it cannot
+   override an existing manifest. No manifest migration or relabeling occurs.
 
    `:sync-blob?` (default true) fsyncs each blob write. An import turns it off: a crashed
    import is simply re-run, and the manifest is written last."
   ([store-path] (open-store store-path {}))
-  ([store-path {:keys [sync-blob?] :or {sync-blob? true}}]
-   (let [dir (blobs-dir store-path)
+  ([store-path {:keys [sync-blob? write-format] :or {sync-blob? true} :as options}]
+   (let [manifest (when (.exists (store/manifest-file store-path)) (store/check-format! store-path))
+         selected-format (if (contains? options :write-format) write-format
+                             (or (:store/format manifest) store/write-format))
+         _ (when (and manifest (not= selected-format (:store/format manifest)))
+             (throw (ex-info "Store writer format cannot override an existing manifest"
+                             {:store store-path :store/format (:store/format manifest)
+                              :requested-format selected-format})))
+         dir (blobs-dir store-path)
          _ (.mkdirs dir)
          settings-atom (atom (Settings. 64 RefType/WEAK))
          storage-atom (atom nil)
          ;; the PSS root handler resolves its storage through a write-once cell, as the
          ;; storage does not exist until the store is open
-         registry (codec/registry (fn [_] @storage-atom))
+         registry (codec/registry (fn [_] @storage-atom) {:write-format selected-format})
          kstore (fs/connect-fs-store
                  (.getPath dir)
                  :opts {:sync? true}
@@ -150,6 +161,7 @@
      {:store kstore
       :storage cached
       :settings-atom settings-atom
+      :write-format selected-format
       :path store-path})))
 
 (defn close-store
@@ -687,18 +699,13 @@
        0 (ConstantInfo/mkAxiom (:name m) lps type-expr
                                (boolean (:unsafe? m)))
       ;; DEF
-       1 (let [h (let [hints (:hints m)]
-                   (cond
-                     (= hints :opaque) ConstantInfo/HINTS_OPAQUE
-                     (= hints :abbrev) ConstantInfo/HINTS_ABBREV
-                     (map? hints) (:regular hints)
-                     :else ConstantInfo/HINTS_OPAQUE))
+       1 (let [h (hints/code (:hints m))
                s (case (:safety m)
                    :safe (byte 0) :unsafe (byte 1) :partial (byte 2) (byte 0))]
-           (ConstantInfo/mkDef (:name m) lps type-expr
-                               (resolve-expr-fn (:value-id m))
-                               (int h) s
-                               (into-array Object (:all m))))
+           (ConstantInfo/mkDefWithHints (:name m) lps type-expr
+                                        (resolve-expr-fn (:value-id m))
+                                        (long h) s
+                                        (into-array Object (:all m))))
       ;; THM
        2 (ConstantInfo/mkThm (:name m) lps type-expr
                              (resolve-value (:value-id m))

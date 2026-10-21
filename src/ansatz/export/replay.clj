@@ -3,6 +3,8 @@
 (ns ansatz.export.replay
   "Replays imported declarations through the Ansatz kernel type checker."
   (:require [ansatz.kernel.env :as env]
+            [ansatz.export.non-safe :as non-safe]
+            [ansatz.kernel.quotient :as quotient]
             [ansatz.export.parser :as parser])
   (:import [ansatz.kernel ConstantInfo InductiveBundle TypeChecker Env ExprStore Name]))
 
@@ -53,11 +55,14 @@
          name-str (.toString (.name ci))]
      (try
        (cond
-         ;; Quotient primitives.
+         ;; Native Lean initializes these as one complete package. A single
+         ;; primitive cannot establish that invariant in verified replay.
          (= 4 (int tag))
-         (let [env (.addConstant env ci)
-               env (.enableQuot env)]
-           [env {:status :ok :name name-str :tag (env/ci-tag ci)}])
+         (if verify?
+           [env {:status :error :name name-str :tag :quot
+                 :error "verified quotient admission requires the complete canonical package; use replay"}]
+           [(.enableQuot (.addConstant env ci))
+            {:status :ok :name name-str :tag :quot}])
 
          ;; Inductives, constructors, recursors must be replayed as a bundle.
          (#{5 6 7} (int tag))
@@ -66,7 +71,9 @@
 
          :else
          (let [env (if verify?
-                     (TypeChecker/checkConstant env ci default-fuel)
+                     (if (non-safe/non-safe-definition? ci)
+                       (TypeChecker/checkMutualDefinitions env [ci] (long default-fuel))
+                       (TypeChecker/checkConstant env ci default-fuel))
                      (.addConstant env ci))]
            ;; Note: do NOT strip theorem values — downstream isDefEq may need them.
            [env {:status :ok :name name-str :tag (env/ci-tag ci)}]))
@@ -134,71 +141,112 @@
                             members)]
           [env results])))))
 
-(defn replay
-  "Replay all declarations through the type checker.
-   Runs on a thread with a 64MB stack to handle deep recursion.
+(defn- replay-quotient-package
+  [^Env current declarations ^ConstantInfo ci]
+  (try
+    (let [already? (every? (fn [^ConstantInfo member]
+                             (identical? member (.lookup current (.name member)))) declarations)
+          next-env (if already? current (quotient/admit-package! current declarations default-fuel))]
+      [next-env {:status :ok :name (str (.name ci)) :tag :quot}])
+    (catch Exception ex
+      [current {:status :error :name (str (.name ci)) :tag :quot :error (.getMessage ex)}])))
 
-   `:verify?` (default true) re-typechecks every declaration — correct for
-   validating an export. Pass `:verify? false` to TRUST a known-good export and
-   admit definitions without re-checking (much faster; inductive bundles are
-   still admitted through the kernel)."
-  [decls & {:keys [verbose? stop-on-error? verify?]
-            :or {verbose? false stop-on-error? false verify? true}}]
+(defn- replay-non-safe-group
+  [^Env current {:keys [members external-dependencies]}]
+  (try
+    (let [missing (filterv #(nil? (.lookup current %)) external-dependencies)]
+      (when (seq missing)
+        (throw (ex-info "Non-safe definition group has missing or out-of-order external dependencies"
+                        {:missing (mapv str (take 8 (sort-by str missing)))
+                         :missing-count (count missing)})))
+      [(TypeChecker/checkMutualDefinitions current members (long default-fuel))
+       (mapv (fn [^ConstantInfo ci] {:status :ok :name (str (.name ci)) :tag :def}) members)])
+    (catch Exception ex
+      [current (mapv (fn [^ConstantInfo ci]
+                       {:status :error :name (str (.name ci)) :tag :def :error (.getMessage ex)}) members)])))
+
+(defn- replay-from-env*
+  "Replay a finite declaration sequence against an existing checked Env.
+   Strict non-safe DEFs are grouped by body-reference SCCs, never DefinitionVal.all.
+   Earlier SCC members wait until the last input member; independent interleaved
+   declarations retain input order. Native export DFS order is required: external
+   group dependencies must already be admitted when the group closes. Headers are
+   checked before any group member is visible. Results retain original input order.
+   Quotient packages retain atomic preflight/admission. :verify? false explicitly
+   TRUSTs definitions without regrouping; inductive bundles are still checked."
+  [^Env initial-env declarations & {:keys [verbose? stop-on-error? verify? quotient-errors-as-results? quotient-package-seen?]
+                                    :or {verbose? false stop-on-error? false verify? true}}]
+  (when-not (instance? Env initial-env)
+    (throw (ex-info "Replay requires an initial Env" {})))
   (run-with-large-stack
    (fn []
      (let [start-time (System/currentTimeMillis)
-           env (env/empty-env)]
-       (loop [decls (seq decls)
-              env env
-              results (transient [])
-              ok-count 0
-              err-count 0]
-         (if-let [ci (first decls)]
-           (if (.isInduct ^ConstantInfo ci)
-             (let [{:keys [members rest]} (collect-inductive-bundle decls)
-                   [env' bundle-results] (replay-inductive-bundle env members)
-                   results' (reduce conj! results bundle-results)
-                   ok+ (count (filter #(= :ok (:status %)) bundle-results))
-                   err+ (count (filter #(= :error (:status %)) bundle-results))]
+           declarations (vec declarations)
+           quotient-package (when verify? (filterv #(.isQuot ^ConstantInfo %) declarations))
+           _ (when (and (seq quotient-package) (not quotient-errors-as-results?))
+               (quotient/validate-package! quotient-package))
+           groups (when verify? (non-safe/plan declarations))
+           results (object-array (count declarations))]
+       (loop [index 0 current initial-env ok-count 0 err-count 0]
+         (if (< index (count declarations))
+           (let [^ConstantInfo ci (nth declarations index)
+                 group (when (and verify? (non-safe/non-safe-definition? ci)) (get groups (.name ci)))
+                 [next-env indices rows next-index]
+                 (cond
+                   (.isInduct ci)
+                   (let [{:keys [members]} (collect-inductive-bundle (subvec declarations index))
+                         [next-env rows] (replay-inductive-bundle current members)
+                         next-index (+ index (count members))]
+                     [next-env (range index next-index) rows next-index])
+
+                   group
+                   (if (= index (:last-index group))
+                     (let [[next-env rows] (replay-non-safe-group current group)]
+                       [next-env (:indices group) rows (inc index)])
+                     [current [] [] (inc index)])
+
+                   :else
+                   (let [[next-env row] (if (and verify? (.isQuot ci))
+                                          (if (or quotient-package-seen? (.isQuotEnabled initial-env))
+                                            [current {:status :error :name (str (.name ci)) :tag :quot
+                                                      :error "duplicate quotient primitive after an earlier quotient package"}]
+                                            (replay-quotient-package current quotient-package ci))
+                                          (replay-one current ci verify?))]
+                     [next-env [index] [row] (inc index)]))
+                 ok+ (count (filter #(= :ok (:status %)) rows))
+                 err+ (- (count rows) ok+)]
+             (doseq [[i row] (map vector indices rows)]
+               (aset results i row)
                (when verbose?
-                 (doseq [result bundle-results]
-                   (case (:status result)
-                     :ok (print ".")
-                     :error (do (println)
-                                (println "ERROR:" (:name result) "-" (:error result))))))
-               (when (and stop-on-error? (pos? err+))
-                 (throw (ex-info "Replay stopped on error"
-                                 {:result (first (filter #(= :error (:status %)) bundle-results))
-                                  :env env
-                                  :results (persistent! results')})))
-               (recur rest
-                      env'
-                      results'
-                      (+ ok-count ok+)
-                      (+ err-count err+)))
-             (let [[env' result] (replay-one env ci verify?)]
-               (when verbose?
-                 (case (:status result)
-                   :ok (print ".")
-                   :error (do (println)
-                              (println "ERROR:" (:name result) "-" (:error result)))))
-               (when (and stop-on-error? (= :error (:status result)))
-                 (throw (ex-info "Replay stopped on error"
-                                 {:result result :env env
-                                  :results (persistent! (conj! results result))})))
-               (recur (next decls)
-                      env'
-                      (conj! results result)
-                      (if (= :ok (:status result)) (inc ok-count) ok-count)
-                      (if (= :error (:status result)) (inc err-count) err-count))))
+                 (if (= :ok (:status row)) (print ".")
+                     (do (println) (println "ERROR:" (:name row) "-" (:error row))))))
+             (when (and stop-on-error? (pos? err+))
+               (throw (ex-info "Replay stopped on error"
+                               {:result (first (filter #(= :error (:status %)) rows))
+                                :env current :results (into [] (keep identity) results)})))
+             (recur next-index next-env (+ ok-count ok+) (+ err-count err+)))
            (do
+             (when (some nil? results)
+               (throw (ex-info "Replay failed to account for every input declaration" {})))
              (when verbose? (println))
-             {:env env
-              :results (persistent! results)
-              :stats {:ok ok-count
-                      :errors err-count
-                      :total (+ ok-count err-count)
+             {:env current :results (vec results)
+              :stats {:ok ok-count :errors err-count :total (+ ok-count err-count)
                       :elapsed-ms (- (System/currentTimeMillis) start-time)}})))))))
+
+(defn replay-from-env
+  "Replay declarations against a checked Env. Non-safe definitions are admitted
+   by body-reference SCC at its last input member; .all is never group authority.
+   Results retain input order. All group headers precede recursive body checking.
+   External dependencies must respect native exporter DFS order. Options match
+   replay; TRUST false skips non-safe grouping and retains unchecked admission."
+  [initial-env declarations & options]
+  (apply replay-from-env* initial-env declarations options))
+
+(defn replay
+  "Replay declarations from an empty Env. See replay-from-env for admission
+   ordering, complete quotient packages, non-safe SCCs, and explicit TRUST mode."
+  [declarations & options]
+  (apply replay-from-env (env/empty-env) declarations options))
 
 (defn replay-file
   "Parse an NDJSON file and replay all declarations."
@@ -239,7 +287,7 @@
 
 (declare process-stream-decl)
 
-(defn- process-stream-decl
+(defn- process-stream-decl-ordinary
   [state ^ConstantInfo ci]
   (if-let [^objects pending-all (:pending-all-names state)]
     (if (bundle-member? pending-all ci)
@@ -259,31 +307,73 @@
         :tag (env/ci-tag ci)
         :error "inductive bundle member encountered outside bundle head"})
 
-      ;; unsafe/partial definitions (e.g. `_unsafe_rec`) may be (mutually) self-referential:
-      ;; Lean admits them as a group, headers first (environment::add_mutual)
-      (and (.isDef ci) (not= 0 (int (.safety ci))))
-      (let [all-names (vec (or (.all ci) [(.name ci)]))
-            group (conj (get-in state [:pending-mutual all-names] []) ci)]
-        (if (< (count group) (count all-names))
-          (assoc-in state [:pending-mutual all-names] group)
-          (let [state (update state :pending-mutual dissoc all-names)]
-            (try
-              (record-stream-results
-               (assoc state :env (TypeChecker/checkMutualDefinitions (:env state) group (long default-fuel)))
-               (mapv (fn [^ConstantInfo m] {:status :ok :name (str (.name m)) :tag (env/ci-tag m)}) group))
-              (catch Exception ex
-                (record-stream-results
-                 state
-                 (mapv (fn [^ConstantInfo m] {:status :error :name (str (.name m)) :tag (env/ci-tag m)
-                                              :error (.getMessage ex)}) group)))))))
-
       :else
       (let [[env' result] (replay-one (:env state) ci)]
         (record-stream-result (assoc state :env env') result)))))
 
+(defn- flush-stream-quotients
+  "Admit all buffered primitives atomically, then replay the buffered ordinary
+   declarations in original order. Eq must have been admitted before the first
+   primitive, matching native add_quot. No adjacency assumption is made."
+  [state]
+  (if-let [buffer (:pending-quotient-decls state)]
+    (let [package (filterv #(.isQuot ^ConstantInfo %) buffer)
+          base (assoc (dissoc state :pending-quotient-decls :pending-quotient-count) :quotient-package-seen? true)
+          [next-env admission] (replay-quotient-package (:env base) package (first package))
+          base (assoc base :env next-env)]
+      (reduce (fn [st ^ConstantInfo ci]
+                (if (.isQuot ci)
+                  (record-stream-result st (assoc admission :name (str (.name ci))))
+                  (process-stream-decl-ordinary st ci)))
+              base buffer))
+    state))
+
+(defn- process-stream-decl
+  [state ^ConstantInfo ci]
+  (cond
+    (:deferred-non-safe-tail state)
+    (update state :deferred-non-safe-tail conj ci)
+
+    (non-safe/non-safe-definition? ci)
+    (let [state (flush-stream-bundle state)
+          tail (conj (or (:pending-quotient-decls state) []) ci)]
+      (-> state
+          (dissoc :pending-quotient-decls :pending-quotient-count :last-result)
+          (assoc :deferred-non-safe-tail tail)))
+
+    (:pending-quotient-decls state)
+    (let [state (cond-> (update state :pending-quotient-decls conj ci)
+                  (.isQuot ci) (update :pending-quotient-count inc))]
+      (if (= 4 (:pending-quotient-count state)) (flush-stream-quotients state) state))
+
+    (.isQuot ci)
+    (if (:quotient-package-seen? state)
+      (record-stream-result state {:status :error :name (str (.name ci)) :tag :quot
+                                   :error "duplicate quotient package primitive after initialization"})
+      (assoc (flush-stream-bundle state) :pending-quotient-decls [ci] :pending-quotient-count 1))
+
+    :else (process-stream-decl-ordinary state ci)))
+
+(defn- flush-stream-tail
+  [state]
+  (if-let [tail (:deferred-non-safe-tail state)]
+    (let [result (replay-from-env* (:env state) tail :quotient-errors-as-results? true
+                                   :quotient-package-seen? (:quotient-package-seen? state))]
+      (-> state
+          (dissoc :deferred-non-safe-tail)
+          (assoc :env (:env result))
+          (record-stream-results (:results result))))
+    (flush-stream-bundle (flush-stream-quotients state))))
+
 (defn replay-file-streaming
   "Parse and replay declarations in streaming mode.
-   Runs on a thread with a 64MB stack to handle deep recursion."
+   Runs on a thread with a 64MB stack to handle deep recursion. Quotient
+   initialization buffers from its first primitive through the fourth (including
+   interleaved declarations); a truncated package is rejected at EOF. A malformed
+   input with a missing primitive may therefore retain the remaining stream.
+   From the first non-safe DEF, retain the remaining suffix until EOF and replay
+   it through the same SCC engine as vector replay. Memory is proportional to
+   that suffix; files containing only safe definitions remain streaming."
   [path & {:keys [verbose?] :or {verbose? false}}]
   (run-with-large-stack
    (fn []
@@ -303,9 +393,9 @@
                                        used (quot (- (.totalMemory rt) (.freeMemory rt)) 1048576)]
                                    (println (str "  [" (+ (:ok state) (:errors state)) "] ok=" (:ok state) " err=" (:errors state) " mem=" used "MB"))))
                            :error (println "ERROR:" (:name result) "-" (:error result))
-                           nil))
+                           nil nil))
                        state')))]
-       (let [st (flush-stream-bundle (:final-state result))
+       (let [st (flush-stream-tail (:final-state result))
              elapsed (- (System/currentTimeMillis) start-time)]
          (println "Done: ok=" (:ok st) "errors=" (:errors st) "elapsed=" elapsed "ms")
          (when (seq (:error-names st))
@@ -315,7 +405,7 @@
                   :total (+ (:ok st) (:errors st))
                   :elapsed-ms elapsed}
           :error-names (:error-names st)
-          :incomplete-mutual (mapv #(mapv str %) (keys (:pending-mutual st)))
+          :incomplete-mutual []
           :meta (:parser-meta result)})))))
 
 (defn summarize-errors

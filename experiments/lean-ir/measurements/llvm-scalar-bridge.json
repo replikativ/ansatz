@@ -1,0 +1,43 @@
+{
+  "scope": "optional LLVM 20 scalar Pattern import/export REPL experiment; no guest-runtime integration or performance claim",
+  "llvm_version": "Ubuntu LLVM version 20.1.8",
+  "pattern_commit": "89da31a64f5150a180a1233cd13fa1de4f42e416",
+  "source_sha256": {
+    "src/prototype/llvm_bridge.clj": "a9efcccc1d6f3a61ea43f30c3486fe91afda8bdb4f72f35cf93592fc2f887383",
+    "src/prototype/pattern_probe.clj": "4ef49f14efa4e08eec4470d77ca24dc22c138563ae64cc032598d7509ae2a10e",
+    "test/prototype/llvm_bridge_test.clj": "b72efd75315e5df8df38cc42fef9829ae043a1a8ea718c90f0b49ce94971b1b3"
+  },
+  "repl": {
+    "roundtrip_equal": true,
+    "tail_transfers": 200000,
+    "clojure_result": 200000,
+    "lli_check_exit": 0,
+    "unsigned_i32_sub_zero_one": 4294967295,
+    "resident_var": "user/llvm-lab"
+  },
+  "optional_suite": {
+    "tests": 7,
+    "assertions": 34,
+    "failures": 0,
+    "errors": 0,
+    "run_in_repl_and_cli": true
+  },
+  "baseline_suite": {
+    "tests": 48,
+    "assertions": 10410,
+    "failures": 0,
+    "errors": 0,
+    "optional_dependencies_added": false
+  },
+  "limitations": [
+    "text-only LLVM input",
+    "restricted named scalar dialect; no phis or memory",
+    "no Lean IR lowering to LLVM",
+    "no native-region host ABI or ORC integration",
+    "no compiler-correctness proof"
+  ],
+  "commands": {
+    "baseline": "clojure -Srepro -J-Xmx1g -M:test",
+    "optional": "clojure -Srepro -J-Xmx1g -Sdeps \"{:deps {com.github.pangloss/pattern {:local/root \\\"$PATTERN_DIR\\\"}}}\" -M -m prototype.llvm-bridge-test"
+  }
+}

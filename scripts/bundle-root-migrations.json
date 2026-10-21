@@ -1,0 +1,476 @@
+{
+  "profile": "ansatz-bundle-root-migration/1",
+  "from-lean": "4.29.0-rc2",
+  "to-lean": "4.33.1",
+  "legacy-public-roots-sha256": "5bdd44ca2f1278e4b8866a1d33f2306748c00b0ffaea33fefb7121bb3a78164e",
+  "private-requested-roots-removed": 461,
+  "changes": [
+    {
+      "from": "Int.ediv_add_emod",
+      "to": "Int.mul_ediv_add_emod",
+      "action": "retire",
+      "reason": "Deprecated alias or generated auxiliary removed; retain existing public owner/successor root",
+      "lean-source": "src/Init/Data/Int/DivMod/Bootstrap.lean"
+    },
+    {
+      "from": "Nat.Linear.Context",
+      "to": "Nat.Internal.Linear.Context",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr",
+      "to": "Nat.Internal.Linear.Expr",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.below",
+      "to": "Nat.Internal.Linear.Expr.below",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.brecOn",
+      "to": "Nat.Internal.Linear.Expr.brecOn",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.brecOn.go",
+      "to": "Nat.Internal.Linear.Expr.brecOn.go",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.casesOn",
+      "to": "Nat.Internal.Linear.Expr.casesOn",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.denote",
+      "to": "Nat.Internal.Linear.Expr.denote",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.denote.match_1",
+      "to": "Nat.Internal.Linear.Expr.denote.match_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.toNormPoly",
+      "to": "Nat.Internal.Linear.Expr.toNormPoly",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.toPoly",
+      "to": "Nat.Internal.Linear.Expr.toPoly",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.toPoly.go",
+      "to": "Nat.Internal.Linear.Expr.toPoly.go",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.toPoly.go.induct",
+      "to": "Nat.Internal.Linear.Expr.toPoly.go.induct",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Expr.toPoly.go.match_1",
+      "to": "Nat.Internal.Linear.Expr.toPoly.go.match_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr",
+      "to": "Nat.Internal.Linear.ExprCnstr",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr.casesOn",
+      "to": "Nat.Internal.Linear.ExprCnstr.casesOn",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr.denote",
+      "to": "Nat.Internal.Linear.ExprCnstr.denote",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr.eq",
+      "to": "Nat.Internal.Linear.ExprCnstr.eq",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr.lhs",
+      "to": "Nat.Internal.Linear.ExprCnstr.lhs",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr.rhs",
+      "to": "Nat.Internal.Linear.ExprCnstr.rhs",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.ExprCnstr.toNormPoly",
+      "to": "Nat.Internal.Linear.ExprCnstr.toNormPoly",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly",
+      "to": "Nat.Internal.Linear.Poly",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.cancel",
+      "to": "Nat.Internal.Linear.Poly.cancel",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.cancelAux",
+      "to": "Nat.Internal.Linear.Poly.cancelAux",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.cancelAux.match_1",
+      "to": "Nat.Internal.Linear.Poly.cancelAux.match_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.cancelAux.match_3",
+      "to": "Nat.Internal.Linear.Poly.cancelAux.match_3",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote",
+      "to": "Nat.Internal.Linear.Poly.denote",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote.match_1",
+      "to": "Nat.Internal.Linear.Poly.denote.match_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_append",
+      "to": "Nat.Internal.Linear.Poly.denote_append",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_eq",
+      "to": "Nat.Internal.Linear.Poly.denote_eq",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_eq_cancel",
+      "to": "Nat.Internal.Linear.Poly.denote_eq_cancel",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_eq_cancelAux",
+      "to": "Nat.Internal.Linear.Poly.denote_eq_cancelAux",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_eq_cancel_eq",
+      "to": "Nat.Internal.Linear.Poly.denote_eq_cancel_eq",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_insert",
+      "to": "Nat.Internal.Linear.Poly.denote_insert",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_le",
+      "to": "Nat.Internal.Linear.Poly.denote_le",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_norm_go",
+      "to": "Nat.Internal.Linear.Poly.denote_norm_go",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.denote_reverse",
+      "to": "Nat.Internal.Linear.Poly.denote_reverse",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.insert",
+      "to": "Nat.Internal.Linear.Poly.insert",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.isNum?._sparseCasesOn_1",
+      "to": "Nat.Internal.Linear.Poly.isNum?._sparseCasesOn_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.isNum?._sparseCasesOn_1.else_eq",
+      "to": "Nat.Internal.Linear.Poly.isNum?._sparseCasesOn_1.else_eq",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.isZero",
+      "to": "Nat.Internal.Linear.Poly.isZero",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.isZero.match_1",
+      "to": "Nat.Internal.Linear.Poly.isZero.match_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.norm",
+      "to": "Nat.Internal.Linear.Poly.norm",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.norm.go",
+      "to": "Nat.Internal.Linear.Poly.norm.go",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.of_denote_eq_cancel",
+      "to": "Nat.Internal.Linear.Poly.of_denote_eq_cancel",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.of_denote_eq_cancelAux",
+      "to": "Nat.Internal.Linear.Poly.of_denote_eq_cancelAux",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Poly.of_isZero",
+      "to": "Nat.Internal.Linear.Poly.of_isZero",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr",
+      "to": "Nat.Internal.Linear.PolyCnstr",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.casesOn",
+      "to": "Nat.Internal.Linear.PolyCnstr.casesOn",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.denote",
+      "to": "Nat.Internal.Linear.PolyCnstr.denote",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.eq",
+      "to": "Nat.Internal.Linear.PolyCnstr.eq",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.eq_true_of_isValid",
+      "to": "Nat.Internal.Linear.PolyCnstr.eq_true_of_isValid",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.isValid",
+      "to": "Nat.Internal.Linear.PolyCnstr.isValid",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.lhs",
+      "to": "Nat.Internal.Linear.PolyCnstr.lhs",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.norm.match_1",
+      "to": "Nat.Internal.Linear.PolyCnstr.norm.match_1",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.PolyCnstr.rhs",
+      "to": "Nat.Internal.Linear.PolyCnstr.rhs",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Var",
+      "to": "Nat.Internal.Linear.Var",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.Var.denote",
+      "to": "Nat.Internal.Linear.Var.denote",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.fixedVar",
+      "to": "Nat.Internal.Linear.fixedVar",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.Linear.hugeFuel",
+      "to": "Nat.Internal.Linear.hugeFuel",
+      "action": "rename",
+      "reason": "Namespace moved; declaration source otherwise unchanged",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.elimOffset",
+      "to": "Nat.Internal.elimOffset",
+      "action": "rename",
+      "reason": "Declaration moved into owning namespace",
+      "lean-source": "src/Init/Data/Nat/Internal/Linear.lean"
+    },
+    {
+      "from": "Nat.eq_or_lt_of_le.match_1",
+      "to": "Nat.eq_or_lt_of_le",
+      "action": "retire",
+      "reason": "Deprecated alias or generated auxiliary removed; retain existing public owner/successor root",
+      "lean-source": "src/Init/Prelude.lean"
+    },
+    {
+      "from": "Nat.eq_or_lt_of_le.match_3",
+      "to": "Nat.eq_or_lt_of_le",
+      "action": "retire",
+      "reason": "Deprecated alias or generated auxiliary removed; retain existing public owner/successor root",
+      "lean-source": "src/Init/Prelude.lean"
+    },
+    {
+      "from": "Std.Packages.LinearPreorderOfLEArgs._proof_5",
+      "to": "Std.Packages.LinearPreorderOfLEArgs",
+      "action": "retire",
+      "reason": "Deprecated alias or generated auxiliary removed; retain existing public owner/successor root",
+      "lean-source": "src/Init/Data/Order/PackageFactories.lean"
+    },
+    {
+      "from": "instReprInt",
+      "to": "Int.instRepr",
+      "action": "rename",
+      "reason": "Declaration moved into owning namespace",
+      "lean-source": "src/Init/Data/Int/Repr.lean"
+    },
+    {
+      "from": "instToStringInt.match_1",
+      "to": "instToStringInt",
+      "action": "retire",
+      "reason": "Deprecated alias or generated auxiliary removed; retain existing public owner/successor root",
+      "lean-source": "src/Init/Data/ToString/Extra.lean"
+    }
+  ],
+  "base": {
+    "path": "scripts/init-store-roots.txt",
+    "sha256": "1651d3861b14cce9bb63584ae42881ea285a7bb0d260e6fd0a012199563fabaa",
+    "count": 3251
+  }
+}
