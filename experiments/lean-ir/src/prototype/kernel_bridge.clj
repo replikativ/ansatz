@@ -197,6 +197,32 @@
 (defn project-name
   ([world value] (:value (project-with-stats world :name value)))
   ([world value projector] (:value (project-with-stats world :name value projector))))
+(defn project-name-bounded
+  "Borrow a validated Name with explicit spine-node and UTF-16 string limits.
+   Counts the anonymous terminator as a node. Reject cycles before projection;
+   does not inspect a constant's type/body or establish any admission authority."
+  [world value {:keys [max-nodes max-chars] :as limits}]
+  (when-not (and (map? limits) (= #{:max-nodes :max-chars} (set (keys limits)))
+                 (every? #(and (integer? %) (<= 1 % Long/MAX_VALUE)) [max-nodes max-chars]))
+    (fail "Bounded Name projection requires positive node and character limits" {}))
+  (loop [current value seen #{} remaining max-nodes characters 0]
+    (when (zero? remaining) (fail "Guest Name exceeds spine-node limit" {:limit max-nodes}))
+    (if (= 0 (scalar-tag current))
+      (project-name world value)
+      (do
+        (when (contains? seen current) (fail "Cyclic guest Name" {}))
+        (let [tag (:tag (m/node world current))
+              node (ctor! world current tag 2 8)
+              [parent payload] (:fields node)
+              length (case tag
+                       1 (count (string/string-value carrier-ops world payload))
+                       2 (do (long! world payload) 0)
+                       (fail "Invalid guest Name tag" {:tag tag}))
+              characters (+ characters length)]
+          (when (> characters max-chars)
+            (fail "Guest Name exceeds string-character limit" {:limit max-chars}))
+          (recur parent (conj seen current) (dec remaining) characters))))))
+
 (defn project-level
   ([world value] (:value (project-with-stats world :level value)))
   ([world value projector] (:value (project-with-stats world :level value projector))))

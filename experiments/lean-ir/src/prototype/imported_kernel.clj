@@ -37,8 +37,8 @@
 (defn- names [world value] (vec (:value (bridge/project-with-stats world :names value))))
 (defn- base [world value] (:value (bridge/project-with-stats world :constant-val value)))
 
-(defn- constant-name
-  "Validate the envelope and borrow only its name, without traversing its type/body."
+(defn- constant-name-reference
+  "Validate the ConstantInfo envelope and borrow its Name reference."
   [world value]
   (let [tag (:tag (m/node world value))
         [payload] (:fields (ctor! world value tag 1 0))
@@ -47,7 +47,17 @@
                          (fail "Unsupported imported ConstantInfo variant" {:tag tag}))
         [constant] (:fields (ctor! world payload 0 objects bytes))
         [name] (:fields (ctor! world constant 0 3 0))]
-    (bridge/project-name world name)))
+    name))
+
+
+(defn- constant-name [world value]
+  (bridge/project-name world (constant-name-reference world value)))
+
+(defn project-constant-name
+  "Borrow only a validated ConstantInfo name under explicit Name limits.
+   No type/body projection, Java ConstantInfo creation, checking or authority."
+  [world value limits]
+  (bridge/project-name-bounded world (constant-name-reference world value) limits))
 
 (defn- immutable-projection-sources [world]
   ;; Store validates a closed graph: every reference belongs to that same source.

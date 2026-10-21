@@ -1,8 +1,8 @@
 # Lean IR runtime REPL experiment
 
-An isolated Ansatz experiment, outside the library's normal source/AOT paths.
-The branch is `experiment/lean-ir-runtime`, based on the numeric fixes in PR #116.
-No public runtime API or package split is decided here.
+An Ansatz experiment, outside the library's normal source/AOT paths. Its optional
+consumer APIs and fixtures support the hosted frontend campaign; a production
+runtime API and package split remain undecided.
 
 The JVM experiment now also includes a mutable interpreter, a numeric compiler
 and a constructor/closure block compiler. These are experimental alternatives to the portable reference machine,
@@ -48,7 +48,15 @@ consumer remains separate. The optional [import-preparation consumer](research/R
 now supports genuine import finalization and fresh checking. Together with
 publication and `resident/load-source`, it composes the two-file workflow through
 public APIs. Its separate standalone frontend acceptance passes; it does
-not yet provide a general dependency resolver or an over-Init import facade.
+not yet provide a general dependency resolver. The separate
+[resident Init-prefix consumer](research/RESIDENT_INIT_IMPORT.md) provides staged
+over-Init import preparation, finalization and fresh checking. Its distinct
+[reconstruction profile](research/SOURCE_RECONSTRUCTION_PLAN.md) authenticates an
+original checked source publication for callbacks during finalization, before the
+completed target receipt exists. Focused tests use actual raw evalConst transport
+and small real Java checks with modeled frontend/finalizer bodies; genuine hosted
+imported-macro reconstruction and edited-macro branch isolation remain acceptance
+gates. Existing completed-import authorization keeps its receipt requirement.
 
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety
