@@ -1,0 +1,36 @@
+{:reference {:project "leanprover/lean4"
+             :version "4.33.1"
+             :commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+             :operation "lean::is_geq(lhs,rhs)"
+             :evidence :executed-cpp-kernel
+             :documentation "doc/kernel-reference-levels.md"}
+ :cases [{:id :succ-imax-u-v-ge-v
+          :lhs [:succ [:imax [:param "u"] [:param "v"]]]
+          :rhs [:param "v"]
+          :reference-geq false
+          :tenet-geq true
+          :universally-valid true}
+         {:id :u-plus-two-ge-one
+          :lhs [:succ [:succ [:param "u"]]]
+          :rhs [:succ :zero]
+          :reference-geq true
+          :tenet-geq true
+          :universally-valid true}
+         {:id :three-ge-u-plus-one
+          :lhs [:succ [:succ [:succ :zero]]]
+          :rhs [:succ [:param "u"]]
+          :reference-geq false
+          :tenet-geq false
+          :universally-valid false}
+         {:id :imax-u-zero-eq-zero-forward
+          :lhs [:imax [:param "u"] :zero]
+          :rhs :zero
+          :reference-geq true
+          :tenet-geq true
+          :universally-valid true}
+         {:id :imax-u-zero-eq-zero-reverse
+          :lhs :zero
+          :rhs [:imax [:param "u"] :zero]
+          :reference-geq true
+          :tenet-geq true
+          :universally-valid true}]}
