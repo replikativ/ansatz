@@ -9,10 +9,9 @@ public final class PreparedAcceptance {
     public static void verify(PreparedProvider provider, OpenOptions options) {
         AtomicInteger callbacks = new AtomicInteger();
         ExternSpec extern = new ExternSpec("ansatz_facade_host_nat",
-            Arrays.asList(new ExternArgument("object", false, "nat")), "object", "nat",
+            Arrays.asList(new ExternArgument("tobject", false, "nat")), "tobject", "nat",
             values -> { callbacks.incrementAndGet(); return ((BigInteger) values.get(0)).add(BigInteger.ONE); });
-        String source = "prelude\n"
-            + "@[extern \"ansatz_facade_host_nat\"] opaque facadeHost (x : Nat) : Nat := x\n"
+        String source = "@[extern \"ansatz_facade_host_nat\"] opaque facadeHost (x : Nat) : Nat := x\n"
             + "def facadeNat (x : Nat) : Nat := facadeHost (facadeHost x)\n"
             + "def facadeString (x : String) : String := x\n";
         SourceRequest request = new SourceRequest(LeanRuntime.name("FacadeAcceptance"),

@@ -92,7 +92,7 @@ closure handle, asynchronous callback, source importer/DAG or proof-state API.
 ```clojure
 (lean/extern
  {:symbol "application_answer"
-  :signature {:params [{:ty "object" :borrow false}] :return-type "object"}
+  :signature {:params [{:ty "tobject" :borrow false}] :return-type "tobject"}
   :arguments [{:codec :nat :ownership :owned}]
   :result :nat :fn inc})
 ```
@@ -177,13 +177,37 @@ checks core-alone loading with optional
 API absent, loads optional Clojure and Java entrypoints, and tests rejection of an
 unchecked provider. These are packaging/load checks, not frontend acceptance.
 
-`consumer/PreparedAcceptance.java` supplies a reusable genuine-provider consumer:
-exact Nat beyond long, Unicode/NUL String, two Java SAM invocations and returned
-contexts. The provider must independently admit `ansatz_facade_host_nat` and the
-source compilation profile. It is not automatically invoked by the smoke gate.
-Still required for acceptance: invoke it from a real checked provider with an open
-borrowed source lease; run matching genuine Clojure fixtures, diagnostics then good
-branch, cross-generation file refusal, initializers/host throws without replay;
-and verify close/failure source lifetime. Model tests substitute resident calls
-and make no strict/frontend claim. No release gate is implied passed by source
-inspection or creation of these fixtures.
+`consumer/PreparedAcceptance.java` is the public Java fixture used by the genuine
+provider campaign: exact BigInteger beyond long, Unicode/NUL String, two Java SAM
+invocations and try-with-resources. Its explicit Nat ABI is `tobject` with
+`borrow=false`. Its ordinary source header imports Init, matching the supplied
+checked provider environment; adding `prelude` changes that header contract.
+The provider must independently admit `ansatz_facade_host_nat`. The smoke gate
+does not automatically run this guest compilation.
+
+The [genuine provider receipt](measurements/genuine-provider-acceptance.json)
+records a completed public Clojure and Java campaign on a pinned Lean 4.33.1
+mutable profile, after freshly checking all 65,994 Init declarations with 15
+explicit assumptions. Clojure acceptance includes a type diagnostic followed by a
+good pristine branch, Nat beyond long, Unicode/NUL, two typed extern calls,
+unrelated-file refusal, idempotent root close with a surviving descendant, and a
+controlled host throw without retry. Java acceptance covers the public provider,
+exact BigInteger/String values, two SAM calls and normal context closing.
+The borrowed native Source remained open through all retained failure evidence.
+
+Observed once in that process: Clojure source loading took 39.872 s, explicit
+initialization plus three calls took 85 ms, and the Java fixture took 37.348 s.
+These are one-shot observations with explicit host GC, not throughput or backend
+comparisons. The receipt pins the actual controllers, consumer, fixture and
+runtime bytes. Later merged runtime changes receive separate model/packaging
+checks; those checks do not imply a new genuine frontend run.
+
+Earlier fixture mistakes were retained as evidence: strict Nat ABI checking
+rejected `object` against actual `tobject`, and the Java `prelude` header differed
+from the supplied Init environment. Only examples/fixtures were corrected.
+The owned JVM subsequently exited with status 0; this OS disposal does not claim
+explicit Source close or cleanup of retained guest failure owners.
+
+Provider bootstrap distribution, general import graphs, imported-macro
+reconstruction, broader callbacks/IO and other backends remain separate acceptance
+gates. Model tests substitute resident calls and make no new frontend claim.
