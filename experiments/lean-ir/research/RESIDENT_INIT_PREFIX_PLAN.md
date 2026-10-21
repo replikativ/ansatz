@@ -1,16 +1,18 @@
 # Next resident import boundary: checked Init
 
-This is an implementation plan, not an available public profile. The current
-`resident-import/prepare-source-import` accepts one standalone published module.
-The next profile should expose the existing lower-level checked-Init path while
-preserving its checking, executable identity and ownership requirements.
+The [checked Init-prefix preparation/release boundary](RESIDENT_INIT_PREFIX.md)
+is implemented and regression-tested. The current
+`resident-import/prepare-source-import` still accepts one standalone published
+module. The [staged over-Init operation](RESIDENT_INIT_IMPORT.md) is the next
+implementation under validation; genuine end-to-end B-over-Init+A acceptance
+remains a separate gate. Both preserve checking, executable identity and ownership requirements.
 
 ## Preparation and authority
 
-Introduce a separate Init-prefix preparation boundary. It must receive the
-original successful Init checking result and describe its exact attached native
-Source, then call `source-import/prepare-init-prefix`. Return a new Context and a
-separate issued prefix capability; preserve the input Context. Keep the original
+The separate Init-prefix preparation boundary receives the
+original successful Init checking result, describes its exact attached native
+Source, then calls `source-import/prepare-init-prefix`. It returns a new Context and a
+separate issued prefix capability while preserving the input Context. It keeps the original
 certificate privately, outside Context metadata that evolves during compilation.
 
 The existing lower-level function treats its checked-result map as trusted host
