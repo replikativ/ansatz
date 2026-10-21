@@ -57,6 +57,14 @@ comparisons. Its synthetic 16,384-group case allocates 84.3 MB with the historic
 construction and 12.2 MB with the candidate. This measures graph construction;
 retained heap, full checking and hosted frontend performance were not measured.
 
+A separate [checking-plan lifetime change](measurements/kernel-check-plan-lifetime.json)
+keeps full group records and their name/dependency sets inside a private preparation
+frame. The checking loop receives only original members, reverse edges, degrees,
+ready keys and a count. Its 15-test / 168-assertion run includes historical-plan
+ordering comparisons and deterministic forbidden-container identity checks.
+This establishes return-graph reachability, not retained bytes or GC timing;
+the build still constructs the same blockers and group records.
+
 ## Architecture: loading and execution
 
 The producer is native Lean, which imports compiled modules and exposes their
