@@ -12,7 +12,8 @@
             [prototype.runtime-prim :as runtime]
             [prototype.runtime-task :as task]
             [prototype.leaf-compile :as leaf])
-  (:import [java.util HashMap Map ArrayDeque Arrays]))
+  (:import [ansatz.runtime GlobalsOverlay]
+           [java.util HashMap Map ArrayDeque Arrays]))
 
 (def ^:private unbound (Object.))
 (defrecord Machine [functions slots control heap frames events counters])
@@ -214,16 +215,23 @@
            :heap-base (when (instance? clojure.lang.IPersistentMap (:heap snapshot)) (:heap snapshot))
            :heap-dirty dirty-ids
            :function-slot-cache (java.util.IdentityHashMap.)
-           :globals (HashMap. ^java.util.Map (or (:globals snapshot) {}))
+           :globals (GlobalsOverlay/open (or (:globals snapshot) {}))
            :entropy-state (when (contains? snapshot :entropy) (object-array [(:entropy snapshot)]))
            :task-runtime-state (object-array [(get snapshot :task-runtime ::unset)])
            :stdio-runtime-state (object-array [(get snapshot :stdio-runtime ::unset)])
            :world-context (select-keys snapshot [:initializing? :initialization-scope :initialized-modules :environment :kernel-environments :native-imports :eval-const-authorizations :heartbeat-allocation-offset :runtime-build :runtime-build-overrides :sharecommon-profile :source-modules :source-regions :source-import-prefixes]))))
 
+(defn- freeze-globals [s]
+  (let [globals ^Map (:globals s)]
+    (or (GlobalsOverlay/unchangedBase globals)
+        (let [frozen (into {} globals)]
+          (GlobalsOverlay/rememberSnapshot globals frozen)
+          frozen))))
+
 (defn freeze [s]
   (cond-> (merge (:world-context s) {:functions (:functions s)
            :heap (freeze-heap s)
-           :globals (into {} (:globals s))
+           :globals (freeze-globals s)
            :next-id (ctl s 3) :events (vec (:events s))
            :stats (zipmap [:allocations :field-stores :steps :max-frames] (vec (aclone ^longs (:counters s))))
            :body (ctl s 0) :locals (bindings (ctl s 1)) :joins (joins-out (ctl s 2))
@@ -509,30 +517,30 @@
   s)
 
 (defn global-enter! [s name initializer]
-  (let [entry (.get ^HashMap (:globals s) name)]
+  (let [entry (.get ^Map (:globals s) name)]
     (case (:status entry)
       :ready (deliver! s (:value entry))
       :initializing (m/fail "Recursive global initialization" {:name name})
-      (do (.put ^HashMap (:globals s) name {:status :initializing})
+      (do (.put ^Map (:globals s) name {:status :initializing})
           (call-values! s [:direct initializer] [] 0 [:publish-global name [:var 0]])))))
 
 (defn publish-global! [s name v]
   (mark-persistent! s v)
-  (.put ^HashMap (:globals s) name {:status :ready :value v})
+  (.put ^Map (:globals s) name {:status :ready :value v})
   (deliver! s v))
 
 (defn initialized-value [s name]
-  (let [entry (.get ^HashMap (:globals s) name)]
+  (let [entry (.get ^Map (:globals s) name)]
     (when-not (= :ready (:status entry))
       (m/fail "Module global has not been initialized" {:name name :status (:status entry)}))
     (:value entry)))
 
 (defn begin-init! [s name initializer args type]
-  (let [entry (.get ^HashMap (:globals s) name)]
+  (let [entry (.get ^Map (:globals s) name)]
     (case (:status entry)
       :ready (deliver! s (:value entry))
       :initializing (m/fail "Recursive global initialization" {:name name})
-      (do (.put ^HashMap (:globals s) name {:status :initializing})
+      (do (.put ^Map (:globals s) name {:status :initializing})
           (call-values! s [:direct initializer] args 0 [:publish-io-global name type [:var 0]])))))
 
 (defn publish-io-global! [s name type result]
@@ -543,7 +551,7 @@
           v (if (contains? #{"uint8" "uint16" "uint32" "uint64" "usize" "float" "float32"} type) (unbox s type v) v)]
       (mark-persistent! s v)
       (release! s result 1)
-      (.put ^HashMap (:globals s) name {:status :ready :value v})
+      (.put ^Map (:globals s) name {:status :ready :value v})
       (deliver! s v))))
 
 (defn- complete-leaf! [s result steps]
