@@ -1,0 +1,1673 @@
+{
+  "schema": "ansatz-resident-import-cpu-profile/1",
+  "date": "2026-10-21",
+  "status": "passed: actual workflow, recording close, guarded process disposal and offline stack analysis",
+  "receipt": {
+    "baseline-modified": false,
+    "rss-bound": "external-unchanged-guard-not-recording-maxsize",
+    "source-pins": {
+      "experiments/lean-ir/src/prototype/resident_source.clj": "5d4fa45e72dfede9e4d3b65f0bc5ea61e00bde37df651f15f639aec695a88a33",
+      "experiments/lean-ir/src/prototype/resident_import.clj": "fc161a306569bd6ab6c3d57bdbcdbfd76bcd8cdad9935128e56ea0581d8623d7",
+      "target/artifact-contract/full-init-next/full-run-oct20/resident-import-warm-profile-v1.clj": "97ea229cde8e3f8705f2134b1cdd1adc4b8a1dea9f3a767723cbd0cf304500cb",
+      "target/artifact-contract/full-init-next/full-run-oct20/resident-import-jfr-trial-v1.clj": "ef49c37cdeafb6a1d375c9c614feae007e47999392cb975622586234e8e615f6",
+      "target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1.clj": "bd023fdf3107da2bdc95505d951844a4c21664d6f473c558d443be3eb043259f"
+    },
+    "recording-bytes": 804223,
+    "recording-id": 1,
+    "recording-sha256": "4a982b4f57f93b7eba2083340e52e02047d0247d75ad06393595eec1361a2549",
+    "recording-name": "ansatz-resident-import-cpu-only-v1",
+    "mode": "cpu-only",
+    "settings": {
+      "jdk.ExecutionSample#enabled": "true",
+      "jdk.ExecutionSample#period": "10 ms",
+      "jdk.ExecutionSample#stackTrace": "true",
+      "jdk.GCPhasePause#enabled": "true",
+      "jdk.GCPhasePause#stackTrace": "false",
+      "jdk.GCPhasePause#threshold": "0 ms",
+      "jdk.GarbageCollection#enabled": "true",
+      "jdk.GarbageCollection#stackTrace": "false",
+      "jdk.NativeMethodSample#enabled": "true",
+      "jdk.NativeMethodSample#period": "20 ms",
+      "jdk.NativeMethodSample#stackTrace": "true"
+    },
+    "phase": "passed",
+    "jdk": {
+      "java.version": "25.0.1",
+      "java.vm.name": "Java HotSpot(TM) 64-Bit Server VM",
+      "java.vm.version": "25.0.1+8-LTS-jvmci-b01",
+      "java.vendor": "Oracle Corporation"
+    },
+    "settings-sha256": "bd814c3db3203c9ed7d8f979365c28535421e1ac844ee07a83406ac3b6f37526",
+    "scope": "ansatz-resident-import-cpu-only-jfr/1",
+    "thread": {
+      "name": "clojure-agent-send-off-pool-3",
+      "java-id": 38
+    },
+    "wall-ms": 18320.716327,
+    "artifact-errors": [],
+    "allocation-events": "not-enabled",
+    "recording-state": "CLOSED",
+    "max-retained-bytes": 33554432,
+    "trial-summary": {
+      "base-context-unchanged": true,
+      "diagnostics": [],
+      "stage": "closing-created-contexts",
+      "jvm-observations-scope": "whole-process-sampling-spans-controller-bookkeeping",
+      "completed-guest-steps": 4890280,
+      "created-context-count": 6,
+      "optional-microbenchmarks": "not-run",
+      "phase": "passed",
+      "scope": "ansatz-resident-import-jfr-one-trial/1",
+      "bootstrap-included": false,
+      "closed-context-count": 6,
+      "source-initializers-run": false,
+      "trial": {
+        "kind": "jfr-measured",
+        "index": 1,
+        "second?": false
+      },
+      "wall-ms": 18037.635471,
+      "wall-timing-scope": "public-operation-only",
+      "trials": [
+        {
+          "kind": "jfr-measured",
+          "index": 1,
+          "second?": false,
+          "stages": [
+            {
+              "stage": "fork",
+              "jvm-heap-used-bytes-after": 2803474560,
+              "heap-node-count-before": 778894,
+              "function-count-after": 334755,
+              "wall-ms": 14.071935,
+              "guest-steps": 0,
+              "jvm-heap-committed-bytes-after": 3221225472,
+              "jvm-heap-used-bytes-before": 2801377408,
+              "function-count-before": 334755,
+              "guest-allocations": 0,
+              "heap-node-count-after": 778894,
+              "jvm-gc": {
+                "G1 Young Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                },
+                "G1 Concurrent GC": {
+                  "count": 0,
+                  "time-ms": 0
+                },
+                "G1 Old Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                }
+              }
+            },
+            {
+              "stage": "load-and-publish-A",
+              "jvm-heap-used-bytes-after": 2959725440,
+              "heap-node-count-before": 778894,
+              "function-count-after": 334758,
+              "wall-ms": 6558.953615,
+              "guest-steps": 1699800,
+              "jvm-heap-committed-bytes-after": 3221225472,
+              "jvm-heap-used-bytes-before": 2803474560,
+              "function-count-before": 334755,
+              "guest-allocations": 24587,
+              "heap-node-count-after": 780484,
+              "jvm-gc": {
+                "G1 Young Generation": {
+                  "count": 3,
+                  "time-ms": 40
+                },
+                "G1 Concurrent GC": {
+                  "count": 0,
+                  "time-ms": 0
+                },
+                "G1 Old Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                }
+              }
+            },
+            {
+              "stage": "prepare-source-import",
+              "jvm-heap-used-bytes-after": 2342604616,
+              "heap-node-count-before": 780484,
+              "function-count-after": 334758,
+              "wall-ms": 4241.675047,
+              "guest-steps": 1411294,
+              "jvm-heap-committed-bytes-after": 3221225472,
+              "jvm-heap-used-bytes-before": 2959725440,
+              "function-count-before": 334758,
+              "guest-allocations": 17356,
+              "heap-node-count-after": 787063,
+              "jvm-gc": {
+                "G1 Young Generation": {
+                  "count": 3,
+                  "time-ms": 36
+                },
+                "G1 Concurrent GC": {
+                  "count": 2,
+                  "time-ms": 15
+                },
+                "G1 Old Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                }
+              }
+            },
+            {
+              "stage": "load-B",
+              "jvm-heap-used-bytes-after": 3017673432,
+              "heap-node-count-before": 787063,
+              "function-count-after": 334761,
+              "wall-ms": 6542.432391,
+              "guest-steps": 1779170,
+              "jvm-heap-committed-bytes-after": 3221225472,
+              "jvm-heap-used-bytes-before": 2342604616,
+              "function-count-before": 334758,
+              "guest-allocations": 25181,
+              "heap-node-count-after": 787557,
+              "jvm-gc": {
+                "G1 Young Generation": {
+                  "count": 2,
+                  "time-ms": 30
+                },
+                "G1 Concurrent GC": {
+                  "count": 2,
+                  "time-ms": 7
+                },
+                "G1 Old Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                }
+              }
+            },
+            {
+              "stage": "call-Nat",
+              "jvm-heap-used-bytes-after": 2282992656,
+              "heap-node-count-before": 787557,
+              "function-count-after": 334761,
+              "wall-ms": 524.652109,
+              "guest-steps": 8,
+              "jvm-heap-committed-bytes-after": 3221225472,
+              "jvm-heap-used-bytes-before": 3017673432,
+              "function-count-before": 334761,
+              "guest-allocations": 0,
+              "heap-node-count-after": 787557,
+              "jvm-gc": {
+                "G1 Young Generation": {
+                  "count": 1,
+                  "time-ms": 10
+                },
+                "G1 Concurrent GC": {
+                  "count": 0,
+                  "time-ms": 0
+                },
+                "G1 Old Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                }
+              }
+            },
+            {
+              "stage": "call-Unicode",
+              "jvm-heap-used-bytes-after": 2301867024,
+              "heap-node-count-before": 787557,
+              "function-count-after": 334761,
+              "wall-ms": 114.51884,
+              "guest-steps": 8,
+              "jvm-heap-committed-bytes-after": 3221225472,
+              "jvm-heap-used-bytes-before": 2282992656,
+              "function-count-before": 334761,
+              "guest-allocations": 0,
+              "heap-node-count-after": 787557,
+              "jvm-gc": {
+                "G1 Young Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                },
+                "G1 Concurrent GC": {
+                  "count": 0,
+                  "time-ms": 0
+                },
+                "G1 Old Generation": {
+                  "count": 0,
+                  "time-ms": 0
+                }
+              }
+            }
+          ],
+          "close-contexts-wall-ms": 27.603916,
+          "values": [
+            42,
+            "warm left: λ 🦉"
+          ]
+        }
+      ],
+      "guest-application-callbacks": "none-declared",
+      "backend": "mutable"
+    },
+    "artifacts": {
+      "recording": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.jfr",
+      "settings": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.settings.edn",
+      "receipt": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.receipt.json"
+    }
+  },
+  "definitions-check": {
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M",
+      "-e",
+      "(do (load-file \"../../target/artifact-contract/full-init-next/full-run-oct20/resident-import-jfr-trial-v1.clj\") (load-file \"../../target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1.clj\") (assert (nil? (prototype.resident-import-jfr-trial-v1-oct21/checkpoint))) (assert (nil? (prototype.resident-import-cpu-jfr-v1-oct21/checkpoint))) (println {:definitions-only true :states [nil nil] :guest-stages-called 0 :recordings-created 0}) (System/exit 0))"
+    ],
+    "command-cwd": "experiments/lean-ir",
+    "source-sha256": {
+      "target/artifact-contract/full-init-next/full-run-oct20/resident-import-jfr-trial-v1.clj": "ef49c37cdeafb6a1d375c9c614feae007e47999392cb975622586234e8e615f6",
+      "target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1.clj": "bd023fdf3107da2bdc95505d951844a4c21664d6f473c558d443be3eb043259f"
+    },
+    "preflight-memavailable-bytes": 8219443200,
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 363622400,
+    "elapsed_seconds": 6.96,
+    "guest-stage-invocations": 0,
+    "recordings-created": 0
+  },
+  "shared-process-guard": {
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 3590819840,
+    "elapsed_seconds": 1362.85,
+    "receipt-local-path": "target/artifact-contract/full-init-next/full-run-oct20/resident-import-acceptance-v1/run.json",
+    "actual-command-sha256": "25398281a04bed123eabdb68500d9874f6f6f62a3f3dd21a2df1af612ee86280",
+    "lifecycle-scope": "Restore, seed preparation, actual acceptance, warm REPL idle time, five baseline trials, one CPU-profiled trial, explicit process disposal.",
+    "semantic-cleanup-verified": false,
+    "source-lease-close-verified": false
+  },
+  "source-loading": "New SHA-verified captured namespaces loaded via trusted REPL after the unprofiled baseline, without redefining runtime or API Vars.",
+  "limits": [
+    "One separately identified trial, not part of the unprofiled baseline or a native performance comparison.",
+    "CPU/native method samples recorded JVM-wide; stack analysis must select sampledThread Java id and name from this receipt.",
+    "Configured JFR settings are recorded; getSettings is not proof of global sampling period or event support. No allocation events enabled.",
+    "32 MiB retention limit does not bound native memory, RSS or guarantee a hard file-size cap; original external guard remained active.",
+    "Trial closes only six created Contexts. Base Context and external Source lease remain borrowed; no semantic cleanup is inferred from process disposal.",
+    "298 selected JFR traces are truncated; zero analysis truncations, missing stacks or stack-cache overflow do not remove this capture limitation.",
+    "894 guest-dispatch category samples denote broad guest runtime frames, including map construction, not dispatch-loop cost. Zero Java-kernel category hits does not establish negligible checking.",
+    "Sample categories are exclusive by documented first-match order and describe observed frames over the entire trial; they are not per-stage wall-time or CPU-time fractions."
+  ],
+  "final-independent-review": "Independent Astra final audit parsed actual JVM command strings and matched all six captured payloads to disk and frozen ordered pins; verified guard exit/peak/lifecycle, overlay zero-work markers, full warm receipts, actual recording/settings hashes and explicit final process disposal. No remaining provenance blocker.",
+  "timing-scope": {
+    "driver-total-ms": 18320.716327,
+    "inner-trial-ms": 18037.635471,
+    "driver-includes": "Source validation, recording lifecycle and one workflow trial; not an unprofiled timing sample."
+  },
+  "sample-analysis": {
+    "schema": "ansatz-resident-import-jfr-sample-analysis/1",
+    "recording": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.jfr",
+    "driver-phase": "passed",
+    "selected-states": {
+      "jdk.ExecutionSample": {
+        "STATE_RUNNABLE": 1640
+      }
+    },
+    "top-stack-scope": "Exact top observed stacks",
+    "retained-unique-stack-count": 1266,
+    "recording-sha256": "4a982b4f57f93b7eba2083340e52e02047d0247d75ad06393595eec1361a2549",
+    "analysis-frame-truncations": 0,
+    "exclusive-rule-order": [
+      {
+        "category": "abi-scan",
+        "class-prefixes": [
+          "prototype.raw_interop$open_functions"
+        ]
+      },
+      {
+        "category": "slot-sizing",
+        "class-prefixes": [
+          "prototype.slot_count$",
+          "prototype.mutable$slot_count",
+          "prototype.mutable$function_slots"
+        ]
+      },
+      {
+        "category": "readiness-traversal",
+        "class-prefixes": [
+          "prototype.resident_frontend$adoption_readiness_BANG_",
+          "prototype.resident_frontend$valid_context_BANG_",
+          "prototype.resident_source$publication_readiness_BANG_",
+          "prototype.resident_import$import_readiness_BANG_",
+          "prototype.eval_const$check_function_closure_BANG_",
+          "prototype.eval_const$validate_executables_BANG_"
+        ]
+      },
+      {
+        "category": "thaw-freeze",
+        "class-prefixes": [
+          "prototype.mutable$thaw",
+          "prototype.mutable$freeze",
+          "prototype.mutable$restored_registers",
+          "prototype.mutable$frame_in",
+          "prototype.mutable$frame_out",
+          "prototype.mutable$joins_in",
+          "prototype.mutable$joins_out"
+        ]
+      },
+      {
+        "category": "java-kernel-checking",
+        "class-prefixes": [
+          "ansatz.kernel.TypeChecker",
+          "ansatz.kernel.InductiveChecker",
+          "ansatz.kernel.InductiveBundleChecker",
+          "ansatz.kernel.RawInductiveGenerator",
+          "ansatz.kernel.RawNestedInductiveGenerator",
+          "ansatz.kernel.NestedInductiveEliminator",
+          "ansatz.kernel.env$check_constant",
+          "ansatz.kernel.env$check_inductive_bundle"
+        ]
+      },
+      {
+        "category": "guest-dispatch",
+        "class-prefixes": [
+          "prototype.mutable$",
+          "prototype.lazy_runtime$",
+          "prototype.machine$step",
+          "prototype.machine$run",
+          "prototype.machine$call"
+        ]
+      }
+    ],
+    "interpretation": [
+      "Counts are observed samples with matching stack frames, never phase wall-time percentages or CPU-time estimates.",
+      "Java ExecutionSample and NativeMethodSample remain separate; their periods differ and native samples can represent waiting.",
+      "Recording is JVM-wide; only the initiating workflow Java thread ID AND name are selected. Child/GC/compiler threads are excluded.",
+      "Rules classify only observed frames. Missing/truncated traces and unrecognized host work remain visible; absence of a frame is not proof of absent work.",
+      "Java-kernel category matches checking/generation frames, not incidental Name/Expr objects. Generic raw host callback work is not automatically guest dispatch."
+    ],
+    "event-counts": {
+      "jdk.GCPhasePause": 13,
+      "jdk.GarbageCollection": 11,
+      "jdk.NativeMethodSample": 878,
+      "jdk.ExecutionSample": 1640
+    },
+    "thread-filter": {
+      "name": "clojure-agent-send-off-pool-3",
+      "java-id": 38
+    },
+    "selected-sample-counts": {
+      "jdk.ExecutionSample": 1640
+    },
+    "jfr-truncated-stack-samples": 298,
+    "settings-sha256": "bd814c3db3203c9ed7d8f979365c28535421e1ac844ee07a83406ac3b6f37526",
+    "max-retained-unique-stacks": 2048,
+    "filter-field": "sampledThread.javaThreadId AND sampledThread.javaName",
+    "stack-samples-not-retained": 0,
+    "driver-receipt": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.receipt.json",
+    "max-frames-per-stack": 128,
+    "sampled-threads": {
+      "{:java-id 3, :name \"main\"}": 878,
+      "{:java-id 38, :name \"clojure-agent-send-off-pool-3\"}": 1640
+    },
+    "missing-stack-samples": 0,
+    "exclusive-counts": {
+      "jdk.ExecutionSample": {
+        "readiness-traversal": 55,
+        "slot-sizing": 107,
+        "thaw-freeze": 458,
+        "guest-dispatch": 894,
+        "other": 113,
+        "abi-scan": 13
+      }
+    },
+    "raw-top-stacks": [
+      {
+        "event": "jdk.ExecutionSample",
+        "category": "slot-sizing",
+        "count": 15,
+        "frames": [
+          {
+            "class": "java.util.HashMap",
+            "method": "getNode",
+            "line": 577,
+            "bci": 26,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "java.util.HashMap",
+            "method": "get",
+            "line": 565,
+            "bci": 2,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$cached_function_slots",
+            "method": "invokeStatic",
+            "line": 63,
+            "bci": 327,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$cached_function_slots",
+            "method": "invoke",
+            "line": 48,
+            "bci": 3,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$measure$fn__3910",
+            "method": "invoke",
+            "line": 92,
+            "bci": 95,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.core.protocols$iterator_reduce_BANG_",
+            "method": "invokeStatic",
+            "line": 42,
+            "bci": 32,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.core.protocols$iter_reduce",
+            "method": "invokeStatic",
+            "line": 52,
+            "bci": 17,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.core.protocols$fn__8256",
+            "method": "invokeStatic",
+            "line": 74,
+            "bci": 9,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core.protocols$fn__8256",
+            "method": "invoke",
+            "line": 74,
+            "bci": 9,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core.protocols$fn__8203$G__8198__8216",
+            "method": "invoke",
+            "line": 13,
+            "bci": 60,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core$reduce",
+            "method": "invokeStatic",
+            "line": 6965,
+            "bci": 71,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core$reduce",
+            "method": "invoke",
+            "line": 6947,
+            "bci": 9,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.slot_count$measure",
+            "method": "invokeStatic",
+            "line": 88,
+            "bci": 61,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.slot_count$measure",
+            "method": "invoke",
+            "line": 83,
+            "bci": 6,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invokeStatic",
+            "line": 103,
+            "bci": 297,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invoke",
+            "line": 95,
+            "bci": 6,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invokeStatic",
+            "line": 98,
+            "bci": 18,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invoke",
+            "line": 95,
+            "bci": 3,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$slot_count",
+            "method": "invokeStatic",
+            "line": 107,
+            "bci": 50,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$slot_count",
+            "method": "invoke",
+            "line": 106,
+            "bci": 3,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$thaw",
+            "method": "invokeStatic",
+            "line": 194,
+            "bci": 10,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$thaw",
+            "method": "invoke",
+            "line": 193,
+            "bci": 3,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$run_boundary",
+            "method": "invokeStatic",
+            "line": 101,
+            "bci": 248,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$run_boundary",
+            "method": "invoke",
+            "line": 98,
+            "bci": 9,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive$fn__5875",
+            "method": "invoke",
+            "line": 244,
+            "bci": 45,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive",
+            "method": "invokeStatic",
+            "line": 243,
+            "bci": 224,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive",
+            "method": "invoke",
+            "line": 237,
+            "bci": 6,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$continue",
+            "method": "invokeStatic",
+            "line": 283,
+            "bci": 259,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$continue",
+            "method": "invoke",
+            "line": 267,
+            "bci": 6,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$call",
+            "method": "invokeStatic",
+            "line": 295,
+            "bci": 118,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$call",
+            "method": "invoke",
+            "line": 289,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_frontend$call",
+            "method": "invokeStatic",
+            "line": 317,
+            "bci": 1164,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_frontend$call",
+            "method": "invoke",
+            "line": 279,
+            "bci": 19,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_$fn__11533",
+            "method": "invoke",
+            "line": 139,
+            "bci": 121,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$stage_BANG_",
+            "method": "invokeStatic",
+            "line": 78,
+            "bci": 196,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$stage_BANG_",
+            "method": "invoke",
+            "line": 71,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_",
+            "method": "invokeStatic",
+            "line": 138,
+            "bci": 828,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_",
+            "method": "invoke",
+            "line": 119,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$run_BANG_",
+            "method": "invokeStatic",
+            "line": 190,
+            "bci": 1003,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$run_BANG_",
+            "method": "invoke",
+            "line": 158,
+            "bci": 3,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.Var",
+            "method": "invoke",
+            "line": 386,
+            "bci": 11,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_$fn__11604",
+            "method": "invoke",
+            "line": 129,
+            "bci": 1740,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_",
+            "method": "invokeStatic",
+            "line": 83,
+            "bci": 771,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_",
+            "method": "invoke",
+            "line": 62,
+            "bci": 3,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.Var",
+            "method": "invoke",
+            "line": 386,
+            "bci": 11,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "user$fn__11678",
+            "method": "invokeStatic",
+            "line": 1,
+            "bci": 26,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "user$fn__11678",
+            "method": "invoke",
+            "line": 1,
+            "bci": 0,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.core$binding_conveyor_fn$fn__5842",
+            "method": "invoke",
+            "line": 2047,
+            "bci": 16,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.AFn",
+            "method": "call",
+            "line": 18,
+            "bci": 1,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.FutureTask",
+            "method": "run",
+            "line": 328,
+            "bci": 39,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.ThreadPoolExecutor",
+            "method": "runWorker",
+            "line": 1090,
+            "bci": 92,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.ThreadPoolExecutor$Worker",
+            "method": "run",
+            "line": 614,
+            "bci": 5,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.lang.Thread",
+            "method": "runWith",
+            "line": 1487,
+            "bci": 5,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.lang.Thread",
+            "method": "run",
+            "line": 1474,
+            "bci": 19,
+            "frame-type": "Interpreted"
+          }
+        ],
+        "jfr-stack-truncated?": false,
+        "matched-frame": {
+          "class": "prototype.slot_count$cached_function_slots",
+          "method": "invokeStatic",
+          "line": 63,
+          "bci": 327,
+          "frame-type": "Inlined"
+        }
+      },
+      {
+        "event": "jdk.ExecutionSample",
+        "category": "guest-dispatch",
+        "count": 12,
+        "frames": [
+          {
+            "class": "clojure.lang.PersistentHashMap$BitmapIndexedNode",
+            "method": "assoc",
+            "line": 856,
+            "bci": 104,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.lang.PersistentHashMap$BitmapIndexedNode",
+            "method": "assoc",
+            "line": 885,
+            "bci": 416,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.lang.PersistentHashMap$TransientHashMap",
+            "method": "doAssoc",
+            "line": 329,
+            "bci": 81,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.lang.ATransientMap",
+            "method": "assoc",
+            "line": 64,
+            "bci": 7,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.lang.PersistentHashMap",
+            "method": "create",
+            "line": 58,
+            "bci": 24,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.lang.RT",
+            "method": "mapUniqueKeys",
+            "line": 1621,
+            "bci": 25,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.mutable$runtime_value_BANG_",
+            "method": "invokeStatic",
+            "line": 383,
+            "bci": 336,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$runtime_value_BANG_",
+            "method": "invoke",
+            "line": 381,
+            "bci": 9,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.mutable$expr_BANG_",
+            "method": "invokeStatic",
+            "line": 433,
+            "bci": 601,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$expr_BANG_",
+            "method": "invoke",
+            "line": 422,
+            "bci": 6,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.mutable$step_BANG_",
+            "method": "invokeStatic",
+            "line": 638,
+            "bci": 1570,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$step_BANG_",
+            "method": "invoke",
+            "line": 633,
+            "bci": 3,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.mutable$run_BANG_",
+            "method": "invokeStatic",
+            "line": 672,
+            "bci": 225,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$run_BANG_",
+            "method": "invoke",
+            "line": 665,
+            "bci": 6,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$run_boundary",
+            "method": "invokeStatic",
+            "line": 101,
+            "bci": 256,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$run_boundary",
+            "method": "invoke",
+            "line": 98,
+            "bci": 9,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive$fn__5875",
+            "method": "invoke",
+            "line": 244,
+            "bci": 45,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive",
+            "method": "invokeStatic",
+            "line": 243,
+            "bci": 224,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive",
+            "method": "invoke",
+            "line": 237,
+            "bci": 6,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$continue",
+            "method": "invokeStatic",
+            "line": 283,
+            "bci": 259,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$continue",
+            "method": "invoke",
+            "line": 267,
+            "bci": 6,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$call",
+            "method": "invokeStatic",
+            "line": 295,
+            "bci": 118,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$call",
+            "method": "invoke",
+            "line": 289,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file_refs",
+            "method": "invokeStatic",
+            "line": 189,
+            "bci": 954,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file_refs",
+            "method": "invoke",
+            "line": 169,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file",
+            "method": "invokeStatic",
+            "line": 217,
+            "bci": 777,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file",
+            "method": "invoke",
+            "line": 192,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.hosted_file$run_file",
+            "method": "invokeStatic",
+            "line": 117,
+            "bci": 632,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.hosted_file$run_file",
+            "method": "invoke",
+            "line": 92,
+            "bci": 9,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_frontend$load_source",
+            "method": "invokeStatic",
+            "line": 193,
+            "bci": 343,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_frontend$load_source",
+            "method": "invoke",
+            "line": 182,
+            "bci": 6,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_$fn__11531",
+            "method": "invoke",
+            "line": 136,
+            "bci": 99,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$stage_BANG_",
+            "method": "invokeStatic",
+            "line": 78,
+            "bci": 196,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$stage_BANG_",
+            "method": "invoke",
+            "line": 71,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_",
+            "method": "invokeStatic",
+            "line": 135,
+            "bci": 554,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_",
+            "method": "invoke",
+            "line": 119,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$run_BANG_",
+            "method": "invokeStatic",
+            "line": 190,
+            "bci": 1003,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$run_BANG_",
+            "method": "invoke",
+            "line": 158,
+            "bci": 3,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.Var",
+            "method": "invoke",
+            "line": 386,
+            "bci": 11,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_$fn__11604",
+            "method": "invoke",
+            "line": 129,
+            "bci": 1740,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_",
+            "method": "invokeStatic",
+            "line": 83,
+            "bci": 771,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_",
+            "method": "invoke",
+            "line": 62,
+            "bci": 3,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.Var",
+            "method": "invoke",
+            "line": 386,
+            "bci": 11,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "user$fn__11678",
+            "method": "invokeStatic",
+            "line": 1,
+            "bci": 26,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "user$fn__11678",
+            "method": "invoke",
+            "line": 1,
+            "bci": 0,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.core$binding_conveyor_fn$fn__5842",
+            "method": "invoke",
+            "line": 2047,
+            "bci": 16,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.AFn",
+            "method": "call",
+            "line": 18,
+            "bci": 1,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.FutureTask",
+            "method": "run",
+            "line": 328,
+            "bci": 39,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.ThreadPoolExecutor",
+            "method": "runWorker",
+            "line": 1090,
+            "bci": 92,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.ThreadPoolExecutor$Worker",
+            "method": "run",
+            "line": 614,
+            "bci": 5,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.lang.Thread",
+            "method": "runWith",
+            "line": 1487,
+            "bci": 5,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.lang.Thread",
+            "method": "run",
+            "line": 1474,
+            "bci": 19,
+            "frame-type": "Interpreted"
+          }
+        ],
+        "jfr-stack-truncated?": false,
+        "matched-frame": {
+          "class": "prototype.mutable$runtime_value_BANG_",
+          "method": "invokeStatic",
+          "line": 383,
+          "bci": 336,
+          "frame-type": "JIT compiled"
+        }
+      },
+      {
+        "event": "jdk.ExecutionSample",
+        "category": "slot-sizing",
+        "count": 11,
+        "frames": [
+          {
+            "class": "java.util.HashMap",
+            "method": "getNode",
+            "line": 577,
+            "bci": 26,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "java.util.HashMap",
+            "method": "get",
+            "line": 565,
+            "bci": 2,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$cached_function_slots",
+            "method": "invokeStatic",
+            "line": 63,
+            "bci": 327,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$cached_function_slots",
+            "method": "invoke",
+            "line": 48,
+            "bci": 3,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$measure$fn__3910",
+            "method": "invoke",
+            "line": 92,
+            "bci": 95,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.core.protocols$iterator_reduce_BANG_",
+            "method": "invokeStatic",
+            "line": 42,
+            "bci": 32,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.core.protocols$iter_reduce",
+            "method": "invokeStatic",
+            "line": 52,
+            "bci": 17,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "clojure.core.protocols$fn__8256",
+            "method": "invokeStatic",
+            "line": 74,
+            "bci": 9,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core.protocols$fn__8256",
+            "method": "invoke",
+            "line": 74,
+            "bci": 9,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core.protocols$fn__8203$G__8198__8216",
+            "method": "invoke",
+            "line": 13,
+            "bci": 60,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core$reduce",
+            "method": "invokeStatic",
+            "line": 6965,
+            "bci": 71,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "clojure.core$reduce",
+            "method": "invoke",
+            "line": 6947,
+            "bci": 9,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.slot_count$measure",
+            "method": "invokeStatic",
+            "line": 88,
+            "bci": 61,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.slot_count$measure",
+            "method": "invoke",
+            "line": 83,
+            "bci": 6,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invokeStatic",
+            "line": 103,
+            "bci": 297,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invoke",
+            "line": 95,
+            "bci": 6,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invokeStatic",
+            "line": 98,
+            "bci": 18,
+            "frame-type": "Inlined"
+          },
+          {
+            "class": "prototype.slot_count$program_slots",
+            "method": "invoke",
+            "line": 95,
+            "bci": 3,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$slot_count",
+            "method": "invokeStatic",
+            "line": 107,
+            "bci": 50,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$slot_count",
+            "method": "invoke",
+            "line": 106,
+            "bci": 3,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$thaw",
+            "method": "invokeStatic",
+            "line": 194,
+            "bci": 10,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.mutable$thaw",
+            "method": "invoke",
+            "line": 193,
+            "bci": 3,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$run_boundary",
+            "method": "invokeStatic",
+            "line": 101,
+            "bci": 248,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$run_boundary",
+            "method": "invoke",
+            "line": 98,
+            "bci": 9,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive$fn__5875",
+            "method": "invoke",
+            "line": 244,
+            "bci": 45,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive",
+            "method": "invokeStatic",
+            "line": 243,
+            "bci": 224,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$drive",
+            "method": "invoke",
+            "line": 237,
+            "bci": 6,
+            "frame-type": "JIT compiled"
+          },
+          {
+            "class": "prototype.raw_interop$continue",
+            "method": "invokeStatic",
+            "line": 283,
+            "bci": 259,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$continue",
+            "method": "invoke",
+            "line": 267,
+            "bci": 6,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$call",
+            "method": "invokeStatic",
+            "line": 295,
+            "bci": 118,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.raw_interop$call",
+            "method": "invoke",
+            "line": 289,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file$invoke__9941",
+            "method": "invoke",
+            "line": 206,
+            "bci": 36,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.guest_encoding$encode_names",
+            "method": "invokeStatic",
+            "line": 105,
+            "bci": 440,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.guest_encoding$encode_names",
+            "method": "invoke",
+            "line": 97,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.guest_encoding$encode_name",
+            "method": "invokeStatic",
+            "line": 110,
+            "bci": 24,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.guest_encoding$encode_name",
+            "method": "invoke",
+            "line": 107,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file",
+            "method": "invokeStatic",
+            "line": 211,
+            "bci": 479,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.frontend$compile_file",
+            "method": "invoke",
+            "line": 192,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.hosted_file$run_file",
+            "method": "invokeStatic",
+            "line": 117,
+            "bci": 632,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.hosted_file$run_file",
+            "method": "invoke",
+            "line": 92,
+            "bci": 9,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_source$load_and_publish",
+            "method": "invokeStatic",
+            "line": 69,
+            "bci": 777,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_source$load_and_publish",
+            "method": "invoke",
+            "line": 32,
+            "bci": 9,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_$fn__11527",
+            "method": "invoke",
+            "line": 123,
+            "bci": 242,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$stage_BANG_",
+            "method": "invokeStatic",
+            "line": 78,
+            "bci": 196,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$stage_BANG_",
+            "method": "invoke",
+            "line": 71,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_",
+            "method": "invokeStatic",
+            "line": 122,
+            "bci": 143,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$trial_BANG_",
+            "method": "invoke",
+            "line": 119,
+            "bci": 14,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$run_BANG_",
+            "method": "invokeStatic",
+            "line": 190,
+            "bci": 1003,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_jfr_trial_v1_oct21$run_BANG_",
+            "method": "invoke",
+            "line": 158,
+            "bci": 3,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.Var",
+            "method": "invoke",
+            "line": 386,
+            "bci": 11,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_$fn__11604",
+            "method": "invoke",
+            "line": 129,
+            "bci": 1740,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_",
+            "method": "invokeStatic",
+            "line": 83,
+            "bci": 771,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "prototype.resident_import_cpu_jfr_v1_oct21$run_BANG_",
+            "method": "invoke",
+            "line": 62,
+            "bci": 3,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.Var",
+            "method": "invoke",
+            "line": 386,
+            "bci": 11,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "user$fn__11678",
+            "method": "invokeStatic",
+            "line": 1,
+            "bci": 26,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "user$fn__11678",
+            "method": "invoke",
+            "line": 1,
+            "bci": 0,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.core$binding_conveyor_fn$fn__5842",
+            "method": "invoke",
+            "line": 2047,
+            "bci": 16,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "clojure.lang.AFn",
+            "method": "call",
+            "line": 18,
+            "bci": 1,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.FutureTask",
+            "method": "run",
+            "line": 328,
+            "bci": 39,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.ThreadPoolExecutor",
+            "method": "runWorker",
+            "line": 1090,
+            "bci": 92,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.util.concurrent.ThreadPoolExecutor$Worker",
+            "method": "run",
+            "line": 614,
+            "bci": 5,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.lang.Thread",
+            "method": "runWith",
+            "line": 1487,
+            "bci": 5,
+            "frame-type": "Interpreted"
+          },
+          {
+            "class": "java.lang.Thread",
+            "method": "run",
+            "line": 1474,
+            "bci": 19,
+            "frame-type": "Interpreted"
+          }
+        ],
+        "jfr-stack-truncated?": false,
+        "matched-frame": {
+          "class": "prototype.slot_count$cached_function_slots",
+          "method": "invokeStatic",
+          "line": 63,
+          "bci": 327,
+          "frame-type": "Inlined"
+        }
+      }
+    ],
+    "full-analysis-local-path": "target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.analysis.json",
+    "full-analysis-sha256": "6a07a8e4b6f9131734ed004ec8579be94aedbb5544ea5a6ea125e830bfc0a17b"
+  },
+  "analysis-guard": {
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M",
+      "-e",
+      "(do (load-file \"../../target/artifact-contract/full-init-next/full-run-oct20/resident-import-jfr-analysis-v1.clj\") (println (pr-str ((ns-resolve (quote prototype.resident-import-jfr-analysis-v1-oct21) (quote analyze!)) \"/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.receipt.json\" \"/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/target/artifact-contract/full-init-next/full-run-oct20/resident-import-cpu-jfr-v1-artifacts/resident-import-cpu-only-v1.analysis.json\"))) (System/exit 0))"
+    ],
+    "command-cwd": "experiments/lean-ir",
+    "analysis-source-sha256": "9bc94f991e7a0d141b47f6cc1612821e04a998506baa3ea38872bce021c2797d",
+    "preflight-memavailable-bytes": 12220342272,
+    "exit_code": 0,
+    "guard_stop": null,
+    "peak_rss_bytes": 322699264,
+    "elapsed_seconds": 3.23,
+    "guest-stage-invocations": 0
+  },
+  "analysis-review": "Independent Astra verified actual-code filtering by sampledThread Java ID and name, category accounting, bounds and actual output. Broad guest-dispatch category includes runtime helpers/map construction; counts are not dispatch-loop cost or wall-time shares."
+}

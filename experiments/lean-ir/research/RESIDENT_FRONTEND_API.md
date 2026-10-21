@@ -21,7 +21,11 @@ this facade or the captured runtime. Its separate
 records focused branch/ownership/failure tests and the full prototype suite.
 Its separate actual standalone acceptance also passes: publish A, genuinely
 finalize/check the import, load/call B and retain A's earlier Context. Full-Init
-publication through this consumer and a reusable import facade remain separate.
+publication through this consumer remains separate. The optional
+[`prototype.resident-import` consumer](RESIDENT_IMPORT_PREPARATION.md) now prepares
+one standalone published import, returning a fresh checked Context and the exact
+captured request for `load-source`. The actual two-consumer frontend workflow
+passes separately; over-Init preparation and general dependency graphs remain open.
 
 The [archived prelude acceptance](../measurements/resident-preparation-progress.json)
 now passes the real facade: Nat/Unicode calls, a second source, expected command

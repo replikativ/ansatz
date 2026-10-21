@@ -118,3 +118,65 @@ explicit binding authority, compiler-token compatibility, checked Environment
 associations and independent root ownership. Performance hints grant no checking
 authority. Changes to core runtime semantics require an explicit producer/consumer
 compatibility contract; they cannot relabel the old checkpoint's build identity.
+
+## Oct21 warm public workflow
+
+The [warm-stage receipt](../measurements/resident-import-warm-profile.json)
+records two warmups and three measured trials on independent forks of the same
+checked prelude Context. Both public consumers execute the genuine hosted
+frontend and import finalizer using mutable execution. Alternating A bodies
+produce the expected 42/43 and Unicode results through identical B source.
+All 30 trial-created Contexts close successfully; the borrowed base stays
+unchanged. No source initializers run.
+
+| Public operation | Median of three measured trials |
+| --- | ---: |
+| Fork | 10.469 ms |
+| Compile and publish A | 6,015.828 ms |
+| Prepare and freshly check A's import | 4,114.891 ms |
+| Compile B | 5,130.871 ms |
+| Nat call | 364.016 ms |
+| Unicode call | 71.507 ms |
+
+These are public-operation timings, excluding restoration and seed preparation.
+The sample is small; JVM heap/GC observations span controller bookkeeping and
+are process-wide, whereas guest steps and guest allocations refer to the actual
+branch. Heap differences do not measure total allocated bytes. There is no
+matched native frontend baseline. The unprofiled baseline has no active JFR
+recording; a separate one-trial CPU profile can investigate the costs above.
+
+Each Nat/Unicode call executes eight guest instructions and allocates zero guest
+heap nodes. The Nat call's hundreds of milliseconds therefore justify examining
+host setup, closure validation, session opening and slot sizing before changing
+guest dispatch or attempting a wholesale frontend JIT. This is a hypothesis from
+operation boundaries, pending stack-sample attribution.
+
+The separate [CPU-profiled trial](../measurements/resident-import-cpu-profile.json)
+also passes, closes its six created Contexts and closes/dumps its JFR recording.
+Its configured settings enable CPU/native method samples and GC events, without
+allocation events. Samples are JVM-wide; analysis selects the actual recorded
+workflow thread. The 32 MiB retention setting does not bound native memory or RSS.
+The shared guarded JVM subsequently exits zero without a guard stop, at a
+3,590,819,840-byte peak RSS. Its 1,362.85-second lifecycle includes idle REPL time
+and all three campaigns; it is not an operation latency.
+
+
+Offline analysis selects 1,640 Java execution samples from the workflow thread;
+all 878 native-method samples belong to the REPL main thread and are excluded.
+Exclusive first-match attribution finds 458 thaw/freeze samples, 107 slot-sizing,
+55 readiness, 13 session ABI scans, 113 other, and 894 broad guest runtime samples.
+The last category includes runtime helpers and persistent-map construction; it
+is not a dispatch-loop cost measurement. Of the selected traces, 298 are
+truncated by JFR. Counts are observed stack attribution across the whole trial,
+not per-stage latency or wall-time shares. The absence of checker-frame hits does not establish
+negligible checking cost.
+
+This supports two focused experiments: avoid rebuilding unchanged boundary state
+(particularly the globals conversion in `thaw`/`freeze`) and reuse scalar slot
+widths across exact immutable program identities. The broad runtime samples also
+justify investigating repeated adapter-map construction in `runtime-value!`.
+Keep authority validation unchanged while testing these representation changes,
+then rerun the same fork/import/call workload. ABI scans and readiness traversal
+remain measurable candidates, but this trial does not make them the dominant
+whole-workflow cost. A core implementation change requires a new authenticated
+runtime identity and an explicit checkpoint compatibility decision.

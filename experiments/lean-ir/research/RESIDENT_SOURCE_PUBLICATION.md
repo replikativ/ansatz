@@ -107,5 +107,7 @@ execution in this acceptance uses the mutable backend; the JVM output-cache fork
 proof remains the separate experiment above. The active workflow takes 16.330
 seconds, excluding restore/seed preparation; the guarded process takes 303.59
 seconds and exits successfully. Process disposal does not establish Context or
-Source-lease semantic cleanup. Full-Init publication through this consumer and
-a reusable import-preparation facade remain separate gates.
+Source-lease semantic cleanup. A later actual acceptance also passes the
+[public import-preparation consumer](RESIDENT_IMPORT_PREPARATION.md), replacing
+the manual import orchestration for this standalone case. Full-Init acceptance
+through these consumers remains separate.

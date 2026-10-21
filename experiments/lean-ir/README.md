@@ -44,8 +44,11 @@ It uses public resident APIs and leaves the authenticated runtime unchanged.
 Its focused ownership/failure tests, full prototype suite and separate actual
 standalone frontend acceptance pass: publish A, strictly finalize its import,
 load/call B and retain A's earlier Context. Full-Init acceptance of this new
-consumer remains separate; import assembly and finalization still require
-explicit orchestration.
+consumer remains separate. The optional [import-preparation consumer](research/RESIDENT_IMPORT_PREPARATION.md)
+now supports genuine import finalization and fresh checking. Together with
+publication and `resident/load-source`, it composes the two-file workflow through
+public APIs. Its separate standalone frontend acceptance passes; it does
+not yet provide a general dependency resolver or an over-Init import facade.
 
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety
