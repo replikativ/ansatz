@@ -200,7 +200,8 @@ initialization plus three calls took 85 ms, and the Java fixture took 37.348 s.
 These are one-shot observations with explicit host GC, not throughput or backend
 comparisons. The receipt pins the actual controllers, consumer, fixture and
 runtime bytes. Later merged runtime changes receive separate model/packaging
-checks; those checks do not imply a new genuine frontend run.
+[checks](measurements/composed-validation.json); those checks do not imply a new
+genuine frontend run.
 
 Earlier fixture mistakes were retained as evidence: strict Nat ABI checking
 rejected `object` against actual `tobject`, and the Java `prelude` header differed
