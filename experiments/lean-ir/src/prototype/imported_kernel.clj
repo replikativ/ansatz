@@ -237,6 +237,26 @@
                 (fail "Trusted projection certificate differs from its checked Java environment" {:name name}))
               {:guest guest :constant (if same-ref? cached (project-constant world guest projector))})) values)))
 
+(defn- checking-plan [groups names]
+  ;; Build-only group/name/dependency containers remain in this frame. Checking
+  ;; retains only member refs, reverse edges, degrees, ready keys and a count.
+  (let [by-key (into {} (map #(vector (:key %) %) groups))
+        name->group (into {} (mapcat (fn [group] (map #(vector % (:key group)) (:names group))) groups))
+        missing (set/difference (reduce set/union #{} (map :dependencies groups)) (set names))]
+    (when (seq missing) (fail "Unresolved imported kernel dependencies" {:missing missing}))
+    (let [blockers (into {} (map (fn [group] [(:key group) (set (map name->group (:dependencies group)))]) groups))
+          dependents (persistent!
+                       (reduce-kv (fn [out key dependencies]
+                                    (reduce (fn [out dependency]
+                                              (assoc! out dependency (conj (get out dependency []) key)))
+                                            out dependencies))
+                                  (transient {}) blockers))
+          initial-degrees (into {} (map (fn [[key deps]] [key (count deps)]) blockers))
+          initial-ready (mapv :key (filter #(zero? (get initial-degrees (:key %))) groups))]
+      {:members-by-key (into {} (map (fn [[key group]] [key (:members group)])) by-key)
+       :dependents dependents :degrees initial-degrees :ready initial-ready
+       :group-count (count groups)})))
+
 (defn verify-constants
   "Strictly check borrowed ConstantInfo refs, independent of serialized order.
    :allow-axioms? must explicitly authorize declared assumptions; the three exact
@@ -271,26 +291,14 @@
        (when (and (or (.isUnsafe constant) (and (.isDef constant) (not= 0 (.safety constant))))
                   (not (and allow-compiler-markers? (bridge/compiler-marker-declaration? world guest))) (not allow-unsafe?))
          (fail "Imported unsafe/partial admission requires explicit host policy" {:name (.name constant)})))
-     (let [groups (groups entries)
-           by-key (into {} (map #(vector (:key %) %) groups))
-           name->group (into {} (mapcat (fn [group] (map #(vector % (:key group)) (:names group))) groups))
-           missing (set/difference (reduce set/union #{} (map :dependencies groups)) (set names))]
-       (when (seq missing) (fail "Unresolved imported kernel dependencies" {:missing missing}))
-       (let [blockers (into {} (map (fn [group] [(:key group) (set (map name->group (:dependencies group)))]) groups))
-             dependents (persistent!
-                          (reduce-kv (fn [out key dependencies]
-                                       (reduce (fn [out dependency]
-                                                 (assoc! out dependency (conj (get out dependency []) key)))
-                                               out dependencies))
-                                     (transient {}) blockers))
-             initial-degrees (into {} (map (fn [[key deps]] [key (count deps)]) blockers))
-             initial-ready (mapv :key (filter #(zero? (get initial-degrees (:key %))) groups))]
-         (loop [queue initial-ready cursor 0 degrees initial-degrees ^Env checked (Env.) order []]
+     (let [{:keys [members-by-key dependents degrees ready group-count]}
+           (checking-plan (groups entries) names)]
+         (loop [queue ready cursor 0 degrees degrees ^Env checked (Env.) order []]
            (if (= cursor (count queue))
              (do
-               (when-not (= (count groups) cursor)
+               (when-not (= group-count cursor)
                  (fail "Unsupported recursive imported kernel dependency group"
-                       {:remaining (- (count groups) cursor)}))
+                       {:remaining (- group-count cursor)}))
                (let [actual (set (map #(.name ^ConstantInfo %) (.allConstants checked)))]
                  (when-not (= (set names) actual)
                    (fail "Kernel generated constants absent from imported environment" {:extra (set/difference actual (set names))}))
@@ -298,7 +306,7 @@
                   :constants (into {} (map (fn [{:keys [guest ^ConstantInfo constant]}] [(.name constant) guest])) entries)
                   :projected (into {} (map (fn [{:keys [^ConstantInfo constant]}] [(.name constant) constant])) entries)
                   :order order :axioms (set (map #(.name ^ConstantInfo (:constant %)) (filter #(.isAxiom ^ConstantInfo (:constant %)) entries)))}))
-             (let [key (nth queue cursor) group (get by-key key) members (:members group)
+             (let [key (nth queue cursor) members (get members-by-key key)
                    checked (case (first key)
                              :single (let [^ConstantInfo ci (first members)]
                                        (when (.isQuot ci) (validate-quot-bootstrap checked))
@@ -313,7 +321,7 @@
                                              (let [degree (dec (get degrees dependent))]
                                                [(assoc degrees dependent degree) (if (zero? degree) (conj queue dependent) queue)]))
                                            [degrees queue] (get dependents key))]
-               (recur queue (inc cursor) degrees checked (conj order key))))))))))
+               (recur queue (inc cursor) degrees checked (conj order key)))))))))
 
 (defn verify-module-data
   "Check the actual selected main ModuleData roots (in import order). This does

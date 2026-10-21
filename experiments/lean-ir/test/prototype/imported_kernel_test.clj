@@ -1,5 +1,5 @@
 (ns prototype.imported-kernel-test
-  (:require [clojure.test :refer [deftest is]] [prototype.imported-kernel :as imported]
+  (:require [clojure.test :refer [deftest is]] [clojure.set :as set] [prototype.imported-kernel :as imported]
             [prototype.module-data :as data] [prototype.machine :as m]
             [prototype.kernel-bridge-test :as guest] [prototype.scalar :as scalar]
             [ansatz.kernel.name :as name])
@@ -218,3 +218,115 @@
       (let [matching (assoc-in world [:heap (:id bb) :fields 1] left-params)
             projected (mapv #(hash-map :constant (imported/project-constant matching %)) [da db])]
         (is (= :mutual (first (:key (first (#'imported/groups projected))))))))))
+
+;; Frozen pre-extraction plan construction: compare behavior and traversal order,
+;; while retaining the old containers to make the lifetime negative control real.
+(defn- historical-checking-plan [groups names]
+  (let [by-key (into {} (map #(vector (:key %) %) groups))
+        name->group (into {} (mapcat (fn [group] (map #(vector % (:key group)) (:names group))) groups))
+        missing (set/difference (reduce set/union #{} (map :dependencies groups)) (set names))]
+    (when (seq missing)
+      (throw (ex-info "Unresolved imported kernel dependencies" {:missing missing})))
+    (let [blockers (into {} (map (fn [group] [(:key group) (set (map name->group (:dependencies group)))]) groups))
+          dependents (persistent!
+                       (reduce-kv (fn [out key dependencies]
+                                    (reduce (fn [out dependency]
+                                              (assoc! out dependency (conj (get out dependency []) key)))
+                                            out dependencies))
+                                  (transient {}) blockers))
+          degrees (into {} (map (fn [[key deps]] [key (count deps)]) blockers))
+          ready (mapv :key (filter #(zero? (get degrees (:key %))) groups))]
+      {:groups groups :by-key by-key :dependents dependents :degrees degrees :ready ready})))
+
+(defn- plan-schedule [plan total]
+  (loop [queue (:ready plan) cursor 0 degrees (:degrees plan)]
+    (if (= cursor (count queue)) {:order queue :remaining (- total cursor)}
+      (let [[degrees queue]
+            (reduce (fn [[degrees queue] dependent]
+                      (let [degree (dec (get degrees dependent))]
+                        [(assoc degrees dependent degree)
+                         (if (zero? degree) (conj queue dependent) queue)]))
+                    [degrees queue] (get-in plan [:dependents (nth queue cursor)]))]
+        (recur queue (inc cursor) degrees)))))
+
+(defn- synthetic-groups [dependencies]
+  (let [names (mapv #(name/from-string (str "PlanProbe." %)) (range (count dependencies)))]
+    (mapv (fn [i deps]
+            {:key [:single (nth names i)] :members [(Object.)]
+             :names #{(nth names i)} :dependencies (set (map names deps))})
+          (range) dependencies)))
+
+(defn- build-only-identity-leaks [result groups]
+  (let [allowed (java.util.IdentityHashMap.) forbidden (java.util.IdentityHashMap.)]
+    (doseq [group groups]
+      (.put allowed (:key group) true)
+      (doseq [member (:members group)] (.put allowed member true)))
+    (.put forbidden groups :group-vector)
+    (doseq [group groups [label value] [[:group group] [:names (:names group)]
+                                      [:dependencies (:dependencies group)]]]
+      (when-not (.containsKey allowed value) (.put forbidden value label)))
+    (loop [todo [result] seen (java.util.IdentityHashMap.) leaks []]
+      (when (> (.size seen) 10000) (throw (ex-info "Identity walk exceeded tiny test bound" {})))
+      (if (empty? todo) leaks
+        (let [value (peek todo) todo (pop todo)]
+          (cond
+            (.containsKey allowed value) (recur todo seen leaks)
+            (.containsKey forbidden value) (recur todo seen (conj leaks (.get forbidden value)))
+            (.containsKey seen value) (recur todo seen leaks)
+            :else (do (.put seen value true)
+                      (recur (cond (map? value) (into todo (mapcat identity value))
+                                   (coll? value) (into todo value)
+                                   :else todo)
+                             seen leaks))))))))
+
+(deftest compact-checking-plan-preserves-historical-edges-degrees-and-order
+  (let [native (loaded)
+        projected (mapv #(hash-map :constant (imported/project-constant (:world native) %)) (values native))
+        native-groups (#'imported/groups projected)
+        cases (conj (mapv synthetic-groups
+                         [[] [[]] [[] [0] [0] [1 2]] [[] [0] [1] [2]]
+                          [[] [] [] []] [[1] [0]] [[] [0] [0] [0] [1 2 3]]])
+                    native-groups)]
+    (doseq [groups cases]
+      (let [names (mapcat :names groups)
+            old (historical-checking-plan groups names)
+            plan (#'imported/checking-plan groups names)]
+        (is (= (select-keys old [:dependents :degrees :ready])
+               (select-keys plan [:dependents :degrees :ready])))
+        (is (= (count groups) (:group-count plan)))
+        (is (= (plan-schedule old (count groups)) (plan-schedule plan (:group-count plan))))
+        (is (= (into {} (map (fn [[key group]] [key (:members group)])) (:by-key old))
+               (:members-by-key plan)))
+        (doseq [group groups]
+          (is (identical? (:members group) (get (:members-by-key plan) (:key group))))
+          (is (some #(identical? (:key group) %) (keys (:members-by-key plan)))))))))
+
+(deftest compact-checking-plan-does-not-retain-build-only-group-containers
+  (let [native (loaded)
+        projected (mapv #(hash-map :constant (imported/project-constant (:world native) %)) (values native))]
+    (let [groups (synthetic-groups [[] [0]])]
+      ;; Each forbidden category is detected even without a parent group/vector.
+      (is (= #{:group :names :dependencies}
+             (set (build-only-identity-leaks
+                    [{:hidden (first groups)} {:hidden (:names (first groups))}
+                     {:hidden (:dependencies (second groups))}] groups)))))
+    (doseq [groups [(synthetic-groups [[] [0] [0] [1 2]]) (#'imported/groups projected)]]
+      (let [names (mapcat :names groups)
+            old (historical-checking-plan groups names)
+            plan (#'imported/checking-plan groups names)]
+        ;; The historical result really retains forbidden input identities.
+        (is (seq (build-only-identity-leaks old groups)))
+        (is (empty? (build-only-identity-leaks plan groups)))))))
+
+(deftest compact-checking-plan-preserves-missing-dependency-error-data
+  (let [groups (synthetic-groups [[] [0]])
+        missing (name/from-string "PlanProbe.missing")
+        invalid (assoc-in groups [1 :dependencies] #{missing})
+        names (mapcat :names groups)
+        failure (fn [build]
+                  (try (build invalid names) nil
+                       (catch clojure.lang.ExceptionInfo cause
+                         [(.getMessage cause) (ex-data cause)])))]
+    (is (= ["Unresolved imported kernel dependencies" {:missing #{missing}}]
+           (failure #'imported/checking-plan)))
+    (is (= (failure historical-checking-plan) (failure #'imported/checking-plan)))))

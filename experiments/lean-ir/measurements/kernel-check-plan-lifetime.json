@@ -1,0 +1,120 @@
+{
+  "schema": "imported-kernel-checking-plan-lifetime/1",
+  "date": "2026-10-21",
+  "status": "focused-regression-passed",
+  "source-base": "35fccff1255f3f0c7583e495a070ba3a6da6f575",
+  "source-sha256": {
+    "experiments/lean-ir/src/prototype/imported_kernel.clj": "97bae679ef6f68d39f0f0ec916b61ab27244ea6b8385b9a15d9ffc4409ad29a6",
+    "experiments/lean-ir/test/prototype/imported_kernel_test.clj": "e78b5b312a00053be1402ff1c03a4827933d1dee3d1551cfb2db3683678741a6"
+  },
+  "change": "Move unchanged group/name/dependency preparation into a private checking-plan call frame. The verifier directly passes (groups entries), with no caller group binding, and retains only a compact member map, reverse edges, initial degrees, ready keys and scalar group count.",
+  "returned-plan": [
+    "members-by-key: group key to original member vector",
+    "dependents: unchanged persistent map of immutable adjacency vectors",
+    "degrees: unchanged initial indegrees",
+    "ready: unchanged initial ready ordering",
+    "group-count: scalar count"
+  ],
+  "preserved": [
+    "Exact group construction, by-key and name-to-group construction, missing-dependency message/data/timing, blockers reduce-kv and dependency traversal, transient outer reverse-edge builder from the prior patch.",
+    "Fresh Java Env and all TypeChecker/inductive calls, fuel, checking order, certificate construction and missing/cycle errors.",
+    "Public API, receipt format, policy, guest World, owners, reference counts and cache behavior.",
+    "Blockers and full group records still exist inside the preparation frame; this slice does not remove their construction."
+  ],
+  "validation": {
+    "namespace": "prototype.imported-kernel-test",
+    "tests": 15,
+    "assertions": 168,
+    "failures": 0,
+    "errors": 0,
+    "new-tests": [
+      "Historical fixed-plan comparison of reverse-edge vectors, degrees, ready ordering, exact key/member identities and complete scheduling/remaining-count behavior. Inputs include empty, singleton, diamond, chain, independent, cycle and fan graphs plus actual native17-CI grouping.",
+      "Deterministic identity traversal of the compact result rejects the actual input group-vector/group-record/name-set/dependency-set identities. It stops at intentional key and member roots. The historical plan and directly hidden forbidden containers are negative controls.",
+      "Missing dependency error message and ex-data match the historical builder."
+    ],
+    "existing-tests": "Actual imported verifier fixtures retain policy, unsafe/mutual/cycle, inductive/recursor, quotient and exact association/projection controls.",
+    "no-GC-test": true,
+    "comprehensive-suite-run-for-this-change": false
+  },
+  "execution": {
+    "heap-MiB": 384,
+    "stack-MiB": 8,
+    "group-RSS-limit-bytes": 939524096,
+    "RSS-includes-Python-guard": true,
+    "wall-limit-seconds": 180,
+    "fresh-preflight-available-bytes": 3221225472,
+    "system-available-floor-bytes": 1610612736,
+    "min-observed-available-bytes": 3842854912,
+    "peak-guard-and-owned-group-RSS-bytes": 426528768,
+    "elapsed-seconds": 19.812829736998538,
+    "status": "passed",
+    "exit-code": 0,
+    "guard-stop": null,
+    "input-pins": 376,
+    "log-byte-bound": 4194304,
+    "guard-ownership": "waitid(WNOWAIT) keeps the child leader unreaped through process-group cleanup and final wait; nonzero and signaled exits fail.",
+    "attempts": 1,
+    "automatic-retry": false,
+    "forced-GC": false,
+    "command": {
+      "working-directory": "experiments/lean-ir",
+      "JVM": [
+        "clojure",
+        "-J-Xmx384m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [consumer-support compact-projection-classes reviewed-heap-classes kernel-classes experiment-src experiment-test ansatz-src]}",
+        "-M",
+        "<reviewed-lifetime-test-driver>"
+      ],
+      "classpath-order": "Authenticated consumer-support sources; compact projection classes; reviewed heap classes; existing kernel/runtime classes; candidate experiment src/test; Ansatz src. Exact paths/bytes/argv are pinned in the ignored execution plan.",
+      "actual-JVM-argv-sha256": "c8c2b0c8216b879d142b2e9d1346591135a777900d24d31f0f9ae08449488568",
+      "actual-JVM-argv-sha256-encoding": "UTF-8 bytes of Python json.dumps(actual command vector, separators=(comma,colon), ensure_ascii=True), followed by one LF newline. Preserve array order; this hashes the raw pinned execution plan command, including its machine-local paths, not the portable role placeholders above."
+    }
+  },
+  "artifact-evidence": {
+    "target/artifact-contract/kernel-check-plan-lifetime/preparation-v1.json": {
+      "sha256": "9232ee89e2b9677b5cbc47b5e425e4fe910c6f1beeef37c8c8fffe8d44f3632d",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/execution-plan.json": {
+      "sha256": "238ba34e455efdf4e348f77c3e3e4c8816bf73453bcb0688a6e273ab8a87b47e",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/guard.py": {
+      "sha256": "38c632b97abce8fa0605991b7be8faab1d6e2c0964d1eaa333f4cbec09faad8f",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/run.py": {
+      "sha256": "8af1968f1897868ad70c577b686efaaf30c6ebd56ede7546bb3ef7815a6489ed",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/validate.clj": {
+      "sha256": "55236025fe76868ae8a438b9bc5b73270f3f7d5e80ab5e690681d6bdc948d645",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/results.json": {
+      "sha256": "da36a05ff2441f289f1752a02cff83c5139e266c290c74bdd894fe4754e9755b",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/run-v1/receipt.json": {
+      "sha256": "80ee61ab903b7db83331b9154d047fc863a716d5b35e5a332725ac2d92ed7cb2",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/run-v1/stdout": {
+      "sha256": "9f32803191256839a93b337b941813933b570398a3c2b6c447535502b0fae04e",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    },
+    "target/artifact-contract/kernel-check-plan-lifetime/validation-v1/run-v1/stderr": {
+      "sha256": "976bd2c4df79b8f85a8d7909e79adbd918c1bc213b633fd56d7f8855fbdfb9c2",
+      "scope": "Ignored exact preparation/driver/plan/results/guard/log bytes; relevant bounded results are copied here. Digest identifies evidence and grants no checking authority."
+    }
+  },
+  "interpretation": [
+    "The compact return graph does not retain the tested build-only group/name/dependency containers. This is a structural identity result, not a retained-byte measurement or guarantee of when GC runs.",
+    "The helper frame ends before checking begins; the verifier loop no longer explicitly roots the original groups or by-key full group records. Intentional group keys and member ConstantInfo identities remain borrowed.",
+    "Construction peak, whole-checker RSS, GC time and hosted frontend speed were not measured or compared. No claim that these containers dominate a live campaign heap is made.",
+    "The prior reverse-edge allocation patch and its synthetic allocation record remain separate; this slice only changes build-data reachability during checking.",
+    "A later authenticated campaign needs a fresh selected-byte consumer digest/capture and constructor gate. The existing imported-kernel substitution profile applies without a new compatibility exception; no frozen live process is modified."
+  ]
+}
