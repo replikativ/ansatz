@@ -167,30 +167,41 @@
 ;; The publication/compiler/front-end/getter bodies below are explicit models.
 ;; The issued public operations, raw evalConst witness path, execution machinery
 ;; and Java whole-map checking are real on all backends.
-(def feature-limits (assoc limits :max-nodes 10000 :max-edges 20000 :max-bytes 1000000))
+(def feature-limits (assoc limits :max-nodes 10000 :max-edges 20000 :max-bytes 1000000
+                                  :max-units 100 :max-declarations 10000))
 (def answer ["str" ["anonymous"] "answer"])
 (def eval-root ["str" ["anonymous"] "ReconstructionEval"])
 (def witness-root ["str" ["anonymous"] "ReconstructionWitness"])
 (def poison-root ["str" ["anonymous"] "ReconstructionPoison"])
 (def local-row {:kind "decl" :name answer :sourceLocal true :sourceModule publication/module
                 :ir {:fdecl {:f answer :xs [] :type "object" :body []}}})
+(def helper ["str" ["anonymous"] "answer._boxed"])
+(def primary-digest (apply str (repeat 64 "b")))
+(def helper-digest (apply str (repeat 64 "c")))
+(def helper-row (-> local-row (assoc :name helper) (assoc-in [:ir :fdecl :f] helper)))
 (defn feature-world [world]
-  (let [f (get-in world [:functions ["answer"]])
-        unit (assoc (get-in world [:eval-const-authorizations :units publication/digest]) :declarations [answer])]
-    (-> world
-        (assoc-in [:functions answer] f)
-        (assoc-in [:eval-const-authorizations :units publication/digest] unit)
-        (assoc-in [:eval-const-authorizations :functions answer] f)
-        (assoc-in [:eval-const-authorizations :declarations answer] local-row)
-        (assoc-in [:eval-const-authorizations :unit-digests answer] publication/digest))))
+  ;; Real compiler publication may emit evalConst units before the final file
+  ;; unit. The primary's executable actually calls a helper in another unit.
+  (let [f {:params [] :body [:call 0 [:direct helper] [] [:return [:var 0]]]}
+        h {:params [] :body [:return [:imm 42]]}
+        unit (get-in world [:eval-const-authorizations :units publication/digest])]
+    (reduce (fn [world [digest name row function]]
+              (-> world
+                  (assoc-in [:functions name] function)
+                  (assoc-in [:eval-const-authorizations :units digest] (assoc unit :declarations [name]))
+                  (assoc-in [:eval-const-authorizations :functions name] function)
+                  (assoc-in [:eval-const-authorizations :declarations name] row)
+                  (assoc-in [:eval-const-authorizations :unit-digests name] digest)))
+            (assoc-in world [:eval-const-authorizations :units publication/digest] (assoc unit :declarations []))
+            [[primary-digest answer local-row f] [helper-digest helper helper-row h]])))
 (defn feature-witness []
   {:schema "lean-eval-const-witness/1" :producer "RuntimeCompileShim.exportEvalConstWitness"
    :leanCommit (get prim/pinned-build "lean_get_githash")
    :runtimeProfile {:target "x86_64-unknown-linux-gnu" :wordBits 64}
    :name answer :boxedTarget answer :sorryDep nil :missingDependencies []
-   :declarations [(assoc local-row :sourceLocal false)]})
-(defn with-feature [backend f & {:keys [target-change observer finalizer-error? getter-change witness-change repeat-target]
-                                :or {target-change (fn [world _] world) getter-change (fn [_ _ world args handler] (handler world args)) witness-change identity}}]
+   :declarations [(assoc local-row :sourceLocal false) (assoc helper-row :sourceLocal false)]})
+(defn with-feature [backend f & {:keys [target-change observer finalizer-error? getter-change witness-change repeat-target publication-change profile-limits finalizer-name]
+                                :or {finalizer-name "answer" publication-change identity profile-limits feature-limits target-change (fn [world _] world) getter-change (fn [_ _ world args handler] (handler world args)) witness-change identity}}]
   (let [profile (atom nil) modules (atom nil) enabled? (atom false) seen (atom [])
         configure
         (fn [{:keys [world functions native hybrid]}]
@@ -224,7 +235,7 @@
                                                                 :body [:host "lean_eval_const" [[:var 1] [:var 2] [:var 3] [:var 4]] 5
                                                                        [:return [:var 5]]]}})
                 created (sut/prepare-reconstruction-profile witness-root
-                          {:witness witness-root :trusted-functions functions} {:limits feature-limits})]
+                          {:witness witness-root :trusted-functions functions} {:limits profile-limits})]
             (reset! profile (:profile created))
             {:world (assoc world :functions functions) :functions functions
              :native (assoc (merge native bindings) "lean_eval_const" (:eval-binding created))
@@ -236,7 +247,7 @@
                   environment (first (:fields (m/node world io)))
                   root (first (:fields (m/node world environment)))
                   world (target-change world environment)
-                  [world name] (guest/guest-name world "answer")
+                  [world name] (guest/guest-name world finalizer-name)
                   [world result] ((:invoke context) world eval-root [m/erased environment 0 name])]
               (swap! seen conj {:value (first (:fields (m/node world result)))
                                :associated? (contains? (:kernel-environments world) (:id root))
@@ -260,7 +271,17 @@
               original (resident/snapshot (:context completed))
               entry (-> (get-in original [:world :source-modules publication/module])
                         (assoc :environment (:environment original)) (dissoc :imports))
-              original (assoc-in original [:world :source-modules publication/module] entry)
+              original (-> original (assoc-in [:world :source-modules publication/module] entry)
+                           (update :world publication-change))
+              ;; The mocked compile starts from a distinct genuine input packet;
+              ;; only the successful result contains the new source registries.
+              baseline (-> (resident/snapshot context)
+                           (update :world #(-> %
+                                              (update :source-modules dissoc publication/module)
+                                              (assoc-in [:eval-const-authorizations :units] {})
+                                              (assoc-in [:eval-const-authorizations :unit-digests] {})
+                                              (assoc-in [:eval-const-authorizations :declarations] {}))))
+              baseline-context (resident/adopt-prepared baseline configuration)
               published-context (resident/adopt-prepared original configuration)
               publications (atom 0)]
           (try
@@ -269,14 +290,14 @@
                                            (swap! publications inc)
                                            {:context published-context :success true
                                             :publication {:module publication/module :unit-digest publication/digest :profile :over-init}})]
-                              (sut/publish-source-for-reconstruction published-context staged/request prefix @profile
+                              (sut/publish-source-for-reconstruction baseline-context staged/request prefix @profile
                                 {:proof-budgets {:helper-fuel 1000000 :attempt-fuel 10000000}}))]
               (try
                 (reset! enabled? true)
                 (f (assoc fixture :context (:context published) :profile @profile
                           :publication (:reconstruction-publication published) :seen seen :publications publications))
                 (finally (resident/close! (:context published)))))
-            (finally (resident/close! published-context) (resident/close! (:context completed))))))
+            (finally (resident/close! baseline-context) (resident/close! published-context) (resident/close! (:context completed))))))
       :world-transform feature-world :configure configure :finalizer-hook finalizer-hook
       :finalizer-error? #(and @enabled? finalizer-error?))))
 
@@ -294,7 +315,7 @@
             (is (= 1 @publications))
             (is (empty? @seen))
             (let [completed (staged/run-to-io! control)]
-              (is (= {:authorization-count 1 :requested-names ["answer"] :names-truncated? false
+              (is (= {:authorization-count 2 :requested-names ["answer"] :names-truncated? false
                       :module publication/module :unit-digest publication/digest}
                      (get-in completed [:progress :reconstruction]))))
             (is (not (contains? (:progress (staged/prepare fixture)) :reconstruction)))
@@ -474,7 +495,7 @@
                             #(#'sut/authorize-reconstruction-row token
                                {:state state :thread (Thread/currentThread)} world callback-context (:environment entry)
                                (assoc local-row :sourceLocal false) local-row
-                               (get-in world [:eval-const-authorizations :units publication/digest])))
+                               (get-in world [:eval-const-authorizations :units primary-digest])))
                   owners (:reconstruction-proof-temporary (ex-data failure))]
               (is (some? failure))
               (is (identical? fault (.getCause ^Throwable failure)))
@@ -628,3 +649,116 @@
         raw (prototype.constructor-layout/clone-storage (m/node world node))
         world (m/replace-node world node raw)]
     (is (= raw (assoc (get (#'sut/local-ci-graph! world [node] {:max-nodes 10 :max-edges 10 :max-bytes 100}) (:id node)) :rc 1)))))
+
+
+(defn admission-model []
+  (let [old-function {:params [] :body [:return [:imm 7]]}
+        old-row {:name ["old"]}
+        unit {:actions [] :declarations []
+              :manifest {:initializationPlan {:module publication/module :actions []}}}
+        old-digest (apply str (repeat 64 "d"))
+        before {:functions {["old"] old-function}
+                :eval-const-authorizations {:units {old-digest unit}
+                                            :unit-digests {["old"] old-digest}
+                                            :declarations {["old"] old-row}
+                                            :functions {["old"] old-function}}}
+        after (reduce (fn [world [name row digest value]]
+                        (-> world (assoc-in [:functions name] value)
+                            (assoc-in [:eval-const-authorizations :functions name] value)
+                            (assoc-in [:eval-const-authorizations :declarations name] row)
+                            (assoc-in [:eval-const-authorizations :unit-digests name] digest)
+                            (assoc-in [:eval-const-authorizations :units digest] (assoc unit :declarations [name]))))
+                      (assoc-in before [:eval-const-authorizations :units publication/digest] unit)
+                      [[answer local-row primary-digest {:params [] :body [:return [:imm 42]]}]
+                       [helper helper-row helper-digest {:params [] :body [:return [:imm 42]]}]])
+        proof {:unit unit :unit-digest publication/digest :module publication/module}]
+    {:before before :after after :proof proof :old-digest old-digest}))
+
+(deftest exact-multiunit-delta-captures-primary-helper-and-separate-final-unit
+  (let [{:keys [before after proof]} (admission-model)
+        admission (#'sut/capture-publication-admission! before after proof feature-limits)
+        proof (assoc proof :admission admission)]
+    (is (= 3 (count (:units admission))))
+    (is (= 2 (:declaration-count admission)))
+    (is (= primary-digest (get-in admission [:rows answer :digest])))
+    (is (= helper-digest (get-in admission [:rows helper :digest])))
+    (is (not= (:unit-digest proof) (get-in admission [:rows answer :digest])))
+    (is (identical? local-row (get-in admission [:rows answer :row])))
+    (is (#'sut/publication-admission-matches! after proof feature-limits))
+    (doseq [change [#(assoc-in % [:eval-const-authorizations :units primary-digest] (into {} (get-in % [:eval-const-authorizations :units primary-digest])))
+                    #(assoc-in % [:eval-const-authorizations :declarations answer] (into {} local-row))
+                    #(assoc-in % [:functions answer] {:params [] :body [:return [:imm 43]]})
+                    #(assoc-in % [:eval-const-authorizations :functions helper] {:params [] :body [:return [:imm 43]]})
+                    #(assoc-in % [:eval-const-authorizations :unit-digests answer] helper-digest)
+                    #(assoc-in % [:functions ["old"]] {:replacement true})]]
+      (is (some? (staged/error-of #(#'sut/publication-admission-matches! (change after) proof feature-limits)))))))
+
+(deftest publication-delta-rejects-baseline-collisions-foreign-actions-and-aggregate-overflow
+  (let [{:keys [before after proof old-digest]} (admission-model)]
+    (doseq [change [#(assoc-in % [:eval-const-authorizations :units old-digest] {:replacement true})
+                    #(assoc-in % [:eval-const-authorizations :declarations ["old"]] {:replacement true})
+                    #(assoc-in % [:eval-const-authorizations :unit-digests ["old"]] primary-digest)
+                    #(assoc-in % [:eval-const-authorizations :functions ["old"]] {:replacement true})
+                    #(assoc-in % [:eval-const-authorizations :units primary-digest :actions] [{:init true}])
+                    #(assoc-in % [:eval-const-authorizations :units helper-digest :manifest :initializationPlan :actions] [{:init true}])
+                    #(assoc-in % [:eval-const-authorizations :units primary-digest :manifest :initializationPlan :module] ["foreign"])
+                    #(assoc-in % [:eval-const-authorizations :units helper-digest :declarations] [helper answer])
+                    #(assoc-in % [:eval-const-authorizations :unit-digests answer] helper-digest)
+                    #(assoc-in % [:eval-const-authorizations :declarations answer :sourceModule] ["foreign"])
+                    #(assoc-in % [:eval-const-authorizations :declarations ["uncaptured"]] {:name ["uncaptured"]})]]
+      (is (some? (staged/error-of #(#'sut/capture-publication-admission! before (change after) proof feature-limits)))))
+    (doseq [limits [(assoc feature-limits :max-units 4)
+                    (assoc feature-limits :max-declarations 20)]]
+      (is (some? (staged/error-of #(#'sut/capture-publication-admission! before after proof limits)))))
+    ;; A previously admitted same-module unit never becomes this publication's delta.
+    (is (some? (staged/error-of #(#'sut/capture-publication-admission! after after proof feature-limits))))))
+
+(deftest earlier-unit-provenance-replacements-reject-before-assembly-on-all-backends
+  (doseq [backend [:reference :mutable :jvm]]
+    (check-feature backend
+      (fn [{:keys [context configuration assembly-calls] :as fixture}]
+        (let [original (resident/snapshot context)]
+          (doseq [change [#(update-in % [:eval-const-authorizations :units primary-digest] (fn [unit] (into {} unit)))
+                          #(assoc-in % [:eval-const-authorizations :unit-digests helper] publication/digest)
+                          #(assoc-in % [:eval-const-authorizations :declarations helper] (into {} helper-row))]]
+            (let [candidate (resident/adopt-prepared (update original :world change) configuration)
+                  before @assembly-calls]
+              (try (is (some? (staged/error-of #(prepare-feature (assoc fixture :context candidate)))))
+                   (is (= before @assembly-calls))
+                   (finally (resident/close! candidate))))))))))
+
+(deftest same-module-foreign-row-unit-is-not-publication-authority-and-guard-is-bounded
+  (doseq [backend [:reference :mutable :jvm]]
+    (check-feature backend
+      (fn [fixture]
+        (let [{:keys [control]} (prepare-feature fixture)
+              failure (assert-terminal control)
+              chain (take 10 (take-while some? (iterate #(.getCause ^Throwable %) failure)))
+              guard (some #(get (ex-data %) :reconstruction-guard) chain)]
+          (is (some? guard))
+          (is (= false (get-in guard [:predicates :same-row-digest?])))
+          (is (= false (get-in guard [:predicates :same-row-unit?])))
+          (is (= true (get-in guard [:predicates :exported-primary-ci?])))
+          (is (= publication/digest (:publication-unit-digest guard)))
+          (is (= primary-digest (:captured-row-unit-digest guard)))
+          (is (every? #(or (true? %) (false? %)) (vals (:predicates guard))))))
+      :target-change (fn [world _]
+                       (let [foreign-digest (apply str (repeat 64 "f"))
+                             unit (get-in world [:eval-const-authorizations :units primary-digest])]
+                         (-> world
+                             (assoc-in [:eval-const-authorizations :units foreign-digest] (into {} unit))
+                             (assoc-in [:eval-const-authorizations :unit-digests answer] foreign-digest)))))))
+
+
+(deftest ir-extra-helper-does-not-become-an-exported-primary-ci
+  (doseq [backend [:reference :mutable :jvm]]
+    (check-feature backend
+      (fn [fixture]
+        (let [{:keys [control]} (prepare-feature fixture)
+              failure (assert-terminal control)
+              guard (some #(get (ex-data %) :reconstruction-guard)
+                          (take 10 (take-while some? (iterate #(.getCause ^Throwable %) failure))))]
+          (is (= false (get-in guard [:predicates :exported-primary-ci?])))
+          (is (= "answer._boxed" (:requested-name guard)))))
+      :finalizer-name "answer._boxed"
+      :witness-change #(assoc % :name helper :boxedTarget helper))))

@@ -1,0 +1,664 @@
+{
+  "schema": "source-reconstruction-hosted-runtime/1",
+  "date": "2026-10-21",
+  "status": "original-genuine-macro-branch-passed-edited-import-incomplete-at-controller-slice-bound-process-disposed",
+  "overall-acceptance-passed": false,
+  "scope": "Actual initializer-free source macro A publication, imported finalizer reconstruction, fresh completion checking, B compilation and Nat/Unicode calls. Mutable hosted frontend; not the modeled focused fixture.",
+  "identity": {
+    "runtime-source-commit": "d7fef38360457faf69f7c9afaf59068588c4ca55",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "producer-implementation-sha256": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+    "consumer-implementation-sha256": "742d8e49cd934083ba390b0be19a64192adf6a06e8eba4b255f147fb9e3b9326",
+    "frozen-launch-manifest-sha256": "4bfb79d477345796f31a883326b923f81c2c7ed487678a28d8b0c17f2038ae53",
+    "archive-manifest-sha256": "a848092bdd6753f2737a954907747e1bad900c11506ad371fcb8460b576c46d6",
+    "runtime-source-sha256": {
+      "experiments/lean-ir/src/prototype/resident_init_prefix.clj": "db9d443f0d2785199009c2122f0466b0a4ed3096294fd202c06c0b2cce3b082f",
+      "experiments/lean-ir/src/prototype/resident_frontend.clj": "de0442165a009079cb54211f0496a88ef7149dc9d94376a237b6501866c5a5f1",
+      "experiments/lean-ir/src/prototype/eval_const.clj": "81bcbf9d38b2105c6165e1b42609908757adc09a2686f05ec48195bb94be91be",
+      "experiments/lean-ir/src/prototype/raw_interop.clj": "432260c3170e16e192071c27197b083efc227eaf7742acd309ff0aeacd5daea2"
+    }
+  },
+  "artifact-evidence": {
+    "target/artifact-contract/reconstruction-runtime/genuine-original-A-import-B-calls-passed-v1.json": {
+      "sha256": "97b01da4f0578b934fe3ad608caeb306d76dbc80e3762870166537ae0bf92e61",
+      "scope": "Ignored durable receipt; bounded relevant data reproduced below. Artifact SHA identifies the original bytes, not a portable replacement checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/strict-check-multiunit-v1.json": {
+      "sha256": "2841cdaf9560b20c7664c2f2f3f806dc2b632dd65921f197da6688afc4c51099",
+      "scope": "Ignored durable receipt; bounded relevant data reproduced below. Artifact SHA identifies the original bytes, not a portable replacement checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/helper-budget-preflight-failure-v1.json": {
+      "sha256": "092a93baf0c01f51712c408d79af1d335eed694fbcb31fd8603d61b72cbff864",
+      "scope": "Ignored durable receipt; bounded relevant data reproduced below. Artifact SHA identifies the original bytes, not a portable replacement checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/helper-budget-recovery-prefix-v1.json": {
+      "sha256": "c83da9dad1a962e5788859303cbd348a1477bcb4339e06faf95f23a584d73c67",
+      "scope": "Ignored durable receipt; bounded relevant data reproduced below. Artifact SHA identifies the original bytes, not a portable replacement checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/acceptance-prep/launcher-multiunit-v1/proven-provisional-v2/manifest.reviewed-frozen.json": {
+      "sha256": "4bfb79d477345796f31a883326b923f81c2c7ed487678a28d8b0c17f2038ae53",
+      "scope": "Ignored durable receipt; bounded relevant data reproduced below. Artifact SHA identifies the original bytes, not a portable replacement checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/acceptance-prep/launcher-multiunit-v1/helper-budget-recovery-v1/manifest.reviewed-frozen.json": {
+      "sha256": "217044a7dfc44429870e5083425a9d5a9a57251fc34377e23a3040731d366ebb",
+      "scope": "Ignored durable receipt; bounded relevant data reproduced below. Artifact SHA identifies the original bytes, not a portable replacement checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/genuine-reconstruction-terminal-v2.json": {
+      "sha256": "fcd0a45a5330c255f7b80fa3cacec192ed9367c6c7f202a1db956d7eddb9c2c5",
+      "scope": "Ignored durable bounded receipt; relevant actual data copied below. Hash identifies original bytes and grants no checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/process-disposal-multiunit-v1.json": {
+      "sha256": "36ca6abb1b7499ca467ee728fa12ee84bcab86430301df679ca4cbf4b2fd7ff0",
+      "scope": "Ignored durable bounded receipt; relevant actual data copied below. Hash identifies original bytes and grants no checking capability."
+    },
+    "target/artifact-contract/reconstruction-runtime/genuine-edited-GC-interval-v1.json": {
+      "sha256": "5473690be406f2d0d5555a677ff6136b6230ca27019313ff3294699e21598505",
+      "scope": "Ignored durable bounded receipt; relevant actual data copied below. Hash identifies original bytes and grants no checking capability."
+    },
+    "target/reconstruction-units-check/composed-full-v1.json": {
+      "sha256": "b692b086a3cd96b9401dc593d912432324b07f9d3c0f8d0ecd5a2dc2235e116f",
+      "scope": "Actual composed regression command/resources/result; absolute machine-local argv remain only in ignored raw receipt. Portable roles and canonical argv digest are recorded above."
+    },
+    "target/reconstruction-units-check/composed-full-v1-preflight.json": {
+      "sha256": "bc38173131b0d7b65b263b23e7b715f93e29a4d2e9815baf11e4f49cf3f382d3",
+      "scope": "Actual composed regression command/resources/result; absolute machine-local argv remain only in ignored raw receipt. Portable roles and canonical argv digest are recorded above."
+    }
+  },
+  "launch": {
+    "profile": "proven-3g",
+    "resources": {
+      "group-RSS-MiB": 3584,
+      "heap-MiB": 3072,
+      "minimum-system-available-MiB": 1024,
+      "preflight-MemAvailable-MiB": 5120,
+      "seconds": 5400
+    },
+    "source-selection": "256 consumer inputs captured and hash-verified before source namespace loading; original producer/archive pins unchanged.",
+    "native-Init-bootstrap-or-completed-finalizer-replayed": false,
+    "runtime-reload-or-redefs": false,
+    "source-lease-ownership": "Borrowed; retained through all branches and terminal evidence."
+  },
+  "fresh-Init-check": {
+    "phase": "checked",
+    "constants": 65994,
+    "axioms": [
+      "Classical.choice",
+      "Lean.ofReduceBool",
+      "Lean.ofReduceNat",
+      "Lean.trustCompiler",
+      "Quot.lcInv",
+      "Quot.sound",
+      "isScalarObj",
+      "lcAny",
+      "lcCast",
+      "lcErased",
+      "lcProof",
+      "lcUnreachable",
+      "lcVoid",
+      "propext",
+      "sorryAx"
+    ],
+    "full-Init-checked": true,
+    "check-attempts": 1,
+    "checking-consumer": "ansatz-compact-import-check/1",
+    "raw-helper-fuel": 20000000,
+    "elapsed-ms": 548123.451606,
+    "timing-scope": "check-call-and-host-postconditions",
+    "bootstrap-replayed": false,
+    "finalizer-replayed": false,
+    "prelude-seed-used": false,
+    "native-whole-map-parity-verified": false,
+    "source-lease-close-performed": false
+  },
+  "preserved-attempt-history": {
+    "prior-single-final-unit-rejection": {
+      "record": "source-reconstruction-unit-diagnosis.json",
+      "scope": "Earlier runtime before the multiunit fix; successful five-unit A publication, then terminal callback rejection with zero row authorizations. No failed control was resumed."
+    },
+    "current-frozen-controller-preflight-failure": {
+      "exact-issued-preparation-identity": true,
+      "failure-phase": "executing-existing-helper-value",
+      "frames": 0,
+      "fresh-strict-check-declarations": 65994,
+      "fuel": 500000000,
+      "guest-invocation-count": 0,
+      "helper-call-result-present": false,
+      "helper-entry-world-present": false,
+      "helper-global-present": false,
+      "host-request": false,
+      "new-attempt-not-yet-executed": true,
+      "old-admission-phase": "ready",
+      "old-attempt-remains-terminal": true,
+      "phase": "failed",
+      "preparation-phase": "prepared-missing-helper-values",
+      "reason": "frozen helper requires100000000; authenticated source preparation uses500000000",
+      "recorded-at": "2026-10-21T19:57:32.152462+00:00",
+      "result-release-count": 0,
+      "schema": "helper-budget-preflight-failure/1",
+      "source-open": true,
+      "terminal-controller": "prototype.reconstruction-campaign-v1",
+      "world-status": "done"
+    },
+    "separate-reviewed-recovery": {
+      "evidence": {
+        "actual-public-evidence": {
+          "helper": {
+            "failure-message": null,
+            "guest-invocation-count": 1,
+            "guest-steps-delta": 5,
+            "host-value-seeded": false,
+            "native-import-replayed": false,
+            "native-initializers-replayed": false,
+            "phase": "initialized",
+            "preparation-controller-mutated": false,
+            "result-owner-state": "released",
+            "result-release-count": 1,
+            "runnable?": true,
+            "scope": "ansatz-optimized-native-init-helper-value-budget-recovery/1"
+          },
+          "old-entry-unchanged": true,
+          "semantic": {
+            "branches": {},
+            "call-count": 0,
+            "context-cleanup-performed": false,
+            "failure-message": null,
+            "failure-phase": null,
+            "full-Init-checked": true,
+            "native-Init-replayed": false,
+            "phase": "prefix-ready",
+            "scope": "genuine-imported-macro-reconstruction/1",
+            "semantic-acceptance": false,
+            "source-close-attempts": 0,
+            "source-initializers-run": false,
+            "source-open": true
+          }
+        },
+        "existing-guard-unchanged": true,
+        "manifest-sha256": "217044a7dfc44429870e5083425a9d5a9a57251fc34377e23a3040731d366ebb",
+        "schema": "helper-budget-recovery-prefix/1"
+      },
+      "controller-source-sha256": {
+        "helper-value-v2.clj": "b71933ac92ec22775ace4e7758608a339e8b36fdeb941fcd093f3556b6fd96bc",
+        "resident-admission-v2.clj": "2d433cff37c9b14e0bf3ac0fc315d962296fcb2edcc64093a69462c88ca132a4",
+        "semantic-v2.clj": "ee0e4f3fcd55898542abeb3aa83c7e2b6620b6438630987c993a5b3fa73dfc3d",
+        "load-definitions-only.clj": "efe5d37cd0eea3b448c0e07d2df27fbe020715d188542a3f96fdcae26557714f"
+      },
+      "scope": "New named definitions-only controllers used original genuinely checked preparation and its exact profile/binding identities; new prefix issued. Old controller remained terminal. No failed guest operation was replayed; actual helper call ran once for five guest steps and its result owner was released once. No host value was seeded."
+    }
+  },
+  "execution-budgets": {
+    "ordinary-source-raw-call-fuel": 500000000,
+    "publication-proof-helper-fuel": 20000000,
+    "publication-proof-attempt-fuel": 500000000,
+    "import-outer-fuel": 2000000,
+    "import-helper-fuel": 20000000,
+    "import-attempt-fuel": 500000000,
+    "aggregate-max-units": 1024,
+    "aggregate-max-declarations": 1000000
+  },
+  "stages": {
+    "original": {
+      "status": "passed",
+      "evidence-artifact": "target/artifact-contract/reconstruction-runtime/genuine-original-A-import-B-calls-passed-v1.json",
+      "evidence-sha256": "97b01da4f0578b934fe3ad608caeb306d76dbc80e3762870166537ae0bf92e61",
+      "public-observation": {
+        "B-diagnostic-count": 0,
+        "B-unit-count": 1,
+        "Nat": 41,
+        "Unicode": "λ 🦉",
+        "admission-preflight": {
+          "actual-after-delta-bound-checked-by-runtime": true,
+          "baseline-table-counts": {
+            "declarations": 0,
+            "executables": 334750,
+            "functions": 22335,
+            "unit-digests": 0,
+            "units": 0
+          },
+          "doubled-baseline-entries": 714170,
+          "doubled-baseline-units": 0,
+          "max-declarations": 1000000,
+          "max-units": 1024
+        },
+        "callback-audit": {
+          "authorization-count": 34,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "names-truncated?": false,
+          "requested-names": [
+            "termHostedNat_",
+            "termHostedString_",
+            "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+            "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+          ],
+          "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516"
+        },
+        "callback-evidence-before-finish?": true,
+        "callback-observed-running?": true,
+        "empty-source-actions?": true,
+        "import-receipt": {
+          "constant-count": 6,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516"
+        },
+        "macro-primary-count": 2,
+        "macro-primary-names": [
+          "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+          "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+        ],
+        "phase": "called",
+        "progress": {
+          "completed-operations": 3674,
+          "guest-steps": 306607080,
+          "helper-steps": 227895565,
+          "outer-steps": 78711515,
+          "phase": "io-completed",
+          "reconstruction": {
+            "authorization-count": 34,
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ReconstructionMacroA"
+            ],
+            "names-truncated?": false,
+            "requested-names": [
+              "termHostedNat_",
+              "termHostedString_",
+              "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+              "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+            ],
+            "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516"
+          }
+        },
+        "publication-descriptor": {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "profile": "over-init",
+          "unit-digest": "7be3f04635b122d6c0be52350a7d0877cfe461dfb9ca5bf70d05f570a6372516"
+        },
+        "retained-A-Nat": 41,
+        "retained-A-Unicode": "λ 🦉",
+        "slice-count": 98,
+        "unit-count": 5
+      },
+      "resident-call-count": 4,
+      "callback-count-meaning": "34 successful witness-row authorizations; four distinct requested primary names, not four macro invocations. Actual macro rule primary declarations are the separately listed two names.",
+      "terminal-confirmation": {
+        "evidence-artifact": "target/artifact-contract/reconstruction-runtime/genuine-reconstruction-terminal-v2.json",
+        "evidence-sha256": "fcd0a45a5330c255f7b80fa3cacec192ed9367c6c7f202a1db956d7eddb9c2c5",
+        "acceptance-still-passed": true
+      }
+    },
+    "edited": {
+      "status": "publication-passed-import-incomplete-controller-slice-bound",
+      "evidence-artifact": "target/artifact-contract/reconstruction-runtime/genuine-reconstruction-terminal-v2.json",
+      "evidence-sha256": "fcd0a45a5330c255f7b80fa3cacec192ed9367c6c7f202a1db956d7eddb9c2c5",
+      "publication-passed": true,
+      "public-observation": {
+        "admission-preflight": {
+          "actual-after-delta-bound-checked-by-runtime": true,
+          "baseline-table-counts": {
+            "declarations": 0,
+            "executables": 334750,
+            "functions": 22335,
+            "unit-digests": 0,
+            "units": 0
+          },
+          "doubled-baseline-entries": 714170,
+          "doubled-baseline-units": 0,
+          "max-declarations": 1000000,
+          "max-units": 1024
+        },
+        "callback-audit": {
+          "authorization-count": 24,
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "names-truncated?": false,
+          "requested-names": [
+            "termHostedNat_",
+            "termHostedString_"
+          ],
+          "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2"
+        },
+        "callback-observed-running?": true,
+        "empty-source-actions?": true,
+        "macro-primary-count": 2,
+        "macro-primary-names": [
+          "_aux_ReconstructionMacroA___macroRules_termHostedNat__1",
+          "_aux_ReconstructionMacroA___macroRules_termHostedString__1"
+        ],
+        "phase": "paused",
+        "progress": {
+          "completed-operations": 3390,
+          "guest-steps": 246552879,
+          "helper-steps": 174955895,
+          "outer-steps": 71596984,
+          "phase": "running",
+          "reconstruction": {
+            "authorization-count": 24,
+            "module": [
+              "str",
+              [
+                "anonymous"
+              ],
+              "ReconstructionMacroA"
+            ],
+            "names-truncated?": false,
+            "requested-names": [
+              "termHostedNat_",
+              "termHostedString_"
+            ],
+            "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2"
+          }
+        },
+        "publication-descriptor": {
+          "module": [
+            "str",
+            [
+              "anonymous"
+            ],
+            "ReconstructionMacroA"
+          ],
+          "profile": "over-init",
+          "unit-digest": "1c9b69845f44c94ae45ce140da7bf7531514da3a6108740d0e7d2ec8af7f0ad2"
+        },
+        "slice-count": 128,
+        "unit-count": 5
+      },
+      "original-and-edited-final-digests-distinct": true,
+      "successful-macro-rule-primary-request-observed": false,
+      "finalizer-IO-completed": false,
+      "fresh-import-receipt-issued": false,
+      "B-compiled-or-called": false,
+      "exact-stop": {
+        "cause": "Controller cooperative slice bound exhausted",
+        "controller-phase": "failed",
+        "failure-phase": "edited-paused",
+        "slice-limit": 128,
+        "slices-used": 128,
+        "guest-steps": 246552879,
+        "completed-operations": 3390,
+        "outer-process-guard-stop": null
+      },
+      "scope": "Same-pristine-prefix edited publication produced five initializer-free units and distinct publication/function identities. Its 24 successful row authorizations requested only syntax descriptor primaries termHostedNat_ and termHostedString_; successful macro-rule-primary reconstruction, IO completion, fresh checking and edited B were not observed.",
+      "next-attempt": "No continuation/retry of the terminal edited controller. Full edited branch acceptance requires a separately reviewed fresh bounded campaign; retention/allocation explanations remain hypotheses."
+    },
+    "retained-interleave": {
+      "status": "full-original-edited-interleave-not-established-independent-original-recall-passed",
+      "evidence-artifact": "target/artifact-contract/reconstruction-runtime/genuine-reconstruction-terminal-v2.json",
+      "evidence-sha256": "fcd0a45a5330c255f7b80fa3cacec192ed9367c6c7f202a1db956d7eddb9c2c5",
+      "post-stop-original-B-recall": {
+        "Nat": 41,
+        "Unicode": "λ 🦉",
+        "failed-controller-phase": "failed",
+        "old-input-snapshot-unchanged": true,
+        "old-issuers-unchanged": true,
+        "phase": "retained-original-rechecked-after-edited-controller-stop"
+      },
+      "full-old-new-old-interleave-completed": false,
+      "scope": "After edited controller stopped, separate public calls borrowed the successful original B input and actual file. Nat41/Unicode and unchanged input/issuer identities passed. No failed edited control/world was resumed; no successful edited B existed to interleave."
+    },
+    "final-process-disposal": {
+      "status": "passed-owned-OS-process-disposal-only",
+      "evidence-artifact": "target/artifact-contract/reconstruction-runtime/process-disposal-multiunit-v1.json",
+      "evidence-sha256": "36ca6abb1b7499ca467ee728fa12ee84bcab86430301df679ca4cbf4b2fd7ff0",
+      "observation": {
+        "Source-close-attempts": 0,
+        "elapsed-seconds": 5151.8,
+        "exit-code": 0,
+        "failed-attempt-resumed": false,
+        "guard-stop": null,
+        "guest-owner-cleanup-performed": false,
+        "peak-rss-bytes": 3638435840,
+        "schema": "owned-process-disposal/1",
+        "terminal-evidence-sha256": "fcd0a45a5330c255f7b80fa3cacec192ed9367c6c7f202a1db956d7eddb9c2c5"
+      },
+      "semantic-Context-or-Source-cleanup-claimed": false
+    }
+  },
+  "controller-observation": {
+    "record": "final-before-process-disposal",
+    "phase": "failed",
+    "failure-phase": "edited-paused",
+    "failure-message": "Controller cooperative slice bound exhausted",
+    "semantic-acceptance": false,
+    "source-open-before-disposal": true,
+    "source-initializers-run": false,
+    "native-Init-replayed": false,
+    "context-cleanup-performed": false,
+    "guest-owner-cleanup-performed": false,
+    "source-close-attempts": 0,
+    "old-issuers-unchanged": true,
+    "failed-attempt-resumed": false
+  },
+  "regression-validation": {
+    "scope": "Focused actual raw evalConst transport/real small Java checks with modeled frontend/compiler/finalizer bodies on reference, mutable and JVM; complete mixed-fixture runtime suite separately. These tests do not substitute for genuine hosted stages.",
+    "focused": {
+      "tests": 21,
+      "assertions": 709,
+      "failures": 0,
+      "errors": 0,
+      "source-commit": "d7fef38360457faf69f7c9afaf59068588c4ca55"
+    },
+    "complete-runtime": {
+      "entrypoint": "scripts/test-runtime.clj",
+      "cwd": "experiments/lean-ir",
+      "classpath-order": [
+        "authenticated-consumer-support-source",
+        "compact-projection-Java-classes",
+        "core-Java-classes",
+        "src",
+        "test"
+      ],
+      "tests": 922,
+      "assertions": 91526,
+      "failures": 0,
+      "errors": 0,
+      "elapsed-seconds": 217.53,
+      "peak-RSS-bytes": 1005735936,
+      "heap-MiB": 512,
+      "group-RSS-MiB": 1152,
+      "seconds-limit": 420,
+      "minimum-launch-MemAvailable-MiB": 4096,
+      "minimum-system-MemAvailable-MiB": 1024,
+      "guard-stop": null,
+      "source-commit": "d7fef38360457faf69f7c9afaf59068588c4ca55"
+    },
+    "retained-setup-failures": [
+      "First focused attempt compiled namespaces but fresh worktree lacked fixture target directory; standalone runner now creates/checks it before namespace loading.",
+      "First integrated complete attempt incorrectly prioritized ordinary source before required extended consumer-support archive namespace; failed before tests. Successful rerun used the previously reviewed support-first classpath; no production workaround."
+    ],
+    "composed-after-main-integration": {
+      "scope": "Separate full mixed-fixture runtime regression after merging optional facade PR132 and pure source-graph planner PR135. This does not extend the frozen hosted campaign or establish genuine graph/edited-branch acceptance.",
+      "source-commit": "d7595b3c8249e87c4bebd1d0cbfbaa6113950321",
+      "tests": 931,
+      "assertions": 91594,
+      "failures": 0,
+      "errors": 0,
+      "command": [
+        "clojure",
+        "-J-Xmx512m",
+        "-J-Xss8m",
+        "-Sdeps",
+        "{:paths [\"${AUTHENTICATED_CONSUMER_SUPPORT_SRC}\" \"${COMPACT_PROJECTION_CLASSES}\" \"${CORE_JAVA_CLASSES}\" \"src\" \"test\"]}",
+        "-M",
+        "scripts/test-runtime.clj"
+      ],
+      "command-normalization": "Only three absolute support/class directory paths replaced by named environment placeholders; every argument/order/entrypoint otherwise matches actual invocation.",
+      "actual-command-argv-sha256": "2d67111f132fc3c5e158bcfd9f6539e9785572db0388c89acd25beb3354dd8b4",
+      "actual-command-digest-encoding": "UTF-8 json.dumps(actual argv, separators=(comma,colon)), ensure_ascii=True, no final newline.",
+      "cwd": "experiments/lean-ir",
+      "heap-MiB": 512,
+      "group-RSS-MiB": 1152,
+      "seconds-limit": 420,
+      "minimum-launch-MemAvailable-MiB": 4096,
+      "actual-launch-MemAvailable-bytes": 7730737152,
+      "minimum-system-MemAvailable-MiB": 2048,
+      "elapsed-seconds": 195.39,
+      "peak-RSS-bytes": 1112858624,
+      "exit-code": 0,
+      "guard-stop": null,
+      "guard-source-sha256": "ede27376e607b188836a31c56b185bbcd5eb6194e7f1cc979c11b8ffedc97d76",
+      "selected-input-sha256": {
+        "experiments/lean-ir/scripts/test-runtime.clj": "3e75f83290e1dc16f349eda3c602b5f7675835626214bba588df72129845807a",
+        "experiments/lean-ir/src/prototype/test_runner.clj": "769c5c5217117157b94398cfd7fc59db849401ae8dd1cc4007b63fcf744af984",
+        "experiments/lean-ir/src/prototype/source_graph_plan.clj": "8a8d9a59002ecd5b440af478589874cbd7b7cf46fad8e834b13349b3971540ee",
+        "experiments/lean-ir/test/prototype/source_graph_plan_test.clj": "65c9aedfc0d016ce619a60a35ed10c0ffc3903838c6acd184ac636f52858aa3c",
+        "experiments/lean-ir/src/prototype/resident_init_prefix.clj": "db9d443f0d2785199009c2122f0466b0a4ed3096294fd202c06c0b2cce3b082f"
+      },
+      "receipt-artifact": "target/reconstruction-units-check/composed-full-v1.json",
+      "receipt-sha256": "b692b086a3cd96b9401dc593d912432324b07f9d3c0f8d0ecd5a2dc2235e116f",
+      "preflight-artifact": "target/reconstruction-units-check/composed-full-v1-preflight.json",
+      "preflight-sha256": "bc38173131b0d7b65b263b23e7b715f93e29a4d2e9815baf11e4f49cf3f382d3",
+      "log-artifact": "target/reconstruction-units-check/composed-full-v1.log",
+      "log-sha256": "92848cf78b702b91839c65e649de0cf8dfc14a2015c82d2a67628908d040a6ef",
+      "JVM-disposed": true,
+      "Java-or-native-rebuild": false,
+      "classpath-references": {
+        "AUTHENTICATED_CONSUMER_SUPPORT_SRC": {
+          "kind": "Explicit authenticated support source directory, before ordinary src",
+          "resource-sha256": {
+            "prototype/checkpoint_wire.clj": "77faed12af25aee0080d34215f425f94a23746dd6434513e570ddd6bcbf60965",
+            "prototype/declaration_store.clj": "d9f24ac2e41d737cec01e88e25c65d3aab955f738d25da705dec456307723150",
+            "prototype/bootstrap_archive.clj": "adf662957c23ded35277b30b941f1419d6c69b125944dea6e7f705e2e724ed00"
+          }
+        },
+        "COMPACT_PROJECTION_CLASSES": {
+          "kind": "Existing compiled compact-projection helper classes",
+          "resource": "prototype/TypedLongMemo.class",
+          "sha256": "e1b71cfcae645559024eaa6c77bd07ba91672d811e3bf98ced8f98e2a2bd63ff"
+        },
+        "CORE_JAVA_CLASSES": {
+          "kind": "Existing core Java classes selected by the unchanged frozen runtime inventory",
+          "consumer-inventory-id": "742d8e49cd934083ba390b0be19a64192adf6a06e8eba4b255f147fb9e3b9326",
+          "frozen-launch-manifest-sha256": "4bfb79d477345796f31a883326b923f81c2c7ed487678a28d8b0c17f2038ae53",
+          "core-Java-source-changes-in-main-composition": false
+        }
+      }
+    }
+  },
+  "limits": [
+    "The narrow actual original imported-macro A→B branch passed. Edited publication passed; edited import/check/B and full old/new branch interleave remain unestablished after its terminal 128-slice stop.",
+    "The fixed controller bound caused the stop. Observed near-limit heap and high old-generation GC are separate resource observations, not a measured root cause.",
+    "Publication/source actions were actually empty; this does not enable imported user initializers, IO or broader effects.",
+    "No general module DAG/package resolver, Mathlib-wide compatibility, native whole-map parity or independent bootstrap claim.",
+    "Successful original B could be recalled after the edited stop, with unchanged input/issuers. This is narrower than completed original/edited/original branch interleaving.",
+    "The owned process exited 0 without an OS guard stop. No semantic Context/Source close, guest-owner cleanup, rollback or failed-attempt replay is inferred.",
+    "GC interval, guest steps and process/check timing describe resource/acceptance evidence, not throughput, speed improvement or matched native performance.",
+    "Optional ansatz.lean facade was separately accepted and merged via PR132; it is distinct from this resident reconstruction workflow and does not itself expose general source imports."
+  ],
+  "resource-observation": {
+    "heap-used-before-disposal-bytes": 3208245000,
+    "maximum-heap-bytes": 3221225472,
+    "GC-interval": {
+      "approximate-full-GC-elapsed-percent": 82.5,
+      "does-not-establish-root-cause-or-improvement": true,
+      "elapsed-uptime-ms": 129636,
+      "old-generation-collection-time-delta-ms": 106945,
+      "old-generation-collection-time-over-elapsed": 0.8249637446388349,
+      "sample-read-order-caveat": "MXBean fields read sequentially; approximate interval observation, not synchronized performance benchmark.",
+      "samples": [
+        {
+          "log-line": 156,
+          "observation": {
+            "gc": [
+              {
+                "count": 5731,
+                "ms": 82677,
+                "name": "G1 Young Generation"
+              },
+              {
+                "count": 914,
+                "ms": 5275,
+                "name": "G1 Concurrent GC"
+              },
+              {
+                "count": 291,
+                "ms": 596491,
+                "name": "G1 Old Generation"
+              }
+            ],
+            "heap-used": 3092636664,
+            "uptime-ms": 4676314
+          }
+        },
+        {
+          "log-line": 160,
+          "observation": {
+            "gc": [
+              {
+                "count": 5845,
+                "ms": 83898,
+                "name": "G1 Young Generation"
+              },
+              {
+                "count": 914,
+                "ms": 5275,
+                "name": "G1 Concurrent GC"
+              },
+              {
+                "count": 338,
+                "ms": 703436,
+                "name": "G1 Old Generation"
+              }
+            ],
+            "heap-used": 3079854520,
+            "uptime-ms": 4805950
+          }
+        }
+      ],
+      "schema": "live-GC-interval-observation/1",
+      "source-log-label": "proven-provisional-v2/campaign.log",
+      "source-log-sha256": "a9500836507b4ead24acf3a86b09f3bfc8362eec8c77aff88a432957a049718e"
+    },
+    "interpretation": "One process-wide 129.636-second sampled interval accrued 106.945 seconds of G1 Old Generation collection time (approximately 82.5%). Sequential MXBean reads are not synchronized timings and do not isolate import work, controller retention or a cause of memory pressure. The exact terminal trigger was the fixed 128-slice controller bound, not an outer OS guard stop.",
+    "source-world-or-dirty-heap-retention": {
+      "status": "unmeasured-hypothesis",
+      "hypothesis": "Retained source-world graphs or dirty-heap metadata could contribute to live heap/allocation pressure.",
+      "not-established": [
+        "No heap-retainer/root-cause proof.",
+        "No demonstrated fix or bounded allocation improvement.",
+        "No matched end-to-end speed/native comparison."
+      ]
+    }
+  },
+  "backend-output-comparison": {
+    "status": "not-executed-full-semantic-pass-required",
+    "versions-prepared": [
+      "backend-output-comparison-v1",
+      "backend-output-comparison-v2"
+    ],
+    "Clojure-load-or-output-execution": false,
+    "performance-result": false,
+    "scope": "Both additive output-only comparison bundles stayed unexecuted because their full semantic :passed prerequisite did not hold."
+  },
+  "frozen-capture-audit": {
+    "unchanged-files": 269,
+    "consumer-id": "742d8e49cd934083ba390b0be19a64192adf6a06e8eba4b255f147fb9e3b9326",
+    "manifest-sha256": "4bfb79d477345796f31a883326b923f81c2c7ed487678a28d8b0c17f2038ae53",
+    "runtime-reload-or-redefs": false
+  }
+}

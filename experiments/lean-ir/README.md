@@ -82,9 +82,15 @@ over-Init import preparation, finalization and fresh checking. Its distinct
 [reconstruction profile](research/SOURCE_RECONSTRUCTION_PLAN.md) authenticates an
 original checked source publication for callbacks during finalization, before the
 completed target receipt exists. Focused tests use actual raw evalConst transport
-and small real Java checks with modeled frontend/finalizer bodies; genuine hosted
-imported-macro reconstruction and edited-macro branch isolation remain acceptance
-gates. Existing completed-import authorization keeps its receipt requirement.
+and small real Java checks with modeled frontend/finalizer bodies. A separate
+[hosted original-branch receipt](measurements/source-reconstruction-hosted-runtime.json)
+now passes actual initializer-free macro A publication, callbacks during imported
+finalization, fresh completion checking and B Nat/Unicode calls. Edited A also
+publishes, but its import stops at the controller's 128-slice limit before IO,
+fresh checking or B. The full edited-branch/interleave gate remains unestablished;
+a separate original-B recall after that stop still passes. The owned process exits
+0 without an outer guard stop, which does not establish guest-owner or Source
+cleanup. Existing completed-import authorization keeps its receipt requirement.
 
 The historical 2026-10-17 low-level hosted-file campaign used a long-lived,
 resumed world and its then-loaded checker, before the later definition-safety
@@ -1692,10 +1698,13 @@ Mathlib checks recorded explicitly.
 
 The [prepared hosted file runner](research/HOSTED_FILE_RUNNER.md) exposes reusable
 file compilation, explicit initialization, boxed calls and guest module export;
-bootstrap preparation and import capabilities are supplied explicitly. A
-[resident context facade proposal](research/RESIDENT_FRONTEND_API.md) describes
-how to package that lifecycle without inventing imports or hiding ownership;
-it is not implemented.
+bootstrap preparation and import capabilities are supplied explicitly. The
+[experimental resident frontend](research/RESIDENT_FRONTEND_API.md) implements
+explicit persistent Context/File operations over that lifecycle. The separately
+packaged [optional `ansatz.lean` facade](../../modules/lean/README.md) supplies
+Clojure and Java convenience APIs around a caller-provided checked preparation.
+It does not distribute the bootstrap/provider or expose a general source-import
+DAG. The resident API and optional facade are distinct layers.
 
 The [selective JVM compiler](research/ADAPTIVE_COMPILATION.md) keeps cold IR in
 the interpreter and promotes repeated blocks, preserving exact guest fuel and

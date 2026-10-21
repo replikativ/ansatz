@@ -13,7 +13,22 @@ backends and an ordinary-classpath runner load. It distinguishes source-derived 
 The [runtime implementation record](../measurements/source-reconstruction-runtime.json)
 records **16 focused tests / 601 assertions** across three backends and the complete
 **911-test / 91,056-assertion JVM campaign**, with independent code review.
-Genuine hosted macro import and edited-branch acceptance remain separate gates.
+The multiunit change at `d7fef38` separately passes **21 focused tests / 709 assertions** and
+the **922-test / 91,526-assertion** complete runtime suite. Its focused compiler,
+frontend and finalizer bodies remain modeled; those results are not hosted macro
+acceptance. A separate composed regression at `d7595b3`, after integrating the
+optional facade and pure source-graph planner, passes **931 tests / 91,594 assertions**. This adds
+no genuine graph or edited-branch acceptance.
+
+The [current hosted receipt](../measurements/source-reconstruction-hosted-runtime.json)
+now records a passed original A→B macro branch on the frozen `742d8e49…` consumer:
+fresh Init checking, actual initializer-free publication and imported callbacks,
+fresh import completion checking, B compilation, and Nat/Unicode calls. The
+edited-A sibling publication also passes, but its import stops at the fixed
+128-slice controller limit. A separate original-B recall after that stop passes
+with unchanged input/issuer identities. Edited import completion, checking, B and
+the full original/edited interleave remain **unestablished**. The owned process
+has exited successfully; no failed attempt was resumed.
 
 ## What is established
 
@@ -23,7 +38,8 @@ At pinned Lean commit `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`,
 `Lean/KeyedDeclsAttribute.lean`, `ofOLeanEntry` calls `env.evalConstCheck` while
 reconstructing extension entries. Source macro code can therefore be needed
 before completed finalizer IO and the later fresh kernel check. This ordering
-comes from upstream source; it is not a recorded genuine imported-macro failure.
+comes from upstream source; the separately recorded hosted failure and original
+branch pass below are runtime evidence for their exact pinned profiles.
 See pinned [finalizeImport](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/Environment.lean#L2307)
 and [ofOLeanEntry](https://github.com/leanprover/lean4/blob/819816b2e0a3bf405af45ae5c7af2491d8f5bee6/src/Lean/KeyedDeclsAttribute.lean#L118).
 
@@ -86,8 +102,33 @@ For reconstruction controls, existing progress reports include a descriptive
 `:reconstruction` audit after successful row authorization. `:authorization-count`
 counts authorized witness rows, not macro invocations. Distinct actual requested
 primary names are capped at 64 entries and 4,096 characters per name, with
-truncation marked. The module and unit digest identify the attempt. These fields
+truncation marked. The module and unit digest identify the attempt; the digest retains its final
+file-handle meaning even when a callback row belongs to an earlier unit. These fields
 grant no authority; observers still run only after the private scope is disarmed.
+
+The [hosted unit diagnosis](../measurements/source-reconstruction-unit-diagnosis.json)
+records a successful initializer-free A publication with five units followed by
+a terminal imported-finalizer failure and zero row authorizations. Both macro
+primaries belonged to earlier units; neither belonged to the final-handle unit.
+It is failure evidence, and does not establish hosted imported macro acceptance.
+
+An actual hosted publication can contain several compiler units: source macros
+may be compiled during elaboration, before the final file-handle unit. The
+reconstruction publication captures the exact successful before/after admission
+delta, with each row's original digest, unit, declaration and executable identity.
+The final file-handle unit remains separately pinned; sharing its module name is
+insufficient. Every newly captured unit must have empty action inventories.
+Previously admitted units and rows cannot be overwritten or claimed as new.
+
+The profile's explicit `:limits` also require `:max-units` and
+`:max-declarations`. Unit counts cover the combined baseline/current unit maps.
+The declaration bound covers the aggregate entries in both baseline/current
+executable maps and all four admission registries, counted before traversal; it
+also separately bounds aggregate declaration occurrences across new units.
+These are aggregate bounds, rather than a fresh allowance for every unit. For
+example, a baseline with 334,750 executable functions needs a declaration bound
+above 669,500 even before its admission entries are counted. These limits grant
+no additional source authority.
 
 The publication wrapper owns the actual `resident-source/load-and-publish` call
 and captures its full returned result before deriving private provenance. It
@@ -102,8 +143,9 @@ armed by calling evalConst out of band; no public permission setter exists.
 
 ## Proof required before execution
 
-Capture the exact source publication entry, immutable admitted unit object,
-original local declaration rows, source function identities and original checked
+Capture the exact source publication entry, final-handle unit and bounded delta
+of immutable admitted units, original local declaration rows, source function
+identities and original checked
 compilation anchor. Derive exported A name-to-guest-CI references from its actual
 ModuleData. Prove that these are the same references protected by the original
 compilation's checked constant map and that the corresponding Java CIs are the
@@ -238,14 +280,58 @@ not a sandbox against reflective host mutation of private registries or heaps.
    reservations, source closure, observer/helper errors, finalizer IO errors,
    current-policy fresh check rejection and adoption failures without early
    associations or receipts.
-5. Run one fresh genuine initializer-free macro A→B experiment; discover actual
-   macro names from admitted IR. Then independently test edited-A branch/cache
-   isolation with the same B source and retained old handles.
+5. The original genuine A→B branch now passes. A separate fresh bounded campaign
+   must still establish edited-A import completion and byte-identical B behavior,
+   then full old/new/old interleaving. The terminal edited attempt cannot resume.
+
+The [hosted original-branch receipt](../measurements/source-reconstruction-hosted-runtime.json)
+records five actual A units with empty action inventories and two discovered
+macro-rule primary declarations. During genuine imported finalization, before
+completion/receipt, the audit records 34 successful witness-row authorizations
+and four distinct requested names: two syntax descriptors and two macro-rule
+primaries. These are row counts, not macro
+invocation counts. Finalizer IO completes after 306,607,080 guest steps. Fresh
+completion checking issues an A-only receipt for six constants; B then compiles
+without diagnostics and returns Nat41 and Unicode `λ 🦉`. Retained A calls return
+the same values. This establishes the original branch only.
+
+The same portable record preserves the fresh 65,994-CI Init check and its 15
+explicit assumptions, the frozen helper-budget mismatch that failed before any
+guest call, and the separately reviewed additive recovery. The old controller
+stays terminal. Recovery uses one genuine helper call for five guest steps with
+one result-owner release, then issues a new prefix from the original checked
+preparation. No runtime namespace is reloaded, old failure retried, Init replayed
+or host helper value seeded. The consumer, original checking provenance, bounded
+receipts and controller byte hashes remain explicit.
 
 Focused tests exercise actual raw evalConst transport and real small Java kernel
-checks with modeled frontend/finalizer bodies. Native export of both original and
-edited macro fixtures separately confirms empty initializer action vectors.
-Neither establishes genuine hosted imported-macro acceptance. Only after the
-full hosted original/edit branch gates pass should that support be reported as
-working. The complete JVM campaign suite is `scripts/test-runtime.clj`; the
-optional LLVM bridge has its own integration suite.
+checks with modeled frontend/finalizer bodies. Native fixture exports and those
+tests remain distinct from the hosted observation. The exact multiunit provenance
+fix therefore has both modeled invariant controls and an actual original-branch
+positive; full edited-branch isolation is a separate unfinished gate.
+
+Edited A publishes five initializer-free units with a different final digest and
+validated new function/publication identities. Its import records 24 successful
+row authorizations for the two syntax descriptors, then the controller exhausts
+its fixed 128-slice bound at 246,552,879 guest steps and 3,390 operations. The two
+macro-rule primary requests, completed IO, fresh edited receipt and edited B are
+not observed. There is no full original/edited interleave. After the stop,
+independent calls on the successful original B still return Nat41 and `λ 🦉`,
+with the old input and issuers unchanged; no failed edited state is executed.
+
+Resource observations are separate from that exact stop cause. In one sampled
+129.636-second interval, the G1 Old Generation collection-time counter increases
+by 106.945 seconds (about 82.5% of the interval). MXBean fields are read
+sequentially, and these process-wide values do not identify a cause or measure a
+speed improvement. The contributions of retained source-world graphs and
+dirty-heap metadata to this campaign's memory pressure have not been isolated. The final
+observed heap uses 3,208,245,000 bytes under a 3 GiB maximum.
+
+The owned process subsequently exits 0 without an outer guard stop, at 5,151.8
+seconds and 3,638,435,840 bytes peak group RSS. This is OS disposal only: Source
+close attempts remain zero and guest-owner/Context cleanup is not established.
+Both proposed backend-output comparison harnesses remain unexecuted because
+their full-semantic-pass prerequisite failed. There is no general package,
+full branch-isolation or competitive-performance claim. The complete JVM suite
+is `scripts/test-runtime.clj`; the optional LLVM bridge has its own integration
+suite.
