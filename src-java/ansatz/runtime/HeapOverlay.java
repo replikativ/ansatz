@@ -90,10 +90,16 @@ public final class HeapOverlay extends AbstractMap<Object, Object> {
     @Override public Object remove(Object key) {
         Object old = lookup(key);
         if (old == ABSENT) return null;
-        if (lookupBase(key) != ABSENT) writes.put(key, DELETED);
+        Object baseValue = lookupBase(key);
+        if (baseValue != ABSENT) writes.put(key, DELETED);
         else writes.remove(key);
         count--;
-        dirty.add(key);
+        // A successful removal of a newly allocated key restores its original
+        // absence. Do not retain historical allocation IDs or force freeze to
+        // rebuild the base for a net-zero delta. After clear, keep all deletion
+        // evidence conservatively because the original base is hidden.
+        if (baseVisible && baseValue == ABSENT) dirty.remove(key);
+        else dirty.add(key);
         return old;
     }
     @Override public void clear() {
