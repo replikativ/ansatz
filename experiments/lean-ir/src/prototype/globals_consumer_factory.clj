@@ -305,10 +305,10 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
-  (let [consumer-description (if reconstruction?
-                               (compatibility/authenticate-reconstruction! options)
-                               (compatibility/authenticate! options))
+  [profile reconstruction? runtime-ops? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
+  (let [consumer-description (cond runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
+                                     reconstruction? (compatibility/authenticate-reconstruction! options)
+                                     :else (compatibility/authenticate! options))
         expected-preparation producer-preparation
         resolve-artifact producer-resolve-artifact
         recipe (:catalogue-recipe expected-preparation)
@@ -412,12 +412,14 @@
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? options]
+  [reconstruction? runtime-ops? options]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? options)
+        invoke (make-factory* profile reconstruction? runtime-ops? options)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (if reconstruction? compatibility/reconstruction-profile-id compatibility/profile-id)}]
+                     :compatibility-profile (cond runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
+                                                  reconstruction? compatibility/reconstruction-profile-id
+                                                  :else compatibility/profile-id)}]
     (let [factory (Factory.)]
       (locking issued-factories
         (.put issued-factories factory {:descriptor description :invoke invoke}))
@@ -426,9 +428,15 @@
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
   [options]
-  (issue-factory false options))
+  (issue-factory false false options))
 (defn make-reconstruction-factory
   "Issue the separately named closed reconstruction consumer capability. Producer
    recipe/archive and option contract are identical to make-factory."
   [options]
-  (issue-factory true options))
+  (issue-factory true false options))
+
+(defn make-runtime-ops-reconstruction-factory
+  "Issue the closed ops-table reconstruction capability with its exact mutable pin.
+   The original factory APIs retain their original inventories and identities."
+  [options]
+  (issue-factory true true options))
