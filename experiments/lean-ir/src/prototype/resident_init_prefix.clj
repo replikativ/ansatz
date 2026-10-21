@@ -225,6 +225,14 @@
            :outer-steps (:outer-steps data 0) :helper-steps (:helper-steps data 0)
            :completed-operations (:operations data 0)}
     (:reconstruction data) (assoc :reconstruction (get-in data [:reconstruction :audit]))))
+(defn- finished-import-state [data]
+  ;; The issued token still rejects repeat consumption, but no continuation or
+  ;; authority remains usable after successful adoption. Keep only descriptive
+  ;; accounting; retaining the old packets here would pin their heap snapshots
+  ;; for as long as the caller retains this otherwise exhausted control.
+  (cond-> (assoc (select-keys data [:used :outer-steps :helper-steps :operations])
+                 :phase :finished :busy? true)
+    (:reconstruction data) (assoc :reconstruction {:audit (get-in data [:reconstruction :audit])})))
 (defn- import-failure! [state cause]
   (let [data @state previous (:phase data)
         wrapped (ex-info (or (.getMessage cause) "Resident Init import failed")
@@ -396,7 +404,10 @@
    check the WHOLE Init+A map; only immutable native projections may reuse the
    privately retained original certificate. Return new :context, captured :request,
    actual :header and descriptive A-only :import-receipt. No caller certificate,
-   finalizer invocation, initializer replay or borrowed lease closure occurs here."
+   finalizer invocation, initializer replay or borrowed lease closure occurs here.
+   Successful adoption drops obsolete private continuation packets from this
+   exhausted control; returned Context and borrowed input snapshots remain owned
+   as before. Failed/unfinished operations retain their exact diagnostic packets."
   [control]
   (let [state (import-control! control)]
     (locking control
@@ -434,11 +445,16 @@
                                                (assoc (:session @state) :fuel (get-in entry [:session :fuel])))
                                  :environment (:environment finished))
                   _ (swap! state assoc :adoption-entry prepared)
-                  context (resident/adopt-prepared prepared configuration)]
-              (swap! state assoc :phase :finished)
-              {:context context :request (:request @state) :header (:header @state)
-               :import-receipt {:module (:module @state) :unit-digest (:unit-digest receipt)
-                                :constant-count (count (:constants receipt))}})))
+                  context (resident/adopt-prepared prepared configuration)
+                  result {:context context :request (:request @state) :header (:header @state)
+                          :import-receipt {:module (:module @state) :unit-digest (:unit-digest receipt)
+                                           :constant-count (count (:constants receipt))}}
+                  completed (finished-import-state @state)]
+              ;; Construct the complete return value before discarding any
+              ;; failure evidence. This changes host reachability only: all
+              ;; guest owner releases and the public adoption already succeeded.
+              (reset! state completed)
+              result)))
         (catch Throwable cause (import-failure! state cause))
         (finally (swap! state assoc :busy? false))))))
 

@@ -306,6 +306,21 @@
     (:context fixture) staged/request (:prefix fixture) (:profile fixture) (:publication fixture)
     (or options staged/options)))
 
+(defn retains-packet? [state packets]
+  ;; Walk the actual persistent control data by identity, without descending
+  ;; into guest/runtime objects. Stop at a retained packet before traversing its
+  ;; possibly large World. Sharing is visited once; no collection/GC is forced.
+  (let [forbidden (java.util.IdentityHashMap.) seen (java.util.IdentityHashMap.)]
+    (doseq [packet packets :when (some? packet)] (.put forbidden packet true))
+    (loop [pending [state]]
+      (if (empty? pending) false
+        (let [value (peek pending) pending (pop pending)]
+          (cond
+            (.containsKey forbidden value) true
+            (.containsKey seen value) (recur pending)
+            :else (do (.put seen value true)
+                      (recur (if (coll? value) (into pending value) pending)))))))))
+
 (deftest scoped-raw-evalconst-precedes-real-fresh-check-and-source-only-receipt
   (doseq [backend [:reference :mutable :jvm]]
     (try
@@ -323,14 +338,28 @@
             (let [state @(#'sut/import-control! control)
                   owners (get-in state [:reconstruction :owners])]
               (is (= #{:root :map} (set (keys owners))))
-              (is (every? #(= :owned (:status %)) (vals owners))))
-            (let [finished (sut/finish-import! control)
-                  after (resident/snapshot (:context finished))]
-              (is (= 1 (get-in finished [:import-receipt :constant-count])))
-              (is (= 18 (count (.allConstants ^Env (:checked-env (first (vals (get-in after [:world :source-modules publication/module :imports]))))))))
-              (is (every? #(= :released (:status %))
-                          (vals (get-in @(#'sut/import-control! control) [:reconstruction :owners]))))
-              (resident/close! (:context finished))))))
+              (is (every? #(= :owned (:status %)) (vals owners)))
+              (let [finished (sut/finish-import! control)
+                    after (resident/snapshot (:context finished))
+                    compact @(#'sut/import-control! control)]
+                (is (= 1 (get-in finished [:import-receipt :constant-count])))
+                (is (= 18 (count (.allConstants ^Env (:checked-env (first (vals (get-in after [:world :source-modules publication/module :imports]))))))))
+                ;; Capture real pre-finish packets and the returned Context,
+                ;; rather than duplicate the production tombstone's key list.
+                ;; The old noncompacting implementation retains these packets.
+                (is (not (retains-packet? compact
+                           (concat (keep state [:entry :world :session :assembly :last-call
+                                                :configuration :prefix :certificate])
+                                   (keep (:reconstruction state) [:profile :publication :proof :cache :owners])
+                                   [(:context finished) after (:world after)]))))
+                (is (= (assoc (#'sut/import-progress state) :phase :finished)
+                       (#'sut/import-progress compact)))
+                ;; These fixture roots belonged only to the proof cache after
+                ;; finalizer IO. Check actual guest release in the public result,
+                ;; not an obsolete private success-owner ledger.
+                (doseq [{:keys [value]} (vals owners)]
+                  (is (not (contains? (get-in after [:world :heap]) (:id value)))))
+                (resident/close! (:context finished)))))))
       (catch Throwable cause
         (is false (str backend " " (.getName (class cause)) " " (.getMessage cause) " "
                        (mapv str (take 20 (.getStackTrace (last (take-while some? (iterate #(.getCause ^Throwable %) cause))))))))))))
@@ -431,10 +460,14 @@
         (let [{:keys [control]} (prepare-feature fixture)]
           (staged/run-to-io! control)
           (is (= [42 42] (mapv :value @seen)))
-          (is (= 2 (count (get-in @(#'sut/import-control! control) [:reconstruction :owners]))))
-          (let [finished (sut/finish-import! control)]
-            (is (every? #(= :released (:status %))
-                        (vals (get-in @(#'sut/import-control! control) [:reconstruction :owners]))))
+          (let [owners (get-in @(#'sut/import-control! control) [:reconstruction :owners])
+                _ (is (= 2 (count owners)))
+                finished (sut/finish-import! control)
+                after (resident/snapshot (:context finished))]
+            (doseq [{:keys [value]} (vals owners)]
+              (is (not (contains? (get-in after [:world :heap]) (:id value)))))
+            (is (= {:phase :finished} (ex-data (staged/error-of #(sut/finish-import! control)))))
+            (is (identical? after (resident/snapshot (:context finished))))
             (resident/close! (:context finished)))))
       :repeat-target (fn [world environment]
                        (let [root (first (:fields (m/node world environment)))
