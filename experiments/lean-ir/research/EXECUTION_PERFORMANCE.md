@@ -52,13 +52,22 @@ program takes 82.34 ms. Native build timings cover a different whole module and
 linking task, so they do not supply a compiler-latency ratio.
 
 The accepted full frontend campaign currently uses **`:mutable`**. Its actual
-Init+A finalizer took 993.35 seconds; separate strict checking of 65,995 constants
-took 121.79 seconds. There is no matched native frontend baseline for that
+fresh typed-profile Init+A finalizer took 1,061.63 seconds; separate strict
+checking of 65,995 constants took 177.49 seconds. There is no matched native frontend baseline for that
 profile, so a full-frontend slowdown ratio remains unmeasured. The next performance
 comparison should restore the same prepared profile and inputs across mutable
 and adaptive JVM execution, separating cold compilation, warmed code-cache reuse,
 source processing, import reconstruction and Java kernel checking. That follows
-the source-import witness correctness gate.
+the now-passed source-import witness correctness gate.
+
+The separate [Oct21 prelude fork experiment](../measurements/prelude-semantic-forks.json)
+completed two actual A revisions, identical B compilation/imports, Nat/Unicode
+calls and a retained old-B call in 31.619 seconds. That aggregate excludes runtime
+restoration and seed preparation; the guarded process lifecycle was 340.96
+seconds. The frontend and finalizer used mutable execution. Only admitted output
+calls used a shared JVM cache: A1 compiled five blocks; A2 compiled one and reused
+four. This proves cache reuse and fork correctness for the observed case, rather
+than a per-file latency distribution or a matched native performance result.
 
 Reproduction uses the existing `bench.py` and `heap_bench.py` harnesses with a
 fresh output directory. Native-interpreter rows run their `lean/Bench.lean` and

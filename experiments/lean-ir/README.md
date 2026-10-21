@@ -29,8 +29,11 @@ finalizes Init+A and strictly checks 65,995 declarations with A's exact receipt.
 Its B gate uncovered an archived JSON witness missing module origin; the
 [explicit typed FILE profile](measurements/source-file-typed-witness-validation.json)
 now passes the fresh full A-to-B gate: B returns Nat42 and Unicode without
-diagnostics, and the actual guest witness identifies imported A. Dependency
-edits, package coverage, packaging and independent native-map parity remain open.
+diagnostics, and the actual guest witness identifies imported A. A separate
+[fresh prelude fork campaign](measurements/prelude-semantic-forks.json) now passes
+real A-body edits, identical B imports and retained old-B behavior through a shared
+JVM output cache. Ordinary full-Init dependency edits, package coverage, packaging
+and independent native-map parity remain open.
 The full campaign currently uses mutable execution. See the
 [fresh execution-mode comparison](research/EXECUTION_PERFORMANCE.md) for measured
 native/interpreter/JVM kernel timings and their limits.

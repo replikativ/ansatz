@@ -38,8 +38,11 @@ profile, including [separate-process checkpoint restoration](KERNEL_PROBE_GENUIN
 and the [checked preparation adapter](../measurements/checked-resident-provider-acceptance.json).
 Ordinary Init through that adapter and fresh bounded full-Init reproduction were
 open at that stage; the subsequent full-profile receipt above establishes them.
-Reusable source publication/import APIs, dependency edits and public packaging
-remain separate gates.
+Reusable source publication/import APIs, ordinary full-Init dependency edits and
+public packaging remain separate gates. A separate
+[prelude campaign](../measurements/prelude-semantic-forks.json) passes actual
+semantic dependency edits and retained old-fork calls through a shared JVM output
+cache; that orchestration has not yet been integrated into this facade.
 An earlier already-compiled-code test also roundtripped a genuinely owned heap
 String Ref through independent forks with isolated releases. None of these
 observations provides a one-command bootstrap, general package loader, native

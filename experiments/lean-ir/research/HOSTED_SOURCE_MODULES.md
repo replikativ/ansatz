@@ -19,7 +19,18 @@ passes on all three backends. The fresh full A-to-B run also passes: B compiles
 without diagnostics, returns Nat42 and Unicode, and its actual guest witness
 identifies imported A. The process exits successfully after recording the result;
 semantic context cleanup is not inferred from process disposal. Native-map
-parity, dependency edits, public packaging and general package coverage remain open.
+parity, ordinary full-Init dependency edits, public packaging and general package
+coverage remain open.
+
+The separate [fresh prelude fork campaign](../measurements/prelude-semantic-forks.json)
+passes a real semantic edit: A1 selects its first argument, A2 its second, and
+identical B imports each. Both calls use the same Nat42/Nat43 and Unicode pairs;
+B1 returns the left values, B2 the right, then retained B1 returns the left again.
+Both selectors and B use `noinline`, and B's actual imported rows must preserve
+their branch's exact A unit, IR and executable identities. The frontend and
+finalizer run in mutable mode; only admitted output calls use the shared JVM
+cache. A1 compiles five blocks; A2 compiles one and reuses four. This establishes
+the standalone prelude case, with no Context cleanup claim from process disposal.
 
 ```mermaid
 flowchart TD
@@ -98,8 +109,9 @@ Decisive cases are A defining a function, B importing/calling it; a macro define
 in A and used in B; a source initializer with an observable once-only effect;
 changed A in independent forks; failed and cyclic imports; and module-system
 public/meta/import-all visibility. The historical ordinary A-to-B function case
-passed, and fresh typed-profile B acceptance now also passes. The other cases
-remain integration gates. The earlier owned prelude finalization
+passed, and fresh typed-profile B acceptance now also passes. Changed A in
+independent standalone prelude forks also passes as recorded above. The other
+cases, including ordinary full-Init edits, remain integration gates. The earlier owned prelude finalization
 below records the first reconstruction step without native module transport.
 
 ## Concrete next gates
