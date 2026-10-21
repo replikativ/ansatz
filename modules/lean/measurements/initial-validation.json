@@ -1,0 +1,62 @@
+{
+  "schema": "optional-lean-facade-validation/1",
+  "scope": "optional facade first slice implemented; focused models and clean packaging/load consumers passed; genuine provider frontend acceptance pending",
+  "core": {
+    "version": "0.2.169",
+    "sha256": "59c7b7b4e72101e47c0f7cf04c509832061786f421e308044d119c7989faa387",
+    "core_inputs_unchanged_from": "dc84c14389261e15c782e3944c714eb72a124edf",
+    "compared_paths": [
+      "src",
+      "src-java",
+      "build.clj",
+      "deps.edn",
+      "resources"
+    ]
+  },
+  "optional-jar-sha256": "16187a622e538beaf9d4f76ca9e96c7420e1a5b83a538ef9575cfb2e7efaec4e",
+  "checks": {
+    "java_public_dto": "ToolProvider javac --release 11 passed in initial guarded source-model launch",
+    "focused_models": {
+      "tests": 7,
+      "assertions": 61,
+      "failures": 0,
+      "errors": 0,
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 397410304,
+      "elapsed_seconds": 8.02
+    },
+    "optional_build": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 323665920,
+      "elapsed_seconds": 7.02
+    },
+    "jars_only_consumers": {
+      "exit_code": 0,
+      "guard_stop": null,
+      "peak_rss_bytes": 432783360,
+      "elapsed_seconds": 18.04
+    }
+  },
+  "setup-failure": "Initial source-model namespace load omitted core Clojure src; Java DTO compilation passed first. Added own read-only core src on second guarded launch; no source hot reload. Only metadata change afterward excluded clojure.core/load-string shadowing; final jar build and consumers load that final source.",
+  "pending": [
+    "Genuine checked prepared provider runs through facade: Nat/String/Unicode-NUL and two Java SAM calls",
+    "Genuine diagnostic failure followed by good branch, cross-generation file refusal, deferred initializers and host throw without replay",
+    "Provider/source lease lifetime with genuine native backing and retained failure evidence",
+    "Broader whole-repository suite (core inputs unchanged; not run here)"
+  ],
+  "source-sha256": {
+    "modules/lean/README.md": "04050d414d339355a2389c3d2bf09b4babf7446689eee39c8e3baf5e4d3b3ab7",
+    "modules/lean/build.clj": "2cc5e3801d9f7c7491c6edb961cde1ebe0f355cf1cafdbc48b4d4f9c709efd3b",
+    "modules/lean/consumer/PreparedAcceptance.java": "b712a46dbb3840275af86c9d2496bb66b43ef4a218b5bcf5bbee0b03cc139e1b",
+    "modules/lean/consumer/Smoke.java": "8444619b82392acbe380b513ddb21f915c165ccefb302c58f8943d9716dc7660",
+    "modules/lean/consumer/check.py": "14db04685ec5074b8835ffbe21a73bd7eb17110465373994290c13312773e001",
+    "modules/lean/consumer/smoke.clj": "c61ccb5c837c4d6cfdd6017d816a701c443b2be76fa62d247cc6ac71769fd81f",
+    "modules/lean/deps.edn": "94aa5a2224be9c838e9f52660c56b18c69c1a7c537c988e60f1f115c76ce204c",
+    "modules/lean/runtime-closure.edn": "595f36c9bf9b8fdadab5bd5ec783abb93f8d2e6e6aa2fd17b48ff42eef61fb0e",
+    "modules/lean/src/ansatz/lean.clj": "5ef58da3e28bf2f4977403c1a08809ef8093f1c311bf27ad4fed5c07d5c555da",
+    "modules/lean/src-java/ansatz/lean/LeanRuntime.java": "bcd2728248bee211bd6bc4f2eadf6c27a99fdae5bf10bb7a834e37bcab8e879b",
+    "modules/lean/test/ansatz/lean_test.clj": "fdf1abbeecbaf8024de77ce9c6d17d75f7017318c257623098bf06a10dffd70c"
+  }
+}
