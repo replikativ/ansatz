@@ -10,6 +10,9 @@
   (:import [java.nio.charset StandardCharsets]))
 
 (def profile-id "ansatz-producer50f-globals-overlay-consumer/2")
+(def reconstruction-profile-id "ansatz-producer50f-reconstruction-consumer/1")
+(def ^:private reconstruction-substitutions
+  #{"prototype/imported_kernel.clj" "prototype/kernel_bridge.clj" "prototype/test_runner.clj"})
 (def producer-implementation-sha256 "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849")
 (def producer-recipe-sha256 "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70")
 (def mutable-sha256 "64e2ecdaec7708d3041b9260af41ed32d2d8cdeb87ee268e0ddeb2928d569188")
@@ -72,21 +75,23 @@
                      (wire/same-data? recipe (:catalogue-recipe preparation)))
                 "Producer preparation identity drift")
     recipe))
-(defn validate-inventory!
+(defn- validate-inventory*
   "Check the closed delta before ANY consumer resource is trusted. New API hashes
    are pinned by the externally accepted consumer digest, avoiding a self-hash cycle."
-  [recipe inventory expected]
+  [reconstruction? recipe inventory expected]
   (wire/check (and (wire/hash? expected) (= expected (consumer-identity inventory)))
               "Consumer implementation digest mismatch")
   (let [original (:build-inventory recipe)
         by-id (into {} (map (juxt :id identity)) inventory)
         baseline (remove #(contains? excluded-producer-sources (:id %)) original)
-        required (merge (into {} (map (juxt :id :kind)) baseline) added-inputs)]
+        required (merge (into {} (map (juxt :id :kind)) baseline) added-inputs
+                        (when reconstruction? {"prototype/resident_init_prefix.clj" :host-source}))]
     (wire/check (= (set (keys required)) (set (keys by-id))) "Consumer selected-input inventory drift")
     (doseq [[id kind] required]
       (wire/check (= kind (get-in by-id [id :kind])) "Consumer input role drift"))
     (doseq [{:keys [id sha256]} baseline
-            :when (and (not= id "prototype/mutable.clj") (not (contains? program-substitutions id)))]
+            :when (and (not= id "prototype/mutable.clj") (not (contains? program-substitutions id))
+                       (not (and reconstruction? (contains? reconstruction-substitutions id))))]
       (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved consumer substitution"))
     (doseq [[id sha256] program-substitutions]
       (wire/check (= sha256 (get-in by-id [id :sha256])) "Unapproved program sizing implementation"))
@@ -95,6 +100,15 @@
     (wire/check (= globals-source-sha256 (get-in by-id ["src-java/ansatz/runtime/GlobalsOverlay.java" :sha256]))
                 "Unapproved globals overlay source")
     inventory))
+(defn validate-inventory!
+  "Validate the original closed globals inventory without reconstruction deltas."
+  [recipe inventory expected]
+  (validate-inventory* false recipe inventory expected))
+(defn validate-reconstruction-inventory!
+  "Validate the closed reconstruction delta. The external digest pins exact bytes
+   of the three reviewed baseline substitutions and added resident prefix source."
+  [recipe inventory expected]
+  (validate-inventory* true recipe inventory expected))
 (def provenance-scripts
   #{"experiments/lean-ir/scripts/full-init-assembly-probe.clj"
     "experiments/lean-ir/scripts/prepare-ir-witness.clj"
@@ -135,13 +149,13 @@
           (wire/check input "Selected consumer class unavailable")
           (wire/check (= sha256 (stream-sha256 input)) "Selected consumer class drift"))))
     true))
-(defn authenticate!
+(defn- authenticate*
   "Host-only verification. The external loaded-consumer attestation must come
    from a fresh trusted launcher which checks classpath/source selection and
    rejects project __init.class AOT shadows before loading namespaces, and which
    prohibits reload/redefs. This API cannot infer that
    fact from disk/resource hashes. No source leases or guest owners are acquired."
-  [{:keys [producer-preparation producer-recipe-source consumer-inventory
+  [reconstruction? {:keys [producer-preparation producer-recipe-source consumer-inventory
            expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256
            producer-resolve-artifact consumer-resolve-source store-root] :as options}]
   (exact! options option-keys "globals consumer factory options")
@@ -150,7 +164,7 @@
                    (= expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256))
               "Explicit producer/consumer resolvers and fresh loaded-consumer attestation required")
   (let [recipe (producer-recipe! producer-preparation producer-recipe-source)]
-    (validate-inventory! recipe consumer-inventory expected-consumer-implementation-sha256)
+    (validate-inventory* reconstruction? recipe consumer-inventory expected-consumer-implementation-sha256)
     (doseq [id excluded-producer-sources]
       (wire/check (and (nil? (io/resource id))
                        (nil? (io/resource (str (subs id 0 (- (count id) 4)) "__init.class"))))
@@ -158,4 +172,14 @@
     (doseq [row consumer-inventory] (authenticate-input! row consumer-resolve-source))
     {:producer-preparation producer-preparation
      :consumer-implementation-sha256 expected-consumer-implementation-sha256
-     :compatibility-profile profile-id}))
+     :compatibility-profile (if reconstruction? reconstruction-profile-id profile-id)}))
+
+(defn authenticate!
+  "Authenticate the original closed globals consumer and fresh loaded-code attestation."
+  [options]
+  (authenticate* false options))
+(defn authenticate-reconstruction!
+  "Authenticate the separately named closed reconstruction consumer. Same exact
+   options and fresh-process loaded-code attestation as authenticate!."
+  [options]
+  (authenticate* true options))

@@ -303,12 +303,19 @@
                   (catch Throwable cleanup
                     (when-not (identical? error cleanup) (.addSuppressed error cleanup))))
              (throw error))))))
-(defn- factory-result! [produced producer consumer manifest]
+(defn- factory-profile! [description producer consumer]
+  (let [profile (:compatibility-profile description)]
+    (wire/check (and (wire/same-data? producer (:producer-preparation description))
+                     (= consumer (:consumer-implementation-sha256 description))
+                     (contains? #{compatibility/profile-id compatibility/reconstruction-profile-id} profile))
+                "Restore consumer capability identity mismatch")
+    profile))
+(defn- factory-result! [produced producer consumer compatibility-profile manifest]
   (exact! produced #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile
                      :catalogue :bindings} "consumer factory result")
   (wire/check (and (wire/same-data? (:producer-preparation produced) producer)
                    (= (:consumer-implementation-sha256 produced) consumer)
-                   (= compatibility/profile-id (:compatibility-profile produced))
+                   (= compatibility-profile (:compatibility-profile produced))
                    (= (:binding-signatures manifest)
                       (into {} (map (fn [[symbol binding]] [symbol (:signature binding)])) (:bindings produced))))
               "Consumer factory identity/signature mismatch")
@@ -327,16 +334,13 @@
       (exact! options #{:expected-manifest-sha256 :producer-preparation :consumer-implementation-sha256
                         :factory :resolve-resource :backend :fuel} "restore consumer options")
       (preparation! producer-preparation)
-      (let [description (factory/descriptor factory)]
-        (wire/check (and (wire/same-data? producer-preparation (:producer-preparation description))
-                         (= consumer-implementation-sha256 (:consumer-implementation-sha256 description))
-                         (= compatibility/profile-id (:compatibility-profile description)))
-                    "Restore consumer capability identity mismatch"))
-      (wire/check (and (wire/hash? expected-manifest-sha256) (wire/hash? consumer-implementation-sha256)
+      (let [compatibility-profile (factory-profile! (factory/descriptor factory)
+                                                    producer-preparation consumer-implementation-sha256)
+            _ (wire/check (and (wire/hash? expected-manifest-sha256) (wire/hash? consumer-implementation-sha256)
                        (fn? resolve-resource) (= :mutable backend)
                        (integer? fuel) (pos? fuel) (<= fuel Long/MAX_VALUE))
                   "Explicit restore consumer authority/resolver/mutable budget required")
-      (let [file (.getAbsoluteFile (io/file manifest-path))
+            file (.getAbsoluteFile (io/file manifest-path))
             bytes (wire/read-file-bytes file wire/max-row-bytes)
             _ (wire/check (= expected-manifest-sha256 (wire/sha256 bytes)) "Expected external manifest digest mismatch")
             manifest (wire/decode bytes)
@@ -364,14 +368,14 @@
                 produced (factory/invoke! factory {:preparation producer-preparation :world world
                                            :functions (:functions world) :prepared-functions (:prepared-functions parsed)
                                            :resources @owned})
-                _ (factory-result! produced producer-preparation consumer-implementation-sha256 manifest)
+                _ (factory-result! produced producer-preparation consumer-implementation-sha256 compatibility-profile manifest)
                 _ (authorization! world (:prepared-functions parsed) (:catalogue produced) (:bindings produced) (:trusted-roots producer-preparation))
                 session (raw/open-functions (:functions world) (:bindings produced) {:backend backend :fuel fuel})]
             {:status :restored-precheck :world world :session session :io-result (get-in manifest [:roots :io-result])
              :roots (:roots manifest) :catalogue (:catalogue produced) :resource-lease lease
              :trusted-functions (:prepared-functions parsed) :trusted-bindings (:bindings produced)
              :producer-preparation producer-preparation :consumer-implementation-sha256 consumer-implementation-sha256
-             :compatibility-profile compatibility/profile-id
+             :compatibility-profile compatibility-profile
              :manifest-sha256 expected-manifest-sha256 :strictly-checked? false})
           (catch Throwable e
             (try (.close ^java.io.Closeable lease) (catch Throwable close-error
