@@ -343,9 +343,21 @@ From the Ansatz worktree root, compile the Java kernel once:
 ```sh
 clojure -Srepro -T:build javac
 cd experiments/lean-ir
-clojure -Srepro -J-Xmx1g -M:test
+mkdir -p target/compact-projection-classes
+javac --release 11 -d target/compact-projection-classes java/prototype/TypedLongMemo.java
+clojure -Srepro -J-Xmx1g -Sdeps '{:paths ["src" "test" "target/compact-projection-classes"]}' -M:test
 clojure -Srepro -M:nrepl
 ```
+
+Use JDK 17 or newer for this optional experiment: its source helpers use
+`java.util.HexFormat`. The Java compilation target of 11 is a bytecode/language
+setting, not the host runtime requirement. Validation currently uses JDK 25.
+The optional runtime suite includes the compact projector, so it needs the
+additional `TypedLongMemo` class above as well as the normal Java kernel/runtime
+classes. These sources and the checkpoint wire/function verifier are tracked;
+no historical `consumer-support/src` overlay is required. Checkpoint source
+availability does not authenticate a historical capture or authorize a restore.
+See the [portable checkpoint support contract](research/PORTABLE_CHECKPOINT_SUPPORT.md).
 
 Connect to the printed loopback nREPL port. A plain terminal REPL is also available
 with `clojure -Srepro -M:repl`.
