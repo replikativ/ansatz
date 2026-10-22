@@ -302,3 +302,61 @@
                           (into-array StandardCopyOption [StandardCopyOption/ATOMIC_MOVE StandardCopyOption/REPLACE_EXISTING]))
               (assoc verified :path (str path) :header header :verified true)))
           (finally (.delete temp)))))))
+
+;; Append inside prototype.bootstrap-archive. DRAFT, no existing API changes.
+(defn verify-function-rows
+  "Authenticate a pinned bootstrap archive without retaining its function/heap
+   graph. VERIFY-FUNCTION receives each original [name function] as two arguments
+   and returns [canonical-name canonical-function] from a caller-owned table.
+   The trusted callback may refresh archived ABI externs from independently pinned
+   declaration rows; it must verify every resulting candidate exactly. No callback
+   effect is authorized: all results remain private until the full-stream digest,
+   structure, counts and trailer pass. Returns canonical references only.
+   This is not restore or a second whole-world heap/reference validity proof."
+  [path {:keys [expected-sha256 expected-lean-commit verify-function]}]
+  (when-not (and (string? expected-sha256) (re-matches #"[0-9a-f]{64}" expected-sha256)
+                 (= lean-commit expected-lean-commit) (fn? verify-function))
+    (fail "Bootstrap function verification requires explicit pinned authority/callback" {}))
+  (worker
+    (fn []
+      (let [result
+            (scan path
+              (fn [next-row eof]
+                (let [header (second (record! (next-row) :header 2))
+                      _ (header! header expected-lean-commit)
+                      heap-ids (java.util.HashSet.) global-names (java.util.HashSet.)]
+                  (loop [functions (transient {}) state-next-id nil actual {:functions 0 :heap 0 :globals 0}]
+                    (let [row (next-row)]
+                      (when-not (vector? row) (fail "Malformed/truncated bootstrap archive" {}))
+                      (case (first row)
+                        (:function :heap :global)
+                        (let [[kind name value] (record! row (first row) 3)
+                              counter (case kind :function :functions :heap :heap :global :globals)]
+                          (when (or (some? state-next-id) (>= (get actual counter) (get-in header [:counts counter])))
+                            (fail "Bootstrap function scan exceeds declared table/order" {:kind kind}))
+                          (if (= :function kind)
+                            (let [[canonical-name function :as admitted] (verify-function name value)]
+                              (when-not (and (vector? admitted) (= 2 (count admitted))
+                                             (= name canonical-name) (map? function)
+                                             (vector? (:params function)) (vector? (:body function)))
+                                (fail "Function verifier returned invalid canonical entry" {:name name}))
+                              (when (contains? functions canonical-name) (fail "Duplicate bootstrap function" {:name name}))
+                              (recur (assoc! functions canonical-name function) state-next-id (update actual counter inc)))
+                            (do
+                              (when-not (.add ^java.util.HashSet (if (= kind :heap) heap-ids global-names) name)
+                                (fail "Duplicate bootstrap table entry" {:kind kind}))
+                              ;; Header digest authenticates all skipped heap and
+                              ;; global bytes. Do not pretend they were restored.
+                              (recur functions state-next-id (update actual counter inc)))))
+                        :state (do (record! row :state 2)
+                                   (when (some? state-next-id) (fail "Duplicate bootstrap state" {}))
+                                   (state! (second row))
+                                   (recur functions (:next-id (second row)) actual))
+                        :end (do (record! row :end 2)
+                                 (when-not (and (some? state-next-id) (= actual (:counts header) (second row))
+                                                (identical? eof (next-row)))
+                                   (fail "Bootstrap function scan counts/trailer mismatch" {}))
+                                 {:functions (persistent! functions) :header header :next-id state-next-id})
+                        (fail "Unknown bootstrap archive record" {:kind (first row)})))))))]
+        (when-not (= expected-sha256 (:sha256 result)) (fail "Bootstrap archive SHA256 mismatch" {}))
+        result))))

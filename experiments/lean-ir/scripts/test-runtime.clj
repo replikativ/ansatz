@@ -12,6 +12,8 @@
 
 (require '[clojure.test :as t]
          'prototype.test-runner
+         'prototype.bootstrap-function-verification-test
+         'prototype.checkpoint-wire-test
          'prototype.compact-kernel-projection-test
          'prototype.compact-import-check-test
          'prototype.source-file-typed-witness-test
