@@ -1290,13 +1290,13 @@
         (recur (.prefix current) (conj parts [(if string? "str" "num") (if string? part (str part))])
                (+' bytes size))))))
 
-(defn- graph-json!
+(defn- bounded-header-json!
   "Gate bytes and lexical nesting before the JSON parser's recursive descent.
    This is a bounded parser input check, never an authority or identity digest."
-  [text limits graph-limits]
-  (let [maximum (:max-bytes limits) depth-limit (+' 32 (:max-name-nodes graph-limits))]
+  [text maximum depth-limit]
+  (do
     (when-not (and (string? text) (<= (count text) maximum))
-      (fail "Source graph JSON exceeds parsing bound" {}))
+      (fail "Bounded JSON exceeds parsing bound" {}))
     (graph-utf8-size! text maximum)
     (loop [index 0 depth 0 quoted? false escaped? false]
       (when (< index (count text))
@@ -1307,13 +1307,16 @@
             (= c \") (recur (inc index) depth (not quoted?) false)
             quoted? (recur (inc index) depth true false)
             (or (= c \[) (= c \{))
-            (do (when (>= depth depth-limit) (fail "Source graph JSON exceeds nesting bound" {}))
+            (do (when (>= depth depth-limit) (fail "Bounded JSON exceeds nesting bound" {}))
                 (recur (inc index) (inc depth) false false))
             (or (= c \]) (= c \}))
-            (do (when (zero? depth) (fail "Source graph JSON has unmatched delimiters" {}))
+            (do (when (zero? depth) (fail "Bounded JSON has unmatched delimiters" {}))
                 (recur (inc index) (dec depth) false false))
             :else (recur (inc index) depth false false)))))
     (json/read-str text :key-fn keyword)))
+
+(defn- graph-json! [text limits graph-limits]
+  (bounded-header-json! text (:max-bytes limits) (+' 32 (:max-name-nodes graph-limits))))
 
 (defn- graph-profile! [profile]
   (or (when (instance? SourceGraphProfile profile)
@@ -1892,38 +1895,148 @@
   (doseq [name (:roots request)] (graph-java-name! name false (:graph-limits p)))
   (capture-import-request request))
 
+(def ^:private classic-header-limit-keys
+  #{:max-source-bytes :max-file-name-bytes :max-output-bytes :max-json-depth
+    :max-imports :max-diagnostics :max-name-nodes :max-name-bytes :max-total-name-bytes})
+
+(defn- classic-header-limits! [limits]
+  (when-not (and (map? limits) (= 9 (count limits))
+                 (every? #(contains? limits %) classic-header-limit-keys))
+    (fail "Classic header discovery requires nine explicit bounds" {}))
+  (doseq [[key value] limits] (positive-long! value key))
+  (when-not (<= 2 (:max-imports limits) 1026)
+    (fail "Classic header discovery supports at most 1024 ordinary dependencies" {}))
+  limits)
+
+(defn- classic-header-envelope! [text captured limits]
+  (let [header (bounded-header-json! text (:max-output-bytes limits) (:max-json-depth limits))
+        requests (:requestedImports header)]
+    (when-not (and (= "lean-file-header/1" (:schema header))
+                   (= "RuntimeCompileShim.inspectFileHeader" (:producer header))
+                   (= (get prim/pinned-build "lean_get_githash") (:leanCommit header))
+                   (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile header))
+                   (= (:file-name captured) (:fileName header))
+                   (false? (:moduleSystem header)) (boolean? (:hasErrors header))
+                   (integer? (:headerEndByte header))
+                   (<= 0 (:headerEndByte header)
+                       (or (:source-byte-length captured)
+                           (graph-utf8-size! (:text captured) Long/MAX_VALUE)))
+                   (vector? (:diagnostics header)) (<= (count (:diagnostics header)) (:max-diagnostics limits))
+                   (every? map? (:diagnostics header))
+                   (vector? requests) (<= (count requests) (:max-imports limits)))
+      (fail "Expected a bounded actual classic header from the pinned parser" {}))
+    (if (:hasErrors header)
+      (when-not (empty? requests)
+        (fail "An erroneous classic header cannot describe imports" {}))
+      (do
+        ;; Bound Names before the fixed classic flag validator compares them.
+        (let [total (volatile! 0)]
+          (doseq [request requests]
+            (graph-wire-name! (:module request) true limits total)))
+        (source/validate-graph-imports! requests)))
+    header))
+
+(defn- read-classic-header-result! [state world wrapper captured limits]
+  ;; Escrow the actual IO owner BEFORE even inspecting its layout or payload.
+  (swap! state assoc :world world :header-result {:value wrapper :status :owned})
+  (let [node (when (m/ref? wrapper) (m/node world wrapper))]
+    (when-not (and (= :ctor (:kind node)) (= 0 (:tag node)) (= 1 (count (:fields node)))
+                   (nil? (:layout node)) (empty? (:scalar-bytes node)))
+      (fail "Classic header parser did not return an owned IO.Result.ok String" {}))
+    (classic-header-envelope!
+      (string/string-value {:ref? m/ref? :node m/node} world (first (:fields node))) captured limits)))
+
+(defn- release-classic-header-result! [state wrapper]
+  (let [released (assoc (m/release (:world @state) wrapper 1) :result 0)]
+    (swap! state assoc :world released :header-result {:value wrapper :status :released})
+    released))
+
 (defn- graph-inspect-header! [state invoke captured p expected-imports]
   (let [[world wrapper] (invoke (:world @state) frontend/header-target
                                [(:text captured) (:file-name captured) m/erased])
-        _ (swap! state assoc :world world :header-result {:value wrapper :status :owned})
-        node (when (m/ref? wrapper) (m/node world wrapper))]
-    (when-not (and (= :ctor (:kind node)) (= 0 (:tag node)) (= 1 (count (:fields node)))
-                   (nil? (:layout node)) (empty? (:scalar-bytes node)))
-      (fail "Source graph header parser did not return an owned IO.Result.ok String" {}))
-    (let [text (string/string-value {:ref? m/ref? :node m/node} world (first (:fields node)))
-          header (graph-json! text (:limits p) (:graph-limits p))
-          requests (:requestedImports header)]
-      (when-not (and (= "lean-file-header/1" (:schema header))
-                     (= "RuntimeCompileShim.inspectFileHeader" (:producer header))
-                     (= (get prim/pinned-build "lean_get_githash") (:leanCommit header))
-                     (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile header))
-                     (= (:file-name captured) (:fileName header))
-                     (false? (:moduleSystem header)) (false? (:hasErrors header))
-                     (integer? (:headerEndByte header)) (<= 0 (:headerEndByte header))
-                     (vector? (:diagnostics header))
-                     (<= (count (:diagnostics header)) (get-in p [:limits :max-declarations]))
-                     (every? map? (:diagnostics header))
-                     (vector? requests) (<= (count requests) (+ 2 (get-in p [:graph-limits :max-roots]))))
-        (fail "Source graph requires a successful actual classic header from the pinned parser" {}))
-      (source/validate-graph-imports! requests)
-      (let [total (volatile! 0)]
-        (doseq [request requests]
-          (graph-wire-name! (:module request) true (:graph-limits p) total)))
-      (when-not (= expected-imports requests)
-        (fail "Source graph header differs from its exact ordered parent selection" {}))
-      (let [released (assoc (m/release world wrapper 1) :result 0)]
-        (swap! state assoc :world released :header-result {:value wrapper :status :released})
-        header))))
+        limits {:max-output-bytes (get-in p [:limits :max-bytes])
+                :max-json-depth (+' 32 (get-in p [:graph-limits :max-name-nodes]))
+                :max-imports (+ 2 (get-in p [:graph-limits :max-roots]))
+                :max-diagnostics (get-in p [:limits :max-declarations])
+                :max-name-nodes (get-in p [:graph-limits :max-name-nodes])
+                :max-name-bytes (get-in p [:graph-limits :max-name-bytes])
+                :max-total-name-bytes (get-in p [:graph-limits :max-total-name-bytes])}
+        header (read-classic-header-result! state world wrapper captured limits)]
+    (when-not (false? (:hasErrors header))
+      (fail "Source graph requires a successful actual classic header from the pinned parser" {}))
+    (when-not (= expected-imports (:requestedImports header))
+      (fail "Source graph header differs from its exact ordered parent selection" {}))
+    (release-classic-header-result! state wrapper)
+    header))
+
+(defn discover-classic-source-header
+  "Run ONE fixed pinned header helper on immutable host TEXT/FILE-NAME strings.
+   OPTIONS is exactly {:configuration independent-resident-configuration :limits
+   nine-explicit-header-bounds :budgets {:helper-fuel n :attempt-fuel n}}. Return
+   {:packet updated-owned-packet :request captured :header descriptive :status
+   :ok-or-header-error :progress scalar-work}. The ordinary classic subset has
+   implicit Init/meta Init and ordinary dependencies; prelude/module-system files
+   are outside this slice. Valid parser errors return diagnostics and NO imports.
+
+   No adoption, import, receipt, publication or graph permission occurs. Thread
+   the returned packet through ONE scratch branch, then adopt once; helper work
+   may change globals/World and must not be discarded. The aggregate budget covers
+   this operation's one helper and its nested guest calls, NOT Project discovery
+   or compilation as a whole. Project must reserve/charge its remaining aggregate
+   around every operation. Success restores only incoming session :fuel policy,
+   preserving actual child caches/registries; failure retains actual helper policy,
+   exact owner/checkpoint/session and known charge or unknown full reservation.
+   This function never closes borrowed resources or automatically retries."
+  [packet request {:keys [configuration limits budgets] :as options}]
+  (let [state (atom {:phase :entry :entry packet :world (:world packet) :session (:session packet)
+                     :used 0 :reserved 0})]
+    (try
+      (when-not (and (map? options) (= 3 (count options))
+                     (contains? options :configuration) (contains? options :limits) (contains? options :budgets))
+        (fail "Classic header discovery requires fixed configuration, bounds and budgets" {}))
+      (classic-header-limits! limits)
+      (graph-proof-budgets! budgets)
+      (when-not (and (map? request) (= 2 (count request))
+                     (contains? request :text) (contains? request :file-name)
+                     (string? (:text request)) (string? (:file-name request)) (seq (:file-name request)))
+        (fail "Classic header discovery requires one immutable text/file-name snapshot" {}))
+      ;; Count gates precede Unicode scans; no filesystem reads or guest String
+      ;; projections are implicit in this public discovery operation.
+      (let [sizes (mapv (fn [[value bound]]
+                          (when (> (count value) bound) (fail "Classic header input exceeds byte bound" {}))
+                          (graph-utf8-size! value bound))
+                        [[(:text request) (:max-source-bytes limits)]
+                         [(:file-name request) (:max-file-name-bytes limits)]])]
+        (swap! state assoc :source-byte-length (first sizes)))
+      (swap! state assoc :request request :phase :readiness)
+      (resident/adoption-readiness! packet configuration)
+      (eval/validate-executables! (:world packet) (:trusted-functions configuration) [frontend/header-target])
+      (let [called (graph-budget-operation! state budgets :classic-header
+                     (fn [session world]
+                       (let [result (raw/call session world frontend/header-target
+                                              [(:text request) (:file-name request) m/erased])]
+                         {:world (:state result) :session (:session result) :value (:value result)
+                          :raw-result result})))
+            header (read-classic-header-result! state (:world called) (:value called)
+                     (assoc request :source-byte-length (:source-byte-length @state)) limits)
+            _ (swap! state assoc :phase :release-header-result)
+            world (release-classic-header-result! state (:value called))
+            ;; Preserve the release checkpoint before restoring the separate
+            ;; caller policy used by later compilation, or constructing results.
+            _ (swap! state assoc :phase :header-result-released)
+            session (assoc (:session @state) :fuel (get-in packet [:session :fuel]))
+            status (if (:hasErrors header) :header-error :ok)
+            result {:packet (assoc packet :world world :session session) :request request :header header :status status
+                    :progress {:phase :completed :guest-steps (:used @state) :helper-steps (:used @state)
+                               :reserved (:reserved @state) :helper-calls 1}}]
+        result)
+      (catch Throwable cause
+        (let [data (ex-data cause)
+              diagnostic @state]
+          (throw (ex-info (or (.getMessage cause) "Classic header discovery failed")
+                   (merge data {:checkpoint (or (:checkpoint data) (:world diagnostic))
+                                :checkpoint-session (or (:checkpoint-session data) (:session diagnostic))
+                                :classic-header-discovery-state diagnostic}) cause)))))))
 
 (defn- graph-new-node-descriptor!
   "Check aggregate inventory BEFORE projecting own names. This name/byte delta
