@@ -1,6 +1,6 @@
 {
   "schema": "project-loader-validation/1",
-  "status": "focused integration passed; full optional suite pending",
+  "status": "focused Project integration and composed current-only optional regression passed",
   "sourceSha256": "c5d3d7519d9e6f4de942c4fd21b30ac378966fa34aaeaeec56296096435a6a65",
   "emptyIntegration": {
     "tests": 1,
@@ -44,9 +44,56 @@
     "postInputHashes": "all matched after root process disposal"
   },
   "fullOptionalSuite": {
-    "status": "pending"
+    "status": "passed",
+    "tests": 1029,
+    "assertions": 94230,
+    "failures": 0,
+    "errors": 0,
+    "planSha256": "e51755a47b673bd336c88bb355d7c8f3439f38ea64f16d0e243ca3f7910184b7",
+    "receiptSha256": "53b41e24348f812f3fa0cd3fb0a0116cea3dd6e9b50d904abb2bd97a25f2b4da",
+    "elapsedSeconds": 256.269495,
+    "peakGroupRSSBytes": 1324109824,
+    "minAvailableBytes": 5658779648,
+    "all547PostInputHashesMatched": true,
+    "sourceSha256": "c5d3d7519d9e6f4de942c4fd21b30ac378966fa34aaeaeec56296096435a6a65",
+    "currentSourceOnly": true,
+    "historicalSupportSourceOrClassesUsed": false,
+    "sourceBeforeRequireChecks": {
+      "sourceResourceUrlAndSha256AndNoStaleAot": 10,
+      "freshCurrentJavaResourceAndCodeSource": 4
+    },
+    "executedCoverage": {
+      "registered": 21,
+      "observed": 21,
+      "perNamespace": {
+        "prototype.project-loader-test": 5,
+        "prototype.project-loader-integration-test": 1,
+        "prototype.project-loader-nonempty-test": 2,
+        "prototype.bootstrap-function-verification-test": 7,
+        "prototype.checkpoint-wire-test": 6
+      }
+    },
+    "portableMergedMain": "8b2230a09da2eee3be9c0b4075ed885cad333c4b",
+    "testedRebasedHead": "e30a9f5ba68109bace356adf34790ea00ac2ff14",
+    "heapMiB": 512,
+    "groupRSSLimitMiB": 1280,
+    "wallLimitSeconds": 420,
+    "preflightAvailableMiB": 3072,
+    "availableFloorMiB": 1536
   },
   "genuineFrontend": {
     "status": "separate root-owned acceptance campaign; not claimed here"
+  },
+  "javaBuild": {
+    "status": "passed",
+    "trackedJavaSources": 24,
+    "classes": 48,
+    "historicalClassesUsed": false,
+    "planSha256": "91cb12bcf4eec91e767dfa46d52e0468e411702f5cab0cb70e6965ceb06d7bdb",
+    "receiptSha256": "01832af6961e1c7fba791e00a70a3ae39d740cfce63745246e3f0217f8d6f69b",
+    "elapsedSeconds": 3.768234,
+    "peakGroupRSSBytes": 269049856,
+    "all31PostInputHashesMatched": true,
+    "javaSourceBytesUnchangedAfterRebase": true
   }
 }

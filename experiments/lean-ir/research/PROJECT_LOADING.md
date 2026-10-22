@@ -120,6 +120,13 @@ callbacks; they do not issue genuine graph authority. The empty integration
 passed one test / 156 assertions across reference, mutable and JVM backends using
 actual graph/native/publication/registration APIs and modeled guest transport.
 The expanded three-test integration passes 264 assertions across all three
-backends, including actual kernel admission and Project invocation. The complete
-optional suite remains pending; these focused results do not replace it. Comment-only identity rebuilds establish retained version ownership and
+backends, including actual kernel admission and Project invocation. The
+[composed validation record](../measurements/project-loader.json) reports 1,029
+optional tests / 94,230 assertions using current source and freshly built Java
+classes, without historical support source/class fallback. The driver checked
+10 actual source URLs/hashes and absence of stale AOT, verified four Java class
+origins, and observed every registered Project/support test: 8 Project tests and
+13 portable-support contract tests. All 547 input hashes matched after process
+disposal. This establishes current-source loading and the composed integration with
+modeled guest transport. Genuine Lean frontend project execution remains separate. Comment-only identity rebuilds establish retained version ownership and
 unchanged callable behavior, not changed function semantics or performance.
