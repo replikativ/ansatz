@@ -1,0 +1,30 @@
+{
+  "schema": "source-graph-assembly-fixture/1",
+  "scope": "Regenerated native explicit-module-root closure only. No genuine restoredfrontend admission or completed G2 permission.",
+  "rawSha256": "d20d2a2a12d503acbb292ca52116542dac50fb6ca02ffcd6f0ee8e392f89a40d",
+  "gzipSha256": "5d54b8e5f7c5165fa001ece86301d6eb348e236c8b4740092fb23e050e6527db",
+  "rawBytes": 1100007,
+  "gzipBytes": 81207,
+  "declarationCount": 246,
+  "fdeclCount": 210,
+  "externCount": 36,
+  "localDeclarationCount": 173,
+  "helperSourceSha256": "370d5c345be8841704113c35283b6787a074d9a6a427cbdd7bee0cf3dc242658",
+  "oldImportHelperSourceSha256": "0ae75ffdd258bac3fe3879baaa76cd9e43e309a9ee95555e244aceea7945a6a9",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "nativeReceiptSha256": "4baf16354b15fe1bd3a76a57d8c30793a05a4e96b599eed41cd22093234073ee",
+  "nativeInputPinsSha256": "8fb662d8b832808f71ff7a945ae0c2c8f7733a77604772dd618af9a6301178ea",
+  "driverSha256": "7a2e40108c94e0d527689920209e8a7bffca13ef62a692be074fe112fdbf84c1",
+  "moduleRoots": {
+    "fixtures": "lean/source-graph-fixtures",
+    "helpers-and-oracle": "lean",
+    "native-oracle-run": "lean"
+  },
+  "manifestCommitField": "Absent in exact legacy exporter manifest; no retagging. Provenance remains external pinned native/tool evidence.",
+  "initializationActions": [],
+  "historicalFixture": {
+    "rawSha256": "2829b546ce40040e96f287c90c064ac5fdc0e069df173ee2a24d7d651fab455f",
+    "gzipSha256": "61912f0d4c925c10baf98d0a0989a4aa0884d1868e1d64af5e09f0a3e12c1621",
+    "preserved": true
+  }
+}

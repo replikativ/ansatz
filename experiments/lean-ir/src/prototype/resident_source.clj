@@ -29,21 +29,9 @@
   (eval/validate-executables! (:world prepared) (:trusted-functions configuration)
                               publication-roots))
 
-(defn load-and-publish
-  "Compile exactly once in a NEW persistent branch, then publish its actual packet.
-   REQUEST must explicitly select :initialization :defer; both publication profiles
-   require zero source initializer actions. Example:
-     (load-and-publish context (assoc request :initialization :defer)
-                       {:profile :standalone :configuration independent})
-   PUBLICATION requires {:profile :standalone|:over-init :configuration independent}.
-   On success returns a context, ordinary resident FileHandle and borrowed scalar
-   publication descriptor. Failed compilation never publishes. Adoption still
-   requires a live checked association, including for a diagnostic Environment;
-   if absent the exact completed packet is preserved in terminal failure evidence.
-   Publication adds registry owners; closing contexts does not unregister them or
-   close borrowed Stores/catalogues/leases. Original input context stays open and
-   unchanged. Publication is not an import loader; assembly/finalization are separate."
-  [context request {:keys [profile configuration] :as publication}]
+(defn- load-and-publish*
+  "Private fixed-dispatch publication core; no caller registration callback."
+  [context request {:keys [profile configuration expected-imports] :as publication} graph?]
   (locking context
     (let [entry (resident/snapshot context)
           active (atom (:session entry)) progress (volatile! (:world entry))
@@ -57,13 +45,17 @@
                      (reset! active (:session result)) (vreset! progress (:state result))
                      [(:state result) (:value result)]))]
       (try
-        (when-not (and (map? publication) (contains? #{:standalone :over-init} profile)
-                       (map? configuration))
+        (when-not (and (map? publication) (map? configuration)
+                       (if graph?
+                         (and (= #{:profile :configuration :expected-imports} (set (keys publication)))
+                              (= :graph profile))
+                         (contains? #{:standalone :over-init} profile)))
           (fail "Resident publication requires explicit profile and independent configuration" {}))
         (when-not (= :defer (:initialization request))
           (fail "Resident source publication requires deferred initialization" {}))
         (when (contains? request :calls)
           (fail "Use resident calls separately from source publication" {}))
+        (when graph? (source/validate-graph-imports! expected-imports))
         (publication-readiness! entry configuration)
         (vreset! phase :compile-started)
         (let [compiled (hosted/run-file entry request (:frontend-configuration configuration))]
@@ -80,9 +72,11 @@
               (vreset! progress world)
               (vswap! owners assoc :module-name name :module-name-state :owned)
               (vreset! phase :register-started)
-              (let [result ((case profile :standalone source/register-compiled
-                                           :over-init source/register-compiled-over-init)
-                            world invoke compiled name)]
+              (let [result (if graph?
+                             (source/register-compiled-graph world invoke compiled name expected-imports)
+                             ((case profile :standalone source/register-compiled
+                                            :over-init source/register-compiled-over-init)
+                              world invoke compiled name))]
                 (vreset! registered result) (vreset! progress (:world result))
                 (vswap! owners assoc :registry-environment (:environment (:entry result))
                                     :registry-module-data (:data (:entry result))
@@ -117,3 +111,31 @@
                                   :resident-source-phase @phase
                                   :resident-source-terminal? true
                                   :resident-operation :load-and-publish}) cause)))))))
+
+(defn load-and-publish
+  "Compile exactly once in a NEW persistent branch, then publish its actual packet.
+   REQUEST must explicitly select :initialization :defer; both publication profiles
+   require zero source initializer actions. Example:
+     (load-and-publish context (assoc request :initialization :defer)
+                       {:profile :standalone :configuration independent})
+   PUBLICATION requires {:profile :standalone|:over-init :configuration independent}.
+   On success returns a context, ordinary resident FileHandle and borrowed scalar
+   publication descriptor. Failed compilation never publishes. Adoption still
+   requires a live checked association, including for a diagnostic Environment;
+   if absent the exact completed packet is preserved in terminal failure evidence.
+   Publication adds registry owners; closing contexts does not unregister them or
+   close borrowed Stores/catalogues/leases. Original input context stays open and
+   unchanged. Publication is not an import loader; assembly/finalization are separate."
+  [context request publication]
+  (load-and-publish* context request publication false))
+
+(defn ^:no-doc load-and-publish-graph
+  "Internal fixed graph registration path. Produces only ordinary unsealed
+   publication data, never an issued GraphNode, completed receipt or permission.
+   The sealed graph caller independently authenticates parents and checked base.
+   Options are exactly {:configuration independent :expected-imports captured}."
+  [context request options]
+  (load-and-publish* context request
+                     (if (and (map? options) (= 2 (count options))
+                              (contains? options :configuration) (contains? options :expected-imports))
+                       (assoc options :profile :graph) nil) true))

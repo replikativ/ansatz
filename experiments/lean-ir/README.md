@@ -89,9 +89,30 @@ The [rooted native validation](measurements/source-graph-module-roots.json) pass
 all 15 native/oracle commands and a bounded static reconciliation of all 73
 required overlapping helper declarations. The new candidate preserves the four
 existing canonical runtime rows and has 173 local names absent from the scanned
-native index and archived function inventory. Strict hosted lowering/transport
-and whole-frontend helper admission remain separate pending gates. Historical
+native index and archived function inventory. Graph helper tests cover strict
+lowering and transport; genuine whole-frontend helper admission remains a
+separate pending gate. Historical
 exports remain unchanged; no runtime permission or performance claim follows.
+
+## Completed source graph runtime
+
+The optional resident graph APIs separate source publication from completed
+import authority. The fixed profile supplies both eval and frontend installation
+options. Each import checks the complete selected native/source union, creates
+fresh local Java projections, and activates all per-node receipts only after
+successful adoption. Retained input Contexts keep their previous checked state.
+
+The [runtime protocol and limits](research/SOURCE_GRAPH_RUNTIME.md) distinguish
+the staged integration tests from genuine frontend execution. The corrected
+chain gate passes 3 tests / 94 assertions, including real kernel admission and
+file installation for B importing A across all three backends. Compiler output
+serialization and finalization are modeled in that gate. Genuine graph-chain
+compilation, general project loading and shared-A diamond execution remain
+separate acceptance work.
+The [complete optional validation](measurements/source-graph-runtime.json) passes
+978 tests / 93,234 assertions. Its first full run stopped at the RSS limit; a
+separately reviewed 1280 MiB RSS ceiling passed with the same 512 MiB heap,
+deadline, free-memory floor and unchanged runtime/test code.
 
 ## Imported kernel dependency graph
 
