@@ -114,6 +114,8 @@ The [original G2 optional validation](measurements/source-graph-runtime.json) re
 separately reviewed 1280 MiB RSS ceiling passed with the same 512 MiB heap,
 deadline, free-memory floor and unchanged runtime/test code.
 
+The experimental [Project discovery coordinator](research/PROJECT_DISCOVERY.md) captures source once per module and threads updated header packets through an ordered dependency walk. It returns descriptive data without importing or compiling; checked Project loading remains pending. The [validation record](measurements/project-discovery.json) reports 997 optional tests / 93,591 assertions with modeled header transport.
+
 ## Explicit source capture
 
 The optional [source capture API](research/SOURCE_CAPTURE.md) selects a package

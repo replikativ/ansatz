@@ -28,6 +28,7 @@
          'prototype.source-graph-staged-test
          'prototype.project-source-test
          'prototype.classic-header-discovery-test
+         'prototype.project-discovery-test
          'prototype.typed-extern-test)
 
 (let [result (t/run-all-tests #"^prototype\..*-test$")]
