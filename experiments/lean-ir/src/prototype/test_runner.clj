@@ -12,6 +12,9 @@
             [prototype.project-source-test]
             [prototype.classic-header-discovery-test]
             [prototype.project-discovery-test]
+            [prototype.project-loader-test]
+            [prototype.project-loader-integration-test]
+            [prototype.project-loader-nonempty-test]
             [prototype.mutable-field-cow-test]
             [prototype.heap-overlay-test]
             [prototype.numeric-compile-test]
@@ -139,6 +142,9 @@
                             'prototype.project-source-test
                             'prototype.classic-header-discovery-test
                             'prototype.project-discovery-test
+                            'prototype.project-loader-test
+                            'prototype.project-loader-integration-test
+                            'prototype.project-loader-nonempty-test
                             'prototype.mutable-field-cow-test 'prototype.heap-overlay-test
                             'prototype.numeric-compile-test 'prototype.block-compile-test
                             'prototype.region-compile-test 'prototype.call-compile-test
