@@ -116,6 +116,8 @@ deadline, free-memory floor and unchanged runtime/test code.
 
 The experimental [Project discovery coordinator](research/PROJECT_DISCOVERY.md) captures source once per module and threads updated header packets through an ordered dependency walk. It returns descriptive data without importing or compiling; checked Project loading remains pending. The [validation record](measurements/project-discovery.json) reports 997 optional tests / 93,591 assertions with modeled header transport.
 
+The experimental [native Init base operation](research/NATIVE_INIT_BASE.md) prepares a fresh checked native-only view in the current persistent lineage while retaining published source registries. A separate opt-in factory supplies source-bound readiness provenance; the operation issues no source receipts. Its [validation record](measurements/native-init-base.json) reports 1008 optional tests / 93,772 assertions and separates tiny-Source and staged models from genuine restored-frontend acceptance, which remains pending.
+
 ## Explicit source capture
 
 The optional [source capture API](research/SOURCE_CAPTURE.md) selects a package

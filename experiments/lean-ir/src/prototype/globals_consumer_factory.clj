@@ -19,9 +19,12 @@
             [prototype.kernel-host :as kernel]
             [prototype.eval-const :as eval]
             [prototype.preparation :as prep]
+            [prototype.machine :as machine]
             [prototype.globals-consumer-profile :as compatibility])
   (:import [java.nio.charset StandardCharsets CodingErrorAction]
-           [java.nio ByteBuffer]))
+           [java.nio ByteBuffer]
+           [java.lang.ref WeakReference ReferenceQueue]
+           [java.util HashMap ArrayList]))
 
 (def factory-id "ansatz-full-init-source-bound-precheck/1")
 (def shared-linear-factory-id "ansatz-full-init-source-bound-precheck/2")
@@ -297,6 +300,116 @@
   (doseq [[name function] trusted]
     (wire/check (identical? function (get prepared name)) "Prepared registry identity drift")))
 
+;; Native-base readiness is explicitly opt-in. The six original constructors
+;; never build this metadata or register a binding. Source-bound provenance is
+;; recorded only at the end of their separately named successor's authenticated
+;; invocation. A caller's map is NEVER hashed or compared for registry lookup.
+(def ^:private native-init-symbol "lean_run_mod_init_core")
+(def ^:private native-init-limits
+  {:plans 4096 :imports 16384 :actions 16384 :symbols 12288 :queries 1024
+   :symbol-bytes 4096 :total-symbol-bytes 262144 :host-work 33554432})
+(defonce ^:private native-binding-provenance
+  {:buckets (HashMap.) :queue (ReferenceQueue.)})
+(defn- native-binding-hash [binding] (System/identityHashCode binding))
+(defn- native-binding-proof! [binding proof]
+  (locking native-binding-provenance
+    (let [^HashMap buckets (:buckets native-binding-provenance)
+          ^ReferenceQueue queue (:queue native-binding-provenance)]
+      (loop []
+        (when-let [dead (.poll queue)]
+          (let [key (.hashCode dead) ^ArrayList bucket (.get buckets key)]
+            (when bucket
+              (loop [i (dec (.size bucket))]
+                (when (<= 0 i)
+                  (when (identical? dead (first (.get bucket i))) (.remove bucket (int i)))
+                  (recur (dec i))))
+              (when (.isEmpty bucket) (.remove buckets key))))
+          (recur)))
+      (let [key (native-binding-hash binding)
+            ^ArrayList bucket (or (.get buckets key) (ArrayList.))
+            found (some (fn [[^WeakReference reference saved]]
+                          (when (identical? binding (.get reference)) saved)) bucket)]
+        (if proof
+          (do
+            (wire/check (nil? found) "Native initializer binding already attested")
+            ;; Only scalar KEY is captured by the proxy callback, never BINDING.
+            ;; PROOF must not contain this binding, its handler, or a World.
+            (.add bucket [(proxy [WeakReference] [binding queue] (hashCode [] key)) proof])
+            (.put buckets key bucket)
+            proof)
+          found)))))
+(defn- native-module-name! [value]
+  (loop [value value nodes 0 chars 0]
+    (wire/check (and (vector? value) (< nodes 256)) "Native module Name exceeds its bound")
+    (if (= ["anonymous"] value) chars
+      (do
+        (wire/check (and (= 3 (count value)) (or (= "str" (first value)) (= "num" (first value)))
+                         (string? (nth value 2))) "Malformed native module Name")
+        (let [n (+' chars (count (nth value 2)))]
+          (wire/check (<= n 16384) "Native module Name exceeds character bound")
+          (recur (second value) (inc nodes) n))))))
+(defn- native-init-metadata! [plans witness]
+  (wire/check (and (map? plans) (<= 1 (count plans) (:plans native-init-limits))
+                   (vector? (:symbols witness))
+                   (<= (count (:symbols witness)) (:symbols native-init-limits)))
+              "Native readiness metadata exceeds its fixed inventory bounds")
+  (let [counts (reduce (fn [{:keys [imports actions name-chars]} [_ plan]]
+                         (wire/check (and (vector? (:imports plan)) (vector? (:actions plan)))
+                                     "Native readiness requires finite producer vectors")
+                         ;; Check aggregate counts BEFORE scanning their elements.
+                         (let [i (+' imports (count (:imports plan))) a (+' actions (count (:actions plan)))]
+                           (wire/check (and (<= i (:imports native-init-limits)) (<= a (:actions native-init-limits)))
+                                       "Native readiness aggregate metadata exceeds bounds")
+                           (let [n (reduce (fn [n request]
+                                             (let [n (+' n (native-module-name! (:module request)))]
+                                               (wire/check (<= n 16777216) "Native readiness Name metadata exceeds64MiB UTF-8 ceiling") n))
+                                           (+' name-chars (native-module-name! (:module plan))) (:imports plan))]
+                             (wire/check (<= n 16777216) "Native readiness Name metadata exceeds64MiB UTF-8 ceiling")
+                             {:imports i :actions a :name-chars n})))
+                       {:imports 0 :actions 0 :name-chars 0} plans)
+        _ (reduce (fn [chars {:keys [module symbol]}]
+                    (wire/check (and (string? symbol) (<= 1 (count symbol) (:symbol-bytes native-init-limits)))
+                                "Native witness symbol exceeds bound")
+                    (let [n (+' chars (native-module-name! module) (count symbol))]
+                      ;; Conservative UTF-16 length*4 UTF-8 upper bound. No
+                      ;; unbounded byte encoding precedes this metadata gate.
+                      (wire/check (<= n 16777216) "Native witness metadata exceeds64MiB UTF-8 ceiling") n))
+                  (:name-chars counts) (:symbols witness))
+        init ["str" ["anonymous"] "Init"]
+        modules (loop [pending [init] seen #{}]
+                  (if (empty? pending) seen
+                    (let [module (peek pending) pending (pop pending)]
+                      (if (contains? seen module) (recur pending seen)
+                        (let [plan (get plans module)]
+                          (wire/check (and plan (< (count seen) (:queries native-init-limits)))
+                                      "Native readiness lacks bounded complete Init plans")
+                          (recur (into pending (map :module (:imports plan))) (conj seen module)))))))
+        valid (:initialized-symbols (initializers/options-from-witness plans witness))
+        selected (reduce (fn [out {:keys [symbol module phase]}]
+                           (if (and (= "all" phase) (contains? modules module)
+                                    (= {:module module :phase :all} (get valid symbol)))
+                             (do (wire/check (not (contains? out module)) "Ambiguous native initializer witness coverage")
+                                 (wire/check (and (string? symbol) (<= 1 (count symbol) (:symbol-bytes native-init-limits)))
+                                             "Native initializer symbol exceeds bound")
+                                 (let [bytes (alength (.getBytes ^String symbol StandardCharsets/UTF_8))]
+                                   (wire/check (<= bytes (:symbol-bytes native-init-limits)) "Native initializer UTF-8 symbol exceeds bound")
+                                   (assoc out module {:module module :symbol symbol :bytes bytes}))) out))
+                         {} (:symbols witness))
+        bytes (reduce +' 0 (map :bytes (vals selected)))
+        per-query (+' (*' 5 (count plans)) (*' 3 (:imports counts)))
+        work (*' (count modules) per-query)]
+    (wire/check (and (seq modules) (= modules (set (keys selected)))
+                     (<= bytes (:total-symbol-bytes native-init-limits))
+                     (<= work (:host-work native-init-limits)))
+                "Native readiness has incomplete coverage or exceeds host work bound")
+    ;; Witness order fixes query order without retaining plans/actions/graphs.
+    {:queries (into [] (keep (fn [{:keys [module phase symbol]}]
+                              (when (and (= "all" phase) (= symbol (get-in selected [module :symbol])))
+                                (select-keys (get selected module) [:module :symbol])))) (:symbols witness))
+     :host-units-per-query (long per-query) :max-host-work (:host-work native-init-limits)
+     :counts {:plans (count plans) :imports (:imports counts) :actions (:actions counts)
+              :queries (count modules) :symbol-bytes bytes :host-work (long work)}}))
+
 (defn- make-factory*
   "Construct an explicit approved factory. RESOLVE-ARTIFACT maps recipe artifact/
    inventory IDs to local paths. STORE-ROOT names the content-addressed declaration
@@ -305,7 +418,7 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
+  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
   (let [consumer-description (cond graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
                                      source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
                                      heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
@@ -355,6 +468,7 @@
             plans (into {} (keep (fn [manifest] (when-let [plan (:initializationPlan manifest)] [(:module plan) plan])))
                         (:manifests initial))
             witness (json/read-str (utf8 (checked-bytes resolve-artifact recipe :initializer-witness)) :key-fn keyword)
+            native-metadata (when native-owner (native-init-metadata! plans witness))
             transport (merge (regions/make-bindings loaded)
                              (initializers/make-bindings (initializers/options-from-witness plans witness)))
             ;; raw/lower consumes signatures only. These provisional handlers
@@ -389,7 +503,16 @@
                         "lean_eval_const" (eval/make-binding exporter
                                             {:witness (:witness profile) :witness-format :typed-ir
                                              :catalogue catalogue :trusted-functions trusted :research-traps? true})})]
-        (assoc consumer-description :catalogue catalogue :bindings bindings)))))
+        (let [result (assoc consumer-description :catalogue catalogue :bindings bindings)]
+          (when native-owner
+            (let [binding (get bindings native-init-symbol)
+                  metadata native-metadata]
+              (wire/check (and (= shared-linear-factory-id (:factory-id profile))
+                               (= initializers/signature (:signature binding)) (fn? (:handler binding)))
+                          "Native readiness requires the fixed authenticated initializer binding")
+              (native-binding-proof! binding (assoc metadata :owner native-owner :source source
+                                                   :producer compatibility/producer-implementation-sha256))))
+          result)))))
 
 
 (deftype Factory [])
@@ -410,14 +533,14 @@
    identities. No guest steps, initializer replay, Java association or source close."
   [factory parsed]
   ((:invoke (capability! factory)) parsed))
-(defn- issue-factory
+(defn- issue-factory*
   "Authenticate the archived producer separately from this actual consumer.
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options native-owner]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options)
+        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options native-owner)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
                      :compatibility-profile (cond graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
@@ -428,8 +551,11 @@
                                                   :else compatibility/profile-id)}]
     (let [factory (Factory.)]
       (locking issued-factories
-        (.put issued-factories factory {:descriptor description :invoke invoke}))
+        (.put issued-factories factory {:descriptor description :invoke invoke :native-owner native-owner}))
       factory)))
+
+(defn- issue-factory [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
+  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options nil))
 
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
@@ -464,3 +590,62 @@
    reviewed frontend pin. The five prior contracts/options remain unchanged."
   [options]
   (issue-factory true true true true true options))
+
+(defn make-source-graph-native-base-factory
+  "Opt-in sixth-profile factory for fixed source-bound native Init readiness.
+   All six previous constructors retain their exact options/output/validation.
+   This constructor performs additional bounded provenance validation only when
+   its authenticated restore invocation succeeds; it never executes a query."
+  [options]
+  (issue-factory* true true true true true options (Object.)))
+
+(deftype NativeInitReadiness [])
+(defonce ^:private native-readiness-issued (java.util.WeakHashMap.))
+(defn- native-readiness! [token]
+  (let [entry (when (instance? NativeInitReadiness token)
+                (locking native-readiness-issued (.get native-readiness-issued token)))]
+    (wire/check entry "Expected issued source-bound native readiness capability") entry))
+(defn native-init-readiness
+  "Issue a compact fixed readiness token from THIS opted-in factory's actual
+   authenticated returned binding and borrowed Source. Copied maps, signatures,
+   descriptors or options-from-witness confer no provenance. No World retained."
+  [factory source binding]
+  (let [factory-entry (capability! factory) owner (:native-owner factory-entry)]
+    (wire/check owner "Factory did not opt in to native Init readiness")
+    (let [proof (native-binding-proof! binding nil)]
+      (wire/check (and proof (identical? owner (:owner proof))
+                       (identical? source (:source proof)) (false? @(:closed source)))
+                  "Native initializer binding/source provenance mismatch")
+      (let [token (NativeInitReadiness.)]
+        (locking native-readiness-issued
+          (.put native-readiness-issued token (assoc proof :binding binding)))
+        token))))
+(defn native-init-coverage
+  "Bounded descriptive native selection, not readiness/completion evidence."
+  [token source binding]
+  (let [entry (native-readiness! token)]
+    (wire/check (and (identical? source (:source entry)) (false? @(:closed source))
+                     (identical? binding (:binding entry))) "Native readiness lost Source/binding identity")
+    {:modules (mapv :module (:queries entry)) :query-count (count (:queries entry))
+     :host-units-per-query (:host-units-per-query entry) :max-host-work (:max-host-work entry)
+     :counts (:counts entry)}))
+(defn ^:no-doc query-native-init
+  "Fixed token-indexed dispatch through the actual installed binding. Returns
+   owned [World, IO Bool]; the staged caller MUST escrow before decoding/release.
+   No IR/guest instructions, arbitrary symbol, callback, fallback or guard seed.
+   This low-level owned-Bool operation receives no session and does NOT attest
+   that a proposed binding is installed in an arbitrary World. The native staged
+   control independently matches its actual session/configuration before every
+   protected slice and finalizer entry; returned IO grants no import authority."
+  [token world binding index]
+  (let [entry (native-readiness! token) source (:source entry)]
+    ;; Identity precedes any access to the caller's proposed binding map.
+    (wire/check (and (identical? binding (:binding entry))
+                     (integer? index) (<= 0 index) (< index (count (:queries entry)))
+                     (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world))
+                     (not (:initializing? world)) (not (:initialization-scope world))
+                     (= 1 (count (:native-imports world)))
+                     (identical? source (first (:native-imports world))) (false? @(:closed source))
+                     (= initializers/signature (:signature binding)))
+                "Native readiness query requires its exact idle Source/binding packet")
+    ((:handler binding) nil world [(get-in entry [:queries (int index) :symbol]) machine/erased])))
