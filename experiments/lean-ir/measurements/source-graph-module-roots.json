@@ -1,0 +1,419 @@
+{
+  "schema": "source-graph-explicit-module-roots-validation/1",
+  "source-base": "031809672c7c565d1eb984c53bd837cba0b1167f",
+  "status": "native-oracle-and-static-reconciliation-passed-hosted-transport-pending",
+  "source-sha256": {
+    "experiments/lean-ir/scripts/check-source-graph-native.py": "7a2e40108c94e0d527689920209e8a7bffca13ef62a692be074fe112fdbf84c1"
+  },
+  "change": {
+    "helper-and-oracle-compile-root": "lean",
+    "fixture-compile-root": "lean/source-graph-fixtures",
+    "oracle-run-root": "lean",
+    "source-inputs-unchanged": true,
+    "existing-WNOWAIT-guard-unchanged": true,
+    "why": "Pinned Lean derives private module names from source path relative to root. Export --local cannot repair names already compiled into .olean files.",
+    "pinned-upstream": {
+      "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "citations": [
+        "src/Lean/Shell.lean:154",
+        "src/Lean/Shell.lean:545",
+        "src/Lean/Util/Path.lean:146"
+      ]
+    },
+    "resolved-collision": {
+      "name": "SourceModuleImport.mkOwnedPart",
+      "historical-private-constructor": "_private.lean.SourceModuleImport.0.SourceModuleImport.OwnedRegionView.mk",
+      "required-private-constructor": "_private.SourceModuleImport.0.SourceModuleImport.OwnedRegionView.mk",
+      "exact-IR-validation-not-relaxed": true
+    }
+  },
+  "native-validation": {
+    "status": "passed",
+    "commands": 15,
+    "all-exit-zero": true,
+    "native-attribution-entries": 95098,
+    "audits": [
+      {
+        "actions": [],
+        "closureRows": 246,
+        "externalABIs": 36,
+        "hostedSupport": {
+          "guestRedirects": 0,
+          "primitives": 36,
+          "rawBindings": 0
+        },
+        "localRows": 173,
+        "module": "SourceModuleGraphImport",
+        "newExternalABIs": 0
+      },
+      {
+        "actions": [],
+        "closureRows": 6,
+        "externalABIs": 2,
+        "hostedSupport": {
+          "guestRedirects": 0,
+          "primitives": 2,
+          "rawBindings": 0
+        },
+        "localRows": 4,
+        "module": "GraphOracleA",
+        "newExternalABIs": 0
+      },
+      {
+        "actions": [],
+        "closureRows": 8,
+        "externalABIs": 2,
+        "hostedSupport": {
+          "guestRedirects": 0,
+          "primitives": 2,
+          "rawBindings": 0
+        },
+        "localRows": 3,
+        "module": "GraphOracleB",
+        "newExternalABIs": 0
+      },
+      {
+        "actions": [],
+        "closureRows": 10,
+        "externalABIs": 2,
+        "hostedSupport": {
+          "guestRedirects": 0,
+          "primitives": 2,
+          "rawBindings": 0
+        },
+        "localRows": 3,
+        "module": "GraphOracleC",
+        "newExternalABIs": 0
+      }
+    ],
+    "semantic-observations": {
+      "modules": 634,
+      "Nat": 43,
+      "Unicode": "Ωλλ",
+      "negative-cases": 11,
+      "structural-diamond": true,
+      "native-source-count": 3,
+      "G0-order-comparison-exit": 0
+    },
+    "fixture-olean-hashes-unchanged": true,
+    "resource-policy": {
+      "preflightAvailableBytes": 5368709120,
+      "groupRSSLimitBytes": 2147483648,
+      "availableFloorBytes": 2147483648,
+      "wallLimitSeconds": 300
+    },
+    "observations": {
+      "elapsedSeconds": 61.40407422700082,
+      "peakGroupRSSBytes": 1762926592,
+      "minAvailableBytes": 2611412992
+    },
+    "guard": "Existing waitid(WNOWAIT) retains leader ownership through group cleanup and reap; signal/nonzero exit fails. Fresh output-only LEAN_PATH; no automatic retry.",
+    "command-results": [
+      {
+        "label": "lean-githash",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "--githash"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "a7063f65cc01828836218d947528a9e24483c2e309f3a6d12b0d80d3b7fdaf62",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "bb-version",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/bb",
+          "--version"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "0868f1f715bba878c3cc1ac1a2bba2d6016ff04dc0512f2c7600bdb909ea1014",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "compile-SourceModuleImport",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/SourceModuleImport.olean",
+          "lean/SourceModuleImport.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "compile-SourceModuleExport",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/SourceModuleExport.olean",
+          "lean/SourceModuleExport.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "compile-SourceModuleGraphImport",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/SourceModuleGraphImport.olean",
+          "lean/SourceModuleGraphImport.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "compile-SourceModuleGraphImportOracle",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/SourceModuleGraphImportOracle.olean",
+          "lean/SourceModuleGraphImportOracle.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "fixture-GraphOracleA",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean/source-graph-fixtures",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/GraphOracleA.olean",
+          "lean/source-graph-fixtures/GraphOracleA.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "fixture-GraphOracleB",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean/source-graph-fixtures",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/GraphOracleB.olean",
+          "lean/source-graph-fixtures/GraphOracleB.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "fixture-GraphOracleC",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean/source-graph-fixtures",
+          "-o",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans/GraphOracleC.olean",
+          "lean/source-graph-fixtures/GraphOracleC.lean"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "export-SourceModuleGraphImport",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean-ir-export",
+          "--source",
+          "lean/SourceModuleGraphImport.lean",
+          "--closure",
+          "--local",
+          "SourceModuleGraphImport"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "d20d2a2a12d503acbb292ca52116542dac50fb6ca02ffcd6f0ee8e392f89a40d",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "export-GraphOracleA",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean-ir-export",
+          "--source",
+          "lean/source-graph-fixtures/GraphOracleA.lean",
+          "--closure",
+          "--local",
+          "GraphOracleA"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "eb5946d35aaeb64593073b370aa8fd7b9918706bdae6f6b72c5db3a9e112fc1d",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "export-GraphOracleB",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean-ir-export",
+          "--source",
+          "lean/source-graph-fixtures/GraphOracleB.lean",
+          "--closure",
+          "--local",
+          "GraphOracleB"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "b7546b940ce490aef2b756c5b2dd0c1c43912b941991686589539a593e1c2d95",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "export-GraphOracleC",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean-ir-export",
+          "--source",
+          "lean/source-graph-fixtures/GraphOracleC.lean",
+          "--closure",
+          "--local",
+          "GraphOracleC"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "ee308df1340d86f399ada8f035bdce123d1cc55d50638953d8a3c966f770d731",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "label": "native-oracle",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/lean",
+          "-R",
+          "lean",
+          "--run",
+          "lean/SourceModuleGraphImportOracle.lean",
+          "lean/source-graph-fixtures",
+          "$EVIDENCE/validation-v1/native-run-v1/oleans"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "4c3f4d119106284f1ee56ba0e44d22aa5c7982cd42de91ffc07f33391d50b394",
+        "stderrSha256": "24b39982a488bb6085f76c1e6cf4cd76c72434650b17b74941fadd4094364052"
+      },
+      {
+        "label": "g0-order-comparison",
+        "argv-path-role-view": [
+          "$PINNED_TOOL_OR_INPUT/bb",
+          "scripts/check-source-graph-plan.bb",
+          "$EVIDENCE/validation-v1/native-run-v1/native-oracle.stdout"
+        ],
+        "exitCode": 0,
+        "stdoutSha256": "d7aee444e4e2cfb0f9c3c7b9c161fb50b26ffe841a798aaa08ef1590035fe40a",
+        "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "static-reconciliation": {
+    "status": "static-preflight-passed-pending-production-hosted-validation",
+    "analyzer-sha256": "45b98fd5e32dc3dce0310091d1fdb15a010be36db46ba63feac6e555130529cd",
+    "native-index-declarations": 375258,
+    "archive-functions": 311523,
+    "native-overlap-rows": 72,
+    "required-source-prep-overlap-rows": 73,
+    "all-overlaps-exact-kind-IR-dependencies-redirect": true,
+    "canonical-runtime-differences": [
+      {
+        "name": "Lean.Name.str._override._closed_0",
+        "canonical": {
+          "initializer": null,
+          "role": "closed"
+        },
+        "helper": {
+          "initializer": null,
+          "role": "value"
+        },
+        "rule": "old-local-canonical"
+      },
+      {
+        "name": "Std.DHashMap.Internal.AssocList.foldlM._at_._private.Std.Data.DHashMap.Internal.Defs.0.Std.DHashMap.Internal.Raw₀.expand.go._at_.Std.DHashMap.Internal.Raw₀.expand._at_.Std.DHashMap.Internal.Raw₀.insertIfNew._at_._private.Lean.Linter.Extra.UnreachableTactic.0.Lean.Linter.Extra.UnreachableTactic.initFn._@.Lean.Linter.Extra.UnreachableTactic.949854657._hygCtx._hyg.2.spec_0.spec_1.spec_2.spec_3._redArg._closed_0",
+        "canonical": {
+          "initializer": null,
+          "role": "closed"
+        },
+        "helper": {
+          "initializer": null,
+          "role": "value"
+        },
+        "rule": "old-local-canonical"
+      },
+      {
+        "name": "Std.DHashMap.Internal.AssocList.foldlM._at_._private.Std.Data.DHashMap.Internal.Defs.0.Std.DHashMap.Internal.Raw₀.expand.go._at_.Std.DHashMap.Internal.Raw₀.expand._at_.Std.DHashMap.Internal.Raw₀.insert._at_._private.Lean.Compiler.LCNF.EmitC.0.Lean.Compiler.LCNF.Arg.toCString.spec_1.spec_3.spec_4.spec_5._redArg._closed_0",
+        "canonical": {
+          "initializer": null,
+          "role": "closed"
+        },
+        "helper": {
+          "initializer": null,
+          "role": "value"
+        },
+        "rule": "old-local-canonical"
+      },
+      {
+        "name": "Std.DHashMap.Internal.Raw₀.contains._at_.Lean.Server.FileWorker.handleResolveImportAllUnknownIdentifiersCodeAction?.spec_2._redArg._closed_0",
+        "canonical": {
+          "initializer": null,
+          "role": "closed"
+        },
+        "helper": {
+          "initializer": null,
+          "role": "value"
+        },
+        "rule": "old-local-canonical"
+      }
+    ],
+    "local-helper-native-or-program-name-collisions": [],
+    "archived-function-name-matches": 50,
+    "elapsedSeconds": 25.936553977000585,
+    "peakRSSBytes": 115077120,
+    "limits": "Host reproduction of exact JSON reconciliation rule only; does not execute production Clojure validator, strict lowering, native Source, program identity/canonicalization or graph permission. Those remain required."
+  },
+  "reconciliation-boundary": {
+    "required-source-prep-overlaps": 73,
+    "new-local-rows": 173,
+    "aliases": 2,
+    "canonical-runtime-rule": "Existing import_ir reconciliation preserves old source-local canonical rows over imported rows after exact kind/IR/dependencies/redirect comparison. Four old closed versus imported value rows use this existing rule; no new exception.",
+    "production-Clojure-validator-executed": false,
+    "strict-lowering-transport-pending": true,
+    "whole-restored-frontend-admission-pending": true,
+    "no-legacy-manifest-retagging": true,
+    "no-authority-or-function-identity-claim": true
+  },
+  "reproduction": {
+    "cwd": "experiments/lean-ir",
+    "command": [
+      "python3",
+      "scripts/check-source-graph-native.py",
+      "--pins",
+      "$NATIVE_INPUT_PINS",
+      "--output",
+      "$FRESH_OUTPUT"
+    ],
+    "pins": "Resolve exact Lean/exporter/Babashka and unchanged source paths in the hashed native-input-pins manifest; preserve content hashes. Output must be fresh. Portable command-results show path roles, not executable commands; raw receipt retains actual argv.",
+    "postprocessor": "Separately reviewed host-only analyzer consumes independently reviewed native receipt under256MiB address-space/90s wall bounds; new candidate only."
+  },
+  "artifact-sha256": {
+    "target/artifact-contract/source-graph-module-roots/validation-v1/execution-plan.json": "16e0e06e2e9079ee8ee3a5fdd15c43b674c2869ae2763dc1e8ea25cb511ef6d9",
+    "target/artifact-contract/source-graph-module-roots/validation-v1/native-input-pins.json": "8fb662d8b832808f71ff7a945ae0c2c8f7733a77604772dd618af9a6301178ea",
+    "target/artifact-contract/source-graph-module-roots/validation-v1/launch.py": "b5815866484371f58e804956e6cc661b7fad11a6b18205905be2298f71a222e6",
+    "target/artifact-contract/source-graph-module-roots/validation-v1/native-run-v1/receipt.json": "4baf16354b15fe1bd3a76a57d8c30793a05a4e96b599eed41cd22093234073ee",
+    "target/artifact-contract/source-graph-module-roots/postprocess-v1/postprocess.py": "45b98fd5e32dc3dce0310091d1fdb15a010be36db46ba63feac6e555130529cd",
+    "target/artifact-contract/source-graph-module-roots/postprocess-v1/output-v1/reconciliation.json": "cbe03efefae64a4b754c4df0a6399589112ab18fefaa3b028b6a90db469ce1ea",
+    "target/artifact-contract/source-graph-module-roots/postprocess-v1/output-v1/source-graph-assembly.jsonl": "d20d2a2a12d503acbb292ca52116542dac50fb6ca02ffcd6f0ee8e392f89a40d",
+    "target/artifact-contract/source-graph-module-roots/postprocess-v1/output-v1/source-graph-assembly.jsonl.gz": "5d54b8e5f7c5165fa001ece86301d6eb348e236c8b4740092fb23e050e6527db",
+    "target/artifact-contract/source-graph-module-roots/postprocess-v1/output-v1/source-graph-assembly.provenance.json": "23cd125bde48f18b9f98a33f34e346337f32114571f0bae000e7bd3827f3ec16"
+  },
+  "limitations": [
+    "Native and static results do not establish hosted lowering, loaded-code attestation, graph import or graph macro/initializer permission.",
+    "New candidate is coordinated separately with runtime owner for246-row strict lowering/transport/publication tests; historical G1v8 and G2v11 bytes remain unchanged.",
+    "No JVM/core/jar/full optional suite run for this three-argv native-driver change; native oracle and host syntax/link checks cover the changed path. Repository CI remains a separate gate.",
+    "No performance improvement, cleanup, source release or retained-memory claim."
+  ]
+}
