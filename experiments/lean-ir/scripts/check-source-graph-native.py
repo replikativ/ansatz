@@ -227,10 +227,10 @@ def main():
         run("bb-version", [pins["bb"], "--version"])
         for module in ("SourceModuleImport", "SourceModuleExport", "SourceModuleGraphImport",
                        "SourceModuleGraphImportOracle"):
-            run("compile-" + module, [lean, "-o", str(oleans / (module + ".olean")), "lean/" + module + ".lean"])
+            run("compile-" + module, [lean, "-R", "lean", "-o", str(oleans / (module + ".olean")), "lean/" + module + ".lean"])
         fixture_outputs = []
         for module in ("GraphOracleA", "GraphOracleB", "GraphOracleC"):
-            run("fixture-" + module, [lean, "-o", str(oleans / (module + ".olean")),
+            run("fixture-" + module, [lean, "-R", "lean/source-graph-fixtures", "-o", str(oleans / (module + ".olean")),
                                       "lean/source-graph-fixtures/" + module + ".lean"])
             artifact = oleans / (module + ".olean")
             fixture_outputs.append({"module": module, "path": str(artifact),
@@ -344,7 +344,7 @@ def main():
         (output / "closure-audit.json").write_text(json.dumps(audits, indent=2) + "\n")
         check_fixture_outputs("beforeOracle")
         try:
-            native = run("native-oracle", [lean, "--run", "lean/SourceModuleGraphImportOracle.lean",
+            native = run("native-oracle", [lean, "-R", "lean", "--run", "lean/SourceModuleGraphImportOracle.lean",
                                            "lean/source-graph-fixtures", str(oleans)])
         finally:
             check_fixture_outputs("afterOracle")

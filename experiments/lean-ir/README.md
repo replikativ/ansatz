@@ -63,6 +63,21 @@ paired trials; it reports current-thread allocations and does not force GC.
 A [separate portable reproduction](measurements/runtime-ops-table-portable-reproduction.json)
 passes the exact tracked driver starting without an experiment `target` directory.
 
+## Native source graph module identity
+
+The native graph driver now supplies explicit Lean module roots: `lean` for the
+helper/oracle package and `lean/source-graph-fixtures` for the fixture package.
+The oracle run uses the same helper root. This keeps private declaration names
+consistent with the existing source-import helpers; export `--local` alone cannot
+repair names already compiled into an `.olean` file.
+The [rooted native validation](measurements/source-graph-module-roots.json) passes
+all 15 native/oracle commands and a bounded static reconciliation of all 73
+required overlapping helper declarations. The new candidate preserves the four
+existing canonical runtime rows and has 173 local names absent from the scanned
+native index and archived function inventory. Strict hosted lowering/transport
+and whole-frontend helper admission remain separate pending gates. Historical
+exports remain unchanged; no runtime permission or performance claim follows.
+
 ## Imported kernel dependency graph
 
 Strict imported checking builds its reverse dependency map with an invocation-local
