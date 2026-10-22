@@ -114,6 +114,15 @@ The [complete optional validation](measurements/source-graph-runtime.json) passe
 separately reviewed 1280 MiB RSS ceiling passed with the same 512 MiB heap,
 deadline, free-memory floor and unchanged runtime/test code.
 
+## Explicit source capture
+
+The optional [source capture API](research/SOURCE_CAPTURE.md) selects a package
+root with Lean's first-package precedence and captures bounded immutable UTF-8
+text once. Its digest describes the captured bytes; it grants no import authority.
+A future loader must parse and compile that same text, enforce aggregate project
+limits, and schedule dependencies through the checked graph runtime. General
+project loading remains pending.
+
 ## Imported kernel dependency graph
 
 Strict imported checking builds its reverse dependency map with an invocation-local
