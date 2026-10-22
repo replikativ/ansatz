@@ -130,6 +130,44 @@
     (fail "Source module cannot replace the native Init prefix" {}))
   (register-profile world invoke compilation module-name init-requests :over-init))
 
+(defn validate-graph-imports!
+  "Internal bounded classic header check, not graph authority. Only issued graph
+   operations may seal these dependencies into node or completed-import proofs."
+  [requests]
+  (when-not (and (vector? requests) (<= 2 (count requests) 1026)
+                 (= init-requests (subvec requests 0 2)))
+    (fail "Graph publication requires bounded implicit Init/meta Init imports" {}))
+  (doseq [request (subvec requests 2)]
+    (when-not (and (map? request) (= 4 (count request))
+                   (= false (:importAll request)) (= true (:isExported request))
+                   (= false (:isMeta request)) (contains? request :module))
+      (fail "Graph publication requires ordinary classic source dependencies" {}))
+    (loop [encoded (:module request) nodes 0 chars 0]
+      (when (>= nodes 128) (fail "Graph module Name exceeds node limit" {}))
+      (if (and (vector? encoded) (= 1 (count encoded)) (= "anonymous" (first encoded)))
+        (when (zero? nodes) (fail "Graph dependency module is anonymous" {}))
+        (do
+          (when-not (and (vector? encoded) (= 3 (count encoded))
+                         (= "str" (first encoded)) (string? (nth encoded 2)))
+            (fail "Graph dependency requires a structured string module Name" {}))
+          (let [part (nth encoded 2) size (count part)]
+            ;; Count before content traversal or module-string rendering.
+            (when-not (and (pos? size) (<= size 4096) (<= (+ chars size) 4096))
+              (fail "Graph module Name exceeds character limit" {}))
+            (when (.contains ^String part ".")
+              (fail "Graph module Name segment cannot contain a dot" {}))
+            (recur (second encoded) (inc nodes) (+ chars size)))))))
+  requests)
+
+(defn ^:no-doc register-compiled-graph
+  "Internal fixed :graph registration; returns unsealed source data only.
+   No GraphProfile/GraphNode or completed receipt/authorization is issued here."
+  [world invoke compilation module-name expected-imports]
+  (validate-graph-imports! expected-imports)
+  (when (= init-module (get-in compilation [:handle :module-name]))
+    (fail "Graph source module cannot replace native Init" {}))
+  (register-profile world invoke compilation module-name expected-imports :graph))
+
 (defn- entry! [world module]
   (let [entry (get-in world [:source-modules module]) unit (:unit entry)]
     (when-not (and entry (identical? unit (get-in world [:eval-const-authorizations :units (:unit-digest entry)])))
@@ -296,6 +334,12 @@
   (prefix! world prefix)
   (-> world (update :source-import-prefixes dissoc (:id (:state prefix)))
       (m/release (:state prefix) 1)))
+
+(defn ^:no-doc validate-init-prefix!
+  "Internal read-only provenance check of an existing registered Init scaffold.
+   Returns that same borrowed prefix; creates no prefix or checked association."
+  [world prefix]
+  (prefix! world prefix))
 
 (defn assemble
   "Create actual guest ImportedModule/ImportState. Returned :state/:imports are
@@ -513,7 +557,8 @@
   [world context environment row local unit]
   (let [module (:sourceModule row) entry (get-in world [:source-modules module])
         digest (get-in world [:eval-const-authorizations :unit-digests (:name row)])]
-    (if-not (and entry (identical? unit (:unit entry)) (= digest (:unit-digest entry))
+    (if-not (and entry (not= :graph (:profile entry))
+                 (identical? unit (:unit entry)) (= digest (:unit-digest entry))
                  (identical? local (get-in world [:eval-const-authorizations :declarations (:name row)]))
                  (false? (:sourceLocal row))) [world false]
       (let [checker (:check-trusted-functions! context)

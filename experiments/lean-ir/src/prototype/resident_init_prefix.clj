@@ -9,6 +9,8 @@
             [prototype.runtime-prim :as prim]
             [clojure.data.json :as json]
             [prototype.source-import :as source]
+            [prototype.source-graph-plan :as graph-plan]
+            [prototype.kernel-host :as kernel-host]
             [prototype.module-import :as imports]
             [prototype.module-store :as store]
             [prototype.eval-const :as eval]
@@ -24,7 +26,8 @@
             [ansatz.kernel.name :as name]
             [clojure.string :as str])
   (:import [ansatz.kernel Env ConstantInfo]
-           [java.util WeakHashMap]))
+           [java.util WeakHashMap]
+           [java.util.concurrent.atomic AtomicBoolean]))
 
 (deftype InitPrefix [])
 (defonce ^:private issued (WeakHashMap.))
@@ -224,7 +227,8 @@
   (cond-> {:phase (:phase data) :guest-steps (:used data 0)
            :outer-steps (:outer-steps data 0) :helper-steps (:helper-steps data 0)
            :completed-operations (:operations data 0)}
-    (:reconstruction data) (assoc :reconstruction (get-in data [:reconstruction :audit]))))
+    (:reconstruction data) (assoc :reconstruction (get-in data [:reconstruction :audit]))
+    (:graph-operation? data) (assoc :source-graph (:graph-audit data))))
 (defn- finished-import-state [data]
   ;; The issued token still rejects repeat consumption, but no continuation or
   ;; authority remains usable after successful adoption. Keep only descriptive
@@ -232,11 +236,21 @@
   ;; for as long as the caller retains this otherwise exhausted control.
   (cond-> (assoc (select-keys data [:used :outer-steps :helper-steps :operations])
                  :phase :finished :busy? true)
-    (:reconstruction data) (assoc :reconstruction {:audit (get-in data [:reconstruction :audit])})))
+    (:reconstruction data) (assoc :reconstruction {:audit (get-in data [:reconstruction :audit])})
+    (:graph-operation? data) (assoc :graph-operation? true :graph-audit (:graph-audit data))))
 (defn- import-failure! [state cause]
+  ;; Graph proof/check helpers may perform host RC work after their final raw
+  ;; getter. Preserve the cause's later exact World/session and paired owners
+  ;; in private state as well as the canonical outer exception. Legacy escrow
+  ;; fields and behavior stay in their fixed path.
+  (when (:graph-operation? @state)
+    (let [child (ex-data cause)]
+      (when (contains? child :checkpoint) (swap! state assoc :world (:checkpoint child)))
+      (when (:checkpoint-session child) (swap! state assoc :session (:checkpoint-session child)))
+      (swap! state assoc :graph-child-failure child)))
   (let [data @state previous (:phase data)
         wrapped (ex-info (or (.getMessage cause) "Resident Init import failed")
-             (merge {:checkpoint (:world data) :checkpoint-session (:session data)} (ex-data cause)
+             (cond-> (merge {:checkpoint (:world data) :checkpoint-session (:session data)} (ex-data cause)
                     {:resident-init-import-entry (:entry data)
                      :resident-init-import-request (:request data)
                      :resident-init-import-header (:header data)
@@ -249,7 +263,8 @@
                      :resident-init-import-ownership (:owners data)
                      :resident-init-import-reconstruction (select-keys (:reconstruction data) [:cache :owners :temporary])
                      :resident-init-import-progress (assoc (import-progress data) :phase previous)
-                     :resident-init-import-terminal? true}) cause)]
+                     :resident-init-import-terminal? true})
+               (:graph-operation? data) (assoc :source-graph-import-state data :source-graph-import-terminal? true)) cause)]
     (swap! state assoc :phase :failed :failure-phase previous :failure wrapped)
     (throw wrapped)))
 
@@ -315,7 +330,9 @@
                   {:control control :progress (import-progress @state)})))))
         (catch Throwable cause (import-failure! state cause))))))
 
-(defn- continuation-readiness! [{:keys [world session prefix certificate configuration]}]
+(declare graph-profile! source-graph-roots)
+
+(defn- continuation-readiness! [{:keys [world session prefix certificate configuration] :as data}]
   ;; Only issued private continuations enter here. Full scaffold/range checks
   ;; remain at existing public assemble/finish use boundaries, not each slice.
   (when-not (and (identical? (:functions world) (:functions session))
@@ -333,11 +350,18 @@
       (fail "Init import continuation host capability changed" {:symbol symbol})))
   (eval/validate-executables! world (:trusted-functions configuration)
                             (concat preparation-roots standalone/import-roots))
+  (when (:graph-operation? data)
+    (let [p (graph-profile! (get-in data [:source-graph :profile]))]
+      (when-not (and (identical? p (get-in data [:source-graph :profile-data]))
+                     (identical? (:token p) (get-in data [:source-graph :profile-token])))
+        (fail "Source graph continuation lost its exact issued profile" {}))
+      (eval/validate-executables! world (:trusted-functions configuration) source-graph-roots)))
   true)
 
-(declare in-reconstruction-scope release-reconstruction-owners)
+(declare in-reconstruction-scope release-reconstruction-owners
+         graph-invocation finish-source-graph-operation!)
 
-(defn advance-import!
+(defn- advance-import-operation!
   "Advance an issued operation in bounded cooperative slices. LIMITS is exactly
    {:max-operations positive :wall-ms positive}, optionally :observe! scalar-fn.
    Wall budget is checked BETWEEN operations, never preempts host/native work.
@@ -345,8 +369,10 @@
    budget before running. Completed events are escrowed before accounting and
    observers; any failure poisons the operation permanently. No caller snapshot,
    budget replacement, retry or finalizer replay is accepted."
-  [control {:keys [max-operations wall-ms observe!] :as limits}]
+  [control {:keys [max-operations wall-ms observe!] :as limits} graph-mode?]
   (let [state (import-control! control)]
+    (when-not (= graph-mode? (boolean (:graph-operation? @state)))
+      (fail "Import operation belongs to another fixed API" {}))
     (locking control
       (when-let [failure (:failure @state)] (throw failure))
       (when-not (and (not (:busy? @state)) (contains? #{:assembled :running} (:phase @state)))
@@ -399,6 +425,92 @@
         (catch Throwable cause (import-failure! state cause))
         (finally (swap! state assoc :busy? false))))))
 
+(defn advance-import!
+  "Advance an issued operation in bounded cooperative slices. LIMITS is exactly
+   {:max-operations positive :wall-ms positive}, optionally :observe! scalar-fn.
+   Wall budget is checked BETWEEN operations, never preempts host/native work.
+   Reserve the full next outer/helper bound from the immutable aggregate attempt
+   budget before running. Completed events are escrowed before accounting and
+   observers; any failure poisons the operation permanently. No caller snapshot,
+   budget replacement, retry or finalizer replay is accepted."
+  [control limits]
+  (advance-import-operation! control limits false))
+
+(defn advance-source-graph-import!
+  "Advance only an issued completed-only graph operation in bounded slices."
+  [control limits]
+  (when-not (instance? InitImport control) (fail "Expected an issued graph import operation" {}))
+  (advance-import-operation! control limits true))
+
+(defn- finish-import-operation!
+  "Fixed legacy/graph finish dispatch. Both paths consume one completed IO,
+   validate/check their own exact union, escrow before release/adoption, then
+   replace only successful controls with descriptive tombstones."
+  [control graph-mode?]
+  (let [state (import-control! control)]
+    (when-not (= graph-mode? (boolean (:graph-operation? @state)))
+      (fail "Import operation belongs to another fixed API" {}))
+    (locking control
+      (when-let [failure (:failure @state)] (throw failure))
+      (when-not (and (not (:busy? @state)) (= :io-completed (:phase @state)))
+        (fail "Init import has no unconsumed completed finalizer IO" {:phase (:phase @state)}))
+      ;; Claim the IO before any helper/checking effect. Later errors cannot retry.
+      (swap! state assoc :phase :checking-started :busy? true)
+      (try
+        (continuation-readiness! @state)
+        (let [{:keys [assembly world io certificate kernel-policy budgets configuration entry]} @state
+              invoke (if graph-mode?
+                       (graph-invocation state (select-keys budgets [:helper-fuel :attempt-fuel]))
+                       (fn [world target args]
+                       (swap! state assoc :world world)
+                       (let [called (raw/call (assoc (:session @state) :fuel (:helper-fuel budgets)) world target args)]
+                         (swap! state assoc :world (:state called) :session (:session called)
+                                :last-call {:target target :arguments args :returned called})
+                         [(:state called) (:value called)])))
+              finished (if graph-mode?
+                         (finish-source-graph-operation! state invoke)
+                         (source/finish-over-init assembly world io invoke
+                           {:kernel-policy (assoc kernel-policy :projection-certificate certificate)}))]
+          (swap! state assoc :finished finished :world (:world finished))
+          (when-not (= :ok (:status finished))
+            (fail "Init source finalizer returned IO error" {:checkpoint (:world finished) :io-result (:io-result finished)}))
+          (swap! state update :owners assoc :final-environment (:environment finished)
+                 :final-environment-state :owned :assembly-owner-state :consumed-by-successful-finalizer)
+          (let [receipt (if graph-mode? (:source-graph-receipts finished) (:source-import-receipt finished))]
+            (when-not (if graph-mode?
+                        (and (vector? receipt) (= (count receipt) (count (get-in @state [:source-graph :selection :nodes]))))
+                        (and receipt (identical? (:checked-env receipt) (get-in finished [:certificate :env]))))
+              (fail "Init import has no exact fresh source-only checked receipt" {}))
+            (release-reconstruction-owners state)
+            (swap! state assoc :phase :adopt-started)
+            (when-not graph-mode?
+              (swap! state update :world m/release (:module-name @state) 1)
+              (swap! state update :owners assoc :module-name-state :released))
+            (swap! state update :world m/release (:environment entry) 1)
+            (swap! state update :owners assoc :prior-environment-in-new-branch :released)
+            (let [prepared (assoc (packet entry (:world @state)
+                                               (assoc (:session @state) :fuel (get-in entry [:session :fuel])))
+                                 :environment (:environment finished))
+                  _ (swap! state assoc :adoption-entry prepared)
+                  context (resident/adopt-prepared prepared configuration)
+                  _ (when graph-mode? (swap! state assoc :adopted-context context))
+                  result (if graph-mode?
+                           {:context context :request (:request @state) :header (:header @state)
+                            :graph-import-receipts receipt}
+                           {:context context :request (:request @state) :header (:header @state)
+                            :import-receipt {:module (:module @state) :unit-digest (:unit-digest receipt)
+                                             :constant-count (count (:constants receipt))}})
+                  completed (finished-import-state @state)
+                  result (cond-> result graph-mode? (assoc :progress (import-progress completed)))]
+              ;; Construct the complete return value before discarding any
+              ;; failure evidence. This changes host reachability only: all
+              ;; guest owner releases and the public adoption already succeeded.
+              (reset! state completed)
+              result)))
+        (catch Throwable cause (import-failure! state cause))
+        (finally (swap! state assoc :busy? false))))))
+
+
 (defn finish-import!
   "Consume this operation's completed genuine finalizer IO exactly once. Freshly
    check the WHOLE Init+A map; only immutable native projections may reuse the
@@ -409,55 +521,29 @@
    exhausted control; returned Context and borrowed input snapshots remain owned
    as before. Failed/unfinished operations retain their exact diagnostic packets."
   [control]
+  (finish-import-operation! control false))
+
+(defn finish-source-graph-import!
+  "Freshly check a graph union and adopt its atomic completed receipt batch.
+   Failed candidate batches remain diagnostic and cannot authorize graph rows."
+  [control]
+  (when-not (instance? InitImport control) (fail "Expected an issued graph import operation" {}))
   (let [state (import-control! control)]
     (locking control
-      (when-let [failure (:failure @state)] (throw failure))
-      (when-not (and (not (:busy? @state)) (= :io-completed (:phase @state)))
-        (fail "Init import has no unconsumed completed finalizer IO" {:phase (:phase @state)}))
-      ;; Claim the IO before any helper/checking effect. Later errors cannot retry.
-      (swap! state assoc :phase :checking-started :busy? true)
-      (try
-        (continuation-readiness! @state)
-        (let [{:keys [assembly world io certificate kernel-policy budgets configuration entry]} @state
-              invoke (fn [world target args]
-                       (swap! state assoc :world world)
-                       (let [called (raw/call (assoc (:session @state) :fuel (:helper-fuel budgets)) world target args)]
-                         (swap! state assoc :world (:state called) :session (:session called)
-                                :last-call {:target target :arguments args :returned called})
-                         [(:state called) (:value called)]))
-              finished (source/finish-over-init assembly world io invoke
-                         {:kernel-policy (assoc kernel-policy :projection-certificate certificate)})]
-          (swap! state assoc :finished finished :world (:world finished))
-          (when-not (= :ok (:status finished))
-            (fail "Init source finalizer returned IO error" {:checkpoint (:world finished) :io-result (:io-result finished)}))
-          (swap! state update :owners assoc :final-environment (:environment finished)
-                 :final-environment-state :owned :assembly-owner-state :consumed-by-successful-finalizer)
-          (let [receipt (:source-import-receipt finished)]
-            (when-not (and receipt (identical? (:checked-env receipt) (get-in finished [:certificate :env])))
-              (fail "Init import has no exact fresh source-only checked receipt" {}))
-            (release-reconstruction-owners state)
-            (swap! state assoc :phase :adopt-started)
-            (swap! state update :world m/release (:module-name @state) 1)
-            (swap! state update :owners assoc :module-name-state :released)
-            (swap! state update :world m/release (:environment entry) 1)
-            (swap! state update :owners assoc :prior-environment-in-new-branch :released)
-            (let [prepared (assoc (packet entry (:world @state)
-                                               (assoc (:session @state) :fuel (get-in entry [:session :fuel])))
-                                 :environment (:environment finished))
-                  _ (swap! state assoc :adoption-entry prepared)
-                  context (resident/adopt-prepared prepared configuration)
-                  result {:context context :request (:request @state) :header (:header @state)
-                          :import-receipt {:module (:module @state) :unit-digest (:unit-digest receipt)
-                                           :constant-count (count (:constants receipt))}}
-                  completed (finished-import-state @state)]
-              ;; Construct the complete return value before discarding any
-              ;; failure evidence. This changes host reachability only: all
-              ;; guest owner releases and the public adoption already succeeded.
-              (reset! state completed)
-              result)))
-        (catch Throwable cause (import-failure! state cause))
-        (finally (swap! state assoc :busy? false))))))
-
+      (when-not (:graph-operation? @state)
+        (fail "Import operation belongs to another fixed API" {}))
+      (let [activation (get-in @state [:source-graph :activation])]
+        ;; Preserve common terminal-failure/repeat semantics. A successful
+        ;; tombstone deliberately no longer retains its activation token.
+        (when (and (not (:failure @state)) (not= :finished (:phase @state))
+                   (not (and (instance? AtomicBoolean activation)
+                             (not (.get ^AtomicBoolean activation)))))
+          (fail "Source graph operation has no inactive receipt batch" {}))
+        (let [result (finish-import-operation! control true)]
+          ;; This is the last effect, AFTER the common function's finally and
+          ;; complete result construction. The token has no cap/World backlink.
+          (.set ^AtomicBoolean activation true)
+          result)))))
 
 ;; Pure original-publication provenance groundwork. This does not issue a
 ;; capability, associate a target, or authorize reconstruction execution.
@@ -468,8 +554,8 @@
       (fail "Publication proof requires a bounded guest array" {:maximum maximum}))
     (:fields node)))
 
-(defn- publication-proof!
-  [original prefix certificate module invoke {:keys [max-constants name-limits] :as limits}]
+(defn- publication-proof-with-base!
+  [original prefix certificate module invoke {:keys [max-constants name-limits] :as limits} base]
   (let [progress (volatile! (:world original))
         owners (volatile! {})
         call (fn [target args owner]
@@ -487,12 +573,12 @@
       (let [world @progress entry (get-in world [:source-modules module])
             digest (:unit-digest entry) unit (:unit entry)
             environment (:environment original)
-            _ (when-not (and (= :over-init (:profile entry)) (= module (:module entry))
+            _ (when-not (and (= (:profile base) (:profile entry)) (= module (:module entry))
                              (= environment (:environment entry))
                              (identical? unit (get-in world [:eval-const-authorizations :units digest]))
                              (= [] (:actions unit)) (= [] (get-in unit [:manifest :initializationPlan :actions]))
                              (= module (get-in unit [:manifest :initializationPlan :module]))
-                             (= source/init-requests (get-in entry [:metadata :imports]))
+                             (= (:imports base) (get-in entry [:metadata :imports]))
                              (= 1 (count (:native-imports world)))
                              (identical? (:source prefix) (first (:native-imports world)))
                              (false? @(:closed (:source prefix))))
@@ -508,17 +594,22 @@
                 (fail "Original source publication name/CI arrays differ" {}))
             exported (reduce (fn [out [name value]]
                                (let [name (bridge/project-name-bounded world name name-limits)]
-                                 (when (or (contains? out name) (contains? (:constants certificate) name)
+                                 (when (or (contains? out name) (contains? (:constants base) name)
                                            (not (m/ref? value))
                                            (not= name (imported/project-constant-name world value name-limits)))
                                    (fail "Source publication duplicate, collision or name/ref mismatch" {}))
                                  (assoc out name value))) {} (map vector names values))
+            name-refs (into {} (map (fn [value]
+                                       [(bridge/project-name-bounded world value name-limits) value])) names)
+            seen-extras (volatile! #{})
             guest-names (reduce (fn [out value]
                                   (let [name (bridge/project-name-bounded world value name-limits)]
-                                    (when (or (contains? out name) (contains? (:constants certificate) name))
+                                    (when (or (contains? @seen-extras name) (contains? (:constants base) name)
+                                              (and (contains? out name) (not (:allow-const-extra? base))))
                                       (fail "Source publication duplicate/colliding constant/extra name" {}))
-                                    (assoc out name value))) {} (concat names extras))
-            expected (merge (:constants certificate) exported)
+                                    (vswap! seen-extras conj name)
+                                    (assoc out name value))) name-refs extras)
+            expected (merge (:constants base) exported)
             _ (when (> (count expected) max-constants)
                 (fail "Publication proof exceeds total constant limit" {}))
             root (call (:root imports/helpers) [environment] :root)
@@ -541,7 +632,7 @@
                              (= (set actual) (set (vals expected)))
                              (= (count expected) (count (.allConstants checked))))
                 (fail "Original checked publication is not the exact native plus source CI union" {}))
-            _ (doseq [[name ci] (:projected certificate)]
+            _ (doseq [[name ci] (:projected base)]
                 (when-not (identical? ci (.lookup checked name))
                   (fail "Original publication changed a native Java ConstantInfo identity" {})))
             projected (into {} (map (fn [[name _]]
@@ -562,6 +653,14 @@
                         (merge {:checkpoint @progress} (ex-data cause)
                                {:publication-proof-original original :publication-proof-owners @owners
                                 :publication-proof-terminal? true}) cause))))))
+
+(defn- publication-proof!
+  ;; Fixed legacy adapter: exact native+ONE source, Init-only publication header,
+  ;; and the original no-overlap rule remain unchanged.
+  [original prefix certificate module invoke limits]
+  (publication-proof-with-base! original prefix certificate module invoke limits
+    {:profile :over-init :imports source/init-requests :constants (:constants certificate)
+     :projected (:projected certificate) :allow-const-extra? false}))
 
 ;; These optional profiles are generation-scoped host capabilities. They are not
 ;; a hostile-host security boundary: admitted code/bindings obey guest RC and no
@@ -1098,3 +1197,1123 @@
                                {:reconstruction-proof-owners (get-in @state [:reconstruction :owners])
                                 :reconstruction-proof-temporary @temporary}) cause)))
       (finally (swap! state assoc-in [:reconstruction :proof-in-progress?] false)))))
+
+;; Ordinary source graphs have separate issued identities and completed-only
+;; authorization. They never enter reconstruction-active/request scope.
+(deftype SourceGraphProfile [])
+(deftype SourceGraphNode [])
+(deftype SourceGraphReceipt [])
+(defonce ^:private graph-profiles (WeakHashMap.))
+(defonce ^:private graph-nodes (WeakHashMap.))
+(defonce ^:private graph-receipts (WeakHashMap.))
+(def graph-assemble-helper
+  ["str" ["str" ["anonymous"] "SourceModuleGraphImport"] "assembleClassicGraphOverInit"])
+(def source-graph-roots
+  (vec (distinct (concat preparation-roots standalone/import-roots
+                         publication/publication-roots reconstruction-roots
+                         [graph-assemble-helper]))))
+(def ^:private graph-limit-keys
+  #{:max-modules :max-roots :max-edges :max-depth :max-names :max-name-nodes
+    :max-name-bytes :max-total-name-bytes :max-key-bytes :max-total-key-bytes})
+(declare authorize-completed-graph-row graph-json!)
+
+(defn- graph-utf8-size!
+  "Count valid Unicode without allocating an encoded byte array."
+  [^String text budget]
+  (loop [index 0 bytes 0]
+    (if (= index (.length text)) bytes
+      (let [c (.charAt text index)
+            pair? (Character/isHighSurrogate c)
+            _ (when (or (Character/isLowSurrogate c)
+                        (and pair? (or (= (inc index) (.length text))
+                                       (not (Character/isLowSurrogate (.charAt text (inc index)))))))
+                (fail "Source graph Name has an invalid Unicode scalar" {}))
+            size (cond pair? 4 (< (int c) 128) 1 (< (int c) 2048) 2 :else 3)
+            next-bytes (+' bytes size)]
+        (when (> next-bytes budget) (fail "Source graph Name exceeds byte bound" {}))
+        (recur (+ index (if pair? 2 1)) next-bytes)))))
+
+(defn- graph-wire-name!
+  "Bound before hashing/rendering. String counts gate Unicode scans; UTF-8 bytes
+   and the helper's ten-byte numeric charge use the SAME explicit byte budget.
+   Numeric payloads remain decimal strings until the UInt32 cap is established."
+  ([encoded module? limits] (graph-wire-name! encoded module? limits nil))
+  ([encoded module? limits total-bytes]
+   (let [budget (min (:max-name-bytes limits)
+                     (if total-bytes (- (:max-total-name-bytes limits) @total-bytes)
+                         (:max-name-bytes limits)))]
+    (loop [current encoded nodes 0 bytes 0]
+     (when (> (inc nodes) (:max-name-nodes limits))
+       (fail "Source graph Name exceeds spine bound" {}))
+     (if (and (vector? current) (= 1 (count current)) (= "anonymous" (first current)))
+       (do (when (and module? (zero? nodes)) (fail "Anonymous source graph module" {}))
+           (when total-bytes (vswap! total-bytes +' bytes)) encoded)
+       (do
+         (when-not (and (vector? current) (= 3 (count current)))
+           (fail "Source graph requires a structured Name" {}))
+         (let [[tag parent part] current string-node? (= "str" tag)]
+           (when-not (and (or string-node? (= "num" tag)) (string? part)
+                          (<= (count part) (- budget bytes)))
+             (fail "Source graph Name payload exceeds bound" {}))
+           (let [size (if string-node? (graph-utf8-size! part (- budget bytes)) 10)
+                 total (+' bytes size)]
+             (when (> total budget) (fail "Source graph Name exceeds byte bound" {}))
+             (when (and module? (or (not string-node?) (empty? part) (.contains ^String part ".")))
+               (fail "Source graph module requires roundtrip string segments" {}))
+             (when (and (not string-node?)
+                        (not (and (<= 1 (count part) 10) (re-matches #"(?:0|[1-9][0-9]*)" part)
+                                  (or (< (count part) 10) (not (pos? (compare part "4294967295")))))))
+               (fail "Source graph numeric Name exceeds UInt32 profile" {}))
+             (recur parent (inc nodes) total)))))))))
+
+(defn- graph-java-name!
+  "Bound the caller's Java Name before allocating its wire representation."
+  [value module? limits]
+  (when-not (instance? ansatz.kernel.Name value)
+    (fail "Source graph requires a kernel Name" {}))
+  (loop [^ansatz.kernel.Name current value parts [] bytes 0]
+    (when (> (inc (count parts)) (:max-name-nodes limits))
+      (fail "Source graph Name exceeds spine bound" {}))
+    (if (.isAnonymous current)
+      (do (when (and module? (empty? parts)) (fail "Anonymous source graph module" {}))
+          (reduce (fn [prefix [kind payload]] [kind prefix payload]) ["anonymous"] (rseq parts)))
+      (let [remaining (- (:max-name-bytes limits) bytes)
+            string? (.isStr current)
+            part (if string? (.str current) (.num current))
+            size (if string?
+                   (do (when (> (count part) remaining) (fail "Source graph Name exceeds byte bound" {}))
+                       (graph-utf8-size! part remaining))
+                   (do (when-not (and (.isNum current) (<= 0 part 4294967295) (>= remaining 10))
+                         (fail "Source graph numeric Name exceeds UInt32 profile" {})) 10))]
+        (when (and module? (or (not string?) (empty? part) (.contains ^String part ".")))
+          (fail "Source graph module requires roundtrip string segments" {}))
+        (recur (.prefix current) (conj parts [(if string? "str" "num") (if string? part (str part))])
+               (+' bytes size))))))
+
+(defn- graph-json!
+  "Gate bytes and lexical nesting before the JSON parser's recursive descent.
+   This is a bounded parser input check, never an authority or identity digest."
+  [text limits graph-limits]
+  (let [maximum (:max-bytes limits) depth-limit (+' 32 (:max-name-nodes graph-limits))]
+    (when-not (and (string? text) (<= (count text) maximum))
+      (fail "Source graph JSON exceeds parsing bound" {}))
+    (graph-utf8-size! text maximum)
+    (loop [index 0 depth 0 quoted? false escaped? false]
+      (when (< index (count text))
+        (let [c (.charAt ^String text index)]
+          (cond
+            escaped? (recur (inc index) depth quoted? false)
+            (and quoted? (= c \\)) (recur (inc index) depth true true)
+            (= c \") (recur (inc index) depth (not quoted?) false)
+            quoted? (recur (inc index) depth true false)
+            (or (= c \[) (= c \{))
+            (do (when (>= depth depth-limit) (fail "Source graph JSON exceeds nesting bound" {}))
+                (recur (inc index) (inc depth) false false))
+            (or (= c \]) (= c \}))
+            (do (when (zero? depth) (fail "Source graph JSON has unmatched delimiters" {}))
+                (recur (inc index) (dec depth) false false))
+            :else (recur (inc index) depth false false)))))
+    (json/read-str text :key-fn keyword)))
+
+(defn- graph-profile! [profile]
+  (or (when (instance? SourceGraphProfile profile)
+        (locking graph-profiles (.get graph-profiles profile)))
+      (fail "Expected an issued source graph profile" {})))
+(defn- graph-node! [node]
+  (or (when (instance? SourceGraphNode node) (locking graph-nodes (.get graph-nodes node)))
+      (fail "Expected an issued source graph node" {})))
+(defn- graph-receipt! [receipt]
+  (or (when (instance? SourceGraphReceipt receipt)
+        (let [data (locking graph-receipts (.get graph-receipts receipt))
+              activation (:activation data)]
+          (when (and (instance? AtomicBoolean activation) (.get ^AtomicBoolean activation)) data)))
+      (fail "Expected an issued completed source graph receipt" {})))
+
+(defn prepare-source-graph-profile
+  "Issue a distinct completed-only graph binding BEFORE configuration/prefix
+   capture. Configuration is exactly {:limits explicit-CI/admission/DAG-limits
+   :graph-limits explicit-module/edge/Name-byte/key-limits
+   :host-limits {:max-heap-entries explicit-shadow-scan-bound}}. No initializer,
+   checked association, publication or before-completion permission is issued.
+   Return :profile, :eval-binding and fixed :install-options. Capture the latter
+   in configuration :frontend-configuration before prefix preparation; file
+   witnesses use the same selected witness/format as evalConst."
+  [exporter eval-options helper-configuration]
+  (when-not (and (map? eval-options) (vector? (:witness eval-options))
+                 (map? (:trusted-functions eval-options))
+                 (not (contains? eval-options :authorize-source-import))
+                 (map? helper-configuration)
+                 (= 3 (count helper-configuration))
+                 (= #{:limits :graph-limits :host-limits} (set (keys helper-configuration))))
+    (fail "Source graph profile requires its own authorizer and explicit limits" {}))
+  ;; Bound key inventories before the legacy fixed-limit validator traverses
+  ;; them. Legacy callers keep their original validation behavior.
+  (when-not (and (map? (:limits helper-configuration)) (= 7 (count (:limits helper-configuration)))
+                 (map? (get-in helper-configuration [:limits :name-limits]))
+                 (= 2 (count (get-in helper-configuration [:limits :name-limits]))))
+    (fail "Source graph profile requires bounded fixed CI/Name limit keys" {}))
+  (let [limits (reconstruction-limits! (:limits helper-configuration))
+        graph-limits (:graph-limits helper-configuration)
+        host-limits (:host-limits helper-configuration)
+        _ (when-not (and (map? host-limits) (= 1 (count host-limits))
+                          (contains? host-limits :max-heap-entries))
+            (fail "Source graph profile requires an explicit host heap scan bound" {}))
+        _ (positive-long! (:max-heap-entries host-limits) :max-heap-entries)
+        _ (when-not (and (map? graph-limits) (= (count graph-limit-keys) (count graph-limits))
+                          (= graph-limit-keys (set (keys graph-limits))))
+            (fail "Source graph profile requires exact assembly limits" {}))
+        _ (doseq [[key value] graph-limits] (positive-long! value key))
+        profile (SourceGraphProfile.) token (Object.)
+        authorizer (fn [world context environment row local unit]
+                     (authorize-completed-graph-row token limits graph-limits
+                                                   world context environment row local unit))
+        binding (eval/make-binding exporter (assoc eval-options :authorize-source-import authorizer))
+        ;; Both consumers use invoke-witness with the same Env/Name/IO args and
+        ;; selected format, including the shared typed-IR witness. Keep the
+        ;; admitted lower-extern policy; file installation always defers init.
+        install-options (assoc eval-options :authorize-source-import authorizer :initialize? false)]
+    ;; A separate token avoids a strong value -> closure -> weak-key cycle.
+    (locking graph-profiles
+      (.put graph-profiles profile {:token token :binding binding :authorizer authorizer
+                                   :installer-witness (:witness eval-options)
+                                   :installer-witness-format (get eval-options :witness-format :json-string)
+                                   :limits limits :graph-limits graph-limits :host-limits host-limits}))
+    {:profile profile :eval-binding binding :install-options install-options}))
+
+(defn- graph-installer-matches! [profile configuration]
+  (let [options (get-in configuration [:frontend-configuration :install-options])]
+    ;; This is closure/witness identity plus fixed semantics, NOT map identity:
+    ;; a captured lower-extern policy may coexist with the fixed graph route.
+    (when-not (and (map? options)
+                   (identical? (:authorizer profile) (:authorize-source-import options))
+                   (identical? (:installer-witness profile) (:witness options))
+                   (= (:installer-witness-format profile) (get options :witness-format :json-string))
+                   (not (:initialize? options)))
+      (fail "Source graph requires its exact completed installer and witness" {}))
+    true))
+
+(defn- graph-readiness! [entry prefix profile]
+  (let [p (graph-profile! profile)
+        _ (when-not (instance? InitPrefix prefix) (fail "Expected an issued graph Init prefix" {}))
+        issued (capability! prefix)
+        configuration (:configuration issued)]
+    (graph-installer-matches! p configuration)
+    (preparation-readiness! entry configuration (:native-bindings issued))
+    (when-not (and (identical? (:binding p) (get-in configuration [:trusted-bindings "lean_eval_const"]))
+                   (identical? (:binding p) (get-in entry [:session :bindings "lean_eval_const"]))
+                   (identical? (:prefix issued)
+                               (get-in entry [:world :source-import-prefixes
+                                              (:id (get-in issued [:prefix :state]))])))
+      (fail "Source graph requires its exact pre-admitted binding and issued prefix" {}))
+    ;; The existing prefix validator scans for native-range shadows. Bound its
+    ;; whole-heap work before entering that unchanged legacy validator too.
+    (when (> (count (get-in entry [:world :heap])) (get-in p [:host-limits :max-heap-entries]))
+      (fail "Source graph heap exceeds explicit prefix-validation bound" {}))
+    (source/validate-init-prefix! (:world entry) (:prefix issued))
+    (eval/validate-executables! (:world entry) (:trusted-functions configuration) source-graph-roots)
+    (assoc issued :graph-profile p)))
+
+(defn- graph-source-matches!
+  "Exact open Source and bounded no-shadow proof. Optional evidence belongs only
+   to this operation and is reusable only for an identical immutable heap/Source."
+  [world node evidence]
+  (let [source (:source node) sources (:native-imports world) heap (:heap world)
+        maximum (get-in node [:host-limits :max-heap-entries])]
+    (when-not (and source (= 1 (count sources)) (identical? source (first sources))
+                   (false? @(:closed source)))
+      (fail "Source graph publication Native Source changed or closed" {}))
+    (when-not (and (integer? maximum) (pos? maximum) (<= (count heap) maximum))
+      (fail "Source graph heap exceeds explicit shadow-scan bound" {}))
+    (let [prior (when evidence @evidence)
+          immutable? (instance? clojure.lang.IPersistentMap heap)]
+      (when-not (and immutable? prior (identical? heap (:heap prior))
+                     (identical? source (:source prior)))
+        (let [start (:base source) end (+' start (:size source))]
+          (when (some #(and (integer? %) (<= start %) (< % end)) (keys heap))
+            (fail "Source graph immutable Native Source range is shadowed" {})))
+        (when (and evidence immutable?)
+          (vreset! evidence {:heap heap :source source}))))
+    true))
+
+(defn- graph-entry-matches!
+  "Receipt updates may extend the original entry, but never replace provenance.
+   Compare original values by identity before accepting a candidate world."
+  ([world node] (graph-entry-matches! world node true))
+  ([world node full-admission?] (graph-entry-matches! world node full-admission? nil))
+  ([world node full-admission? source-evidence]
+   (graph-source-matches! world node source-evidence)
+   (let [original (:entry node) current (get-in world [:source-modules (:module node)])
+        allowed (conj (set (keys original)) :graph-import)]
+    (when-not (and (map? current)
+                   (<= (count current) (count allowed))
+                   (every? #(contains? allowed %) (keys current))
+                   (every? (fn [[key value]] (identical? value (get current key))) original)
+                   (or (not full-admission?)
+                       (publication-admission-matches! world (:proof node) (:limits node)))
+                   (= (:data-graph node)
+                      (local-ci-graph! world [(:data original)] (:limits node))))
+      (fail "Source graph candidate differs from its sealed publication" {}))
+     current)))
+
+(defn- completed-graph-candidates [token world entry row local unit]
+  (let [receipt (:graph-import entry)]
+    (reduce
+      (fn [out receipt]
+        ;; Reject descriptive maps before WeakHashMap hashing or guest work.
+        (if-not (instance? SourceGraphReceipt receipt) out
+          (let [r (locking graph-receipts (.get graph-receipts receipt))
+                node (when (instance? SourceGraphNode (:node r))
+                       (locking graph-nodes (.get graph-nodes (:node r))))
+                captured (get-in node [:proof :admission :rows (:name row)])
+                anchor (get-in world [:kernel-environments (:id (:anchor r))])]
+            (if (and r node (instance? AtomicBoolean (:activation r))
+                     (.get ^AtomicBoolean (:activation r))
+                     (identical? token (:profile-token r))
+                     (identical? token (:profile-token node))
+                     (= (:module node) (:sourceModule row) (:module r))
+                     captured (false? (:sourceLocal row))
+                     (identical? unit (:unit captured))
+                     (identical? unit (get-in world [:eval-const-authorizations :units (:digest captured)]))
+                     (= (:digest captured) (get-in world [:eval-const-authorizations :unit-digests (:name row)]))
+                     (identical? local (:row captured))
+                     (identical? local (get-in world [:eval-const-authorizations :declarations (:name row)]))
+                     (identical? (:function captured) (get-in world [:functions (:name row)]))
+                     (identical? (:function captured)
+                                 (get-in world [:eval-const-authorizations :functions (:name row)]))
+                     (= (:anchor r) (:anchor anchor)) (= (:constant-map r) (:constant-map anchor))
+                     (identical? (:checked-env r) (:env anchor)))
+              (conj out [r node]) out)))) [] (if receipt [receipt] []))))
+
+(defn- authorize-completed-graph-row
+  [token limits graph-limits world context environment row local unit]
+  ;; Names are bounded before source-registry/captured-row lookups hash them.
+  (graph-wire-name! (:sourceModule row) true graph-limits)
+  (graph-wire-name! (:name row) false graph-limits)
+  (let [entry (get-in world [:source-modules (:sourceModule row)])]
+    (if-not (= :graph (:profile entry))
+      (source/authorize-imported-row world context environment row local unit)
+      (let [candidates (completed-graph-candidates token world entry row local unit)]
+        (if (empty? candidates) [world false]
+          (let [progress (volatile! world) owners (volatile! {}) checkpoint! (:checkpoint! context)
+                invoke (:invoke context) checker (:check-trusted-functions! context)
+                save! (fn [world]
+                        (vreset! progress world)
+                        (when checkpoint! (checkpoint! world))
+                        world)
+                call! (fn [target args owner]
+                        (let [[world value] (invoke @progress target args)]
+                          (vreset! progress world)
+                          (when owner (vswap! owners assoc owner {:value value :status :owned}))
+                          (save! world)
+                          value))
+                release! (fn [owner]
+                           (vreset! progress (m/release @progress (get-in @owners [owner :value]) 1))
+                           (vswap! owners assoc-in [owner :status] :released)
+                           (save! @progress))]
+            (try
+              (when-not (and (fn? invoke) (fn? checker) (fn? checkpoint!))
+                (fail "Completed graph authorization requires authenticated raw helper context" {}))
+              (checker world reconstruction-roots)
+              ;; Only the requested captured row is checked here; full baseline
+              ;; admission preservation belongs to sealed operation preparation.
+              ;; Protected map/registry owners prevent lawful unique RC reuse.
+              (doseq [[_ node] candidates] (graph-entry-matches! @progress node false))
+              (let [inherit-context
+                    (assoc context :invoke
+                      (fn [_ target args]
+                        (let [owner (cond (= target (:root imports/helpers)) :inherit-root
+                                          (= target (:constant-map imports/helpers)) :inherit-map)
+                              value (call! target args owner)]
+                          [@progress value])))
+                    before @progress
+                    [world ^Env checked] (kernel-host/inherit-checked-association
+                                          inherit-context before environment imports/helpers)
+                    root (get-in @owners [:inherit-root :value])]
+                (vreset! progress world)
+                ;; inherit-checked-association consumes its getter owners; a new
+                ;; header-only anchor transfers the root owner to the world.
+                (when root
+                  (vswap! owners assoc-in [:inherit-root :status]
+                          (if (and (not (get-in before [:kernel-environments (:id root)]))
+                                   (get-in world [:kernel-environments (:id root)]))
+                            :transferred-to-world :released)))
+                (when (:inherit-map @owners) (vswap! owners assoc-in [:inherit-map :status] :released))
+                (save! world)
+                (if-let [[receipt node]
+                         (when checked
+                           (some (fn [[receipt node]]
+                                   (when (every? (fn [[name ci]] (identical? ci (.lookup checked name)))
+                                                 (:projected receipt)) [receipt node])) candidates))]
+                  (let [root (call! (:root imports/helpers) [environment] :root)
+                        map-ref (call! (:constant-map imports/helpers) [environment] :map)
+                        anchor (get-in @progress [:kernel-environments (:id root)])
+                        flag (call! (:quot-init? imports/helpers) [environment] nil)
+                        _ (when-not (and (= root (:anchor anchor)) (= map-ref (:constant-map anchor))
+                                         (identical? checked (:env anchor))
+                                         (= (if (.isQuotEnabled checked) 1 0)
+                                            (native/nat-value {:ref? m/ref? :node m/node} @progress flag)))
+                            (fail "Completed graph target checked root/map/quotient differs" {}))
+                        visibility (call! (:is-exporting reconstruction-helpers) [environment] nil)
+                        _ (when-not (= 0 (native/nat-value {:ref? m/ref? :node m/node} @progress visibility))
+                            (fail "Completed graph requires the actual private selected view" {}))
+                        header-ref (call! (:header source/helpers) [environment] :header)
+                        text (string/string-value {:ref? m/ref? :node m/node} @progress header-ref)
+                        _ (when (> (count text) (:max-bytes limits))
+                            (fail "Completed graph header exceeds host parsing bound" {}))
+                        header (graph-json! text limits graph-limits)
+                        _ (when-not (and (= "lean-source-import-header/1" (:schema header))
+                                         (= "SourceModuleImport.finalizerHeader" (:producer header))
+                                         (= (get prim/pinned-build "lean_get_githash") (:leanCommit header))
+                                         (false? (:moduleSystem header))
+                                         (= (:requested-imports receipt) (:imports header)))
+                            (fail "Completed graph target import header differs" {}))
+                        _ (release! :header)
+                        names-ref (call! module-names-helper [environment] :module-names)
+                        names (mapv #(let [encoded (structured-name-value
+                                                   (bridge/project-name-bounded @progress % (:name-limits limits)))]
+                                       (graph-wire-name! encoded true graph-limits))
+                                    (proof-array! @progress names-ref (:max-modules graph-limits)))
+                        _ (when-not (= (:module-order receipt) names)
+                            (fail "Completed graph target module order differs" {}))
+                        _ (release! :module-names)
+                        name-ref (get-in node [:wire-names (:name row)])
+                        _ (when-not name-ref (fail "Completed graph row lacks CI/extra-name attribution" {}))
+                        _ (when-not (= (:name row)
+                                       (structured-name-value
+                                         (bridge/project-name-bounded @progress name-ref (:name-limits limits))))
+                            (fail "Completed graph row Name changed at its saved Ref" {}))
+                        index (call! module-index-helper [environment name-ref] :index)
+                        index-node (when (m/ref? index) (m/node @progress index))
+                        _ (when-not (and (= 1 (:tag index-node)) (bridge/constructor-layout? index-node 1 0)
+                                         (= (:module-index receipt)
+                                            (native/nat-value {:ref? m/ref? :node m/node} @progress
+                                                              (first (:fields index-node)))))
+                            (fail "Completed graph row belongs to another attempt module" {}))]
+                    (release! :index) (release! :map) (release! :root)
+                    [@progress true])
+                  [@progress false]))
+              (catch Throwable cause
+                (throw (ex-info (or (.getMessage cause) "Completed source graph proof failed")
+                                (merge {:checkpoint @progress} (ex-data cause)
+                                       {:source-graph-proof-owners @owners}) cause))))))))))
+
+(defn- graph-planner-limits [limits]
+  {:max-modules (:max-modules limits) :max-roots (:max-roots limits)
+   :max-edges (:max-edges limits) :max-depth (:max-depth limits) :max-names (:max-names limits)
+   :max-name-nodes (:max-name-nodes limits) :max-name-chars (:max-name-bytes limits)
+   :max-total-name-chars (:max-total-name-bytes limits)})
+
+(defn- graph-data-arrays [world value maximum]
+  (let [node (when (m/ref? value) (m/node world value))]
+    (when-not (and (= 0 (:tag node)) (bridge/constructor-layout? node 5 1))
+      (fail "Source graph requires actual ModuleData layout" {}))
+    (let [[_ names constants extras] (:fields node)
+          names (proof-array! world names maximum) constants (proof-array! world constants maximum)
+          extras (proof-array! world extras maximum)]
+      (when-not (= (count names) (count constants))
+        (fail "Source graph ModuleData CI/name arrays differ" {}))
+      (let [flag (m/read-scalar-node node {:index 5 :offset 0 :type "uint8" :region :scalar})]
+        (when-not (or (= 0 flag) (= 1 flag))
+          (fail "Source graph ModuleData isModule is not a Bool" {}))
+        {:names names :constants constants :extras extras :module? (= 1 flag)}))))
+
+(defn- graph-native-arrays [world prefix limits]
+  (when-not (and (vector? (:modules prefix)) (<= (count (:modules prefix)) (:max-modules limits)))
+    (fail "Source graph native module inventory exceeds bound" {}))
+  (mapv (fn [module]
+          (let [parts (:parts module) ir-parts (:irParts module)]
+            (when-not (and (vector? parts) (<= 1 (count parts) 3)
+                           (vector? ir-parts) (<= (count ir-parts) 2) (true? (:hasData module)))
+              (fail "Source graph native data parts are incomplete" {}))
+            (let [public (graph-data-arrays world (:value (first parts)) (:max-names limits))
+                  private (if (:module? public)
+                            (do (when-not (= 3 (count parts))
+                                  (fail "Source graph native private data part is missing" {}))
+                                (graph-data-arrays world (:value (nth parts 2)) (:max-names limits))) public)
+                  ir (if (and (:module? private) (seq ir-parts))
+                       (graph-data-arrays world (:value (peek ir-parts)) (:max-names limits)) private)]
+              {:module (:module module) :names (:names private) :extras (:extras ir)}))) (:modules prefix)))
+
+(defn- graph-plan-selection!
+  "Only private authenticated node data enters here. G0 remains descriptive;
+   exact G1 Name occurrences/UTF-8/key budgets are checked in addition to G0."
+  [world prefix p nodes root-descriptors]
+  (let [limits (:graph-limits p) native (graph-native-arrays world prefix limits)
+        descriptors (mapv :descriptor nodes)
+        requests (into source/init-requests (map #(hash-map :module (:module %) :importAll false
+                                                          :isExported true :isMeta false)) root-descriptors)
+        names (reduce +' (+' (count requests) (count nodes))
+                      (concat (map #(+' 2 (count (:names %)) (count (:extras %))) native)
+                              (map #(+' 2 (count (:dependencies %)) (count (:const-names %))
+                                         (count (:extra-names %))) descriptors)))
+        _ (when (or (> (+ (count native) (count nodes)) (:max-modules limits))
+                    (> (count root-descriptors) (:max-roots limits)) (> names (:max-names limits)))
+            (fail "Source graph selected module/root/Name inventory exceeds bounds" {}))
+        total (volatile! 0)
+        project (fn [value]
+                  (let [remaining (- (:max-total-name-bytes limits) @total)
+                        name-limits (-> (get-in p [:limits :name-limits])
+                                        (update :max-nodes min (:max-name-nodes limits))
+                                        (update :max-chars min (:max-name-bytes limits) remaining))
+                        encoded (structured-name-value (bridge/project-name-bounded world value name-limits))]
+                    (graph-wire-name! encoded false limits total)))
+        native (mapv (fn [{:keys [module names extras]}]
+                       ;; G1 checks prefix moduleNames and each selected record.
+                       (graph-wire-name! module true limits total)
+                       (graph-wire-name! module true limits total)
+                       {:module module :const-names (mapv project names) :extra-names (mapv project extras)}) native)
+        keys-total (volatile! 0)]
+    (doseq [[node descriptor] (map vector nodes descriptors)]
+      (graph-wire-name! (:module descriptor) true limits total)
+      (doseq [request (into source/init-requests
+                           (map #(hash-map :module (:module %) :importAll false :isExported true :isMeta false))
+                           (:dependencies descriptor))]
+        (graph-wire-name! (:module request) true limits total))
+      (doseq [name (concat (:const-names descriptor) (:extra-names descriptor))]
+        (graph-wire-name! name false limits total))
+      (let [key (get-in node [:entry :key]) remaining (- (:max-total-key-bytes limits) @keys-total)]
+        (when-not (and (string? key) (pos? (count key))
+                       (<= (count key) (min (:max-key-bytes limits) remaining)))
+          (fail "Source graph region key exceeds bound" {}))
+        (vswap! keys-total +' (graph-utf8-size! key (min (:max-key-bytes limits) remaining)))))
+    (doseq [request requests] (graph-wire-name! (:module request) true limits total))
+    (when (> (reduce +' (count (:constants prefix))
+                     (map #(count (get-in % [:proof :constants])) nodes))
+             (get-in p [:limits :max-constants]))
+      (fail "Source graph selected CI union exceeds its constant bound" {}))
+    (let [plan (graph-plan/plan native descriptors root-descriptors (graph-planner-limits limits))
+          by-module (into {} (map (juxt :module identity)) nodes)]
+      {:plan plan :nodes (mapv by-module (:source-order plan)) :requested-imports requests
+       :name-count names :name-bytes @total :key-bytes @keys-total
+       :constants (reduce (fn [out node] (merge out (get-in node [:proof :constants])))
+                          (:constants prefix) nodes)})))
+
+(defn- graph-resolve!
+  "Resolve capabilities by identity before providing bounded descriptors to G0.
+   Module/version conflicts and exact dependency order are checked by G0; there
+   is no branch-heap merge and no caller-supplied topology or version digest."
+  [world prefix-cap prefix p roots]
+  (when-not (and (vector? roots) (<= (count roots) (get-in p [:graph-limits :max-roots])))
+    (fail "Source graph requires bounded ordered root capabilities" {}))
+  (let [limit (get-in p [:graph-limits :max-modules])
+        source-evidence (volatile! nil)
+        issued (loop [pending (vec (rseq roots)) seen #{} nodes [] edges 0]
+                (if (empty? pending) nodes
+                  (let [cap (peek pending) pending (pop pending) node (graph-node! cap)]
+                    (when-not (and (identical? (:profile-token node) (:token p))
+                                   (identical? prefix-cap (:prefix node))
+                                   (identical? (:source prefix) (:source node)))
+                      (fail "Source graph roots mix profile/prefix/Native Source identities" {}))
+                    (if (contains? seen cap) (recur pending seen nodes edges)
+                      (let [parents (:parents node) next-edges (+' edges (count parents))]
+                        (when-not (and (vector? parents) (< (+ (count (:modules prefix)) (count nodes)) limit)
+                                       (<= next-edges (get-in p [:graph-limits :max-edges])))
+                          (fail "Source graph closure exceeds module/edge bounds" {}))
+                        (graph-entry-matches! world node true source-evidence)
+                        (recur (into pending (rseq parents)) (conj seen cap) (conj nodes [cap node]) next-edges))))))
+        nodes (mapv second issued)
+        roots (mapv (fn [cap] (select-keys (:descriptor (graph-node! cap)) [:module :version])) roots)]
+    (assoc (graph-plan-selection! world prefix p nodes roots)
+           :caps-by-module (into {} (map (fn [[cap node]] [(:module node) cap])) issued))))
+
+(defn- graph-proof-budgets! [budgets]
+  (when-not (and (map? budgets) (= 2 (count budgets))
+                 (= #{:helper-fuel :attempt-fuel} (set (keys budgets))))
+    (fail "Source graph proof requires explicit helper/aggregate fuel" {}))
+  (doseq [[key value] budgets] (positive-long! value key))
+  budgets)
+
+(defn- graph-budget-operation!
+  "Private fixed-call adapter. Reserve before effects; save returned packet
+   before charging. Failed calls keep actual checkpoint/session and poison the
+   attempt; an unknown failure retains its entire reservation, never retries."
+  [state budgets label operation]
+  (let [world (:world @state) session (:session @state) bound (:helper-fuel budgets)]
+    (when (:budget-poisoned? @state) (fail "Source graph proof attempt is poisoned" {}))
+    (when (> bound (- (:attempt-fuel budgets) (:used @state)))
+      (fail "Source graph proof cannot reserve next helper" {:reservation bound}))
+    (swap! state assoc :reserved bound :phase :proof-helper-started)
+    (try
+      (let [result (operation (assoc session :fuel bound) world)
+            _ (swap! state assoc :world (:world result) :session (:session result)
+                     :last-operation {:label label :returned result})
+            delta (- (get-in result [:world :stats :steps]) (get-in world [:stats :steps]))]
+        (when-not (<= 0 delta bound) (fail "Source graph helper charge is invalid" {}))
+        (swap! state #(-> % (update :used +' delta) (assoc :reserved 0 :phase :proof-helper-completed)))
+        result)
+      (catch Throwable cause
+        (let [data (ex-data cause)
+              latest (or (:checkpoint data) (:world @state))
+              delta (when (and (contains? data :checkpoint) (get-in latest [:stats :steps]))
+                      (- (get-in latest [:stats :steps]) (get-in world [:stats :steps])))]
+          (swap! state assoc :world latest :session (or (:checkpoint-session data) (:session @state))
+                 :budget-poisoned? true :phase :proof-helper-failed
+                 :failed-operation {:label label :cause cause :observed-steps delta})
+          (when (and delta (<= 0 delta bound))
+            (swap! state #(-> % (update :used +' delta) (assoc :reserved 0))))
+        (throw cause))))))
+
+(defn- graph-invocation [state budgets]
+  (fn [world target args]
+    (swap! state assoc :world world)
+    (let [before (:used @state)]
+      (try
+        (let [result (graph-budget-operation! state budgets {:target target :arguments args}
+                       (fn [session world]
+                         (let [called (raw/call session world target args)]
+                           {:world (:state called) :session (:session called) :value (:value called)
+                            :raw-result called})))]
+          [(:world result) (:value result)])
+        (finally
+          ;; Charge only observed work, including a known partial failure. An
+          ;; unknown failed reservation remains reserved by the budget adapter.
+          ;; Publication proof states have no graph-operation marker.
+          (when (:graph-operation? @state)
+            (swap! state update :helper-steps +' (- (:used @state) before))))))))
+
+(defn- graph-current-receipt!
+  "Use THIS world's latest receipt and THIS checked base's Java projections;
+   never reuse a local Java CI from an earlier node publication/import attempt."
+  [world p node ^Env checked selection source-evidence]
+  (let [entry (graph-entry-matches! world node true source-evidence)
+        receipt (graph-receipt! (:graph-import entry))
+        issued-node (graph-node! (:node receipt))
+        anchor (get-in world [:kernel-environments (:id (:anchor receipt))])]
+    (when-not (and (identical? node issued-node)
+                   (identical? (:token p) (:profile-token receipt))
+                   (= (:anchor receipt) (:anchor anchor)) (= (:constant-map receipt) (:constant-map anchor))
+                   (identical? (:checked-env receipt) (:env anchor))
+                   (= (:module-order receipt) (get-in selection [:plan :module-order]))
+                   (= (:requested-imports receipt) (:requested-imports selection))
+                   (= (:module-index receipt) (get-in selection [:plan :module-indices (:module node)]))
+                   (= (get-in node [:proof :constants]) (:constants receipt))
+                   (every? (fn [[name ci]] (identical? ci (.lookup checked name))) (:projected receipt)))
+      (fail "Source graph parent is not inherited from its current completed import" {}))
+    receipt))
+
+(defn- graph-observe-checked-union!
+  "Prove the actual private checked union/header/order. Compilation additionally
+   requires CURRENT parent receipts; a newly checked import uses fresh local
+   Java projections without demanding any earlier receipt or projection."
+  [world invoke environment prefix certificate p selection current-receipts?]
+  (let [progress (volatile! world) owners (volatile! {}) source-evidence (volatile! nil)
+        call! (fn [target args owner]
+                (let [[world value] (invoke @progress target args)]
+                  (vreset! progress world)
+                  (when owner (vswap! owners assoc owner {:value value :status :owned})) value))
+        release! (fn [owner]
+                   (vreset! progress (m/release @progress (get-in @owners [owner :value]) 1))
+                   (vswap! owners assoc-in [owner :status] :released))]
+    (try
+      (let [root (call! (:root imports/helpers) [environment] :root)
+            anchor (get-in @progress [:kernel-environments (:id root)])
+            ^Env checked (:env anchor)
+            map-ref (call! (:constant-map imports/helpers) [environment] :map)
+            flag (call! (:quot-init? imports/helpers) [environment] nil)
+            flag (native/nat-value {:ref? m/ref? :node m/node} @progress flag)
+            expected (:constants selection)
+            _ (when-not (and (m/ref? root) (= root (:anchor anchor)) (instance? Env checked)
+                             (m/ref? map-ref) (= map-ref (:constant-map anchor))
+                             (= flag (if (.isQuotEnabled checked) 1 0))
+                             (= (:quot-init? anchor) (.isQuotEnabled checked)))
+                (fail "Source graph input has no exact protected checked base" {}))
+            values-ref (call! (:constants imports/helpers) [environment] :constants)
+            values (proof-array! @progress values-ref (get-in p [:limits :max-constants]))
+            _ (when-not (and (= (count values) (count expected) (count (set values)))
+                             (= (set values) (set (vals expected)))
+                             (= (count expected) (count (.allConstants checked))))
+                (fail "Source graph input is not exact native plus selected parent CI union" {}))
+            _ (doseq [[name ci] (:projected certificate)]
+                (when-not (identical? ci (.lookup checked name))
+                  (fail "Source graph input replaced an original native Java CI" {})))
+            visibility (call! (:is-exporting reconstruction-helpers) [environment] nil)
+            _ (when-not (= 0 (native/nat-value {:ref? m/ref? :node m/node} @progress visibility))
+                (fail "Source graph input is not the private selected view" {}))
+            header-ref (call! (:header source/helpers) [environment] :header)
+            text (string/string-value {:ref? m/ref? :node m/node} @progress header-ref)
+            _ (when (> (count text) (get-in p [:limits :max-bytes]))
+                (fail "Source graph input header exceeds parsing bound" {}))
+            header (graph-json! text (:limits p) (:graph-limits p))
+            _ (when-not (and (= "lean-source-import-header/1" (:schema header))
+                             (= "SourceModuleImport.finalizerHeader" (:producer header))
+                             (= (get prim/pinned-build "lean_get_githash") (:leanCommit header))
+                             (false? (:moduleSystem header))
+                             (= (:requested-imports selection) (:imports header)))
+                (fail "Source graph input has another import header" {}))
+            names-ref (call! module-names-helper [environment] :module-names)
+            names (mapv #(graph-wire-name!
+                           (structured-name-value
+                             (bridge/project-name-bounded @progress % (get-in p [:limits :name-limits])))
+                           true (:graph-limits p))
+                        (proof-array! @progress names-ref (get-in p [:graph-limits :max-modules])))
+            _ (when-not (= names (get-in selection [:plan :module-order]))
+                (fail "Source graph input has another ordered module closure" {}))
+            receipts (when current-receipts?
+                       (mapv #(graph-current-receipt! @progress p % checked selection source-evidence) (:nodes selection)))
+            projected (if current-receipts?
+                        (reduce (fn [out receipt] (merge out (:projected receipt))) (:projected certificate) receipts)
+                        (into {} (map (fn [[name _]]
+                                        (let [ci (.lookup checked name)]
+                                          (when-not (and ci (= name (.name ^ConstantInfo ci)))
+                                            (fail "Fresh graph union lacks an expected Java ConstantInfo" {}))
+                                          [name ci]))) expected))]
+        (release! :module-names) (release! :header) (release! :constants) (release! :map) (release! :root)
+        {:world @progress :constants expected :projected projected :checked-env checked
+         :anchor root :anchor-entry anchor :constant-map map-ref :quot-init? (= 1 flag)
+         :module-order names :requested-imports (:requested-imports selection)})
+      (catch Throwable cause
+        (throw (ex-info (or (.getMessage cause) "Source graph input-base proof failed")
+                        (merge {:checkpoint @progress} (ex-data cause)
+                               {:source-graph-base-owners @owners}) cause))))))
+
+
+(defn- graph-observe-base!
+  "Fixed compilation adapter: require exact current parent receipt inheritance."
+  [world invoke environment prefix certificate p selection]
+  (graph-observe-checked-union! world invoke environment prefix certificate p selection true))
+
+(defn- compact-graph-proof [proof before]
+  ;; Successful node authority has no preparedWorld, original JavaEnv, imported
+  ;; parent receipt, or publication Context. The failure path keeps those exact
+  ;; operation packets separately. Existing legacy proof storage is unchanged.
+  (-> (select-keys proof [:entry :unit :unit-digest :module :constants :guest-names :admission])
+      (assoc-in [:admission :baseline]
+                {:functions (:functions before)
+                 :eval-const-authorizations (select-keys (:eval-const-authorizations before) admission-keys)})))
+
+(defn- graph-capture-request! [request p]
+  ;; The existing compiler's source IO/compilation budget is independent of the
+  ;; bounded proof helpers. Bound new host Name/key work before the old capture.
+  (when-not (and (map? request) (<= (count request) 6)
+                 (vector? (:roots request))
+                 (<= (count (:roots request)) (get-in p [:limits :max-declarations])))
+    (fail "Source graph requires a bounded explicit deferred compilation request" {}))
+  (graph-java-name! (:module-name request) true (:graph-limits p))
+  (doseq [name (:roots request)] (graph-java-name! name false (:graph-limits p)))
+  (capture-import-request request))
+
+(defn- graph-inspect-header! [state invoke captured p expected-imports]
+  (let [[world wrapper] (invoke (:world @state) frontend/header-target
+                               [(:text captured) (:file-name captured) m/erased])
+        _ (swap! state assoc :world world :header-result {:value wrapper :status :owned})
+        node (when (m/ref? wrapper) (m/node world wrapper))]
+    (when-not (and (= :ctor (:kind node)) (= 0 (:tag node)) (= 1 (count (:fields node)))
+                   (nil? (:layout node)) (empty? (:scalar-bytes node)))
+      (fail "Source graph header parser did not return an owned IO.Result.ok String" {}))
+    (let [text (string/string-value {:ref? m/ref? :node m/node} world (first (:fields node)))
+          header (graph-json! text (:limits p) (:graph-limits p))
+          requests (:requestedImports header)]
+      (when-not (and (= "lean-file-header/1" (:schema header))
+                     (= "RuntimeCompileShim.inspectFileHeader" (:producer header))
+                     (= (get prim/pinned-build "lean_get_githash") (:leanCommit header))
+                     (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile header))
+                     (= (:file-name captured) (:fileName header))
+                     (false? (:moduleSystem header)) (false? (:hasErrors header))
+                     (integer? (:headerEndByte header)) (<= 0 (:headerEndByte header))
+                     (vector? (:diagnostics header))
+                     (<= (count (:diagnostics header)) (get-in p [:limits :max-declarations]))
+                     (every? map? (:diagnostics header))
+                     (vector? requests) (<= (count requests) (+ 2 (get-in p [:graph-limits :max-roots]))))
+        (fail "Source graph requires a successful actual classic header from the pinned parser" {}))
+      (source/validate-graph-imports! requests)
+      (let [total (volatile! 0)]
+        (doseq [request requests]
+          (graph-wire-name! (:module request) true (:graph-limits p) total)))
+      (when-not (= expected-imports requests)
+        (fail "Source graph header differs from its exact ordered parent selection" {}))
+      (let [released (assoc (m/release world wrapper 1) :result 0)]
+        (swap! state assoc :world released :header-result {:value wrapper :status :released})
+        header))))
+
+(defn- graph-new-node-descriptor!
+  "Check aggregate inventory BEFORE projecting own names. This name/byte delta
+   replaces old requested parent names with identical own dependency names;
+   only two own-module and two implicit Init occurrences are additionally new."
+  [world entry module parents selection p version]
+  (let [limits (:graph-limits p)
+        {:keys [names constants extras module?]} (graph-data-arrays world (:data entry) (:max-names limits))
+        count' (+' (:name-count selection) 4 (count names) (count extras))
+        edges (+' (count parents) (reduce +' 0 (map #(count (get-in % [:descriptor :dependencies])) (:nodes selection))))]
+    (when (or module? (> count' (:max-names limits))
+              (> (inc (count (get-in selection [:plan :module-order]))) (:max-modules limits))
+              (> edges (:max-edges limits)))
+      (fail "Source graph new publication exceeds its classic module/edge/Name inventory" {}))
+    (let [total (volatile! (:name-bytes selection))
+          project (fn [reference]
+                    (let [remaining (- (:max-total-name-bytes limits) @total)
+                          _ (when-not (pos? remaining) (fail "Source graph new Name exceeds aggregate bytes" {}))
+                          bounds (-> (get-in p [:limits :name-limits])
+                                     (update :max-nodes min (:max-name-nodes limits))
+                                     (update :max-chars min (:max-name-bytes limits) remaining))
+                          value (bridge/project-name-bounded world reference bounds)]
+                      (graph-wire-name! (structured-name-value value) false limits total)))]
+      (dotimes [_ 2] (graph-wire-name! module true limits total))
+      (doseq [request source/init-requests] (graph-wire-name! (:module request) true limits total))
+      {:module module :version version
+       :dependencies (mapv #(select-keys (:descriptor %) [:module :version]) parents)
+       :const-names (mapv project names) :extra-names (mapv project extras)})))
+
+(defn publish-source-graph-node
+  "Compile/publish ONCE from the exact completed checked parent base, then seal
+   its owned ModuleData and every new initializer-free unit. PARENTS are ordered
+   issued node capabilities. OPTIONS is exactly {:proof-budgets {:helper-fuel n
+   :attempt-fuel n}}. The aggregate bounds only new proof/header guest helpers;
+   existing source compilation/publication and resident adoption retain their
+   independent per-call budgets. No completed receipt or partial graph permission
+   is issued. Failures retain exact operation packets and are never resumed here."
+  [context request prefix profile parents {:keys [proof-budgets] :as options}]
+  (locking context
+    (let [state (atom {:phase :entry :used 0 :reserved 0})]
+      (try
+        (when-not (and (map? options) (= 1 (count options)) (contains? options :proof-budgets))
+          (fail "Source graph publication requires only explicit proof-helper budgets" {}))
+        (graph-proof-budgets! proof-budgets)
+        (let [entry (resident/snapshot context)
+              _ (swap! state assoc :entry entry :world (:world entry) :session (:session entry))
+              {raw-prefix :prefix :keys [certificate configuration graph-profile]} (graph-readiness! entry prefix profile)
+              p graph-profile
+              captured (graph-capture-request! request p)
+              module (graph-java-name! (:module-name captured) true (:graph-limits p))
+              _ (when (get-in entry [:world :source-modules module])
+                  (fail "Source graph publication must start before that module version is registered" {}))
+              selection (graph-resolve! (:world entry) prefix raw-prefix p parents)
+              _ (swap! state assoc :selection selection :captured-request captured :phase :header-started)
+              invoke (graph-invocation state proof-budgets)
+              _ (graph-inspect-header! state invoke captured p (:requested-imports selection))
+              _ (swap! state assoc :phase :current-parent-base-proof)
+              base (graph-observe-base! (:world @state) invoke (:environment entry) raw-prefix certificate p selection)
+              _ (swap! state assoc :world (:world base) :current-base base)
+              pre-packet (assoc entry :world (:world @state)
+                                :session (assoc (:session @state) :fuel (get-in entry [:session :fuel])))
+              _ (swap! state assoc :precompile-adoption-entry pre-packet :phase :precompile-adoption-started)
+              pre-context (resident/adopt-prepared pre-packet configuration)
+              _ (swap! state assoc :precompile-context pre-context :phase :precompile-adoption-returned)
+              before (resident/snapshot pre-context)
+              _ (swap! state assoc :precompile-entry before :world (:world before) :session (:session before)
+                       :phase :compilation-started)
+              result (publication/load-and-publish-graph pre-context captured
+                        {:configuration configuration :expected-imports (:requested-imports selection)})
+              _ (swap! state assoc :publication-result result :phase :compilation-returned)
+              original (resident/snapshot (:context result))
+              _ (swap! state assoc :original-publication original :world (:world original) :session (:session original))
+              _ (when-not (:success result) (fail "Source graph node requires successful actual source publication" {}))
+              source-entry (get-in original [:world :source-modules module])
+              ;; This ORIGINAL publication snapshot is the anchor for both graph
+              ;; payload and Java/guest identity; never substitute a later view.
+              data-graph (local-ci-graph! (:world original) [(:data source-entry)] (:limits p))
+              parent-data (mapv graph-node! parents)
+              version (Object.)
+              descriptor (graph-new-node-descriptor! (:world original) source-entry module parent-data selection p version)
+              proved (publication-proof-with-base! original raw-prefix certificate module invoke
+                       (select-keys (:limits p) [:max-constants :name-limits])
+                       {:profile :graph :imports (:requested-imports selection)
+                        :constants (:constants base) :projected (:projected base) :allow-const-extra? true})
+              _ (swap! state assoc :world (:world proved) :rich-publication-proof (:proof proved) :phase :publication-proof-complete)
+              admission (capture-publication-admission! (:world before) (:world original) (:proof proved) (:limits p))
+              proof (compact-graph-proof (assoc (:proof proved) :admission admission) (:world before))
+              node {:profile-token (:token p) :prefix prefix :source (:source raw-prefix)
+                    :configuration configuration :module module :parents parents :descriptor descriptor
+                    :entry source-entry :proof proof :data-graph data-graph
+                    :limits (:limits p) :host-limits (:host-limits p)
+                    :wire-names (into {} (map (fn [[name reference]] [(graph-java-name! name false (:graph-limits p)) reference]))
+                                      (:guest-names proof))}
+              ;; Selected parent capabilities plus separate private version token
+              ;; avoid a weak-registry value -> own Node key cycle. This plan is
+              ;; descriptive only; all authority still comes from issuance below.
+              own-selection (graph-plan-selection! (:world original) raw-prefix p
+                              (conj (:nodes selection) node) [(select-keys descriptor [:module :version])])
+              _ (when-not (= data-graph (local-ci-graph! (:world @state) [(:data source-entry)] (:limits p)))
+                  (fail "Source graph publication payload changed during its proof" {}))
+              next-packet (assoc original :world (:world @state)
+                                 :session (assoc (:session @state) :fuel (get-in original [:session :fuel])))
+              _ (swap! state assoc :adoption-entry next-packet :phase :adoption-started)
+              next-context (resident/adopt-prepared next-packet configuration)
+              _ (swap! state assoc :adopted-context next-context :phase :adoption-returned)
+              adopted (resident/snapshot next-context)
+              _ (swap! state assoc :adopted-entry adopted :world (:world adopted) :session (:session adopted))
+              _ (graph-entry-matches! (:world adopted) node)
+              ;; All fallible operations and public result construction precede
+              ;; issuance. The successful private node retains no old packets,
+              ;; parent receipt/JavaEnv, original result, or the own cap key.
+              cap (SourceGraphNode.)
+              public-result (assoc result :context next-context :graph-node cap
+                             :graph-publication {:module module :parents (mapv :module parent-data)
+                                                 :unit-count (count (:units admission))
+                                                 :row-count (count (:rows admission))
+                                                 :constant-count (count (:constants proof))
+                                                 :source-order (get-in own-selection [:plan :source-order])})]
+          (locking graph-nodes (.put graph-nodes cap node))
+          public-result)
+        (catch Throwable cause
+          (let [data (ex-data cause)]
+            (when (:checkpoint data) (swap! state assoc :world (:checkpoint data)))
+            (when (:checkpoint-session data) (swap! state assoc :session (:checkpoint-session data)))
+            (swap! state assoc :phase :failed :cause cause)
+            (throw (ex-info (or (.getMessage cause) "Source graph publication failed")
+                            (merge {:checkpoint (:world @state) :checkpoint-session (:session @state)} data
+                                   {:source-graph-publication-state @state :source-graph-publication-terminal? true}) cause))))))))
+
+;; Staged graph imports use the same private cooperative driver through fixed
+;; legacy/graph adapters. No graph operation enters reconstruction callback scope.
+(defn- graph-own! [state label operation]
+  (let [[world value] (operation (:world @state))]
+    (swap! state #(-> % (assoc :world world)
+                     (assoc-in [:source-graph :owners label] {:value value :state :owned})))
+    value))
+
+(defn- graph-retain! [state label value]
+  (graph-own! state label (fn [world] [(m/retain world value 1) value])))
+
+(defn- graph-transfer! [state labels]
+  (doseq [label labels]
+    (when-not (= :owned (get-in @state [:source-graph :owners label :state]))
+      (fail "Source graph transfer lacks its exact temporary owner" {})))
+  (swap! state (fn [data]
+                 (reduce #(assoc-in %1 [:source-graph :owners %2 :state] :transferred) data labels))))
+
+(defn- graph-release! [state label]
+  (let [{:keys [value] status :state} (get-in @state [:source-graph :owners label])]
+    (when-not (= :owned status) (fail "Source graph temporary owner is not releasable" {}))
+    (let [world (m/release (:world @state) value 1)]
+      ;; Record the post-release World AND transition before any later effect.
+      (swap! state #(-> % (assoc :world world)
+                       (assoc-in [:source-graph :owners label :state] :released))))))
+
+(defn- graph-import-inputs! [state invoke selection p]
+  (let [nodes (:nodes selection) requests (:requested-imports selection)
+        modules (into (mapv :module nodes) (map :module requests))
+        names (mapv #(name/from-string (imports/module-string %)) modules)
+        [world array] (encoding/encode-names (:world @state) invoke names)
+        _ (swap! state #(-> % (assoc :world world)
+                           (assoc-in [:source-graph :owners :encoded-names] {:value array :state :owned})))
+        refs (proof-array! world array (+ (count nodes) (count requests)))
+        _ (when-not (= (count names) (count refs)) (fail "Source graph Name encoding is incomplete" {}))
+        parts
+        (mapv (fn [index node]
+                (let [name-label [:part-name index] data-label [:part-data index]
+                      module-name (graph-retain! state name-label (nth refs index))
+                      data (graph-retain! state data-label (get-in node [:entry :data]))
+                      part (graph-own! state [:part index]
+                             #(m/allocate % :ctor 0 [module-name data (get-in node [:entry :key])]))]
+                  (graph-transfer! state [name-label data-label])
+                  part)) (range) nodes)
+        parts-array (graph-own! state :parts-input #(m/allocate % :array 246 parts))
+        _ (graph-transfer! state (mapv #(vector :part %) (range (count parts))))
+        request-values
+        (mapv (fn [index request]
+                (let [label [:request-name index]
+                      module-name (graph-retain! state label (nth refs (+ (count nodes) index)))
+                      value (graph-own! state [:request index]
+                              (fn [world]
+                                (let [[world value] (m/scalar-constructor world 0 [module-name]
+                                                     {:objects 1 :usize 0 :ssize 3})
+                                      node (reduce (fn [node [offset flag]]
+                                                     (m/write-scalar-node node
+                                                       {:index 1 :offset offset :type "uint8" :region :scalar}
+                                                       (if flag 1 0)))
+                                                   (m/node world value)
+                                                   (map-indexed vector (map request [:importAll :isExported :isMeta])))]
+                                  [(m/replace-node world value node) value])))]
+                  (graph-transfer! state [label])
+                  value)) (range) requests)
+        requests-array (graph-own! state :requests-input #(m/allocate % :array 246 request-values))
+        _ (graph-transfer! state (mapv #(vector :request %) (range (count request-values))))
+        limits (graph-own! state :limits-input
+                 #(m/allocate % :ctor 0
+                    (mapv (:graph-limits p)
+                      [:max-modules :max-roots :max-edges :max-depth :max-names
+                       :max-name-nodes :max-name-bytes :max-total-name-bytes
+                       :max-key-bytes :max-total-key-bytes])))]
+    (graph-release! state :encoded-names)
+    {:parts parts-array :requests requests-array :limits limits}))
+
+(defn- graph-anchor-regions! [state regions nodes]
+  (let [values (proof-array! (:world @state) regions (count nodes))]
+    (when-not (= (count values) (count nodes)) (fail "Source graph region inventory differs from selected nodes" {}))
+    (doseq [[index node region] (map vector (range) nodes values)]
+      (let [world (:world @state) payload (when (m/ref? region) (m/node world region))
+            _ (when-not (and (= :ctor (:kind payload)) (= 0 (:tag payload))
+                             (= {:objects 2 :usize 3 :ssize 1} (:layout payload))
+                             (= 2 (count (:fields payload))))
+                (fail "Source graph region has another packed layout" {}))
+            [path data] (:fields payload) key (get-in node [:entry :key])
+            text (string/string-value {:ref? m/ref? :node m/node} world path)]
+        (when-not (and (not (contains? (get-in world [:source-regions key :anchors]) (:id region)))
+                       (not (m/native-reference? world region))
+                       (= text key) (= data (get-in node [:entry :data]))
+                       (= data (get-in world [:source-regions key :data]))
+                       (= 0 (m/read-scalar-node payload {:index 2 :offset 0 :type "usize" :region :usize}))
+                       (= 0 (m/read-scalar-node payload {:index 3 :offset 0 :type "usize" :region :usize}))
+                       (= 0 (m/read-scalar-node payload {:index 4 :offset 0 :type "usize" :region :usize}))
+                       (= 0 (m/read-scalar-node payload {:index 5 :offset 0 :type "uint8" :region :scalar})))
+          (fail "Source graph helper returned another logical owned region" {}))
+        (graph-retain! state [:region-anchor index] region)
+        (swap! state assoc-in [:world :source-regions key :anchors (:id region)] region)
+        (graph-transfer! state [[:region-anchor index]])))))
+
+(defn prepare-source-graph-import
+  "Prepare a completed-only ordinary graph import from ordered issued ROOTS.
+   REQUEST is captured once and its actual guest header must match ROOTS exactly.
+   OPTIONS is exactly the explicit kernel policy and outer/helper/attempt budgets
+   used by legacy imports. New graph preparation, finalization and proof guest
+   calls share that attempt ledger; Java checker fuel remains separate policy.
+   No finalizer, receipt or partial graph callback permission starts here."
+  [context request prefix profile roots {:keys [kernel-policy budgets] :as options}]
+  (locking context
+    (let [state (atom {:graph-operation? true :source-graph {:owners {} :activation (AtomicBoolean. false)}
+                       :phase :entry :used 0 :reserved 0 :outer-steps 0 :helper-steps 0 :operations 0
+                       :owners {:input-environment :borrowed :input-options :borrowed}})]
+      (try
+        (when-not (and (map? options) (= 2 (count options))
+                       (= #{:kernel-policy :budgets} (set (keys options))))
+          (fail "Source graph import requires explicit policy and budgets only" {}))
+        (import-policy! kernel-policy) (import-budgets! budgets)
+        (when-not (and (vector? roots) (seq roots))
+          (fail "Source graph import requires nonempty ordered issued roots" {}))
+        (let [entry (resident/snapshot context)
+              _ (swap! state assoc :entry entry :world (:world entry) :session (:session entry))
+              {raw-prefix :prefix :keys [certificate configuration native-bindings graph-profile]}
+              (graph-readiness! entry prefix profile)
+              p graph-profile
+              captured (graph-capture-request! request p)
+              selection (graph-resolve! (:world entry) prefix raw-prefix p roots)
+              _ (swap! state #(-> %
+                                  (assoc :prefix raw-prefix :certificate certificate :configuration configuration
+                                         :native-bindings native-bindings :kernel-policy kernel-policy :budgets budgets
+                                         :request captured :phase :header-started
+                                         :graph-audit {:source-node-count (count (:nodes selection))
+                                                       :requested-root-count (count roots)
+                                                       :native-module-count (count (:modules raw-prefix))
+                                                       :receipt-count 0})
+                                  (assoc-in [:source-graph :profile] profile)
+                                  (assoc-in [:source-graph :profile-token] (:token p))
+                                  (assoc-in [:source-graph :profile-data] p)
+                                  (assoc-in [:source-graph :selection] selection)
+                                  (assoc-in [:source-graph :roots] roots)))
+              invoke (graph-invocation state (select-keys budgets [:helper-fuel :attempt-fuel]))
+              header (graph-inspect-header! state invoke captured p (:requested-imports selection))
+              _ (swap! state assoc :header header :phase :encode-inputs-started)
+              inputs (graph-import-inputs! state invoke selection p)
+              _ (swap! state assoc :phase :assemble-started)
+              [world result] (invoke (:world @state) graph-assemble-helper
+                                    [(:state raw-prefix) (:parts inputs) (:requests inputs) (:limits inputs)])
+              _ (swap! state #(-> % (assoc :world world)
+                                 (assoc-in [:source-graph :owners :helper-result] {:value result :state :owned})))
+              node (when (m/ref? result) (m/node world result))
+              _ (when-not (and (= 1 (:tag node)) (bridge/constructor-layout? node 1 0))
+                  (fail "Source graph assembler did not return owned Except.ok" {}))
+              assembly-node (m/node world (first (:fields node)))
+              _ (when-not (and (= 0 (:tag assembly-node)) (bridge/constructor-layout? assembly-node 3 0))
+                  (fail "Source graph assembler returned another GraphAssembly layout" {}))
+              [assembled-state imports regions] (:fields assembly-node)
+              _ (when-not (= imports (:requests inputs))
+                  (fail "Source graph assembler changed its exact requested imports" {}))
+              _ (graph-retain! state :assembly-state assembled-state)
+              _ (graph-retain! state :assembly-imports imports)
+              _ (graph-retain! state :assembly-regions regions)
+              _ (graph-release! state :helper-result)
+              _ (graph-anchor-regions! state regions (:nodes selection))
+              _ (doseq [label [:assembly-regions :parts-input :requests-input :limits-input]]
+                  (graph-release! state label))
+              assembled {:status :ok :world (:world @state) :state assembled-state :imports imports
+                         :prefix raw-prefix :requested-imports (:requested-imports selection)}
+              _ (swap! state assoc :assembly assembled :phase :assembled)
+              _ (swap! state update :owners assoc :assembly-state assembled-state :assembly-imports imports
+                       :assembly-owner-state :owned-at-assembly-checkpoint)
+              ;; The cooperative driver now owns these two retained fields.
+              _ (graph-transfer! state [:assembly-state :assembly-imports])
+              control (InitImport.)]
+          (locking imports-issued (.put imports-issued control state))
+          {:control control :progress (import-progress @state)})
+        (catch Throwable cause (import-failure! state cause))))))
+
+(defn- graph-attribution! [state invoke selection p environment]
+  ;; Recheck every const AND extra Name against the actual finalized map. Module
+  ;; indices belong to this attempt's ordered closure, never to a node forever.
+  (doseq [node (:nodes selection)
+          [wire reference] (:wire-names node)]
+    (let [world (:world @state)
+          expected (get-in selection [:plan :module-indices (:module node)])
+          actual (structured-name-value
+                   (bridge/project-name-bounded world reference (get-in p [:limits :name-limits])))]
+      (when-not (= wire actual) (fail "Source graph attribution Name differs from its sealed payload" {}))
+      (let [[world value] (invoke world module-index-helper [environment reference])
+            label [:module-index (:module node) wire]
+            _ (swap! state #(-> % (assoc :world world)
+                               (assoc-in [:source-graph :owners label] {:value value :state :owned})))
+            node (when (m/ref? value) (m/node world value))]
+        (when-not (and (= 1 (:tag node)) (bridge/constructor-layout? node 1 0)
+                       (= expected (native/nat-value {:ref? m/ref? :node m/node} world (first (:fields node)))))
+          (fail "Source graph finalized CI/extra belongs to another module index" {}))
+        (graph-release! state label)))))
+
+(defn- finish-source-graph-operation! [state invoke]
+  (let [{:keys [source-graph prefix certificate world io kernel-policy]} @state
+        {:keys [profile profile-data selection roots]} source-graph
+        p (graph-profile! profile)
+        _ (when-not (identical? p profile-data) (fail "Source graph operation lost its issued profile" {}))
+        prefix-cap (:prefix (first (:nodes selection)))
+        current (graph-resolve! world prefix-cap prefix p roots)
+        _ (when-not (and (= (:plan selection) (:plan current))
+                         (= (:requested-imports selection) (:requested-imports current))
+                         (= (:constants selection) (:constants current)))
+            (fail "Source graph selection changed before fresh finalization checking" {}))
+        _ (eval/validate-executables! world (get-in @state [:configuration :trusted-functions]) source-graph-roots)
+        finished (imports/finish-finalization world io invoke
+                   {:kernel-policy (assoc kernel-policy :projection-certificate certificate)
+                    :finalizer-attestation {:requested-imports (:requested-imports selection)
+                                           :header-helper (:header source/helpers)}})
+        ;; Save the ACTUAL checked packet before any union/postcondition work.
+        _ (swap! state #(-> % (assoc :world (:world finished))
+                           (assoc-in [:source-graph :checked-candidate] finished)))]
+    (when-not (= :ok (:status finished))
+      (fail "Source graph finalizer returned IO error" {:checkpoint (:world finished) :io-result (:io-result finished)}))
+    (swap! state update :owners assoc :final-environment (:environment finished) :final-environment-state :owned)
+    (when-not (= (:constants selection) (get-in finished [:certificate :constants]))
+      (fail "Fresh graph check did not contain the exact selected native/source CI union" {}))
+    (let [observed (graph-observe-checked-union! (:world @state) invoke (:environment finished)
+                     prefix certificate p selection false)
+          _ (swap! state #(-> % (assoc :world (:world observed))
+                             (assoc-in [:source-graph :checked-union] observed)))
+          _ (when-not (identical? (:checked-env observed) (get-in finished [:certificate :env]))
+              (fail "Source graph checked observation belongs to another fresh Java Env" {}))
+          _ (graph-attribution! state invoke selection p (:environment finished))
+          ;; Payload/units remain sealed after all guest proof helpers. Share the
+          ;; exact immutable heap evidence only inside this validation operation.
+          evidence (volatile! nil)
+          _ (doseq [node (:nodes selection)] (graph-entry-matches! (:world @state) node true evidence))
+          batch
+          (mapv (fn [node]
+                  (let [constants (get-in node [:proof :constants])
+                        projected (select-keys (:projected observed) (keys constants))
+                        _ (when-not (= (count constants) (count projected))
+                            (fail "Source graph fresh Java subset is incomplete" {}))
+                        receipt {:activation (get-in @state [:source-graph :activation])
+                                 :node (get-in selection [:caps-by-module (:module node)])
+                                 :profile-token (:token p) :module (:module node)
+                                 :anchor (:anchor observed) :anchor-entry (:anchor-entry observed)
+                                 :constant-map (:constant-map observed) :checked-env (:checked-env observed)
+                                 :quot-init? (:quot-init? observed) :constants constants :projected projected
+                                 :module-order (:module-order observed) :requested-imports (:requested-imports observed)
+                                 :module-index (get-in selection [:plan :module-indices (:module node)])}
+                        cap (SourceGraphReceipt.)]
+                    {:cap cap :receipt receipt
+                     :description {:module (:module node) :constant-count (count constants)
+                                   :unit-count (count (get-in node [:proof :admission :units]))
+                                   :module-index (:module-index receipt)}})) (:nodes selection))
+          _ (swap! state assoc-in [:source-graph :candidate-batch] batch)
+          ;; Compute one immutable candidate World, preserving old persistent
+          ;; Worlds and replacing ONLY each selected node's latest receipt.
+          candidate (reduce (fn [world {:keys [cap receipt]}]
+                              (assoc-in world [:source-modules (:module receipt) :graph-import] cap))
+                            (:world @state) batch)
+          _ (swap! state assoc-in [:source-graph :batch-candidate-world] candidate)]
+      ;; All receipts share one inactive token. Interrupted insertion/adoption
+      ;; may preserve these exact diagnostic Worlds, but neither receipt lookup
+      ;; nor completed-row authorization accepts them before public success.
+      (locking graph-receipts
+        (doseq [{:keys [cap receipt]} batch] (.put graph-receipts cap receipt)))
+      (swap! state #(-> % (assoc :world candidate)
+                       (assoc-in [:source-graph :batch-committed?] true)
+                       (assoc-in [:graph-audit :receipt-count] (count batch))))
+      (assoc finished :world candidate :source-graph-receipts (mapv :description batch)))))

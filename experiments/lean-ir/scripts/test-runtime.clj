@@ -23,6 +23,9 @@
          'prototype.program-slot-cache-test
          'prototype.resident-init-prefix-test
          'prototype.resident-init-import-test
+         'prototype.source-graph-helper-test
+         'prototype.source-graph-runtime-test
+         'prototype.source-graph-staged-test
          'prototype.typed-extern-test)
 
 (let [result (t/run-all-tests #"^prototype\..*-test$")]
