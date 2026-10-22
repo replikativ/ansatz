@@ -109,7 +109,7 @@ file installation for B importing A across all three backends. Compiler output
 serialization and finalization are modeled in that gate. Genuine graph-chain
 compilation, general project loading and shared-A diamond execution remain
 separate acceptance work.
-The [complete optional validation](measurements/source-graph-runtime.json) passes
+The [original G2 optional validation](measurements/source-graph-runtime.json) records
 978 tests / 93,234 assertions. Its first full run stopped at the RSS limit; a
 separately reviewed 1280 MiB RSS ceiling passed with the same 512 MiB heap,
 deadline, free-memory floor and unchanged runtime/test code.
@@ -122,6 +122,7 @@ text once. Its digest describes the captured bytes; it grants no import authorit
 A future loader must parse and compile that same text, enforce aggregate project
 limits, and schedule dependencies through the checked graph runtime. General
 project loading remains pending.
+The experimental [bounded classic header discovery API](research/SOURCE_HEADER_DISCOVERY.md) returns updated prepared packets and descriptive headers; it does not provide Project loading or import authority. The [header validation record](measurements/classic-header-discovery.json) reports 991 passing optional runtime tests / 93,460 assertions after combining the source capture and header test registrations; fixed-helper header transport is modeled in those tests.
 
 ## Imported kernel dependency graph
 
