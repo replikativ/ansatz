@@ -125,9 +125,13 @@
   (let [{:keys [world session arguments]} (setup :reference (assoc (envelope false) :leanCommit "wrong") (header))
         error (try (frontend/compile-file-refs session world arguments) nil
                    (catch clojure.lang.ExceptionInfo error error))
-        {:keys [checkpoint raw-result]} (ex-data error)]
+        {:keys [checkpoint raw-result frontend-result frontend-decoder-ownership]} (ex-data error)]
     (is (some? error))
-    (is (= 0 (:tag (m/node checkpoint raw-result))))
+    (is (nil? raw-result))
+    (is (= 0 (:tag (m/node (:checkpoint frontend-result) (:raw-result frontend-result)))))
+    (is (nil? (get-in checkpoint [:heap (:id (:raw-result frontend-result))])))
+    (is (= :released (:wrapper-state frontend-decoder-ownership)))
+    (is (= :owned (:environment-state frontend-decoder-ownership)))
     (is (= 2 (:rc (m/node checkpoint (:environment arguments)))))
     (is (= 1 (:rc (m/node world (:environment arguments)))))))
 
@@ -265,7 +269,93 @@
     (is (identical? (:state completed) (get-in data [:frontend-result :checkpoint])))
     (is (= (:value completed) (get-in data [:frontend-result :raw-result])))
     (is (= 1 (:rc (m/node (get-in data [:frontend-result :checkpoint]) (:value completed)))))
+    (is (nil? (:raw-result data)))
+    (is (nil? (get-in data [:checkpoint :heap (:id (:value completed))])))
+    (is (= 2 (:rc (m/node (:checkpoint data) (get-in context [:arguments :environment])))))
     (is (= 1 (:rc (m/node (:world context) (get-in context [:arguments :environment])))))))
+
+(defn caused-by? [error selected]
+  (loop [current error remaining 8]
+    (cond (identical? current selected) true
+          (or (nil? current) (zero? remaining)) false
+          :else (recur (.getCause ^Throwable current) (dec remaining)))))
+
+(deftest installer-owner-checkpoint-survives-a-later-pure-failure
+  (doseq [backend [:reference :mutable :jvm]]
+    (let [{:keys [world arguments]} (setup backend (envelope true) (header))
+          target ["str" ["anonymous"] "ownedWitness"]
+          functions (assoc (:functions world) target
+                      {:params [] :body [:let 1 [:ctor 0 [[:imm 99]]] [:return [:var 1]]]})
+          world (assoc world :functions functions)
+          session (raw/open-functions functions {} {:backend backend})
+          selected (ex-info "selected failure after owner checkpoint" {})
+          observed (atom nil)
+          error (with-redefs [eval/install-file-bundle
+                             (fn [{:keys [invoke checkpoint!]} world & _]
+                               (let [[world value] (invoke world target [])
+                                     world (assoc (m/release world value 1) :result 0)]
+                                 (reset! observed {:world world :value value})
+                                 (checkpoint! world)
+                                 (throw selected)))]
+                  (try (frontend/compile-file-refs session world arguments) nil
+                       (catch clojure.lang.ExceptionInfo e e)))
+          data (ex-data error)]
+      (is (some? error))
+      (is (identical? (:world @observed) (:checkpoint data)))
+      (is (nil? (get-in data [:checkpoint :heap (:id (:value @observed))])))
+      (is (identical? (:checkpoint-session data) (:session data)))
+      (is (identical? (get-in data [:checkpoint :functions]) (get-in data [:session :functions])))
+      (is (= 0 (get-in data [:checkpoint :result])))
+      (is (caused-by? error selected)))))
+
+(deftest later-helper-failure-outranks-the-last-successful-owner-checkpoint
+  (doseq [backend [:reference :mutable :jvm]]
+    (let [{:keys [world arguments]} (setup backend (envelope true) (header))
+          successful ["str" ["anonymous"] "successfulWitness"]
+          failing ["str" ["anonymous"] "laterFailingWitness"]
+          functions (assoc (:functions world)
+                      successful {:params [] :body [:let 1 [:literal 7] [:return [:var 1]]]}
+                      failing {:params [] :body [:trap {:symbol "later_witness_failure"} []]})
+          world (assoc world :functions functions)
+          session (raw/open-functions functions {} {:backend backend})
+          saved (atom nil)
+          error (with-redefs [eval/install-file-bundle
+                             (fn [{:keys [invoke checkpoint!]} world & _]
+                               (let [[world _] (invoke world successful [])]
+                                 (reset! saved (checkpoint! (assoc world :result 0)))
+                                 (invoke @saved failing [])))]
+                  (try (frontend/compile-file-refs session world arguments) nil
+                       (catch clojure.lang.ExceptionInfo e e)))
+          data (ex-data error)
+          child (:frontend-installation-child-failure data)]
+      (is (some? error))
+      (is (identical? (:checkpoint child) (:checkpoint data)))
+      (is (identical? (:checkpoint-session child) (:checkpoint-session data)))
+      (is (not (identical? @saved (:checkpoint data))))
+      (is (= :running (get-in data [:checkpoint :status])))
+      (is (= :done (:status @saved)))
+      (is (= 2 (:rc (m/node (:checkpoint data) (:environment arguments)))))
+      (is (= 1 (:rc (m/node (get-in data [:frontend-result :checkpoint])
+                            (get-in data [:frontend-result :raw-result]))))))))
+
+(deftest installed-candidate-is-separate-from-coherent-session-if-reopening-fails
+  (doseq [backend [:reference :mutable :jvm]]
+    (let [context (setup backend (envelope true) (header))
+          completed (independently-completed-compilation context)
+          selected (ex-info "selected session construction failure" {})
+          error (with-redefs [raw/open-functions (fn [& _] (throw selected))]
+                  (try (frontend/finish-compilation-refs completed
+                         (select-keys (:arguments context) [:file-name :roots])) nil
+                       (catch clojure.lang.ExceptionInfo e e)))
+          data (ex-data error)
+          candidate (:frontend-installation-installed-candidate data)]
+      (is (some? error))
+      (is (contains? (get-in candidate [:world :functions]) answer))
+      (is (not (contains? (get-in data [:checkpoint :functions]) answer)))
+      (is (identical? (get-in data [:checkpoint :functions]) (get-in data [:session :functions])))
+      (is (not (identical? (get-in candidate [:world :functions]) (get-in data [:session :functions]))))
+      (is (= 2 (:rc (m/node (:world candidate) (get-in context [:arguments :environment])))))
+      (is (= 1 (:rc (m/node (get-in data [:frontend-result :checkpoint]) (:value completed))))))))
 
 (deftest invalid-file-name-is-rejected-before-guest-compilation
   (let [{:keys [session world arguments]} (setup :reference (envelope true) (header))

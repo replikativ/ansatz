@@ -99,6 +99,73 @@
                                   (fail "Invalid frontend header result" {}))
                                 {:session (:session result) :world world :header header}))))))
 
+(defn- install-decoded-file
+  "Install one decoded compiler packet with real owner checkpoints. The final
+   installed World is a separate candidate until its matching session opens."
+  [base roots configuration]
+  (let [entry-world (:world base) entry-session (:session base)
+        active (atom entry-session)
+        coherent (volatile! {:world entry-world :session entry-session})
+        last-call (volatile! nil) installed-result (volatile! nil) unpaired (volatile! nil)
+        matches? (fn [world session]
+                   (and (map? world) (map? session) (map? (:functions world))
+                        (map? (:functions session)) (= (:functions world) (:functions session))))
+        record! (fn [world session phase]
+                  (if (matches? world session)
+                    (vreset! coherent {:world world :session session :phase phase})
+                    (do (vreset! unpaired {:world world :session session :phase phase})
+                        (fail "Frontend installation checkpoint has no matching raw session" {})))
+                  world)
+        checkpoint! (fn [world] (record! world @active :owner-checkpoint))
+        invoke (fn [world target args]
+                 (record! world @active :helper-entry)
+                 (let [called (raw/call @active world target args)]
+                   ;; Preserve the ACTUAL envelope before any validation or
+                   ;; adoption; all host owner checkpoints share this ledger.
+                   (vreset! last-call {:target target :arguments args :returned called})
+                   (reset! active (:session called))
+                   (record! (:state called) (:session called) :helper-returned)
+                   [(:state called) (:value called)]))]
+    (try
+      (let [bindings (:bindings entry-session)
+            custom (get-in configuration [:install-options :lower-extern])
+            lower (fn [row]
+                    (if (contains? bindings (abi/symbol-for (get-in row [:ir :extern])))
+                      (raw/lower bindings row) (when custom (custom row))))
+            installed (eval/install-file-bundle {:invoke invoke :checkpoint! checkpoint!}
+                        entry-world (:environment base) roots (get-in base [:envelope :bundle])
+                        (assoc (:install-options configuration) :initialize? false :lower-extern lower
+                          :witness (or (get-in configuration [:install-options :witness]) (helper "exportEvalConstWitness"))
+                          :trusted-functions (:functions entry-session)))
+            ;; Installation may add functions. Do NOT pair this candidate with
+            ;; the preceding raw session if constructing its new session fails.
+            _ (vreset! installed-result installed)
+            world (:world installed)
+            session @active
+            next-session (raw/open-functions (:functions world) bindings
+                           (assoc (select-keys session [:backend :fuel :compile-threshold])
+                             :cache (or (get-in session [:program :cache]) (:cache session))))
+            _ (reset! active next-session)
+            _ (record! world next-session :session-reopened)]
+        (assoc base :world world :session next-session
+          :boxed-entrypoints (:boxed-entrypoints installed)
+          :pending-local-initializers (:pending-local-initializers installed)
+          :handle {:module-name (get-in base [:envelope :mainModule]) :file-name (:file-name base)
+                   :boxed-entrypoints (:boxed-entrypoints installed) :unit-digest (:unit-digest installed)}))
+      (catch Throwable cause
+        (let [data (ex-data cause)
+              child-world (:checkpoint data)
+              child-session (or (:checkpoint-session data) (:session data) @active)
+              latest (if (and child-world (matches? child-world child-session))
+                       {:world child-world :session child-session} @coherent)]
+          (throw (ex-info (or (.getMessage cause) "Frontend file installation failed")
+                   (assoc data :checkpoint (:world latest) :checkpoint-session (:session latest)
+                     :session (:session latest) :frontend-installation-entry base
+                     :frontend-installation-last-call @last-call
+                     :frontend-installation-installed-candidate @installed-result
+                     :frontend-installation-unpaired-checkpoint @unpaired
+                     :frontend-installation-child-failure data) cause)))))))
+
 (defn finish-compilation-refs
   "Finish an independently completed raw compileImportedFileState invocation.
    RESULT must carry the actual done world/value and its matching session. The
@@ -117,8 +184,10 @@
    (when (get-in configuration [:install-options :initialize?])
      (fail "Frontend installation requires separate explicit initialization" {}))
    (let [file-name-host (codec/decode (:state result) :string file-name)
-         _ (reference! (:state result) roots :roots)]
+         _ (reference! (:state result) roots :roots)
+         decoded (volatile! nil)]
      (checked-result result (fn []
+                            (try
                               (let [world (:state result) wrapper (:value result)
                                     pair (io-ok! world wrapper)
                                     [returned-env envelope-string] (:fields (ctor! world pair 0 2))
@@ -126,7 +195,12 @@
                                     envelope-text (codec/decode world :string envelope-string)
          ;; The pair owns the Environment. Save that owner BEFORE dropping pair
          ;; and IO wrapper, even on a diagnostic/failure result.
-                                    world (assoc (m/release (m/retain world returned-env 1) wrapper 1) :result 0)
+                                    world (m/retain world returned-env 1)
+                                    _ (vreset! decoded {:checkpoint world :environment returned-env
+                                                       :environment-state :owned :wrapper-state :owned})
+                                    world (assoc (m/release world wrapper 1) :result 0)
+                                    _ (vreset! decoded {:checkpoint world :environment returned-env
+                                                       :environment-state :owned :wrapper-state :released})
                                     envelope (envelope! envelope-text "lean-file-compilation/1"
                                                         "RuntimeCompileShim.compileImportedFileState" file-name-host)
                                     _ (name! (:mainModule envelope))
@@ -141,30 +215,16 @@
                                           :success (:success envelope) :diagnostics (:diagnostics envelope)
                                           :envelope envelope :boxed-entrypoints {} :handle nil}]
                                 (if-not (:success envelope) base
-                                        (let [session (:session result) bindings (:bindings session)
-                                              custom (get-in configuration [:install-options :lower-extern])
-                                              lower (fn [row]
-                                                      (if (contains? bindings (abi/symbol-for (get-in row [:ir :extern])))
-                                                        (raw/lower bindings row) (when custom (custom row))))
-                                              active-session (atom session)
-                                              invoke (fn [world target args]
-                                                       (let [result (raw/call @active-session world target args)]
-                                                         (reset! active-session (:session result))
-                                                         [(:state result) (:value result)]))
-                                              installed (eval/install-file-bundle {:invoke invoke} world returned-env roots (:bundle envelope)
-                                                                                  (assoc (:install-options configuration) :initialize? false :lower-extern lower
-                                                                                         :witness (or (get-in configuration [:install-options :witness]) (helper "exportEvalConstWitness"))
-                                                                                         :trusted-functions (:functions session)))
-                                              session @active-session
-                                              world (:world installed)
-                                              next-session (raw/open-functions (:functions world) bindings
-                                                                               (assoc (select-keys session [:backend :fuel :compile-threshold]) :cache (or (get-in session [:program :cache]) (:cache session))))]
-                                          (assoc base :world world :session next-session
-                                                 :boxed-entrypoints (:boxed-entrypoints installed)
-                                                 :pending-local-initializers (:pending-local-initializers installed)
-                                                 :handle {:module-name (:mainModule envelope) :file-name file-name-host
-                                                          :boxed-entrypoints (:boxed-entrypoints installed)
-                                                          :unit-digest (:unit-digest installed)})))))))))
+                                        (dissoc (install-decoded-file (assoc base :file-name file-name-host) roots configuration)
+                                                :file-name)))
+                              (catch Throwable cause
+                                (if-let [owner @decoded]
+                                  (let [data (ex-data cause)]
+                                    (throw (ex-info (or (.getMessage cause) "Frontend result decoding failed")
+                                             (merge {:checkpoint (:checkpoint owner)
+                                                     :checkpoint-session (:session result)}
+                                                    data {:frontend-decoder-ownership owner}) cause)))
+                                  (throw cause)))))))))
 
 (defn compile-file-refs
   "Compile against the supplied imported :environment, with borrowed guest
