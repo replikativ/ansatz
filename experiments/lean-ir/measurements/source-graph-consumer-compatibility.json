@@ -1,0 +1,270 @@
+{
+  "schema": "source-graph-consumer-compatibility-validation/1",
+  "date": "2026-10-21",
+  "status": "focused-and-comprehensive-runtime-regression-passed",
+  "source-base": "1aa95014df81c0e25e1ee8b7f2f9c5daab230295",
+  "source-sha256": {
+    "experiments/lean-ir/src/prototype/globals_consumer_profile.clj": "b6805d380d9486137f1cfbe86b7c625976a4c1278db6d39ce51bbcea4a77e8aa",
+    "experiments/lean-ir/src/prototype/globals_consumer_factory.clj": "663a8cf1932a04fdc51c3275d8df892ba6eec019bf135a164284ef07b018ee2d",
+    "experiments/lean-ir/src/prototype/restore_consumer.clj": "8ed2724dac11a8bb3423677e654c756119cacba97ee902cf17755fee2415b2f7",
+    "experiments/lean-ir/test/prototype/restore_consumer_test.clj": "79e8e18d8c177f3710ffed8e2b225d2a23fb4ebbde67a775cbd4809ab0876173"
+  },
+  "profile": "ansatz-producer50f-source-graph-reconstruction-consumer/1",
+  "factory": "make-source-graph-reconstruction-factory",
+  "change": "Fixed fifth closed contract adds one exact source_import substitution and one exact source_graph_plan selected-resource row to the fourth heap/ops/reconstruction contract.",
+  "graph-source-pins": {
+    "prototype/source_import.clj": "c329a591447aa37d40030f382eaeec21ca1e94d06367c5919f5248ad4668436f",
+    "prototype/source_graph_plan.clj": "8a8d9a59002ecd5b440af478589874cbd7b7cf46fad8e834b13349b3971540ee"
+  },
+  "contract": {
+    "old-four-profile-IDs-inventory-shapes-pins-and-options-unchanged": true,
+    "inventory-counts": [
+      255,
+      256,
+      256,
+      256,
+      257
+    ],
+    "ordered-cross-inventory-mismatches": 20,
+    "ordered-returned-profile-mismatches": 20,
+    "source-import-in-generic-reconstruction-substitutions": false,
+    "caller-selected-substitution-authenticator-loader-receipt-or-profile": false,
+    "producer50f-recipe-archive-trusted-roots-and-kernel-policy-unchanged": true,
+    "same-fourth-heap-source-and-classes-required": true,
+    "fresh-external-whole-consumer-digest-and-loaded-code-attestation-required": true,
+    "restore-exact-profile-matching": true
+  },
+  "validation": {
+    "focused-v1": {
+      "status": "passed",
+      "tracked-compatibility-tests": 25,
+      "additional-driver-resource-tests": 1,
+      "tests": 26,
+      "assertions": 1104,
+      "failures": 0,
+      "errors": 0,
+      "exit-code": 0,
+      "verified-input-pins": 378,
+      "heap-MiB": 384,
+      "resource-policy": {
+        "preflightAvailableBytes": 3221225472,
+        "availableFloorBytes": 1610612736,
+        "groupRSSLimitBytes": 939524096,
+        "wallLimitSeconds": 180
+      },
+      "observations": {
+        "elapsedSeconds": 12.072901656003523,
+        "peakGroupRSSBytes": 496906240,
+        "minAvailableBytes": 6820003840
+      },
+      "initial-runner-MemAvailableBytes": 7557644288,
+      "guard": "Reviewed waitid(WNOWAIT) keeps leader owned until process-group cleanup and reap; nonzero or signal is failure; guard plus owned-group RSS; 4MiB output bound.",
+      "reporter": "Before project namespace require; correct counters, max64 private retained events; printed scalar test/class/location and at most5frames; no actual/expected/exdata/messages; namespace/setup failure nonzero.",
+      "JVM-argv-sha256": "a11f1e5fb88e412b27e47204b74008feb91f4c7559385e6185616c668df91dcb",
+      "JVM-argv-digest-recipe": "SHA256 of UTF8 compact JSON receipt.command array, separators comma/colon, ensure_ascii=true default, followed by one LF. Exact array remains in the raw receipt."
+    },
+    "comprehensive-v1": {
+      "status": "preflight-rejected-no-JVM",
+      "scope": "Unchanged scripts/test-runtime.clj optional experiment runtime campaign suite, distinct from core library and jar tests.",
+      "no-JVM-launched": true,
+      "reviewed-plan-sha256": "cfcce2407ae529cddf5f526e409d4bcf208e8594f4b0542cfeb2f0ad192b170d",
+      "actual-preflight-MemAvailableBytes": 2817728512,
+      "requiredAvailableBytes": 4294967296,
+      "wrapper-exit-code": 1,
+      "guard-launched": false,
+      "JVM-launched": false,
+      "receipt-sha256": "2eb770b558ff601af173cae871e5a2e0be8b1b3b04bcb37eb7a0cddf198ed907",
+      "reason": "Fresh4096MiB gate rejected before subprocess; first stdout/stderr and no-run-directory observation preserved. Not a test failure or test success."
+    },
+    "comprehensive-v2": {
+      "status": "passed",
+      "reviewed-plan-sha256": "350b2ab0928998d2978ce05d2e3d81a6fc05637842236b32bb0637c6a409ee72",
+      "heap-MiB": 512,
+      "group-RSS-limit-MiB": 1152,
+      "wall-limit-seconds": 420,
+      "preflight-available-MiB": 3072,
+      "available-floor-MiB": 1536,
+      "scope": "Same unchanged scripts/test-runtime.clj,377inputpins,source/tests and boundedreporter; driver output path only changed.",
+      "resource-tradeoff": "Distinct root-proposed and independently reviewed alternative:1152MiB RSS cap+1536MiB available floor+384MiB margin=3072MiB preflight. Previous heap-consumer suite observed1030135808Bpeak at512MiBheap; this supports planning, not a success or memory guarantee.",
+      "requiredAvailableBytes": 3221225472,
+      "JVM-launched": true,
+      "no-automatic-fallback-or-further-lowering": true,
+      "v1-bytes-and-preflight-rejection-preserved": true,
+      "tests": 944,
+      "assertions": 92219,
+      "failures": 0,
+      "errors": 0,
+      "exit-code": 0,
+      "no-guard-stop": true,
+      "verified-input-pins": 377,
+      "resource-observations": {
+        "elapsedSeconds": 207.01551895500597,
+        "peakGroupRSSBytes": 1026715648,
+        "minAvailableBytes": 2961936384
+      },
+      "actual-wrapper-preflight-MemAvailableBytes": 4094320640,
+      "actual-preflight-scheduling-snapshot-MemAvailableBytes": 3888992256,
+      "resource-policy": {
+        "heapMiB": 512,
+        "groupRSSLimitBytes": 1207959552,
+        "wallLimitSeconds": 420,
+        "availableFloorBytes": 1610612736,
+        "preflightAvailableBytes": 3221225472
+      },
+      "JVM-argv-sha256": "74fb2aba22eba4f031f9932c760177541a44baafae064a86898fad867682d856",
+      "JVM-argv-digest-recipe": "SHA256 of UTF8 compact JSON receipt.command array, separators comma/colon, ensure_ascii=true default, followed by one LF. Exact array remains in the raw receipt.",
+      "results-sha256": "446b75e58d47f08dcf7656f6e50966b992d37467423e717b16315928ef0bcefa",
+      "receipt-sha256": "21140c9586b2250a8e7e90c2e0c5839e2d6f04369577e9f2113af2f4967710c3",
+      "forced-GC": false,
+      "performance-claim": false,
+      "earlier-held-preflight-MemAvailableBytes": 2714378240
+    }
+  },
+  "coverage": [
+    "Five modeled closed inventory positives and all20 ordered inventory mismatch pairs, each supplied with its own matching canonical digest.",
+    "Five known restore profile IDs and all20 ordered mismatched returned profile pairs, plus unknown/nil rejection.",
+    "All four old contracts reject graph source substitution under their own old shapes and reject added planner row.",
+    "Fifth rejects old/nearby/forged graph pins, all257 single-row omissions, duplicate/extra/role/digest drift, unrelated baseline and earlier mutable/heap/program/global pin changes.",
+    "Both public fifth authenticator and public factory reject unknown options, wrong loaded-code attestation and altered fifth pins before resource resolution.",
+    "Actual selected-resource authentication of exact frozen source_import/planner copies and wrong-digest negatives; existing genuine selected Java/class checks remain separate."
+  ],
+  "reproduce": {
+    "focused-driver": "Ignored target/artifact-contract/source-graph-consumer-compatibility/validation-v1/validate.clj and execution-plan.json, pinned below.",
+    "classpath-order": [
+      "existing authenticated consumer-support source",
+      "only the two frozen graph resource copies",
+      "compact-projection Java classes",
+      "exact reviewed e89 HeapOverlay outer/nested class directory",
+      "existing core/runtime classes",
+      "candidate experiments/lean-ir/src",
+      "candidate experiments/lean-ir/test",
+      "candidate src"
+    ],
+    "comprehensive-entrypoint": "experiments/lean-ir/scripts/test-runtime.clj",
+    "core-and-jar-boundary": "This local validation is only the optional experiments/lean-ir runtime suite. The core source and jar suites were not run locally for this optional-only change. Repository bin/run-unittests uses -M:ci with integration excluded and ten named fixture-free namespaces; it is not full -M:test or :jar-test. Root-reviewed upstream clj-tools orb source132389b5a4ff67ab389529ab52372722b2d12ce2 calls clean/-T:build jar and bin/run-unittests; floating orb@0 resolution is not independently established here. CI build is not proof of jar-test. Core paths and CI config are unchanged.",
+    "portable-semantic-command": "From experiments/lean-ir, use clojure -J-Xmx512m -J-Xss8m -Sdeps '{:paths [\"<authenticated-consumer-support-src>\" \"<compact-projection-classes>\" \"<exact-e89-HeapOverlay-classes>\" \"<existing-core-runtime-classes>\" \"src\" \"test\" \"../../src\"]}' -M scripts/test-runtime.clj. The measured run wraps this unchanged entrypoint in the pinned bounded-reporter driver and reviewed WNOWAIT guard; actual fully assembled argv is retained in the raw receipt."
+  },
+  "artifact-sha256": {
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/execution-plan.json": "b0dcc816151eada86b5e2bd3d3a7b0667d6b2497980baeb1cb9e01b3847edbf0",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/validate.clj": "3e8781b09a88b969b70c500c0a735061ecd0eaf1c023dbd68b8aa4830ba46a3e",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/guard.py": "38c632b97abce8fa0605991b7be8faab1d6e2c0964d1eaa333f4cbec09faad8f",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/run.py": "8af1968f1897868ad70c577b686efaaf30c6ebd56ede7546bb3ef7815a6489ed",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/results.json": "bf755af1edfffa4c3b9662ac4a267363d3efe7e0917ebc0d519a4f30929bf343",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/run-v1/receipt.json": "05496e4c5708bead4363c3f28856dbfe88c48ebcf08135b7d4aba2993892f450",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/run-v1/stdout": "ef18052f92de914785219adaade6403fef08f861f2aa8871bbb08e842db4dd0a",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/run-v1/stderr": "4b2f88ecdbbf88833264e935a10547bbcebeea1ba0fb47227ca32595e3a78107",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/frozen-resource-pair/prototype/source_import.clj": "c329a591447aa37d40030f382eaeec21ca1e94d06367c5919f5248ad4668436f",
+    "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/frozen-resource-pair/prototype/source_graph_plan.clj": "8a8d9a59002ecd5b440af478589874cbd7b7cf46fad8e834b13349b3971540ee",
+    "target/artifact-contract/source-graph-consumer-compatibility/root-ci-boundary-v1.json": "4c60c880497b6da8f17515d6f69f182b523bc0ebd5974fe7112b593146d2fb35",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/execution-plan.json": "cfcce2407ae529cddf5f526e409d4bcf208e8594f4b0542cfeb2f0ad192b170d",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/validate.clj": "c4ac946b70c11e6093c8d78e63665039ffdad97da00b6a76180ff723472ed438",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/guard.py": "38c632b97abce8fa0605991b7be8faab1d6e2c0964d1eaa333f4cbec09faad8f",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/run.py": "8af1968f1897868ad70c577b686efaaf30c6ebd56ede7546bb3ef7815a6489ed",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/first-launch-stdout": "9cc8bfc1862ba42e579b0da4ee2b0aace139f2bcadf86838058df93b0fc068ca",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/first-launch-stderr": "0b8a1ef0549af886afbb25f5ce48248d45b1481699af0817a4d91c15416b999b",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v1/first-launch-preflight-receipt.json": "2eb770b558ff601af173cae871e5a2e0be8b1b3b04bcb37eb7a0cddf198ed907",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/execution-plan.json": "350b2ab0928998d2978ce05d2e3d81a6fc05637842236b32bb0637c6a409ee72",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/validate.clj": "e91f1a6946347ea91548d88979ff7ce5a075ccfabc52dfea66835924f2e13173",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/guard.py": "38c632b97abce8fa0605991b7be8faab1d6e2c0964d1eaa333f4cbec09faad8f",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run.py": "8af1968f1897868ad70c577b686efaaf30c6ebd56ede7546bb3ef7815a6489ed",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/preflight-observation-v1.json": "2610f3a93cbc467849d88f2e0c4b1f057db02627e7b08d427ba8b0eef52bbd23",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/first-launch-stdout": "5df90faf56e6ee34ac473cddf34857c65e1ffb9261d8100325d6a0b3c48eb8ec",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/first-launch-stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/results.json": "446b75e58d47f08dcf7656f6e50966b992d37467423e717b16315928ef0bcefa",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run-v1/receipt.json": "21140c9586b2250a8e7e90c2e0c5839e2d6f04369577e9f2113af2f4967710c3",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run-v1/stdout": "d875bae10fc6c0706e9b4626c24bd166b7a3f9f524243a6dcc8d30ed7dea43f2",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run-v1/stderr": "2d2f0bf79880b3a4f9af13bcd363f9c795890e86893f184e88902d225e57056a",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/scheduling-snapshot-v2.json": "d3187aa5fc7670e8452cc63339850cd1cfd93addf38cd9bc9a4e9c4213512741",
+    "target/artifact-contract/source-graph-consumer-compatibility/draft-pr143-head-v1.json": "0b79b0309adb5dd6ef56e9e9cdbc03761dfa0f36c3ddf61dde9a2051b30fb7c2",
+    "target/artifact-contract/source-graph-consumer-compatibility/full-core-check-scope-audit-v1.json": "ca4604c9c4ed498bf1cf13f6a1ad8722058bcf9d223d1699df8c013f08169255"
+  },
+  "limits": [
+    "Shape inventory hashes outside the exact changed pins are modeled. Two actual graph source resources and current Java/classes do not attest a whole consumer or already loaded project namespaces.",
+    "Frozen graph resources were copied read-only from the separately reviewed runtime-owner worktree; the compatibility branch does not yet contain that runtime change. Any source_import change requires explicit repin and review.",
+    "A genuine campaign requires a new complete selected-source/class capture, source-before-load/AOT-shadow rejection, exact loaded-code attestation and constructor gate.",
+    "No helper admission, lowerability, completed graph permission, source/module chain/diamond, initializer execution or frontend performance claim is established by this contract.",
+    "Actual G2 helper closure admission belongs after fresh strict Init checking and before exact graph binding/configuration/prefix; the factory neither runs nor admits it."
+  ],
+  "ci-scope": {
+    "local-script": "bin/run-unittests",
+    "local-script-sha256": "ad7ab557be0403a66509069e7ee717cfca66d02871c4fe31f337604e2e17f12b",
+    "config": ".circleci/config.yml",
+    "config-sha256": "e616296ea86500f1db1887c8dfe993876c2bf5b81aff356113dd181d0d54c73f",
+    "jobs": [
+      "tools/setup",
+      "tools/build",
+      "tools/format",
+      "tools/unittest"
+    ],
+    "fixture-free-namespaces": [
+      "ansatz.export.parser-test",
+      "ansatz.export.replay-test",
+      "ansatz.export.storage-test",
+      "ansatz.kernel.reducer-test",
+      "ansatz.kernel.typechecker-test",
+      "ansatz.load-export-test",
+      "ansatz.surface.lean-test",
+      "ansatz.surface.pp-test",
+      "ansatz.theory.convergence-test",
+      "ansatz.bundled-init-test"
+    ],
+    "full-core-suite-run-locally": false,
+    "jar-test-run-locally": false,
+    "optional-runtime-suite-run-by-CI": false,
+    "upstream-orb-source": {
+      "repository": "replikativ/circleci-orb",
+      "branch": "clj-tools",
+      "commit": "132389b5a4ff67ab389529ab52372722b2d12ce2",
+      "reviewed-by": "parent task owner; remote job commands not inferred solely from status names",
+      "floating-orb-version-resolution-established": false
+    },
+    "audit-artifact": "target/artifact-contract/source-graph-consumer-compatibility/root-ci-boundary-v1.json",
+    "interim-tested-source-head": "2f4c6cb25b328161261f6bbac4e1501dec462273",
+    "interim-CI-observation": {
+      "setup1893": "SUCCESS",
+      "build1894": "SUCCESS",
+      "format1895": "SUCCESS",
+      "unittest1896": "SUCCESS",
+      "scope": "Observed via GitHub PR143 statusCheckRollup; final documentation-only head still requires its own CI gate before root merge."
+    }
+  },
+  "tested-code-and-test-head": "2f4c6cb25b328161261f6bbac4e1501dec462273",
+  "final-evidence-scope": "The full local optional runtime suite tested the unchanged source/test hashes at draft head2f4c6cb. The subsequent evidence update changes only README and this record; it does not substitute a different tested consumer or claim a whole G2 capture.",
+  "verification-contract-reconciliation": {
+    "guide-requirement": {
+      "source": "CLAUDE.md:173",
+      "literal": "Run full test suite (`clj -M:test -e :wip`) after every change.",
+      "command-run-locally": false
+    },
+    "scope-reconciliation": "The task owner explicitly selected complete optional runtime validation plus existing CI selected core tests for this optional-only six-file delta, with no additional speculative core/jar JVM. This is a documented scope exception to the generic guide command, not a claim that selected CI fulfills that command.",
+    "why": "All changed source/test/documentation files are inside experiments/lean-ir. Root deps.edn production :paths src/classes/resources and root :test test path do not discover the optional runtime tests. Core/Java/kernel/packaging/AOT files and build configuration are unchanged. The complete optional runner relevant to the changed APIs passed944tests92219assertions.",
+    "fixture-findings": [
+      {
+        "source": "test/ansatz/test_env.clj:44",
+        "finding": "FullInit environment loads prebuilt init-store or init.ndjson; shared fallback explicitly verifyfalse, absent fixtures yield nil."
+      },
+      {
+        "source": "test/ansatz/prelude/list_test.clj:24",
+        "finding": "Separate fullInit fixture replays init.ndjson using replay defaultverifytrue when present; otherwise skips. replay default is src/ansatz/export/replay.clj:178."
+      },
+      {
+        "source": "test/ansatz/int_arith_test.clj:12",
+        "finding": "Resolves and opens existing mathlib store via a/init!, skips when absent; explicitly does not download fixture."
+      },
+      {
+        "source": "test/ansatz/theory/inferred_real_test.clj:12",
+        "finding": "Existing mathlib store-dependent fixture, skipped when absent."
+      },
+      {
+        "source": "test/ansatz/tactic/carriers_test.clj:17",
+        "finding": "Existing mathlib store-dependent fixture, skipped when absent."
+      }
+    ],
+    "limits": [
+      "The full core command includes fixture-dependent fullInit and existingMathlib paths. This audit does not claim that command necessarily re-typechecks all707k Mathlib declarations.",
+      "Core full-source and jar-test suites were not executed locally for this change; CI selected ten namespaces is not either full suite.",
+      "CI jar build is packaging verification, not proof that :jar-test ran."
+    ],
+    "audit-artifact": "target/artifact-contract/source-graph-consumer-compatibility/full-core-check-scope-audit-v1.json"
+  }
+}
