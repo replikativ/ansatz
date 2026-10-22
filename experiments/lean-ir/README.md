@@ -44,7 +44,9 @@ records 26 tests / 1,104 assertions: modeled inventory and restore-profile
 boundaries, existing Java/class checks, and authentication of the two actual
 frozen graph resources. This does not establish whole-consumer loaded-code
 attestation, helper admission or a completed source graph import. The complete
-optional runtime suite awaits its reviewed memory gate.
+optional runtime suite also passes 944 tests / 92,219 assertions. The record
+preserves the first preflight rejection and the separately reviewed resource
+policy used for the completed run.
 
 From this directory, reproduce with the normal experiment classpath after preparing
 the Java classes described below:

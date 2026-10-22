@@ -1,7 +1,7 @@
 {
   "schema": "source-graph-consumer-compatibility-validation/1",
   "date": "2026-10-21",
-  "status": "focused-passed-comprehensive-preflight-blocked",
+  "status": "focused-and-comprehensive-runtime-regression-passed",
   "source-base": "1aa95014df81c0e25e1ee8b7f2f9c5daab230295",
   "source-sha256": {
     "experiments/lean-ir/src/prototype/globals_consumer_profile.clj": "b6805d380d9486137f1cfbe86b7c625976a4c1278db6d39ce51bbcea4a77e8aa",
@@ -77,7 +77,7 @@
       "reason": "Fresh4096MiB gate rejected before subprocess; first stdout/stderr and no-run-directory observation preserved. Not a test failure or test success."
     },
     "comprehensive-v2": {
-      "status": "reviewed-alternative-held-fresh-preflight-insufficient",
+      "status": "passed",
       "reviewed-plan-sha256": "350b2ab0928998d2978ce05d2e3d81a6fc05637842236b32bb0637c6a409ee72",
       "heap-MiB": 512,
       "group-RSS-limit-MiB": 1152,
@@ -86,11 +86,38 @@
       "available-floor-MiB": 1536,
       "scope": "Same unchanged scripts/test-runtime.clj,377inputpins,source/tests and boundedreporter; driver output path only changed.",
       "resource-tradeoff": "Distinct root-proposed and independently reviewed alternative:1152MiB RSS cap+1536MiB available floor+384MiB margin=3072MiB preflight. Previous heap-consumer suite observed1030135808Bpeak at512MiBheap; this supports planning, not a success or memory guarantee.",
-      "actual-latest-preflight-MemAvailableBytes": 2714378240,
       "requiredAvailableBytes": 3221225472,
-      "JVM-launched": false,
+      "JVM-launched": true,
       "no-automatic-fallback-or-further-lowering": true,
-      "v1-bytes-and-preflight-rejection-preserved": true
+      "v1-bytes-and-preflight-rejection-preserved": true,
+      "tests": 944,
+      "assertions": 92219,
+      "failures": 0,
+      "errors": 0,
+      "exit-code": 0,
+      "no-guard-stop": true,
+      "verified-input-pins": 377,
+      "resource-observations": {
+        "elapsedSeconds": 207.01551895500597,
+        "peakGroupRSSBytes": 1026715648,
+        "minAvailableBytes": 2961936384
+      },
+      "actual-wrapper-preflight-MemAvailableBytes": 4094320640,
+      "actual-preflight-scheduling-snapshot-MemAvailableBytes": 3888992256,
+      "resource-policy": {
+        "heapMiB": 512,
+        "groupRSSLimitBytes": 1207959552,
+        "wallLimitSeconds": 420,
+        "availableFloorBytes": 1610612736,
+        "preflightAvailableBytes": 3221225472
+      },
+      "JVM-argv-sha256": "74fb2aba22eba4f031f9932c760177541a44baafae064a86898fad867682d856",
+      "JVM-argv-digest-recipe": "SHA256 of UTF8 compact JSON receipt.command array, separators comma/colon, ensure_ascii=true default, followed by one LF. Exact array remains in the raw receipt.",
+      "results-sha256": "446b75e58d47f08dcf7656f6e50966b992d37467423e717b16315928ef0bcefa",
+      "receipt-sha256": "21140c9586b2250a8e7e90c2e0c5839e2d6f04369577e9f2113af2f4967710c3",
+      "forced-GC": false,
+      "performance-claim": false,
+      "earlier-held-preflight-MemAvailableBytes": 2714378240
     }
   },
   "coverage": [
@@ -114,7 +141,8 @@
       "candidate src"
     ],
     "comprehensive-entrypoint": "experiments/lean-ir/scripts/test-runtime.clj",
-    "core-and-jar-boundary": "This local validation is only the optional experiments/lean-ir runtime suite. The core source and jar suites were not run locally for this optional-only change. Repository bin/run-unittests uses -M:ci with integration excluded and ten named fixture-free namespaces; it is not full -M:test or :jar-test. Root-reviewed upstream clj-tools orb source132389b5a4ff67ab389529ab52372722b2d12ce2 calls clean/-T:build jar and bin/run-unittests; floating orb@0 resolution is not independently established here. CI build is not proof of jar-test. Core paths and CI config are unchanged."
+    "core-and-jar-boundary": "This local validation is only the optional experiments/lean-ir runtime suite. The core source and jar suites were not run locally for this optional-only change. Repository bin/run-unittests uses -M:ci with integration excluded and ten named fixture-free namespaces; it is not full -M:test or :jar-test. Root-reviewed upstream clj-tools orb source132389b5a4ff67ab389529ab52372722b2d12ce2 calls clean/-T:build jar and bin/run-unittests; floating orb@0 resolution is not independently established here. CI build is not proof of jar-test. Core paths and CI config are unchanged.",
+    "portable-semantic-command": "From experiments/lean-ir, use clojure -J-Xmx512m -J-Xss8m -Sdeps '{:paths [\"<authenticated-consumer-support-src>\" \"<compact-projection-classes>\" \"<exact-e89-HeapOverlay-classes>\" \"<existing-core-runtime-classes>\" \"src\" \"test\" \"../../src\"]}' -M scripts/test-runtime.clj. The measured run wraps this unchanged entrypoint in the pinned bounded-reporter driver and reviewed WNOWAIT guard; actual fully assembled argv is retained in the raw receipt."
   },
   "artifact-sha256": {
     "target/artifact-contract/source-graph-consumer-compatibility/validation-v1/execution-plan.json": "b0dcc816151eada86b5e2bd3d3a7b0667d6b2497980baeb1cb9e01b3847edbf0",
@@ -139,7 +167,16 @@
     "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/validate.clj": "e91f1a6946347ea91548d88979ff7ce5a075ccfabc52dfea66835924f2e13173",
     "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/guard.py": "38c632b97abce8fa0605991b7be8faab1d6e2c0964d1eaa333f4cbec09faad8f",
     "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run.py": "8af1968f1897868ad70c577b686efaaf30c6ebd56ede7546bb3ef7815a6489ed",
-    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/preflight-observation-v1.json": "2610f3a93cbc467849d88f2e0c4b1f057db02627e7b08d427ba8b0eef52bbd23"
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/preflight-observation-v1.json": "2610f3a93cbc467849d88f2e0c4b1f057db02627e7b08d427ba8b0eef52bbd23",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/first-launch-stdout": "5df90faf56e6ee34ac473cddf34857c65e1ffb9261d8100325d6a0b3c48eb8ec",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/first-launch-stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/results.json": "446b75e58d47f08dcf7656f6e50966b992d37467423e717b16315928ef0bcefa",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run-v1/receipt.json": "21140c9586b2250a8e7e90c2e0c5839e2d6f04369577e9f2113af2f4967710c3",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run-v1/stdout": "d875bae10fc6c0706e9b4626c24bd166b7a3f9f524243a6dcc8d30ed7dea43f2",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/run-v1/stderr": "2d2f0bf79880b3a4f9af13bcd363f9c795890e86893f184e88902d225e57056a",
+    "target/artifact-contract/source-graph-consumer-compatibility/comprehensive-v2/scheduling-snapshot-v2.json": "d3187aa5fc7670e8452cc63339850cd1cfd93addf38cd9bc9a4e9c4213512741",
+    "target/artifact-contract/source-graph-consumer-compatibility/draft-pr143-head-v1.json": "0b79b0309adb5dd6ef56e9e9cdbc03761dfa0f36c3ddf61dde9a2051b30fb7c2",
+    "target/artifact-contract/source-graph-consumer-compatibility/full-core-check-scope-audit-v1.json": "ca4604c9c4ed498bf1cf13f6a1ad8722058bcf9d223d1699df8c013f08169255"
   },
   "limits": [
     "Shape inventory hashes outside the exact changed pins are modeled. Two actual graph source resources and current Java/classes do not attest a whole consumer or already loaded project namespaces.",
@@ -181,6 +218,53 @@
       "reviewed-by": "parent task owner; remote job commands not inferred solely from status names",
       "floating-orb-version-resolution-established": false
     },
-    "audit-artifact": "target/artifact-contract/source-graph-consumer-compatibility/root-ci-boundary-v1.json"
+    "audit-artifact": "target/artifact-contract/source-graph-consumer-compatibility/root-ci-boundary-v1.json",
+    "interim-tested-source-head": "2f4c6cb25b328161261f6bbac4e1501dec462273",
+    "interim-CI-observation": {
+      "setup1893": "SUCCESS",
+      "build1894": "SUCCESS",
+      "format1895": "SUCCESS",
+      "unittest1896": "SUCCESS",
+      "scope": "Observed via GitHub PR143 statusCheckRollup; final documentation-only head still requires its own CI gate before root merge."
+    }
+  },
+  "tested-code-and-test-head": "2f4c6cb25b328161261f6bbac4e1501dec462273",
+  "final-evidence-scope": "The full local optional runtime suite tested the unchanged source/test hashes at draft head2f4c6cb. The subsequent evidence update changes only README and this record; it does not substitute a different tested consumer or claim a whole G2 capture.",
+  "verification-contract-reconciliation": {
+    "guide-requirement": {
+      "source": "CLAUDE.md:173",
+      "literal": "Run full test suite (`clj -M:test -e :wip`) after every change.",
+      "command-run-locally": false
+    },
+    "scope-reconciliation": "The task owner explicitly selected complete optional runtime validation plus existing CI selected core tests for this optional-only six-file delta, with no additional speculative core/jar JVM. This is a documented scope exception to the generic guide command, not a claim that selected CI fulfills that command.",
+    "why": "All changed source/test/documentation files are inside experiments/lean-ir. Root deps.edn production :paths src/classes/resources and root :test test path do not discover the optional runtime tests. Core/Java/kernel/packaging/AOT files and build configuration are unchanged. The complete optional runner relevant to the changed APIs passed944tests92219assertions.",
+    "fixture-findings": [
+      {
+        "source": "test/ansatz/test_env.clj:44",
+        "finding": "FullInit environment loads prebuilt init-store or init.ndjson; shared fallback explicitly verifyfalse, absent fixtures yield nil."
+      },
+      {
+        "source": "test/ansatz/prelude/list_test.clj:24",
+        "finding": "Separate fullInit fixture replays init.ndjson using replay defaultverifytrue when present; otherwise skips. replay default is src/ansatz/export/replay.clj:178."
+      },
+      {
+        "source": "test/ansatz/int_arith_test.clj:12",
+        "finding": "Resolves and opens existing mathlib store via a/init!, skips when absent; explicitly does not download fixture."
+      },
+      {
+        "source": "test/ansatz/theory/inferred_real_test.clj:12",
+        "finding": "Existing mathlib store-dependent fixture, skipped when absent."
+      },
+      {
+        "source": "test/ansatz/tactic/carriers_test.clj:17",
+        "finding": "Existing mathlib store-dependent fixture, skipped when absent."
+      }
+    ],
+    "limits": [
+      "The full core command includes fixture-dependent fullInit and existingMathlib paths. This audit does not claim that command necessarily re-typechecks all707k Mathlib declarations.",
+      "Core full-source and jar-test suites were not executed locally for this change; CI selected ten namespaces is not either full suite.",
+      "CI jar build is packaging verification, not proof that :jar-test ran."
+    ],
+    "audit-artifact": "target/artifact-contract/source-graph-consumer-compatibility/full-core-check-scope-audit-v1.json"
   }
 }
