@@ -614,6 +614,15 @@
                        (mapv #(hash-map :module (:module %) :meta (:isMeta %)) (imports-for [module-a]))))]
     (into [manifest b b-boxed]
           (map #(assoc % :sourceModule module-a :sourceLocal false) (rest rows)))))
+(defn independent-b-bundle-rows
+  "Explicit independent identity-function compiler fixture for native-base tests."
+  []
+  (let [rows (walk/postwalk #(if (= answer-a %) answer-b %) (fixture-rows))]
+    (into [(-> (first rows) (assoc-in [:initializationPlan :module] module-b)
+               (assoc-in [:initializationPlan :imports]
+                 (mapv #(hash-map :module (:module %) :meta (:isMeta %)) source/init-requests)))]
+          (map #(assoc % :sourceModule module-b :sourceLocal true) (rest rows)))))
+
 (defn fixture-witness [name rows]
   (json/write-str {:schema "lean-eval-const-witness/1" :producer "RuntimeCompileShim.exportEvalConstWitness"
                   :leanCommit (get prim/pinned-build "lean_get_githash")
@@ -630,7 +639,8 @@
         a-rows (mapv #(assoc % :sourceModule module-a :sourceLocal false) (rest (fixture-rows)))
         witnesses {answer-a (fixture-witness answer-a a-rows)
                    answer-b (fixture-witness answer-b (mapv #(assoc % :sourceLocal false)
-                                                            (rest (b-bundle-rows))))}
+                                                            (rest (if (:independent-b? input)
+                                                                    (independent-b-bundle-rows) (b-bundle-rows)))))}
         specs
         {witness [3 [{:ty "object" :borrow false} {:ty "object" :borrow false} {:ty "object" :borrow false}]
                   (fn [_ world [environment name _]]
@@ -676,7 +686,8 @@
         functions (assoc functions kernel-probe {:params [1 2 3 4 5]
                          :body [:host "lean_elab_add_decl" [[:var 1] [:var 2] [:var 3] [:var 4] [:var 5]] 6
                                 [:return [:var 6]]]})]
-    (assoc configured :functions functions :bindings bindings :kernel-probe kernel-probe)))
+    (assoc configured :functions functions :bindings bindings :kernel-probe kernel-probe
+                      :independent-b? (true? (:independent-b? input)))))
 
 (defn chain-invoke! [fixture active world target args]
   (try
@@ -694,7 +705,8 @@
   (swap! (:compiler-calls fixture) inc)
   (let [entry (resident/snapshot context) module (wire-name (:module-name request))
         b? (= module-b module) parent (if b? module-a module-b)
-        requested (imports-for [parent]) active (atom (:session entry))
+        independent? (and b? (true? (get-in fixture [:transport :independent-b?])))
+        requested (if independent? source/init-requests (imports-for [parent])) active (atom (:session entry))
         invoke #(chain-invoke! fixture active %1 %2 %3)
         names [(Name/fromString (if b? "b" "unusedC")) (Name/fromString (if b? "b._boxed" "unusedC._boxed"))
                (Name/fromString "Init") (Name/fromString (imports/module-string parent)) (:module-name request)]
@@ -711,7 +723,9 @@
                 type-ref (nth (fields world a-base) 2)
                 answer-name (first (fields world a-base))
                 target ["str" ["str" ["str" ["anonymous"] "Lean"] "Expr"] "const"]
-                [world value] (invoke (m/retain world answer-name 1) ["str" target "_override"] [answer-name (m/->Tag 0)])
+                [world value] (if independent?
+                                (let [value (second (fields world a-definition))] [(m/retain world value 1) value])
+                                (invoke (m/retain world answer-name 1) ["str" target "_override"] [answer-name (m/->Tag 0)]))
                 world (-> world (m/retain own-name 2) (m/retain type-ref 1))
                 [world base] (record/ctor world 0 [own-name (m/->Tag 0) type-ref] 0)
                 [world all] (record/ctor world 1 [own-name (m/->Tag 0)] 0)
@@ -720,7 +734,8 @@
                 [world declaration] (record/ctor world 1 [definition] 0)
                 a-java (imported/project-constant world a-ci)
                 expected (kernel-env/mk-def (Name/fromString "b") [] (.type ^ansatz.kernel.ConstantInfo a-java)
-                                           (expression/const' (Name/fromString "answer") []))
+                                           (if independent? (.value ^ansatz.kernel.ConstantInfo a-java)
+                                             (expression/const' (Name/fromString "answer") [])))
                 _ (when-not (= (imported/checking-shape expected)
                                (imported/checking-shape (imported/project-constant world declaration)))
                     (throw (ex-info "Chain B guest declaration differs from independent Java definition" {})))
@@ -735,7 +750,7 @@
             (remember! (get-in fixture [:transport :state]) :B-kernel-owned {:world world :environment environment :declaration declaration})
             [world declaration environment])
           [(-> world (m/release own-name 1) (m/release own-extra 1)) nil (:environment entry)])
-        rows (if b? (b-bundle-rows)
+        rows (if b? (if independent? (independent-b-bundle-rows) (b-bundle-rows))
                [(-> (first (fixture-rows)) (assoc :entryPoints [] :requestedRoots [])
                     (assoc-in [:initializationPlan :module] module)
                     (assoc-in [:initializationPlan :imports]
@@ -770,8 +785,9 @@
             (let [root (first (fields world (first args)))] [(m/retain world root 1) root])
             (let [[world r0] (packed! (m/retain world init-name 1) [init-name] 3 {0 0 1 1 2 0})
                   [world r1] (packed! world [init-name] 3 {0 0 1 1 2 1})
-                  [world rp] (packed! world [parent-name] 3 {0 0 1 1 2 0})
-                  [world requests] (array! world [r0 r1 rp])
+                  [world rp] (if independent? [(m/release world parent-name 1) nil]
+                               (packed! world [parent-name] 3 {0 0 1 1 2 0}))
+                  [world requests] (array! world (if independent? [r0 r1] [r0 r1 rp]))
                   [world own-names] (array! world (if b? [own-name] []))
                   [world constants] (array! world (if b? [own-ci] []))
                   [world extras] (array! world (if b? [own-extra] []))

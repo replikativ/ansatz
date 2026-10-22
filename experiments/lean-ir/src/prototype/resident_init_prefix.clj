@@ -22,6 +22,7 @@
             [prototype.native-scalar :as native]
             [prototype.frontend :as frontend]
             [prototype.guest-encoding :as encoding]
+            [prototype.globals-consumer-factory :as native-factory]
             [prototype.resident-import :as standalone]
             [ansatz.kernel.name :as name]
             [clojure.string :as str])
@@ -1771,7 +1772,7 @@
           ;; Charge only observed work, including a known partial failure. An
           ;; unknown failed reservation remains reserved by the budget adapter.
           ;; Publication proof states have no graph-operation marker.
-          (when (:graph-operation? @state)
+          (when (or (:graph-operation? @state) (:native-operation? @state))
             (swap! state update :helper-steps +' (- (:used @state) before))))))))
 
 (defn- graph-current-receipt!
@@ -2430,3 +2431,362 @@
                        (assoc-in [:source-graph :batch-committed?] true)
                        (assoc-in [:graph-audit :receipt-count] (count batch))))
       (assoc finished :world candidate :source-graph-receipts (mapv :description batch)))))
+
+
+;; Native Init reset is a distinct operation. No empty graph assembler, source
+;; node or completed-source receipt is involved; old controls cannot consume it.
+(deftype NativeInitBase [])
+(defonce ^:private native-base-issued (WeakHashMap.))
+(defn- native-control! [control]
+  (let [state (when (instance? NativeInitBase control)
+                (locking native-base-issued (.get native-base-issued control)))]
+    (when-not state (fail "Expected issued native Init base operation" {})) state))
+(defn- native-progress [data]
+  {:phase (:phase data) :guest-steps (:used data 0) :outer-steps (:outer-steps data 0)
+   :helper-steps (:helper-steps data 0) :completed-operations (:operations data 0)
+   :readiness-queries (:readiness-index data 0) :host-work (:host-work data 0)
+   :native-module-count (get-in data [:coverage :query-count]) :source-receipts 0})
+(defn- native-failed! [state cause]
+  (if-let [failure (:failure @state)] (throw failure)
+    (let [child (ex-data cause)]
+      (when (:checkpoint child) (swap! state assoc :world (:checkpoint child)))
+      (when (:checkpoint-session child) (swap! state assoc :session (:checkpoint-session child)))
+      (when-let [{:keys [world bound category]} (:guest-entry @state)]
+        (let [known (cond (contains? child :checkpoint) (:checkpoint child)
+                          (:guest-returned? @state) (:world @state))
+              delta (when (get-in known [:stats :steps])
+                      (- (get-in known [:stats :steps]) (get-in world [:stats :steps])))
+              returned? (:guest-returned? @state)
+              helper (if (and returned? (= :helper-steps category)) (get-in @state [:event :helper-steps] 0) 0)
+              charge (when (and (integer? delta) (integer? helper)) (max delta helper))]
+          (when (and (integer? delta) (<= 0 delta bound) (integer? helper) (<= 0 helper bound)
+                     (integer? charge) (<= 0 charge bound))
+            ;; A thrown backend call publishes only a lower-bound checkpoint:
+            ;; later instructions may have run without returning a new packet.
+            ;; Charge observed work, retaining the unknown residual reservation.
+            (swap! state #(-> % (update :used +' charge) (update category +' charge)
+                              (assoc :reserved (if returned? 0 (- bound charge))
+                                     :failed-guest-observed-steps charge)
+                              (dissoc :guest-returned?))))))
+      (let [data @state
+            failure (ex-info "Native Init base operation failed"
+                      (merge child {:checkpoint (:world data) :checkpoint-session (:session data)
+                                    :native-init-base-state data :native-init-base-terminal? true}) cause)]
+        (swap! state assoc :phase :failed :failure-phase (:phase data) :failure failure)
+        (throw failure)))))
+(defn- native-own! [state label operation]
+  (let [[world value] (operation (:world @state))]
+    (swap! state #(-> % (assoc :world world) (assoc-in [:native-owners label] {:value value :state :owned})))
+    value))
+(defn- native-transfer! [state labels]
+  (doseq [label labels]
+    (when-not (= :owned (get-in @state [:native-owners label :state]))
+      (fail "Native base owner was already consumed" {})))
+  (swap! state #(reduce (fn [s label] (assoc-in s [:native-owners label :state] :transferred)) % labels)))
+(defn- native-release! [state label]
+  (let [{:keys [value] status :state} (get-in @state [:native-owners label])]
+    (when-not (= :owned status) (fail "Native base owner is not releasable" {}))
+    (let [world (m/release (:world @state) value 1)
+          world (if (= value (:result world)) (assoc world :result 0) world)]
+      (swap! state #(-> % (assoc :world world) (assoc-in [:native-owners label :state] :released))))))
+(defn- native-current! [data]
+  (let [{:keys [world session configuration prefix-cap profile readiness coverage]} data
+        issued (capability! prefix-cap)
+        _ (continuation-readiness! data)
+        _ (when-not (identical? (:profile-data data) (graph-profile! profile))
+            (fail "Native base lost its exact graph profile" {}))
+        _ (graph-installer-matches! (:profile-data data) configuration)
+        _ (eval/validate-executables! world (:trusted-functions configuration) source-graph-roots)
+        prefix (:prefix issued)
+        binding (get-in session [:bindings "lean_run_mod_init_core"])
+        actual (native-factory/native-init-coverage readiness (:source prefix) binding)
+        modules (mapv :module (:modules prefix))]
+    (when-not (and (identical? configuration (:configuration issued))
+                   (= coverage actual) (= (count modules) (:query-count actual))
+                   (= (set modules) (set (:modules actual)))
+                   (every? #(= "all" (:irPhases %)) (:modules prefix)))
+      (fail "Native readiness does not cover the exact effective native prefix" {}))
+    issued))
+(defn- native-requests! [state invoke]
+  (let [requests source/init-requests
+        names (mapv #(name/from-string (imports/module-string (:module %))) requests)
+        [world array] (encoding/encode-names (:world @state) invoke names)
+        _ (swap! state #(-> % (assoc :world world) (assoc-in [:native-owners :encoded-names] {:value array :state :owned})))
+        refs (proof-array! world array 2)
+        _ (when-not (= 2 (count refs)) (fail "Native Init request Name encoding differs" {}))
+        values (mapv
+                 (fn [i request]
+                   (let [label [:request-name i] name-ref (nth refs i)
+                         _ (native-own! state label #(vector (m/retain % name-ref 1) name-ref))
+                         value (native-own! state [:request i]
+                                 #(m/scalar-constructor % 0 [name-ref] {:objects 1 :usize 0 :ssize 3}))
+                         _ (native-transfer! state [label])
+                         node (reduce (fn [node [offset flag]]
+                                        (m/write-scalar-node node {:index 1 :offset offset :type "uint8" :region :scalar}
+                                                             (if flag 1 0)))
+                                      (m/node (:world @state) value)
+                                      (map-indexed vector (map request [:importAll :isExported :isMeta])))]
+                     (swap! state update :world m/replace-node value node) value)) (range) requests)
+        imports (native-own! state :assembly-imports #(m/allocate % :array 246 values))]
+    (native-transfer! state [[:request 0] [:request 1]])
+    (native-release! state :encoded-names)
+    imports))
+(defn prepare-native-init-base
+  "Prepare one fixed native-only Init reset from an accumulated persistent World.
+   REQUEST must already contain immutable :text (no path IO here); its actual
+   bounded header must contain only implicit Init/meta Init. READINESS
+   comes from the separately opted-in authenticated factory's actual binding.
+   No query/finalizer executes here; no source receipt can be issued by this API."
+  [context request prefix profile readiness {:keys [kernel-policy budgets] :as options}]
+  (locking context
+    (let [state (atom {:native-operation? true :phase :entry :used 0 :reserved 0
+                       :outer-steps 0 :helper-steps 0 :operations 0 :host-work 0 :readiness-index 0
+                       :native-owners {}})]
+      (try
+        (when-not (and (map? options) (= 2 (count options)) (= #{:kernel-policy :budgets} (set (keys options))))
+          (fail "Native Init base requires explicit policy and budgets only" {}))
+        (import-policy! kernel-policy) (import-budgets! budgets)
+        (let [entry (resident/snapshot context)
+              _ (swap! state assoc :entry entry :world (:world entry) :session (:session entry))
+              issued (graph-readiness! entry prefix profile)
+              raw-prefix (:prefix issued) p (:graph-profile issued)
+              binding (get-in entry [:session :bindings "lean_run_mod_init_core"])
+              coverage (native-factory/native-init-coverage readiness (:source raw-prefix) binding)
+              _ (when-not (and (map? request) (string? (:text request)) (not (contains? request :path))
+                               (string? (:file-name request)))
+                  (fail "Native Init base requires captured immutable text and file name" {}))
+              _ (graph-utf8-size! (:text request) (get-in p [:limits :max-bytes]))
+              _ (graph-utf8-size! (:file-name request) (get-in p [:graph-limits :max-key-bytes]))
+              captured (graph-capture-request! request p)
+              _ (swap! state assoc :prefix-cap prefix :prefix raw-prefix :profile profile :profile-data p
+                       :readiness readiness :coverage coverage :certificate (:certificate issued)
+                       :configuration (:configuration issued) :native-bindings (:native-bindings issued)
+                       :kernel-policy kernel-policy :budgets budgets :request captured :phase :header-started)
+              _ (native-current! @state)
+              invoke (graph-invocation state (select-keys budgets [:helper-fuel :attempt-fuel]))
+              header (graph-inspect-header! state invoke captured p source/init-requests)
+              _ (swap! state assoc :header header :phase :assembly-started)
+              imports (native-requests! state invoke)
+              retained (native-own! state :assembly-state #(vector (m/retain % (:state raw-prefix) 1) (:state raw-prefix)))
+              _ (swap! state assoc :assembly {:state retained :imports imports} :phase :readiness)
+              control (NativeInitBase.)]
+          (locking native-base-issued (.put native-base-issued control state))
+          {:control control :progress (native-progress @state)})
+        (catch Throwable cause (native-failed! state cause))))))
+(def ^:private native-control-fields [:body :locals :joins :frames :status :result :resume-var :host-request :initializing? :initialization-scope])
+(defn- native-query! [state]
+  (let [data @state
+        {:keys [world session coverage readiness readiness-index]} data
+        binding (get-in session [:bindings "lean_run_mod_init_core"])
+        units (:host-units-per-query coverage)
+        next-work (+' (:host-work data) units)]
+    (when-not (<= next-work (:max-host-work coverage)) (fail "Native readiness host-work budget exhausted" {}))
+    (when-not (and (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world))
+                   (not (:initializing? world)) (not (:initialization-scope world)))
+      (fail "Native readiness requires an idle packet" {}))
+    (when-let [guards (:readiness-guards data)]
+      (when-not (identical? guards (:initialized-modules world))
+        (fail "Native readiness guards changed within its query phase" {})))
+    ;; Reserve HOST work before dispatch. No guest instruction/fuel reservation
+    ;; is charged for this fixed host capability invocation.
+    (swap! state assoc :host-work next-work :readiness-guards (:initialized-modules world))
+    (let [pair (native-factory/query-native-init readiness world binding readiness-index)
+          _ (swap! state assoc :readiness-returned pair)
+          _ (when-not (and (vector? pair) (= 2 (count pair))) (fail "Native query returned another packet shape" {}))
+          [after value] pair
+          _ (swap! state #(-> % (assoc :world after)
+                              (assoc-in [:native-owners :readiness-result] {:value value :state :owned})))
+          node (when (m/ref? value) (m/node after value))]
+      (when-not (and (identical? (:functions world) (:functions after))
+                     (identical? (:globals world) (:globals after))
+                     (identical? (:native-imports world) (:native-imports after))
+                     (identical? (:initialized-modules world) (:initialized-modules after))
+                     (every? #(identical? (get world %) (get after %)) native-control-fields)
+                     (= (get-in world [:stats :steps]) (get-in after [:stats :steps]))
+                     (m/ref? value) (not (m/native-reference? after value))
+                     (not (contains? (:heap world) (:id value)))
+                     (= :ctor (:kind node)) (= 0 (:tag node)) (bridge/constructor-layout? node 1 0)
+                     (= [1] (:fields node)) (= 1 (:rc node)))
+        (fail "Native query must return actual owned IO.ok true without changing execution state" {}))
+      (native-release! state :readiness-result)
+      (swap! state #(-> % (update :readiness-index inc) (update :operations inc)
+                        (dissoc :readiness-returned)))
+      (when (= (:readiness-index @state) (:query-count coverage))
+        (swap! state assoc :phase :assembled :readiness-world (:world @state) :readiness-session session)))))
+(defn advance-native-init-base!
+  "Bounded one-shot native readiness/finalizer continuation. Host query work and
+   guest helper/outer work have separate ledgers; observers run after escrow."
+  [control {:keys [max-operations wall-ms observe!] :as limits}]
+  (let [state (native-control! control)]
+    (locking control
+      (when-let [failure (:failure @state)] (throw failure))
+      (when-not (and (not (:busy? @state)) (contains? #{:readiness :assembled :running} (:phase @state)))
+        (fail "Native base control is not advanceable" {}))
+      (swap! state assoc :busy? true)
+      (try
+        (when-not (and (map? limits) (<= 2 (count limits) 3)
+                       (every? #{:max-operations :wall-ms :observe!} (keys limits))
+                       (contains? limits :max-operations) (contains? limits :wall-ms)
+                       (or (nil? observe!) (fn? observe!))) (fail "Native base requires explicit slice limits" {}))
+        (positive-long! max-operations :max-operations) (positive-long! wall-ms :wall-ms)
+        (let [started (System/nanoTime)]
+          ;; Full code/coverage checks once per slice. Between readiness calls
+          ;; only the fixed nonreentrant binding executes; its returned packet
+          ;; must preserve exact control/functions/Source/guard identities.
+          (native-current! @state)
+          (loop [n 0]
+            (when (not= :readiness (:phase @state)) (native-current! @state))
+            (when (and (not= :io-completed (:phase @state)) (< n max-operations)
+                       (< (/ (- (System/nanoTime) started) 1000000.0) wall-ms))
+              (if (= :readiness (:phase @state))
+                (native-query! state)
+                (let [{:keys [world session budgets event assembly]} @state
+                      boundary? (= :boundary (:status event))
+                      bound (get budgets (if boundary? :helper-fuel :outer-fuel))]
+                  (when (> bound (- (:attempt-fuel budgets) (:used @state)))
+                    (fail "Native finalizer cannot reserve next guest operation" {}))
+                  (swap! state assoc :reserved bound :guest-entry {:world world :bound bound
+                                                                  :category (if boundary? :helper-steps :outer-steps)}
+                         :guest-returned? false)
+                  (when (= :assembled (:phase @state))
+                    (when-not (and (identical? world (:readiness-world @state))
+                                   (identical? session (:readiness-session @state))
+                                   (= (:readiness-index @state) (get-in @state [:coverage :query-count]))
+                                   (identical? (:readiness-guards @state) (:initialized-modules world)))
+                      (fail "Native finalizer lost its actual full-readiness packet" {}))
+                    (swap! state assoc :phase :running :finalizer-started? true)
+                    (native-transfer! state [:assembly-state :assembly-imports])
+                    (swap! state assoc :world (m/start world (:finalize source/helpers)
+                                               [(:state assembly) (:imports assembly) (get-in @state [:entry :options]) m/erased])))
+                  (let [before (:world @state)
+                        event (if boundary?
+                                (raw/complete-host-boundary (:token event) {:helper-fuel (:helper-fuel budgets)})
+                                (raw/advance-to-boundary (assoc (:session @state) :fuel (:outer-fuel budgets)) before))
+                        _ (swap! state assoc :event event :world (:state event) :session (:session event) :guest-returned? true)
+                        delta (- (get-in event [:state :stats :steps]) (get-in before [:stats :steps]))
+                        helper (:helper-steps event 0) charge (if boundary? (max delta helper) delta)]
+                    (when-not (and (integer? delta) (<= 0 delta bound)
+                                   (integer? helper) (<= 0 helper bound)
+                                   (<= charge (- (:attempt-fuel budgets) (:used @state))))
+                      (fail "Native finalizer observed invalid guest charge" {}))
+                    (swap! state #(-> % (update :used +' charge) (update :operations inc)
+                                      (update (if boundary? :helper-steps :outer-steps) +' charge)
+                                      (assoc :reserved 0) (dissoc :guest-entry :guest-returned?)))
+                    (case (:status event)
+                      :done (swap! state #(-> % (assoc :phase :io-completed :io (:value event))
+                                               (assoc-in [:native-owners :finalizer-io] {:value (:value event) :state :owned})))
+                      (:handler-completed :boundary :paused) nil
+                      (fail "Unexpected native finalizer event" {})))))
+              (when observe! (observe! (native-progress @state)))
+              (recur (inc n)))))
+        {:progress (native-progress @state)}
+        (catch Throwable cause (native-failed! state cause))
+        (finally (swap! state assoc :busy? false))))))
+(defn- native-attribution! [state invoke prefix p environment]
+  ;; Native const AND extra names originate in the authenticated selected data
+  ;; parts. Count the aggregate arrays before projecting any names/getters.
+  (let [arrays
+        (reduce (fn [{:keys [total arrays]} [index module]]
+                  (let [parts (:parts module)
+                        _ (when-not (and (vector? parts) (<= 1 (count parts) 3))
+                            (fail "Native attribution has unbounded data parts" {}))
+                        first-node (m/node (:world @state) (:value (first parts)))
+                        split (m/read-scalar-node first-node {:index 5 :offset 0 :type "uint8" :region :scalar})
+                        _ (when-not (or (and (= 0 split) (= 1 (count parts)))
+                                        (and (= 1 split) (= 3 (count parts))))
+                            (fail "Native attribution has incomplete selected parts" {}))
+                        fields (into []
+                                 (mapcat (fn [part]
+                                           (let [node (m/node (:world @state) (:value part))]
+                                             (when-not (and (= 0 (:tag node)) (bridge/constructor-layout? node 5 1))
+                                               (fail "Native attribution has malformed ModuleData" {}))
+                                             (mapv #(proof-array! (:world @state) (nth (:fields node) %)
+                                                                   (get-in p [:graph-limits :max-names])) [1 3])))) parts)
+                        next-total (+' total (reduce + 0 (map count fields)))]
+                    (when (> next-total (get-in p [:graph-limits :max-names]))
+                      (fail "Native attribution aggregate names exceed bound" {}))
+                    {:total next-total :arrays (conj arrays [index fields])}))
+                {:total 0 :arrays []} (map-indexed vector (:modules prefix)))
+        seen (volatile! {}) total-name-bytes (volatile! 0)]
+    (doseq [[index arrays] (:arrays arrays) names arrays reference names]
+      (let [wire (graph-wire-name!
+                   (structured-name-value
+                     (bridge/project-name-bounded (:world @state) reference (get-in p [:limits :name-limits])))
+                   false (:graph-limits p) total-name-bytes)
+            previous (get @seen wire)]
+        (when (and previous (not= previous index)) (fail "Native attribution name belongs to different modules" {}))
+        (when-not (contains? @seen wire)
+          (vswap! seen assoc wire index)
+          (let [[world result] (invoke (:world @state) module-index-helper [environment reference])
+                _ (swap! state #(-> % (assoc :world world)
+                                    (assoc-in [:native-owners :attribution-result] {:value result :state :owned})))
+                node (when (m/ref? result) (m/node world result))]
+            (when-not (and (= 1 (:tag node)) (bridge/constructor-layout? node 1 0)
+                           (= index (native/nat-value {:ref? m/ref? :node m/node} world (first (:fields node)))))
+              (fail "Native finalizer has another const/extra module attribution" {}))
+            (native-release! state :attribution-result)
+            (swap! state update :native-attributions (fnil inc 0))))))))
+(defn finish-native-init-base!
+  "Consume actual native finalizer IO, freshly check exact native CI/header/order,
+   and adopt its real new Environment. Never issue a source/graph receipt."
+  [control]
+  (let [state (native-control! control)]
+    (locking control
+      (when-let [failure (:failure @state)] (throw failure))
+      (when-not (and (not (:busy? @state)) (= :io-completed (:phase @state)))
+        (fail "Native base has no completed unconsumed IO" {}))
+      (swap! state assoc :busy? true :phase :checking-started)
+      (try
+        (native-current! @state)
+        (let [{:keys [world io prefix certificate profile-data kernel-policy budgets entry configuration]} @state
+              invoke (graph-invocation state (select-keys budgets [:helper-fuel :attempt-fuel]))
+              _ (swap! state assoc-in [:native-owners :finalizer-io :state] :completion-attempted)
+              finished (imports/finish-finalization world io invoke
+                         {:kernel-policy (assoc kernel-policy :projection-certificate certificate)
+                          :finalizer-attestation {:requested-imports source/init-requests :header-helper (:header source/helpers)}})
+              _ (swap! state assoc :finished finished :world (:world finished))
+              _ (when-not (= :ok (:status finished)) (fail "Native finalizer returned IO error" {}))
+              _ (swap! state #(-> % (assoc-in [:native-owners :finalizer-io :state] :consumed)
+                                   (assoc-in [:native-owners :final-environment] {:value (:environment finished) :state :owned})))
+              selection (graph-plan-selection! (:world @state) prefix profile-data [] [])
+              observed (graph-observe-checked-union! (:world @state) invoke (:environment finished)
+                                                   prefix certificate profile-data selection false)
+              _ (swap! state assoc :world (:world observed) :native-observation observed)
+              _ (when-not (and (= (:constants certificate) (get-in finished [:certificate :constants]))
+                               (identical? (:checked-env observed) (get-in finished [:certificate :env])))
+                  (fail "Native finalizer certificate differs from exact observed native union" {}))
+              _ (native-attribution! state invoke prefix profile-data (:environment finished))
+              _ (doseq [field [:source-modules :source-regions :source-import-prefixes :source-import-receipts]]
+                  (when-not (identical? (get-in entry [:world field]) (get-in @state [:world field]))
+                    (fail "Native base changed an accumulated source registry" {:registry field})))
+              _ (preserve-admission-baseline! (:world entry) (:world @state) (:limits profile-data))
+              _ (let [before (get-in entry [:world :globals]) after (get-in @state [:world :globals])]
+                  (when-not (and (map? before) (map? after)
+                                 (<= (+' (count before) (count after)) (get-in profile-data [:limits :max-declarations])))
+                    (fail "Native base globals exceed aggregate preservation bound" {}))
+                  ;; Finalization may initialize NEW pure lazy cache entries;
+                  ;; it must preserve every preexisting native/source cache.
+                  (doseq [[name value] before]
+                    (when-not (and (contains? after name) (identical? value (get after name)))
+                      (fail "Native base replaced an existing global cache entry" {}))))
+              _ (doseq [field [:initialized-modules :initializing? :initialization-scope :native-imports]]
+                  (when-not (identical? (get-in entry [:world field]) (get-in @state [:world field]))
+                    (fail "Native base changed native/global initialization state" {:field field})))
+              _ (swap! state update :world m/release (:environment entry) 1)
+              _ (swap! state assoc-in [:native-owners :prior-environment] {:value (:environment entry) :state :released})
+              prepared (assoc (packet entry (:world @state) (assoc (:session @state) :fuel (get-in entry [:session :fuel])))
+                              :environment (:environment finished))
+              _ (swap! state assoc :adoption-entry prepared)
+              context (resident/adopt-prepared prepared configuration)
+              _ (swap! state assoc :adopted-context context)
+              completed {:phase :finished :used (:used @state) :helper-steps (:helper-steps @state)
+                         :outer-steps (:outer-steps @state) :operations (:operations @state)
+                         :readiness-index (:readiness-index @state) :host-work (:host-work @state)
+                         :coverage (select-keys (:coverage @state) [:query-count]) :busy? true}
+              result {:context context :request (:request @state) :header (:header @state)
+                      :native-base {:module-count (get-in @state [:coverage :query-count])
+                                    :constant-count (count (:constants observed)) :source-receipts 0}
+                      :progress (native-progress completed)}]
+          (reset! state completed) result)
+        (catch Throwable cause (native-failed! state cause))
+        (finally (swap! state assoc :busy? false))))))

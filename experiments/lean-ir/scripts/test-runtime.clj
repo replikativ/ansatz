@@ -26,6 +26,7 @@
          'prototype.source-graph-helper-test
          'prototype.source-graph-runtime-test
          'prototype.source-graph-staged-test
+         'prototype.native-init-base-test
          'prototype.project-source-test
          'prototype.classic-header-discovery-test
          'prototype.project-discovery-test
