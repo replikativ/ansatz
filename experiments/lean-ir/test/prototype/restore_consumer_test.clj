@@ -577,3 +577,104 @@
                                         :expected-consumer-implementation-sha256 sha
                                         :loaded-consumer-implementation-sha256 sha)))))))
     (is (empty? @calls))))
+
+;; Sixth inventory remains a model. Its exact frontend pin is supplied only
+;; after the runtime owner's independent protocol regression freeze. No modeled
+;; inventory or factory rejection claims a genuine loaded consumer or graph IO.
+(def graph-frontend-id "prototype/frontend.clj")
+(def graph-frontend-inventory
+  (changed source-graph-inventory graph-frontend-id
+           #(assoc % :sha256 profile/source-graph-frontend-sha256)))
+(defn graph-frontend-valid! [rows]
+  (profile/validate-source-graph-frontend-reconstruction-inventory!
+    recipe rows (profile/consumer-identity rows)))
+(def six-profile-cases
+  (conj closed-profile-cases
+        [profile/source-graph-frontend-reconstruction-profile-id graph-frontend-valid! graph-frontend-inventory]))
+
+(deftest six-closed-inventories-reject-all-thirty-ordered-profile-mismatches
+  (is (= 6 (count (set (map first six-profile-cases)))))
+  (is (= [255 256 256 256 257 257] (mapv #(count (nth % 2)) six-profile-cases)))
+  (is (= 30 (count (for [[id] six-profile-cases [other] six-profile-cases :when (not= id other)] [id other]))))
+  (doseq [[id validate rows] six-profile-cases]
+    (is (identical? rows (validate rows)) (str id " accepts its exact modeled inventory"))
+    (doseq [[other _ other-rows] six-profile-cases :when (not= id other)]
+      (is (thrown? clojure.lang.ExceptionInfo (validate other-rows)) (str id " rejects " other)))))
+
+(deftest sixth-frontend-pin-does-not-relax-five-prior-source-contracts
+  (doseq [[id validate rows] closed-profile-cases]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (validate (changed rows graph-frontend-id
+                                            #(assoc % :sha256 profile/source-graph-frontend-sha256)))) id))
+  (let [baseline (:sha256 (first (filter #(= graph-frontend-id (:id %)) (:build-inventory recipe))))
+        pin profile/source-graph-frontend-sha256
+        nearby (str (if (= \0 (first pin)) "1" "0") (subs pin 1))]
+    (doseq [sha [baseline model-hash nearby]]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved source graph frontend consumer source"
+                           (graph-frontend-valid! (changed graph-frontend-inventory graph-frontend-id #(assoc % :sha256 sha)))))))
+  (doseq [id [source-import-id source-graph-plan-id]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved source graph consumer source"
+                         (graph-frontend-valid! (changed graph-frontend-inventory id #(assoc % :sha256 model-hash))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved net-dirty heap overlay source"
+                       (graph-frontend-valid! (changed graph-frontend-inventory heap-source-id #(assoc % :sha256 model-hash)))))
+  (doseq [id ["prototype/raw_interop.clj" "prototype/machine.cljc" "ansatz/kernel/TypeChecker.class"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (graph-frontend-valid! (changed graph-frontend-inventory id #(assoc % :sha256 model-hash)))))))
+
+(deftest sixth-inventory-count-roles-and-digest-remain-exact
+  (doseq [id (map :id graph-frontend-inventory)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                         (graph-frontend-valid! (vec (remove #(= id (:id %)) graph-frontend-inventory))))))
+  (doseq [id [graph-frontend-id source-import-id source-graph-plan-id]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"role drift"
+                         (graph-frontend-valid! (changed graph-frontend-inventory id #(assoc % :kind :host-resource))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (graph-frontend-valid! (conj graph-frontend-inventory {:id "unreviewed/extra.clj" :kind :host-source :sha256 model-hash}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid consumer inventory"
+                       (graph-frontend-valid! (conj graph-frontend-inventory (last graph-frontend-inventory)))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"digest mismatch"
+                       (profile/validate-source-graph-frontend-reconstruction-inventory!
+                         recipe graph-frontend-inventory (profile/consumer-identity source-graph-inventory)))))
+
+(deftest sixth-factory-and-authenticator-reject-caller-authority-before-resource-lookup
+  (let [calls (atom [])
+        resolver (fn [id] (swap! calls conj id) (throw (AssertionError. "Must reject before resource lookup")))
+        options {:producer-preparation producer :producer-recipe-source recipe-source
+                 :producer-resolve-artifact resolver :store-root "unused-model-store"
+                 :consumer-inventory graph-frontend-inventory
+                 :expected-consumer-implementation-sha256 (profile/consumer-identity graph-frontend-inventory)
+                 :loaded-consumer-implementation-sha256 (profile/consumer-identity graph-frontend-inventory)
+                 :consumer-resolve-source resolver}]
+    (doseq [authenticate [profile/authenticate-source-graph-frontend-reconstruction!
+                          factory/make-source-graph-frontend-reconstruction-factory]]
+      (doseq [extra [{:compatibility-profile profile/source-graph-frontend-reconstruction-profile-id}
+                     {:substitutions #{graph-frontend-id}} {:authenticator identity}
+                     {:frontend-sha256 model-hash} {:loader identity} {:import-receipt {}}]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options" (authenticate (merge options extra)))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fresh loaded-consumer attestation"
+                           (authenticate (assoc options :loaded-consumer-implementation-sha256 profile/producer-implementation-sha256))))
+      (doseq [[id pattern] [[graph-frontend-id #"Unapproved source graph frontend consumer source"]
+                            [source-import-id #"Unapproved source graph consumer source"]
+                            [source-graph-plan-id #"Unapproved source graph consumer source"]
+                            [heap-source-id #"Unapproved net-dirty heap overlay source"]]]
+        (let [rows (changed graph-frontend-inventory id #(assoc % :sha256 model-hash)) sha (profile/consumer-identity rows)]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo pattern
+                               (authenticate (assoc options :consumer-inventory rows
+                                            :expected-consumer-implementation-sha256 sha
+                                            :loaded-consumer-implementation-sha256 sha)))))))
+    (is (empty? @calls))))
+
+(deftest six-returned-profile-identities-reject-all-thirty-ordered-mismatches
+  (let [consumer (profile/consumer-identity reconstruction-inventory)
+        description {:producer-preparation producer :consumer-implementation-sha256 consumer}
+        result (assoc description :catalogue {} :bindings {}) manifest {:binding-signatures {}}
+        known (mapv first six-profile-cases)]
+    (is (= 30 (count (for [id known other known :when (not= id other)] [id other]))))
+    (doseq [id known]
+      (is (= id (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer)))
+      (is (= id (:compatibility-profile
+                  (private-call 'factory-result! (assoc result :compatibility-profile id) producer consumer id manifest))))
+      (doseq [other (remove #{id} known)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
+                             (private-call 'factory-result! (assoc result :compatibility-profile other)
+                                           producer consumer id manifest)))))))

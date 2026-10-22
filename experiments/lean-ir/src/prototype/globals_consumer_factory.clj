@@ -305,8 +305,9 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
-  (let [consumer-description (cond source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
+  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? {:keys [producer-preparation producer-resolve-artifact store-root] :as options}]
+  (let [consumer-description (cond graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
+                                     source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
                                      heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
                                      runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
                                      reconstruction? (compatibility/authenticate-reconstruction! options)
@@ -414,12 +415,13 @@
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? runtime-ops? heap-net-dirty? source-graph? options]
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? options)
+        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (cond source-graph? compatibility/source-graph-reconstruction-profile-id
+                     :compatibility-profile (cond graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
+                                                  source-graph? compatibility/source-graph-reconstruction-profile-id
                                                   heap-net-dirty? compatibility/heap-net-dirty-reconstruction-profile-id
                                                   runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
                                                   reconstruction? compatibility/reconstruction-profile-id
@@ -432,27 +434,33 @@
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
   [options]
-  (issue-factory false false false false options))
+  (issue-factory false false false false false options))
 (defn make-reconstruction-factory
   "Issue the separately named closed reconstruction consumer capability. Producer
    recipe/archive and option contract are identical to make-factory."
   [options]
-  (issue-factory true false false false options))
+  (issue-factory true false false false false options))
 
 (defn make-runtime-ops-reconstruction-factory
   "Issue the closed ops-table reconstruction capability with its exact mutable pin.
    The original factory APIs retain their original inventories and identities."
   [options]
-  (issue-factory true true false false options))
+  (issue-factory true true false false false options))
 
 (defn make-heap-net-dirty-reconstruction-factory
   "Issue the distinct net-dirty heap/ops reconstruction capability with its exact
    HeapOverlay source pin. All older factory source contracts remain unchanged."
   [options]
-  (issue-factory true true true false options))
+  (issue-factory true true true false false options))
 
 (defn make-source-graph-reconstruction-factory
   "Issue only the fixed fifth graph consumer, with exact reviewed source-import
    and planner pins plus the fourth heap prerequisites. No helper executes here."
   [options]
-  (issue-factory true true true true options))
+  (issue-factory true true true true false options))
+
+(defn make-source-graph-frontend-reconstruction-factory
+  "Issue the distinct sixth graph frontend-protocol consumer with the exact
+   reviewed frontend pin. The five prior contracts/options remain unchanged."
+  [options]
+  (issue-factory true true true true true options))

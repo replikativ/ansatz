@@ -142,5 +142,30 @@ but cannot by itself remove this first sizing pass. The next experiment should
 propagate independently validated register widths through authorized program
 installation, preserving validation, replacements and weak retention.
 
-The next integration feature is the separately reviewed
-[checked Init-prefix plan](RESIDENT_INIT_PREFIX_PLAN.md). It remains planned.
+## Frontend installation consumer
+
+`make-source-graph-frontend-reconstruction-factory` issues the distinct sixth
+profile, `ansatz-producer50f-source-graph-frontend-reconstruction-consumer/1`.
+It inherits the fifth profile's 257 selected resource roles, exact source-import
+and planner pins, and heap/ops requirements. Only the sixth profile permits the
+new exact `frontend.clj` bytes. The previous five inventories, factory options
+and returned-profile identities remain closed and unchanged.
+
+The frontend supplies a real installation checkpoint callback. Decoder failures
+after IO-wrapper cleanup preserve the owned returned Environment in the latest
+packet; the original owned IO packet remains separately named. A later helper
+failure keeps its matching checkpoint/session. If installation succeeds but
+opening the corresponding session fails, the installed World is recorded as a
+separate candidate alongside the last coherent raw packet.
+
+This does not record every internal installer ownership transition: the unchanged
+witness decoder may release its successful IO before rejecting a row mismatch.
+That failure can retain the preceding immutable raw packet, where the IO owner
+still exists. It grants no retry permission.
+
+The [frontend compatibility record](../measurements/graph-frontend-consumer-compatibility.json)
+separates frontend protocol tests, modeled profile matrices, actual individual
+resource authentication and the whole optional suite. A fresh constructor still
+requires the independently captured inventory and loaded-code attestation above;
+these tests do not supply them. See the [Init-prefix plan](RESIDENT_INIT_PREFIX_PLAN.md)
+for the separate checking and import phases.

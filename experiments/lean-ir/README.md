@@ -48,6 +48,21 @@ optional runtime suite also passes 944 tests / 92,219 assertions. The record
 preserves the first preflight rejection and the separately reviewed resource
 policy used for the completed run.
 
+The sixth consumer, `make-source-graph-frontend-reconstruction-factory`, keeps
+that 257-row inventory and adds one exact `frontend.clj` substitution under
+`ansatz-producer50f-source-graph-frontend-reconstruction-consumer/1`. All five
+older contracts retain their original frontend requirement and option sets.
+The frontend records the returned Environment owner before releasing its IO
+wrapper, saves later installation checkpoints with their matching sessions, and
+preserves an installed candidate separately if opening its new session fails.
+The [frontend compatibility record](measurements/graph-frontend-consumer-compatibility.json)
+records 17 frontend tests / 289 assertions across three backends and 32 focused
+compatibility tests / 1,489 assertions. The latter cover modeled inventories,
+all 30 ordered profile mismatches, and authentication of three actual resource
+files. These checks do not establish a fresh whole-consumer constructor or a
+genuine multi-module frontend run. The complete optional runtime suite passes
+952 tests / 92,680 assertions with this frontend and compatibility change.
+
 From this directory, reproduce with the normal experiment classpath after preparing
 the Java classes described below:
 
