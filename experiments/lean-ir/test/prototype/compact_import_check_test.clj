@@ -3,6 +3,8 @@
   (:require [clojure.test :refer [deftest is]]
             [prototype.compact-import-check :as compact]
             [prototype.imported-kernel :as kernel]
+            [prototype.imported-kernel-test :as native]
+            [prototype.kernel-bridge-test :as guest]
             [prototype.machine :as m]
             [prototype.restored-import-check-test :as fixture]
             [prototype.restored-import-check :as original]))
@@ -55,6 +57,42 @@
     (is (some? (fixture/failure
                 #(compact/verify-constants world values
                                            (assoc policy :projection-certificate {:env nil})))))))
+
+(deftest compact-first-pass-preserves-dependency-failure-details
+  (let [loaded (native/loaded) world (:world loaded) values (native/values loaded)
+        alias (get (native/by-name loaded) "aliasA")
+        [changed missing] (guest/constant world "Missing")
+        payload (native/payload world alias)
+        failure (fn [verify world values]
+                  (when-let [cause (fixture/failure #(verify world values native/policy))]
+                    [(.getMessage cause) (ex-data cause)]))]
+    ;; Missing dependencies and a two-definition cycle must fail before
+    ;; admission rather than producing a partial or seeded checked environment.
+    (let [candidate (assoc-in changed [:heap (:id payload) :fields 1] missing)
+          expected (failure kernel/verify-constants candidate values)]
+      (is (= "Unresolved imported kernel dependencies" (first expected)))
+      (is (= expected (failure compact/verify-constants candidate values))))
+    (let [[cyclic level] (guest/ctor (m/world {}) 1 [guest/nil-tag] 8)
+          [cyclic type] (guest/ctor cyclic 3 [level] 8)
+          [cyclic a] (guest/constant cyclic "a") [cyclic b] (guest/constant cyclic "b")
+          [cyclic da] (guest/declaration cyclic "a" type b)
+          [cyclic db] (guest/declaration cyclic "b" type a)
+          expected (failure kernel/verify-constants cyclic [da db])]
+      (is (= "Unsupported recursive imported kernel dependency group" (first expected)))
+      (is (= expected (failure compact/verify-constants cyclic [da db]))))))
+
+(deftest compact-first-pass-reports-the-actual-admission-group-count
+  (let [loaded (native/loaded) world (:world loaded) values (native/values loaded)
+        entries (native/entries loaded) expected (count (#'kernel/groups entries))
+        stages (atom [])
+        certificate (with-bindings {#'compact/*stage!* #(swap! stages conj %)}
+                      (compact/verify-constants world values native/policy))
+        admission (filter #(= :kernel-admission (:phase %)) @stages)]
+    (is (= 17 (count (:constants certificate))))
+    (is (= expected (count (:order certificate))))
+    (is (seq admission))
+    (is (every? #(= expected (:groups-total %)) admission))
+    (is (some #(= :dependency-construction (:phase %)) @stages))))
 
 (deftest observer-failure-preserves-the-actual-checked-owner
   (let [{:keys [entry configuration environment]} (fixture/fixture)
