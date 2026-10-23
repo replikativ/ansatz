@@ -1,0 +1,53 @@
+{
+  "schema": "compact-first-pass-check-plan-validation/1",
+  "date": "2026-10-23",
+  "status": "focused-regression-passed",
+  "change": "Use the existing imported-kernel private checking-plan in compact first-pass strict admission; preserve checking policies, Java calls, order, certificate and stage semantics.",
+  "sources": {
+    "experiments/lean-ir/src/prototype/compact_import_check.clj": "caf8ecf9c6b146f1ed038be5f1a68875dc13914672b7a29f8b3c2ca90f35f978",
+    "experiments/lean-ir/test/prototype/compact_import_check_test.clj": "5fe485824224f24cb1c0e48dd5981ccc5a0e7d79d7317565a582702a1db3de4e"
+  },
+  "validation": {
+    "test": 22,
+    "pass": 235,
+    "fail": 0,
+    "error": 0,
+    "type": "summary"
+  },
+  "execution": {
+    "heapMiB": 384,
+    "groupRSSLimitBytes": 939524096,
+    "wallLimitSeconds": 180,
+    "availableFloorBytes": 1610612736,
+    "preflightAvailableBytes": 3221225472,
+    "peakGroupRSSBytes": 447676416,
+    "minAvailableBytes": 8503283712,
+    "elapsedSeconds": 9.967256186999293,
+    "exitCode": 0
+  },
+  "evidence": {
+    "plan-sha256": "67c13e7c1380495a888b13940562c154fd2795629ea4ef67ad9fbff641095727",
+    "guard-receipt-sha256": "01b951f65f6dd0726820a5f72a1663c3c371b20189fe07a78532f3a0babbfea1",
+    "results-sha256": "a3dd6724231376ca33f96faf43aabe9514dcf2cba6e73cd025d5f1ea8cbaa9cf",
+    "postcheck-sha256": "7a3a0011dec865b747a927aa5e5af18dda758f9ace9762d248d90105d6082714",
+    "input-pins": 584,
+    "all-post-inputs-match": true,
+    "prebuilt-Java-profile": "current Project selected runtime; candidate Clojure source/test paths first; candidate source URL asserted"
+  },
+  "historical-attempt": {
+    "plan-sha256": "50e4072b1572f5c8c4ed17d36f3c0fc6f965ee00547fb252b729b026dcf3b59f",
+    "tests": 22,
+    "assertions": 234,
+    "failures": 0,
+    "errors": 1,
+    "cause": "New self-reference fixture reached Java unknown-constant rejection rather than scheduler cycle; corrected to two mutually referring definitions. Runtime source unchanged.",
+    "all584-post-inputs-match": true,
+    "disposed": true
+  },
+  "limits": [
+    "No full Init restore, genuine public P1/P2 acceptance or new authenticated consumer capture performed.",
+    "No new allocation, retained-byte, full-check RSS or speed improvement measured. Earlier synthetic planner allocation evidence is separate.",
+    "No Java rebuild or comprehensive optional suite run; focused native17 certificate/policy/ownership and historical scheduling/non-retention controls passed.",
+    "Existing frozen full-campaign inputs remain untouched. A changed compact checker requires a new reviewed consumer identity/capture before full use."
+  ]
+}

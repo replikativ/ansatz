@@ -86,7 +86,10 @@
 
 ;; Read-only adapters to pinned implementation details, not Var replacement.
 ;; A future public verifier API should replace these adapters after compatibility validation.
-(defn- groups [entries] (#'kernel/groups entries))
+(defn- checking-plan [entries names]
+  ;; Match the ordinary verifier: build-only graph containers die in its helper
+  ;; frame before admission; retain only borrowed members and scheduling data.
+  (#'kernel/checking-plan (#'kernel/groups entries) names))
 (defn- immutable-projection-sources [world] (#'kernel/immutable-projection-sources world))
 (defn- validate-quot-bootstrap [checked] (#'kernel/validate-quot-bootstrap checked))
 (defn- array! [world value] (#'imports/array! world value))
@@ -139,24 +142,16 @@
                   (not (and allow-compiler-markers? (bridge/compiler-marker-declaration? world guest))) (not allow-unsafe?))
          (fail "Imported unsafe/partial admission requires explicit host policy" {:name (.name constant)})))
      (stage! {:phase :dependency-construction :constants (count entries)})
-     (let [groups (groups entries)
-           by-key (into {} (map #(vector (:key %) %) groups))
-           name->group (into {} (mapcat (fn [group] (map #(vector % (:key group)) (:names group))) groups))
-           missing (set/difference (reduce set/union #{} (map :dependencies groups)) (set names))]
-       (when (seq missing) (fail "Unresolved imported kernel dependencies" {:missing missing}))
-       (let [blockers (into {} (map (fn [group] [(:key group) (set (map name->group (:dependencies group)))]) groups))
-             dependents (reduce-kv (fn [out key dependencies]
-                                     (reduce #(update %1 %2 (fnil conj []) key) out dependencies)) {} blockers)
-             initial-degrees (into {} (map (fn [[key deps]] [key (count deps)]) blockers))
-             initial-ready (mapv :key (filter #(zero? (get initial-degrees (:key %))) groups))]
-         (loop [queue initial-ready cursor 0 degrees initial-degrees ^Env checked (Env.) order []]
+     (let [{:keys [members-by-key dependents degrees ready group-count]}
+           (checking-plan entries names)]
+         (loop [queue ready cursor 0 degrees degrees ^Env checked (Env.) order []]
            (do
-             (when (zero? (mod cursor 1024)) (stage! {:phase :kernel-admission :groups-checked cursor :groups-total (count groups)}))
+             (when (zero? (mod cursor 1024)) (stage! {:phase :kernel-admission :groups-checked cursor :groups-total group-count}))
              (if (= cursor (count queue))
                (do
-                 (when-not (= (count groups) cursor)
+                 (when-not (= group-count cursor)
                    (fail "Unsupported recursive imported kernel dependency group"
-                         {:remaining (- (count groups) cursor)}))
+                         {:remaining (- group-count cursor)}))
                  (let [actual (set (map #(.name ^ConstantInfo %) (.allConstants checked)))]
                    (when-not (= (set names) actual)
                      (fail "Kernel generated constants absent from imported environment" {:extra (set/difference actual (set names))}))
@@ -164,7 +159,7 @@
                     :constants (into {} (map (fn [{:keys [guest ^ConstantInfo constant]}] [(.name constant) guest])) entries)
                     :projected (into {} (map (fn [{:keys [^ConstantInfo constant]}] [(.name constant) constant])) entries)
                     :order order :axioms (set (map #(.name ^ConstantInfo (:constant %)) (filter #(.isAxiom ^ConstantInfo (:constant %)) entries)))}))
-               (let [key (nth queue cursor) group (get by-key key) members (:members group)
+               (let [key (nth queue cursor) members (get members-by-key key)
                      checked (case (first key)
                                :single (let [^ConstantInfo ci (first members)]
                                          (when (.isQuot ci) (validate-quot-bootstrap checked))
@@ -179,7 +174,7 @@
                                                (let [degree (dec (get degrees dependent))]
                                                  [(assoc degrees dependent degree) (if (zero? degree) (conj queue dependent) queue)]))
                                              [degrees queue] (get dependents key))]
-                 (recur queue (inc cursor) degrees checked (conj order key)))))))))))
+                 (recur queue (inc cursor) degrees checked (conj order key))))))))))
 
 (defn finish-finalization
   "Consume the owned IO.Result of an actual guest import finalizer and strictly

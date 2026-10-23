@@ -5,6 +5,24 @@ research and acceptance planning, not a shipped feature ledger. The priorities
 remain fast REPL experiment turnover, persistent retained versions, semantic
 fidelity, and convenient integration with Clojure/JVM applications.
 
+## Execution update after planning
+
+The reviewed P1 v2 attempt ran, restored the frontend with all initialization
+guards preserved, then stopped during fresh strict checking at the system-wide
+available-memory floor: minimum 1,009,332,224 bytes, below 1 GiB. Peak group RSS
+was 4,711,497,728 bytes, below its 5 GiB cap; lifecycle was 957.56 seconds. The
+owned process was disposed and all 920 input hashes matched afterward. It issued
+no public loaded Project or calls. This is an interrupted resource run, not a
+strict-check semantic rejection. Do not relaunch or resume its terminal control.
+
+The compact dependency-plan change has passed its
+[focused validation](../measurements/compact-first-pass-plan.json): 22 tests /
+235 assertions. The next gate is a newly reviewed selected consumer/capture. See
+[acceptance and memory followups](ACCEPTANCE_AND_MEMORY_FOLLOWUPS_2026-10-23.md).
+A modified checker needs a fresh reviewed selected consumer/capture before any
+new full campaign. Do not execute the historical P1 v2 plan again. The four
+milestones below retain their original order.
+
 ## Context and architecture to preserve
 
 We are hosting upstream Lean frontend/compiler code, lowered from its compiler
@@ -59,7 +77,7 @@ process exit are not substitutes for the corresponding semantic acceptance.
   guest transport: 1,029 tests / 94,230 assertions. See
   [Project loading](PROJECT_LOADING.md). Foundation PRs 151 and 152 were merged;
   this note does not infer the current remote branch state from an old ledger.
-- Full public P1 remains incomplete: the actual run passed fresh strict Init
+- Full public P1 remains incomplete: the earlier P1 v1 run passed fresh strict Init
   checking, source A publication and graph assembly, then exhausted aggregate
   reservation fuel during final import, after 3,663 public child operations.
   No public loaded Project result or subsequent calls were issued.
@@ -75,14 +93,13 @@ take precedence over old proposed/pending fields retained in its history.
 
 ## 1. Complete the public single-file gate
 
-The existing reviewed P1 v2 plan is at
+The terminal reviewed P1 v2 plan is preserved at
 `target/artifact-contract/project-current-consumer-v1/p1-gate-v2-fuel1b/`
-in this worktree. Execution-plan SHA-256:
+in the original project-loader worktree. Execution-plan SHA-256:
 `2f87cfd305c50369d169de8dce778f0a4966db9ccf219884b196b74b45ee7bc0`.
 It preserves all 895 previous input pins and authenticates 920 inputs in total.
 
-Run one fresh attempt when the immediate memory preflight qualifies. The current
-envelope is 4,096 MiB heap, 5,120 MiB process-group RSS, 5,400 seconds,
+That attempt used the following reviewed envelope: 4,096 MiB heap, 5,120 MiB process-group RSS, 5,400 seconds,
 7,168 MiB available at launch and a 1,024 MiB available-memory floor. Graph
 policy is H120M / A1B / O2M; kernel fuel is separate. These finite experimental
 bounds are not an end-user memory requirement or a promise of sufficiency.
