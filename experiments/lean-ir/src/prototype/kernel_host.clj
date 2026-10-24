@@ -6,6 +6,7 @@
    Cancellation is read through actual guest helpers in one cooperative snapshot.
    Native heartbeat/depth accounting is not emulated."
   (:require [prototype.machine :as m]
+            [prototype.binding-dependencies :as dependencies]
             [prototype.native-scalar :as native]
             [prototype.kernel-bridge :as bridge]
             [prototype.kernel-declaration :as declaration]
@@ -139,6 +140,13 @@
               [(assoc-in world [:kernel-environments (:id root)]
                          (merge {:anchor root :env java-env} witness)) java-env])))))))
 
+(def ^:private fixed-helper-roles
+  ;; Exactly the helper roles read by this handler and its association/control
+  ;; adapters. Do not infer dependencies from arbitrary unused helper-map values.
+  [:root :empty? :definition :axiom :error :compiler-marker :definition-any
+   :theorem :opaque :mutual :constant-map :quot-init? :cancel-is-set :cancel-result
+   :generated :encode-family :generated-nested])
+
 (defn make-binding
   "Create the lean_elab_add_decl raw binding. HELPERS contains structured names
    :root, :empty?, :definition, :axiom and :error for KernelBridgeShim functions.
@@ -158,13 +166,30 @@
    single declarations. Unsupported set-token kinds fail explicitly. Helpers
    borrow all inputs. Guest execution does not interleave during Java checking;
    cancellation activated by external concurrent threads is not modeled here.
-   Checker fuel is a host limit, not a claim of native heartbeat equivalence."
+   Checker fuel is a host limit, not a claim of native heartbeat equivalence.
+   The immutable binding declares its fixed :guest-helper-roots and effective
+   :kernel-policy from the SAME snapshots captured by its handler. This enables
+   independent resident protection; arbitrary custom callbacks remain trusted."
   [helpers {:keys [allow-axioms? allow-compiler-markers? allow-unsafe? allow-nested? checker-fuel] :or {checker-fuel 1000000}}]
+  (when-not (and (or (map? helpers) (instance? java.util.Map helpers)) (<= (count helpers) 64))
+    (m/fail "Invalid kernel helper map" {}))
+  (when-not (and (integer? checker-fuel) (<= 1 checker-fuel Long/MAX_VALUE))
+    (m/fail "Invalid kernel checking fuel" {}))
+  (let [helpers (into {} helpers)
+        allow-axioms? (boolean allow-axioms?)
+        allow-compiler-markers? (boolean allow-compiler-markers?)
+        allow-unsafe? (boolean allow-unsafe?)
+        allow-nested? (boolean allow-nested?)
+        policy {:allow-axioms? allow-axioms? :allow-compiler-markers? allow-compiler-markers?
+                :allow-unsafe? allow-unsafe? :allow-nested? allow-nested? :checker-fuel checker-fuel}
+        roots (dependencies/validate-roots (into [] (keep helpers) fixed-helper-roles))]
   (doseq [key [:root :empty? :definition :axiom :error]]
     (when-not (vector? (get helpers key)) (m/fail "Missing kernel guest helper" {:helper key})))
   (when (and allow-compiler-markers? (not (vector? (:compiler-marker helpers))))
     (m/fail "Missing kernel guest helper" {:helper :compiler-marker}))
   {:signature signature
+   :guest-helper-roots roots
+   :kernel-policy policy
    :handler
    (fn [context world [environment heartbeats depth declaration cancel]]
      (when-not (and (integer? heartbeats) (<= 0 heartbeats)
@@ -246,4 +271,4 @@
                                      (checked-witness context world guest-next helpers java-next)
                                      [world nil])]
                [(assoc-in world [:kernel-environments (:id root)]
-                          (merge {:anchor root :env java-next} witness)) result]))))))))})
+                          (merge {:anchor root :env java-next} witness)) result]))))))))}))
