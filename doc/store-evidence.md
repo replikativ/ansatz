@@ -24,11 +24,19 @@ Every call supplies all of these positive integer limits:
 | `:raw-bytes` | Sum of reachable binary expression-record lengths |
 | `:name-nodes`, `:name-chars`, `:name-depth` | Reachable Name objects, string characters and longest prefix chain |
 | `:level-nodes`, `:level-depth` | Reachable Level objects and longest level path |
+| `:level-visits` | Conservative expanded-tree work for Level predicates during Expr construction |
 
 Name and Level sharing is counted by identity; expression sharing is counted by
 stored ID. Depth limits are at most 256 because existing structural equality and
 some kernel constructors recurse. There is no automatic budget increase or
 unrestricted full-body fallback.
+
+Level sharing needs a separate work bound: Java's existing `hasParam` and
+`hasMVar` predicates revisit shared children. A small DAG of repeated
+`max(child, child)` nodes can expand exponentially. Preflight memoizes its
+expanded cost with saturation and charges at most two complete walks for each
+raw Sort/Const level reference. An excessive cost fails before any expression
+construction; retained Level-node accounting still counts sharing by identity.
 
 The entire requested raw expression closure is validated before constructing
 its first `Expr`. Missing IDs, cycles, unknown tags, malformed record lengths,

@@ -14,7 +14,7 @@
 
 (def ^:private limit-keys
   #{:declarations :shell-items :expr-nodes :expr-edges :expr-depth :raw-bytes
-    :name-nodes :name-chars :name-depth :level-nodes :level-depth})
+    :name-nodes :name-chars :name-depth :level-nodes :level-depth :level-visits})
 
 (def ^:private shell-keys
   #{:tag :name :lps :type-id :value-id :unsafe? :hints :safety :all :quot-kind
@@ -180,6 +180,7 @@
   (let [usage (volatile! {:declarations (count requested)})
         names (HashMap.) levels (HashMap.)
         name-heights (IdentityHashMap.) level-heights (IdentityHashMap.)
+        level-expansion (IdentityHashMap.)
         specs (HashMap.) heights (HashMap.) order (java.util.ArrayList.)]
     (letfn [(visit-name! [^Name root]
               (loop [n root stack []]
@@ -219,9 +220,15 @@
                                        4 (do (visit-name! (.o0 level)) [])
                                        (fail "Unsupported stored Level tag" {}))]
                         (if finish?
-                          (let [height (inc (reduce max 0 (map #(.get level-heights %) children)))]
+                          (let [height (inc (reduce max 0 (map #(.get level-heights %) children)))
+                                ;; Existing Java hasParam/hasMVar walk the tree,
+                                ;; revisiting shared children. Bound that work
+                                ;; separately from distinct retained DAG nodes.
+                                expansion (min (inc' (:level-visits limits))
+                                               (inc' (reduce +' 0 (map #(.get level-expansion %) children))))]
                             (depth! usage limits :level-depth height)
                             (.put level-heights level height)
+                            (.put level-expansion level expansion)
                             (.remove active level))
                           (do
                             (when (.containsKey active level) (fail "Cyclic stored Level" {}))
@@ -241,6 +248,14 @@
                   (let [value ((:level sources) id)]
                     (when-not (instance? Level value) (fail "Missing stored Level" {:level-id id}))
                     (visit-level! value) (.put levels id value) value)))
+            (preflight-level-ref! [reference]
+              (let [level (level-ref! reference)]
+                ;; Each raw Sort/Const level reference can cause at most two
+                ;; recursive predicate walks during assembly: hasParam here,
+                ;; then hasMVar inside the Expr factory. Charge before ANY Expr
+                ;; construction; assembly reads the already validated cache.
+                (charge! usage limits :level-visits (*' 2 (.get level-expansion level)))
+                level))
             (visit-expr! [root]
               (let [stack (ArrayDeque.) active (java.util.HashSet.)]
                 (.push stack [root false])
@@ -262,8 +277,8 @@
                             (charge! usage limits :raw-bytes (alength ^bytes raw))
                             (let [spec (decode-raw (aclone ^bytes raw))]
                               (when-let [n (:name spec)] (name-ref! n))
-                              (when-let [l (:level spec)] (level-ref! l))
-                              (doseq [l (:levels spec)] (level-ref! l))
+                              (when-let [l (:level spec)] (preflight-level-ref! l))
+                              (doseq [l (:levels spec)] (preflight-level-ref! l))
                               (charge! usage limits :expr-edges (count (:children spec)))
                               (.put specs id spec) (.add active id)
                               (.push stack [id true])

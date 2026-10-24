@@ -11,7 +11,7 @@
 (def limits
   {:declarations 8 :shell-items 256 :expr-nodes 64 :expr-edges 128 :expr-depth 32
    :raw-bytes 4096 :name-nodes 64 :name-chars 256 :name-depth 32
-   :level-nodes 64 :level-depth 32})
+   :level-nodes 64 :level-depth 32 :level-visits 4096})
 
 (defn raw [size write!]
   (let [bb (ByteBuffer/allocate size)] (write! bb) (.array bb)))
@@ -59,6 +59,31 @@
     (is (= 0 (.-storeId ^Expr (.type ^ConstantInfo (get (:constants b) declaration-name)))))
     (is (= 2 (count (filter #{[:expr 0]} @reads))))
     (is (= 2 (count (filter #{[:expr 1]} @reads))))))
+
+(deftest shared-level-DAGs-have-a-separate-expanded-walk-budget
+  (let [{:keys [sources]} (fixture)
+        u (Level/param (name/from-string "u"))
+        v (Level/param (name/from-string "v"))
+        w (Level/param (name/from-string "w"))
+        ;; Real normalized constructors retain overlapping DAGs here. hasParam
+        ;; can short-circuit, but hasMVar revisits every shared subtree. Keep
+        ;; distinct nodes/depth inside their budgets while expanded work exceeds
+        ;; its independent limit. No private constructors/reflection are used.
+        shared (first (nth (iterate (fn [[a b]]
+                                      [(Level/max (Level/succ a) (Level/succ b))
+                                       (Level/imax a w)]) [u v]) 15))
+        limited (assoc sources :level (constantly shared))
+        error (try (materialize limited limits) nil
+                   (catch clojure.lang.ExceptionInfo cause cause))]
+    (is (= :level-visits (:limit (ex-data error))))
+    ;; A shallow overlapping DAG remains valid. Its tree has five visits even
+    ;; though only four distinct nodes are retained; account for two predicates.
+    (let [child (Level/max u v)
+          shallow (Level/imax child u)
+          actual (materialize (assoc sources :level (constantly shallow)) limits)]
+      (is (= 4 (get-in actual [:usage :level-nodes])))
+      (is (= 10 (get-in actual [:usage :level-visits])))
+      (is (constant-info/complete? (get (:constants actual) declaration-name))))))
 
 (deftest each-explicit-evidence-bound-is-enforced
   (let [{:keys [sources]} (fixture)
