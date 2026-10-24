@@ -13,6 +13,12 @@
   (when-not (.isInstance ^Class class value) (invalid)) value)
 (defn- standard-vector? [x] (identical? PersistentVector (class x)))
 (defn- object-array? [x] (instance? (class (object-array 0)) x))
+(def ^:private expression-store-level-list-classes
+  ;; Exact carriers created by ExprStore.resolve, not arbitrary List callbacks.
+  #{(class (java.util.Collections/emptyList))
+    (class (java.util.Arrays/asList (object-array 0)))})
+(defn- expression-store-level-list? [value]
+  (contains? expression-store-level-list-classes (class value)))
 
 (defn- fields
   "Typed semantic edges only. Array fields remain lazy; never copy an input array."
@@ -70,6 +76,9 @@
               (object-array? value) (map (fn [i] [:level (aget ^objects value i)]) (range (alength ^objects value)))
               (standard-vector? value) (map (fn [i] [:level (.nth ^IPersistentVector value i)])
                                             (range (.count ^IPersistentVector value)))
+              (expression-store-level-list? value)
+              (map (fn [i] [:level (.get ^java.util.List value i)])
+                   (range (.size ^java.util.List value)))
               :else (invalid))
     (if (and (vector? kind) (= :array (first kind)))
       (do (when-not (object-array? value) (invalid))
@@ -79,7 +88,11 @@
 (defn- field-count [kind value children]
   (cond
     (and (vector? kind) (= :array (first kind))) (alength ^objects value)
-    (= :levels kind) (if (object-array? value) (alength ^objects value) (.count ^IPersistentVector value))
+    (= :levels kind) (cond
+                      (object-array? value) (alength ^objects value)
+                      (standard-vector? value) (.count ^IPersistentVector value)
+                      (expression-store-level-list? value) (.size ^java.util.List value)
+                      :else (invalid))
     :else (count children)))
 
 (defn- scalar-kind? [kind]
@@ -109,7 +122,8 @@
    :items charges visited nodes, batch containers/slots and array slots;
    :edges charges batch references and traversal/queue
    work, :scalar-bytes charges validated and compared leaf storage conservatively.
-   Only exact PersistentVector and Object[] level collections are supported.
+   Only Object[], exact PersistentVector and the exact JDK EmptyList/Arrays$ArrayList
+   level carriers emitted by ExprStore are supported.
    Unknown metadata/collection payloads (including custom vectors) fail closed. Inputs must remain quiescent
    for the call: ConstantInfo fields and arrays are mutable. Returns a boolean;
    invalid/incomplete inputs or exceeded limits throw ExceptionInfo."

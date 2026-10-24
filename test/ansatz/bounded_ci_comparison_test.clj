@@ -190,3 +190,22 @@
   (let [make (fn [] (env/mk-induct (n/from-string "large") [] fixtures/type'
                                    :num-params 2000 :num-indices 3000 :num-nested 4000))]
     (is (ci/full-equal-bounded? (make) (make) limits))))
+
+(deftest actual-expression-store-level-list-carriers-have-the-same-bounded-contract
+  (let [name (n/from-string "c") level (l/param (n/from-string "u"))
+        make (fn [values] (theorem (Expr/mkConst name values (boolean (seq values)))))]
+    (doseq [[native normal] [[(java.util.Collections/emptyList) []]
+                              [(java.util.Arrays/asList (object-array [level])) [level]]]]
+      (is (ci/full-equal-bounded? (make native) (make normal) limits))
+      (is (ci/full-equal-bounded? (make normal) (make native) limits))
+      (is (= :items (:limit (error-data #(ci/full-equal-bounded? (make native) (make native)
+                                                               (assoc limits :items 1)))))))
+    (let [reads (atom 0)
+          custom (proxy [java.util.AbstractList] []
+                   (size [] (swap! reads inc) (throw (AssertionError. "custom size must not run")))
+                   (get [_] (swap! reads inc) (throw (AssertionError. "custom get must not run"))))
+          constant (Expr/mkConst name [] false)
+          field (.getField Expr "o1")]
+      (.setAccessible field true) (.set field constant custom)
+      (is (some? (error-data #(ci/full-equal-bounded? (theorem constant) (theorem constant) limits))))
+      (is (zero? @reads)))))
