@@ -89,10 +89,10 @@
   (cond
     (and (vector? kind) (= :array (first kind))) (alength ^objects value)
     (= :levels kind) (cond
-                      (object-array? value) (alength ^objects value)
-                      (standard-vector? value) (.count ^IPersistentVector value)
-                      (expression-store-level-list? value) (.size ^java.util.List value)
-                      :else (invalid))
+                       (object-array? value) (alength ^objects value)
+                       (standard-vector? value) (.count ^IPersistentVector value)
+                       (expression-store-level-list? value) (.size ^java.util.List value)
+                       :else (invalid))
     :else (count children)))
 
 (defn- scalar-kind? [kind]

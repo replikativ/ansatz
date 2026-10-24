@@ -195,11 +195,11 @@
   (let [name (n/from-string "c") level (l/param (n/from-string "u"))
         make (fn [values] (theorem (Expr/mkConst name values (boolean (seq values)))))]
     (doseq [[native normal] [[(java.util.Collections/emptyList) []]
-                              [(java.util.Arrays/asList (object-array [level])) [level]]]]
+                             [(java.util.Arrays/asList (object-array [level])) [level]]]]
       (is (ci/full-equal-bounded? (make native) (make normal) limits))
       (is (ci/full-equal-bounded? (make normal) (make native) limits))
       (is (= :items (:limit (error-data #(ci/full-equal-bounded? (make native) (make native)
-                                                               (assoc limits :items 1)))))))
+                                                                 (assoc limits :items 1)))))))
     (let [reads (atom 0)
           custom (proxy [java.util.AbstractList] []
                    (size [] (swap! reads inc) (throw (AssertionError. "custom size must not run")))
