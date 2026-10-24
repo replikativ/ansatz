@@ -68,15 +68,15 @@
             observed (with-redefs-fn
                        {#'parser/parse-ndjson-string (tracked-parses #(swap! closed conj %))
                         #'validation/write-manifest! (fn [file manifest]
-                                                      (is (= [:sizeof :lex :init] @closed))
-                                                      (write file manifest))}
+                                                       (is (= [:sizeof :lex :init] @closed))
+                                                       (write file manifest))}
                        #(validation/validate-candidate! directory))]
         (is (= :not-performed (:promotion observed)))
         (is (true? (get-in observed [:publication :published])))
         (is (.exists (manifest-file directory)))
         (is (= "ansatz-bundle/2"
                (:bundle/schema (bundle/verify! {:read-resource
-                                                      (fn [path] (Files/readAllBytes (.toPath (io/file directory "resources" path))))}))))))))
+                                                (fn [path] (Files/readAllBytes (.toPath (io/file directory "resources" path))))}))))))))
 
 (deftest each-parser-close-failure-prevents-candidate-marker-and-attempts-all-closes
   (doseq [failed-role [:init :lex :sizeof]]
@@ -123,8 +123,8 @@
   (let [large (apply str (repeat 1000 "x"))
         rows (mapv #(hash-map :kind "impl" :name "A" :target (str large %)) (range 20))
         error (fixture/error #(metadata/assert-role-closure!
-                                {:attrs rows :matchers [] :instances []}
-                                {:init #{"A"} :lex #{"A"} :sizeof #{"A"}}))
+                               {:attrs rows :matchers [] :instances []}
+                               {:init #{"A"} :lex #{"A"} :sizeof #{"A"}}))
         data (ex-data error)]
     (is (= 20 (:missing-edge-count data) (:missing-root-count data)))
     (is (= 8 (count (:missing-edge-sample data)) (count (:missing-root-sample data))))
@@ -174,7 +174,7 @@
         (is (= 256 (count (get-in publication [:diagnostic :message]))))
         (is (.exists (manifest-file directory)))
         (is (.exists (io/file (.getParentFile (manifest-file directory))
-                             (get-in publication [:diagnostic :temporary-file]))))
+                              (get-in publication [:diagnostic :temporary-file]))))
         (is (= "ansatz-bundle/2"
                (:bundle/schema (bundle/verify! {:read-resource
                                                 (fn [path] (Files/readAllBytes (.toPath (io/file directory "resources" path))))}))))))))
@@ -200,9 +200,9 @@
             original-text (slurp raw-file :encoding "UTF-8")
             replay replay/replay once (atom true)]
         (with-redefs [replay/replay (fn [& args]
-                                     (when (compare-and-set! once true false)
-                                       (spit raw-file "changed-after-capture"))
-                                     (apply replay args))]
+                                      (when (compare-and-set! once true false)
+                                        (spit raw-file "changed-after-capture"))
+                                      (apply replay args))]
           (let [report (validation/validate-candidate! directory)
                 file (io/file directory "resources" (get bundle/role-resources :init))
                 emitted (with-open [stream (java.util.zip.GZIPInputStream. (io/input-stream file))]

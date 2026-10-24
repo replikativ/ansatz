@@ -227,10 +227,10 @@
               {:kernel-role role :metadata-profile "ansatz-global-companions/1"
                :missing-edge-count (count missing-edges) :missing-root-count (count missing-roots)
                :missing-edge-sample (mapv (fn [edge]
-                                           (reduce (fn [row key]
-                                                     (update row key #(subs % 0 (min 256 (count %)))))
-                                                   edge [:source :target]))
-                                         (take 8 missing-edges))
+                                            (reduce (fn [row key]
+                                                      (update row key #(subs % 0 (min 256 (count %)))))
+                                                    edge [:source :target]))
+                                          (take 8 missing-edges))
                :missing-root-sample (mapv #(subs % 0 (min 256 (count %))) (take 8 missing-roots))
                :samples-truncated? (> (count missing-edges) 8)
                :sample-text-truncated? (boolean (some #(> (count %) 256)

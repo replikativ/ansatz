@@ -22,7 +22,7 @@
 
 (defn- sha256 [payload]
   (apply str (map #(format "%02x" (bit-and 255 %))
-                 (.digest (MessageDigest/getInstance "SHA-256") ^bytes payload))))
+                  (.digest (MessageDigest/getInstance "SHA-256") ^bytes payload))))
 (defn- payload [file] (java.nio.file.Files/readAllBytes (.toPath (io/file file))))
 (defn- compress [bytes]
   (let [buffer (ByteArrayOutputStream.)]
@@ -185,7 +185,7 @@
         _ (claim-staging! directory)
         recipe (json/read-str (slurp (io/file directory "generation.json")) :key-fn keyword)
         raw-payloads (into {} (map (fn [role]
-                                    [role (payload (io/file directory "raw" (str (name role) ".ndjson")))]))
+                                     [role (payload (io/file directory "raw" (str (name role) ".ndjson")))]))
                            [:init :lex :sizeof])
         {:keys [resources manifest report]}
         (with-parsed-roles raw-payloads #(compute-candidate! directory recipe raw-payloads %))]
