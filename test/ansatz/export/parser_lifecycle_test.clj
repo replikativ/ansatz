@@ -47,7 +47,7 @@
   (let [ci (.lookup environment (Name/fromString "P"))]
     (is (some? ci))
     (is (= (.type ci) (.inferType (TypeChecker. environment)
-                                (Expr/mkConst (Name/fromString "P") [] false))))))
+                                  (Expr/mkConst (Name/fromString "P") [] false))))))
 
 (deftest scoped-state-detaches-a-real-kernel-environment-before-closing
   (with-stores
@@ -117,9 +117,9 @@
           (let [installed (atom nil)]
             (with-redefs [state/ansatz-env (atom (Env.))
                           core/setup-env! (fn [environment & _]
-                                           (closed! stores)
-                                           (reset! state/ansatz-env environment)
-                                           (reset! installed environment))]
+                                            (closed! stores)
+                                            (reset! state/ansatz-env environment)
+                                            (reset! installed environment))]
               (core/load-export! path :verify? false))
             (usable! @installed)))))))
 
@@ -163,16 +163,16 @@
             (with-redefs [parser/with-parser-state
                           (fn [st f]
                             (consume
-                              (assoc st :exprs
-                                     (reify Closeable
-                                       (close [_]
-                                         (.close ^ExprStore (:exprs st))
-                                         (throw cleanup))))
-                              (fn [_] (f st))))]
+                             (assoc st :exprs
+                                    (reify Closeable
+                                      (close [_]
+                                        (.close ^ExprStore (:exprs st))
+                                        (throw cleanup))))
+                             (fn [_] (f st))))]
               (is (identical? failure
                               (try
                                 (parser/parse-ndjson-file-streaming
-                                  path nil (fn [& _] (throw failure)))
+                                 path nil (fn [& _] (throw failure)))
                                 (catch Throwable cause cause)))))
             (is (= [cleanup] (vec (.getSuppressed failure))))
             (closed! stores)))))))
