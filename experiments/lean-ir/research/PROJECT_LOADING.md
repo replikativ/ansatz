@@ -10,7 +10,30 @@ transport and producer-authentication models. The coordinator, persistent World
 operations, guest constructors, Java kernel admission, frontend bundle decoding
 and installation, source registration, typed graph nodes/receipts, resident
 FileHandle issuance and resident calls execute through their actual APIs.
-Genuine parser/compiler project acceptance is separate evidence.
+Genuine parser/compiler project acceptance is now recorded separately below.
+
+## Genuine single-file acceptance, 2026-10-24
+
+The [public P1 record](../measurements/public-project-p1.json) passes a real
+hosted frontend/compiler run: fresh strict checking of all 65,994 captured Init
+constants, public `load-file` of `GraphChainA.lean`, completed final checked
+import, issued FileHandle/Project, and typed Nat41/Unicode calls. Exact values,
+distinct returned child versions, closure of both call children and both Project
+parents, borrowed Source openness and retained pristine Context identity were
+checked by the pinned controller. All 2,151 inputs matched after process disposal.
+
+The job took 1,032.729 seconds: restore plus strict check 386.451 seconds,
+public file loading 612.478 seconds, and both calls plus controller checks
+348.806 milliseconds. It used a 3 GiB heap and peaked at 3,689,373,696-byte group
+RSS. These are one integration run's stage observations, not native comparisons
+or warm-call benchmarks; changing projection and heap together does not isolate
+a memory optimization's benefit.
+
+Acceptance covers one classic implicit-Init module with no source initializer
+actions. Independent-root native reset, two-root final import, dependent/edit
+reloads and genuine Project callbacks remain subsequent gates. Existing modeled
+tests below retain their original scope. This remains an experiment outside the
+library source/AOT paths, not a released Lean-on-JVM distribution.
 
 ```mermaid
 flowchart TD
@@ -157,5 +180,6 @@ classes, without historical support source/class fallback. The driver checked
 origins, and observed every registered Project/support test: 8 Project tests and
 13 portable-support contract tests. All 547 input hashes matched after process
 disposal. This establishes current-source loading and the composed integration with
-modeled guest transport. Genuine Lean frontend project execution remains separate. Comment-only identity rebuilds establish retained version ownership and
+modeled guest transport. The genuine single-file record above is separate from
+that suite. Comment-only identity rebuilds establish retained version ownership and
 unchanged callable behavior, not changed function semantics or performance.

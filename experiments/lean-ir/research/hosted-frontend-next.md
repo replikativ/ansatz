@@ -4,6 +4,22 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
+## Current public Project gate (2026-10-24)
+
+The [public single-file P1](../measurements/public-project-p1.json) now passes:
+full fresh 65,994-constant Init checking, genuine hosted source loading and final
+checked import, issued Project/FileHandle, exact Nat41/Unicode calls and checked
+version/borrowed-owner lifecycle. The guarded job exited 0 and all 2,151 inputs
+matched after disposal. Earlier pending/failure entries below are chronology.
+
+Next is a newly reviewed coupled P1-to-P2 capture exercising independent A/D
+roots, native reset, final union import and retained old-version calls. Budgets,
+actual postcheck schema and helper/caller identities must be captured explicitly;
+host-only runner tests and a native initializer-free D oracle do not establish
+P2. Project-level application callbacks follow with independently extended
+configuration and a newly issued application-enabled prefix. The current P1
+profile grants neither callbacks nor general IO/package/distribution support.
+
 ## Typed file witness and fresh execution measurements (2026-10-20)
 
 The B failure is now traced to an archived capability mismatch: the pinned JSON

@@ -7,10 +7,28 @@ fidelity, and convenient integration with Clojure/JVM applications.
 
 ## Execution update after planning
 
+**Public single-file P1 passed on 2026-10-24.** The
+[acceptance record](../measurements/public-project-p1.json) binds the actual
+42e3 runtime/c32 caller capture, result, controller sources and guarded receipt.
+The hosted frontend loaded `GraphChainA.lean` through public `load-file`,
+completed final checked import, and returned a real Project/FileHandle. Public
+Nat41 and Unicode calls returned the exact inputs through separately closed
+child versions; both parent versions closed at finish. The borrowed Source
+remained open and the separately retained pristine Context stayed identical.
+
+Fresh Init checking covered all 65,994 constants under the existing explicit
+15-assumption policy. The whole job took 1,032.729 seconds with a 3 GiB heap and
+3,689,373,696-byte peak group RSS. All 2,151 pins matched after disposal and were
+independently rehashed. This is narrow experimental integration acceptance,
+not competitive performance, a production distribution or native-reset/P2
+acceptance. Stage 2 below is now the next genuine campaign gate.
+
+### Earlier attempts retained as history
+
 The subsequent [compact-memory investigation](COMPACT_HOST_MEMORY_2026-10-24.md)
 restored the full frontend under a 2 GiB heap, then stopped for sustained GC
 pressure during fresh strict projection. It did not complete public P1. That
-update supersedes the proposed next-run state below; the original four
+update preceded the accepted run above; the original four
 milestones remain in order.
 
 The reviewed P1 v2 attempt ran, restored the frontend with all initialization
@@ -24,7 +42,7 @@ strict-check semantic rejection. Do not relaunch or resume its terminal control.
 The compact dependency-plan change has passed its
 [focused validation](../measurements/compact-first-pass-plan.json): 22 tests /
 235 assertions. A subsequent selected consumer/capture passed construction and
-full restoration; its fresh check remains incomplete. See
+full restoration; that historical capture's fresh check remained incomplete. See
 [acceptance and memory followups](ACCEPTANCE_AND_MEMORY_FOLLOWUPS_2026-10-23.md).
 A modified checker needs a fresh reviewed selected consumer/capture before any
 new full campaign. Do not execute the historical P1 v2 plan again. The four
@@ -84,7 +102,8 @@ process exit are not substitutes for the corresponding semantic acceptance.
   guest transport: 1,029 tests / 94,230 assertions. See
   [Project loading](PROJECT_LOADING.md). Foundation PRs 151 and 152 were merged;
   this note does not infer the current remote branch state from an old ledger.
-- Full public P1 remains incomplete: the earlier P1 v1 run passed fresh strict Init
+- Full public P1 now passes in the narrow single-file profile. Historically, the
+  earlier P1 v1 run passed fresh strict Init
   checking, source A publication and graph assembly, then exhausted aggregate
   reservation fuel during final import, after 3,663 public child operations.
   No public loaded Project result or subsequent calls were issued.
@@ -98,9 +117,19 @@ The chronological campaign ledger is
 separate `ansatz-reconstruction-units` worktree. Its phase and final receipts
 take precedence over old proposed/pending fields retained in its history.
 
-## 1. Complete the public single-file gate
+## 1. Completed public single-file gate
 
-The terminal reviewed P1 v2 plan is preserved at
+The accepted capture is `target/artifact-contract/scoped-ir-c32-p1-3072m-v1/`
+in the campaign execution worktree. Its plan SHA-256 is
+`14823df45a3ab2c577a00ea5d39429d46d21f6dfd6a20ca1d5856f4053dca4c0`;
+result and receipt hashes are in the portable acceptance record. It used a
+3,072 MiB heap, 4,096 MiB RSS cap, 6,144 MiB preflight, 1,024 MiB system floor
+and 5,400-second whole-job deadline. H120M/A1B/O2M and kernel500M were unchanged.
+These are experimental bounds, not user requirements or a demonstrated minimum.
+Any coupled continuation needs a fresh capture and controls; do not rerun an
+accepted or failed one-shot controller.
+
+The earlier terminal reviewed P1 v2 plan is preserved at
 `target/artifact-contract/project-current-consumer-v1/p1-gate-v2-fuel1b/`
 in the original project-loader worktree. Execution-plan SHA-256:
 `2f87cfd305c50369d169de8dce778f0a4966db9ccf219884b196b74b45ee7bc0`.
@@ -136,6 +165,13 @@ After P1 supplies real costs, capture/review a fresh coupled campaign that:
    at the second leaf. Loading D alone or making D depend on A does not test this.
 3. Completes real final import and calls current A/D plus retained old A.
 4. Closes returned call versions independently, then proves parents still work.
+
+P1 now supplies measured costs. Its accepted standalone capture allowed two
+aggregate exports; the new coupled capture must explicitly allow at least four
+before creating its retained P1 version. Reconcile actual receipt/postcheck
+schemas and current runtime/caller/helper identities, choose finite P2 budgets
+including reset/final-union work, and independently review the full fresh capture.
+Host-runner tests and the native D oracle are preparatory evidence only.
 
 Then use the same public API for a genuine A-to-B-to-C chain, a diamond sharing
 one issued A, and rejection of incompatible A versions. Add an edited A whose

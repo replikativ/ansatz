@@ -1,7 +1,15 @@
 # Hosted Lean memory investigation, 2026-10-24
 
-Research evidence, not a shipped memory requirement or completed public loader.
+Research evidence, not a shipped memory requirement. Earlier interrupted runs
+and subsequent public-loader acceptance are distinguished below.
 This updates the [campaign continuation](CAMPAIGN_CONTINUATION_2026-10-23.md).
+
+Subsequent integration update: [public single-file P1 now passes](../measurements/public-project-p1.json)
+with scoped projection and a 3 GiB heap. All 65,994 Init constants were freshly
+checked, public loading/calls completed, and all 2,151 pins matched after
+disposal. This changes the campaign status, not the scope of earlier measurements
+below. It does not isolate scratch savings, establish 2 GiB fit or prove native
+reset/P2 or production memory behavior.
 
 ## Where PR 153 leaves file loading
 
@@ -10,7 +18,7 @@ research. Its focused regression passed 22 tests and 235 assertions. It does not
 complete public Project `load-file` acceptance. Earlier resident experiments
 genuinely compiled source, imported original/edited macros, retained old versions,
 called Nat/Unicode exports and invoked typed Clojure callbacks. The public
-orchestrator still needs one genuine, fully checked end-to-end acceptance.
+orchestrator still needed genuine end-to-end acceptance at that historical point.
 
 The newly selected consumer passed host construction with 257 selected runtime
 rows and three caller rows. Selection and construction do not themselves prove
