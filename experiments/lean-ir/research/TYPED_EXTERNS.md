@@ -35,9 +35,21 @@ A Clojure exception aborts that guest invocation with retained diagnostics; it i
 not converted into a Lean `IO.Error`. A future IO adapter needs an explicit world
 parameter and correctly owned `IO.Result` construction.
 
+## Genuine Project callback component, 2026-10-24
+
+The [qualified hosted component run](HOSTED_COMPONENT_ACCEPTANCE_2026-10-24.md)
+loaded actual Lean source and made four public calls through these value-only
+bindings: two Nat and two String callbacks, with zero host callbacks during
+compilation. It closed the four call children, both application Projects and four
+owned Context wrappers. This is bidirectional value interop in the admitted
+experimental profile, not typed IO or a general effect transaction. The same
+session later failed in an unrelated chain harness; its whole-session receipt is
+exit 1 and normal baseline shutdown did not complete. The
+[portable record](../measurements/hosted-component-acceptance.json) separates those facts.
+
 ## Explicit application authority
 
-The current checked native profile has no application-symbol admission. Create a
+The base checked native profile has no implicit application-symbol admission. Create a
 new application branch explicitly after successful import preparation, retaining
 the independently captured native preparation configuration:
 
