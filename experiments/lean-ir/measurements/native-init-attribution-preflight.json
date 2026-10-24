@@ -1,0 +1,48 @@
+{
+  "schema": "native-init-attribution-preflight-validation/1",
+  "status": "passed",
+  "scope": "Selected native private/IR data, full early name-occurrence budget, first-wins native alias attribution and actual getter checks; tiny real Worlds/Sources plus explicitly modeled producer/transport. NOT full P2 or full Init acceptance.",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "baseCommit": "8bf7ec9",
+  "tests": 20,
+  "assertions": 324,
+  "failures": 0,
+  "errors": 0,
+  "namespaces": [
+    "prototype.native-init-base-test",
+    "prototype.project-loader-test"
+  ],
+  "elapsed_seconds": 8.532649831991876,
+  "peak_group_rss_bytes": 552079360,
+  "heap_mib": 384,
+  "group_rss_limit_mib": 768,
+  "wall_limit_seconds": 120,
+  "launch_available_bytes": 3221225472,
+  "available_floor_bytes": 1073741824,
+  "pin_count": 695,
+  "all_input_pins_match": true,
+  "process_group_disposed": true,
+  "plan_sha256": "64a3e0d7337dc2f9fdcd645a7f582b431839c34208083cffba4a95ac4c10bc24",
+  "receipt_sha256": "c87bb601bbadf3f6d6ac175676ebed01cefaee4b6e74cb58785d60ec7ca72f4a",
+  "stdout_sha256": "6d252151f2773a66c1af2086f5c123e4195e1d6523e8f3f512314a9a38d07247",
+  "stderr_sha256": "76f981b9342399949febbbbb0667736e6790eff4eb15f18d7f31d57dbc7c621b",
+  "postcheck_sha256": "40532071d133eb926bacaee6483cfade93d60852e9bbc3fc741b9a19e4033899",
+  "source_sha256": {
+    "src/prototype/resident_init_prefix.clj": "c7ea4305540f69b1e567d8286ad0ab0a4cb91dcf70715a8a9698d5c9b8112235",
+    "test/prototype/native_init_base_test.clj": "ddab46a158a67c9bc5bdf0f8eddea1254402dfbc2c6a40c18b115ec443b3accc"
+  },
+  "descriptor_inventory": {
+    "descriptor_sha256": "62b168762b4ef900ac783589d4e8b4df4fa4712f120722190fbe4b3cfc0de144",
+    "modules": 631,
+    "old_all_parts_occurrences": 244553,
+    "selected_private_const_names": 66124,
+    "selected_ir_extra_names": 37455,
+    "selected_raw_name_occurrences": 103579,
+    "selected_unique_names": 95088,
+    "request_module_overhead": 1264,
+    "graph_name_occurrences": 104843,
+    "existing_explicit_max_names": 200000,
+    "observation": "Static authenticated descriptor and bounded name inventory, not executed getter/fuel totals"
+  },
+  "prior_environment_issue": "Initial fresh worktree lacked fixture-required target directory:13 File.createTempFile errors. After creating target, selected/core suite passed20/322; final shared-inventory gate passed20/324. No assertion was weakened."
+}

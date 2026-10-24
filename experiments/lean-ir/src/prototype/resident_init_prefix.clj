@@ -1638,6 +1638,14 @@
                        (graph-data-arrays world (:value (peek ir-parts)) (:max-names limits)) private)]
               {:module (:module module) :names (:names private) :extras (:extras ir)}))) (:modules prefix)))
 
+(defn- graph-selected-name-count [native descriptors request-count]
+  ;; Count occurrences, not unique names. Keep preparation and finishing policy
+  ;; gates identical, including module-name and request-name overhead.
+  (reduce +' (+' request-count (count descriptors))
+          (concat (map #(+' 2 (count (:names %)) (count (:extras %))) native)
+                  (map #(+' 2 (count (:dependencies %)) (count (:const-names %))
+                             (count (:extra-names %))) descriptors))))
+
 (defn- graph-plan-selection!
   "Only private authenticated node data enters here. G0 remains descriptive;
    exact G1 Name occurrences/UTF-8/key budgets are checked in addition to G0."
@@ -1646,10 +1654,7 @@
         descriptors (mapv :descriptor nodes)
         requests (into source/init-requests (map #(hash-map :module (:module %) :importAll false
                                                           :isExported true :isMeta false)) root-descriptors)
-        names (reduce +' (+' (count requests) (count nodes))
-                      (concat (map #(+' 2 (count (:names %)) (count (:extras %))) native)
-                              (map #(+' 2 (count (:dependencies %)) (count (:const-names %))
-                                         (count (:extra-names %))) descriptors)))
+        names (graph-selected-name-count native descriptors (count requests))
         _ (when (or (> (+ (count native) (count nodes)) (:max-modules limits))
                     (> (count root-descriptors) (:max-roots limits)) (> names (:max-names limits)))
             (fail "Source graph selected module/root/Name inventory exceeds bounds" {}))
@@ -2531,12 +2536,29 @@
     (native-transfer! state [[:request 0] [:request 1]])
     (native-release! state :encoded-names)
     imports))
+(defn- native-attribution-arrays!
+  "Preflight the actual native selection used by Lean's finalizeImport:
+   constNames from main/private data and extraConstNames from selected IR data.
+   Count RAW selected entries before Name projection/deduplication plus the SAME
+   request/module occurrence overhead as native graph-plan-selection. Other
+   public/server views do not contribute. No guest calls or owner changes."
+  [world prefix p]
+  (let [native (graph-native-arrays world prefix (:graph-limits p))
+        name-count (graph-selected-name-count native [] (count source/init-requests))]
+    (when (> name-count (get-in p [:graph-limits :max-names]))
+      (fail "Native attribution aggregate names exceed bound" {}))
+    {:total (reduce +' 0 (map #(+' (count (:names %)) (count (:extras %))) native))
+     :name-count name-count
+     :arrays (mapv (fn [index {:keys [names extras]}] [index [names extras]]) (range) native)}))
+
 (defn prepare-native-init-base
   "Prepare one fixed native-only Init reset from an accumulated persistent World.
    REQUEST must already contain immutable :text (no path IO here); its actual
    bounded header must contain only implicit Init/meta Init. READINESS
    comes from the separately opted-in authenticated factory's actual binding.
-   No query/finalizer executes here; no source receipt can be issued by this API."
+   Selected native data layout and raw aggregate name count are preflighted
+   before guest work and checked again at finish. No query/finalizer executes
+   here; no source receipt can be issued by this API."
   [context request prefix profile readiness {:keys [kernel-policy budgets] :as options}]
   (locking context
     (let [state (atom {:native-operation? true :phase :entry :used 0 :reserved 0
@@ -2550,6 +2572,9 @@
               _ (swap! state assoc :entry entry :world (:world entry) :session (:session entry))
               issued (graph-readiness! entry prefix profile)
               raw-prefix (:prefix issued) p (:graph-profile issued)
+              ;; Refuse invalid selected data or an insufficient explicit graph
+              ;; budget BEFORE header inspection/Name encoding/readiness/guest work.
+              _ (native-attribution-arrays! (:world entry) raw-prefix p)
               binding (get-in entry [:session :bindings "lean_run_mod_init_core"])
               coverage (native-factory/native-init-coverage readiness (:source raw-prefix) binding)
               _ (when-not (and (map? request) (string? (:text request)) (not (contains? request :path))
@@ -2682,47 +2707,29 @@
         {:progress (native-progress @state)}
         (catch Throwable cause (native-failed! state cause))
         (finally (swap! state assoc :busy? false))))))
-(defn- native-attribution! [state invoke prefix p environment]
-  ;; Native const AND extra names originate in the authenticated selected data
-  ;; parts. Count the aggregate arrays before projecting any names/getters.
-  (let [arrays
-        (reduce (fn [{:keys [total arrays]} [index module]]
-                  (let [parts (:parts module)
-                        _ (when-not (and (vector? parts) (<= 1 (count parts) 3))
-                            (fail "Native attribution has unbounded data parts" {}))
-                        first-node (m/node (:world @state) (:value (first parts)))
-                        split (m/read-scalar-node first-node {:index 5 :offset 0 :type "uint8" :region :scalar})
-                        _ (when-not (or (and (= 0 split) (= 1 (count parts)))
-                                        (and (= 1 split) (= 3 (count parts))))
-                            (fail "Native attribution has incomplete selected parts" {}))
-                        fields (into []
-                                 (mapcat (fn [part]
-                                           (let [node (m/node (:world @state) (:value part))]
-                                             (when-not (and (= 0 (:tag node)) (bridge/constructor-layout? node 5 1))
-                                               (fail "Native attribution has malformed ModuleData" {}))
-                                             (mapv #(proof-array! (:world @state) (nth (:fields node) %)
-                                                                   (get-in p [:graph-limits :max-names])) [1 3])))) parts)
-                        next-total (+' total (reduce + 0 (map count fields)))]
-                    (when (> next-total (get-in p [:graph-limits :max-names]))
-                      (fail "Native attribution aggregate names exceed bound" {}))
-                    {:total next-total :arrays (conj arrays [index fields])}))
-                {:total 0 :arrays []} (map-indexed vector (:modules prefix)))
+(defn- native-attribution! [state invoke prefix p environment selection]
+  ;; Repeat actual-World validation after finalization; do not trust preflight.
+  (let [arrays (native-attribution-arrays! (:world @state) prefix p)
         seen (volatile! {}) total-name-bytes (volatile! 0)]
     (doseq [[index arrays] (:arrays arrays) names arrays reference names]
       (let [wire (graph-wire-name!
                    (structured-name-value
                      (bridge/project-name-bounded (:world @state) reference (get-in p [:limits :name-limits])))
                    false (:graph-limits p) total-name-bytes)
-            previous (get @seen wire)]
-        (when (and previous (not= previous index)) (fail "Native attribution name belongs to different modules" {}))
+            expected (get-in selection [:plan :name-attribution wire :module-index])]
+        ;; Pinned Lean const2ModIdx.insertIfNew and G0 agree: authenticated
+        ;; native aliases/subsumption keep their FIRST module, unlike local
+        ;; source conflicts. Validate only the first selected occurrence.
         (when-not (contains? @seen wire)
+          (when-not (= index expected)
+            (fail "Native attribution selection differs from actual selected data" {}))
           (vswap! seen assoc wire index)
           (let [[world result] (invoke (:world @state) module-index-helper [environment reference])
                 _ (swap! state #(-> % (assoc :world world)
                                     (assoc-in [:native-owners :attribution-result] {:value result :state :owned})))
                 node (when (m/ref? result) (m/node world result))]
             (when-not (and (= 1 (:tag node)) (bridge/constructor-layout? node 1 0)
-                           (= index (native/nat-value {:ref? m/ref? :node m/node} world (first (:fields node)))))
+                           (= expected (native/nat-value {:ref? m/ref? :node m/node} world (first (:fields node)))))
               (fail "Native finalizer has another const/extra module attribution" {}))
             (native-release! state :attribution-result)
             (swap! state update :native-attributions (fnil inc 0))))))))
@@ -2755,7 +2762,7 @@
               _ (when-not (and (= (:constants certificate) (get-in finished [:certificate :constants]))
                                (identical? (:checked-env observed) (get-in finished [:certificate :env])))
                   (fail "Native finalizer certificate differs from exact observed native union" {}))
-              _ (native-attribution! state invoke prefix profile-data (:environment finished))
+              _ (native-attribution! state invoke prefix profile-data (:environment finished) selection)
               _ (doseq [field [:source-modules :source-regions :source-import-prefixes :source-import-receipts]]
                   (when-not (identical? (get-in entry [:world field]) (get-in @state [:world field]))
                     (fail "Native base changed an accumulated source registry" {:registry field})))

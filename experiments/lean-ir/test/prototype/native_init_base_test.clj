@@ -13,6 +13,7 @@
             [prototype.runtime-abi :as abi]
             [prototype.eval-const :as eval]
             [prototype.machine :as m]
+            [prototype.kernel-bridge-test :as guest]
             [prototype.raw-interop :as raw]
             [prototype.module-init-capabilities :as init]
             [prototype.source-import :as source]
@@ -413,3 +414,133 @@
     :configure (fn [input]
                  (assoc-in (configure-native-stage input) [:functions (:finalize source/helpers) :body]
                    [:let 91 [:literal 0] [:unreachable]]))))
+
+(defn attribution-part
+  "Actual guest ModuleData layout. Raw-count tests use scalar Name stand-ins;
+   only the explicit getter test below projects authentic guest Names."
+  [world const-names extra-names split]
+  (let [[world names] (m/allocate world :array 246 (vec const-names))
+        [world constants] (m/allocate world :array 246 (vec (repeat (count const-names) 0)))
+        [world extras] (m/allocate world :array 246 (vec extra-names))
+        [world part] (m/scalar-constructor world 0 [0 names constants extras 0]
+                                          {:objects 5 :usize 0 :ssize 1})
+        node (m/write-scalar-node (m/node world part)
+               {:index 5 :offset 0 :type "uint8" :region :scalar} split)]
+    [(m/replace-node world part node) {:value part}]))
+(defn attribution-module [parts ir-parts]
+  {:module ["str" ["anonymous"] "Model"] :hasData true :parts parts :irParts ir-parts})
+(defn attribution-arrays [world modules maximum]
+  (#'resident-prefix/native-attribution-arrays! world {:modules modules}
+    {:graph-limits {:max-names maximum :max-modules 16}}))
+
+(deftest native-attribution-preflight-counts-private-names-selected-ir-extras-and-raw-duplicates
+  (let [[world public] (attribution-part (m/world {}) [0 0 0] [0 0] 1)
+        [world server] (attribution-part world [0 0 0] [0 0] 1)
+        [world private] (attribution-part world [0 0] [0] 1)
+        [world ir-first] (attribution-part world [0] [0] 1)
+        [world ir-selected] (attribution-part world [0] [0 0 0] 1)
+        [world whole] (attribution-part world [0] [0] 0)
+        modules [(attribution-module [public server private] [ir-first ir-selected])
+                 (attribution-module [whole] [])]
+        result (attribution-arrays world modules 13)]
+    ;; 2 private names + 3 final IR extras + 2 classic entries, all duplicate0.
+    ;; Public/server views and earlier IR data must not enter attribution.
+    (is (= 7 (:total result)))
+    (is (= 13 (:name-count result)))
+    ;; Raw count alone fits7, but request/module overhead must fail EARLY too.
+    (is (some? (failure #(attribution-arrays world modules 7))))
+    (is (= [[0 [[0 0] [0 0 0]]] [1 [[0] [0]]]] (:arrays result)))
+    (is (= 0 (get-in world [:stats :steps])))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"aggregate names exceed bound"
+          (attribution-arrays world modules 12)))
+    ;; With no separate IR data, the selected private extras are the fallback.
+    (is (= 3 (:total (attribution-arrays world [(attribution-module [public server private] [])] 7))))))
+
+(deftest native-attribution-preflight-rejects-malformed-selection-and-rechecks-finish-world
+  (let [[world whole] (attribution-part (m/world {}) [0] [] 0)
+        [world split] (attribution-part world [] [] 1)
+        [world invalid-flag] (attribution-part world [] [] 2)
+        [world bad-layout] (m/allocate world :ctor 0 [0])
+        [world not-array] (m/scalar-constructor world 0 [0 0 0 0 0]
+                                              {:objects 5 :usize 0 :ssize 1})
+        module (attribution-module [whole] [])]
+    (doseq [bad [(assoc module :parts nil) (assoc module :parts []) (assoc module :hasData false)
+                 (assoc module :irParts nil) (assoc module :irParts [split split split])
+                 (assoc module :parts [split]) (assoc module :parts [split split])
+                 (assoc module :parts [split split split split]) (assoc module :parts [invalid-flag])
+                 (assoc module :parts [{:value bad-layout}]) (assoc module :parts [{:value not-array}])
+                 (assoc module :parts [split split {:value bad-layout}])
+                 (assoc (attribution-module [split split split] [{:value bad-layout}]) :hasData true)]]
+      (is (some? (failure #(attribution-arrays world [bad] 8)))))
+    (is (= 1 (:total (attribution-arrays world [module] 5))))
+    (let [node (m/node world (:value whole)) names (nth (:fields node) 1)
+          ;; Equal lengths keep the ModuleData shape valid; the raw bound grows.
+          constants (nth (:fields node) 2)
+          changed (-> world (m/replace-node names (assoc (m/node world names) :fields [0 0]))
+                            (m/replace-node constants (assoc (m/node world constants) :fields [0 0])))
+          state (atom {:world changed}) called (atom 0)
+          error (failure #(#'resident-prefix/native-attribution! state
+                            (fn [& _] (swap! called inc) (throw (AssertionError. "No finish getter before recount")))
+                            {:modules [module]} {:graph-limits {:max-names 5 :max-modules 16}} nil {}))]
+      (is (some? error)) (is (zero? @called))
+      (is (identical? changed (:world @state)))
+      (is (= 1 (:total (attribution-arrays world [module] 5)))))))
+
+(deftest native-attribution-budget-failure-precedes-header-encoder-query-and-finalizer
+  (publication/with-empty-publication :reference
+    (fn [{:keys [context operations] :as fixture}]
+      (let [before (resident/snapshot context)
+            original-readiness @#'resident-prefix/graph-readiness!
+            actual-issued (original-readiness before (:prefix fixture) (:profile fixture))
+            raw-prefix (:prefix actual-issued)
+            total (:name-count (#'resident-prefix/native-attribution-arrays! (:world before) raw-prefix
+                          (:graph-profile actual-issued)))
+            before-operations @operations forbidden (atom [])
+            error (with-redefs-fn
+                    ;; Model ONLY the explicit policy bound after real readiness.
+                    {#'resident-prefix/graph-readiness!
+                     (fn [& args] (assoc-in (apply original-readiness args)
+                                            [:graph-profile :graph-limits :max-names] (dec total)))
+                     #'factory/native-init-coverage
+                     (fn [& _] (swap! forbidden conj :coverage) (throw (AssertionError. "No readiness before preflight")))
+                     #'resident-prefix/graph-inspect-header!
+                     (fn [& _] (swap! forbidden conj :header) (throw (AssertionError. "No guest header before preflight")))
+                     #'resident-prefix/native-requests!
+                     (fn [& _] (swap! forbidden conj :encoding) (throw (AssertionError. "No guest encoder before preflight")))}
+                    #(failure (fn [] (prepare-native! fixture context nil))))]
+        (is (pos? total)) (is (some? error)) (is (empty? @forbidden))
+        (is (= before-operations @operations))
+        (is (identical? before (resident/snapshot context)))
+        (let [state (:native-init-base-state (ex-data error))]
+          (is (= :entry (:phase state))) (is (= 0 (:used state)))
+          (is (= 0 (:operations state))) (is (= {} (:native-owners state)))
+          (is (not (:finalizer-started? state))))))
+    :configure configure-native-stage))
+
+(deftest native-attribution-first-wins-matches-plan-and-checks-actual-getter
+  (let [[world shared] (guest/guest-name (m/world {}) "shared")
+        [world unique] (guest/guest-name world "later")
+        [world early] (attribution-part world [shared] [] 0)
+        [world late] (attribution-part world [unique] [shared] 0)
+        modules [(attribution-module [early] []) (attribution-module [late] [])]
+        shared-wire ["str" ["anonymous"] "shared"] later-wire ["str" ["anonymous"] "later"]
+        selection {:plan {:name-attribution {shared-wire {:module-index 0} later-wire {:module-index 1}}}}
+        p {:graph-limits (assoc publication/graph-limits :max-names 16)
+           :limits {:name-limits {:max-nodes 64 :max-chars 512}}}
+        calls (atom [])
+        invoke (fn [w _ [_ reference]]
+                 (swap! calls conj reference)
+                 (m/allocate w :ctor 1 [(if (= reference shared) 0 1)]))
+        state (atom {:world world})]
+    (#'resident-prefix/native-attribution! state invoke {:modules modules} p nil selection)
+    (is (= [shared unique] @calls))
+    (is (= 2 (:native-attributions @state)))
+    (is (= :released (get-in @state [:native-owners :attribution-result :state])))
+    ;; Checking against the later module for shared would violate first-wins.
+    (is (some? (failure #(#'resident-prefix/native-attribution! (atom {:world world})
+                          (fn [w _ _] (m/allocate w :ctor 1 [1]))
+                          {:modules modules} p nil selection))))
+    ;; The descriptive plan is not enough: re-read actual arrays and reject drift.
+    (is (some? (failure #(#'resident-prefix/native-attribution! (atom {:world world}) invoke
+                          {:modules modules} p nil
+                          (assoc-in selection [:plan :name-attribution shared-wire :module-index] 1)))))))
