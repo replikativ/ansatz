@@ -1,0 +1,414 @@
+{
+  "schema": "genuine-public-project-p1-acceptance/1",
+  "date": "2026-10-24",
+  "status": "passed genuine hosted single-file public Project loading and Nat/Unicode invocation",
+  "experimental": true,
+  "lean": {
+    "version": "4.33.1",
+    "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  },
+  "identities": {
+    "producer": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+    "runtime": "42e38cc9907dfc39ffd50d15ce0238108887dc424851d4fc8ec1452f5643fabf",
+    "caller": "c32f50822c1269e8e53b6f555044dfce224e02656ee85bfab7c15833b8d0f674",
+    "compatibilityProfile": "ansatz-producer50f-source-graph-frontend-reconstruction-consumer/1",
+    "runtimeRows": 257,
+    "callerRows": 3,
+    "historicalJavaClassesUnchanged": 48
+  },
+  "profile": {
+    "sourceModules": [
+      "GraphChainA"
+    ],
+    "classicImplicitInit": true,
+    "sourceInitializerActions": false,
+    "explicitNativeImportsAccepted": false,
+    "backend": "mutable",
+    "scope": "Fresh authenticated full Init restore/check, actual hosted frontend/compiler, genuine publication/final view import, public Project calls and lifecycle checks; no modeled compiler transport in this run."
+  },
+  "artifactEvidence": {
+    "captureRole": "campaign execution worktree; raw artifacts retained locally, not shipped by this measurement",
+    "captureDirectory": "target/artifact-contract/scoped-ir-c32-p1-3072m-v1",
+    "sha256": {
+      "execution-plan.json": "14823df45a3ab2c577a00ea5d39429d46d21f6dfd6a20ca1d5856f4053dca4c0",
+      "payload.json": "debf013b622fca031b9faedfc6e0acaf5d194eea8e69a0da9099a6e552783d8c",
+      "p1-result.json": "e1072eda8a153e7f049582d8f7b0f551d1f5f4f3203d824b5099891f3ad78eac",
+      "run-v1/receipt.json": "7b9317d2f820727c9d5a42e988d9c6fb4cf16626d164ee4d89a2730db01ffd90",
+      "run-v1/postcheck.json": "a3436e2d5b99ff7ffe233907db84ba4e9cff80a8966b8f3319d2945e7d74f920",
+      "run-v1/stdout": "6712a1d08fa614425744c16f7e4beb0c39cf7ec695d068672281860ab5994d93",
+      "run-v1/stderr": "76f981b9342399949febbbbb0667736e6790eff4eb15f18d7f31d57dbc7c621b",
+      "GraphChainA.lean": "d53a8b4270d5c8056d3f6ff3ee442820acc3bab398d692c75773ed4da210a86e",
+      "project-p1.clj": "ff4070b1d64dc477e060162ae5e1d6520726a745fd845c5a55cf8db765ce5e56",
+      "checker.clj": "9f3fccc435c7a501ebe3ee6260b026d0c9b8eec50b5f40246ede1110a43a24f3",
+      "bootstrap-p1.clj": "7cce396516baa985fb2f564547989bb2b1d6cee0491e0339b80bd3f2c78b12f4",
+      "runner.clj": "ceb44a207db5e5464a466e5985fffbd1f4b969c67c18be49759efca879024401",
+      "guard.py": "367f078d09939b0b32fa08bd86cd9506859ab710c2e618d8b67febbd0826667c"
+    }
+  },
+  "execution": {
+    "status": "passed",
+    "exitCode": 0,
+    "elapsedSeconds": 1032.7287926739955,
+    "peakGroupRSSBytes": 3689373696,
+    "minAvailableBytes": 1819242496,
+    "heapMiB": 3072,
+    "groupRSSLimitBytes": 4294967296,
+    "wallLimitSeconds": 5400,
+    "preflightAvailableBytes": 6442450944,
+    "availableFloorBytes": 1073741824,
+    "launchAvailableBytes": 6495260672,
+    "preflightWaitSecondsObserved": 18.291380265000043,
+    "verifiedInputCount": 2151
+  },
+  "postcheck": {
+    "allPinsMatch": true,
+    "inputCount": 2151,
+    "disposed": true,
+    "semanticAcceptance": true,
+    "reviewerIndependentlyRehashedInputs": 2151
+  },
+  "strictInit": {
+    "freshlyCheckedConstants": 65994,
+    "projectedConstants": 65994,
+    "fuel": 500000000,
+    "policy": {
+      "allow-axioms?": true,
+      "allow-unsafe?": true,
+      "allow-compiler-markers?": true
+    },
+    "explicitAssumptions": [
+      "Classical.choice",
+      "Lean.ofReduceBool",
+      "Lean.ofReduceNat",
+      "Lean.trustCompiler",
+      "Quot.lcInv",
+      "Quot.sound",
+      "isScalarObj",
+      "lcAny",
+      "lcCast",
+      "lcErased",
+      "lcProof",
+      "lcUnreachable",
+      "lcVoid",
+      "propext",
+      "sorryAx"
+    ],
+    "checkCallAndPostconditionsMs": 269406.126144
+  },
+  "publicCalls": [
+    {
+      "export": "GraphChainA.nat",
+      "arguments": [
+        41
+      ],
+      "argumentCodecs": [
+        "nat"
+      ],
+      "result": 41,
+      "resultCodec": "nat",
+      "newChildVersionClosed": true
+    },
+    {
+      "export": "GraphChainA.text",
+      "arguments": [
+        "λ 🦉"
+      ],
+      "argumentCodecs": [
+        "string"
+      ],
+      "result": "λ 🦉",
+      "resultCodec": "string",
+      "newChildVersionClosed": true
+    }
+  ],
+  "acceptanceAudit": {
+    "actualIssuedFileHandleAsserted": true,
+    "exactSingleModuleTableAsserted": true,
+    "actualValuesComparedNotOnlySummaryFlags": true,
+    "distinctReturnedCallVersionsAsserted": true,
+    "sameRetainedParentUsedAfterFirstChildClosed": true,
+    "loadedAndOriginalProjectParentsClosedBeforePassed": true,
+    "borrowedSourceOpenAndPristineContextSnapshotIdentical": true,
+    "finalViewPath": "project/load-file -> final-view graph child -> finish-source-graph-operation! -> fresh finalization/union checking -> receipt activation -> Project issuance",
+    "controllerNeverRequestsSourceClose": true
+  },
+  "semanticResult": {
+    "source-close-attempts": 0,
+    "semantic-acceptance": true,
+    "last-progress": {
+      "phase": "complete",
+      "module-index": 1,
+      "module-count": 1,
+      "operations": 3670,
+      "child-progress": {
+        "phase": "io-completed",
+        "guest-steps": 388894003,
+        "outer-steps": 78695321,
+        "helper-steps": 310198682,
+        "completed-operations": 3666
+      }
+    },
+    "closed-call-versions": 2,
+    "actual-native-reset": false,
+    "modules": {
+      "roots": [
+        [
+          "GraphChainA"
+        ]
+      ],
+      "order": [
+        [
+          "GraphChainA"
+        ]
+      ],
+      "count": 1
+    },
+    "actual-final-view-import": true,
+    "P2-required-for-reset": true,
+    "phase": "passed",
+    "timings-ms": {
+      "opening-project": 23.434243,
+      "opening-resident": 140.638478,
+      "configuring": 0.586779,
+      "loading-file": 612478.027317,
+      "restoring-and-checking": 386451.302378,
+      "preparing-prefix": 7938.87581,
+      "preparing-helpers": 1686.333386,
+      "initializing-helper-value": 367.412807,
+      "calling": 348.806347
+    },
+    "failure-phase": null,
+    "scope": "current-project-p1-genuine-single-file",
+    "host-metrics": {
+      "restoring-and-checking": {
+        "before": {
+          "available": true,
+          "heap-used": 94458016,
+          "heap-committed": 268435456,
+          "process-cpu-ns": 9300000000,
+          "gc": [
+            {
+              "name": "G1 Young Generation",
+              "count": 12,
+              "ms": 54
+            },
+            {
+              "name": "G1 Concurrent GC",
+              "count": 4,
+              "ms": 4
+            },
+            {
+              "name": "G1 Old Generation",
+              "count": 0,
+              "ms": 0
+            }
+          ]
+        },
+        "after": {
+          "available": true,
+          "heap-used": 2364684280,
+          "heap-committed": 3221225472,
+          "process-cpu-ns": 772130000000,
+          "gc": [
+            {
+              "name": "G1 Young Generation",
+              "count": 586,
+              "ms": 8652
+            },
+            {
+              "name": "G1 Concurrent GC",
+              "count": 217,
+              "ms": 370
+            },
+            {
+              "name": "G1 Old Generation",
+              "count": 1,
+              "ms": 643
+            }
+          ]
+        },
+        "process-cpu-ns": 762830000000,
+        "gc-deltas": [
+          {
+            "name": "G1 Young Generation",
+            "count": 574,
+            "ms": 8598
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 213,
+            "ms": 366
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 1,
+            "ms": 643
+          }
+        ],
+        "heap-delta-is-allocated-bytes": false,
+        "gc-time-overlaps-wall": true
+      },
+      "preparing-prefix": {
+        "before": {
+          "available": true,
+          "heap-used": 2826284712,
+          "heap-committed": 3221225472,
+          "process-cpu-ns": 782410000000,
+          "gc": [
+            {
+              "name": "G1 Young Generation",
+              "count": 587,
+              "ms": 8660
+            },
+            {
+              "name": "G1 Concurrent GC",
+              "count": 219,
+              "ms": 374
+            },
+            {
+              "name": "G1 Old Generation",
+              "count": 1,
+              "ms": 643
+            }
+          ]
+        },
+        "after": {
+          "available": true,
+          "heap-used": 2765634312,
+          "heap-committed": 3221225472,
+          "process-cpu-ns": 800300000000,
+          "gc": [
+            {
+              "name": "G1 Young Generation",
+              "count": 595,
+              "ms": 8721
+            },
+            {
+              "name": "G1 Concurrent GC",
+              "count": 221,
+              "ms": 378
+            },
+            {
+              "name": "G1 Old Generation",
+              "count": 1,
+              "ms": 643
+            }
+          ]
+        },
+        "process-cpu-ns": 17890000000,
+        "gc-deltas": [
+          {
+            "name": "G1 Young Generation",
+            "count": 8,
+            "ms": 61
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 2,
+            "ms": 4
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 0,
+            "ms": 0
+          }
+        ],
+        "heap-delta-is-allocated-bytes": false,
+        "gc-time-overlaps-wall": true
+      },
+      "loading-file": {
+        "before": {
+          "available": true,
+          "heap-used": 2774022920,
+          "heap-committed": 3221225472,
+          "process-cpu-ns": 800400000000,
+          "gc": [
+            {
+              "name": "G1 Young Generation",
+              "count": 595,
+              "ms": 8721
+            },
+            {
+              "name": "G1 Concurrent GC",
+              "count": 221,
+              "ms": 378
+            },
+            {
+              "name": "G1 Old Generation",
+              "count": 1,
+              "ms": 643
+            }
+          ]
+        },
+        "after": {
+          "available": true,
+          "heap-used": 2812197632,
+          "heap-committed": 3221225472,
+          "process-cpu-ns": 2174370000000,
+          "gc": [
+            {
+              "name": "G1 Young Generation",
+              "count": 1791,
+              "ms": 14194
+            },
+            {
+              "name": "G1 Concurrent GC",
+              "count": 591,
+              "ms": 966
+            },
+            {
+              "name": "G1 Old Generation",
+              "count": 1,
+              "ms": 643
+            }
+          ]
+        },
+        "process-cpu-ns": 1373970000000,
+        "gc-deltas": [
+          {
+            "name": "G1 Young Generation",
+            "count": 1196,
+            "ms": 5473
+          },
+          {
+            "name": "G1 Concurrent GC",
+            "count": 370,
+            "ms": 588
+          },
+          {
+            "name": "G1 Old Generation",
+            "count": 0,
+            "ms": 0
+          }
+        ],
+        "heap-delta-is-allocated-bytes": false,
+        "gc-time-overlaps-wall": true
+      }
+    },
+    "source-initializers-requested": false,
+    "native-readiness-issued": true,
+    "check-timing": {
+      "elapsed-ms": 269406.126144,
+      "timing-scope": "check-call-and-host-postconditions"
+    },
+    "fresh-Init-checked": true,
+    "failure-class": null,
+    "call-count": 2,
+    "file-count": 1
+  },
+  "fixedFuelPolicy": {
+    "graphHelper": 120000000,
+    "graphAttempt": 1000000000,
+    "outerSlice": 2000000,
+    "kernel": 500000000
+  },
+  "limits": [
+    "Single classic implicit-Init source module, no source initializer actions. Native reset and two independent roots remain P2 work.",
+    "No Project-level Clojure callback, IO adapter, general Std/Lean/Mathlib/native FFI or self-hosted distribution acceptance.",
+    "3GiB JVM heap is this capture envelope, not a minimum requirement. Group RSS includes guard overhead and exceeds heap.",
+    "Scoped projection and heap envelope changed together; no isolated scratch speedup/byte-saving or proven 2GiB fit.",
+    "Timings are one end-to-end integration observation, not native Lean comparisons, warm latency benchmarks or competitive production performance.",
+    "Current chronology retains interrupted attempts separately; no failed control was resumed.",
+    "Historical parentPlanSHA256 in raw plan names an older ancestor; controller provenance identifies immediate shared-ir-c32-p1-2048m-v1 source parent."
+  ]
+}

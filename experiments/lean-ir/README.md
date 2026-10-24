@@ -4,6 +4,13 @@ An Ansatz experiment, outside the library's normal source/AOT paths. Its optiona
 consumer APIs and fixtures support the hosted frontend campaign; a production
 runtime API and package split remain undecided.
 
+The [genuine public single-file gate](measurements/public-project-p1.json) now
+passes full fresh Init checking, hosted source loading/final import and typed
+Nat41/Unicode calls with persistent Project ownership checks. See
+[current campaign status](research/CAMPAIGN_CONTINUATION_2026-10-23.md) for the
+remaining native-reset/P2, reload, callback and release gates. This is experimental
+profile acceptance, not a production or competitive-performance claim.
+
 The JVM experiment now also includes a mutable interpreter, a numeric compiler
 and a constructor/closure block compiler. These are experimental alternatives to the portable reference machine,
 not changes to Ansatz's production lowering or library runtime.
@@ -116,7 +123,7 @@ deadline, free-memory floor and unchanged runtime/test code.
 
 The experimental [Project discovery coordinator](research/PROJECT_DISCOVERY.md) captures source once per module and threads updated header packets through an ordered dependency walk. It returns descriptive data without importing or compiling. The [validation record](measurements/project-discovery.json) reports 997 optional tests / 93,591 assertions with modeled header transport.
 
-The optional [Project loader](research/PROJECT_LOADING.md) composes captured discovery, native-only preparation, checked parent imports, source publication and explicit export invocation. Its [focused integration record](measurements/project-loader.json) reports 3 tests / 264 assertions across reference, mutable and JVM backends, including actual kernel admission, installation, registration, FileHandle issuance and Project calls. Header/compiler/export/witness/finalizer transport and producer authentication remain models. The composed current-source optional suite passes 1,029 tests / 94,230 assertions with freshly built Java classes and no historical support source/class fallback; genuine project frontend acceptance remains separate work.
+The optional [Project loader](research/PROJECT_LOADING.md) composes captured discovery, native-only preparation, checked parent imports, source publication and explicit export invocation. Its [focused integration record](measurements/project-loader.json) reports 3 tests / 264 assertions across reference, mutable and JVM backends, including actual kernel admission, installation, registration, FileHandle issuance and Project calls. Header/compiler/export/witness/finalizer transport and producer authentication remain models. The composed current-source optional suite passes 1,029 tests / 94,230 assertions with freshly built Java classes and no historical support source/class fallback; genuine single-file frontend acceptance is now recorded separately in [public P1](measurements/public-project-p1.json).
 
 The experimental [native Init base operation](research/NATIVE_INIT_BASE.md) prepares a fresh checked native-only view in the current persistent lineage while retaining published source registries. A separate opt-in factory supplies source-bound readiness provenance; the operation issues no source receipts. Its [validation record](measurements/native-init-base.json) reports 1008 optional tests / 93,772 assertions and separates tiny-Source and staged models from genuine restored-frontend acceptance, which remains pending.
 
