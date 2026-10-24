@@ -519,22 +519,50 @@
     (catch Throwable cleanup
       (when-not (identical? failure cleanup) (.addSuppressed failure cleanup)))))
 
+(defn- parse-string* [text initial parse-record before-line]
+  (try
+    (reduce (fn [st raw-line]
+              (before-line raw-line)
+              (let [line (clojure.string/trim raw-line)]
+                (if (empty? line) st (parse-record st (json/read-str line)))))
+            initial (clojure.string/split-lines text))
+    (catch Throwable failure
+      (close-after-failure! initial failure)
+      (throw failure))))
+
 (defn parse-ndjson-string
   "Parse a lean4export NDJSON string. Returns state with caller-owned :exprs
    (ExprStore); close it after use. Parsing failures close the allocated store."
-  [s]
-  (let [lines (clojure.string/split-lines s)
-        initial (mk-parser-state)]
-    (try
-      (reduce (fn [st line]
-                (let [line (clojure.string/trim line)]
-                  (if (empty? line)
-                    st
-                    (parse-line st (json/read-str line)))))
-              initial lines)
-      (catch Throwable failure
-        (close-after-failure! initial failure)
-        (throw failure)))))
+  [text]
+  (parse-string* text (mk-parser-state) parse-line (constantly nil)))
+
+(defn parse-ndjson-string-raw
+  "Parse raw CI shells without ordinary Expr resolution. Retain original
+   inductive-record boundaries as :inductive-groups ranges/counts. Successful
+   callers own :exprs and must close it; parse/guard failures close it here.
+   Optional trusted :before-line!/:before-record! hooks gate input/index volume
+   before JSON decoding and record handling respectively. This reuses the same
+   Name/Level/ExprStore decoder as existing import infrastructure, not a general
+   untrusted-file decoder."
+  ([text] (parse-ndjson-string-raw text {}))
+  ([text {:keys [before-line! before-record!]
+          :or {before-line! (constantly nil) before-record! (constantly nil)}}]
+   (when-not (and (ifn? before-line!) (ifn? before-record!))
+     (throw (ex-info "Invalid raw parser guards" {})))
+   (parse-string*
+    text (assoc (mk-parser-state) :inductive-groups [])
+    (fn [state record]
+      (before-record! record)
+      (let [start (count (:decls state))
+            parsed (parse-line-raw state record)]
+        (if-let [group (get record "inductive")]
+          (update parsed :inductive-groups conj
+                  {:start start :end (count (:decls parsed))
+                   :head-count (count (get group "types" (get group "inductiveVals" [])))
+                   :ctor-count (count (get group "ctors" (get group "constructorVals" [])))
+                   :recursor-count (count (get group "recs" (get group "recursorVals" [])))})
+          parsed)))
+    before-line!)))
 
 (defn parse-ndjson-file
   "Parse an NDJSON file. Successful state contains caller-owned :exprs;

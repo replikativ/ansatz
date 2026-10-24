@@ -59,5 +59,15 @@ actual local entry, rather than substitute an older store proof. Hidden names ar
 also refused. Legacy branches without a captured PSS expression DAG have no
 bounded evidence source.
 
+`full-ci-evidence-partition` uses the same captured-root materializer and limits
+for a finite name batch whose presence is not already known. It returns
+`{:constants {...} :absent [...] :usage {...}}`. The declaration budget includes
+absent names, and the entire requested Name vector passes its bounds before any
+local or PSS lookup. Only a missing shell means absence: malformed shells, hidden
+names, local shadows, changed external views and backend errors remain refusals.
+A genuinely in-memory Env can establish absence through its actual null external
+handler identity; an arbitrary external resolver cannot. The original
+`full-ci-evidence` API still requires every requested name to exist.
+
 This is a prerequisite for exact WF supplement overlap checking. WF's existing
 absent-only replay and companion activation are not changed by this API.
