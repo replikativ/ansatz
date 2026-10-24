@@ -27,6 +27,7 @@
             [org.replikativ.persistent-sorted-set :as pss]
             [ansatz.kernel.name :as ansatz-name]
             [ansatz.kernel.hints :as hints]
+            [ansatz.export.evidence :as evidence]
             [ansatz.export.parser :as parser]
             [ansatz.export.types])
   (:import [ansatz.kernel Name Level Expr ConstantInfo ConstantInfo$RecursorRule Env ExprStore TypeChecker InductiveBundle]
@@ -357,7 +358,7 @@
         (doseq [f futures] @f)))))
 
 ;; Forward declarations for resolvers (defined after load-env)
-(declare create-expr-resolver create-name-resolver create-level-resolver resolve-ci-shell)
+(declare create-expr-resolver create-name-resolver create-level-resolver resolve-ci-shell pss-lookup-raw)
 
 ;; ============================================================
 ;; Load — reconstruct Env from persisted PSS
@@ -398,15 +399,21 @@
           env-pss (pss/restore-by name-cmp env-root storage)
           dag? (:dag-storage? branch-meta)
           pss-dag? (and dag? (:exprs-root branch-meta))
+          dag-sources
+          (when pss-dag?
+            (let [exprs (pss/restore-by id-cmp (:exprs-root branch-meta) storage)
+                  names (pss/restore-by id-cmp (:names-root branch-meta) storage)
+                  levels (pss/restore-by id-cmp (:levels-root branch-meta) storage)]
+              {:exprs exprs :names names :levels levels
+               :expr #(pss-lookup-raw exprs %)
+               :name #(pss-lookup-raw names %)
+               :level #(pss-lookup-raw levels %)}))
           resolve-expr-fn
           (when dag?
             (if pss-dag?
-              (let [exprs-pss (pss/restore-by id-cmp (:exprs-root branch-meta) storage)
-                    names-pss (pss/restore-by id-cmp (:names-root branch-meta) storage)
-                    levels-pss (pss/restore-by id-cmp (:levels-root branch-meta) storage)
-                    resolve-name-fn (create-name-resolver names-pss)
-                    resolve-level-fn (create-level-resolver levels-pss)]
-                (create-expr-resolver exprs-pss resolve-name-fn resolve-level-fn))
+              (create-expr-resolver (:exprs dag-sources)
+                                    (create-name-resolver (:names dag-sources))
+                                    (create-level-resolver (:levels dag-sources)))
               (let [resolve-name-fn (create-name-resolver store)
                     resolve-level-fn (create-level-resolver store)]
                 (create-expr-resolver store resolve-name-fn resolve-level-fn))))
@@ -418,7 +425,41 @@
                               (resolve-ci-shell entry resolve-expr-fn value-policy keep-value?)
                               entry)))))]
       {:branch-meta branch-meta
-       :lookup-ci lookup-ci})))
+       :lookup-ci lookup-ci
+       ;; This full-evidence path shares immutable PSS roots, not the ordinary
+       ;; value-policy caches. Flat/non-DAG legacy branches have no bounded raw
+       ;; view and deliberately cannot silently fall back to full hydration.
+       :evidence-sources (when dag-sources
+                           (assoc (select-keys dag-sources [:expr :name :level])
+                                  :shell (fn [name]
+                                           (when-let [row (pss/lookup env-pss [name nil])]
+                                             (nth row 1)))))})))
+
+(def ^:private evidence-extension-key ::captured-full-evidence)
+
+(defn full-ci-evidence
+  "Bounded full bodies for exactly `requested` Names from this Env's captured
+   PSS-DAG roots. Never follows a changed branch head or replaces local shadows.
+   Requires explicit evidence/materialize limits. Store handles stay borrowed;
+   this operation opens/closes none. A copied extension does not authorize a new
+   external lookup or staged visibility view. Does not install or admit CIs."
+  [^Env current requested limits]
+  (if-let [entry (.getExtension current evidence-extension-key)]
+    (do
+      (when-not (.sameExternalView current ^Env (:view entry))
+        (throw (ex-info "Full evidence does not describe this external Env view" {})))
+      (evidence/materialize
+       requested
+       (update (:sources entry) :shell
+               (fn [read-shell]
+                 (fn [name]
+                   (when (.lookupLocal current name)
+                     (throw (ex-info "Full store evidence cannot replace a local declaration" {})))
+                   (when (and (:visible? entry) (not ((:visible? entry) name)))
+                     (throw (ex-info "Full evidence name is not visible in this Env" {})))
+                   (read-shell name))))
+       limits resolve-ci-shell))
+    (throw (ex-info "Env has no captured bounded full-CI evidence source" {}))))
 
 (defn branch-resolver
   "An UNRESTRICTED `(fn [name-str] ConstantInfo|nil)` over a branch, with its own resolver
@@ -453,15 +494,18 @@
    earlier declarations."
   [store-map branch-name & {:keys [visible? loader value-policy keep-value?]
                             :or {value-policy :full}}]
-  (let [{:keys [branch-meta lookup-ci]} (or loader (branch-loader store-map branch-name
-                                                                  :value-policy value-policy
-                                                                  :keep-value? keep-value?))]
+  (let [{:keys [branch-meta lookup-ci evidence-sources]} (or loader (branch-loader store-map branch-name
+                                                                                   :value-policy value-policy
+                                                                                   :keep-value? keep-value?))]
     (let [^Env env (Env.)]
       (let [env (if (:quot-enabled branch-meta) (.enableQuot env) env)
             env (if visible?
                   (.withExternalLookupFiltered env lookup-ci (int (:env-count branch-meta 0)) visible?)
                   (.withExternalLookup env lookup-ci (int (:env-count branch-meta 0))))]
-        env))))
+        (if evidence-sources
+          (.withExtension env evidence-extension-key
+                          {:view env :sources evidence-sources :visible? visible?})
+          env)))))
 
 (defn resolve-expr
   "Look up a single expression by ID from the exprs PSS.

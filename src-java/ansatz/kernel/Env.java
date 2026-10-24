@@ -132,6 +132,21 @@ public final class Env {
         return null;
     }
 
+    /** The persistent local overlay only; never consults caches or external IO. */
+    public ConstantInfo lookupLocal(Name name) {
+        return (ConstantInfo) locals.valAt(name);
+    }
+
+    /**
+     * Identity of the actual external declaration view, including admission
+     * visibility. Descriptive extensions copied onto another Env do not establish
+     * this relation. Local overlays intentionally do not affect it.
+     */
+    public boolean sameExternalView(Env other) {
+        return other != null && externalLookup == other.externalLookup
+            && visibilityCheck == other.visibilityCheck;
+    }
+
     public ConstantInfo lookupOrThrow(Name name) {
         ConstantInfo ci = lookup(name);
         if (ci == null) {
