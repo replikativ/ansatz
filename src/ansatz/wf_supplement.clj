@@ -1,7 +1,8 @@
 (ns ansatz.wf-supplement
-  "Strict schema-2 WF role preparation, separate from the shipped schema-1
-   legacy loader. Returns an unactivated ProofContext; never mutates live session
-   slots. Integrity/provenance records do not replace declaration compatibility."
+  "Strict schema-2 WF roles, separate from the shipped schema-1 legacy loader.
+   Pure preparation returns an unactivated ProofContext; the explicit convenience
+   entry conditionally installs it. Integrity/provenance records do not replace
+   declaration compatibility."
   (:require [clojure.walk :as walk]
             [ansatz.artifact-profile :as profile]
             [ansatz.bundle :as bundle]
@@ -13,7 +14,8 @@
             [ansatz.export.storage :as storage]
             [ansatz.kernel.constant-info :as ci]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.quotient :as quotient])
+            [ansatz.kernel.quotient :as quotient]
+            [ansatz.session :as session])
   (:import [ansatz.kernel ConstantInfo ConstantInfo$RecursorRule Env Name Expr]
            [java.util ArrayDeque IdentityHashMap]))
 
@@ -297,3 +299,22 @@
                     next-profile (assoc (or prior-profile {:schema profile/schema :base {:kind :unknown} :roles {}})
                                         :supplements history)]
                 (assoc prepared :env (env/with-extension (:env prepared) profile/extension-key next-profile))))))))))
+
+(defn activate-strict-role!
+  "Capture the live session, prepare a strict schema-2 role outside the long
+   session lock, then conditionally install it once. Requires the same explicit
+   finite options as prepare-strict-role. Returns the activated ProofContext.
+   A stale/rejected/failed installation throws ExceptionInfo with :outcome and
+   the original installation :cause; no retry or legacy fallback occurs.
+   Preparation errors propagate before any owned installation. Captured store
+   resources remain borrowed and their owner must keep them alive throughout
+   preparation. Unlocked global mutations remain outside cooperative isolation."
+  [role options]
+  (let [captured (session/capture)
+        prepared (prepare-strict-role captured role options)
+        outcome (session/activate-if-unchanged! captured prepared)]
+    (if (= :activated (:status outcome))
+      (:session outcome)
+      (throw (ex-info "Strict WF role activation did not complete"
+                      {:type ::activation-refused :role role :outcome outcome}
+                      (:cause outcome))))))
