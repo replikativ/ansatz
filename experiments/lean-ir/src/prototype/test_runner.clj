@@ -2,6 +2,7 @@
   (:require [clojure.test :as t]
             [prototype.lean-ir-test]
             [prototype.preparation-test]
+            [prototype.source-inductive-preparation-test]
             [prototype.mutable-test]
             [prototype.runtime-ops-table-test]
             [prototype.source-graph-plan-test]
@@ -142,7 +143,7 @@
             [prototype.persistent-snapshot-test]))
 
 (defn -main [& _]
-  (let [result (t/run-tests 'prototype.preparation-test 'prototype.lean-ir-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.source-graph-plan-test
+  (let [result (t/run-tests 'prototype.preparation-test 'prototype.source-inductive-preparation-test 'prototype.lean-ir-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.source-graph-plan-test
                             'prototype.source-graph-helper-test 'prototype.source-graph-runtime-test 'prototype.source-graph-staged-test
                             'prototype.native-init-base-test
                             'prototype.operation-disposal-test

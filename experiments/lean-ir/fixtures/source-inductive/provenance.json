@@ -1,0 +1,33 @@
+{
+  "schema": "source-inductive-native-local-fixtures/1",
+  "lean-version": "4.33.1",
+  "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "exporter-sha256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+  "captures": [
+    {
+      "source": "KernelSourceInductivePublication.lean",
+      "source-sha256": "4e646eef9c008ffd2da41aac436173266b5abac46b6bcfb288e9e2587ec280ba",
+      "output": "publication.ndjson",
+      "output-sha256": "6d09196144005da277b5da8ac433b5c1b6ac492ff598e19b8e6e57bec8ef094e",
+      "plan-sha256": "ba0e5c4f6b978bd7513029a8d137c48c963257bacb61cba2e50b666ca9ddd388",
+      "receipt-sha256": "79664b3be32fb92536991ead38b1ab3a73ecc797272250b6d68e24ce4711dd5b",
+      "postcheck-sha256": "1372c04e5568eca27e58c563d12a8a5f7f50e64a03d815c29f46a732c10168d8",
+      "capture-origin": "target/artifact-contract/narrow-helper-imports-v1/publication-capture-v1",
+      "local-only": true,
+      "full-imported-closure-included": false
+    },
+    {
+      "source": "KernelEncoding.lean",
+      "source-sha256": "06de1239a30fba2b9dbf3d99a569e0675935b30c2803fb11331c6a1d386b5c06",
+      "output": "encoding-local.ndjson",
+      "output-sha256": "1a5dc953a7ff08498e92b469466ede8747c5f554f41701aa78bc62a6938e0f1b",
+      "plan-sha256": "f7ba22d889f4c8dd1dc08c2091dd2531628de20eb44fcad7f35f8c0a924676e5",
+      "receipt-sha256": "e9d69ed96414ec69681284466b775dc16bad24097682de568a8b7290e740fc4b",
+      "postcheck-sha256": "a5e404f7616e6622de12de2118734d43a920934edcace3f8bd27f04b0695f1e5",
+      "capture-origin": "target/artifact-contract/narrow-helper-imports-v1/encoding-capture-v1",
+      "local-only": true,
+      "full-imported-closure-included": false
+    }
+  ],
+  "limits": "Actual root-guarded local export PASS. Individual binary/source/sysroot pins; no reproduciblebuild/fullsysroot claim. No publication execution, kernel admission, initializer replay or wholeProject acceptance."
+}
