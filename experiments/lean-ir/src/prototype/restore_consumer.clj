@@ -102,8 +102,8 @@
   (case (:kind node)
     :closure (wire/check (contains? (:functions world) (:function node)) "Unlinked heap closure")
     :task (wire/check (and (or (= :ready (:task-state node))
-                              (and (nil? (:task-state node)) (= 1 (count (:fields node)))))
-                          (= 1 (count (:fields node))) (not (:queued? node))) "Unfinished task object")
+                               (and (nil? (:task-state node)) (= 1 (count (:fields node)))))
+                           (= 1 (count (:fields node))) (not (:queued? node))) "Unfinished task object")
     :thunk (wire/check (and (contains? #{:ready :pending} (:thunk-state node)) (= 1 (count (:fields node)))) "In-flight thunk")
     :mutex (wire/check (and (= :unlocked (:mutex-state node)) (empty? (:fields node))) "Unsupported mutex state")
     :promise (let [task (m/node world (first (:fields node)))]
@@ -115,13 +115,13 @@
   ;; These containers are partitioned/reconstructed by the wire format rather
   ;; than emitted as values. v1 must not silently discard even empty metadata.
   (doseq [[path value] [[[:functions] (:functions world)]
-                       [[:heap] (:heap world)] [[:globals] (:globals world)]
-                       [[:native-imports] (:native-imports world)]
-                       [[:eval-const-authorizations] (:eval-const-authorizations world)]
-                       [[:eval-const-authorizations :functions]
-                        (get-in world [:eval-const-authorizations :functions])]
-                       [[:eval-const-authorizations :imported-declarations]
-                        (get-in world [:eval-const-authorizations :imported-declarations])]]]
+                        [[:heap] (:heap world)] [[:globals] (:globals world)]
+                        [[:native-imports] (:native-imports world)]
+                        [[:eval-const-authorizations] (:eval-const-authorizations world)]
+                        [[:eval-const-authorizations :functions]
+                         (get-in world [:eval-const-authorizations :functions])]
+                        [[:eval-const-authorizations :imported-declarations]
+                         (get-in world [:eval-const-authorizations :imported-declarations])]]]
     (wire/check (nil? (meta value)) (str "Metadata on partitioned checkpoint container: " path)))
   (keys! (state-of world) state-keys "world")
   (wire/check (and (= :done (:status world)) (empty? (:frames world)) (nil? (:host-request world))
@@ -164,7 +164,7 @@
      :stdio-keys (set (keys (:stdio-runtime w))) :entropy-keys (set (keys (:entropy w)))
      :node-shapes (reduce (fn [out node] (update out (:kind node) (fnil set/union #{}) (set (keys node)))) {} (vals (:heap w)))
      :task-states (frequencies (map #(select-keys % [:kind :task-state :thunk-state :queued?])
-                                  (filter #(contains? #{:task :thunk :promise} (:kind %)) (vals (:heap w)))))
+                                    (filter #(contains? #{:task :thunk :promise} (:kind %)) (vals (:heap w)))))
      :native-ranges (mapv (fn [s] {:base (:base s) :size (:size s) :digest (:digest s)}) (:native-imports w))}))
 
 (defn- preparation! [preparation]
@@ -361,8 +361,8 @@
                      (= (:size recipe) (:nodes d))) "Resource descriptor recipe drift")
     ;; Reservation world counter changes are discarded, not applied to snapshot.
     (let [source (:source (store/open-verified (assoc (m/world {}) :status :done :next-id (:base recipe))
-                                             (:descriptor-path locations) (:descriptor-sha256 recipe)
-                                             {:source-path (:source-path locations) :cache-size 1024}))]
+                                               (:descriptor-path locations) (:descriptor-sha256 recipe)
+                                               {:source-path (:source-path locations) :cache-size 1024}))]
       ;; This source has not yet reached the loader lease. Acquire/validate it
       ;; locally and close it exactly once on any identity rejection.
       (try (reopened-source! source recipe d)
@@ -380,7 +380,8 @@
                                   compatibility/heap-net-dirty-reconstruction-profile-id
                                   compatibility/source-graph-reconstruction-profile-id
                                   compatibility/source-graph-frontend-reconstruction-profile-id
-                                  compatibility/hosted-application-profile-id} profile))
+                                  compatibility/hosted-application-profile-id
+                                  compatibility/hosted-application-control-profile-id} profile))
                 "Restore consumer capability identity mismatch")
     profile))
 (defn- factory-result! [produced producer consumer compatibility-profile manifest]
@@ -403,54 +404,54 @@
                          factory resolve-resource backend fuel]
                   :as options}]
   (wire/worker
-    (fn []
-      (exact! options #{:expected-manifest-sha256 :producer-preparation :consumer-implementation-sha256
-                        :factory :resolve-resource :backend :fuel} "restore consumer options")
-      (preparation! producer-preparation)
-      (let [compatibility-profile (factory-profile! (factory/descriptor factory)
-                                                    producer-preparation consumer-implementation-sha256)
-            _ (wire/check (and (wire/hash? expected-manifest-sha256) (wire/hash? consumer-implementation-sha256)
-                       (fn? resolve-resource) (= :mutable backend)
-                       (integer? fuel) (pos? fuel) (<= fuel Long/MAX_VALUE))
-                  "Explicit restore consumer authority/resolver/mutable budget required")
-            file (.getAbsoluteFile (io/file manifest-path))
-            bytes (wire/read-file-bytes file wire/max-row-bytes)
-            _ (wire/check (= expected-manifest-sha256 (wire/sha256 bytes)) "Expected external manifest digest mismatch")
-            manifest (wire/decode bytes)
-            _ (exact! manifest #{:format :build :preparation :resources :roots :counts :binding-signatures :data} "manifest")
-            _ (wire/check (and (= format-id (:format manifest)) (= pinned-build (:build manifest))
-                               (wire/same-data? producer-preparation (:preparation manifest))) "Checkpoint build/preparation mismatch")
-            _ (counts! (:counts manifest))
-            _ (exact! (:data manifest) #{:file :sha256 :bytes} "data descriptor")
-            filename (get-in manifest [:data :file])
-            _ (wire/check (and (string? filename) (= filename (.getName (io/file filename)))
-                               (wire/hash? (get-in manifest [:data :sha256]))
-                               (natural? (get-in manifest [:data :bytes]))
-                               (vector? (:resources manifest)) (<= (count (:resources manifest)) 16)) "Invalid data/resource descriptor")
-            data-file (io/file (.getParentFile file) filename)
-            _ (wire/check (= (.length data-file) (get-in manifest [:data :bytes])) "Data size mismatch")
-            md (MessageDigest/getInstance "SHA-256")
-            parsed (with-open [input (DataInputStream. (DigestInputStream. (BufferedInputStream. (io/input-stream data-file)) md))]
-                     (parse-data input (:counts manifest)))
-            _ (wire/check (= (.formatHex (java.util.HexFormat/of) (.digest md)) (get-in manifest [:data :sha256])) "Data digest mismatch")
-            owned (atom []) lease (ResourceLease. owned)]
-        (try
-          (doseq [recipe (:resources manifest)] (swap! owned conj (reopen! recipe resolve-resource)))
-          (let [world (assoc (:world parsed) :native-imports @owned)
-                _ (world! world (:resources manifest) (:roots manifest))
-                produced (factory/invoke! factory {:preparation producer-preparation :world world
-                                           :functions (:functions world) :prepared-functions (:prepared-functions parsed)
-                                           :resources @owned})
-                _ (factory-result! produced producer-preparation consumer-implementation-sha256 compatibility-profile manifest)
-                _ (authorization! world (:prepared-functions parsed) (:catalogue produced) (:bindings produced) (:trusted-roots producer-preparation))
-                session (raw/open-functions (:functions world) (:bindings produced) {:backend backend :fuel fuel})]
-            {:status :restored-precheck :world world :session session :io-result (get-in manifest [:roots :io-result])
-             :roots (:roots manifest) :catalogue (:catalogue produced) :resource-lease lease
-             :trusted-functions (:prepared-functions parsed) :trusted-bindings (:bindings produced)
-             :producer-preparation producer-preparation :consumer-implementation-sha256 consumer-implementation-sha256
-             :compatibility-profile compatibility-profile
-             :manifest-sha256 expected-manifest-sha256 :strictly-checked? false})
-          (catch Throwable e
-            (try (.close ^java.io.Closeable lease) (catch Throwable close-error
-                                                     (when-not (identical? e close-error) (.addSuppressed e close-error))))
-            (throw e)))))))
+   (fn []
+     (exact! options #{:expected-manifest-sha256 :producer-preparation :consumer-implementation-sha256
+                       :factory :resolve-resource :backend :fuel} "restore consumer options")
+     (preparation! producer-preparation)
+     (let [compatibility-profile (factory-profile! (factory/descriptor factory)
+                                                   producer-preparation consumer-implementation-sha256)
+           _ (wire/check (and (wire/hash? expected-manifest-sha256) (wire/hash? consumer-implementation-sha256)
+                              (fn? resolve-resource) (= :mutable backend)
+                              (integer? fuel) (pos? fuel) (<= fuel Long/MAX_VALUE))
+                         "Explicit restore consumer authority/resolver/mutable budget required")
+           file (.getAbsoluteFile (io/file manifest-path))
+           bytes (wire/read-file-bytes file wire/max-row-bytes)
+           _ (wire/check (= expected-manifest-sha256 (wire/sha256 bytes)) "Expected external manifest digest mismatch")
+           manifest (wire/decode bytes)
+           _ (exact! manifest #{:format :build :preparation :resources :roots :counts :binding-signatures :data} "manifest")
+           _ (wire/check (and (= format-id (:format manifest)) (= pinned-build (:build manifest))
+                              (wire/same-data? producer-preparation (:preparation manifest))) "Checkpoint build/preparation mismatch")
+           _ (counts! (:counts manifest))
+           _ (exact! (:data manifest) #{:file :sha256 :bytes} "data descriptor")
+           filename (get-in manifest [:data :file])
+           _ (wire/check (and (string? filename) (= filename (.getName (io/file filename)))
+                              (wire/hash? (get-in manifest [:data :sha256]))
+                              (natural? (get-in manifest [:data :bytes]))
+                              (vector? (:resources manifest)) (<= (count (:resources manifest)) 16)) "Invalid data/resource descriptor")
+           data-file (io/file (.getParentFile file) filename)
+           _ (wire/check (= (.length data-file) (get-in manifest [:data :bytes])) "Data size mismatch")
+           md (MessageDigest/getInstance "SHA-256")
+           parsed (with-open [input (DataInputStream. (DigestInputStream. (BufferedInputStream. (io/input-stream data-file)) md))]
+                    (parse-data input (:counts manifest)))
+           _ (wire/check (= (.formatHex (java.util.HexFormat/of) (.digest md)) (get-in manifest [:data :sha256])) "Data digest mismatch")
+           owned (atom []) lease (ResourceLease. owned)]
+       (try
+         (doseq [recipe (:resources manifest)] (swap! owned conj (reopen! recipe resolve-resource)))
+         (let [world (assoc (:world parsed) :native-imports @owned)
+               _ (world! world (:resources manifest) (:roots manifest))
+               produced (factory/invoke! factory {:preparation producer-preparation :world world
+                                                  :functions (:functions world) :prepared-functions (:prepared-functions parsed)
+                                                  :resources @owned})
+               _ (factory-result! produced producer-preparation consumer-implementation-sha256 compatibility-profile manifest)
+               _ (authorization! world (:prepared-functions parsed) (:catalogue produced) (:bindings produced) (:trusted-roots producer-preparation))
+               session (raw/open-functions (:functions world) (:bindings produced) {:backend backend :fuel fuel})]
+           {:status :restored-precheck :world world :session session :io-result (get-in manifest [:roots :io-result])
+            :roots (:roots manifest) :catalogue (:catalogue produced) :resource-lease lease
+            :trusted-functions (:prepared-functions parsed) :trusted-bindings (:bindings produced)
+            :producer-preparation producer-preparation :consumer-implementation-sha256 consumer-implementation-sha256
+            :compatibility-profile compatibility-profile
+            :manifest-sha256 expected-manifest-sha256 :strictly-checked? false})
+         (catch Throwable e
+           (try (.close ^java.io.Closeable lease) (catch Throwable close-error
+                                                    (when-not (identical? e close-error) (.addSuppressed e close-error))))
+           (throw e)))))))

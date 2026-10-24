@@ -39,14 +39,14 @@
 (def shared-linear-sha256 "4b0d1548a3721ac87fac48a1260c4cd33181ac5baa60498dec25e49825f78ea4")
 (def helpers
   (merge kernel/control-helpers
-    (into {} (map (fn [[role name]] [role (target "KernelBridgeShim" name)]))
-      {:root "checkedKernelRoot" :empty? "checkedEnvironmentIsEmpty"
-       :constant-map "checkedConstantMapRoot" :constants "checkedConstants"
-       :quot-init? "checkedQuotInit" :definition "postCheckSafeDefinition"
-       :definition-any "postCheckDefinition" :axiom "postCheckSafeAxiom"
-       :theorem "postCheckTheorem" :opaque "postCheckSafeOpaque"
-       :mutual "postCheckMutualDefinitions" :error "otherError"
-       :compiler-marker "postCheckCompilerMarker"})))
+         (into {} (map (fn [[role name]] [role (target "KernelBridgeShim" name)]))
+               {:root "checkedKernelRoot" :empty? "checkedEnvironmentIsEmpty"
+                :constant-map "checkedConstantMapRoot" :constants "checkedConstants"
+                :quot-init? "checkedQuotInit" :definition "postCheckSafeDefinition"
+                :definition-any "postCheckDefinition" :axiom "postCheckSafeAxiom"
+                :theorem "postCheckTheorem" :opaque "postCheckSafeOpaque"
+                :mutual "postCheckMutualDefinitions" :error "otherError"
+                :compiler-marker "postCheckCompilerMarker"})))
 (def assembly-roots
   (vec (concat (vals helpers) (vals import/helpers)
                [import/bulk-helper import/header-finalize-helper
@@ -81,17 +81,17 @@
                   :source-sha256 "e6d3e40d1d1c00a3a4cbe98eb8642d6be5321b16ed18c8fbcdbc69028606c2f3"
                   :index-sha256 "c7db7e45416090b7103d573941871f82c6db58c6a1ff6e093197136fd4a65d1e"}
    :pins (merge pinned
-           {:transport-descriptor "609732edd2fcbf20cab33e5cf2f571965722f02785ace14dfe96d3d2237c0d90"
-            :shared-linear-witness shared-linear-sha256
-            :kernel-probe "8d4cbb50ab45234fef38831fd7988ae21fff8ff783e5b34bd4ca3fe20a5dda5e"
-            :runtime-compile "82163d2e995d193fcfc65d70f9701a0d1cd98dd0d238ea510c56efdcce9cfa9a"
-            :kernel-bridge "99eb4257f0dd86f7e302722bd0fc729a53d8bbd3d14b2aeb2c53e791332a599c"
-            :kernel-declarations "a5fad5a20cc2a860ded2a9cfae20ef53abeb84d62df5a8aade1f9558ce80cf4e"
-            :kernel-control "0d3fc3873b8cc4b1ceb4fa8a6bdc34e2ea619c432841ee7c6e10b63e151fa611"
-            :runtime-files "f2aa20217b9007bc0ff982327e74377049e16a04194c31ecb59a5455d725734e"
-            :transport-header "370d4a41b4ccc2c7aecf745bf6af233f33d4893484c20bfb19ed5e69d15918ff"
-            :kernel-encoding "9eb84bf93d8e389377dfeeceac5e4d4552d68f933586a366dbf6316cbb612922"
-            :aliases "51b80c4da0634b7f9d11496923865d6e9c171e29b0d5e0cc738480ba18d01e84"})})
+                {:transport-descriptor "609732edd2fcbf20cab33e5cf2f571965722f02785ace14dfe96d3d2237c0d90"
+                 :shared-linear-witness shared-linear-sha256
+                 :kernel-probe "8d4cbb50ab45234fef38831fd7988ae21fff8ff783e5b34bd4ca3fe20a5dda5e"
+                 :runtime-compile "82163d2e995d193fcfc65d70f9701a0d1cd98dd0d238ea510c56efdcce9cfa9a"
+                 :kernel-bridge "99eb4257f0dd86f7e302722bd0fc729a53d8bbd3d14b2aeb2c53e791332a599c"
+                 :kernel-declarations "a5fad5a20cc2a860ded2a9cfae20ef53abeb84d62df5a8aade1f9558ce80cf4e"
+                 :kernel-control "0d3fc3873b8cc4b1ceb4fa8a6bdc34e2ea619c432841ee7c6e10b63e151fa611"
+                 :runtime-files "f2aa20217b9007bc0ff982327e74377049e16a04194c31ecb59a5455d725734e"
+                 :transport-header "370d4a41b4ccc2c7aecf745bf6af233f33d4893484c20bfb19ed5e69d15918ff"
+                 :kernel-encoding "9eb84bf93d8e389377dfeeceac5e4d4552d68f933586a366dbf6316cbb612922"
+                 :aliases "51b80c4da0634b7f9d11496923865d6e9c171e29b0d5e0cc738480ba18d01e84"})})
 
 (defn- exact! [x keys label]
   (wire/check (and (map? x) (= keys (set (clojure.core/keys x)))) (str "Invalid " label)))
@@ -121,21 +121,21 @@
    metadata. No unverified snapshot key can enter the result through this helper."
   [candidate derived]
   (reduce-kv
-    (fn [out name function]
-      (let [entry (find candidate name)]
+   (fn [out name function]
+     (let [entry (find candidate name)]
         ;; Existing entries are already admitted canonical objects from the
         ;; previous stage. Identity alone can skip repeated encoding walks;
         ;; equal but distinct derived objects still require the exact metadata/
         ;; scalar-bit comparison before receiving canonical identity.
-        (wire/check (and entry (or (identical? function (val entry))
-                                   (wire/same-data? function (val entry))))
-                    "Prepared function differs from pinned derivation")
-        (assoc out (key entry) (val entry)))) {} derived))
+       (wire/check (and entry (or (identical? function (val entry))
+                                  (wire/same-data? function (val entry))))
+                   "Prepared function differs from pinned derivation")
+       (assoc out (key entry) (val entry)))) {} derived))
 (defn- complete [catalogue functions roots bindings candidate]
   (canonicalize-verified-functions candidate
-    (prep/complete-functions catalogue
-      (ir/load-closure catalogue roots #(lower bindings catalogue %) {:existing-functions functions})
-      roots #(lower bindings catalogue %))))
+                                   (prep/complete-functions catalogue
+                                                            (ir/load-closure catalogue roots #(lower bindings catalogue %) {:existing-functions functions})
+                                                            roots #(lower bindings catalogue %))))
 (defn- manifest! [candidate]
   (doseq [manifest (:manifests candidate)]
     (ir/validate-manifest! manifest)
@@ -156,13 +156,13 @@
 (defn- overlay-stage [catalogue functions rows manifests]
   (let [additions
         (reduce-kv
-          (fn [out name row]
-            (if (contains? (:declarations catalogue) name)
-              (do (wire/check (wire/same-data? (select-keys (read-row catalogue name) [:kind :ir :dependencies :redirect :runtime])
+         (fn [out name row]
+           (if (contains? (:declarations catalogue) name)
+             (do (wire/check (wire/same-data? (select-keys (read-row catalogue name) [:kind :ir :dependencies :redirect :runtime])
                                               (select-keys row [:kind :ir :dependencies :redirect :runtime]))
-                              "Witness addition conflicts with existing pinned catalogue") out)
-              (do (wire/check (not (contains? functions name)) "Witness row collides with unbacked code")
-                  (assoc out name row)))) {} rows)
+                             "Witness addition conflicts with existing pinned catalogue") out)
+             (do (wire/check (not (contains? functions name)) "Witness row collides with unbacked code")
+                 (assoc out name row)))) {} rows)
         catalogue (ds/overlay catalogue {:manifests manifests :declarations additions})]
     catalogue))
 (defn- add-stage [catalogue functions bindings candidate rows manifests root]
@@ -170,7 +170,7 @@
         ;; Match the existing scripts: load selected closure at each stage, then
         ;; complete actual shared/exporter bodies only after all stage overlays.
         functions (canonicalize-verified-functions candidate
-                    (ir/load-closure catalogue [root] #(lower bindings catalogue %) {:existing-functions functions}))]
+                                                   (ir/load-closure catalogue [root] #(lower bindings catalogue %) {:existing-functions functions}))]
     {:catalogue catalogue :functions functions}))
 (defn- add-shared-linear [catalogue functions bindings candidate typed shared selected]
   ;; Exact S4 policy: check every S3 baseline row, including the 19 previously
@@ -189,8 +189,8 @@
   (let [delta (apply dissoc (:declarations selected) (keys (:declarations typed)))
         catalogue (overlay-stage catalogue functions delta (:manifests selected))
         functions (canonicalize-verified-functions candidate
-                    (prep/complete-functions catalogue functions [shared-linear-target]
-                      #(lower bindings catalogue %)))]
+                                                   (prep/complete-functions catalogue functions [shared-linear-target]
+                                                                            #(lower bindings catalogue %)))]
     {:catalogue catalogue :functions functions}))
 (defn- selected-profile [preparation]
   (wire/check (and (= shared-linear-factory-id (:factory-id preparation))
@@ -218,15 +218,15 @@
             (when-let [name (peek pending)]
               (wire/check (not (contains? linear-only name)) "Shared witness uses unadopted linear helper")
               (if (contains? seen name) (recur (pop pending) seen)
-                (recur (into (pop pending) (get-in shared [:declarations name :dependencies])) (conj seen name)))))
+                  (recur (into (pop pending) (get-in shared [:declarations name :dependencies])) (conj seen name)))))
         s1 (add-stage catalogue functions bindings candidate json-additions (:manifests json) json-target)
         s2 (add-stage (:catalogue s1) (:functions s1) bindings candidate typed-additions (:manifests typed) typed-target)
         s3 (add-stage (:catalogue s2) (:functions s2) bindings candidate shared-additions (:manifests shared) shared-target)
         selected (if (= shared-linear-target (:witness profile))
                    (add-shared-linear (:catalogue s3) (:functions s3) bindings candidate typed shared
-                     (catalogue-bytes resolver recipe :shared-linear-witness)) s3)]
+                                      (catalogue-bytes resolver recipe :shared-linear-witness)) s3)]
     (assoc selected :functions
-      (complete (:catalogue selected) (:functions selected) [(:witness profile) exporter] bindings candidate))))
+           (complete (:catalogue selected) (:functions selected) [(:witness profile) exporter] bindings candidate))))
 
 (defn build-identity
   "Content identity of an explicitly complete, reviewed host implementation inventory.
@@ -241,8 +241,8 @@
                      (contains? #{:host-source :host-resource :kernel-class} (:kind row)) (wire/hash? (:sha256 row)))
                 "Invalid build inventory identity"))
   (wire/sha256 (.getBytes (str "ansatz-full-init-factory-build/1\n"
-                              (apply str (for [{:keys [id kind sha256]} (sort-by :id inventory)]
-                                           (str id "\t" (name kind) "\t" sha256 "\n")))) StandardCharsets/UTF_8)))
+                               (apply str (for [{:keys [id kind sha256]} (sort-by :id inventory)]
+                                            (str id "\t" (name kind) "\t" sha256 "\n")))) StandardCharsets/UTF_8)))
 (defn- loaded-kernel-class-sha256! [id]
   ;; Select through the actual loaded kernel's class loader, never a resolver's
   ;; arbitrary .class filename. Fresh bootstrap separately attests CodeSource.
@@ -363,12 +363,12 @@
   (loop [value value nodes 0 chars 0]
     (wire/check (and (vector? value) (< nodes 256)) "Native module Name exceeds its bound")
     (if (= ["anonymous"] value) chars
-      (do
-        (wire/check (and (= 3 (count value)) (or (= "str" (first value)) (= "num" (first value)))
-                         (string? (nth value 2))) "Malformed native module Name")
-        (let [n (+' chars (count (nth value 2)))]
-          (wire/check (<= n 16384) "Native module Name exceeds character bound")
-          (recur (second value) (inc nodes) n))))))
+        (do
+          (wire/check (and (= 3 (count value)) (or (= "str" (first value)) (= "num" (first value)))
+                           (string? (nth value 2))) "Malformed native module Name")
+          (let [n (+' chars (count (nth value 2)))]
+            (wire/check (<= n 16384) "Native module Name exceeds character bound")
+            (recur (second value) (inc nodes) n))))))
 (defn- native-init-metadata! [plans witness]
   (wire/check (and (map? plans) (<= 1 (count plans) (:plans native-init-limits))
                    (vector? (:symbols witness))
@@ -399,12 +399,12 @@
         init ["str" ["anonymous"] "Init"]
         modules (loop [pending [init] seen #{}]
                   (if (empty? pending) seen
-                    (let [module (peek pending) pending (pop pending)]
-                      (if (contains? seen module) (recur pending seen)
-                        (let [plan (get plans module)]
-                          (wire/check (and plan (< (count seen) (:queries native-init-limits)))
-                                      "Native readiness lacks bounded complete Init plans")
-                          (recur (into pending (map :module (:imports plan))) (conj seen module)))))))
+                      (let [module (peek pending) pending (pop pending)]
+                        (if (contains? seen module) (recur pending seen)
+                            (let [plan (get plans module)]
+                              (wire/check (and plan (< (count seen) (:queries native-init-limits)))
+                                          "Native readiness lacks bounded complete Init plans")
+                              (recur (into pending (map :module (:imports plan))) (conj seen module)))))))
         valid (:initialized-symbols (initializers/options-from-witness plans witness))
         selected (reduce (fn [out {:keys [symbol module phase]}]
                            (if (and (= "all" phase) (contains? modules module)
@@ -425,8 +425,8 @@
                 "Native readiness has incomplete coverage or exceeds host work bound")
     ;; Witness order fixes query order without retaining plans/actions/graphs.
     {:queries (into [] (keep (fn [{:keys [module phase symbol]}]
-                              (when (and (= "all" phase) (= symbol (get-in selected [module :symbol])))
-                                (select-keys (get selected module) [:module :symbol])))) (:symbols witness))
+                               (when (and (= "all" phase) (= symbol (get-in selected [module :symbol])))
+                                 (select-keys (get selected module) [:module :symbol])))) (:symbols witness))
      :host-units-per-query (long per-query) :max-host-work (:host-work native-init-limits)
      :counts {:plans (count plans) :imports (:imports counts) :actions (:actions counts)
               :queries (count modules) :symbol-bytes bytes :host-work (long work)}}))
@@ -439,14 +439,18 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
-  (let [consumer-description (cond hosted-application? (compatibility/authenticate-hosted-application! options)
-                                     graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
-                                     source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
-                                     heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
-                                     runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
-                                     reconstruction? (compatibility/authenticate-reconstruction! options)
-                                     :else (compatibility/authenticate! options))
+  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
+  (let [consumer-description (cond hosted-application-revision
+                                   (case hosted-application-revision
+                                     :v1 (compatibility/authenticate-hosted-application! options)
+                                     :v2 (compatibility/authenticate-hosted-application-control! options)
+                                     (throw (ex-info "Unknown hosted application revision" {})))
+                                   graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
+                                   source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
+                                   heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
+                                   runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
+                                   reconstruction? (compatibility/authenticate-reconstruction! options)
+                                   :else (compatibility/authenticate! options))
         expected-preparation producer-preparation
         resolve-artifact producer-resolve-artifact
         recipe (:catalogue-recipe expected-preparation)
@@ -455,9 +459,9 @@
     (exact! expected-preparation #{:factory-id :implementation-sha256 :catalogue-recipe :kernel-policy :trusted-roots} "full-Init preparation")
     (exact! recipe #{:schema :declaration-index :artifacts :build-inventory} "full-Init recipe")
     (wire/check (= (set (concat overlays [:aliases :transport-descriptor :initializer-witness
-                                              :json-witness :typed-witness :linear-witness :shared-witness]
-                               (when (= shared-linear-target (:witness profile)) [:shared-linear-witness])
-                               [:archive]))
+                                          :json-witness :typed-witness :linear-witness :shared-witness]
+                                (when (= shared-linear-target (:witness profile)) [:shared-linear-witness])
+                                [:archive]))
                    (set (keys (:artifacts recipe)))) "Full-Init artifact inventory drift")
     (wire/check (and (= (:factory-id profile) (:factory-id expected-preparation))
                      (= (:schema profile) (:schema recipe))
@@ -468,7 +472,7 @@
     (wire/check (= (:declaration-index pinned) (:declaration-index recipe)) "Pinned declaration index drift")
     (wire/check (= (vec (concat roots [(:witness profile) exporter])) (:trusted-roots expected-preparation))
                 "Factory helper-root inventory drift")
-    (if hosted-application?
+    (if hosted-application-revision
       (authenticate-hosted-application-build! recipe expected-preparation resolve-artifact)
       (authenticate-build! recipe expected-preparation resolve-artifact))
     (fn [{:keys [preparation world functions prepared-functions resources] :as parsed}]
@@ -501,17 +505,17 @@
             provisional (merge {"lean_elab_add_decl" {:signature kernel/signature :handler uncallable}
                                 "lean_eval_const" {:signature eval/signature :handler uncallable}} transport)
             base (archive/verify-function-rows
-                   (resolve-artifact :archive)
-                   {:expected-sha256 (:archive pinned) :expected-lean-commit lean-commit
-                    :verify-function
-                    (fn [name original]
-                      (let [entry (find functions name)
-                            expected (if (or (:runtime-extern original) (:deferred-extern original) (:raw-extern original))
-                                       (let [row (read-row initial name)]
-                                         (wire/check (get-in row [:ir :extern]) "Missing archived extern backing")
-                                         (second (lower provisional initial row))) original)]
-                        (wire/check (and entry (wire/same-data? expected (val entry))) "Archived prepared executable drift")
-                        [(key entry) (val entry)]))})
+                  (resolve-artifact :archive)
+                  {:expected-sha256 (:archive pinned) :expected-lean-commit lean-commit
+                   :verify-function
+                   (fn [name original]
+                     (let [entry (find functions name)
+                           expected (if (or (:runtime-extern original) (:deferred-extern original) (:raw-extern original))
+                                      (let [row (read-row initial name)]
+                                        (wire/check (get-in row [:ir :extern]) "Missing archived extern backing")
+                                        (second (lower provisional initial row))) original)]
+                       (wire/check (and entry (wire/same-data? expected (val entry))) "Archived prepared executable drift")
+                       [(key entry) (val entry)]))})
             _ (wire/check (= (:declaration-index pinned) (get-in base [:header :declaration-index])) "Bootstrap index header drift")
             _ (wire/check (= (:next-id base) (:base source)) "Source base differs from original bootstrap reservation")
             assembly (complete initial (:functions base) roots provisional functions)
@@ -523,10 +527,10 @@
             ;; completion; use reconstructed original prepared subset, not the
             ;; candidate's later imported evalConst additions.
             bindings (merge transport
-                       {"lean_elab_add_decl" (kernel/make-binding helpers kernel-policy)
-                        "lean_eval_const" (eval/make-binding exporter
-                                            {:witness (:witness profile) :witness-format :typed-ir
-                                             :catalogue catalogue :trusted-functions trusted :research-traps? true})})]
+                            {"lean_elab_add_decl" (kernel/make-binding helpers kernel-policy)
+                             "lean_eval_const" (eval/make-binding exporter
+                                                                  {:witness (:witness profile) :witness-format :typed-ir
+                                                                   :catalogue catalogue :trusted-functions trusted :research-traps? true})})]
         (let [result (assoc consumer-description :catalogue catalogue :bindings bindings)]
           (when native-owner
             (let [binding (get bindings native-init-symbol)
@@ -535,9 +539,8 @@
                                (= initializers/signature (:signature binding)) (fn? (:handler binding)))
                           "Native readiness requires the fixed authenticated initializer binding")
               (native-binding-proof! binding (assoc metadata :owner native-owner :source source
-                                                   :producer compatibility/producer-implementation-sha256))))
+                                                    :producer compatibility/producer-implementation-sha256))))
           result)))))
-
 
 (deftype Factory [])
 (def ^:private issued-factories (java.util.WeakHashMap.))
@@ -562,12 +565,16 @@
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? options native-owner]
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision options native-owner]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? options native-owner)
+        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision options native-owner)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (cond hosted-application? compatibility/hosted-application-profile-id
+                     :compatibility-profile (cond hosted-application-revision
+                                                  (case hosted-application-revision
+                                                    :v1 compatibility/hosted-application-profile-id
+                                                    :v2 compatibility/hosted-application-control-profile-id
+                                                    (throw (ex-info "Unknown hosted application revision" {})))
                                                   graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
                                                   source-graph? compatibility/source-graph-reconstruction-profile-id
                                                   heap-net-dirty? compatibility/heap-net-dirty-reconstruction-profile-id
@@ -580,7 +587,7 @@
       factory)))
 
 (defn- issue-factory [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
-  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? false options nil))
+  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? nil options nil))
 
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
@@ -622,7 +629,7 @@
    This constructor performs additional bounded provenance validation only when
    its authenticated restore invocation succeeds; it never executes a query."
   [options]
-  (issue-factory* true true true true true false options (Object.)))
+  (issue-factory* true true true true true nil options (Object.)))
 
 (defn make-hosted-application-factory
   "Issue the seventh fixed application consumer with native readiness support.
@@ -630,7 +637,14 @@
    before restore. All six old consumer contracts remain unchanged. This does
    not execute or pre-authorize ordinary-inductive preparation or typed IO."
   [options]
-  (issue-factory* true true true true true true options (Object.)))
+  (issue-factory* true true true true true :v1 options (Object.)))
+
+(defn make-hosted-application-control-factory
+  "Issue the separately named /2 consumer with exact control-preserving encoder
+   bytes. All /1 and earlier policies retain their inventories, class cohort and
+   option contract. This constructor executes no guest code."
+  [options]
+  (issue-factory* true true true true true :v2 options (Object.)))
 
 (deftype NativeInitReadiness [])
 (defonce ^:private native-readiness-issued (java.util.WeakHashMap.))
