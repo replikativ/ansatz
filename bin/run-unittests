@@ -36,3 +36,14 @@ clojure -M:ci \
 echo
 echo "bundled-init-test exercises the zero-setup (a/init!) path from the in-jar medium tier."
 echo "Integration tests requiring the FULL test-data store are not part of the default CI unit suite."
+
+
+echo "Running fixture-free experimental checkpoint wire contracts"
+# Keep the experimental interpreter source paths scoped to this separate JVM;
+# they are not added to the core artifact or its normal test classpath.
+clojure -J-Xmx384m -J-Xss8m \
+  -Sdeps '{:paths ["experiments/lean-ir/src" "experiments/lean-ir/test"]}' \
+  -M -e '(require (quote prototype.checkpoint-wire-test))
+         (let [result (clojure.test/run-tests (quote prototype.checkpoint-wire-test))]
+           (System/exit (if (and (pos? (:test result))
+                                (zero? (+ (:fail result) (:error result)))) 0 1)))'
