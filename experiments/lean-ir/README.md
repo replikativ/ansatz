@@ -2011,3 +2011,11 @@ module imports, malformed headers, Unicode comments, and command boundaries.
 They match guest execution, alongside all 12 full syntax/diagnostic cases. Exact scalar/integer/float,
 Expr/Level, entropy, and environment primitive tests include pinned native oracle
 comparisons; these tests do not establish full parser or elaborator hosting.
+
+
+Ordinary source inductive helper extension has an explicit host-only
+[pre-profile preparation API](research/SOURCE_INDUCTIVE_PREPARATION.md). It requires
+authenticated helper artifacts and independently inspected full ABI, preserves the
+original binding's effective kernel policy, and precedes new graph profile/Context/
+prefix construction. Model preparation is distinct from actual helper/public Project
+acceptance; existing captured profiles are not enabled or modified implicitly.
