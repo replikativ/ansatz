@@ -12,6 +12,21 @@ and installation, source registration, typed graph nodes/receipts, resident
 FileHandle issuance and resident calls execute through their actual APIs.
 Genuine parser/compiler project acceptance is now recorded separately below.
 
+## Latest qualified component acceptance, 2026-10-24
+
+The [new component evidence](HOSTED_COMPONENT_ACCEPTANCE_2026-10-24.md) accepts
+actual Project Nat/String callbacks and P1/P2 independent roots, native reset,
+checked final union and retained old-version calls. App/P1/P2 call children and
+Project parents closed normally. A subsequent chain harness Path/InputStream
+failure ended the same capture with exit 1; chain parents and the borrowed
+baseline Context/Source/lease did not receive normal whole-session shutdown.
+All 1,293 inputs matched and the journal chain verified after disposal.
+
+This extends the experimental profile; it does not establish completed
+chain/diamond/edit reloads, typed host IO, general packages or a production JVM
+distribution. The [portable record](../measurements/hosted-component-acceptance.json)
+preserves component results separately from overall semantic acceptance=false.
+
 ## Genuine single-file acceptance, 2026-10-24
 
 The [public P1 record](../measurements/public-project-p1.json) passes a real
@@ -30,9 +45,9 @@ or warm-call benchmarks; changing projection and heap together does not isolate
 a memory optimization's benefit.
 
 Acceptance covers one classic implicit-Init module with no source initializer
-actions. Independent-root native reset, two-root final import, dependent/edit
-reloads and genuine Project callbacks remain subsequent gates. Existing modeled
-tests below retain their original scope. This remains an experiment outside the
+actions. The later component result above adds independent-root native reset, two-root
+final import and genuine Project callbacks. Complete dependent/edit reloads
+remain pending. Existing modeled tests below retain their original scope. This remains an experiment outside the
 library source/AOT paths, not a released Lean-on-JVM distribution.
 
 ```mermaid
