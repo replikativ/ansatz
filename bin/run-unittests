@@ -23,6 +23,7 @@ clojure -M:ci \
 	-n ansatz.companion-overlay-test \
 	-n ansatz.bundle-test \
 	-n ansatz.bundle-validation-test \
+	-n ansatz.bundle-semantic-policy-test \
 	-n ansatz.wf-supplement-test \
 	-n ansatz.wf-supplement-activation-test \
 	-n ansatz.session-test \
