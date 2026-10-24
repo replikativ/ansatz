@@ -240,7 +240,7 @@ public final class TypeChecker {
             traceWriter.write("{\"binding_domain\":\"check\"" +
                 ",\"ptr_eq\":" + domT.isEqp(domS) +
                 ",\"object_eq\":" + (domT == domS) +
-                ",\"same_store\":" + (domT.storeId >= 0 && domT.storeId == domS.storeId) +
+                ",\"same_local_expr_id\":" + (domT.storeId >= 0 && domT.storeId == domS.storeId) +
                 ",\"deepEq\":" + exprDeepEquals(domT, domS) +
                 ",\"depth\":" + isDefEqDepth +
                 ",\"t\":\"" + jsonEscLimit(exprFingerprint(t, 6), 4000) +
@@ -1219,7 +1219,7 @@ public final class TypeChecker {
                 Expr domS = (Expr) s.o1;
                 Expr varSType = null;
                 // Lean uses pointer equality (is_eqp) here.
-                // We use isEqp which checks Java identity OR matching storeId.
+                // isEqp tests actual Java object identity, never local store IDs.
                 emitBindingDomainTrace(t, s, domT, domS);
                 if (!domT.isEqp(domS)) {
                     varSType = instantiateRevList(domS, substList);

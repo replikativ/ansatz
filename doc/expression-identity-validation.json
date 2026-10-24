@@ -1,0 +1,25 @@
+{
+  "schema": "kernel-expression-pointer-identity-validation/1",
+  "scope": "Real ExprStores, Clojure resolvers and kernel admission/cache regression; no full65994 Init or performance claim",
+  "result": {
+    "test": 125,
+    "pass": 580,
+    "fail": 0,
+    "error": 0
+  },
+  "heapMiB": 384,
+  "peakGroupRSSBytes": 664330240,
+  "elapsedSeconds": 33.91815775399937,
+  "inputCount": 326,
+  "allPinsMatch": true,
+  "processDisposed": true,
+  "planSHA256": "539789cbf11a6da5b9c02266acfdc7e26ec3e6ebd3cf3305754dcbf501e16f2f",
+  "receiptSHA256": "782545fd25d7523e3cd36213c6d340868819d26b15ce2fe1064c1945aaf4ef0e",
+  "sourceSHA256": {
+    "src-java/ansatz/kernel/Expr.java": "e3dd622b8030643ec9030512e2485cdc388371216a69484e83821b91f53a7b36",
+    "src-java/ansatz/kernel/ExprStore.java": "4f8769fa1588c5a141adbc1a411a5005981da38b69b991dc018250fb54f95960",
+    "src-java/ansatz/kernel/TypeChecker.java": "c89eac2d36aa8032856023d51dd66618d4820190deba511eac5fdb6b32cd18ba",
+    "test/ansatz/kernel/expression_identity_test.clj": "c7e22d75a0f1f5819c82d35cc295e4792b102c0d61c6840d4be07b79642bbdeb",
+    "test/ansatz/export/expression_identity_test.clj": "4777062c87a746113bc8cc04fa605f9e468e964765b0e3837eefc0527fbca2bb"
+  }
+}

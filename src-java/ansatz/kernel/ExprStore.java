@@ -432,7 +432,7 @@ public final class ExprStore implements Closeable {
                 throw new IOException("Unknown expr tag: " + tag + " at offset " + offset);
         }
 
-        // Tag with store ID for is_eqp semantics
+        // Record the source-local address for diagnostics, never equality.
         result.storeId = id;
 
         // Cache the resolved expression
