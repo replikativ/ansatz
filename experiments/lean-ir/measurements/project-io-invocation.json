@@ -1,0 +1,45 @@
+{
+  "schema": "project-io-invocation/1",
+  "date": "2026-10-24",
+  "change": "Shared private invocation ownership path; invoke-io delegates resident/call-io with existing codecs and no new effect/binding authority",
+  "sources": {
+    "experiments/lean-ir/src/prototype/project_loader.clj": "c2d8196d5b431b21d4d6748f499159bc92a49880a6cffd58261a9236b070204d",
+    "experiments/lean-ir/test/prototype/project_loader_io_test.clj": "a43d89873cabed5a7de2abc96203db806f6bb5aadad5476ce14af5c0e4ef35aa",
+    "experiments/lean-ir/scripts/test-runtime.clj": "51b868206dbf8268ac8acce8157a6dbc5b881fe529c05f8d3ac9a6b267762251"
+  },
+  "tests": {
+    "test": 31,
+    "pass": 780,
+    "fail": 0,
+    "error": 0,
+    "type": "summary"
+  },
+  "execution": {
+    "heapMiB": 384,
+    "status": "passed",
+    "exitCode": 0,
+    "elapsedSeconds": 22.905315798998345,
+    "peakGroupRSSBytes": 591224832,
+    "minAvailableBytes": 2670571520,
+    "planSha256": "b5767ab146480309ff3f9ac695df6fd53784ef6f66af2d6edbf7e3968265e421",
+    "verifiedInputCount": 461,
+    "allPinsMatch": true,
+    "disposed": true,
+    "receiptSHA256": "fbd5398bb1d4a365f4c56cc521fca1d22a3b5590aee1ca8ea0da762c9d81f3dd"
+  },
+  "scope": [
+    "Protocol-only Project storage/frontend transport; actual resident-issued FileHandles and IO-shaped modified captured IR executed on reference/mutable/JVM backends",
+    "Existing Project and resident/typed-extern regression namespaces included; helper sources from current worktree and historical selected48Java class bytes (no rebuild/all-currentJava claim)",
+    "No genuine Leanfrontend/Project source-loading or application IO capability acceptance; no Source/prefix authority widened",
+    "Changed caller bytes require a newly accepted caller digest in later composed captures; frozen d391 snapshots unchanged"
+  ],
+  "historicalAttempt": {
+    "tests": 31,
+    "pass": 442,
+    "fail": 0,
+    "error": 6,
+    "all461PinsMatch": true,
+    "disposed": true,
+    "cause": "Freshworktree lacked expected cwd target directory used by existing temporary-file fixtures; directorycreated, no source/assertion changes"
+  }
+}

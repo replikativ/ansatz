@@ -33,6 +33,7 @@
          'prototype.classic-header-discovery-test
          'prototype.project-discovery-test
          'prototype.project-loader-test
+         'prototype.project-loader-io-test
          'prototype.project-loader-integration-test
          'prototype.project-loader-nonempty-test
          'prototype.typed-extern-test)

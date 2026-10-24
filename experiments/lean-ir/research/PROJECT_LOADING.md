@@ -66,6 +66,35 @@ Java `Name` values describe exported functions; they are not issued authority.
 (:value called) ; 41
 ```
 
+For an already admitted IO export, use `invoke-io` with codecs for only its
+explicit Lean arguments:
+
+```clojure
+;; query must be listed in the load request's explicit exports.
+(project/invoke-io (:project loaded)
+  ["str" ["anonymous"] "Example"] (Name/fromString "query")
+  ["request"] {:arguments [:string] :result :string})
+```
+
+`invoke-io` uses the same stored-file/export checks and version ownership as
+`invoke`, delegating to `resident/call-io` for the erased world argument and IO
+result decoding. Success returns a new Project version and decoded value. An
+unhandled guest error retains the owned result/error and exact checkpoint/session
+diagnostics, with `:project-operation :invoke-io`; operation Contexts are retained
+for inspection. It does not retry effects or clean up those diagnostic owners.
+Close successful versions separately. Version snapshots do not roll back external
+effects.
+
+This facade grants no new IO capability, application extern, native Source
+permission or initializer permission. Existing profile restrictions still apply.
+Application-enabled prefixes, typed host IO adapters and genuine Project-level
+Nat/String callback acceptance remain separate campaign work. The IO facade's
+tests model Project file storage and compiler transport, then use actually issued
+resident FileHandles and execute installed IO-shaped IR across all three backends.
+They do not execute Lean's frontend or establish genuine Project source loading.
+Focused validation passed 31 tests / 780 assertions under a 384 MiB heap; see
+[the measured scope and results](../measurements/project-io-invocation.json).
+
 `prepare-load`, `advance-load!` and `finish-load!` expose the same cooperative
 state machine. Each slice advances at most its requested operation count and
 wall-clock target. A compiler, checker, filesystem operation or host handler can
