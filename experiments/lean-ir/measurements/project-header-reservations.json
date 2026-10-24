@@ -1,0 +1,103 @@
+{
+  "schema": "project-discovery-header-reservation-regression/1",
+  "date": "2026-10-24",
+  "status": "passed modeled exact two-root header reservation boundary",
+  "base": "ce3f0d37e190b493a43e5f760d405f57bc55047d",
+  "sourceSHA256": {
+    "test/prototype/project_discovery_test.clj": "fbfbdbac78691f68a6f798d78f84c91eea3bb71b1dc40c48b72ed16ac0624ef0",
+    "src/prototype/project_discovery.clj": "dcf8a9afbafdc00d97b6c43eed8acf74794a5cef97ca855244b5ad0e8885ef77"
+  },
+  "test": {
+    "tests": 1,
+    "assertions": 20,
+    "failures": 0,
+    "errors": 0,
+    "backend": "reference",
+    "selectedVar": "prototype.project-discovery-test/two-root-header-output-reservation-matches-capture-boundary",
+    "modeled": [
+      "header compiler transport",
+      "small native/guest fixture"
+    ],
+    "actual": [
+      "filesystem captures",
+      "discovery reservation implementation",
+      "raw fixture header dispatch",
+      "canonical returned world/session preservation",
+      "resident adoption of corrected result"
+    ],
+    "fullFrontend": false,
+    "fullP2": false
+  },
+  "refusedCase": {
+    "sourceRoots": [
+      "A",
+      "D"
+    ],
+    "maximumDeclaredModules": 4,
+    "perHeaderOutputBytes": 16384,
+    "aggregateHeaderOutputBytes": 16384,
+    "actualHeaderDispatches": 1,
+    "helperCalls": 1,
+    "reservedHeaderOutputBytes": 16384,
+    "expectedMessage": "Project discovery cannot reserve next header output",
+    "failedPhase": "capture",
+    "secondSourceCapturedBeforeRefusal": true,
+    "secondHeaderDispatched": false,
+    "canonicalCheckpointWorldAndSessionPreserved": true,
+    "lastCompletedHeaderPacketPreserved": true,
+    "originalContextUnchanged": true
+  },
+  "correctedCase": {
+    "separateDiscoveryFromOriginalPacket": true,
+    "sourceRoots": [
+      "A",
+      "D"
+    ],
+    "maximumDeclaredModules": 4,
+    "perHeaderOutputBytes": 16384,
+    "aggregateHeaderOutputBytes": 65536,
+    "actualHeaderDispatches": 2,
+    "helperCalls": 2,
+    "reservedHeaderOutputBytes": 32768,
+    "sourceOrder": [
+      "A",
+      "D"
+    ],
+    "returnedPacketAdopted": true,
+    "originalContextUnchanged": true
+  },
+  "execution": {
+    "attempts": 1,
+    "heapMiB": 384,
+    "rssCapBytes": 805306368,
+    "wallCapSeconds": 120,
+    "preflightAvailableBytes": 2147483648,
+    "availableFloorBytes": 1073741824,
+    "elapsedSeconds": 3.3650471420041868,
+    "peakGroupRSSBytes": 493277184,
+    "minAvailableBytes": 7590408192,
+    "exitCode": 0,
+    "inputPins": 370,
+    "allPinsMatch": true,
+    "disposed": true,
+    "javaClassProvenance": "48 unchanged prebuilt class files from preceding application-prefix focused validation; no fresh javac or Java changes in this run"
+  },
+  "artifacts": {
+    "directory": "target/header-reservation-regression-v1",
+    "sha256": {
+      "execution-plan.json": "a3a5f74cab0762a246a4f37304f3c8cf29cb0ac03de444df18a6da72da2007fe",
+      "runner.clj": "46e36f50295fea1ad8b1c90c553560720a30a93f435441e69cd6d539140f55da",
+      "guard.py": "367f078d09939b0b32fa08bd86cd9506859ab710c2e618d8b67febbd0826667c",
+      "run-v1/receipt.json": "ddf0d9f1cc045d8e883eb0872d95b59d3fcd42aaba4861f55de89e1406e2f547",
+      "run-v1/postcheck.json": "9e0f1779191f59ff917897764da05147b7aefc6ed36398f491b53c2f045c9e44",
+      "run-v1/stdout": "ca68c44781cb9b854bb312872f2a8483d3cf042a8a8851001c2f9d48d458b2ba",
+      "run-v1/stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "limits": [
+    "This proves a deterministic capture configuration defect, not the exact first cause of the earlier full coupled failure, whose original exception message/stack was not retained.",
+    "No runtime implementation or general budget default changed. General callers may intentionally choose an aggregate below maximum modules times per-header capacity.",
+    "64KiB is the explicitly proposed next campaign capacity for four declared source modules, not a discovered universal requirement or P2 acceptance.",
+    "The separate accepted single-file public P1 result remains valid. No native reset or actual two-root frontend execution occurred in this regression."
+  ]
+}
