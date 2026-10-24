@@ -14,6 +14,7 @@
             [prototype.classic-header-discovery-test]
             [prototype.project-discovery-test]
             [prototype.project-loader-test]
+            [prototype.project-failure-disposal-test]
             [prototype.project-loader-integration-test]
             [prototype.project-loader-nonempty-test]
             [prototype.mutable-field-cow-test]
@@ -148,6 +149,7 @@
                             'prototype.classic-header-discovery-test
                             'prototype.project-discovery-test
                             'prototype.project-loader-test
+                            'prototype.project-failure-disposal-test
                             'prototype.project-loader-integration-test
                             'prototype.project-loader-nonempty-test
                             'prototype.mutable-field-cow-test 'prototype.heap-overlay-test

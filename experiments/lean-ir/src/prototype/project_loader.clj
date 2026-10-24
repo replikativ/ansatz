@@ -8,6 +8,7 @@
             [prototype.resident-init-prefix :as graph])
   (:import [ansatz.kernel Name]
            [java.nio.file Path]
+           [java.lang.ref WeakReference]
            [java.nio.charset StandardCharsets]
            [java.util WeakHashMap IdentityHashMap]))
 
@@ -28,6 +29,17 @@
   (when-not (.isInstance ^Class kind value) (fail (str "Expected issued " label) {}))
   (or (locking registry (.get ^WeakHashMap registry value))
       (fail (str "Unknown " label) {})))
+(defn- failure-capsule! [operation owned child child-mode live-state]
+  ;; Registry values cannot refer strongly back to their token through a failed
+  ;; load's canonical Throwable. The shared ledger owns only cleanup capabilities;
+  ;; the optional live state is weak, and caller-held errors own diagnostics.
+  (let [token (ProjectFailure.)
+        ledger (atom {:phase :failed :operation operation :owned owned
+                      :child child :child-mode child-mode
+                      :live-state (when live-state (WeakReference. live-state))})]
+    (locking failures (.put failures token ledger))
+    [token ledger]))
+
 (defn- version! [project]
   (let [data @(issued! versions ProjectVersion project "Project version")]
     (when (= :closed (:phase data)) (fail "Project version is closed" {})) data))
@@ -160,7 +172,10 @@
             project (ProjectVersion.)]
         (locking versions (.put versions project (atom data))) project)
       (catch Throwable cause
-        (throw (ex-info "Project construction failed" {:project-entry entry :project-owned-contexts @owned} cause))))))
+        (let [[token _] (failure-capsule! :construction @owned nil nil nil)]
+          (throw (ex-info "Project construction failed"
+                   {:project-entry entry :project-owned-contexts @owned
+                    :project-failure-diagnostic token} cause)))))))
 
 (defn- progress [s]
   {:phase (:phase s) :module-index (:index s 0) :module-count (count (:order s))
@@ -183,15 +198,14 @@
         ;; Active child remains private: its public API has no latest packet or
         ;; disposal accessor. Never label last-complete Context as latest child.
         diagnostic (dissoc before :child :failure)
-        ;; Synchronous load-file callers never receive the load key. The opaque
-        ;; failure token keeps private child evidence alive without exposing a
-        ;; continuation. Its registry value holds neither token nor exception.
-        token (ProjectFailure.)
-        _ (locking failures (.put failures token (dissoc before :failure)))
+        ;; Both the live control and the error capsule share exactly this
+        ;; ledger. Synchronous callers receive the capsule even without a load.
+        [token ledger] (failure-capsule! :load (:owned before) (:child before)
+                                        (:child-mode before) state)
         wrapped (ex-info (or (.getMessage cause) "Project load failed")
                   (merge (ex-data cause) {:project-load-state diagnostic :project-load-terminal? true
                                          :project-failure-diagnostic token}) cause)]
-    (swap! state assoc :phase :failed :failure wrapped) (throw wrapped)))
+    (swap! state assoc :phase :failed :failure wrapped :failure-ledger ledger) (throw wrapped)))
 
 (defn- exports! [records limits]
   (when-not (and (vector? records) (<= (count records) (get-in limits [:discovery :max-modules])))
@@ -362,7 +376,7 @@
     (locking control
       (when-let [failure (:failure @state)] (throw failure))
       (when (:busy? @state) (fail "Project load is busy" {}))
-      (when (contains? #{:complete :finished} (:phase @state))
+      (when (contains? #{:complete :finished :disposed} (:phase @state))
         (fail "Project load is not advanceable" {}))
       (when-not (and (map? limits) (<= 2 (count limits) 3)
                      (contains? limits :max-operations) (contains? limits :wall-ms)
@@ -456,8 +470,10 @@
           (resident/close! scratch)
           (locking versions (.put versions next-project (atom next-data))) result)
         (catch Throwable cause
-          (throw (ex-info (or (.getMessage cause) "Project invocation failed")
-                   (merge (ex-data cause) {:project-operation operation :project-owned-contexts @owned}) cause)))))))
+          (let [[token _] (failure-capsule! operation @owned nil nil nil)]
+            (throw (ex-info (or (.getMessage cause) "Project invocation failed")
+                     (merge (ex-data cause) {:project-operation operation :project-owned-contexts @owned
+                                            :project-failure-diagnostic token}) cause))))))))
 
 (defn invoke
   "Call an explicit stored file/export through resident/call. Return a NEW version
@@ -489,3 +505,61 @@
           (when-not (identical? baseline context) (resident/close! baseline))
           (reset! state {:phase :closed})))))
   nil)
+
+
+(defn- dispose-failure-ledger! [ledger]
+  (locking ledger
+    (let [{:keys [phase child child-mode owned live-state operation] :as data} @ledger]
+      (case phase
+        :disposed (:disposal data)
+        :failed
+        (let [receipt {:phase :disposed :operation operation
+                       :borrowed-source-closed false :guest-replayed false}
+              tombstone {:phase :disposed :disposal receipt}]
+          (reset! ledger (assoc data :phase :disposing))
+          (try
+            (when child
+              (case child-mode
+                :native (graph/dispose-native-init-base! child)
+                :graph (graph/dispose-source-graph-import! child)
+                (fail "Project failure child has no fixed disposal mode" {})))
+            (let [seen (IdentityHashMap.)]
+              (doseq [context owned]
+                (when-not (.containsKey seen context)
+                  (.put seen context true)
+                  (resident/abandon! context))))
+            ;; This private Atom has no public hooks. No lock on a live control
+            ;; is needed: failed controls cannot advance, and aliases synchronize
+            ;; on this same ledger. The registry's weak reference keeps no token.
+            (when-let [state (when live-state (.get ^WeakReference live-state))]
+              (reset! state tombstone))
+            (reset! ledger tombstone)
+            receipt
+            (catch Throwable cause
+              ;; Preserve pending owners and forbid replay after partial cleanup.
+              ;; Do not retain the disposal exception: it may reference its token.
+              (reset! ledger (assoc data :phase :disposal-failed))
+              (throw cause))))
+        (fail "Project failure disposal is already active or failed" {:phase phase})))))
+
+(defn dispose-failure!
+  "Dispose the private managed owners of an issued terminal failure capsule.
+   Covers construction, preparation/load and invocation failures. Caller-held
+   errors/snapshots stay caller-owned; no rollback, native finalization, borrowed
+   Source close or execution retry. Successful disposal is idempotent."
+  [token]
+  (dispose-failure-ledger! (issued! failures ProjectFailure token "Project failure")))
+
+(defn dispose-load!
+  "Dispose a FAILED load through its shared failure ledger. This is not cancel.
+   A capsule and its live failed load are aliases; disposing either clears both
+   library continuations. The original caller-held error remains unchanged."
+  [control]
+  (let [state (load-state! control)]
+    (locking control
+      (let [data @state]
+        (when (:busy? data) (fail "Project load is busy" {}))
+        (case (:phase data)
+          :disposed (:disposal data)
+          :failed (dispose-failure-ledger! (:failure-ledger data))
+          (fail "Project load has no terminal failure to dispose" {}))))))

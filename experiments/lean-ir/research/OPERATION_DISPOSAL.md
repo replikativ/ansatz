@@ -47,11 +47,10 @@ disposal removes the library registry's heavy continuation roots. A caller that
 retains the original Throwable/ex-data or copied World still owns those strong
 references; no heap/GC reclamation promise follows from a scalar disposal receipt.
 
-Project failures still need a separate coherent shared-alias owner ledger and
-opaque failure-token API, including invocation/open failures. This change does
-not expose a partial Project cleanup wrapper. Direct resident-call exceptions
-remain caller-owned diagnostics; input Context is borrowed and is not abandoned
-by observing an error.
+[Project failure disposal](PROJECT_FAILURE_DISPOSAL.md) adds a separate shared
+owner ledger and opaque failure-capsule API, including invocation/open failures.
+Direct resident-call exceptions remain caller-owned diagnostics; input Context
+is borrowed and is not abandoned by observing an error.
 
 Tests use tiny real raw execution and public resident controls across the three
 backends. Imported compiler/factory transports are explicitly modeled; those
