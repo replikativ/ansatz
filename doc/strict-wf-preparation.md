@@ -63,11 +63,25 @@ infrastructure or kernel checking; this API is not an untrusted-decoder boundary
 
 ## Activation boundary
 
-Conditional session activation is separate and is not implemented by this API.
+`activate-strict-role!` is an explicit convenience entry over preparation and
+conditional activation. It captures the live session briefly, performs bounded
+pure preparation outside the long session lock, then invokes
+`session/activate-if-unchanged!` once under that installer's lock. Concurrent
+session switching remains responsive. A changed capture produces a stale result
+without re-running kernel replay. Success returns the activated ProofContext;
+other installation outcomes throw ExceptionInfo with the outcome report and
+original cause. Preparation failures propagate before owned installation.
+
+The caller explicitly supplies the same finite limits and verified schema-2
+options as preparation. There are no default limits, sentinel/profile shortcuts,
+legacy fallback or changes to existing WF routing. Borrowed store lifetime still
+belongs to its owner and must cover the operation, including preparation outside
+the lock. The lower-level pure preparer remains available for forked contexts.
+
 The campaign uses the existing cooperative session lock; this is not isolation
-from unlocked writers or atomic visibility across every global atom. A later
-installer must reject captured-slot/cache drift before publication, perform one
-Env CAS without retry, and report actual best-effort restoration after failures.
+from unlocked writers or atomic visibility across every global atom. The conditional
+installer rejects captured-slot/cache drift before publication, performs one
+Env CAS without retry, and reports actual best-effort restoration after failures.
 Atom watches can throw after changing an atom, so an installation exception alone
 cannot establish that the old state remained installed.
 
