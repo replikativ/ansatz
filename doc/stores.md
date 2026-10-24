@@ -117,7 +117,27 @@ python3 scripts/generate-bundle.py --exporter-source /path/to/lean4export \
 It pins Lean 4.33.1 and the exporter commit, captures their actual generation
 inputs, rebuilds the exporter and Java checker in staging, checks public roots,
 replays each kernel closure, compares overlapping declarations, and validates
-selected companion rows. The final manifest is written last. Public roots from
+selected companion rows. The final manifest is written last. Each role must close its own global
+companion references before kernel replay; names exported only by another role
+do not satisfy that gate. The shared metadata corpus is rendered only after all
+three roles pass. Kernel raw files are captured once, decoded with strict UTF-8,
+and those same bytes are compressed after checking.
+
+Each staging directory is claimed atomically before validation work. The claim
+stays after success or failure; another validation attempt refuses before parsing
+or writing resources. Retry requires a fresh staging directory, preserving the
+failed capture. The claim coordinates validator writers; it is not checking
+authority or protection from arbitrary external filesystem writers.
+
+Every owned parser store must close before candidate files are written. Final
+manifest publication links a complete, closed staging-local temporary file into
+its final name without replacing an existing marker; filesystems without that
+operation fail closed. Validation, parser-close and precommit failures leave no
+new final marker. A temporary-file cleanup failure after publication reports a
+published outcome with a bounded retained-file diagnostic. This does not promote
+or activate the candidate, or provide general input decoding budgets.
+
+Public roots from
 the legacy inventory require an explicit version migration when absent; private
 generated names are reached through dependency closure. The generator never
 ignores missing requested roots or installs the result into the repository.

@@ -212,6 +212,32 @@
       :rows selected :edges edges :missing-edges missing
       :missing-roots (vec (distinct (map :target missing)))})))
 
+(defn assert-role-closure!
+  "Require the existing serialized profile-1 global references to close within
+   EACH exported kernel role. Reuses plan-role; union coverage is insufficient.
+   Error counts are complete, samples capped at eight. This does not validate
+   witnesses, grant trust or claim bounded decoding of the supplied corpora."
+  [companions role-names]
+  (when-not (and (map? role-names) (= #{:init :lex :sizeof} (set (keys role-names))))
+    (fail "Expected all three exported kernel roles" {}))
+  (doseq [role [:init :lex :sizeof]]
+    (let [{:keys [missing-edges missing-roots]} (plan-role role companions (get role-names role))]
+      (when (seq missing-edges)
+        (fail "Kernel role has missing global companion references"
+              {:kernel-role role :metadata-profile "ansatz-global-companions/1"
+               :missing-edge-count (count missing-edges) :missing-root-count (count missing-roots)
+               :missing-edge-sample (mapv (fn [edge]
+                                           (reduce (fn [row key]
+                                                     (update row key #(subs % 0 (min 256 (count %)))))
+                                                   edge [:source :target]))
+                                         (take 8 missing-edges))
+               :missing-root-sample (mapv #(subs % 0 (min 256 (count %))) (take 8 missing-roots))
+               :samples-truncated? (> (count missing-edges) 8)
+               :sample-text-truncated? (boolean (some #(> (count %) 256)
+                                                      (concat (mapcat (juxt :source :target) (take 8 missing-edges))
+                                                              (take 8 missing-roots))))}))))
+  true)
+
 (defn select-for-names
   "Select by each row's declaration :name, preserving order. Every selected
    csimp/impl target, unfolding theorem, and instance class must also exist.
