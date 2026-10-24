@@ -188,6 +188,8 @@
 (deftype InitImport [])
 (defonce ^:private imports-issued (WeakHashMap.))
 (defn- import-control! [control]
+  (when-not (instance? InitImport control)
+    (fail "Expected an issued resident Init import operation" {}))
   (or (locking imports-issued (.get imports-issued control))
       (fail "Expected an issued resident Init import operation" {})))
 
@@ -2797,3 +2799,53 @@
           (reset! state completed) result)
         (catch Throwable cause (native-failed! state cause))
         (finally (swap! state assoc :busy? false))))))
+
+
+(defn- dispose-staged-operation! [control state graph-mode?]
+  (locking control
+    (let [data @state]
+      (when (:busy? data) (fail "Cannot dispose a busy resident operation" {}))
+      (when (and (some? graph-mode?)
+                 (not= graph-mode? (boolean (:graph-operation? data))))
+        (fail "Import operation belongs to another fixed API" {}))
+      (if (= :disposed (:phase data))
+        (:disposal data)
+        (let [receipt {:phase :disposed :previous-phase (:phase data)
+                       :borrowed-source-closed false :guest-replayed false}
+              tombstone {:phase :disposed :busy? false :disposal receipt
+                         :graph-operation? (boolean (:graph-operation? data))}
+              claimed (assoc data :busy? true :dispose-state :running)]
+          ;; Construct both small objects before claim/effects. Whole-branch
+          ;; abandonment never guesses ownership at a lower-bound checkpoint.
+          ;; Finished controls already transferred their Context and hold none.
+          (reset! state claimed)
+          (try
+            (when-let [token (get-in data [:event :token])]
+              (raw/abandon-host-boundary! token))
+            (when-let [context (:adopted-context data)]
+              (resident/abandon! context))
+            (reset! state tombstone)
+            receipt
+            (catch Throwable disposal-cause
+              ;; No success claim and no canonical operation error replacement.
+              ;; Retain exact pending owner state for explicit diagnosis.
+              (try (swap! state assoc :disposal-failure disposal-cause :dispose-state :failed)
+                   (catch Throwable _))
+              ;; Busy remains terminal after a disposal failure: no implicit
+              ;; operation/disposal retry or allocation masking in finally.
+              (throw disposal-cause))))))))
+(defn dispose-import!
+  "Abandon only this issued legacy import branch; no guest replay/Source close.
+   Busy or foreign-mode controls reject. Successful returned Contexts stay live."
+  [control]
+  (dispose-staged-operation! control (import-control! control) false))
+(defn dispose-source-graph-import!
+  "Abandon only this issued graph import branch, preserving prior host effects.
+   Caller-retained exceptions/snapshots remain caller-owned diagnostic roots."
+  [control]
+  (dispose-staged-operation! control (import-control! control) true))
+(defn dispose-native-init-base!
+  "Abandon only this issued native-reset branch; never run its finalizer/handler.
+   Borrowed Source/Store/lease and successful returned Context remain external."
+  [control]
+  (dispose-staged-operation! control (native-control! control) nil))
