@@ -11,6 +11,7 @@
   "Verified Clojure — write proven programs using Ansatz types and tactics."
   (:refer-clojure :exclude [defn])
   (:require [ansatz.bundle :as bundle]
+            [ansatz.artifact-profile :as artifact-profile]
             [clojure.java.io]
             [clojure.string]
             [ansatz.kernel.expr :as e]
@@ -202,8 +203,9 @@
   ;; required by this namespace: loading it from source costs ~16 s, and the zero-config
   ;; path (`load-init!`, the bundled Init tier) never needs it. Only a store-backed `init!`
   ;; pays for it, once.
-  ((requiring-resolve 'ansatz.store/check-compatible!) store-path {:branch branch})
-  (let [open-store (requiring-resolve 'ansatz.export.storage/open-store)
+  (let [manifest ((requiring-resolve 'ansatz.store/check-compatible!) store-path {:branch branch})
+        profile (artifact-profile/prepared-store manifest)
+        open-store (requiring-resolve 'ansatz.export.storage/open-store)
         load-env (requiring-resolve 'ansatz.export.storage/load-env)
         read-derived (requiring-resolve 'ansatz.export.storage/read-derived)
         sm (open-store store-path)
@@ -219,7 +221,8 @@
         keep (into #{} (comp (filter (fn [[k _ _ _]] (contains? #{"simp" "csimp"} k)))
                              (map (fn [[_ n _ _]] (ansatz.kernel.name/from-string n))))
                    (:attrs derived))
-        env (load-env sm branch :value-policy :defs-only :keep-value? keep)]
+        env (-> (load-env sm branch :value-policy :defs-only :keep-value? keep)
+                (env/with-extension artifact-profile/extension-key profile))]
     (setup-env! env {:store-map sm :store-path store-path :branch branch} nil derived)))
 
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
@@ -237,7 +240,9 @@
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (env/with-extension (bundled-medium-env) :bundled-artifacts manifest)]
+      (let [loaded (-> (bundled-medium-env)
+                       (env/with-extension :bundled-artifacts manifest)
+                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
         (setup-env! loaded)
         (println (str "Ansatz: loaded the bundled medium Init tier ("
                       (.size ^ansatz.kernel.Env @ansatz-env) " declarations, TRUST mode).\n"
@@ -253,7 +258,9 @@
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (env/with-extension (bundled-medium-env) :bundled-artifacts manifest)]
+      (let [loaded (-> (bundled-medium-env)
+                       (env/with-extension :bundled-artifacts manifest)
+                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
         (setup-env! loaded)
         (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
         @ansatz-env))))
@@ -268,7 +275,7 @@
    restricted to the declarations the export contains. Returns {:declarations :elapsed-ms}."
   [ndjson & {:keys [instances attrs verify?] :or {verify? true}}]
   (let [t0 (System/currentTimeMillis)
-        {:keys [env stats error-names]}
+        {:keys [env stats error-names meta]}
         (if verify?
           (replay/replay-file-streaming ndjson)
           (replay/replay (:decls (parser/parse-ndjson-file ndjson)) :verify? false))]
@@ -282,7 +289,12 @@
                                 (instance/parse-instance-tsv
                                  (clojure.string/split-lines (slurp instances)) present?))
                    :matchers (into {} (filter (fn [[n _]] (present? n))) (matchers/bundled-matchers))}]
-      (setup-env! env nil present? derived)
+      (setup-env! (env/with-extension env artifact-profile/extension-key
+                    (artifact-profile/external-export meta verify?
+                                                      {:attrs {:source (if attrs :explicit-input :absent) :provenance/status :unrecorded}
+                                                       :instances {:source (if instances :explicit-input :name-discovery) :provenance/status :unrecorded}
+                                                       :matchers {:source :bundled-by-name :resource "ansatz/init-matchers.ndjson.gz"
+                                                                  :provenance/status :unrecorded}})) nil present? derived)
       {:declarations (.size ^ansatz.kernel.Env @ansatz-env)
        :elapsed-ms (- (System/currentTimeMillis) t0)})))
 

@@ -28,6 +28,7 @@
    caches are not thread-safe."
   (:require [ansatz.export.storage :as storage]
             [ansatz.store :as store]
+            [ansatz.bundle :as bundle]
             [ansatz.attrs :as attrs]
             [ansatz.matchers :as matchers]
             [ansatz.recall :as recall]
@@ -133,7 +134,14 @@
             _ (storage/write-derived! kstore branch :instances inst-index)
             _ (log! lw "  instances:" (count inst-index) "classes")
             ;; 4. matchers: the bundled Init corpus, intersected
-            matcher-map (into {} (filter (fn [[n _]] (present? n))) (matchers/bundled-matchers))
+            matcher-source (bundle/with-verified
+                             (fn [manifest]
+                               {:rows (into {} (filter (fn [[n _]] (present? n))) (matchers/bundled-matchers))
+                                :provenance {:source :bundled-by-name :cohort (:artifact/cohort manifest)
+                                             :resource "ansatz/init-matchers.ndjson.gz"
+                                             :provenance/status :legacy-inventory
+                                             :producer-status :unrecorded}}))
+            matcher-map (:rows matcher-source)
             _ (storage/write-derived! kstore branch :matchers matcher-map)
             _ (log! lw "  matchers:" (count matcher-map))
             ;; 5. recall keys: every useful declaration's conclusion, in parallel
@@ -186,6 +194,9 @@
                       :branch branch
                       :created (java.util.Date.)
                       :provenance provenance
+                      ;; Record this legacy fallback instead of implying it was
+                      ;; dumped from the library/toolchain CI producer above.
+                      :derived-provenance {:matchers (:provenance matcher-source)}
                       :inputs inputs
                       :artifacts {:declarations (:env-count branch-meta)
                                   :expressions (:exprs-count branch-meta)
