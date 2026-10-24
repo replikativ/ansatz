@@ -19,20 +19,20 @@
             (e/forall' name type (e/abstract1 body id) :default)) body (rseq (vec locals))))
 (defn family [^Env env levels np types]
   (.env (RawInductiveGenerator/generate
-          env (RawInductiveGenerator$Source.
-                (into-array Name levels) np
-                (into-array RawInductiveGenerator$Type
-                  (for [[name type constructors] types]
-                    (RawInductiveGenerator$Type.
-                      (n name) type
-                      (into-array RawInductiveGenerator$Constructor
-                        (for [[name type] constructors]
-                          (RawInductiveGenerator$Constructor. (n name) type)))))) false)
-          (long 1000000))))
+         env (RawInductiveGenerator$Source.
+              (into-array Name levels) np
+              (into-array RawInductiveGenerator$Type
+                          (for [[name type constructors] types]
+                            (RawInductiveGenerator$Type.
+                             (n name) type
+                             (into-array RawInductiveGenerator$Constructor
+                                         (for [[name type] constructors]
+                                           (RawInductiveGenerator$Constructor. (n name) type)))))) false)
+         (long 1000000))))
 (defn enum-env []
   (family (Env.) [] 0
           [["CaseColour" type0 [["CaseColour.red" (c "CaseColour")]
-                                 ["CaseColour.blue" (c "CaseColour")]]]]))
+                                ["CaseColour.blue" (c "CaseColour")]]]]))
 (defn punit-env []
   (let [u (n "u") level (l/param u)]
     (family (Env.) [u] 0
@@ -41,7 +41,7 @@
 (defn nat-env [env]
   (family env [] 0
           [["Nat" type0 [["Nat.zero" (c "Nat")]
-                          ["Nat.succ" (pi [(parameter 0 "n" (c "Nat"))] (c "Nat"))]]]]))
+                         ["Nat.succ" (pi [(parameter 0 "n" (c "Nat"))] (c "Nat"))]]]]))
 (defn checked! [^Env env text]
   (let [name (n text) ^ConstantInfo generated (cases/make-declaration env name)
         ^ConstantInfo recursor (.lookup env (Name/mkStr name "rec"))
@@ -60,13 +60,13 @@
         before (ci/full-shape recursor)
         base (reduce (fn [env name]
                        (TypeChecker/checkConstant env
-                         (ConstantInfo/mkAxiom (n name) (object-array []) (e/sort' l/zero) false)))
+                                                  (ConstantInfo/mkAxiom (n name) (object-array []) (e/sort' l/zero) false)))
                      base ["P" "Q"])
         loaded (checked! base "CaseColour")
         motive (e/lam (n "x") (c "CaseColour") (e/sort' l/zero) :default)]
     (doseq [[constructor expected] [["red" "P"] ["blue" "Q"]]]
       (let [call (e/app* (e/const' (n "CaseColour.casesOn") [(l/succ l/zero)])
-                        motive (c (str "CaseColour." constructor)) (c "P") (c "Q"))]
+                         motive (c (str "CaseColour." constructor)) (c "P") (c "Q"))]
         (is (= (e/sort' l/zero) (.whnf (Reducer. loaded) (.inferType (TypeChecker. loaded) call))))
         (is (= (c expected) (.whnf (Reducer. loaded) call)))))
     (is (= before (ci/full-shape recursor)))))
@@ -113,7 +113,7 @@
     (doseq [[name expected] [["Missing" :cases-on/unknown-constant]
                              ["CaseColour.red" :cases-on/not-inductive]]]
       (is (= expected (:type (ex-data (try (cases/make-declaration env (n name))
-                                          (catch clojure.lang.ExceptionInfo cause cause)))))))
+                                           (catch clojure.lang.ExceptionInfo cause cause)))))))
     (doseq [options [{:max-work 1} {:max-locals 1} {:max-work 0} {:unknown 1}]]
       (is (thrown? clojure.lang.ExceptionInfo (cases/make-declaration env (n "CaseColour") options))))
     (is (nil? (.lookup env (n "CaseColour.casesOn"))))))
@@ -141,19 +141,19 @@
         deep-name (nth (iterate #(Name/mkStr % "segment") Name/ANONYMOUS_NAME) 257)]
     (is (= :cases-on/depth-limit
            (:type (ex-data (try (cases/make-declaration env deep-name)
-                               (catch clojure.lang.ExceptionInfo failure failure))))))
+                                (catch clojure.lang.ExceptionInfo failure failure))))))
     (is (zero? @calls)))
   (doseq [expression [(e/sort' (nth (iterate l/succ l/zero) 257))
                       (nth (iterate #(e/forall' (n "x") type0 % :default) type0) 257)]]
     (is (= :cases-on/depth-limit
            (:type (ex-data (try (#'cases/preflight-expression! expression (volatile! 100000))
-                               (catch clojure.lang.ExceptionInfo failure failure)))))))
+                                (catch clojure.lang.ExceptionInfo failure failure)))))))
   (is (= :cases-on/open-expression
          (:type (ex-data (try (#'cases/preflight-expression! (e/sort' (l/mvar 7)) (volatile! 100))
-                             (catch clojure.lang.ExceptionInfo failure failure))))))
+                              (catch clojure.lang.ExceptionInfo failure failure))))))
   (is (= :cases-on/work-limit
          (:type (ex-data (try (#'cases/bounded-name! (n "a-long-name-segment") (volatile! 5))
-                             (catch clojure.lang.ExceptionInfo failure failure))))))
+                              (catch clojure.lang.ExceptionInfo failure failure))))))
   (is (thrown? clojure.lang.ExceptionInfo
                (#'cases/bounded-levels! (lazy-seq (throw (Exception. "must not force"))) (volatile! 100)))))
 
@@ -175,4 +175,4 @@
                  (get [_] (throw (Exception. "custom get must not execute"))))]
     (is (= :cases-on/malformed-levels
            (:type (ex-data (try (#'cases/bounded-levels! custom (volatile! 100))
-                               (catch clojure.lang.ExceptionInfo failure failure))))))))
+                                (catch clojure.lang.ExceptionInfo failure failure))))))))

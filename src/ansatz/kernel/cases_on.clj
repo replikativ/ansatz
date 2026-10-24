@@ -53,7 +53,7 @@
                   0 (recur pending)
                   1 (recur (conj pending [(.o0 ^Level node) (inc depth)]))
                   (2 3) (recur (conj pending [(.o0 ^Level node) (inc depth)]
-                                             [(.o1 ^Level node) (inc depth)]))
+                                     [(.o1 ^Level node) (inc depth)]))
                   4 (do (bounded-name! (.o0 ^Level node) remaining) (recur pending))
                   5 (fail :cases-on/open-expression {:kind :level-metavariable})
                   (fail :cases-on/malformed-level {})))))))))
@@ -125,11 +125,11 @@
               (when-not (instance? Expr node) (fail :cases-on/malformed-expression {}))
               (.add ^java.util.Set depths depth) (.put seen node depths)
               (when (or (e/fvar? node) (e/mvar? node)
-                         (and (e/bvar? node) (or (neg? (e/bvar-idx node)) (>= (e/bvar-idx node) depth)))
+                        (and (e/bvar? node) (or (neg? (e/bvar-idx node)) (>= (e/bvar-idx node) depth)))
                          ;; Public Expr/Level objects must remain stable during
                          ;; this operation; reflective/concurrent mutation is not
                          ;; a supported source of checking evidence.
-                         (.hasMVar node))
+                        (.hasMVar node))
                 (fail :cases-on/open-expression {}))
               (recur (into pending (children-at node depth)))))))))
   expression)
@@ -155,36 +155,36 @@
                     (let [values (HashMap.)] (.put cache node values) values)))]
     (loop [pending [[false root 0]]]
       (if (empty? pending) (.get ^HashMap (table root) 0)
-        (let [[finish? ^Expr node depth] (peek pending) pending (pop pending)
-              _ (when (> depth 256) (fail :cases-on/depth-limit {:kind :binder}))
-              ^HashMap values (table node) hit (.get values depth)]
-          (cond
-            finish?
-            (let [edges (children-at node depth)
-                  results (mapv (fn [[child d]] (.get ^HashMap (table child) d)) edges)
-                  _ (when-not (every? #(instance? Expr %) results)
-                      (fail :cases-on/malformed-expression {}))
-                  result (if (every? true? (map (fn [[child _] value] (identical? child value)) edges results))
-                           node (rebuild node results))]
-              (.put values depth result) (recur pending))
-            (identical? active hit) (fail :cases-on/cyclic-expression {})
-            hit (recur pending)
-            :else
-            (do
-              (tick! remaining)
-              (let [edges (children-at node depth)]
-                (if (empty? edges)
-                  (let [value (cond
-                                (and (= operation :instantiate) (e/bvar? node))
-                                (let [index (e/bvar-idx node)]
-                                  (cond (= index depth) argument (> index depth) (e/bvar (dec index)) :else node))
-                                (and (= operation :abstract) (e/fvar? node) (= argument (e/fvar-id node)))
-                                (e/bvar depth)
-                                :else node)]
-                    (.put values depth value) (recur pending))
-                  (do (.put values depth active)
-                      (recur (into (conj pending [true node depth])
-                                   (map (fn [[child d]] [false child d]) edges)))))))))))))
+          (let [[finish? ^Expr node depth] (peek pending) pending (pop pending)
+                _ (when (> depth 256) (fail :cases-on/depth-limit {:kind :binder}))
+                ^HashMap values (table node) hit (.get values depth)]
+            (cond
+              finish?
+              (let [edges (children-at node depth)
+                    results (mapv (fn [[child d]] (.get ^HashMap (table child) d)) edges)
+                    _ (when-not (every? #(instance? Expr %) results)
+                        (fail :cases-on/malformed-expression {}))
+                    result (if (every? true? (map (fn [[child _] value] (identical? child value)) edges results))
+                             node (rebuild node results))]
+                (.put values depth result) (recur pending))
+              (identical? active hit) (fail :cases-on/cyclic-expression {})
+              hit (recur pending)
+              :else
+              (do
+                (tick! remaining)
+                (let [edges (children-at node depth)]
+                  (if (empty? edges)
+                    (let [value (cond
+                                  (and (= operation :instantiate) (e/bvar? node))
+                                  (let [index (e/bvar-idx node)]
+                                    (cond (= index depth) argument (> index depth) (e/bvar (dec index)) :else node))
+                                  (and (= operation :abstract) (e/fvar? node) (= argument (e/fvar-id node)))
+                                  (e/bvar depth)
+                                  :else node)]
+                      (.put values depth value) (recur pending))
+                    (do (.put values depth active)
+                        (recur (into (conj pending [true node depth])
+                                     (map (fn [[child d]] [false child d]) edges)))))))))))))
 
 (defn- head [expression remaining]
   (loop [expression expression]
@@ -197,17 +197,17 @@
   (let [seen (IdentityHashMap.)]
     (loop [pending (vec expressions) visited 0]
       (if (empty? pending) false
-        (let [expression (peek pending) pending (pop pending)]
-          (if (.containsKey seen expression)
-            (recur pending visited)
-            (do
-              (tick! remaining)
-              (.put seen expression true)
-              (if (and (e/const? expression)
-                       (when-let [^ConstantInfo ci (.lookup env (e/const-name expression))]
-                         (.isUnsafeDeclaration ci)))
-                true
-                (recur (into pending (children expression)) (inc visited))))))))))
+          (let [expression (peek pending) pending (pop pending)]
+            (if (.containsKey seen expression)
+              (recur pending visited)
+              (do
+                (tick! remaining)
+                (.put seen expression true)
+                (if (and (e/const? expression)
+                         (when-let [^ConstantInfo ci (.lookup env (e/const-name expression))]
+                           (.isUnsafeDeclaration ci)))
+                  true
+                  (recur (into pending (children expression)) (inc visited))))))))))
 
 (defn- unit-telescope [kind expression unit remaining]
   ;; C++ mk_pi_unit/mk_fun_unit intentionally use DEFAULT binderInfo rather
@@ -240,7 +240,7 @@
    against reflective mutation of JVM data."
   ([env name] (make-declaration env name {}))
   ([^Env env ^Name name {:keys [max-locals max-work]
-                        :or {max-locals 100000 max-work 10000000} :as limits}]
+                         :or {max-locals 100000 max-work 10000000} :as limits}]
    (when-not (and (map? limits) (every? #{:max-locals :max-work} (keys limits))
                   (instance? Env env) (instance? Name name)
                   (integer? max-locals) (<= 1 max-locals Integer/MAX_VALUE)
@@ -250,7 +250,7 @@
          _ (bounded-name! name remaining)
          _ (when (loop [n name depth 0]
                    (if (= Name/ANONYMOUS (.tag ^Name n)) (>= depth 256)
-                     (recur (.prefix ^Name n) (inc depth))))
+                       (recur (.prefix ^Name n) (inc depth))))
              (fail :cases-on/depth-limit {:kind :generated-name}))
          ^ConstantInfo ind (get-constant env name)
          _ (when-not (.isInduct ind) (fail :cases-on/not-inductive {:name name}))
@@ -266,8 +266,8 @@
                           (<= (count (.levelParams ind)) @remaining))
              (fail :cases-on/invalid-recursor {:field :name-arrays}))
          ind-names (mapv (fn [n] (tick! remaining)
-                          (when-not (instance? Name n) (fail :cases-on/invalid-recursor {:field :all}))
-                          (bounded-name! n remaining)) (.all recursor))
+                           (when-not (instance? Name n) (fail :cases-on/invalid-recursor {:field :all}))
+                           (bounded-name! n remaining)) (.all recursor))
          _ (doseq [n (concat (seq (.levelParams recursor)) (seq (.levelParams ind)))]
              (tick! remaining) (bounded-name! n remaining))
          _ (when-not (and (every? #(and (integer? %) (<= 0 %)) [np nm nn ni])
@@ -308,7 +308,7 @@
          initial-args (into (mapv :expr params)
                             (map-indexed (fn [j local]
                                            (if (= j main-index) (:expr local)
-                                             (unit-telescope :lambda (:type local) unit remaining))) motives))
+                                               (unit-telescope :lambda (:type local) unit remaining))) motives))
          process-minor
          (fn [local main?]
            (let [[minor-params nonrecursive conclusion]
