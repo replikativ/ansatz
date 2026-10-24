@@ -183,3 +183,34 @@ open; no initializers or cleanup run.
 Hosted C loading took 45,673.835267 ms. The two positive calls together took
 48.462143 ms, including controller checks. These are separate acceptance timings
 in a retained warm process, not a native Lean comparison or per-call benchmark.
+
+## Application-enabled prefix and Project composition
+
+An application-enabled Project can use the existing APIs: adopt an independently
+prepared Context with an explicit application-symbol allowlist, install the exact
+binding objects with `with-externs`, then adopt again with a configuration formed
+by extending the **original independent** registry with those same objects.
+Prepare a **fresh** prefix using that configuration and the independently extended
+original native registry. Do not authenticate a candidate by copying its live
+registry, or reuse an older prefix whose registry excludes the application symbols.
+Runtime/native initializer bindings and existing graph-profile objects remain exact.
+
+`project-application-prefix-test` exercises this composition on a small verified
+native Store across reference, mutable and JVM backends. Compiler envelopes and
+Project stored-file state are explicit models; prefix preparation, adoption,
+resident-issued FileHandles, typed extern lowering, callback execution and Project
+invocation use the actual APIs. It checks exact independent binding identity,
+old-prefix rejection, cache/parent preservation, reserved/replaced/mismatched
+bindings, retained versions and a counted terminal host exception. This is neither
+genuine frontend nor public Project source-loading acceptance.
+
+Focused validation passed **35 tests / 1,074 assertions** across seven relevant
+suites, including all four new composition tests. Fresh Java compilation and the
+test JVM completed in 13.32 seconds with a 384 MiB test heap and
+551,124,992-byte peak process-group RSS. All 345 input and 48 fresh class hashes
+matched after disposal; both process groups were absent. The [validation
+record](../measurements/project-application-prefix.json) retains exact source and
+evidence hashes. No runtime implementation, application permission, prefix
+contract or host-helper inventory was changed by these tests. Genuine Project
+frontend/callback acceptance still needs its separately reviewed capture and
+explicit host-helper admission; this model pass does not supply either.
