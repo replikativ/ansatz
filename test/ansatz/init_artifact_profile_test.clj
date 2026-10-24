@@ -47,3 +47,19 @@
       (is (= 1 (get-in p [:base :store-format])))
       (is (= "mathlib" (get-in p [:base :branch])))
       (is (identical? sm (:store-map store))))))
+
+(deftest store-init-retains-the-observed-simp-trie-value-without-a-second-read
+  (let [trie {:values [] :children {}} reads (atom 0) observed (atom nil)
+        operations {'ansatz.store/check-compatible! (fn [& _] {:store/format 2 :branch "library"})
+                    'ansatz.export.storage/open-store (fn [_] {:store :model})
+                    'ansatz.export.storage/read-derived (fn [_ _ role]
+                                                          (when (= :simp-trie role)
+                                                            (swap! reads inc) trie))
+                    'ansatz.export.storage/load-env (fn [& _] (Env.))}
+        actual requiring-resolve]
+    (with-redefs-fn
+      {#'clojure.core/requiring-resolve (fn [symbol] (or (get operations symbol) (actual symbol)))
+       #'a/setup-env! (fn [_ _ _ derived] (reset! observed (:simp-trie derived)))}
+      #(a/init! "model-store" "library"))
+    (is (= 1 @reads))
+    (is (identical? trie @observed))))

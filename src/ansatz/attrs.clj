@@ -17,6 +17,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.state :as state]
+            [ansatz.simp-sources :as simp-sources]
             [clojure.string :as str]
             [clojure.java.io :as io]))
 
@@ -87,7 +88,8 @@
                      ;; `(false = true)` and `(true = false)` instead of letting
                      ;; `Bool.false_eq_true` (default priority) collapse it to `False`.
                      (and (= "simp" k) prio (not= prio default-simp-priority))
-                     (env/update-extension :simp-priorities {} assoc n prio))
+                     (env/update-extension :simp-priorities {} assoc n prio)
+                     (= "simp" k) (simp-sources/mark-local-registration n))
                    (update stats ext-key (fnil inc 0))]
                   [e (update stats :skipped (fnil inc 0))])
                 [e stats]))

@@ -21,6 +21,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
             [ansatz.state :as state]
+            [ansatz.simp-sources :as sources]
             [clojure.edn :as edn])
   (:import [ansatz.kernel Name ConstantInfo]))
 
@@ -30,19 +31,43 @@
    the attrs extensions do, so an env built any other way (replay, a test fixture's `reset!`)
    has NO index and stays on the eager path — the index can never leak from one store's env
    into another's."
-  :simp-index)
+  sources/index-key)
 
 (defn index-source
   "The `{:store-path :branch}` recorded on `env`, or nil."
   [env] (env/get-extension env extension-key nil))
 
+(def ^:private captured-index-key sources/captured-key)
+(def eager-overlay-key
+  "Explicit local and bounded supplement lemma names served beside a base trie."
+  sources/eager-key)
+
+(defn eager-lemma-names
+  "Use inherited names eagerly without a trie, and only explicit local/role additions
+   beside a persistent base trie. Never scan/rebuild a store corpus for an overlay."
+  [env trie]
+  (env/get-extension env (if trie eager-overlay-key :simp-lemmas) #{}))
+
 (defn with-index-source
   "`env` with its simp-index source set (nil clears it)."
-  [env source] (env/update-extension env extension-key nil (constantly source)))
+  [env source]
+  (-> env
+      (env/update-extension extension-key nil (constantly source))
+      (env/with-extension captured-index-key nil)))
+
+(defn with-captured-index
+  "Retain the immutable derived trie observed during init, bound to the actual
+   external Env view. Later branch/global-store changes cannot replace it. This
+   records an observed value; it does not establish CI/index co-generation."
+  [env source trie]
+  (when-not (and (map? source) (map? trie))
+    (throw (ex-info "Captured simp index requires a source and immutable trie" {})))
+  (let [view (with-index-source env source)]
+    (env/with-extension view captured-index-key {:trie trie :view view})))
 
 (defonce ^:private rule-cache
-  ^{:doc "{:path source :rules {name-str → [rules]}}: extracted rules for the lazily-served
-          corpus, valid for the store they were resolved against; dropped when it changes."}
+  ^{:doc "{:path env :rules {name-str → [rules]}}: extracted rules scoped to actual
+          immutable Env identity, including local declarations and priority overlays."}
   (atom nil))
 
 (defn capture-caches
@@ -110,22 +135,24 @@
           dt/empty-trie entries))
 
 (defn ensure-simp-trie!
-  "The simp trie for `env`'s store: the store's derived `:simp-trie` blob, loaded on FIRST
-   use and cached in ansatz.state/ansatz-simp-trie keyed by store — so switching stores
-   reloads; nil when the env records no source or the current store is a different one (the
-   eager path then serves the inherited set)."
+  "Use the Env's captured immutable base trie when present. Legacy sources keep
+   their existing lazy global-store lookup; they do not acquire snapshot evidence."
   [env]
-  (when-let [{:keys [store-path branch] :as src} (index-source env)]
-    (let [{cur-path :store-path cur-branch :branch store-map :store-map}
-          @(deref (requiring-resolve 'ansatz.state/ansatz-store))]
-      (when (and store-map (= cur-path store-path) (= cur-branch branch))
-        (let [{:keys [source trie]} @state/ansatz-simp-trie]
-          (if (= source src)
-            trie
-            (let [trie ((requiring-resolve 'ansatz.export.storage/read-derived)
-                        (:store store-map) branch :simp-trie)]
-              (reset! state/ansatz-simp-trie {:source src :trie trie})
-              trie)))))))
+  (if-let [captured (env/get-extension env captured-index-key nil)]
+    (do (when-not (.sameExternalView ^ansatz.kernel.Env env ^ansatz.kernel.Env (:view captured))
+          (throw (ex-info "Captured simp index belongs to another external Env view" {})))
+        (:trie captured))
+    (when-let [{:keys [store-path branch] :as src} (index-source env)]
+      (let [{cur-path :store-path cur-branch :branch store-map :store-map}
+            @(deref (requiring-resolve 'ansatz.state/ansatz-store))]
+        (when (and store-map (= cur-path store-path) (= cur-branch branch))
+          (let [{:keys [source trie]} @state/ansatz-simp-trie]
+            (if (= source src)
+              trie
+              (let [trie ((requiring-resolve 'ansatz.export.storage/read-derived)
+                          (:store store-map) branch :simp-trie)]
+                (reset! state/ansatz-simp-trie {:source src :trie trie})
+                trie))))))))
 
 ;; ---- lookup side: candidate names by goal-subterm key, lazy rule resolution ----
 
@@ -143,11 +170,11 @@
 
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority
-   (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized per store.
+   (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized per immutable Env identity.
    A name that fails to resolve or extract memoizes as [] so it is tried once."
   [env name-str]
-  (let [p (index-source env)
-        cache (let [c @rule-cache] (if (= (:path c) p) c (reset! rule-cache {:path p :rules {}})))]
+  (let [p env
+        cache (let [c @rule-cache] (if (identical? (:path c) p) c (reset! rule-cache {:path p :rules {}})))]
     (if-let [hit (find (:rules cache) name-str)]
       (val hit)
       (let [prio (get (env/get-extension env :simp-priorities {}) name-str @default-simp-priority)
@@ -156,7 +183,7 @@
                            (catch Throwable _ nil))
                       [])
             rules (vec rules)]
-        (swap! rule-cache (fn [c] (if (= (:path c) p) (assoc-in c [:rules name-str] rules) c)))
+        (swap! rule-cache (fn [c] (if (identical? (:path c) p) (assoc-in c [:rules name-str] rules) c)))
         rules))))
 
 (defn candidate-rules
