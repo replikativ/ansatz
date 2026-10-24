@@ -300,7 +300,6 @@
                                         :supplements history)]
                 (assoc prepared :env (env/with-extension (:env prepared) profile/extension-key next-profile))))))))))
 
-
 (defn activate-strict-role!
   "Capture the live session, prepare a strict schema-2 role outside the long
    session lock, then conditionally install it once. Requires the same explicit

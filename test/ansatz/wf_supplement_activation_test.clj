@@ -38,7 +38,7 @@
 (deftest preparation-failure-retains-the-original-error-and-never-installs
   (let [before (session/capture) cause (ex-info "preparation failed" {}) attempts (atom 0)
         observed (with-redefs [supplement/prepare-strict-role (fn [& _] (throw cause))
-                              session/activate-if-unchanged! (fn [& _] (swap! attempts inc))]
+                               session/activate-if-unchanged! (fn [& _] (swap! attempts inc))]
                    (fixture/error #(supplement/activate-strict-role! :lex {})))]
     (is (identical? cause observed))
     (is (zero? @attempts))
@@ -83,7 +83,7 @@
                  (fn [_ _ _ value]
                    (when (identical? value (:env @prepared)) (throw cause))))
       (let [error (with-redefs [supplement/prepare-strict-role
-                               (fn [& args] (let [result (apply actual-prepare args)] (reset! prepared result) result))]
+                                (fn [& args] (let [result (apply actual-prepare args)] (reset! prepared result) result))]
                     (fixture/error #(supplement/activate-strict-role! :lex (fixture/options selected))))]
         (is (instance? clojure.lang.ExceptionInfo error))
         (is (identical? cause (.getCause error)))
