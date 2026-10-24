@@ -17,6 +17,7 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.matchers :as mtch]
             [ansatz.state :as state]
+            [ansatz.simp-sources :as simp-sources]
             [ansatz.tactic.proof :as proof]))
 
 (def ^:private fresh-counter (atom 70000000))
@@ -163,7 +164,9 @@
                  ;; Make the equations available to simp by default (the matcher reduces in each
                  ;; split branch via eqᵢ — Lean's simpMatchTargetCore; we route it through simp's set).
                  (reduce (fn [env {:keys [name]}]
-                           (env/update-extension env :simp-lemmas #{} conj name))
+                           (-> env
+                               (env/update-extension :simp-lemmas #{} conj name)
+                               (simp-sources/mark-local-registration name)))
                          env results)))))
     {:eqn-names (mapv :name results) :splitter-name splitter-name :info info :levels lvls}))
 

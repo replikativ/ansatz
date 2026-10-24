@@ -2985,7 +2985,7 @@
          all-names (if (:only? opts)
                      (distinct (concat simp-only-builtins name-args))
                      (distinct (concat default-simp-lemmas
-                                       (when-not ext-trie (env/get-extension env :simp-lemmas #{}))
+                                       (si/eager-lemma-names env ext-trie)
                                        name-args)))
          lemmas (make-simp-lemmas env all-names)
          ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
@@ -3148,7 +3148,7 @@
          all-names (if (:only? opts)
                      (distinct (concat simp-only-builtins lemma-names))
                      (distinct (concat default-simp-lemmas
-                                       (when-not ext-trie (env/get-extension env :simp-lemmas #{}))
+                                       (si/eager-lemma-names env ext-trie)
                                        lemma-names)))]
      ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
        ;; Only accept def-eq changes (proof? = nil) to avoid type annotation

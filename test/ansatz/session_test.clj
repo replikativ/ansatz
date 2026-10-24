@@ -228,7 +228,7 @@
         index {:class [:instance]}
         matcher-info {"fixture.matcher" {:num-params 0}}
         derived {:attrs [["simp" "fixture.lemma" nil nil]] :matchers matcher-info
-                 :instances index :simp-trie true}]
+                 :instances index :simp-trie {}}]
     (instance/restore-caches! {:old :candidate})
     (simp-index/restore-caches! {:path "prepared-store" :rules {"old" [:rule]}})
     (simp/restore-caches! {:env base :entries {:old :info}})

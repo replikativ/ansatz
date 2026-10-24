@@ -167,9 +167,10 @@
         index (or (:instances derived) (when (seq bundled) bundled)
                   ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) base))
         loaded (env/with-extension loaded :instances index)
-        loaded ((requiring-resolve 'ansatz.simp-index/with-index-source)
-                loaded (when (and store (:simp-trie derived))
-                         (select-keys store [:store-path :branch])))]
+        loaded (if (and store (:simp-trie derived))
+                 ((requiring-resolve 'ansatz.simp-index/with-captured-index)
+                  loaded (select-keys store [:store-path :branch]) (:simp-trie derived))
+                 ((requiring-resolve 'ansatz.simp-index/with-index-source) loaded nil))]
     (map->ProofContext
      {:env loaded :instance-index index :store store :recall-store-path (:store-path store)
       :synth-cache (atom {}) :discr-trie nil :simp-trie nil
@@ -212,9 +213,11 @@
         kstore (:store sm)
         derived (into {} (map (fn [k] [k (read-derived kstore branch k)]))
                       [:attrs :instances :matchers])
-        ;; the big ones are read on demand by their consumers; record only that they exist
-        derived (reduce (fn [m k] (assoc m k (some? (read-derived kstore branch k))))
-                        derived [:recall-keys :simp-trie])
+        ;; Retain the immutable simp trie already read here, rather than probing
+        ;; it and later reading a potentially changed branch's derived index.
+        derived (assoc derived
+                       :recall-keys (some? (read-derived kstore branch :recall-keys))
+                       :simp-trie (read-derived kstore branch :simp-trie))
         ;; A proving session never reads a theorem's body (theorems are opaque to the
         ;; kernel, lean4#12973), so skip resolving them: :defs-only. Bodies of @[simp]
         ;; theorems are kept for simp's rfl-flag derivation.
