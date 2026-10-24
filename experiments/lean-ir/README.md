@@ -4,12 +4,13 @@ An Ansatz experiment, outside the library's normal source/AOT paths. Its optiona
 consumer APIs and fixtures support the hosted frontend campaign; a production
 runtime API and package split remain undecided.
 
-The [genuine public single-file gate](measurements/public-project-p1.json) now
-passes full fresh Init checking, hosted source loading/final import and typed
-Nat41/Unicode calls with persistent Project ownership checks. See
-[current campaign status](research/CAMPAIGN_CONTINUATION_2026-10-23.md) for the
-remaining native-reset/P2, reload, callback and release gates. This is experimental
-profile acceptance, not a production or competitive-performance claim.
+The [latest component record](measurements/hosted-component-acceptance.json)
+accepts genuine Nat/String callbacks and public P1/P2 native reset with retained
+versions. A later chain harness error ended that capture with exit 1; complete
+chain cleanup, diamond/edit reloads and whole-session cleanup remain unproven.
+The [earlier standalone P1](measurements/public-project-p1.json) passed separately
+with exit 0. See [current campaign status](research/CAMPAIGN_CONTINUATION_2026-10-23.md).
+These are experimental profile results, not production or competitive-performance claims.
 
 The JVM experiment now also includes a mutable interpreter, a numeric compiler
 and a constructor/closure block compiler. These are experimental alternatives to the portable reference machine,

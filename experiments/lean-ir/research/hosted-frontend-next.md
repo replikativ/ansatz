@@ -4,21 +4,27 @@ Pinned producer/runtime source: Lean 4.33.1, commit
 `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`. This research chronology separates
 completed hosted milestones from native oracles and remaining experiment gates.
 
-## Current public Project gate (2026-10-24)
+## Current public Project boundary (2026-10-24)
 
-The [public single-file P1](../measurements/public-project-p1.json) now passes:
-full fresh 65,994-constant Init checking, genuine hosted source loading and final
-checked import, issued Project/FileHandle, exact Nat41/Unicode calls and checked
-version/borrowed-owner lifecycle. The guarded job exited 0 and all 2,151 inputs
-matched after disposal. Earlier pending/failure entries below are chronology.
+The [latest component evidence](HOSTED_COMPONENT_ACCEPTANCE_2026-10-24.md)
+accepts fresh strict Init checking, genuine Project Nat/String callbacks and
+P1/P2 independent-root native reset, final checked union and retained-version
+calls. The new 1983 runtime uses the corrected selected private/IR attribution
+and native first-wins ownership semantics; original graph bounds remain.
 
-Next is a newly reviewed coupled P1-to-P2 capture exercising independent A/D
-roots, native reset, final union import and retained old-version calls. Budgets,
-actual postcheck schema and helper/caller identities must be captured explicitly;
-host-only runner tests and a native initializer-free D oracle do not establish
-P2. Project-level application callbacks follow with independently extended
-configuration and a newly issued application-enabled prefix. The current P1
-profile grants neither callbacks nor general IO/package/distribution support.
+A later chain harness Path/InputStream failure ended the capture with exit 1.
+Its actual issued load and three typed assertions are partial evidence; chain
+parent cleanup/profile, diamond and semantic-edit reloads remain pending.
+App/P1/P2 component cleanup passed, while borrowed baseline whole-session cleanup
+did not. All 1,293 pins and the 16-record journal chain verified after disposal.
+The [portable record](../measurements/hosted-component-acceptance.json) preserves
+this distinction; no whole-campaign or release acceptance is inferred.
+
+Next use a bounded Path/reader/late-assertion smoke before another expensive run,
+then finish graph/reload ownership, failed-operation disposal, synchronous typed
+IO and coherent source-inductive activation. The earlier
+[standalone public P1](../measurements/public-project-p1.json) remains its separate
+successful exit 0 result. Earlier entries below are chronology.
 
 ## Typed file witness and fresh execution measurements (2026-10-20)
 

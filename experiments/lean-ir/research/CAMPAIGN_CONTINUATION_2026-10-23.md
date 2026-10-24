@@ -5,7 +5,24 @@ research and acceptance planning, not a shipped feature ledger. The priorities
 remain fast REPL experiment turnover, persistent retained versions, semantic
 fidelity, and convenient integration with Clojure/JVM applications.
 
-## Execution update after planning
+## Current execution boundary, 2026-10-24
+
+The [qualified component record](HOSTED_COMPONENT_ACCEPTANCE_2026-10-24.md)
+now accepts actual bidirectional Nat/String callbacks and P1/P2 source loading,
+native reset, final checked union and retained old-version calls under the new
+1983 runtime. App/P1/P2 owned versions closed normally. A later chain harness
+Path/InputStream error ended the process with exit 1; chain parent cleanup and
+normal whole-session shutdown did not complete. All 1,293 input hashes and the
+16-record journal chain verified after disposal. Component success does not turn
+that terminal receipt into a successful whole campaign.
+
+Next: bounded actual Path/reader/post-run harness smoke, complete chain and
+retained-version profiling, diamond/edit reloads, failed-operation disposal,
+typed IO, source-inductive activation and packaging. Preserve the current failed
+capture; use fresh stage files and outputs. See the portable
+[component measurement](../measurements/hosted-component-acceptance.json) for exact limits.
+
+### Earlier standalone P1 acceptance
 
 **Public single-file P1 passed on 2026-10-24.** The
 [acceptance record](../measurements/public-project-p1.json) binds the actual
@@ -20,8 +37,9 @@ Fresh Init checking covered all 65,994 constants under the existing explicit
 15-assumption policy. The whole job took 1,032.729 seconds with a 3 GiB heap and
 3,689,373,696-byte peak group RSS. All 2,151 pins matched after disposal and were
 independently rehashed. This is narrow experimental integration acceptance,
-not competitive performance, a production distribution or native-reset/P2
-acceptance. Stage 2 below is now the next genuine campaign gate.
+not competitive performance or a production distribution. This earlier capture
+did not establish native-reset/P2; the later component result above records that
+separate gate. The numbered stages below preserve the original campaign agenda.
 
 ### Earlier attempts retained as history
 
