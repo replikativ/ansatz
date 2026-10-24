@@ -111,9 +111,76 @@ less memo retention for about 31% more allocation and 54% more time. Name intern
 remained at 87 entries throughout those trials. These are table/allocation
 measurements, not retained-byte savings or a representative full-corpus speed
 comparison, and do not isolate the cost of the scratch-lifetime policy itself.
-The production memo/profile remains unchanged. Integration still requires exact
+At that measurement point the admitted memo/profile remained unchanged. Integration required exact
 fresh Java admission parity and a wrapper enforcing complete-constant scratch
 lifetime, rather than caller discipline alone.
+
+## Scoped projection integration candidate
+
+The compact verifier now uses a whole-ConstantInfo wrapper. It keeps `:expr`,
+`:name`, `:level` and other core memo entries shared for the complete projection,
+while `:constant-val`, `:names` and `:levels` use scratch tables. A completed
+constant has already copied those temporary maps/list fields into its Java
+fields and arrays. The wrapper retires scratch on both success and failure;
+there is no public intercomponent clear operation or global-table retirement
+scan. Retirement sets the scratch slot to nil without allocating. A later scratch
+access recreates the tables under the existing lock. Foreign worlds and complete
+operation reentry are rejected before envelope reads or scratch retirement.
+
+The original `make-projector` bulk API retains its cumulative semantics. New
+`make-scoped-projector` returns component inspection and complete-constant
+projection operations. Existing layout, typed-key, world identity, cycle,
+ownership, policy and fresh Java admission checks remain in place. Successful
+children survive ordinary projection failures. If exceptional cleanup itself
+fails under resource exhaustion, the original Throwable is propagated rather
+than masked; projector reuse after such failed cleanup is not promised.
+
+Focused tests cover all eight native-produced variants, complete native
+17-constant fresh checking in both input orders, exact environment/checking
+shapes/order/policy, closed ill-typed declarations rejected by the actual checker,
+stable core identities, bounded scratch retention across distinct rows, cycles,
+foreign malformed-world rejection and allocation-free failure retirement.
+Focused integration validation passed **36 tests / 22,518 assertions**, with
+zero failures/errors, including freshly compiled current Java classes and the
+public compact verifier's strict native-fixture admission. The serial compile/test
+run took **7.885 seconds**, with **454,602,752-byte** peak process-group RSS under
+a 384 MiB test heap and 768 MiB RSS cap. All **271** source/jar/fixture inputs and
+**48** fresh class outputs matched afterward; both process groups were absent.
+The first run had one test-only expected-exception capture error (Java rejects
+with RuntimeException, while the old fixture helper catches ExceptionInfo); the
+checker correctly rejected the invalid declaration. The corrected test preserves
+the expected strict rejection/message. See the [validation record](../measurements/scoped-kernel-projection.json).
+No full Init projection, retained-heap comparison or genuine P1 passed for this
+change. These tests do not establish that scratch retirement makes it fit in
+2 GiB, and further full attempts require an explicit resource envelope.
+
+The preceding full P1 run using the shared-IR restorer/runtime
+`253d`/`c32` restored the full frontend but was interrupted during fresh projection
+at **33,792 / 65,994** constants after **662.654191 seconds**. Peak process-group
+RSS was **2,537,594,880 bytes**, minimum available system memory was
+**1,984,000,000 bytes**, and post-full-GC live heap approached **1,995 MiB** under
+the 2 GiB heap, with roughly 300 full collections. All **1,858** pinned inputs
+matched after process disposal. This is neither a strict-check pass nor a public
+file-load pass. Evidence: `shared-ir-c32-p1-2048m-v1/run-v1/receipt.json` and
+`postcheck.json` under the campaign's `target/artifact-contract` directory.
+
+Scratch retirement does not eliminate the final Java Expr DAG, core typed memo,
+guest heap or eager code baseline. Small-sample reductions must not be
+extrapolated to the full frontend. Native ModuleStore objects already live on
+disk behind a bounded decoded-node cache. `ExprStore.resolve` reconstructs entire
+expression subtrees; it is not a drop-in bound while all ConstantInfos remain
+strongly retained. Global Name interning (`Name.java`'s strong static map) also
+needs a separate future warm-session/edit/close lifetime measurement and identity
+contract review before any weak-interning change. None is included here.
+
+Separately, a fresh native-only D oracle on pinned Lean 4.33.1 observed an empty
+initializer action list, direct Init imports with meta false/true, and three
+local declarations: borrowed-Nat `D.nat` adding 100, its owned boxed wrapper, and
+String self-append. It completed in 0.547 seconds with 286,900,224-byte peak RSS;
+all 64 inputs matched and the process was disposed. This supports only the
+initializer-free P2 fixture, not hosted/P1/P2 acceptance. Evidence:
+`p2-native-D-oracle-v8-taskmanager1/run-v1/inventory.json` in the same campaign
+artifact directory.
 
 Run bounded semantic and memory controls before selecting a new consumer or
 repeating the expensive full run. Counts alone do not measure retained bytes.

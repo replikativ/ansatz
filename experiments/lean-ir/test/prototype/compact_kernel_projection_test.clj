@@ -106,3 +106,142 @@
                    (if (= Expr/APP (.tag current))
                      (recur (inc n) (.o0 current)) n))))
     (is (= 10003 (:projected-nodes (p world :expr root))))))
+
+(defn- name-list [world name length]
+  (loop [world world tail guest/nil-tag remaining length]
+    (if (zero? remaining) [world tail]
+      (let [[world tail] (guest/ctor world 1 [name tail] 0)]
+        (recur world tail (dec remaining))))))
+
+(defn- scratch-constants []
+  ;; Projection-only data: repeated parameters are intentionally not a claimed
+  ;; well-typed declaration. Distinct rows share all core expression/name refs.
+  (let [[world name] (guest/guest-name (m/world {}) "scoped.probe")
+        [world type] (guest/constant world "Nat")
+        [world body] (guest/literal world 42)]
+    (loop [world world roots [] remaining 12]
+      (if (zero? remaining) {:world world :roots roots :body body}
+        (let [[world params] (name-list world name 24)
+              [world base] (guest/ctor world 0 [name params type] 0)
+              [world all] (guest/ctor world 1 [name guest/nil-tag] 0)
+              [world payload] (guest/ctor world 0 [base body guest/nil-tag all] 1)
+              world (guest/scalar! world payload 0 "uint8" 1)
+              [world root] (guest/ctor world 1 [payload] 0)]
+          (recur world (conj roots root) (dec remaining)))))))
+
+(deftest scoped-constant-boundary-retires-only-scratch-and-preserves-core-sharing
+  (let [{:keys [world roots body]} (scratch-constants)
+        original (bridge/make-projector world)
+        bulk (compact/make-projector world)
+        {:keys [project project-constant] :as scope} (compact/make-scoped-projector world)
+        shared (:value (project world :expr body))
+        counts (mapv
+                 (fn [root]
+                   (let [a (imported/project-constant world root original)
+                         b (imported/project-constant world root bulk)
+                         c (project-constant world root)]
+                     (is (= (imported/checking-shape a) (imported/checking-shape b)
+                            (imported/checking-shape c)))
+                     (is (identical? shared (.value ^ConstantInfo c)))
+                     (is (identical? shared (:value (project world :expr body))))
+                     (:projected-nodes (project world :expr body)))) roots)]
+    (is (= #{:project :project-constant} (set (keys scope))))
+    ;; Every root has a distinct constant-val map and parameter/all list spine,
+    ;; but these scratch entries do not accumulate after whole-CI completion.
+    (is (apply = counts))
+    (is (> (:projected-nodes (bulk world :expr body)) (last counts)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"different world"
+                          (project-constant (into {} world) (first roots))))))
+
+(deftest scoped-failed-constant-keeps-completed-children-and-clears-active-scratch
+  (let [[world child] (guest/literal (m/world {}) 2)
+        [world invalid] (guest/ctor world 1 [guest/nil-tag] 8)
+        [world bad-type] (guest/ctor world 5 [child invalid] 8)
+        [world root] (guest/declaration world "scoped.failure" bad-type child)
+        original (bridge/make-projector world)
+        {:keys [project project-constant]} (compact/make-scoped-projector world)
+        _ (project world :nat 0)
+        expected (message #(imported/project-constant world root original))]
+    (is (some? expected))
+    (is (= expected (message #(project-constant world root))))
+    ;; The cached unrelated scalar reports current entries without materializing
+    ;; CHILD. Its later lookup must add no entries: CHILD was built in failure.
+    (let [after-failure (:projected-nodes (project world :nat 0))
+          recovered (project world :expr child)]
+      (is (= after-failure (:projected-nodes recovered)))
+      (is (= expected (message #(project-constant world root))))
+      (is (= after-failure (:projected-nodes (project world :nat 0))))
+      (is (identical? (:value recovered) (:value (project world :expr child))))))
+  (let [[world name] (guest/guest-name (m/world {}) "scoped.cycle")
+        [world params] (guest/ctor world 1 [name guest/nil-tag] 0)
+        [world type] (guest/literal world 1)
+        [world base] (guest/ctor world 0 [name params type] 0)
+        [world payload] (guest/ctor world 0 [base] 1)
+        [world root] (guest/ctor world 0 [payload] 0)
+        world (assoc-in world [:heap (:id params) :fields 1] params)
+        {:keys [project project-constant]} (compact/make-scoped-projector world)]
+    (project world :nat 0)
+    (is (re-find #"Cyclic" (message #(project-constant world root))))
+    (let [after-failure (:projected-nodes (project world :nat 0))]
+      (is (re-find #"Cyclic" (message #(project-constant world root))))
+      (is (= after-failure (:projected-nodes (project world :nat 0)))))))
+
+(deftest scoped-complete-native-variants-match-bulk-and-original
+  (let [loaded (native/loaded) world (:world loaded)
+        original (bridge/make-projector world) bulk (compact/make-projector world)
+        {:keys [project-constant]} (compact/make-scoped-projector world)
+        entries (vec (native/entries loaded))]
+    (is (= (set (range 8)) (set (map #(.tag ^ConstantInfo (:constant %)) entries))))
+    (doseq [{:keys [guest]} (concat entries (reverse entries))]
+      (is (= (imported/checking-shape (imported/project-constant world guest original))
+             (imported/checking-shape (imported/project-constant world guest bulk))
+             (imported/checking-shape (project-constant world guest)))))))
+
+(deftest scoped-foreign-world-is-rejected-before-reading-or-retiring-scratch
+  (let [world (m/world {}) foreign {:malformed :world}
+        {:keys [project project-constant]} (compact/make-scoped-projector world)
+        before (project world :names guest/nil-tag)
+        reads (atom 0)]
+    (with-redefs [imported/project-constant (fn [& _] (swap! reads inc) (throw (AssertionError. "foreign read")))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"different world"
+                            (project-constant foreign (m/->Ref 123))))
+      (is (zero? @reads)))
+    ;; If wrong-world rejection cleared legitimate scratch, the next lookup
+    ;; would allocate. Existing scratch must instead remain intact.
+    (with-redefs-fn {#'compact/scratch-tables (fn [] (throw (AssertionError. "scratch was retired")))}
+      #(is (= before (project world :names guest/nil-tag))))))
+
+(deftest scoped-retirement-does-not-allocate-or-mask-the-original-failure
+  (doseq [throws? [false true]]
+    (let [world (m/world {})
+          {:keys [project project-constant]} (compact/make-scoped-projector world)
+          _ (project world :names guest/nil-tag)
+          original (ex-info "original failure" {})
+          allocation (ex-info "next scratch allocation" {})
+          allocations (atom 0)]
+      (with-redefs [imported/project-constant (fn [& _] (if throws? (throw original) :completed))]
+        (with-redefs-fn {#'compact/scratch-tables (fn [] (swap! allocations inc) (throw allocation))}
+          (fn []
+            (if throws?
+              (is (identical? original (try (project-constant world nil) nil (catch Throwable e e))))
+              (is (= :completed (project-constant world nil))))
+            (is (zero? @allocations))
+            ;; Retirement cleared the table, without allocating a replacement.
+            (is (identical? allocation (try (project world :names guest/nil-tag) nil (catch Throwable e e))))
+            (is (= 1 @allocations))))))))
+
+(deftest scoped-constant-reentry-is-rejected-before-inner-finally
+  (let [world (m/world {})
+        {:keys [project project-constant]} (compact/make-scoped-projector world)
+        seeded (project world :names guest/nil-tag)
+        calls (atom 0)]
+    (with-redefs [imported/project-constant
+                  (fn [& _]
+                    (swap! calls inc)
+                    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Reentrant constant projection"
+                                          (project-constant world nil)))
+                    (with-redefs-fn {#'compact/scratch-tables (fn [] (throw (AssertionError. "inner retirement")))}
+                      #(is (= seeded (project world :names guest/nil-tag))))
+                    :completed)]
+      (is (= :completed (project-constant world nil)))
+      (is (= 1 @calls)))))
