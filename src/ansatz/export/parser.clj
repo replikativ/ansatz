@@ -592,28 +592,29 @@
   [path init-state decl-fn]
   (with-open [rdr (io/reader path)]
     (let [parser-st (atom (mk-parser-state))]
-      (try
-        (loop [state init-state
-               lines (line-seq rdr)]
-          (if-let [line (first lines)]
-            (let [line (clojure.string/trim line)]
-              (if (empty? line)
-                (recur state (next lines))
-                (let [obj (json/read-str line)
-                      old-decl-count (count (:decls @parser-st))]
-                  (swap! parser-st parse-line obj)
-                  (let [new-decls (:decls @parser-st)
-                        new-state (if (> (count new-decls) old-decl-count)
-                                    ;; New declarations emitted — process them
-                                    (let [fresh (subvec new-decls old-decl-count)]
-                                      (swap! parser-st assoc :decls []) ;; clear to save memory
-                                      (reduce decl-fn state fresh))
-                                    state)]
-                    (recur new-state (next lines))))))
-            {:final-state state
-             :parser-meta (:meta @parser-st)}))
-        (finally
-          (.close ^ExprStore (:exprs @parser-st)))))))
+      ;; parse-line retains the same expression-store owner in every state.
+      (with-parser-state
+        @parser-st
+        (fn [_]
+          (loop [state init-state
+                 lines (line-seq rdr)]
+            (if-let [line (first lines)]
+              (let [line (clojure.string/trim line)]
+                (if (empty? line)
+                  (recur state (next lines))
+                  (let [obj (json/read-str line)
+                        old-decl-count (count (:decls @parser-st))]
+                    (swap! parser-st parse-line obj)
+                    (let [new-decls (:decls @parser-st)
+                          new-state (if (> (count new-decls) old-decl-count)
+                                      ;; New declarations emitted — process them
+                                      (let [fresh (subvec new-decls old-decl-count)]
+                                        (swap! parser-st assoc :decls []) ;; clear to save memory
+                                        (reduce decl-fn state fresh))
+                                      state)]
+                      (recur new-state (next lines))))))
+              {:final-state state
+               :parser-meta (:meta @parser-st)})))))))
 
 (defn parse-ndjson-file-streaming-raw
   "Parse a lean4export NDJSON file, calling decl-fn on each CI-shell.

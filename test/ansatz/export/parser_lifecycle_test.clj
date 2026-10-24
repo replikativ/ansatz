@@ -149,3 +149,30 @@
           (let [environment (#'core/bundled-medium-env)]
             (closed! stores)
             (usable! environment)))))))
+
+(deftest resolved-streaming-preserves-callback-error-when-store-close-also-fails
+  (with-file
+    (fn [path]
+      (with-stores
+        (fn [stores]
+          (let [consume parser/with-parser-state
+                failure (AssertionError. "stream callback failure")
+                cleanup (java.io.IOException. "stream store close failure")]
+            ;; ExprStore is final. Wrap only its cleanup to inject a failure
+            ;; after closing the actual store; parsing/streaming stay real.
+            (with-redefs [parser/with-parser-state
+                          (fn [st f]
+                            (consume
+                              (assoc st :exprs
+                                     (reify Closeable
+                                       (close [_]
+                                         (.close ^ExprStore (:exprs st))
+                                         (throw cleanup))))
+                              (fn [_] (f st))))]
+              (is (identical? failure
+                              (try
+                                (parser/parse-ndjson-file-streaming
+                                  path nil (fn [& _] (throw failure)))
+                                (catch Throwable cause cause)))))
+            (is (= [cleanup] (vec (.getSuppressed failure))))
+            (closed! stores)))))))
