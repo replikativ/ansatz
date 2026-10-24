@@ -1,0 +1,24 @@
+{
+  "schema": "lean-typed-eio-native-fixtures/1",
+  "leanVersion": "4.33.1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "runtimeProfile": {
+    "target": "x86_64-unknown-linux-gnu",
+    "wordBits": 64
+  },
+  "exporterSHA256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+  "exportCommand": [
+    "lean-ir-export",
+    "--source",
+    "SOURCE",
+    "--local",
+    "MODULE"
+  ],
+  "scope": "Actual native source/frontend export; tests run emitted local IR on Ansatz backends. No hosted frontend/Project acceptance or reproducible-build claim.",
+  "files": {
+    "EIOResultBuilders.lean": "d3d49d5e1cdc68357b895f60f4e78d17ea0db58d3691cacbf137a4d610c12662",
+    "project-app-eio.ndjson": "7ebc017fde6504db2fb1e964c77e0523f951ce471b8490c0e13699bcba455d0b",
+    "result-builders.ndjson": "6f8eea13b8277cea2bdc757fc8cd8a21e025ece55873104c22e828aa90ffe684",
+    "ProjectAppEIO.lean": "c129dbfcd7209b8ffe307c875377c43def99aef2d284f43cb54c10d002eea958"
+  }
+}

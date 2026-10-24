@@ -9,6 +9,11 @@ An Ansatz experiment, outside the library's normal source/AOT paths. Its optiona
 consumer APIs and fixtures support the hosted frontend campaign; a production
 runtime API and package split remain undecided.
 
+The optional [typed EIO controller](research/TYPED_EIO_HOST_VALUES.md) supports
+explicit synchronous String services with declared String errors and bounded
+invocation permission. Its fixtures exercise actual emitted Lean IR on all three
+backends; fresh hosted source/Project IO acceptance remains a separate gate.
+
 The [latest component record](measurements/hosted-component-acceptance.json)
 accepts genuine Nat/String callbacks and public P1/P2 native reset with retained
 versions. A later chain harness error ended that capture with exit 1; complete
