@@ -86,3 +86,89 @@
     (is (= {:source :annotated} (meta (second (nth names 2)))))
     (is (identical? ref (:ref shared)))
     (is (instance? prototype.machine.Ref (:ref shared)))))
+
+(deftest validate-only-keeps-the-original-value-and-all-supported-edges
+  (doseq [value [nil false \c 'symbol :keyword "λ🦉" 1 1N 1/3 1.25M
+                 Float/NaN Double/NaN -0.0
+                 (m/->Ref 1) (m/->Tag 7) (m/->Builtin :inc) (native/native-scalar 512)
+                 (with-meta {:a [(with-meta '(1 2) {:list true}) #{:a :b}]
+                             :nested {(with-meta [:key] {:key true}) (with-meta [:value] {:value true})}}
+                   {:metadata (with-meta [:data] {:nested true})})]]
+    (is (identical? value (wire/validate-value! value)))
+    (is (wire/same-data? value (wire/decode (wire/encode value))))))
+
+(deftest validate-only-and-transform-share-rejections-including-nested-key-context
+  (doseq [value [(Object.) (atom 1) (sorted-map :a 1) (sorted-set :a)
+                 (assoc (m/->Ref 1) :extra 2) (m/->Ref -1) (m/->Tag 256) (m/->Builtin :other)
+                 (native/->RawNativeScalar -1) (assoc (native/->RawNativeScalar 1) :extra 2)
+                 (with-meta (m/->Ref 1) {})
+                 {[:nested {:value [Double/NaN]}] :value}
+                 #{[:nested {:value [Float/NaN]}]}
+                 {(with-meta [:key] {:hidden [Double/NaN]}) :value}
+                 (with-meta [:valid] {:nested-key {[:bad Float/NaN] :value}})]]
+    (let [failure (fn [f] (try (f value) :accepted
+                              (catch Throwable cause [(.getName (class cause)) (.getMessage cause)])))]
+      (is (not= :accepted (failure wire/wire-value)))
+      (is (= (failure wire/wire-value) (failure wire/validate-value!))))))
+
+(deftype MetaVector [values metadata]
+  clojure.lang.IPersistentVector
+  (count [_] (count values))
+  (nth [_ index] (nth values index))
+  (nth [_ index missing] (nth values index missing))
+  (seq [_] (seq values))
+  clojure.lang.IMeta
+  (meta [_] metadata))
+
+(deftype InitSensitiveVector [opaque-with-transient?]
+  clojure.lang.IPersistentVector
+  (count [_] 1)
+  (nth [_ index] (nth [1] index))
+  (nth [_ index missing] (nth [1] index missing))
+  (seq [_] (seq [1]))
+  clojure.lang.IReduceInit
+  (reduce [_ f init]
+    (f init (if (= opaque-with-transient? (instance? clojure.lang.ITransientVector init)) (Object.) 1))))
+
+(deftest validate-only-models-transformed-collection-metadata-capability
+  ;; mapv produces an IObj even when the accepted original vector only has IMeta.
+  (let [value (MetaVector. [1 2] {:source :custom-vector})]
+    (is (vector? value))
+    (is (not (instance? clojure.lang.IObj value)))
+    (is (= {:source :custom-vector} (meta (wire/wire-value value))))
+    (is (identical? value (wire/validate-value! value)))))
+
+(deftest custom-reducers-keep-the-complete-transforming-accumulator-contract
+  ;; With transient[] mapv must reject the first instance and accept the second;
+  ;; a nil-accumulator validation reduction would reverse both decisions.
+  (let [bad (InitSensitiveVector. true) good (InitSensitiveVector. false)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Opaque checkpoint value" (wire/wire-value bad)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Opaque checkpoint value" (wire/validate-value! bad)))
+    (is (= [1] (wire/wire-value good)))
+    (is (identical? good (wire/validate-value! good)))
+    ;; SubVector is deliberately not a fast path; its public backing may be custom.
+    (let [slice (clojure.lang.APersistentVector$SubVector. nil (MetaVector. [1] nil) 0 1)]
+      (is (= [1] (wire/wire-value slice)))
+      (is (identical? slice (wire/validate-value! slice))))))
+
+(deftest custom-fallback-preserves-nested-map-key-float-policy
+  (doseq [value [{(MetaVector. [Double/NaN] nil) :value}
+                 {(MetaVector. [[:deep Float/NaN]] nil) :value}
+                 {(MetaVector. [1] {:hidden [Double/NaN]}) :value}]]
+    (is (thrown? clojure.lang.ExceptionInfo (wire/wire-value value)))
+    (is (thrown? clojure.lang.ExceptionInfo (wire/validate-value! value)))))
+
+(deftest custom-fallback-processes-metadata-children-exactly-once
+  (let [reads (atom 0)
+        leaf (reify clojure.lang.IPersistentVector clojure.lang.IReduceInit
+               (count [_] 1)
+               (nth [_ index] (nth [1] index))
+               (nth [_ index missing] (nth [1] index missing))
+               (seq [_] (seq [1]))
+               (reduce [_ f init] (swap! reads inc) (reduce f init [1])))
+        value (MetaVector. [1] {:leaf leaf})]
+    (wire/wire-value value)
+    (is (= 1 @reads))
+    (reset! reads 0)
+    (is (identical? value (wire/validate-value! value)))
+    (is (= 1 @reads))))

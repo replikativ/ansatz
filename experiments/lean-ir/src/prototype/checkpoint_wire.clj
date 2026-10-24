@@ -52,47 +52,80 @@
    'inst (fn [_] (fail "Unsupported checkpoint tag" {:tag 'inst}))
    'uuid (fn [_] (fail "Unsupported checkpoint tag" {:tag 'uuid}))})
 
+(defn- visit-wire-value [root emit?]
+  ;; One acceptance policy for transformation and validation. Validation visits
+  ;; every same child/metadata edge. Exact standard sequences avoid discarded
+  ;; AST containers; custom sequences retain the complete transforming path.
+  ;; Float keys/set members are explicitly unsupported (NaN key equality).
+  (letfn [(visit [x keyed? emit?]
+            (if (and (not emit?) (or (vector? x) (list? x))
+                     (not (or (identical? clojure.lang.PersistentVector (class x))
+                              (identical? clojure.lang.PersistentList (class x))
+                              (identical? (class '()) (class x)))))
+              ;; A custom reduction can inspect the initial accumulator or the
+              ;; reducer result. Preserve its complete old transforming path,
+              ;; including the incoming key context and one metadata traversal.
+              (visit x keyed? true)
+              (do
+                (when (and keyed? (or (instance? Float x) (instance? Double x)))
+                  (fail "Float inside a map key or set member is outside v1" {}))
+                (let [result
+                      (cond
+                        (instance? Float x) (if emit? (tagged-literal 'ansatz.checkpoint/float32 (format "%08x" (Float/floatToRawIntBits x))) x)
+                        (instance? Double x) (if emit? (tagged-literal 'ansatz.checkpoint/float64 (format "%016x" (Double/doubleToRawLongBits x))) x)
+                        (or (m/ref? x) (instance? prototype.machine.Tag x)
+                            (instance? prototype.machine.Builtin x) (native/native-scalar? x))
+                        (do
+                          (check (nil? (meta x)) "Metadata on guest carrier is outside v1")
+                          (cond
+                            (m/ref? x) (check (and (= #{:id} (set (keys x))) (integer? (:id x)) (<= 0 (:id x) Long/MAX_VALUE)) "Invalid guest Ref")
+                            (instance? prototype.machine.Tag x) (check (and (= #{:tag} (set (keys x))) (integer? (:tag x)) (<= 0 (:tag x) 255)) "Invalid guest Tag")
+                            (instance? prototype.machine.Builtin x) (check (and (= #{:name} (set (keys x))) (= :inc (:name x))) "Unsupported guest Builtin")
+                            :else (do (check (= #{:payload} (set (keys x))) "Invalid native scalar fields") (native/native-scalar (:payload x))))
+                          x)
+                        (record? x) (fail "Unsupported checkpoint record" {:class (.getName (class x))})
+                        (map? x)
+                        (do
+                          (check (contains? #{"clojure.lang.PersistentArrayMap" "clojure.lang.PersistentHashMap"}
+                                            (.getName (class x))) "Unsupported map implementation")
+                          (if emit?
+                            (reduce-kv (fn [out k v]
+                                         (check (not (or (instance? Float k) (instance? Double k))) "Float map keys are outside v1")
+                                         (assoc out (visit k true emit?) (visit v keyed? emit?))) (empty x) x)
+                            (do (reduce-kv (fn [_ k v]
+                                             (check (not (or (instance? Float k) (instance? Double k))) "Float map keys are outside v1")
+                                             (visit k true emit?) (visit v keyed? emit?) nil) nil x) x)))
+                        (vector? x) (if emit? (with-meta (mapv #(visit % keyed? emit?) x) (meta x))
+                                        (do (reduce (fn [_ v] (visit v keyed? emit?) nil) nil x) x))
+                        (list? x) (if emit? (with-meta (apply list (mapv #(visit % keyed? emit?) x)) (meta x))
+                                      (do (reduce (fn [_ v] (visit v keyed? emit?) nil) nil x) x))
+                        (set? x) (do
+                                   (check (= "clojure.lang.PersistentHashSet" (.getName (class x))) "Unsupported set implementation")
+                                   (doseq [v x] (check (not (or (instance? Float v) (instance? Double v))) "Float set members are outside v1"))
+                                   (if emit? (into #{} (map #(visit % true emit?)) x)
+                                       (do (doseq [v x] (visit v true emit?)) x)))
+                        (or (nil? x) (string? x) (boolean? x) (char? x) (symbol? x) (keyword? x)
+                            (integer? x) (instance? java.math.BigDecimal x) (ratio? x)) x
+                        :else (fail "Opaque checkpoint value" {:class (.getName (class x))}))]
+                  (if-let [metadata (meta x)]
+                    (do
+                      (check (instance? clojure.lang.IObj result) "Metadata on unsupported scalar")
+                      (let [next-metadata (visit metadata keyed? emit?)]
+                        (if emit? (with-meta result next-metadata) result))) result)))))]
+    (visit root false emit?)))
+
 (defn wire-value [root]
   ;; Transform ONE bounded row; never make a transformed whole-world copy.
-  ;; Float keys/set members are explicitly unsupported (NaN key equality).
-  (letfn [(visit [x keyed?]
-            (when (and keyed? (or (instance? Float x) (instance? Double x)))
-              (fail "Float inside a map key or set member is outside v1" {}))
-            (let [result
-                  (cond
-                    (instance? Float x) (tagged-literal 'ansatz.checkpoint/float32 (format "%08x" (Float/floatToRawIntBits x)))
-                    (instance? Double x) (tagged-literal 'ansatz.checkpoint/float64 (format "%016x" (Double/doubleToRawLongBits x)))
-                    (or (m/ref? x) (instance? prototype.machine.Tag x)
-                        (instance? prototype.machine.Builtin x) (native/native-scalar? x))
-                    (do
-                      (check (nil? (meta x)) "Metadata on guest carrier is outside v1")
-                      (cond
-                        (m/ref? x) (check (and (= #{:id} (set (keys x))) (integer? (:id x)) (<= 0 (:id x) Long/MAX_VALUE)) "Invalid guest Ref")
-                        (instance? prototype.machine.Tag x) (check (and (= #{:tag} (set (keys x))) (integer? (:tag x)) (<= 0 (:tag x) 255)) "Invalid guest Tag")
-                        (instance? prototype.machine.Builtin x) (check (and (= #{:name} (set (keys x))) (= :inc (:name x))) "Unsupported guest Builtin")
-                        :else (do (check (= #{:payload} (set (keys x))) "Invalid native scalar fields") (native/native-scalar (:payload x))))
-                      x)
-                    (record? x) (fail "Unsupported checkpoint record" {:class (.getName (class x))})
-                    (map? x)
-                    (do
-                      (check (contains? #{"clojure.lang.PersistentArrayMap" "clojure.lang.PersistentHashMap"}
-                                        (.getName (class x))) "Unsupported map implementation")
-                      (reduce-kv (fn [out k v]
-                                   (check (not (or (instance? Float k) (instance? Double k))) "Float map keys are outside v1")
-                                   (assoc out (visit k true) (visit v keyed?))) (empty x) x))
-                    (vector? x) (with-meta (mapv #(visit % keyed?) x) (meta x))
-                    (list? x) (with-meta (apply list (mapv #(visit % keyed?) x)) (meta x))
-                    (set? x) (do
-                               (check (= "clojure.lang.PersistentHashSet" (.getName (class x))) "Unsupported set implementation")
-                               (doseq [v x] (check (not (or (instance? Float v) (instance? Double v))) "Float set members are outside v1"))
-                               (into #{} (map #(visit % true)) x))
-                    (or (nil? x) (string? x) (boolean? x) (char? x) (symbol? x) (keyword? x)
-                        (integer? x) (instance? java.math.BigDecimal x) (ratio? x)) x
-                    :else (fail "Opaque checkpoint value" {:class (.getName (class x))}))]
-              (if-let [metadata (meta x)]
-                (do (check (instance? clojure.lang.IObj result) "Metadata on unsupported scalar")
-                    (with-meta result (visit metadata keyed?))) result)))]
-    (visit root false)))
+  (visit-wire-value root true))
+
+(defn validate-value!
+  "Apply wire-value's complete acceptance policy. Exact standard collections
+   avoid reconstruction; custom sequence classes keep the transforming fallback.
+   Returns the identical input. This grants no kernel or executable authority."
+  [root]
+  (visit-wire-value root false)
+  root)
+
 (defn- bounded-sink [limit]
   (check (and (integer? limit) (<= 0 limit Integer/MAX_VALUE)) "Invalid bounded byte limit")
   ;; Chunk capacities sum to at most LIMIT. No oversized byte array or doubled
@@ -279,7 +312,7 @@
         (check (not (identical? eof row)) "Empty checkpoint frame")
         (check (identical? eof (edn/read options reader)) "Multiple values in checkpoint frame")
         ;; Also rejects unknown records/classes produced by custom readers.
-        (wire-value row)
+        (validate-value! row)
         row))))
 (defn write-frame! [^DataOutputStream output row]
   (let [bytes (encode row)]
