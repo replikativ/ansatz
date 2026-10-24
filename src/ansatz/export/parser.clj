@@ -515,7 +515,7 @@
 (defn- close-after-failure!
   [state ^Throwable failure]
   (try
-    (.close ^ExprStore (:exprs state))
+    (.close ^java.io.Closeable (:exprs state))
     (catch Throwable cleanup
       (when-not (identical? failure cleanup) (.addSuppressed failure cleanup)))))
 
@@ -529,6 +529,20 @@
     (catch Throwable failure
       (close-after-failure! initial failure)
       (throw failure))))
+
+(defn with-parser-state
+  "Consume a successful caller-owned parser state, then close its expression
+   store exactly once. f receives the state and must return detached values,
+   not the store or lazy work needing it. On failure, cleanup errors are
+   suppressed on the original Throwable; a close failure after success throws."
+  [state f]
+  (let [result (try
+                 (f state)
+                 (catch Throwable failure
+                   (close-after-failure! state failure)
+                   (throw failure)))]
+    (.close ^java.io.Closeable (:exprs state))
+    result))
 
 (defn parse-ndjson-string
   "Parse a lean4export NDJSON string. Returns state with caller-owned :exprs
@@ -652,12 +666,12 @@
 (defn load-ndjson
   "Parse an NDJSON file and build an environment (without type-checking)."
   [path]
-  (let [st (parse-ndjson-file path)
-        num-exprs (.size ^ExprStore (:exprs st))]
-    (.close ^ExprStore (:exprs st))
-    {:env (build-env (:decls st))
-     :meta (:meta st)
-     :num-names (.size ^ArrayList (:names st))
-     :num-levels (.size ^ArrayList (:levels st))
-     :num-exprs num-exprs
-     :num-decls (count (:decls st))}))
+  (with-parser-state
+    (parse-ndjson-file path)
+    (fn [st]
+      {:env (build-env (:decls st))
+       :meta (:meta st)
+       :num-names (.size ^ArrayList (:names st))
+       :num-levels (.size ^ArrayList (:levels st))
+       :num-exprs (.size ^ExprStore (:exprs st))
+       :num-decls (count (:decls st))})))

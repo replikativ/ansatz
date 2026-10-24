@@ -251,17 +251,19 @@
 (defn replay-file
   "Parse an NDJSON file and replay all declarations."
   [path & {:as opts}]
-  (let [_ (println "Parsing" path "...")
-        st (parser/parse-ndjson-file path)
-        decls (:decls st)
-        meta (:meta st)
-        _ (println "Parsed:" (count decls) "declarations,"
-                   (.size ^java.util.ArrayList (:names st)) "names,"
-                   (.size ^ExprStore (:exprs st)) "expressions")
-        _ (println "Replaying declarations...")
-        result (replay decls opts)]
-    (println "Done:" (:stats result))
-    (assoc result :meta meta)))
+  (println "Parsing" path "...")
+  (parser/with-parser-state
+    (parser/parse-ndjson-file path)
+    (fn [st]
+      (let [decls (:decls st)
+            meta (:meta st)
+            _ (println "Parsed:" (count decls) "declarations,"
+                       (.size ^java.util.ArrayList (:names st)) "names,"
+                       (.size ^ExprStore (:exprs st)) "expressions")
+            _ (println "Replaying declarations...")
+            result (replay decls opts)]
+        (println "Done:" (:stats result))
+        (assoc result :meta meta)))))
 
 (defn- record-stream-result
   [state result]

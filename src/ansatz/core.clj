@@ -235,9 +235,10 @@
   []
   (let [payload (bundle/verified-bytes bundled-medium-resource)
         text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
-               (slurp in))
-        decls (:decls (parser/parse-ndjson-string text))]
-    (:env (replay/replay decls :verify? false))))
+               (slurp in))]
+    (parser/with-parser-state
+      (parser/parse-ndjson-string text)
+      (fn [parsed] (:env (replay/replay (:decls parsed) :verify? false))))))
 
 (clojure.core/defn- init!-bundled-medium! []
   (bundle/with-verified
@@ -281,7 +282,9 @@
         {:keys [env stats error-names meta]}
         (if verify?
           (replay/replay-file-streaming ndjson)
-          (replay/replay (:decls (parser/parse-ndjson-file ndjson)) :verify? false))]
+          (parser/with-parser-state
+            (parser/parse-ndjson-file ndjson)
+            (fn [parsed] (replay/replay (:decls parsed) :verify? false))))]
     (when (pos? (:errors stats))
       (throw (ex-info (str "export does not check: " (:errors stats) " declarations failed")
                       {:ndjson ndjson :stats stats :failed (vec (take 50 error-names))})))

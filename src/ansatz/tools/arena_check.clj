@@ -22,7 +22,7 @@
   (:require [ansatz.export.parser :as parser]
             [ansatz.kernel.env :as env]
             [clojure.string :as str])
-  (:import [ansatz.kernel ConstantInfo Env ExprStore]
+  (:import [ansatz.kernel ConstantInfo Env]
            [java.util ArrayList]))
 
 ;; ============================================================
@@ -207,20 +207,21 @@
                   (outcome exit-decline (str "cannot parse export: " (root-message t)) :throwable t)))]
     (if (:exit st)
       st
-      (do
-        (.close ^ExprStore (:exprs st))
-        (let [ver (format-version (:meta st))]
-          (cond
-            (nil? ver)
-            (outcome exit-decline "export has no leading meta record with a format version (expected lean4export format 3.x)")
+      (parser/with-parser-state
+        st
+        (fn [st]
+          (let [ver (format-version (:meta st))]
+            (cond
+              (nil? ver)
+              (outcome exit-decline "export has no leading meta record with a format version (expected lean4export format 3.x)")
 
-            (not (str/starts-with? (str ver) (str supported-format-major ".")))
-            (outcome exit-decline (str "unsupported export format version " ver " (we read 3.x)"))
+              (not (str/starts-with? (str ver) (str supported-format-major ".")))
+              (outcome exit-decline (str "unsupported export format version " ver " (we read 3.x)"))
 
-            :else
-            {:decls (:decls st)
-             :meta (:meta st)
-             :num-names (.size ^ArrayList (:names st))}))))))
+              :else
+              {:decls (:decls st)
+               :meta (:meta st)
+               :num-names (.size ^ArrayList (:names st))})))))))
 
 ;; ============================================================
 ;; CLI
