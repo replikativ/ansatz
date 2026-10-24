@@ -2,6 +2,7 @@
   "Compact consumer parity over genuine native CIs and modeled guest helpers."
   (:require [clojure.test :refer [deftest is]]
             [prototype.compact-import-check :as compact]
+            [prototype.compact-kernel-projection :as projection]
             [prototype.imported-kernel :as kernel]
             [prototype.imported-kernel-test :as native]
             [prototype.kernel-bridge-test :as guest]
@@ -119,3 +120,46 @@
     (is (= io (:io-result result)))
     (is (nil? (:verification-progress (compact/checkpoint control))))
     (is (= :guest-io-error (:phase (compact/summary control))))))
+
+(deftest scoped-public-verifier-freshly-admits-native-cis-in-both-orders
+  (let [loaded (native/loaded) world (:world loaded) values (native/values loaded)]
+    (doseq [ordered [values (vec (reverse values))]]
+      (let [before world
+            expected (kernel/verify-constants world ordered native/policy)
+            result (compact/verify-constants world ordered native/policy)
+            selected [:constants :projected :axioms :order :projection-sources]
+            environment-shapes
+            (fn [certificate]
+              (into {} (map (fn [ci] [(.name ^ansatz.kernel.ConstantInfo ci) (kernel/checking-shape ci)]))
+                    (.allConstants ^ansatz.kernel.Env (:env certificate))))]
+        (is (= 17 (count (:constants result))))
+        (is (= (select-keys (shapes expected) selected) (select-keys (shapes result) selected)))
+        (is (= (environment-shapes expected) (environment-shapes result)))
+        (is (= (.isQuotEnabled ^ansatz.kernel.Env (:env expected))
+               (.isQuotEnabled ^ansatz.kernel.Env (:env result))))
+        (is (identical? before world))))))
+
+(deftest scoped-public-verifier-still-rejects-closed-but-ill-typed-declarations
+  (let [loaded (native/loaded) world (:world loaded) values (native/values loaded)
+        alias (get (native/by-name loaded) "aliasA")
+        payload (native/payload world alias)
+        base (first (:fields (m/node world payload)))
+        [world sort-zero] (guest/ctor world 3 [guest/nil-tag] 8)
+        [world successor] (guest/ctor world 1 [guest/nil-tag] 8)
+        [world sort-one] (guest/ctor world 3 [successor] 8)
+        malformed-type (assoc-in world [:heap (:id base) :fields 2] sort-zero)
+        malformed-body (assoc-in world [:heap (:id payload) :fields 1] sort-one)]
+    ;; aliasA : Sort 1 := A. Sort 0 as its type, or Sort 1 as its body, is closed
+    ;; and projects successfully; the fresh Java checker must reject the mismatch.
+    (doseq [changed [malformed-type malformed-body]]
+      (let [{:keys [project-constant]} (projection/make-scoped-projector changed)
+            projected (mapv #(project-constant changed %) values)
+            ;; Java rejection is RuntimeException, not the facade's ExceptionInfo.
+            rejected (fn [f] (try (f) nil (catch RuntimeException cause cause)))
+            expected (rejected #(kernel/verify-constants changed values native/policy))
+            actual (rejected #(compact/verify-constants changed values native/policy))]
+        (is (= 17 (count projected)))
+        (is (some? expected))
+        (is (some? actual))
+        (is (= (.getMessage expected) (.getMessage actual)))
+        (is (re-find #"Declaration value type does not match" (.getMessage actual)))))))

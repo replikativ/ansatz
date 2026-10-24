@@ -106,9 +106,9 @@
 (defn- project-entries [world values]
   ;; Invocation-local memo dies with this frame, before dependency graphs exist.
   (stage! {:phase :projection :projected-constants 0 :constants-total (count values)})
-  (let [projector (compact/make-projector world)]
+  (let [project-constant (:project-constant (compact/make-scoped-projector world))]
     (mapv (fn [index guest]
-            (let [constant (kernel/project-constant world guest projector)]
+            (let [constant (project-constant world guest)]
               (when (zero? (mod (inc index) 1024))
                 (stage! {:phase :projection :projected-constants (inc index)
                          :constants-total (count values)}))

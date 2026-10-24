@@ -1,0 +1,81 @@
+{
+  "schema": "scoped-kernel-projection-validation/1",
+  "date": "2026-10-24",
+  "base": "75d7a5665007bef57bdb7f805efe45435a231d5e",
+  "status": "focused fixture equivalence and fresh Java admission passed; full Init memory and P1 unmeasured",
+  "source-sha256": {
+    "src/prototype/compact_kernel_projection.clj": "a7c84d97ac1d16d99f2f7a679b0fbd32b72c2166bb1325d9d51a0c4d299d0cf1",
+    "src/prototype/compact_import_check.clj": "265711fe2605f523e640b6f33641eec405ee8d441cae3d42e1343a1dfa882dc1",
+    "test/prototype/compact_kernel_projection_test.clj": "f294b39fad3212956c9d2715489dbd25321ef7b42797c5753c319a0d0ac70a24",
+    "test/prototype/compact_import_check_test.clj": "22aee2dd4f952f032300ce008dc5a05b5bdfcc68caed6af96c75bea88eea4858"
+  },
+  "scope": {
+    "core-memo": "preserved across constants",
+    "scratch-kinds": [
+      "constant-val",
+      "names",
+      "levels"
+    ],
+    "lifetime": "complete ConstantInfo, success/failure; private allocation-free retirement, lazy allocation under lock",
+    "original-make-projector": "bulk API and cumulative semantics retained",
+    "checker": "unchanged fresh Java checking; no certificate injection, seeded environment or changed fuel",
+    "native-producer": "Lean 4.33.1 / 819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "genuine-hosted-frontend": false
+  },
+  "focused": {
+    "tests": 36,
+    "assertions": 22518,
+    "failures": 0,
+    "errors": 0,
+    "namespaces": [
+      "prototype.compact-kernel-projection-test",
+      "prototype.compact-import-check-test",
+      "prototype.imported-kernel-test"
+    ],
+    "fresh-Java-compile": true,
+    "test-heap-bytes": 402653184,
+    "compile-heap-bytes": 268435456,
+    "group-rss-cap-bytes": 805306368,
+    "wall-limit-seconds": 120,
+    "system-available-floor-bytes": 1073741824,
+    "elapsed-seconds": 7.885038180997071,
+    "peak-group-rss-bytes": 454602752,
+    "minimum-system-available-bytes": 3202658304,
+    "input-pins": 271,
+    "input-pins-matched": 271,
+    "fresh-class-pins": 48,
+    "fresh-class-pins-matched": 48,
+    "disposed": true,
+    "process-groups-absent": true,
+    "classpath": "fresh isolated Java outputs; current worktree experiment source/test and kernel Clojure wrappers; clojure1.12.0/spec.alpha0.5.238/core.specs.alpha0.4.74/data.json2.5.1 only",
+    "native-fixtures": [
+      "fixtures/imported-kernel-native.jsonl",
+      "fixtures/raw-inductive-native.jsonl"
+    ],
+    "artifact-directory": "target/scoped-projection-validation/run-v2",
+    "artifact-sha256": {
+      "receipt.json": "6e3b0576c26d723003b556f58a3a616f8b420152c3231e0170a25d544e0dc692",
+      "postcheck.json": "48853ecb546df12aceba454f3a6cc85e271d5eabe7d1c5d5ddb4bb59e484801d",
+      "class-postcheck.json": "4833e981ca2a97352654153684c5f9a2c72a122fb915b718e3d24c02f61fb3db",
+      "plan.json": "279966686e654f4440b544baff4854d18def61ab91869158005db341efa76742",
+      "1.stdout": "86a91414091c53ad03c0bfd52bf34b8e5522d19a8f00def32b1c6c73759fefb7"
+    }
+  },
+  "prior-attempt": {
+    "directory": "target/scoped-projection-validation/run-v1",
+    "tests": 36,
+    "assertions": 22509,
+    "failures": 0,
+    "errors": 1,
+    "reason": "New test reused ExceptionInfo-only helper; expected Java RuntimeException escaped. Test catcher corrected, expected rejection/message unchanged.",
+    "all-input-pins-matched": true,
+    "disposed": true
+  },
+  "limitations": [
+    "No full Init/P1 acceptance",
+    "No retained-heap or whole-corpus savings measurement",
+    "No change to source profiles, Java classes or kernel semantics",
+    "Core Java Expr DAG, guest world and typed identity memo remain resident",
+    "Name strong intern lifecycle requires separate future measurement"
+  ]
+}
