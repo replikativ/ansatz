@@ -1,8 +1,8 @@
 # Explicit managed-operation abandonment
 
-The focused lower-level suite passed 74 tests and 1,081 assertions on the
-pre-integration implementation. Composed validation with declared binding-helper
-protection is pending. These
+The composed lower-level suite passed **95 tests / 1,390 assertions**, including
+declared binding-helper protection. The [validation record](../measurements/managed-operation-disposal.json)
+records the bounded source-level run. These
 optional APIs are not a Project failure-disposal feature or production release.
 
 `raw/abandon-host-boundary!` permanently retires an unstarted issued boundary
@@ -57,5 +57,7 @@ Tests use tiny real raw execution and public resident controls across the three
 backends. Imported compiler/factory transports are explicitly modeled; those
 checks do not establish genuine full frontend acceptance. Coverage includes boundary replay prevention, hook rejection, parent/returned-owner
 preservation, fixed-mode/busy rejection, failed original-cause retention and
-bounded library tombstones. The focused run used a 384 MiB heap and
-768 MiB process-group RSS cap; no native or full hosted frontend was launched.
+bounded library tombstones. The composed run used a 384 MiB heap and
+768 MiB process-group RSS cap, took 40.137 seconds and peaked at 514,895,872 bytes
+for the guarded process group. All 700 input pins matched after process disposal.
+No native or full hosted frontend was launched.

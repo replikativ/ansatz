@@ -1,7 +1,7 @@
 # Lean IR runtime REPL experiment
 
 [Explicit managed-operation abandonment](research/OPERATION_DISPOSAL.md) is an
-optional lifecycle change under validation; Project failure disposal remains separate.
+optional lifecycle API with focused regression coverage; Project failure disposal remains separate.
 
 An Ansatz experiment, outside the library's normal source/AOT paths. Its optional
 consumer APIs and fixtures support the hosted frontend campaign; a production
