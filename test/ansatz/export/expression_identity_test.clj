@@ -12,7 +12,7 @@
   (with-redefs [storage/store-get (fn [_ _] sort-raw)]
     (let [resolve-left (storage/create-expr-resolver :left (constantly nil) (constantly Level/ZERO_LEVEL))
           resolve-right (storage/create-expr-resolver :right (constantly nil)
-                                                     (constantly (Level/succ Level/ZERO_LEVEL)))
+                                                      (constantly (Level/succ Level/ZERO_LEVEL)))
           left (resolve-left 0) right (resolve-right 0)]
       (is (= 0 (.-storeId left) (.-storeId right)))
       (is (false? (.isEqp left right)))
