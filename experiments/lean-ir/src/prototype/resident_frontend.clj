@@ -5,6 +5,7 @@
    Forks isolate guest state, not host effects. No native per-file compiler."
   (:refer-clojure :exclude [load-file])
   (:require [prototype.machine :as m]
+            [prototype.binding-dependencies :as dependencies]
             [prototype.frontend :as frontend]
             [prototype.hosted-file :as hosted]
             [prototype.guest-encoding :as encoding]
@@ -88,7 +89,10 @@
    a live owned root in an idle matching world/session. This does not validate a
    checked association or mint authority; adoption/open-checked still invoke the
    identity-authorized live kernel helpers. Custom host encoders/lowering remain
-   explicit trusted code, not dependencies inferred from a callback's behavior."
+   explicit trusted code, not dependencies inferred from a callback's behavior.
+   Declared fixed helper roots are read only from identity-authenticated trusted
+   bindings and become protected with their full independent executable closure.
+   Legacy callbacks without such metadata remain explicitly trusted host code."
   [prepared configuration]
   (matching-world! prepared)
   (let [environment (:environment prepared) world (:world prepared)]
@@ -112,7 +116,8 @@
                        (= (get prim/pinned-build "lean_get_githash") (:leanCommit manifest)))
                    (= {:target "x86_64-unknown-linux-gnu" :wordBits 64} (:runtimeProfile manifest)))
       (fail "Resident frontend requires pinned runtime profile" {})))
-  (let [helpers (or (:kernel-helpers configuration) imports/helpers)
+  (let [binding-roots (dependencies/declared-roots (:trusted-bindings configuration))
+        helpers (or (:kernel-helpers configuration) imports/helpers)
         _ (doseq [key [:root :constant-map :quot-init?]]
             (when-not (vector? (get helpers key)) (fail "Missing resident kernel helper" {:helper key})))
         frontend-configuration (:frontend-configuration configuration)
@@ -123,7 +128,8 @@
                               (contains? (get-in prepared [:world :functions]) default-witness))
                       default-witness))
         protected (eval/validate-executables! (:world prepared) (:trusted-functions configuration)
-                                              (concat (map helpers [:root :constant-map :quot-init?])
+                                              (concat binding-roots
+                                                      (map helpers [:root :constant-map :quot-init?])
                                                       [compile-target frontend/header-target]
                                                       (when witness [witness])
                                                       (guest-encoder-roots frontend-configuration)))]
@@ -344,7 +350,10 @@
   "Add new application raw extern bindings. Existing runtime/kernel bindings cannot
    be replaced. New symbols require :application-extern-symbols in independent
    trusted preparation; runtime symbols remain reserved even when not yet linked.
-   Exact ABI checking happens in raw session opening and compilation."
+   Exact ABI checking happens in raw session opening and compilation. Passed
+   new binding objects are explicit trusted host capabilities. Their declared
+   guest dependencies must match the EXISTING independent executable registry;
+   they are added to Context protection, never authorized from candidate code."
   [context bindings]
   (locking context
     (let [{:keys [prepared] :as data} (context-data context)
@@ -363,6 +372,12 @@
           (fail "Resident extern configuration cannot replace an existing capability" {:symbol symbol})))
       (let [next-session (raw/open-functions (:functions session) (merge (:bindings session) bindings)
                                              (assoc (select-keys session [:backend :fuel :compile-threshold])
-                                                    :cache (or (get-in session [:program :cache]) (:cache session))))]
+                                                    :cache (or (get-in session [:program :cache]) (:cache session))))
+            ;; The complete retained/admitted binding registry shares one root
+            ;; budget; repeated additions cannot bypass aggregate bounds.
+            roots (dependencies/declared-roots (:bindings next-session))
+            protected (eval/validate-executables! (:world prepared)
+                                                  (get-in data [:configuration :trusted-functions]) roots)]
         (make-context (assoc data :prepared (assoc prepared :session next-session)
+                             :protected-functions (merge (:protected-functions data) protected)
                              :protected-bindings (:bindings next-session)))))))

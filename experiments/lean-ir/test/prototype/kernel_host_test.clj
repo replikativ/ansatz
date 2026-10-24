@@ -181,7 +181,7 @@
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Missing kernel guest helper"
         (host/make-binding (dissoc helpers :compiler-marker) {:allow-compiler-markers? true}))))
 
-(def witnessed-helpers (assoc helpers :constant-map ["constant-map"] :quot-init? ["quot-init"]))
+(def witnessed-helpers (assoc helpers :constant-map ["str" ["anonymous"] "constant-map"] :quot-init? ["str" ["anonymous"] "quot-init"]))
 (defn- witness-context []
   {:invoke (fn [world helper [environment]]
              (let [root (first (:fields (m/node world environment)))
@@ -337,7 +337,7 @@
           [world environment] (m/allocate world :ctor 0 [initial-root])
           [_ encode-invoke] (encoding-fixture/world-and-invoke backend)
           world (assoc world :functions @encoding-fixture/functions)
-          generated-helper ["generated"]
+          generated-helper ["str" ["anonymous"] "generated"]
           hs (assoc helpers :generated generated-helper :encode-family encoding/family-helper)
           calls (atom []) base-context (context calls)
           context {:invoke (fn [world helper args]
@@ -384,8 +384,8 @@
           world (assoc-in (m/retain world root 1) [:kernel-environments (:id root)] {:anchor root :env base})
           [_ encode-invoke] (encoding-fixture/world-and-invoke backend)
           world (assoc world :functions @encoding-fixture/functions)
-          generated ["generated-nested"]
-          hs (assoc helpers :generated ["generated"] :generated-nested generated :encode-family encoding/family-helper)
+          generated ["str" ["anonymous"] "generated-nested"]
+          hs (assoc helpers :generated ["str" ["anonymous"] "generated"] :generated-nested generated :encode-family encoding/family-helper)
           calls (atom []) base-context (context calls)
           context {:invoke
                    (fn [world helper args]
@@ -413,3 +413,41 @@
       (is (= 2 (:rc (m/node world root))))
       (is (= 1 (:rc (m/node after root))))
       (is (nil? (.lookup base (name/from-string "Tree")))))))
+
+(deftest kernel-policy-and-helper-declarations-capture-the-actual-handler-snapshots
+  (doseq [allow? [false true]]
+    (let [mutable-helpers (java.util.HashMap. helpers)
+          mutable-policy (doto (java.util.HashMap.)
+                           (.put :allow-axioms? allow?) (.put :checker-fuel 12345))
+          binding (host/make-binding mutable-helpers mutable-policy)
+          snapshot (:kernel-policy binding)
+          roots (:guest-helper-roots binding)
+          [world environment _] (empty-world)
+          [world type] (sort1 world)
+          [world declaration] (axiom world "SnapshotAxiom" type false)
+          calls (atom [])]
+      (.put mutable-policy :allow-axioms? (not allow?))
+      (.put mutable-policy :checker-fuel 1)
+      (.put mutable-helpers :error ["str" ["anonymous"] "mutated-error"])
+      (.put mutable-helpers :axiom ["str" ["anonymous"] "mutated-axiom"])
+      (is (= {:allow-axioms? allow? :allow-unsafe? false :allow-compiler-markers? false
+              :allow-nested? false :checker-fuel 12345} snapshot))
+      (is (vector? roots))
+      (is (= (set (vals helpers)) (set roots)))
+      (is (some #{(:error helpers)} roots))
+      (let [[after result] (invoke binding (context calls) world environment declaration)]
+        (is (= (if allow? 1 0) (:tag (m/node after result))))
+        (is (some #{(if allow? (:axiom helpers) (:error helpers))} @calls))
+        (is (not-any? #{["str" ["anonymous"] "mutated-error"]
+                        ["str" ["anonymous"] "mutated-axiom"]} @calls)))))
+  (let [all (merge helpers host/control-helpers
+                   {:constant-map ["str" ["anonymous"] "map"] :quot-init? ["str" ["anonymous"] "quot"]
+                    :generated ["str" ["anonymous"] "generated"]
+                    :generated-nested ["str" ["anonymous"] "nested"]
+                    :encode-family encoding/family-helper
+                    :unused ["str" ["anonymous"] "unused"]})
+        binding (host/make-binding all {})]
+    (is (= (set (vals (dissoc all :unused))) (set (:guest-helper-roots binding))))
+    (is (false? (get-in binding [:kernel-policy :allow-nested?]))))
+  (doseq [bad [0 -1 nil "1000"]]
+    (is (thrown? clojure.lang.ExceptionInfo (host/make-binding helpers {:checker-fuel bad})))))
