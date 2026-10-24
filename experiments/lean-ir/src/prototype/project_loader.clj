@@ -435,11 +435,7 @@
         (if (= :complete (get-in result [:progress :phase]))
           (finish-load! control) (recur))))))
 
-(defn invoke
-  "Call an explicit stored file/export through resident/call. Return a NEW version
-   with separate baseline/current Context wrappers. Does not mutate or close the
-   caller version. No inferred ABI, eval-string or automatic initialization."
-  [project module name values signature]
+(defn- invoke* [operation project module name values signature]
   (locking project
     (let [data (version! project)
           segments (:segments (module! module (get-in data [:limits :discovery])))
@@ -451,7 +447,9 @@
       (try
         (let [baseline (resident/fork (:baseline data)) _ (swap! owned conj baseline)
               scratch (resident/fork (:context data)) _ (swap! owned conj scratch)
-              called (resident/call scratch file name values signature)
+              called (case operation
+                       :invoke (resident/call scratch file name values signature)
+                       :invoke-io (resident/call-io scratch file name values signature))
               _ (swap! owned conj (:context called))
               next-data (assoc data :baseline baseline :context (:context called))
               next-project (ProjectVersion.) result {:project next-project :value (:value called)}]
@@ -459,7 +457,25 @@
           (locking versions (.put versions next-project (atom next-data))) result)
         (catch Throwable cause
           (throw (ex-info (or (.getMessage cause) "Project invocation failed")
-                   (merge (ex-data cause) {:project-operation :invoke :project-owned-contexts @owned}) cause)))))))
+                   (merge (ex-data cause) {:project-operation operation :project-owned-contexts @owned}) cause)))))))
+
+(defn invoke
+  "Call an explicit stored file/export through resident/call. Return a NEW version
+   with separate baseline/current Context wrappers. Does not mutate or close the
+   caller version. No inferred ABI, eval-string or automatic initialization."
+  [project module name values signature]
+  (invoke* :invoke project module name values signature))
+
+(defn invoke-io
+  "Call an explicit stored IO export through resident/call-io. VALUES and argument
+   codecs describe only explicit Lean arguments; the resident facade supplies
+   the erased world and decodes [:io result]. Success returns a NEW Project/value.
+   Failures retain canonical world/session, owned result and operation Contexts;
+   they do not retry, roll back effects or clean up diagnostic owners.
+   This delegates existing IO execution; it grants no additional capabilities,
+   initialization permission or application extern admission."
+  [project module name values signature]
+  (invoke* :invoke-io project module name values signature))
 
 (defn close-project!
   "Close only this version's private Context wrappers once. Borrowed Source/Store
