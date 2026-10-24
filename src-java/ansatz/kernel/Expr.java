@@ -60,10 +60,10 @@ public final class Expr {
     public final long longVal;  // bvar idx, fvar id, proj idx
 
     /**
-     * Expression store ID. If >= 0, this expression was resolved from an ExprStore
-     * and two Expr objects with the same storeId are structurally equal.
-     * This provides Lean 4's is_eqp semantics: identity checks via integer comparison.
-     * -1 means the expression was created during reduction (not from the store).
+     * Source-local expression address, for diagnostics only. Independent stores,
+     * resolvers and branch snapshots may reuse the same integer for different
+     * expressions. This is never an equality or provenance witness. -1 means no
+     * source-local address was recorded.
      */
     public int storeId = -1;
 
@@ -79,11 +79,11 @@ public final class Expr {
 
     /**
      * Pointer-equality check matching Lean 4's is_eqp.
-     * Returns true if both expressions are the same Java object, or if both
-     * originate from the same ExprStore entry (same storeId >= 0).
+     * Only actual Java object identity qualifies, as in Lean's raw-pointer test.
+     * Equal distinct objects are handled by structural equality/defeq caches.
      */
     public boolean isEqp(Expr other) {
-        return this == other || (this.storeId >= 0 && this.storeId == other.storeId);
+        return this == other;
     }
 
     // There is no hash-consing during checking. Lean's kernel has no intern table: pointer
@@ -557,14 +557,15 @@ public final class Expr {
             default:
                 result = e;
         }
-        // Propagate storeId to rebuilt expressions
+        // Preserve an available diagnostic address on rebuilt expressions.
+        // The address grants no identity, source-domain or equality guarantee.
         if (result != e && result.storeId < 0 && e.storeId >= 0) {
             result.storeId = e.storeId;
         }
         // Intern: if we've seen a structurally equal expression, reuse it
         Expr existing = cache.putIfAbsent(result, result);
         Expr canonical = existing != null ? existing : result;
-        // If canonical has no storeId but the original did, propagate it
+        // Preserve diagnostic metadata when the canonical node has none.
         if (canonical.storeId < 0 && e.storeId >= 0) {
             canonical.storeId = e.storeId;
         }
