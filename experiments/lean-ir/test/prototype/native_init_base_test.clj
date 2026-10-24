@@ -63,7 +63,9 @@
       {#'profile/authenticate! auth #'profile/authenticate-reconstruction! auth
        #'profile/authenticate-runtime-ops-reconstruction! auth #'profile/authenticate-heap-net-dirty-reconstruction! auth
        #'profile/authenticate-source-graph-reconstruction! auth #'profile/authenticate-source-graph-frontend-reconstruction! auth
+       #'profile/authenticate-hosted-application! (fn [_] {:compatibility-profile profile/hosted-application-profile-id})
        #'factory/authenticate-build! (fn [& _] true)
+       #'factory/authenticate-hosted-application-build! (fn [& _] true)
        #'factory/checked-bytes (fn [_ _ id] (.getBytes (json/write-str (case id :transport-descriptor descriptor :initializer-witness init-witness)) "UTF-8"))
        #'factory/catalogue-bytes (fn [& _] catalogue)
        #'ds/open-index-verified-stream (fn [& _] catalogue) #'ds/overlay (fn [base _] base)
@@ -544,3 +546,42 @@
     (is (some? (failure #(#'resident-prefix/native-attribution! (atom {:world world}) invoke
                           {:modules modules} p nil
                           (assoc-in selection [:plan :name-attribution shared-wire :module-index] 1)))))))
+
+
+(deftest seventh-application-factory-preserves-fixed-native-readiness-provenance
+  (tiny/with-tiny-init
+    (fn [loaded]
+      (with-modeled-producer loaded
+        (fn [{:keys [factory-options parsed source]}]
+          (let [f (factory/make-hosted-application-factory factory-options)
+                description (factory/descriptor f)
+                rebuilt (factory/invoke! f parsed)
+                binding (get-in rebuilt [:bindings "lean_run_mod_init_core"])
+                cap (factory/native-init-readiness f source binding)
+                coverage (factory/native-init-coverage cap source binding)]
+            (is (= profile/hosted-application-profile-id (:compatibility-profile description)))
+            (is (= profile/hosted-application-profile-id (:compatibility-profile rebuilt)))
+            (is (= 1 (:query-count coverage)))
+            (is (= [source/init-module] (:modules coverage)))
+            (is (nil? (:native-init-readiness rebuilt)))
+            (is (some? (failure #(factory/native-init-readiness f source (into {} binding)))))))))))
+
+(deftest only-seventh-factory-selects-corrected-producer-build-authentication
+  (tiny/with-tiny-init
+    (fn [loaded]
+      (with-modeled-producer loaded
+        (fn [{:keys [factory-options]}]
+          (let [calls (atom [])]
+            (with-redefs-fn
+              {#'factory/authenticate-build! (fn [& _] (swap! calls conj :legacy))
+               #'factory/authenticate-hosted-application-build! (fn [& _] (swap! calls conj :application))}
+              #(do
+                 (doseq [make! [factory/make-factory factory/make-reconstruction-factory
+                                factory/make-runtime-ops-reconstruction-factory
+                                factory/make-heap-net-dirty-reconstruction-factory
+                                factory/make-source-graph-reconstruction-factory
+                                factory/make-source-graph-frontend-reconstruction-factory
+                                factory/make-source-graph-native-base-factory]]
+                   (make! factory-options))
+                 (factory/make-hosted-application-factory factory-options)))
+            (is (= (conj (vec (repeat 7 :legacy)) :application) @calls))))))))

@@ -243,22 +243,43 @@
   (wire/sha256 (.getBytes (str "ansatz-full-init-factory-build/1\n"
                               (apply str (for [{:keys [id kind sha256]} (sort-by :id inventory)]
                                            (str id "\t" (name kind) "\t" sha256 "\n")))) StandardCharsets/UTF_8)))
+(defn- loaded-kernel-class-sha256! [id]
+  ;; Select through the actual loaded kernel's class loader, never a resolver's
+  ;; arbitrary .class filename. Fresh bootstrap separately attests CodeSource.
+  (wire/check (.endsWith ^String id ".class") "Invalid kernel class inventory ID")
+  (let [class-name (subs (str/replace id "/" ".") 0 (- (count id) 6))
+        class (Class/forName class-name false (.getClassLoader ansatz.kernel.TypeChecker))]
+    (with-open [input (.getResourceAsStream class (str "/" id))]
+      (wire/check input "Kernel class resource unavailable")
+      (let [digest (java.security.MessageDigest/getInstance "SHA-256") bytes (byte-array 65536)]
+        (loop [] (let [n (.read input bytes)] (when (pos? n) (.update digest bytes 0 n) (recur))))
+        (.formatHex (java.util.HexFormat/of) (.digest digest))))))
+
 (defn- authenticate-build! [recipe preparation resolve-artifact]
   (wire/check (= (:implementation-sha256 preparation) (build-identity (:build-inventory recipe))) "Factory build identity mismatch")
   (doseq [{:keys [id kind sha256]} (:build-inventory recipe)]
     (if (= :kernel-class kind)
-      ;; Hash the actual class-loader resource selected by the loaded kernel
-      ;; class, never a separately resolved arbitrary disk .class filename.
-      (let [_ (wire/check (.endsWith ^String id ".class") "Invalid kernel class inventory ID")
-            class-name (subs (str/replace id "/" ".") 0 (- (count id) 6))
-            class (Class/forName class-name false (.getClassLoader ansatz.kernel.TypeChecker))
-            resource (str "/" id)]
-        (with-open [input (.getResourceAsStream class resource)]
-          (wire/check input "Kernel class resource unavailable")
-          (let [digest (java.security.MessageDigest/getInstance "SHA-256") bytes (byte-array 65536)]
-            (loop [] (let [n (.read input bytes)] (when (pos? n) (.update digest bytes 0 n) (recur))))
-            (wire/check (= sha256 (.formatHex (java.util.HexFormat/of) (.digest digest))) "Loaded kernel class resource drift"))))
+      (wire/check (= sha256 (loaded-kernel-class-sha256! id)) "Loaded kernel class resource drift")
       (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id))) "Host implementation source/resource drift"))))
+
+(defn- authenticate-hosted-application-build!
+  "Keep original producer bytes/digest separate from the seventh consumer's
+   fixed corrected kernel classes. Its resolver supplies every producer row,
+   including original archived classes; no arbitrary loaded-class waiver exists."
+  [recipe preparation resolve-artifact]
+  (wire/check (= (:implementation-sha256 preparation) (build-identity (:build-inventory recipe)))
+              "Factory build identity mismatch")
+  (doseq [{:keys [id kind sha256]} (:build-inventory recipe)]
+    (if (= :kernel-class kind)
+      (let [loaded (get compatibility/hosted-application-substitutions id sha256)]
+        ;; Original archived bytes remain producer provenance, independently of
+        ;; the actual corrected class selected by this consumer's class loader.
+        (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
+                    "Archived producer kernel class drift")
+        (wire/check (= loaded (loaded-kernel-class-sha256! id))
+                    "Loaded hosted application kernel class resource drift"))
+      (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
+                  "Host implementation source/resource drift"))))
 
 (defn- private-index-sha256 [^java.io.RandomAccessFile index]
   (locking index
@@ -418,8 +439,9 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
-  (let [consumer-description (cond graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
+  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
+  (let [consumer-description (cond hosted-application? (compatibility/authenticate-hosted-application! options)
+                                     graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
                                      source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
                                      heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
                                      runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
@@ -446,7 +468,9 @@
     (wire/check (= (:declaration-index pinned) (:declaration-index recipe)) "Pinned declaration index drift")
     (wire/check (= (vec (concat roots [(:witness profile) exporter])) (:trusted-roots expected-preparation))
                 "Factory helper-root inventory drift")
-    (authenticate-build! recipe expected-preparation resolve-artifact)
+    (if hosted-application?
+      (authenticate-hosted-application-build! recipe expected-preparation resolve-artifact)
+      (authenticate-build! recipe expected-preparation resolve-artifact))
     (fn [{:keys [preparation world functions prepared-functions resources] :as parsed}]
       (exact! parsed #{:preparation :world :functions :prepared-functions :resources} "parsed restore context")
       (wire/check (wire/same-data? expected-preparation preparation) "Restore preparation drift")
@@ -538,12 +562,13 @@
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options native-owner]
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? options native-owner]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options native-owner)
+        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? options native-owner)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (cond graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
+                     :compatibility-profile (cond hosted-application? compatibility/hosted-application-profile-id
+                                                  graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
                                                   source-graph? compatibility/source-graph-reconstruction-profile-id
                                                   heap-net-dirty? compatibility/heap-net-dirty-reconstruction-profile-id
                                                   runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
@@ -555,7 +580,7 @@
       factory)))
 
 (defn- issue-factory [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
-  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options nil))
+  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? false options nil))
 
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
@@ -597,7 +622,15 @@
    This constructor performs additional bounded provenance validation only when
    its authenticated restore invocation succeeds; it never executes a query."
   [options]
-  (issue-factory* true true true true true options (Object.)))
+  (issue-factory* true true true true true false options (Object.)))
+
+(defn make-hosted-application-factory
+  "Issue the seventh fixed application consumer with native readiness support.
+   Three added source members and helper/disposal substitutions are authenticated
+   before restore. All six old consumer contracts remain unchanged. This does
+   not execute or pre-authorize ordinary-inductive preparation or typed IO."
+  [options]
+  (issue-factory* true true true true true true options (Object.)))
 
 (deftype NativeInitReadiness [])
 (defonce ^:private native-readiness-issued (java.util.WeakHashMap.))

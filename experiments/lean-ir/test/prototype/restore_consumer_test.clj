@@ -678,3 +678,151 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
                              (private-call 'factory-result! (assoc result :compatibility-profile other)
                                            producer consumer id manifest)))))))
+
+;; Seventh profile models three fixed new resources and exact reviewed
+;; substitutions. Pure shape checks do not attest any loaded source or restore.
+(def hosted-application-inventory
+  (vec (concat
+         (map (fn [row]
+                (if-let [pin (get profile/hosted-application-substitutions (:id row))]
+                  (assoc row :sha256 pin) row)) graph-frontend-inventory)
+         (for [[id kind] (sort-by key profile/hosted-application-added-inputs)]
+           {:id id :kind kind :sha256 model-hash}))))
+(defn hosted-application-valid! [rows]
+  (profile/validate-hosted-application-inventory! recipe rows (profile/consumer-identity rows)))
+
+(deftest seventh-fixed-domain-preserves-all-six-earlier-contracts
+  (is (= 260 (count hosted-application-inventory)))
+  (is (identical? hosted-application-inventory (hosted-application-valid! hosted-application-inventory)))
+  (doseq [[id validate rows] six-profile-cases]
+    (is (identical? rows (validate rows)) id)
+    (is (thrown? clojure.lang.ExceptionInfo (validate hosted-application-inventory)) id)
+    (is (thrown? clojure.lang.ExceptionInfo (hosted-application-valid! rows)) id))
+  (doseq [id (map :id hosted-application-inventory)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                         (hosted-application-valid! (vec (remove #(= id (:id %)) hosted-application-inventory))))))
+  (doseq [id (keys profile/hosted-application-added-inputs)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"role drift"
+                         (hosted-application-valid! (changed hosted-application-inventory id #(assoc % :kind :host-resource)))))))
+
+(deftest seventh-reviewed-substitutions-are-not-caller-extensible
+  (doseq [[id pin] profile/hosted-application-substitutions]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"hosted application source substitution"
+                         (hosted-application-valid! (changed hosted-application-inventory id #(assoc % :sha256 model-hash))))))
+  (doseq [id ["prototype/machine.cljc" "prototype/checkpoint_wire.clj" "ansatz/kernel/Reducer.class"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (hosted-application-valid! (changed hosted-application-inventory id #(assoc % :sha256 model-hash))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (hosted-application-valid! (conj hosted-application-inventory
+                                                   {:id "unreviewed/extra.clj" :kind :host-source :sha256 model-hash}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"digest mismatch"
+                       (profile/validate-hosted-application-inventory! recipe hosted-application-inventory
+                                                                     (profile/consumer-identity graph-frontend-inventory)))))
+
+(deftest seventh-factory-rejects-caller-authority-before-resource-lookup
+  (let [calls (atom []) resolver (fn [id] (swap! calls conj id) (throw (AssertionError. "Unexpected lookup")))
+        digest (profile/consumer-identity hosted-application-inventory)
+        options {:producer-preparation producer :producer-recipe-source recipe-source
+                 :producer-resolve-artifact resolver :store-root "unused-model-store"
+                 :consumer-inventory hosted-application-inventory
+                 :expected-consumer-implementation-sha256 digest :loaded-consumer-implementation-sha256 digest
+                 :consumer-resolve-source resolver}]
+    (doseq [authenticate [profile/authenticate-hosted-application! factory/make-hosted-application-factory]]
+      (doseq [extra [{:substitutions profile/hosted-application-substitutions}
+                    {:compatibility-profile profile/hosted-application-profile-id}
+                    {:loader identity} {:kernel-policy {}}]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options" (authenticate (merge options extra)))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fresh loaded-consumer attestation"
+                           (authenticate (assoc options :loaded-consumer-implementation-sha256 model-hash))))
+      (let [rows (changed hosted-application-inventory "prototype/raw_interop.clj" #(assoc % :sha256 model-hash))
+            digest (profile/consumer-identity rows)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"hosted application source substitution"
+                             (authenticate (assoc options :consumer-inventory rows
+                                                  :expected-consumer-implementation-sha256 digest
+                                                  :loaded-consumer-implementation-sha256 digest))))))
+    (is (empty? @calls))))
+
+(deftest seventh-restore-capability-remains-distinct-from-all-six-priors
+  (let [consumer (profile/consumer-identity hosted-application-inventory)
+        description {:producer-preparation producer :consumer-implementation-sha256 consumer}
+        result (assoc description :catalogue {} :bindings {}) manifest {:binding-signatures {}}
+        known (conj (mapv first six-profile-cases) profile/hosted-application-profile-id)]
+    (is (= 42 (count (for [id known other known :when (not= id other)] [id other]))))
+    (doseq [id known]
+      (is (= id (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer)))
+      (is (= id (:compatibility-profile
+                  (private-call 'factory-result! (assoc result :compatibility-profile id) producer consumer id manifest))))
+      (doseq [other (remove #{id} known)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
+                             (private-call 'factory-result! (assoc result :compatibility-profile other)
+                                           producer consumer id manifest)))))))
+
+
+(deftest seventh-kernel-source-and-class-cohort-rejects-old-corrected-mixing
+  (let [old (into {} (map (juxt :id :sha256)) graph-frontend-inventory)]
+    (doseq [id ["src-java/ansatz/kernel/Expr.java" "src-java/ansatz/kernel/ExprStore.java"
+                "src-java/ansatz/kernel/TypeChecker.java" "ansatz/kernel/Expr.class"
+                "ansatz/kernel/TypeChecker.class"]]
+      ;; Even a caller that recomputes the whole digest cannot mix one old
+      ;; source/class row into the reviewed corrected kernel cohort.
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"hosted application source substitution"
+                           (hosted-application-valid! (changed hosted-application-inventory id
+                                                               #(assoc % :sha256 (get old id))))))
+      (doseq [[label validate rows] six-profile-cases]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                             (validate (changed rows id #(assoc % :sha256 (get profile/hosted-application-substitutions id))))) label)))))
+
+(deftest producer-provenance-and-actual-corrected-class-resources-are-independent
+  ;; Producer byte hashes here are models; loaded class resources are actual.
+  ;; Original archived class bytes are opaque provenance, never executed here.
+  (let [directory (java.nio.file.Files/createTempDirectory "ansatz-producer-class-proof-"
+                                                        (make-array java.nio.file.attribute.FileAttribute 0))
+        bytes (fn [s] (.getBytes ^String s java.nio.charset.StandardCharsets/UTF_8))
+        actual (fn [id] (with-open [input (io/input-stream (io/resource id))] (.readAllBytes input)))
+        content {"ansatz/kernel/Expr.class" (bytes "modeled original Expr bytes")
+                 "ansatz/kernel/TypeChecker.class" (bytes "modeled original TypeChecker bytes")
+                 "ansatz/kernel/Name.class" (actual "ansatz/kernel/Name.class")
+                 "producer/model.clj" (bytes "(ns original.producer)")}
+        paths (into {} (map-indexed (fn [i [id value]]
+                                     (let [path (.resolve directory (str i ".bin"))]
+                                       (java.nio.file.Files/write path ^bytes value (make-array java.nio.file.OpenOption 0))
+                                       [id path])) content))
+        rows (mapv (fn [[id value]] {:id id :kind (if (.endsWith ^String id ".class") :kernel-class :host-source)
+                                    :sha256 (wire/sha256 value)}) content)
+        recipe {:build-inventory rows}
+        preparation {:implementation-sha256 (#'factory/build-identity rows)}
+        reads (atom []) resolver (fn [id] (swap! reads conj id) (.toFile ^java.nio.file.Path (get paths id)))]
+    (try
+      (doseq [id ["ansatz/kernel/Expr.class" "ansatz/kernel/TypeChecker.class"]]
+        (is (= (get profile/hosted-application-substitutions id) (wire/sha256 (actual id)))))
+      (is (nil? (#'factory/authenticate-hosted-application-build! recipe preparation resolver)))
+      (is (= (set (keys content)) (set @reads)))
+      ;; The legacy policy still requires the producer's actual class bytes;
+      ;; it does not consult arbitrary resolved disk files for loaded identity.
+      (reset! reads [])
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Loaded kernel class resource drift"
+                           (#'factory/authenticate-build! recipe preparation resolver)))
+      (is (empty? @reads))
+      ;; A valid corrected loaded class cannot hide corrupted archived bytes.
+      (java.nio.file.Files/write (get paths "ansatz/kernel/Expr.class") (bytes "tampered")
+                                (make-array java.nio.file.OpenOption 0))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Archived producer kernel class drift"
+                           (#'factory/authenticate-hosted-application-build! recipe preparation resolver)))
+      (java.nio.file.Files/write (get paths "ansatz/kernel/Expr.class") (get content "ansatz/kernel/Expr.class")
+                                (make-array java.nio.file.OpenOption 0))
+      ;; A non-overridden class must still match its original row against the
+      ;; real selected class resource, even when its archive file hashes agree.
+      (let [wrong (bytes "different original Name bytes")
+            rows (changed rows "ansatz/kernel/Name.class" #(assoc % :sha256 (wire/sha256 wrong)))
+            recipe {:build-inventory rows} preparation {:implementation-sha256 (#'factory/build-identity rows)}]
+        (java.nio.file.Files/write (get paths "ansatz/kernel/Name.class") wrong (make-array java.nio.file.OpenOption 0))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Loaded hosted application kernel class resource drift"
+                             (#'factory/authenticate-hosted-application-build! recipe preparation resolver))))
+      (reset! reads [])
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Factory build identity mismatch"
+                           (#'factory/authenticate-hosted-application-build!
+                             recipe (assoc preparation :implementation-sha256 model-hash) resolver)))
+      (is (empty? @reads))
+      (finally
+        (doseq [path (vals paths)] (java.nio.file.Files/delete path))
+        (java.nio.file.Files/delete directory)))))

@@ -379,7 +379,8 @@
                                   compatibility/runtime-ops-reconstruction-profile-id
                                   compatibility/heap-net-dirty-reconstruction-profile-id
                                   compatibility/source-graph-reconstruction-profile-id
-                                  compatibility/source-graph-frontend-reconstruction-profile-id} profile))
+                                  compatibility/source-graph-frontend-reconstruction-profile-id
+                                  compatibility/hosted-application-profile-id} profile))
                 "Restore consumer capability identity mismatch")
     profile))
 (defn- factory-result! [produced producer consumer compatibility-profile manifest]

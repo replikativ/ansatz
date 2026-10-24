@@ -1,0 +1,55 @@
+{
+  "schema": "hosted-application-consumer-validation/1",
+  "profile": "ansatz-producer50f-hosted-application-consumer/1",
+  "runtimeRows": 260,
+  "projectCallerRows": 3,
+  "selectedClassRows": 48,
+  "tests": 81,
+  "assertions": 3480,
+  "failures": 0,
+  "errors": 0,
+  "scope": "Seven closed compatibility domains and fixed factory/restore/native provenance model regressions on corrected kernel classes; full hosted frontend acceptance separate.",
+  "bounds": {
+    "heapMiB": 384,
+    "processGroupRSSMiB": 768,
+    "wallSeconds": 120
+  },
+  "observed": {
+    "elapsedSeconds": 35.886293614999886,
+    "peakProcessGroupRSSBytes": 585461760,
+    "exitCode": 0,
+    "ownedProcessGroupDisposed": true,
+    "inputPins": 775,
+    "allPinsMatchAfterRun": true
+  },
+  "planSHA256": "7995d5863dfb7953097e694f570fc6df8e4b6928dbc3f46efcf2a4c4ce5250bb",
+  "receiptSHA256": "ff67c7db3123c5a8b09762e738f17f3ee60a6349d316a0a3a73e62f83c4be9e2",
+  "kernelClassManifestSHA256": "0aeb9dae477936ce2f7b31a0ea475cf0db60dd901de89bd63509b8a1cf911503",
+  "testedSources": {
+    "globals_consumer_profile.clj": "0c39099ec7c22b2e7b7afb3ba1b952b8167162356ebe7f88cea2be0a53d297a1",
+    "globals_consumer_factory.clj": "8f596552fc454e59129487a3a804d0fdfdc4aba0d6b7b0b923055aa41d175f90",
+    "restore_consumer.clj": "da8e80b30a8f513bbf8968a185e76f20a7b259d9666572962a191dbf52345860"
+  },
+  "limitations": [
+    "Factory/archive transport is modeled; selected tiny Source identity/provenance checks are actual.",
+    "No full archive restore, strict Init, ordinary-inductive frontend or typed IO acceptance is claimed.",
+    "Descriptor parity does not establish bytecode or behavioral equality."
+  ],
+  "constructor": {
+    "scope": "Actual fresh constructor only; no restore/archive invocation, guest, strict check, readiness, native lease or Project operation.",
+    "runtimeIdentity": "0a19d3a16b1e6d9c802c4f8f002f0221f87bab52561192e11a746f20c5a2971e",
+    "callerIdentity": "e59e6190a79396f967d57012f32fca9b1a0595c9be59b5c16918ae531695fc8f",
+    "runtimeRows": 260,
+    "callerRows": 3,
+    "publicCallerOperations": 11,
+    "elapsedSeconds": 16.95611900499989,
+    "peakProcessGroupRSSBytes": 485478400,
+    "exitCode": 0,
+    "ownedProcessGroupDisposed": true,
+    "inputPins": 1508,
+    "allPinsMatchAfterRun": true,
+    "planSHA256": "8485ab84d6db168eac890f3a28ba98d72b63db738b7a41ecd731e05f0e134928",
+    "receiptSHA256": "b3a1d14c5e2a5777295b40149f7f60490bd314671040ba59d7ad71f513bc1c3b",
+    "constructorReceiptSHA256": "c1df4541576478868c36bd2a9077d868fd5f727592276ad15ed9e416580197e1"
+  }
+}
