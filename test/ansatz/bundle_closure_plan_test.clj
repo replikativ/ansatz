@@ -132,7 +132,7 @@
     (doseq [[key maximum] [[:rounds 1] [:observations 2] [:names 2] [:edges 2] [:reasons 1]]]
       (let [limits (assoc caps key maximum)]
         (is (= :limit (refused #(let [initial (closure/next-round c nil {} limits)]
-                                 (step c initial (zipmap [:init :lex :sizeof] (repeat ["f"])) limits))))))))
+                                  (step c initial (zipmap [:init :lex :sizeof] (repeat ["f"])) limits))))))))
   (is (= :explicit-finite-limits-required
          (refused #(closure/next-round (capture) nil {} (assoc caps :rounds 0))))))
 

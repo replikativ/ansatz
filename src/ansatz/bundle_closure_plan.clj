@@ -93,7 +93,7 @@
 (defn- reference-slots [companions]
   (reduce + 0 (for [role companion-roles row (get companions role)]
                 (case role :attrs (case (:kind row) "csimp" 2 "impl" 1
-                                         "unfold-thms" (count (vector! (:theorems row))) 0)
+                                        "unfold-thms" (count (vector! (:theorems row))) 0)
                       :instances 1 :matchers 0))))
 
 (defn- initial [captured limits usage]
@@ -128,13 +128,13 @@
         requests (mapv
                   (fn [role]
                     (let [original-indices (zipmap (get (:originals value) role) (range))]
-                    {:role role :round (:round value)
-                     :roots (mapv (fn [text]
-                                    (assoc (get (:index value) text) :provenance
-                                           (if-let [original-index (get original-indices text)]
-                                             [{:origin :configured :original-index original-index}]
-                                             (get-in value [:reasons role text]))))
-                                  (get (:effective value) role))})) (:awaiting value))]
+                      {:role role :round (:round value)
+                       :roots (mapv (fn [text]
+                                      (assoc (get (:index value) text) :provenance
+                                             (if-let [original-index (get original-indices text)]
+                                               [{:origin :configured :original-index original-index}]
+                                               (get-in value [:reasons role text]))))
+                                    (get (:effective value) role))})) (:awaiting value))]
     (assoc value :requests requests :usage usage)))
 
 (defn- observe [captured value observations limits]
@@ -162,8 +162,8 @@
 (defn- advance [value limits]
   (let [usage (charge (:usage value) limits :edges (*' 3 (:reference-slots value)))
         plans (into {} (map (fn [role]
-                            [role (metadata/plan-role role (:companions value)
-                                                      (get-in value [:snapshots role :names]) planner-options)]) roles))
+                              [role (metadata/plan-role role (:companions value)
+                                                        (get-in value [:snapshots role :names]) planner-options)]) roles))
         result
         (reduce
          (fn [acc role]
@@ -173,26 +173,26 @@
                  derived (into (get-in acc [:derived role]) additions)
                  derived-set (set derived)
                  indices (into {} (map (fn [cr]
-                                        [cr (into [] (keep-indexed (fn [i row] (when (contains? names (:name row)) i)))
-                                                  (get-in value [:companions cr]))]) companion-roles))
+                                         [cr (into [] (keep-indexed (fn [i row] (when (contains? names (:name row)) i)))
+                                                   (get-in value [:companions cr]))]) companion-roles))
                  reason-result
                  (reduce (fn [{:keys [reasons addresses usage] :as current} edge]
                            (let [target (:target edge)]
                              (if-not (contains? derived-set target) current
-                                 (let [reason {:origin :metadata :kernel-role role :companion-role (:role edge)
-                                               :global-row-index (nth (get indices (:role edge)) (:row-index edge))
-                                               :selected-row-index (:row-index edge) :edge-kind (:kind edge)
-                                               :source (:source edge) :target target}
-                                       old (get reasons target [])
-                                       address [(:role edge) (:global-row-index reason) (:kind edge)]]
-                                   (if (contains? (get addresses target #{}) address)
-                                     current
-                                     {:usage (charge usage limits :reasons 1)
-                                      :addresses (update addresses target (fnil conj #{}) address)
-                                      :reasons (assoc reasons target (conj old (assoc reason :round (:round value))))})))))
+                                     (let [reason {:origin :metadata :kernel-role role :companion-role (:role edge)
+                                                   :global-row-index (nth (get indices (:role edge)) (:row-index edge))
+                                                   :selected-row-index (:row-index edge) :edge-kind (:kind edge)
+                                                   :source (:source edge) :target target}
+                                           old (get reasons target [])
+                                           address [(:role edge) (:global-row-index reason) (:kind edge)]]
+                                       (if (contains? (get addresses target #{}) address)
+                                         current
+                                         {:usage (charge usage limits :reasons 1)
+                                          :addresses (update addresses target (fnil conj #{}) address)
+                                          :reasons (assoc reasons target (conj old (assoc reason :round (:round value))))})))))
                          {:reasons (get-in acc [:reasons role])
                           :addresses (get-in acc [:reason-addresses role]) :usage (:usage acc)} (:edges plan))]
-           (-> acc (assoc-in [:effective role] effective) (assoc-in [:derived role] derived)
+             (-> acc (assoc-in [:effective role] effective) (assoc-in [:derived role] derived)
                  (assoc-in [:reasons role] (:reasons reason-result))
                  (assoc-in [:reason-addresses role] (:addresses reason-result))
                  (assoc :usage (:usage reason-result))))) (assoc value :usage usage) roles)
@@ -200,7 +200,7 @@
                       (into {} (for [role roles]
                                  [role (into {} (for [cr companion-roles]
                                                   [cr (into [] (keep-indexed (fn [i row]
-                                                                             (when (contains? (get-in value [:snapshots role :names]) (:name row)) i)))
+                                                                               (when (contains? (get-in value [:snapshots role :names]) (:name row)) i)))
                                                             (get-in value [:companions cr]))]))])))
         changed (filterv #(not= (get-in value [:effective %]) (get-in result [:effective %])) roles)]
     (if (empty? changed) (assoc result :awaiting [] :requests [] :status :closure-planned)
