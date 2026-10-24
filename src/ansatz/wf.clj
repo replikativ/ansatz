@@ -24,7 +24,7 @@
             [ansatz.surface.ingest :as ingest
              :refer [parse-params binder-type metadata-params? arity-registry structure-registry codegen-registry]]
             [ansatz.state :as state :refer [ansatz-env ansatz-instance-index]])
-  (:import [ansatz.kernel ConstantInfo ExprStore]))
+  (:import [ansatz.kernel ConstantInfo]))
 
 ;; ── core callbacks resolved at runtime (core requires this ns → no static require back) ──────────
 (defn- run-tactic [ps tac] ((requiring-resolve 'ansatz.core/run-tactic) ps tac))
@@ -437,14 +437,13 @@
             (let [payload (bundle/verified-bytes resource)
                   ndjson (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                            (slurp in :encoding "UTF-8"))
-                  parsed (parser/parse-ndjson-string ndjson)
-                  env' (try
-                         (let [missing (missing-prelude-declarations base (:decls parsed))]
-                           (if (seq missing)
-                             (:env (replay/replay-from-env base missing :verify? true :stop-on-error? true))
-                             base))
-                         (finally
-                           (when-let [^ExprStore expressions (:exprs parsed)] (.close expressions))))]
+                  env' (parser/with-parser-state
+                         (parser/parse-ndjson-string ndjson)
+                         (fn [parsed]
+                           (let [missing (missing-prelude-declarations base (:decls parsed))]
+                             (if (seq missing)
+                               (:env (replay/replay-from-env base missing :verify? true :stop-on-error? true))
+                               base))))]
               (reset! ansatz-env env')
               (when (verbose?) (println (str "  ✓ " label " prelude loaded (kernel-verified)"))))))))))
 
