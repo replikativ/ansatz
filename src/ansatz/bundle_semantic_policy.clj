@@ -109,9 +109,9 @@
                                               :witness (name-key (:witness row)) :global-ordinal ordinal}))))))
           axioms (filterv #(.isAxiom ^ConstantInfo %) role-cis)
           axiom-pairs (mapv (fn [^ConstantInfo value]
-                             (if-let [template (get templates (name-key (.name value)))]
-                               [value template]
-                               (fail :missing-axiom-template {}))) axioms)
+                              (if-let [template (get templates (name-key (.name value)))]
+                                [value template]
+                                (fail :missing-axiom-template {}))) axioms)
           pairs (into (mapv #(vector % %) role-cis)
                       (concat (map #(vector % %) axiom-templates) axiom-pairs))]
       ;; One shared completeness/identity-pair budget for all supplied CIs,

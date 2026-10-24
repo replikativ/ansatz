@@ -75,8 +75,8 @@
 (deftest unused-witness-universe-parameters-are-not-an-extra-native-condition
   (let [u (n/from-string "u") unused (n/from-string "unused")]
     (is (= 1 (count (:registrations
-                    (compare' (specimen {:parameters [u] :witness-parameters [u unused]
-                                         :us [(l/param u)] :vs [(l/param u)]}))))))))
+                     (compare' (specimen {:parameters [u] :witness-parameters [u unused]
+                                          :us [(l/param u)] :vs [(l/param u)]}))))))))
 
 (deftest repeated-registration-sources-stay-in-original-order
   (let [base (specimen) second-name (n/from-string "Policy.secondWitness")
@@ -129,7 +129,7 @@
 
 (deftest structural-name-segments-never-fall-back-to-dotted-text
   (doseq [[actual alias] [[(n/from-string "Policy.f") (Name/mkStr Name/ANONYMOUS_NAME "Policy.f")]
-                         [(Name/mkNum Name/ANONYMOUS_NAME 666) (Name/mkStr Name/ANONYMOUS_NAME "666")]]]
+                          [(Name/mkNum Name/ANONYMOUS_NAME 666) (Name/mkStr Name/ANONYMOUS_NAME "666")]]]
     (let [base (specimen {:source-name actual}) row (first (:rows base))]
       (is (= (str actual) (str alias)))
       (is (= :registration-outside-role
@@ -144,7 +144,7 @@
     (is (some? (error #(compare-with (update limits :inputs dissoc :level-slots))))))
   (let [u (n/from-string "u") base (specimen {:parameters [u] :us [(l/param u)] :vs [(l/param u)]})]
     (is (some? (error #(policy/compare-role-bounded (:role base) (:rows base) (:templates base)
-                                                   (assoc-in limits [:inputs :level-slots] 1)))))))
+                                                    (assoc-in limits [:inputs :level-slots] 1)))))))
 
 (deftest combined-comparisons-share-one-invocation-budget
   (let [make #(env/mk-axiom (n/from-string %) [] type')
