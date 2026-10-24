@@ -18,7 +18,8 @@
             [prototype.runtime-prim :as prim]
             [prototype.runtime-abi :as abi]
             [clojure.string :as str])
-  (:import [ansatz.kernel Name]))
+  (:import [ansatz.kernel Name]
+           [java.util WeakHashMap]))
 
 (declare close!)
 (deftype Context [state]
@@ -26,9 +27,16 @@
   (close [this] (close! this)))
 (deftype FileHandle [digest unit module])
 
+;; Constant values never retain a Context or its publicly exposed state Atom.
+;; This weak tombstone prevents reusing a retired wrapper without resetting the
+;; Atom (which could execute concurrently installed host validators/watches).
+(defonce ^:private abandoned-contexts (WeakHashMap.))
+(defn- abandoned-context? [context]
+  (locking abandoned-contexts (.containsKey ^WeakHashMap abandoned-contexts context)))
 (defn- fail [message data] (throw (ex-info message data)))
 (defn- context-data [context]
   (when-not (instance? Context context) (fail "Expected resident context" {}))
+  (when (abandoned-context? context) (fail "Resident context is closed" {}))
   (or @(.-state ^Context context) (fail "Resident context is closed" {})))
 (defn- matching-world! [{:keys [world session] :as prepared}]
   (when-not (and (map? world) (map? session) (map? (:functions world))
@@ -179,10 +187,11 @@
   [context]
   (when-not (instance? Context context) (fail "Expected resident context" {}))
   (locking context
-    (when-let [data @(.-state ^Context context)]
-      (let [{:keys [world environment options]} (:prepared data)]
-        (-> world (m/release environment 1) (m/release options 1))
-        (reset! (.-state ^Context context) nil))))
+    (when-not (abandoned-context? context)
+      (when-let [data @(.-state ^Context context)]
+        (let [{:keys [world environment options]} (:prepared data)]
+          (-> world (m/release environment 1) (m/release options 1))
+          (reset! (.-state ^Context context) nil)))))
   nil)
 
 (defn load-source
@@ -381,3 +390,27 @@
         (make-context (assoc data :prepared (assoc prepared :session next-session)
                              :protected-functions (merge (:protected-functions data) protected)
                              :protected-bindings (:bindings next-session)))))))
+
+
+(defn abandon!
+  "Retire only this managed Context wrapper without guest/host callbacks.
+   Does not reset the public state Atom, sweep RC owners, or close borrowed
+   Source/Store. Retaining the wrapper/Atom retains caller-owned diagnostics;
+   the library keeps only a weak key with a constant value. Separate wrappers
+   stay live. This is not native finalization or rollback of prior effects."
+  [context]
+  (when-not (instance? Context context) (fail "Expected resident context" {}))
+  (locking context
+    (when-not (abandoned-context? context)
+      (let [state (.-state ^Context context)]
+        (when-not (= clojure.lang.Atom (class state))
+          (fail "Cannot abandon a Context with a substituted state holder" {}))
+        (when @state
+          (when-not (and (nil? (.getValidator ^clojure.lang.Atom state))
+                         (empty? (.getWatches ^clojure.lang.Atom state)))
+            (fail "Context state hooks require explicit caller disposition" {})))
+        ;; No Atom write: setValidator is unsynchronized, so a check-then-reset
+        ;; could still execute a concurrently attached validator/watch.
+        (locking abandoned-contexts
+          (.put ^WeakHashMap abandoned-contexts context true)))))
+  nil)

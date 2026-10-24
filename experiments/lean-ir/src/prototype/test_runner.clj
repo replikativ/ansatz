@@ -9,6 +9,7 @@
             [prototype.source-graph-runtime-test]
             [prototype.source-graph-staged-test]
             [prototype.native-init-base-test]
+            [prototype.operation-disposal-test]
             [prototype.project-source-test]
             [prototype.classic-header-discovery-test]
             [prototype.project-discovery-test]
@@ -142,6 +143,7 @@
   (let [result (t/run-tests 'prototype.preparation-test 'prototype.lean-ir-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.source-graph-plan-test
                             'prototype.source-graph-helper-test 'prototype.source-graph-runtime-test 'prototype.source-graph-staged-test
                             'prototype.native-init-base-test
+                            'prototype.operation-disposal-test
                             'prototype.project-source-test
                             'prototype.classic-header-discovery-test
                             'prototype.project-discovery-test

@@ -16,7 +16,8 @@
             [prototype.program-install :as install]
             [prototype.machine :as m]
             [prototype.mutable :as u]
-            [prototype.lazy-runtime :as lazy]))
+            [prototype.lazy-runtime :as lazy])
+  (:import [java.util WeakHashMap]))
 
 (defn- fail [message data] (throw (ex-info message data)))
 (defn- signature! [shape]
@@ -298,6 +299,13 @@
 ;; Deliberately process-local and non-serializable. Possession is a trusted host
 ;; capability, not a durable checkpoint or an untrusted deserialization format.
 (deftype ^:private HostBoundaryToken [world session request binding claim])
+;; Public deftype fields are not lifecycle authority. Values are scalar keywords,
+;; never token/World/session/cause objects that could root their own weak keys.
+(defonce ^:private boundary-phases (WeakHashMap.))
+(defn- boundary-phase [token]
+  (locking boundary-phases (.get ^WeakHashMap boundary-phases token)))
+(defn- boundary-phase! [token phase]
+  (locking boundary-phases (.put ^WeakHashMap boundary-phases token phase)))
 
 (defn advance-to-boundary
   "Opt-in cooperative execution. Run at most session :fuel guest instructions,
@@ -316,9 +324,10 @@
         (case (:status state)
           :host-call
           (let [request (:host-request state)
-                binding (binding! (:symbol request) (get-in session [:bindings (:symbol request)]))]
-            {:status :boundary :state state :session session
-             :token (HostBoundaryToken. state session request binding (atom :unstarted))})
+                binding (binding! (:symbol request) (get-in session [:bindings (:symbol request)]))
+                token (HostBoundaryToken. state session request binding (atom :unstarted))]
+            (boundary-phase! token :unstarted)
+            {:status :boundary :state state :session session :token token})
           :paused {:status :paused :state state :session session}
           :done {:status :done :state state :session session :value (:result state)}))
       (catch Throwable cause
@@ -335,7 +344,7 @@
 
    A throwing backend poisons this completion even if its handler catches the
    helper exception: no further helper call or success receipt is permitted.
-   A started failure consumes the token permanently. Its child checkpoint and
+   A started failure consumes the private issued phase permanently. Its child checkpoint and
    named outer boundary are diagnostics, NOT retry/resume authorization: the
    host continuation was unwound and external effects cannot be rolled back.
    Tokens do not prevent IO replay by a caller deliberately forking old worlds."
@@ -344,30 +353,34 @@
                 (map? options) (= #{:helper-fuel} (set (keys options)))
                 (integer? helper-fuel) (<= 0 helper-fuel Long/MAX_VALUE))
     (fail "Expected a boundary token and explicit nonnegative helper-fuel" {}))
+  (locking token
+    (when-not (boundary-phase token) (fail "Expected an issued raw host boundary token" {})))
   (let [world (.-world ^HostBoundaryToken token)
         session (.-session ^HostBoundaryToken token)
         request (.-request ^HostBoundaryToken token)
-        binding (.-binding ^HostBoundaryToken token)
-        claim (.-claim ^HostBoundaryToken token)]
+        binding (.-binding ^HostBoundaryToken token)]
     (world! session world)
     (when-not (and (= :host-call (:status world))
                   (identical? request (:host-request world))
                   (identical? binding (get-in session [:bindings (:symbol request)])))
       (fail "Boundary token does not match its captured request/session" {}))
-    ;; Allocate the complete context before consuming the token. Allocation
-    ;; failure here leaves it unstarted; after CAS, dispatch is inside try.
+    ;; Allocate the complete context before the private claim. Allocation
+    ;; failure here leaves it unstarted; after claim dispatch is inside try.
+    ;; No public claim Atom is read/written: hooks/reset cannot grant authority.
     (let [context {:active-session (atom session) :owner (Thread/currentThread)
                    :checkpoint (atom world) :step-limit Long/MAX_VALUE
                    :helper-fuel-left (atom helper-fuel) :helper-run-failed (atom false)}]
-      (when-not (compare-and-set! claim :unstarted :started)
-        (fail "Boundary token has already been consumed" {}))
+      (locking token
+        (when-not (= :unstarted (boundary-phase token))
+          (fail "Boundary token has already been consumed" {}))
+        (boundary-phase! token :started))
       (try
         (let [state (dispatch-host context world)]
-          (reset! claim :completed)
+          (locking token (boundary-phase! token :completed))
           {:status :handler-completed :state state :session (active-session context)
            :helper-steps (- helper-fuel @(:helper-fuel-left context))})
         (catch Throwable cause
-          (reset! claim :failed)
+          (locking token (boundary-phase! token :failed))
           (throw (ex-info (or (.getMessage cause) "Raw boundary handler failed")
                    (assoc (ex-data cause)
                           :checkpoint @(:checkpoint context)
@@ -375,3 +388,22 @@
                           :boundary-completion :failed :boundary-token-consumed? true
                           :unstarted-outer-checkpoint world :unstarted-outer-session session)
                    cause)))))))
+
+
+(defn abandon-host-boundary!
+  "Retire an issued boundary without touching its public claim Atom or handler.
+   Private scalar phases and token lock exclude completion/disposal races. No
+   rollback, native finalization, or revocation of copied old Worlds is implied."
+  [token]
+  (when-not (instance? HostBoundaryToken token)
+    (fail "Expected an issued raw host boundary token" {}))
+  (locking token
+    (case (boundary-phase token)
+      :unstarted (do (boundary-phase! token :abandoned-unstarted)
+                     {:phase :abandoned :completion-already-attempted false})
+      (:completed :failed) (do (boundary-phase! token :abandoned-attempted)
+                               {:phase :abandoned :completion-already-attempted true})
+      :abandoned-unstarted {:phase :abandoned :completion-already-attempted false}
+      :abandoned-attempted {:phase :abandoned :completion-already-attempted true}
+      :started (fail "Cannot abandon a running host boundary" {})
+      (fail "Expected an issued raw host boundary token" {}))))

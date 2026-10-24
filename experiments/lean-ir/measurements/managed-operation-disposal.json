@@ -1,0 +1,35 @@
+{
+  "schema": "managed-operation-disposal-validation/1",
+  "scope": "Tiny actual raw execution and resident controls; imported compiler/factory transport explicitly modeled. No Project failure cleanup or full hosted frontend acceptance.",
+  "baseCommit": "fe319e3c3318eec094a9f741eaa43ea13c9e0ac0",
+  "testedSourceCommit": "2eb4766",
+  "tests": 95,
+  "assertions": 1390,
+  "failures": 0,
+  "errors": 0,
+  "backends": [
+    "reference",
+    "mutable",
+    "jvm"
+  ],
+  "bounds": {
+    "heapMiB": 384,
+    "processGroupRSSMiB": 768,
+    "wallSeconds": 120
+  },
+  "observed": {
+    "elapsedSeconds": 40.13708150499997,
+    "peakProcessGroupRSSBytes": 514895872,
+    "exitCode": 0,
+    "ownedProcessGroupDisposed": true,
+    "inputPins": 700,
+    "allPinsMatchAfterRun": true
+  },
+  "planSHA256": "570d6d8ebaf71c6581d718e5709a411dbeff35c206ba8cfe1d667f2e09a72d2d",
+  "receiptSHA256": "b56041b42947177824d90c91b7885c0e80f6e617d8db297fe99795c846fd7019",
+  "limitations": [
+    "Caller-retained Throwable/ex-data and Context Atom snapshots remain caller-owned diagnostic roots.",
+    "Managed branch abandonment does not finalize native external objects, close borrowed Sources, undo external effects, or collect guest cycles.",
+    "Project-level failure cleanup remains separate."
+  ]
+}
