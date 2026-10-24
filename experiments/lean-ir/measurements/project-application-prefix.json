@@ -1,0 +1,110 @@
+{
+  "schema": "project-application-prefix-composition-validation/1",
+  "date": "2026-10-24",
+  "base": "ce3f0d37e190b493a43e5f760d405f57bc55047d",
+  "status": "focused model composition passed; genuine Project frontend and callback acceptance remains separate",
+  "source-sha256": {
+    "test/prototype/project_application_prefix_test.clj": "56a2ed2c38836d7f9ec3dbe8a0f05c9e7092aac4a37a64d3ebf6ca715491c6de",
+    "scripts/test-runtime.clj": "ef83bd3f226f682d1d49aa00e5e214d6af548818a2886b29e7ba50066a533677",
+    "research/TYPED_EXTERNS.md": "3b16e3aaa8a22daf212ca80821301099d0a2e63ad5473bf9bb29cc685d40a271"
+  },
+  "scope": {
+    "new-tests": 4,
+    "backends": [
+      "reference",
+      "mutable",
+      "jvm"
+    ],
+    "actual": [
+      "small verified native Store",
+      "independently captured registry object identities",
+      "public resident adoption and with-externs",
+      "public fresh Init prefix preparation",
+      "resident-issued FileHandles",
+      "typed extern lowering and raw IR callback execution",
+      "public Project invocation and version/context ownership"
+    ],
+    "modeled": [
+      "compiler envelopes fixed before independent preparation",
+      "Project stored-file/current-Context state; no fabricated FileHandle",
+      "unused Project graph/native-readiness descriptors"
+    ],
+    "codecs": [
+      "nat",
+      "string"
+    ],
+    "application-binding-ABI": {
+      "nat": "owned tobject -> tobject",
+      "string": "owned object -> object"
+    },
+    "negative-cases": [
+      "absent allowlist",
+      "replaced and reserved symbols",
+      "structurally equal but independently wrong native binding object",
+      "configuration missing exact application bindings",
+      "old prefix with extended registry",
+      "emitted ABI borrow mismatch before callback",
+      "Nat13 once-invoked terminal host exception with original cause and canonical ownership packet"
+    ],
+    "unchanged": [
+      "runtime implementation",
+      "initializers and application effect policy",
+      "source/runtime/native capability membership",
+      "binding and prefix identity contracts",
+      "full runtime host-helper inventory"
+    ],
+    "genuine-frontend": false,
+    "genuine-Project-source-loading": false
+  },
+  "focused": {
+    "tests": 35,
+    "assertions": 1074,
+    "failures": 0,
+    "errors": 0,
+    "attempts": 1,
+    "namespaces": [
+      "prototype.project-application-prefix-test",
+      "prototype.typed-extern-test",
+      "prototype.resident-init-prefix-test",
+      "prototype.project-loader-test",
+      "prototype.project-loader-io-test",
+      "prototype.project-loader-integration-test",
+      "prototype.project-loader-nonempty-test"
+    ],
+    "fresh-Java-compile": true,
+    "test-heap-bytes": 402653184,
+    "compile-heap-bytes": 268435456,
+    "rss-cap-bytes": 805306368,
+    "wall-limit-seconds": 120,
+    "system-available-floor-bytes": 1073741824,
+    "elapsed-seconds": 13.321845959995699,
+    "peak-group-rss-bytes": 551124992,
+    "minimum-system-available-bytes": 7390846976,
+    "input-pins": 345,
+    "input-pins-matched": 345,
+    "fresh-class-pins": 48,
+    "fresh-class-pins-matched": 48,
+    "disposed": true,
+    "process-groups-absent": true,
+    "classpath": "fresh local Java outputs, current experiment source/test and kernel wrappers; clojure1.12.0/spec.alpha0.5.238/core.specs.alpha0.4.74/data.json2.5.1 only; source origin checks before tests",
+    "artifact-directory": "target/project-application-prefix-validation/run-v1",
+    "artifact-sha256": {
+      "inputs.json": "15184803444dfac66dc25314ec4dec6ae2ee15198c7a6005ecb48c6e5e0e8244",
+      "class-inputs.json": "4527fa6719e57e1080035b48c30984faf62c7a21d6307ca22a8ddab95a32a313",
+      "plan.json": "fd4ecbecc5cc7ad82742501a3908fa8b634b13d28f1d9045509431d56ce0b718",
+      "receipt.json": "58abe74de4744425d69e7d7ffd37b3e58782b4eefbf5d675c36c60073e87547a",
+      "postcheck.json": "b6773b5975e2c434db31de50f43f1ed0e52e99b7f88004265882e377d6e869b5",
+      "1.stdout": "a7c25ee62824329c9988cd36daada484f1d67071029c1c468a3b7bb2c49bc434",
+      "1.stderr": "76f981b9342399949febbbbb0667736e6790eff4eb15f18d7f31d57dbc7c621b"
+    },
+    "guard-sha256": "6a8c315d7467bc517bc9c5557a9f713f3df997ffaca93e6a6db1532646b6dae8",
+    "runner-sha256": "9f8e3b51817bc9dcfff845832bb64d90e5a2781ceded1f9f8fe402666841eb6f"
+  },
+  "limitations": [
+    "No native compiler executed in this validation",
+    "No genuine Lean frontend or Project graph loaded",
+    "Not a new application-prefix or callback-registration API",
+    "No added full-runtime helper-lane permission or certificate authority",
+    "No performance or full-frontend memory claim"
+  ]
+}
