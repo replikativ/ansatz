@@ -25,14 +25,15 @@ public final class Env {
     private final clojure.lang.IPersistentMap locals;
 
     // Shared cache for external lookups (SoftReference allows GC to reclaim under pressure)
-    // Safe to share across forks: same Name → same ConstantInfo from external store
+    // Safe to share across forks/views only while externalLookup identity is unchanged.
     private final ConcurrentHashMap<Name, SoftReference<ConstantInfo>> sharedCache;
 
     private final boolean quotEnabled;
 
     /**
      * Optional external lookup function for PSS-backed environments.
-     * Pure: takes a Name, returns a ConstantInfo or null.
+     * Pure: takes a Name, returns a ConstantInfo or null. Its declaration view
+     * must remain stable for the lifetime of every Env retaining this function.
      */
     private final clojure.lang.IFn externalLookup;
     private final int externalSize;
@@ -73,10 +74,11 @@ public final class Env {
     }
 
     /**
-     * Set external lookup. Returns a NEW Env (immutable).
+     * Set external lookup. Returns a NEW Env (immutable). A different lookup
+     * function gets an isolated cache; an explicitly uncached view stays uncached.
      */
     public Env withExternalLookup(clojure.lang.IFn lookupFn, int size) {
-        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, null, extensions);
+        return new Env(locals, cacheForExternalLookup(lookupFn), quotEnabled, lookupFn, size, null, extensions);
     }
 
     /**
@@ -85,12 +87,19 @@ public final class Env {
      * The predicate is checked before the shared cache, so cached declarations
      * cannot bypass staged verification. Visible declarations are still cached,
      * matching Lean's in-memory environment and preserving pointer-stable
-     * repeated lookups for IdentityHashMap-based kernel caches.
+     * repeated lookups for IdentityHashMap-based kernel caches. Sharing is
+     * restricted to the same lookup function; changing visibility alone is safe
+     * because its predicate is checked before every external cache hit.
      */
     public Env withExternalLookupFiltered(clojure.lang.IFn lookupFn,
                                           int size,
                                           clojure.lang.IFn visibilityCheck) {
-        return new Env(locals, sharedCache, quotEnabled, lookupFn, size, visibilityCheck, extensions);
+        return new Env(locals, cacheForExternalLookup(lookupFn), quotEnabled, lookupFn, size, visibilityCheck, extensions);
+    }
+
+    private ConcurrentHashMap<Name, SoftReference<ConstantInfo>> cacheForExternalLookup(clojure.lang.IFn lookupFn) {
+        if (sharedCache == null || externalLookup == lookupFn) return sharedCache;
+        return new ConcurrentHashMap<>();
     }
 
     /**
