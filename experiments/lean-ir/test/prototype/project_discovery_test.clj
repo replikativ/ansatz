@@ -178,6 +178,56 @@
             (is (true? (identical? (:checkpoint-session (ex-data unknown)) (get-in state [:packet :session]))))))
         :configure (configure (atom {(text "A") {:throw? true}}))))))
 
+(deftest two-root-header-output-reservation-matches-capture-boundary
+  ;; Actual failed campaign limits: aggregate16KiB and per-header16KiB permit
+  ;; one source only. Model transport makes this host budget boundary cheap to
+  ;; reproduce; it is not another real frontend run or proof of the lost cause.
+  (let [specs (atom {(text "A") {:deps []} (text "D") {:deps []}})]
+    (with-files {["A"] (text "A") ["D"] (text "D")}
+      (fn [_ provider]
+        (fixture/with-empty-publication :reference
+          (fn [{:keys [context transport captured] :as f}]
+            (let [entry (resident/snapshot context)
+                  header-bytes 16384
+                  policy (-> (options f)
+                             (assoc-in [:header-limits :max-output-bytes] header-bytes)
+                             (assoc-in [:limits :max-roots] 2)
+                             (assoc-in [:limits :max-modules] 4)
+                             (assoc-in [:limits :max-header-output-bytes] header-bytes))
+                  before (count @(:calls transport))
+                  cause (thrown #(project/discover-project entry
+                                  (request provider [["A"] ["D"]]) policy))
+                  data (ex-data cause) failed (:project-discovery-state data)]
+              (is (= "Project discovery cannot reserve next header output" (.getMessage cause)))
+              (is (= 1 (- (count @(:calls transport)) before)))
+              (is (= 1 (:helper-calls failed)))
+              (is (= header-bytes (:header-output-reserved failed)))
+              (is (= :capture (:phase failed)))
+              (is (= (text "A") (get-in failed [:nodes ["A"] :capture :text])))
+              (is (= (text "D") (get-in failed [:nodes ["D"] :capture :text])))
+              (is (identical? (:packet failed) (get-in failed [:last-header :packet])))
+              (is (identical? (:checkpoint data) (get-in failed [:packet :world])))
+              (is (identical? (:checkpoint-session data) (get-in failed [:packet :session])))
+              (is (= 1 (get-in failed [:packet :world :globals header-model/marker :value])))
+              (is (zero? (:reserved failed)))
+              (is (identical? entry (resident/snapshot context)))
+              ;; A separate discovery on the unchanged input, not a retry of its
+              ;; failed state. Four declared modules receive four reservations.
+              (let [before (count @(:calls transport))
+                    result (project/discover-project entry
+                             (request provider [["A"] ["D"]])
+                             (assoc-in policy [:limits :max-header-output-bytes] 65536))
+                    adopted (resident/adopt-prepared (:packet result) (:configuration f))]
+                (swap! captured conj adopted)
+                (is (= 2 (- (count @(:calls transport)) before)))
+                (is (= 2 (get-in result [:progress :helper-calls])))
+                (is (= 32768 (get-in result [:progress :header-output-reserved])))
+                (is (= [["A"] ["D"]] (get-in result [:graph :roots])))
+                (is (= [["A"] ["D"]] (get-in result [:graph :order])))
+                (is (= 2 (get-in result [:packet :world :globals header-model/marker :value])))
+                (is (identical? entry (resident/snapshot context))))))
+          :configure (configure specs))))))
+
 (deftest aggregate-reservations-after-success-and-project-only-post-header-refusals
   (let [specs (atom {(text "A") {:deps []} (text "B") {:deps []}})]
     (with-files {["A"] (text "A") ["B"] (text "B")}
