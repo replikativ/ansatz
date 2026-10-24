@@ -1,0 +1,321 @@
+{
+  "schema": "restored-ir-sharing/1",
+  "date": "2026-10-24",
+  "leanVersion": "4.33.1",
+  "change": "Fuse restore-local Name-string and small code-only Long operand sharing into the required Name normalization traversal. Existing Clojure collection classes/wire/Ref/RC semantics retained.",
+  "sources": {
+    "experiments/lean-ir/src/prototype/restore_consumer.clj": "8b20fdcfdf1fd6d43ae0b1a434127ff8e429887f5f9062f735bb48ea1b488ad7",
+    "experiments/lean-ir/test/prototype/restore_normalization_test.clj": "346e54baeacd54c008eaf477099f571d2a3ab5af30c019af1fd3ad551e3bc8a4",
+    "experiments/lean-ir/src/prototype/test_runner.clj": "700b82a6ed11cb90ae997409cc49f09685eb079bf0c84af221007d5e4d806bf7"
+  },
+  "sample": {
+    "functions": 4096,
+    "seed": 20261025,
+    "method": "Deterministic uniform per-kind reservoir over the full archive; uniform and largest-frame cohorts separate",
+    "parentSHA256": "26282492007e48f6ba06466f0dea2c203c62d918da5ca283aee2db30449e773f",
+    "sampleSHA256": "bd127f09cee4ba1fb7d35f9c9f48d72edd7d788ef37a90fa2a44d2d874f98759",
+    "allSampleWireBytesIdentical": true
+  },
+  "sizes": {
+    "before": {
+      "boundaries": {},
+      "bytes": 22350008,
+      "classes": {
+        "[B": {
+          "count": 94416,
+          "bytes": 2483296
+        },
+        "[Lclojure.lang.PersistentHashMap$INode;": {
+          "count": 67,
+          "bytes": 9648
+        },
+        "[Ljava.lang.Object;": {
+          "count": 248332,
+          "bytes": 7148312
+        },
+        "clojure.lang.Keyword": {
+          "count": 60,
+          "bytes": 1440
+        },
+        "clojure.lang.PersistentArrayMap": {
+          "count": 10215,
+          "bytes": 326880
+        },
+        "clojure.lang.PersistentHashMap": {
+          "count": 3,
+          "bytes": 120
+        },
+        "clojure.lang.PersistentHashMap$ArrayNode": {
+          "count": 67,
+          "bytes": 1608
+        },
+        "clojure.lang.PersistentHashMap$BitmapIndexedNode": {
+          "count": 2533,
+          "bytes": 60792
+        },
+        "clojure.lang.PersistentVector": {
+          "count": 235583,
+          "bytes": 9423320
+        },
+        "clojure.lang.PersistentVector$Node": {
+          "count": 1,
+          "bytes": 24
+        },
+        "clojure.lang.Symbol": {
+          "count": 60,
+          "bytes": 1920
+        },
+        "java.lang.Boolean": {
+          "count": 2,
+          "bytes": 32
+        },
+        "java.lang.Long": {
+          "count": 25791,
+          "bytes": 618984
+        },
+        "java.lang.String": {
+          "count": 94416,
+          "bytes": 2265984
+        },
+        "java.util.concurrent.atomic.AtomicReference": {
+          "count": 478,
+          "bytes": 7648
+        }
+      },
+      "measurement": "inclusive reachable shallow-size sum; not dominator retained heap",
+      "objects": 712024,
+      "staticFieldsTraversed": false
+    },
+    "after": {
+      "boundaries": {},
+      "bytes": 13892480,
+      "classes": {
+        "[B": {
+          "count": 14964,
+          "bytes": 414456
+        },
+        "[Lclojure.lang.PersistentHashMap$INode;": {
+          "count": 67,
+          "bytes": 9648
+        },
+        "[Ljava.lang.Object;": {
+          "count": 182891,
+          "bytes": 5577728
+        },
+        "clojure.lang.Keyword": {
+          "count": 60,
+          "bytes": 1440
+        },
+        "clojure.lang.PersistentArrayMap": {
+          "count": 10215,
+          "bytes": 326880
+        },
+        "clojure.lang.PersistentHashMap": {
+          "count": 3,
+          "bytes": 120
+        },
+        "clojure.lang.PersistentHashMap$ArrayNode": {
+          "count": 67,
+          "bytes": 1608
+        },
+        "clojure.lang.PersistentHashMap$BitmapIndexedNode": {
+          "count": 2533,
+          "bytes": 60792
+        },
+        "clojure.lang.PersistentVector": {
+          "count": 170142,
+          "bytes": 6805680
+        },
+        "clojure.lang.PersistentVector$Node": {
+          "count": 1,
+          "bytes": 24
+        },
+        "clojure.lang.Symbol": {
+          "count": 60,
+          "bytes": 1920
+        },
+        "java.lang.Boolean": {
+          "count": 2,
+          "bytes": 32
+        },
+        "java.lang.Long": {
+          "count": 13557,
+          "bytes": 325368
+        },
+        "java.lang.String": {
+          "count": 14964,
+          "bytes": 359136
+        },
+        "java.util.concurrent.atomic.AtomicReference": {
+          "count": 478,
+          "bytes": 7648
+        }
+      },
+      "measurement": "inclusive reachable shallow-size sum; not dominator retained heap",
+      "objects": 410004,
+      "staticFieldsTraversed": false
+    }
+  },
+  "tests": {
+    "test": 80,
+    "pass": 24096,
+    "fail": 0,
+    "error": 0,
+    "type": "summary"
+  },
+  "performance": {
+    "schema": "restore-sharing-performance/1",
+    "functions": 4096,
+    "warmups-per-mode": 2,
+    "paired-trials": [
+      {
+        "trial": 0,
+        "baseline": {
+          "nanoseconds": 421940904,
+          "allocated-bytes": 445614984
+        },
+        "shared": {
+          "nanoseconds": 467613436,
+          "allocated-bytes": 504482336
+        }
+      },
+      {
+        "trial": 1,
+        "shared": {
+          "nanoseconds": 466701559,
+          "allocated-bytes": 504538112
+        },
+        "baseline": {
+          "nanoseconds": 457134905,
+          "allocated-bytes": 445388512
+        }
+      },
+      {
+        "trial": 2,
+        "baseline": {
+          "nanoseconds": 456991220,
+          "allocated-bytes": 445388512
+        },
+        "shared": {
+          "nanoseconds": 487771721,
+          "allocated-bytes": 504538112
+        }
+      },
+      {
+        "trial": 3,
+        "shared": {
+          "nanoseconds": 460980775,
+          "allocated-bytes": 504538112
+        },
+        "baseline": {
+          "nanoseconds": 427660500,
+          "allocated-bytes": 445388512
+        }
+      },
+      {
+        "trial": 4,
+        "baseline": {
+          "nanoseconds": 415896412,
+          "allocated-bytes": 445388512
+        },
+        "shared": {
+          "nanoseconds": 444199906,
+          "allocated-bytes": 504538112
+        }
+      }
+    ],
+    "retained-heap-measured": false,
+    "forced-gc": false,
+    "scope": "Fresh sample read/decode/normalize; actual production private row normalizer vs unchanged wire Name normalization"
+  },
+  "medians": {
+    "baseline": {
+      "allocated-bytes": 445388512,
+      "nanoseconds": 427660500
+    },
+    "shared": {
+      "allocated-bytes": 504538112,
+      "nanoseconds": 466701559
+    }
+  },
+  "execution": {
+    "profile": {
+      "heapMiB": 384,
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedSeconds": 647.4536813459999,
+      "peakGroupRSSBytes": 572948480,
+      "minAvailableBytes": 1309278208,
+      "planSha256": "d2674e77023db90e6733e67e93ee16022412919c6236de679ab7961253c4b123",
+      "verifiedInputCount": 275,
+      "allPinsMatch": true,
+      "disposed": true,
+      "receiptSHA256": "0d712b252f79037506c041bb774e61a7238dc16a7d043bb9668ab47077378987"
+    },
+    "validation": {
+      "heapMiB": 384,
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedSeconds": 9.30130131700571,
+      "peakGroupRSSBytes": 520654848,
+      "minAvailableBytes": 7430467584,
+      "planSha256": "6f9c2c225ef1ba75d7bf769a71f9ddc0927fac77399c8374fdb9f9d0a7172e6c",
+      "verifiedInputCount": 462,
+      "allPinsMatch": true,
+      "disposed": true,
+      "receiptSHA256": "919e2c66d9df4644ca09653500ceeff8925f78e39ae8e685cdc95b5c8261a3ef"
+    },
+    "performance": {
+      "heapMiB": 384,
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedSeconds": 9.960741277995112,
+      "peakGroupRSSBytes": 498733056,
+      "minAvailableBytes": 6686085120,
+      "planSha256": "e3df7d255a82ddecc9c3c18d65b65ea1380010aeb643c156c89688d544ca0c97",
+      "verifiedInputCount": 463,
+      "allPinsMatch": true,
+      "disposed": true,
+      "receiptSHA256": "423a2ff433e33365b5311c3bbd251ed19ebe60e03ac80f76f828c88aea7dfb3f"
+    },
+    "checkedInHelper": {
+      "heapMiB": 384,
+      "status": "passed",
+      "exitCode": 0,
+      "elapsedSeconds": 8.64742947799823,
+      "peakGroupRSSBytes": 476053504,
+      "minAvailableBytes": 6939439104,
+      "planSha256": "eff5a450b1116c29cb440e43cd8a0280b8c667f7d945ee26c33e3ed929f0c7ce",
+      "verifiedInputCount": 466,
+      "allPinsMatch": true,
+      "disposed": true,
+      "receiptSHA256": "3667312dae9944c8840d6b8a5d96bad46388d0991e513814016a3d30d588ceb3"
+    }
+  },
+  "limits": [
+    "Inclusive strong reachable shallow-size sum, not dominator retained heap. Static fields excluded. No forced GC.",
+    "No full frontend restore, strict65994 check or publicP1 execution with changed restorer. No whole-frontend memory saving estimate.",
+    "The old selected consumer c036 identity is historical; changed source requires a fresh externally accepted consumer digest. No runtime namespace/class inventory additions.",
+    "JFR includes mixed REPL/profiling/serialization workloads. Its weights do not measure one production restore or retained heap."
+  ],
+  "historicalHarnessFailure": {
+    "tests": 79,
+    "assertions": 24091,
+    "failures": 5,
+    "errors": 0,
+    "all587PinsMatch": true,
+    "disposed": true,
+    "cause": "Broad captured-consumer classpath exposed five provenance scripts, violating existing resource-visibility tests. Corrected to unchanged48 Java classes plus ordinary source roots; tests not weakened."
+  },
+  "tooling": {
+    "samplerReproducesActual4096FrameSample": true,
+    "testRunnerRegistration": "New namespace added to both require and explicit run-tests list; focused validation invokes it explicitly. Full optional main not run in this experiment.",
+    "sourceSHA256": {
+      "experiments/lean-ir/research/profiling/jfr-allocations.clj": "fc278e4eed6b45f7ef7c7aa9b6b7a47ee8330df7de788f02f23e106465acfc6f",
+      "experiments/lean-ir/research/profiling/ObjectMeter.java": "8e8b4305cc1f56c1f7c8a23d60e4896f605ff130e2950daf0b37a5bfe7a9a986",
+      "experiments/lean-ir/research/profiling/measure-rows.clj": "69d95ec41ac8291b4dbfd32872f9314d7daa8c35b236a79bf888818fd48aa7bd",
+      "experiments/lean-ir/research/profiling/sample-checkpoint.py": "e15622094e5d5921f2a8981011f8d7d6ae6a10e9d86b2d22e09cf2240e4d76d9"
+    },
+    "samplerSelectedFramesReverifiedAfterFullParentHash": true
+  }
+}

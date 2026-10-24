@@ -205,47 +205,115 @@
 
 (defn- frame-kind! [row kind length]
   (wire/check (and (vector? row) (= length (count row)) (= kind (first row))) "Unexpected/truncated checkpoint row") row)
+(defn- make-row-normalizer
+  "Fuse existing exact Name sharing with restore-local Name-string and operand
+   pools. Only metadata-free small Long operands in function :body code share;
+   literals, metadata and other row data never become code. Ordinary collection
+   classes, exact wire data and guest ownership are unchanged. No global pool."
+  []
+  (let [names (java.util.HashMap.) strings (java.util.HashMap.) vars (object-array 4096)
+        intern-string (fn [s] (or (.get strings s) (do (.put strings s s) s)))]
+    (letfn [(small-var? [value context]
+              (and (= context :code) (vector? value) (nil? (meta value))
+                   (= 2 (count value)) (= :var (first value))
+                   (instance? Long (second value)) (<= 0 (second value) 4095)))
+            (visit [value context]
+              (if (small-var? value context)
+                (let [id (int (second value))]
+                  (or (aget vars id) (do (aset vars id value) value)))
+                (let [changed
+                      (cond
+                        (vector? value)
+                        (reduce-kv (fn [out i child]
+                                     (let [child-context (cond
+                                                           (= :row context) (if (and (= 4 (count value)) (= :function (first value)) (= 3 i)) :function :data)
+                                                           (and (= :code context) (not (contains? #{:imm :literal :direct} (first value)))) :code
+                                                           :else :data)
+                                           next (visit child child-context)]
+                                       (if (identical? child next) out (assoc out i next)))) value value)
+                        (map? value)
+                        (reduce-kv (fn [out k child]
+                                     (let [nk (visit k :data)
+                                           nv (visit child (if (and (= context :function) (= :body k)) :code :data))]
+                                       (cond
+                                         (and (identical? k nk) (identical? child nv)) out
+                                         (identical? k nk) (assoc out k nv)
+                                         :else (assoc (dissoc out k) nk nv)))) value value)
+                        (list? value)
+                        (let [children (mapv #(visit % :data) value)]
+                          (if (every? true? (map identical? value children)) value
+                              (with-meta (apply list children) (meta value))))
+                        (set? value)
+                        (reduce (fn [out child]
+                                  (let [next (visit child :data)]
+                                    (if (identical? child next) out (conj (disj out child) next)))) value value)
+                        :else value)
+                      metadata (meta value)
+                      next-metadata (when metadata (visit metadata :data))
+                      changed (if (identical? metadata next-metadata) changed (with-meta changed next-metadata))]
+                  (cond
+                    (and (vector? changed) (nil? (meta changed))
+                         (or (and (= 1 (count changed)) (= "anonymous" (first changed)))
+                             (and (= 3 (count changed))
+                                  (let [[kind prefix component] changed]
+                                    (and (string? component)
+                                         (or (= "str" kind) (and (= "num" kind) (re-matches #"[0-9]+" component)))
+                                         (vector? prefix) (identical? prefix (.get names prefix)))))))
+                    (or (.get names changed)
+                        (let [v (let [kind (intern-string (first changed))]
+                                  (if (= 1 (count changed))
+                                    (if (identical? kind (first changed)) changed [kind])
+                                    (let [component (intern-string (nth changed 2))]
+                                      (if (and (identical? kind (first changed)) (identical? component (nth changed 2)))
+                                        changed [kind (nth changed 1) component]))))]
+                          (.put names v v) v))
+                    :else changed))))]
+      {:normalize! #(visit % :row)
+       :release! #(do (.clear names) (.clear strings) (java.util.Arrays/fill vars nil))})))
+
 (defn- parse-data [input expected-counts]
-  (let [names (java.util.HashMap.) next! #(wire/share-name-prefixes names (wire/read-frame! input))
-        header (second (frame-kind! (next!) :header 2))]
-    (exact! header #{:format :counts :authority-present? :authority-keys} "stream header")
-    (wire/check (and (= format-id (:format header)) (= expected-counts (:counts header))
-                     (boolean? (:authority-present? header)) (set? (:authority-keys header))
-                     (set/subset? (:authority-keys header) authority-keys)) "Stream header mismatch")
-    (let [functions (loop [n (:functions expected-counts) functions (transient {}) prepared (transient {}) imported (transient {})]
-                      (if (zero? n) {:functions (persistent! functions) :prepared (persistent! prepared) :imported (persistent! imported)}
-                        (let [[_ name flags f] (frame-kind! (next!) :function 4)]
-                          (wire/check (and (set? flags) (seq flags) (set/subset? flags #{:prepared :imported})
-                                           (not (contains? functions name))) "Duplicate/unauthorized function row")
-                          (recur (dec n) (assoc! functions name f)
-                                 (if (contains? flags :prepared) (assoc! prepared name f) prepared)
-                                 (if (contains? flags :imported) (assoc! imported name f) imported)))))
-          table (fn [kind n]
-                  (loop [n n out (transient {})]
-                    (if (zero? n) (persistent! out)
-                      (let [[_ k v] (frame-kind! (next!) kind 3)]
-                        (wire/check (not (contains? out k)) "Duplicate checkpoint table entry")
-                        (recur (dec n) (assoc! out k v))))))
-          heap (table :heap (:heap expected-counts)) globals (table :global (:globals expected-counts))
-          declarations (table :imported-declaration (:imported-declarations expected-counts))
-          authority (second (frame-kind! (next!) :authority 2))
-          _ (keys! authority #{:imported-catalogue-manifests} "authority metadata")
-          state (second (frame-kind! (next!) :state 2))
-          _ (keys! state state-keys "serialized state")
-          _ (wire/check (= expected-counts (second (frame-kind! (next!) :end 2))) "Checkpoint trailer mismatch")
-          _ (wire/check (= -1 (.read input)) "Trailing checkpoint data")
-          _ (wire/check (= (contains? authority :imported-catalogue-manifests)
-                            (contains? (:authority-keys header) :imported-catalogue-manifests)) "Authority manifest presence mismatch")
-          _ (wire/check (or (contains? (:authority-keys header) :functions) (empty? (:imported functions))) "Undeclared function authority")
-          _ (wire/check (or (contains? (:authority-keys header) :imported-declarations) (empty? declarations)) "Undeclared imported rows")
-          a (cond-> authority
-              (contains? (:authority-keys header) :functions) (assoc :functions (:imported functions))
-              (contains? (:authority-keys header) :imported-declarations) (assoc :imported-declarations declarations))
-          world (cond-> (assoc state :functions (:functions functions) :heap heap :globals globals)
-                  (:authority-present? header) (assoc :eval-const-authorizations a))]
-      (wire/check (or (:authority-present? header) (empty? (:authority-keys header))) "Unexpected absent authority ledger")
-      (.clear names)
-      {:world world :prepared-functions (:prepared functions)})))
+  (let [{:keys [normalize! release!]} (make-row-normalizer)
+        next! #(normalize! (wire/read-frame! input))]
+    (try
+      (let [header (second (frame-kind! (next!) :header 2))]
+        (exact! header #{:format :counts :authority-present? :authority-keys} "stream header")
+        (wire/check (and (= format-id (:format header)) (= expected-counts (:counts header))
+                         (boolean? (:authority-present? header)) (set? (:authority-keys header))
+                         (set/subset? (:authority-keys header) authority-keys)) "Stream header mismatch")
+        (let [functions (loop [n (:functions expected-counts) functions (transient {}) prepared (transient {}) imported (transient {})]
+                          (if (zero? n) {:functions (persistent! functions) :prepared (persistent! prepared) :imported (persistent! imported)}
+                              (let [[_ name flags f] (frame-kind! (next!) :function 4)]
+                                (wire/check (and (set? flags) (seq flags) (set/subset? flags #{:prepared :imported})
+                                                 (not (contains? functions name))) "Duplicate/unauthorized function row")
+                                (recur (dec n) (assoc! functions name f)
+                                       (if (contains? flags :prepared) (assoc! prepared name f) prepared)
+                                       (if (contains? flags :imported) (assoc! imported name f) imported)))))
+              table (fn [kind n]
+                      (loop [n n out (transient {})]
+                        (if (zero? n) (persistent! out)
+                            (let [[_ k v] (frame-kind! (next!) kind 3)]
+                              (wire/check (not (contains? out k)) "Duplicate checkpoint table entry")
+                              (recur (dec n) (assoc! out k v))))))
+              heap (table :heap (:heap expected-counts)) globals (table :global (:globals expected-counts))
+              declarations (table :imported-declaration (:imported-declarations expected-counts))
+              authority (second (frame-kind! (next!) :authority 2))
+              _ (keys! authority #{:imported-catalogue-manifests} "authority metadata")
+              state (second (frame-kind! (next!) :state 2))
+              _ (keys! state state-keys "serialized state")
+              _ (wire/check (= expected-counts (second (frame-kind! (next!) :end 2))) "Checkpoint trailer mismatch")
+              _ (wire/check (= -1 (.read input)) "Trailing checkpoint data")
+              _ (wire/check (= (contains? authority :imported-catalogue-manifests)
+                               (contains? (:authority-keys header) :imported-catalogue-manifests)) "Authority manifest presence mismatch")
+              _ (wire/check (or (contains? (:authority-keys header) :functions) (empty? (:imported functions))) "Undeclared function authority")
+              _ (wire/check (or (contains? (:authority-keys header) :imported-declarations) (empty? declarations)) "Undeclared imported rows")
+              a (cond-> authority
+                  (contains? (:authority-keys header) :functions) (assoc :functions (:imported functions))
+                  (contains? (:authority-keys header) :imported-declarations) (assoc :imported-declarations declarations))
+              world (cond-> (assoc state :functions (:functions functions) :heap heap :globals globals)
+                      (:authority-present? header) (assoc :eval-const-authorizations a))]
+          (wire/check (or (:authority-present? header) (empty? (:authority-keys header))) "Unexpected absent authority ledger")
+          {:world world :prepared-functions (:prepared functions)}))
+      (finally (release!)))))
 
 (deftype ResourceLease [sources]
   java.io.Closeable
