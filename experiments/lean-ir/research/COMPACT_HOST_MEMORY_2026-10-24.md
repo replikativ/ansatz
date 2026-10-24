@@ -104,11 +104,16 @@ In a synthetic 24-group workload with 48-element name/level lists, the baseline
 memo held 2,338 entries at completion; the split version held eight persistent
 entries and zero scratch entries after release. Five alternating paired trials
 gave median allocated bytes of 3,869,952 versus 5,076,768, and median elapsed
-times of 7.46 versus 11.48 milliseconds. Thus this instrumented prototype traded
+times of 7.46 versus 11.48 milliseconds. Only the split candidate includes
+per-lookup/per-kind diagnostic counters and additional metrics maps in these
+intervals; the baseline is uninstrumented. Thus this instrumented prototype traded
 less memo retention for about 31% more allocation and 54% more time. Name interning
 remained at 87 entries throughout those trials. These are table/allocation
 measurements, not retained-byte savings or a representative full-corpus speed
-comparison. The production memo/profile remains unchanged.
+comparison, and do not isolate the cost of the scratch-lifetime policy itself.
+The production memo/profile remains unchanged. Integration still requires exact
+fresh Java admission parity and a wrapper enforcing complete-constant scratch
+lifetime, rather than caller discipline alone.
 
 Run bounded semantic and memory controls before selecting a new consumer or
 repeating the expensive full run. Counts alone do not measure retained bytes.

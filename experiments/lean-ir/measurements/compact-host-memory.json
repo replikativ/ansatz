@@ -209,6 +209,7 @@
       "allocation-counter-available": true
     },
     "planSHA256": "bfe9c10e03e0352d906ddec431173d60c387807ed6bd5afa7c281200dd1e52e6",
-    "receiptSHA256": "cc880a1bbe10df530838fc6172fce8dc0499cb8b9667ab0dd1120312d4c548b0"
+    "receiptSHA256": "cc880a1bbe10df530838fc6172fce8dc0499cb8b9667ab0dd1120312d4c548b0",
+    "measurementQualification": "Only split candidate includes per-lookup/per-kind diagnostics and extra metrics maps in timed/allocated interval. Ratios describe instrumented prototype, not isolated scratch lifetime policy; no retained-byte or full-corpus speed claim."
   }
 }
