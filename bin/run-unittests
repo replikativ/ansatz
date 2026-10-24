@@ -14,6 +14,8 @@ clojure -M:ci \
 	-n ansatz.kernel.typechecker-test \
 	-n ansatz.kernel.expression-identity-test \
 	-n ansatz.kernel.external-cache-test \
+	-n ansatz.kernel.cases-on-test \
+	-n ansatz.kernel.cases-on-native-test \
 	-n ansatz.load-export-test \
 	-n ansatz.surface.lean-test \
 	-n ansatz.surface.pp-test \

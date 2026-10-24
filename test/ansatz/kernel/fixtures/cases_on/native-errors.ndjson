@@ -1,0 +1,3 @@
+{"leanCommit":"819816b2e0a3bf405af45ae5c7af2491d8f5bee6","schema":"cases-on-native-errors/1"}
+{"case":"missing","error":"unknownConstant","name":["str",["str",["anonymous"],"CasesOnOracle"],"missing"]}
+{"case":"not-inductive","error":"other","message":"error in 'casesOn' generation, 'CasesOnOracle.notInductive' is not an inductive datatype"}

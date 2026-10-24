@@ -693,6 +693,10 @@ The CIC kernel is implemented in Java for performance:
 - `RecursorGenerator` — Lean-shaped recursor type and iota-rule generation for imported and frontend-authored inductive bundles
 - `Env` — immutable declaration environment with staged external lookup for imported-store verification
 
+The Clojure [`ansatz.kernel.cases-on`](doc/cases-on.md) API constructs complete
+`casesOn` abbreviation definitions from an existing inductive and recursor.
+Construction is bounded and separate from kernel admission or guest runtime integration.
+
 For a deeper architectural walkthrough of the kernel, see [doc/kernel.md](doc/kernel.md).
 
 ### Tactic Layer (Clojure)
