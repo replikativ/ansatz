@@ -1,0 +1,215 @@
+{
+  "schema": "hosted-lean-compact-memory-evidence/1",
+  "date": "2026-10-24",
+  "publicP1Accepted": false,
+  "fullFrontendRestored": true,
+  "fullRun": {
+    "planSHA256": "9a578fd5a09748bafc45d081d3f9579648319ffd82ffa7f73795f45c178f61a2",
+    "heapMiB": 2048,
+    "projectedConstants": 2048,
+    "constantsTotal": 65994,
+    "operatorResourceStop": true,
+    "all1268PinsMatch": true,
+    "disposed": true,
+    "receipt": {
+      "status": "failed",
+      "peakGroupRSSBytes": 2528686080,
+      "minAvailableBytes": 1296498688,
+      "elapsedSeconds": 1703.718418907003,
+      "stdoutSha256": "15e52c9f827552fb8528f8d56c575ac3c287ee3e8d448b79f869d5ace534fcbd",
+      "stderrSha256": "76f981b9342399949febbbbb0667736e6790eff4eb15f18d7f31d57dbc7c621b"
+    }
+  },
+  "coldCodeSample": {
+    "checks": 457,
+    "actualFunctions": 127,
+    "heapMiB": 256,
+    "peakGroupRSSBytes": 379506688,
+    "elapsedSeconds": 7.808458475999942,
+    "inputCount": 268,
+    "allPinsMatch": true,
+    "disposed": true,
+    "retainedBytesMeasured": false,
+    "admittedRuntimeProfileChanged": false,
+    "receiptSHA256": "8810b25aaea76fff93c3c958c04334106af324925e7b4bd597415d3b4a30dcef"
+  },
+  "projectionScratchSample": {
+    "tests": {
+      "test": 4,
+      "pass": 425,
+      "fail": 0,
+      "error": 0
+    },
+    "heapMiB": 256,
+    "peakGroupRSSBytes": 381747200,
+    "elapsedSeconds": 3.865509875002317,
+    "inputCount": 269,
+    "allPinsMatch": true,
+    "disposed": true,
+    "retainedBytesMeasured": false,
+    "freshKernelAdmission": false,
+    "result": {
+      "retained-heap-measured": false,
+      "name-interned-after": 87,
+      "tests": {
+        "test": 4,
+        "pass": 425,
+        "fail": 0,
+        "error": 0
+      },
+      "name-interned-before": 87,
+      "synthetic-groups": 24,
+      "list-length": 48,
+      "warmup-passes-per-mode": 1,
+      "probe": "projection-scratch-probe-v1",
+      "paired-trials": 5,
+      "fresh-kernel-admission-run": false,
+      "trials": [
+        {
+          "trial": 1,
+          "order": [
+            "compact",
+            "split"
+          ],
+          "compact": {
+            "projected-nodes": 2338,
+            "nanoseconds": 14915470,
+            "allocated-bytes": 4173672
+          },
+          "split": {
+            "scratch-entries-after-release": 0,
+            "persistent-fallback": 4,
+            "released-entries": 2376,
+            "scratch-fallback-after-release": 0,
+            "projected-nodes": 8,
+            "allocated-bytes": 5415736,
+            "releases": 24,
+            "nanoseconds": 12625640,
+            "failures": 0,
+            "scratch-capacity-after-release": 16,
+            "max-work-items": 52,
+            "last-scratch-before-release": 99,
+            "persistent-entries": 4,
+            "persistent-capacity": 16
+          }
+        },
+        {
+          "trial": 2,
+          "order": [
+            "split",
+            "compact"
+          ],
+          "split": {
+            "scratch-entries-after-release": 0,
+            "persistent-fallback": 4,
+            "released-entries": 2376,
+            "scratch-fallback-after-release": 0,
+            "projected-nodes": 8,
+            "allocated-bytes": 5274624,
+            "releases": 24,
+            "nanoseconds": 11481497,
+            "failures": 0,
+            "scratch-capacity-after-release": 16,
+            "max-work-items": 52,
+            "last-scratch-before-release": 99,
+            "persistent-entries": 4,
+            "persistent-capacity": 16
+          },
+          "compact": {
+            "projected-nodes": 2338,
+            "nanoseconds": 7013041,
+            "allocated-bytes": 3869896
+          }
+        },
+        {
+          "trial": 3,
+          "order": [
+            "compact",
+            "split"
+          ],
+          "compact": {
+            "projected-nodes": 2338,
+            "nanoseconds": 7949907,
+            "allocated-bytes": 3870008
+          },
+          "split": {
+            "scratch-entries-after-release": 0,
+            "persistent-fallback": 4,
+            "released-entries": 2376,
+            "scratch-fallback-after-release": 0,
+            "projected-nodes": 8,
+            "allocated-bytes": 5076712,
+            "releases": 24,
+            "nanoseconds": 11659658,
+            "failures": 0,
+            "scratch-capacity-after-release": 16,
+            "max-work-items": 52,
+            "last-scratch-before-release": 99,
+            "persistent-entries": 4,
+            "persistent-capacity": 16
+          }
+        },
+        {
+          "trial": 4,
+          "order": [
+            "split",
+            "compact"
+          ],
+          "split": {
+            "scratch-entries-after-release": 0,
+            "persistent-fallback": 4,
+            "released-entries": 2376,
+            "scratch-fallback-after-release": 0,
+            "projected-nodes": 8,
+            "allocated-bytes": 5076688,
+            "releases": 24,
+            "nanoseconds": 10816937,
+            "failures": 0,
+            "scratch-capacity-after-release": 16,
+            "max-work-items": 52,
+            "last-scratch-before-release": 99,
+            "persistent-entries": 4,
+            "persistent-capacity": 16
+          },
+          "compact": {
+            "projected-nodes": 2338,
+            "nanoseconds": 7456037,
+            "allocated-bytes": 3869952
+          }
+        },
+        {
+          "trial": 5,
+          "order": [
+            "compact",
+            "split"
+          ],
+          "compact": {
+            "projected-nodes": 2338,
+            "nanoseconds": 7016072,
+            "allocated-bytes": 3869896
+          },
+          "split": {
+            "scratch-entries-after-release": 0,
+            "persistent-fallback": 4,
+            "released-entries": 2376,
+            "scratch-fallback-after-release": 0,
+            "projected-nodes": 8,
+            "allocated-bytes": 5076768,
+            "releases": 24,
+            "nanoseconds": 11069405,
+            "failures": 0,
+            "scratch-capacity-after-release": 16,
+            "max-work-items": 52,
+            "last-scratch-before-release": 99,
+            "persistent-entries": 4,
+            "persistent-capacity": 16
+          }
+        }
+      ],
+      "allocation-counter-available": true
+    },
+    "planSHA256": "bfe9c10e03e0352d906ddec431173d60c387807ed6bd5afa7c281200dd1e52e6",
+    "receiptSHA256": "cc880a1bbe10df530838fc6172fce8dc0499cb8b9667ab0dd1120312d4c548b0",
+    "measurementQualification": "Only split candidate includes per-lookup/per-kind diagnostics and extra metrics maps in timed/allocated interval. Ratios describe instrumented prototype, not isolated scratch lifetime policy; no retained-byte or full-corpus speed claim."
+  }
+}

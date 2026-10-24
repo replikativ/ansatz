@@ -7,6 +7,12 @@ fidelity, and convenient integration with Clojure/JVM applications.
 
 ## Execution update after planning
 
+The subsequent [compact-memory investigation](COMPACT_HOST_MEMORY_2026-10-24.md)
+restored the full frontend under a 2 GiB heap, then stopped for sustained GC
+pressure during fresh strict projection. It did not complete public P1. That
+update supersedes the proposed next-run state below; the original four
+milestones remain in order.
+
 The reviewed P1 v2 attempt ran, restored the frontend with all initialization
 guards preserved, then stopped during fresh strict checking at the system-wide
 available-memory floor: minimum 1,009,332,224 bytes, below 1 GiB. Peak group RSS
@@ -17,7 +23,8 @@ strict-check semantic rejection. Do not relaunch or resume its terminal control.
 
 The compact dependency-plan change has passed its
 [focused validation](../measurements/compact-first-pass-plan.json): 22 tests /
-235 assertions. The next gate is a newly reviewed selected consumer/capture. See
+235 assertions. A subsequent selected consumer/capture passed construction and
+full restoration; its fresh check remains incomplete. See
 [acceptance and memory followups](ACCEPTANCE_AND_MEMORY_FOLLOWUPS_2026-10-23.md).
 A modified checker needs a fresh reviewed selected consumer/capture before any
 new full campaign. Do not execute the historical P1 v2 plan again. The four
