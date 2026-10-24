@@ -437,29 +437,50 @@
 
 (def ^:private evidence-extension-key ::captured-full-evidence)
 
+(defn- full-ci-evidence* [^Env current requested limits partition?]
+  (let [entry (.getExtension current evidence-extension-key)
+        ;; Env.sameExternalView compares actual external lookup/visibility
+        ;; identities. An empty Env has both handlers null; local overlays do
+        ;; not alter this relation. No arbitrary external resolver proves absence.
+        in-memory? (and (nil? entry) partition? (.sameExternalView current (Env.)))]
+    (when-not (or entry in-memory?)
+      (throw (ex-info "Env has no captured bounded full-CI evidence source" {})))
+    (when (and entry (not (.sameExternalView current ^Env (:view entry))))
+      (throw (ex-info "Full evidence does not describe this external Env view" {})))
+    (let [sources (or (:sources entry)
+                      {:shell (constantly nil) :expr (constantly nil)
+                       :name (constantly nil) :level (constantly nil)})
+          sources (update sources :shell
+                          (fn [read-shell]
+                            (fn [name]
+                              ;; materialize validates the entire requested Name
+                              ;; vector before this first local/PSS name lookup.
+                              (when (.lookupLocal current name)
+                                (throw (ex-info "Full store evidence cannot replace a local declaration" {})))
+                              (when (and (:visible? entry) (not ((:visible? entry) name)))
+                                (throw (ex-info "Full evidence name is not visible in this Env" {})))
+                              (read-shell name))))]
+      ((if partition? evidence/materialize-partition evidence/materialize)
+       requested sources limits resolve-ci-shell))))
+
 (defn full-ci-evidence
-  "Bounded full bodies for exactly `requested` Names from this Env's captured
-   PSS-DAG roots. Never follows a changed branch head or replaces local shadows.
-   Requires explicit evidence/materialize limits. Store handles stay borrowed;
-   this operation opens/closes none. A copied extension does not authorize a new
-   external lookup or staged visibility view. Does not install or admit CIs."
-  [^Env current requested limits]
-  (if-let [entry (.getExtension current evidence-extension-key)]
-    (do
-      (when-not (.sameExternalView current ^Env (:view entry))
-        (throw (ex-info "Full evidence does not describe this external Env view" {})))
-      (evidence/materialize
-       requested
-       (update (:sources entry) :shell
-               (fn [read-shell]
-                 (fn [name]
-                   (when (.lookupLocal current name)
-                     (throw (ex-info "Full store evidence cannot replace a local declaration" {})))
-                   (when (and (:visible? entry) (not ((:visible? entry) name)))
-                     (throw (ex-info "Full evidence name is not visible in this Env" {})))
-                   (read-shell name))))
-       limits resolve-ci-shell))
-    (throw (ex-info "Env has no captured bounded full-CI evidence source" {}))))
+  "Bounded full bodies for exactly requested Names from captured PSS-DAG roots.
+   Every name must exist. Never follows a changed branch head, replaces a local
+   shadow, or borrows a different external/visibility view. Requires explicit
+   evidence limits; borrowed store handles are never opened/closed here."
+  [current requested limits]
+  (full-ci-evidence* current requested limits false))
+
+(defn full-ci-evidence-partition
+  "Read one bounded captured-root batch, returning {:constants :absent :usage}.
+   Validates every requested Name before shell/PSS lookup or Expr construction.
+   Explicit absence never hydrates ordinary Env entries. Local shadows, hidden
+   names and unsupported external views are refusals, not absence. A genuinely
+   in-memory Env can establish absence via its null external-handler identity.
+   Limits include absent requests; one invocation cache/budget covers the batch.
+   Borrowed store lifetime must cover the call. Never admits/installs a CI."
+  [current requested limits]
+  (full-ci-evidence* current requested limits true))
 
 (defn branch-resolver
   "An UNRESTRICTED `(fn [name-str] ConstantInfo|nil)` over a branch, with its own resolver

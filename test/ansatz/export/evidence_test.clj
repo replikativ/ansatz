@@ -248,3 +248,69 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no captured bounded"
                           (storage/full-ci-evidence loaded [declaration-name] limits)))
     (is (false? @looked-up?))))
+
+(deftest partition-reports-explicit-absence-with-one-shared-batch-cache
+  (let [{:keys [sources reads]} (fixture)
+        second-name (name/from-string "Evidence.second")
+        absent-name (name/from-string "Evidence.absent")
+        sources (assoc sources :shell (fn [n]
+                                        (swap! reads conj [:shell n])
+                                        (cond (= n declaration-name) shell
+                                              (= n second-name) (assoc shell :name n :all [n]))))
+        result (evidence/materialize-partition [declaration-name absent-name second-name]
+                                               sources limits storage/resolve-ci-shell)]
+    (is (= #{declaration-name second-name} (set (keys (:constants result)))))
+    (is (= [absent-name] (:absent result)))
+    (is (= 3 (get-in result [:usage :declarations])))
+    (is (= 2 (get-in result [:usage :expr-nodes])))
+    (is (= 1 (count (filter #{[:expr 0]} @reads))))
+    (is (= 1 (count (filter #{[:expr 1]} @reads))))))
+
+(deftest partition-admits-all-requested-names-before-any-shell-read
+  (let [{:keys [sources reads]} (fixture)
+        absent-name (name/from-string "Evidence.absent")]
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (evidence/materialize-partition [declaration-name absent-name] sources
+                                                 (assoc limits :name-chars 1) storage/resolve-ci-shell)))
+    (is (empty? @reads))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (evidence/materialize-partition [declaration-name absent-name] sources
+                                                 (assoc limits :declarations 1) storage/resolve-ci-shell)))
+    (is (empty? @reads))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (evidence/materialize-partition [absent-name] (assoc sources :shell (constantly {}))
+                                                 limits storage/resolve-ci-shell)))
+    (is (thrown? clojure.lang.ExceptionInfo
+                 (evidence/materialize [absent-name] sources limits storage/resolve-ci-shell)))))
+
+(deftest captured-partition-uses-original-roots-without-normal-hydration
+  (with-captured-branch
+    {:value-policy :defs-only}
+    (fn [^Env loaded head reads]
+      (reset! head {:env-root :replacement})
+      (let [absent-name (name/from-string "Evidence.absent")
+            result (storage/full-ci-evidence-partition loaded [absent-name declaration-name] limits)]
+        (is (= [absent-name] (:absent result)))
+        (is (constant-info/complete? (get (:constants result) declaration-name)))
+        (is (= [[:branches "main"]] @reads))
+        (is (nil? (.value ^ConstantInfo (.lookup loaded declaration-name)))
+            "ordinary defs-only cache never receives the evidence proof")))))
+
+(deftest partition-refuses-local-hidden-and-unsupported-external-views
+  (let [absent-name (name/from-string "Evidence.absent")
+        pure (Env.)
+        result (storage/full-ci-evidence-partition pure [absent-name] limits)
+        looked-up? (atom false)
+        unknown (.withExternalLookup pure (fn [_] (reset! looked-up? true) nil) 0)
+        local (.addConstant pure (ConstantInfo/mkAxiom absent-name (object-array [])
+                                                       (Expr/sort Level/ZERO_LEVEL false) false))]
+    (is (= [absent-name] (:absent result)))
+    (is (= {} (:constants result)))
+    (is (thrown? clojure.lang.ExceptionInfo (storage/full-ci-evidence-partition unknown [absent-name] limits)))
+    (is (false? @looked-up?))
+    (is (thrown? clojure.lang.ExceptionInfo (storage/full-ci-evidence-partition local [absent-name] limits))))
+  (with-captured-branch
+    {:visible? (constantly false)}
+    (fn [loaded _ _]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (storage/full-ci-evidence-partition loaded [(name/from-string "absent")] limits))))))

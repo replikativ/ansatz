@@ -163,25 +163,28 @@
           (or (keyword? item) (boolean? item) (integer? item)) nil
           :else (fail "Unsupported CI shell value" {:class (.getName (class item))}))))))
 
-(defn materialize
+(defn- materialize*
   "Read exactly the requested Name vector from captured sources. No declaration
    dependency expansion, branch-head reread, fallback resolver or shared CI cache.
    `sources` contains :shell/:expr/:name/:level lookup functions; resolve-shell is
    the existing pure CI-shell constructor. Limits are all explicit, invocation
    wide, and include every reachable proof body. Returns {:constants :usage}.
    The caller retains its borrowed store lifetime throughout this operation."
-  [requested sources limits resolve-shell]
+  [requested sources limits resolve-shell allow-absent?]
   (validate-limits! limits)
-  (when-not (and (vector? requested) (every? #(instance? Name %) requested)
+  (when-not (and (vector? requested)
                  (every? ifn? (map sources [:shell :expr :name :level])) (ifn? resolve-shell))
     (fail "Invalid scoped evidence request" {}))
   (when (> (count requested) (:declarations limits))
     (fail "Too many requested declarations" {:limit :declarations}))
+  (when-not (every? #(instance? Name %) requested)
+    (fail "Invalid scoped evidence request" {}))
   (let [usage (volatile! {:declarations (count requested)})
         names (HashMap.) levels (HashMap.)
         name-heights (IdentityHashMap.) level-heights (IdentityHashMap.)
         level-expansion (IdentityHashMap.)
-        specs (HashMap.) heights (HashMap.) order (java.util.ArrayList.)]
+        specs (HashMap.) heights (HashMap.) order (java.util.ArrayList.)
+        absent (java.util.ArrayList.)]
     (letfn [(visit-name! [^Name root]
               (loop [n root stack []]
                 (cond
@@ -306,15 +309,19 @@
       (doseq [requested-name requested] (visit-name! requested-name))
       (when-not (= (count requested) (count (set requested)))
         (fail "Duplicate requested evidence name" {}))
-      (let [shells (mapv (fn [requested-name]
-                           (let [shell (shell-data ((:shell sources) requested-name))]
-                             (visit-name! (:name shell))
-                             (when-not (= requested-name (:name shell))
-                               (fail "Stored shell Name differs from requested Name" {}))
-                             (validate-shell! shell usage limits visit-name!)
-                             (validate-variant! shell)
-                             (doseq [root (shell-roots shell)] (visit-expr! root))
-                             shell)) requested)
+      (let [shells (into []
+                         (keep (fn [requested-name]
+                                 (let [raw-shell ((:shell sources) requested-name)]
+                                   (if (and allow-absent? (nil? raw-shell))
+                                     (do (.add absent requested-name) nil)
+                                     (let [shell (shell-data raw-shell)]
+                                       (visit-name! (:name shell))
+                                       (when-not (= requested-name (:name shell))
+                                         (fail "Stored shell Name differs from requested Name" {}))
+                                       (validate-shell! shell usage limits visit-name!)
+                                       (validate-variant! shell)
+                                       (doseq [root (shell-roots shell)] (visit-expr! root))
+                                       shell))))) requested)
             values (HashMap.)]
         ;; Every requested shell and reachable raw DAG passed before the first
         ;; Expr constructor. This cache is never shared with normal defs-only IO.
@@ -322,11 +329,32 @@
           (let [value (assemble (.get specs id) values)]
             (set! (.-storeId ^Expr value) (int id))
             (.put values id value)))
-        {:constants (into {} (map (fn [shell]
-                                    (let [ci (resolve-shell shell (fn [id]
-                                                                    (or (.get values (id! id))
-                                                                        (fail "Unadmitted expression root" {}))))]
-                                      (when-not (constant-info/complete? ci)
-                                        (fail "Incomplete materialized ConstantInfo" {}))
-                                      [(:name shell) ci]))) shells)
-         :usage @usage}))))
+        (cond-> {:constants (into {} (map (fn [shell]
+                                            (let [ci (resolve-shell shell (fn [id]
+                                                                            (or (.get values (id! id))
+                                                                                (fail "Unadmitted expression root" {}))))]
+                                              (when-not (constant-info/complete? ci)
+                                                (fail "Incomplete materialized ConstantInfo" {}))
+                                              [(:name shell) ci]))) shells)
+                 :usage @usage}
+          allow-absent? (assoc :absent (vec absent)))))))
+
+(defn materialize
+  "Read exactly the requested Name vector from captured sources; every name
+   must exist. No declaration dependency expansion, branch-head reread, fallback
+   resolver or shared CI cache. sources contains :shell/:expr/:name/:level lookup
+   functions and resolve-shell is the existing pure CI-shell constructor. Limits
+   are explicit, invocation-wide and include every reachable proof body. Returns
+   {:constants :usage}. All requested Names pass before backend shell lookup;
+   every raw closure passes before Expr construction. The caller retains its
+   borrowed store lifetime throughout the operation."
+  [requested sources limits resolve-shell]
+  (materialize* requested sources limits resolve-shell false))
+
+(defn materialize-partition
+  "One bounded invocation over captured sources: {:constants :absent :usage}.
+   Absent is an explicit Name vector in request order; nil shells alone indicate
+   absence. Malformed shells/hidden names/source failures never become absence.
+   The declaration budget includes every requested Name, present or absent."
+  [requested sources limits resolve-shell]
+  (materialize* requested sources limits resolve-shell true))

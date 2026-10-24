@@ -17,6 +17,11 @@ clojure -M:ci \
 	-n ansatz.surface.lean-test \
 	-n ansatz.surface.pp-test \
 	-n ansatz.theory.convergence-test \
+	-n ansatz.export.evidence-test \
+	-n ansatz.bounded-ci-comparison-test \
+	-n ansatz.companion-overlay-test \
+	-n ansatz.bundle-test \
+	-n ansatz.wf-supplement-test \
 	-n ansatz.bundled-init-test
 
 echo
