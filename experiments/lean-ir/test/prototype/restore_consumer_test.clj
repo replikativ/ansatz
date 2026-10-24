@@ -678,3 +678,96 @@
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
                              (private-call 'factory-result! (assoc result :compatibility-profile other)
                                            producer consumer id manifest)))))))
+
+;; Seventh profile models three fixed new resources and exact reviewed
+;; substitutions. Pure shape checks do not attest any loaded source or restore.
+(def hosted-application-inventory
+  (vec (concat
+         (map (fn [row]
+                (if-let [pin (get profile/hosted-application-substitutions (:id row))]
+                  (assoc row :sha256 pin) row)) graph-frontend-inventory)
+         (for [[id kind] (sort-by key profile/hosted-application-added-inputs)]
+           {:id id :kind kind :sha256 model-hash}))))
+(defn hosted-application-valid! [rows]
+  (profile/validate-hosted-application-inventory! recipe rows (profile/consumer-identity rows)))
+
+(deftest seventh-fixed-domain-preserves-all-six-earlier-contracts
+  (is (= 260 (count hosted-application-inventory)))
+  (is (identical? hosted-application-inventory (hosted-application-valid! hosted-application-inventory)))
+  (doseq [[id validate rows] six-profile-cases]
+    (is (identical? rows (validate rows)) id)
+    (is (thrown? clojure.lang.ExceptionInfo (validate hosted-application-inventory)) id)
+    (is (thrown? clojure.lang.ExceptionInfo (hosted-application-valid! rows)) id))
+  (doseq [id (map :id hosted-application-inventory)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                         (hosted-application-valid! (vec (remove #(= id (:id %)) hosted-application-inventory))))))
+  (doseq [id (keys profile/hosted-application-added-inputs)]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"role drift"
+                         (hosted-application-valid! (changed hosted-application-inventory id #(assoc % :kind :host-resource)))))))
+
+(deftest seventh-reviewed-substitutions-are-not-caller-extensible
+  (doseq [[id pin] profile/hosted-application-substitutions]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"hosted application source substitution"
+                         (hosted-application-valid! (changed hosted-application-inventory id #(assoc % :sha256 model-hash))))))
+  (doseq [id ["prototype/machine.cljc" "prototype/checkpoint_wire.clj" "ansatz/kernel/Reducer.class"]]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                         (hosted-application-valid! (changed hosted-application-inventory id #(assoc % :sha256 model-hash))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"selected-input inventory drift"
+                       (hosted-application-valid! (conj hosted-application-inventory
+                                                   {:id "unreviewed/extra.clj" :kind :host-source :sha256 model-hash}))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"digest mismatch"
+                       (profile/validate-hosted-application-inventory! recipe hosted-application-inventory
+                                                                     (profile/consumer-identity graph-frontend-inventory)))))
+
+(deftest seventh-factory-rejects-caller-authority-before-resource-lookup
+  (let [calls (atom []) resolver (fn [id] (swap! calls conj id) (throw (AssertionError. "Unexpected lookup")))
+        digest (profile/consumer-identity hosted-application-inventory)
+        options {:producer-preparation producer :producer-recipe-source recipe-source
+                 :producer-resolve-artifact resolver :store-root "unused-model-store"
+                 :consumer-inventory hosted-application-inventory
+                 :expected-consumer-implementation-sha256 digest :loaded-consumer-implementation-sha256 digest
+                 :consumer-resolve-source resolver}]
+    (doseq [authenticate [profile/authenticate-hosted-application! factory/make-hosted-application-factory]]
+      (doseq [extra [{:substitutions profile/hosted-application-substitutions}
+                    {:compatibility-profile profile/hosted-application-profile-id}
+                    {:loader identity} {:kernel-policy {}}]]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"factory options" (authenticate (merge options extra)))))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"fresh loaded-consumer attestation"
+                           (authenticate (assoc options :loaded-consumer-implementation-sha256 model-hash))))
+      (let [rows (changed hosted-application-inventory "prototype/raw_interop.clj" #(assoc % :sha256 model-hash))
+            digest (profile/consumer-identity rows)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"hosted application source substitution"
+                             (authenticate (assoc options :consumer-inventory rows
+                                                  :expected-consumer-implementation-sha256 digest
+                                                  :loaded-consumer-implementation-sha256 digest))))))
+    (is (empty? @calls))))
+
+(deftest seventh-restore-capability-remains-distinct-from-all-six-priors
+  (let [consumer (profile/consumer-identity hosted-application-inventory)
+        description {:producer-preparation producer :consumer-implementation-sha256 consumer}
+        result (assoc description :catalogue {} :bindings {}) manifest {:binding-signatures {}}
+        known (conj (mapv first six-profile-cases) profile/hosted-application-profile-id)]
+    (is (= 42 (count (for [id known other known :when (not= id other)] [id other]))))
+    (doseq [id known]
+      (is (= id (private-call 'factory-profile! (assoc description :compatibility-profile id) producer consumer)))
+      (is (= id (:compatibility-profile
+                  (private-call 'factory-result! (assoc result :compatibility-profile id) producer consumer id manifest))))
+      (doseq [other (remove #{id} known)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"identity/signature mismatch"
+                             (private-call 'factory-result! (assoc result :compatibility-profile other)
+                                           producer consumer id manifest)))))))
+
+
+(deftest seventh-kernel-source-and-class-cohort-rejects-old-corrected-mixing
+  (let [old (into {} (map (juxt :id :sha256)) graph-frontend-inventory)]
+    (doseq [id ["src-java/ansatz/kernel/Expr.java" "src-java/ansatz/kernel/ExprStore.java"
+                "src-java/ansatz/kernel/TypeChecker.java" "ansatz/kernel/Expr.class"
+                "ansatz/kernel/TypeChecker.class"]]
+      ;; Even a caller that recomputes the whole digest cannot mix one old
+      ;; source/class row into the reviewed corrected kernel cohort.
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"hosted application source substitution"
+                           (hosted-application-valid! (changed hosted-application-inventory id
+                                                               #(assoc % :sha256 (get old id))))))
+      (doseq [[label validate rows] six-profile-cases]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
+                             (validate (changed rows id #(assoc % :sha256 (get profile/hosted-application-substitutions id))))) label)))))

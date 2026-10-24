@@ -5,6 +5,11 @@ optional lifecycle API with focused regression coverage.
 [Project failure disposal](research/PROJECT_FAILURE_DISPOSAL.md) extends it to
 issued terminal failure capsules and their failed load aliases.
 
+The optional [closed application consumer](research/HOSTED_APPLICATION_CONSUMER.md)
+adds a distinct source/class inventory for helper protection, managed disposal,
+ordinary inductive preparation and typed EIO adapters. Its compatibility tests
+remain separate from genuine hosted frontend acceptance.
+
 An Ansatz experiment, outside the library's normal source/AOT paths. Its optional
 consumer APIs and fixtures support the hosted frontend campaign; a production
 runtime API and package split remain undecided.

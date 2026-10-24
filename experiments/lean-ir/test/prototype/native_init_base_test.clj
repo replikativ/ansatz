@@ -63,6 +63,7 @@
       {#'profile/authenticate! auth #'profile/authenticate-reconstruction! auth
        #'profile/authenticate-runtime-ops-reconstruction! auth #'profile/authenticate-heap-net-dirty-reconstruction! auth
        #'profile/authenticate-source-graph-reconstruction! auth #'profile/authenticate-source-graph-frontend-reconstruction! auth
+       #'profile/authenticate-hosted-application! (fn [_] {:compatibility-profile profile/hosted-application-profile-id})
        #'factory/authenticate-build! (fn [& _] true)
        #'factory/checked-bytes (fn [_ _ id] (.getBytes (json/write-str (case id :transport-descriptor descriptor :initializer-witness init-witness)) "UTF-8"))
        #'factory/catalogue-bytes (fn [& _] catalogue)
@@ -544,3 +545,22 @@
     (is (some? (failure #(#'resident-prefix/native-attribution! (atom {:world world}) invoke
                           {:modules modules} p nil
                           (assoc-in selection [:plan :name-attribution shared-wire :module-index] 1)))))))
+
+
+(deftest seventh-application-factory-preserves-fixed-native-readiness-provenance
+  (tiny/with-tiny-init
+    (fn [loaded]
+      (with-modeled-producer loaded
+        (fn [{:keys [factory-options parsed source]}]
+          (let [f (factory/make-hosted-application-factory factory-options)
+                description (factory/descriptor f)
+                rebuilt (factory/invoke! f parsed)
+                binding (get-in rebuilt [:bindings "lean_run_mod_init_core"])
+                cap (factory/native-init-readiness f source binding)
+                coverage (factory/native-init-coverage cap source binding)]
+            (is (= profile/hosted-application-profile-id (:compatibility-profile description)))
+            (is (= profile/hosted-application-profile-id (:compatibility-profile rebuilt)))
+            (is (= 1 (:query-count coverage)))
+            (is (= [source/init-module] (:modules coverage)))
+            (is (nil? (:native-init-readiness rebuilt)))
+            (is (some? (failure #(factory/native-init-readiness f source (into {} binding)))))))))))

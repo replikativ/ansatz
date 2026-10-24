@@ -418,8 +418,9 @@
    The archived producer inventory is separately checked reconstruction provenance.
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
-  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
-  (let [consumer-description (cond graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
+  [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
+  (let [consumer-description (cond hosted-application? (compatibility/authenticate-hosted-application! options)
+                                     graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
                                      source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
                                      heap-net-dirty? (compatibility/authenticate-heap-net-dirty-reconstruction! options)
                                      runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
@@ -538,12 +539,13 @@
    OPTIONS must include externally accepted consumer inventory digest and fresh
    loaded-code attestation. Resource hashes alone do not attest already loaded Vars.
    Returns an identity-registered capability, never a supplied reconstruction fn."
-  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options native-owner]
+  [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? options native-owner]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options native-owner)
+        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application? options native-owner)
         description {:producer-preparation (:producer-preparation options)
                      :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (cond graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
+                     :compatibility-profile (cond hosted-application? compatibility/hosted-application-profile-id
+                                                  graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
                                                   source-graph? compatibility/source-graph-reconstruction-profile-id
                                                   heap-net-dirty? compatibility/heap-net-dirty-reconstruction-profile-id
                                                   runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
@@ -555,7 +557,7 @@
       factory)))
 
 (defn- issue-factory [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
-  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options nil))
+  (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? false options nil))
 
 (defn make-factory
   "Issue the original closed globals consumer capability with exact captured options."
@@ -597,7 +599,15 @@
    This constructor performs additional bounded provenance validation only when
    its authenticated restore invocation succeeds; it never executes a query."
   [options]
-  (issue-factory* true true true true true options (Object.)))
+  (issue-factory* true true true true true false options (Object.)))
+
+(defn make-hosted-application-factory
+  "Issue the seventh fixed application consumer with native readiness support.
+   Three added source members and helper/disposal substitutions are authenticated
+   before restore. All six old consumer contracts remain unchanged. This does
+   not execute or pre-authorize ordinary-inductive preparation or typed IO."
+  [options]
+  (issue-factory* true true true true true true options (Object.)))
 
 (deftype NativeInitReadiness [])
 (defonce ^:private native-readiness-issued (java.util.WeakHashMap.))

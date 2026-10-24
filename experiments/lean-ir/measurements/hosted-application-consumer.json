@@ -1,0 +1,38 @@
+{
+  "schema": "hosted-application-consumer-validation/1",
+  "profile": "ansatz-producer50f-hosted-application-consumer/1",
+  "runtimeRows": 260,
+  "projectCallerRows": 3,
+  "selectedClassRows": 48,
+  "tests": 79,
+  "assertions": 3469,
+  "failures": 0,
+  "errors": 0,
+  "scope": "Seven closed compatibility domains and fixed factory/restore/native provenance model regressions on corrected kernel classes; full hosted frontend acceptance separate.",
+  "bounds": {
+    "heapMiB": 384,
+    "processGroupRSSMiB": 768,
+    "wallSeconds": 120
+  },
+  "observed": {
+    "elapsedSeconds": 38.461012560999734,
+    "peakProcessGroupRSSBytes": 534065152,
+    "exitCode": 0,
+    "ownedProcessGroupDisposed": true,
+    "inputPins": 775,
+    "allPinsMatchAfterRun": true
+  },
+  "planSHA256": "1b94783c18b986e1e573233f88f662f87091a3726706ba20c3275492190c6318",
+  "receiptSHA256": "0f3572188b67951885909acdb945c7481e518860c8606ec096487587d58d1df4",
+  "kernelClassManifestSHA256": "0aeb9dae477936ce2f7b31a0ea475cf0db60dd901de89bd63509b8a1cf911503",
+  "testedSources": {
+    "globals_consumer_profile.clj": "0c39099ec7c22b2e7b7afb3ba1b952b8167162356ebe7f88cea2be0a53d297a1",
+    "globals_consumer_factory.clj": "6ddff090f1d1279126cc8b2f1f8985c0104fe31dcc49553669a1fd618276c5fc",
+    "restore_consumer.clj": "da8e80b30a8f513bbf8968a185e76f20a7b259d9666572962a191dbf52345860"
+  },
+  "limitations": [
+    "Factory/archive transport is modeled; selected tiny Source identity/provenance checks are actual.",
+    "No genuine new constructor, full archive restore, strict Init, ordinary-inductive frontend or typed IO acceptance is claimed.",
+    "Descriptor parity does not establish bytecode or behavioral equality."
+  ]
+}
