@@ -36,15 +36,27 @@ class byte remains independently pinned. This does not establish a minimum JVM
 version for the full library.
 
 The [focused validation record](../measurements/hosted-application-consumer.json)
-reports **79 tests / 3,469 assertions** across compatibility, bootstrap, archive,
+reports **81 tests / 3,480 assertions** across compatibility, bootstrap, archive,
 normalization and fixed native-readiness provenance regressions. Archive/compiler
 transport in those factory checks is modeled; tiny Source identity and handler
 provenance are real. The run used corrected Java classes, a 384 MiB heap and
 768 MiB process-group RSS cap, and verified all 775 input pins after process
 disposal. It performs no full hosted frontend restore or strict Init check.
 
-A genuine fresh constructor remains a separate gate before another actual
-archive restore. After that restore, ordinary inductive preparation and EIO
+The seventh factory authenticates two distinct class domains. Original archived
+producer class files remain hashed against the original build inventory; its
+resolver must provide every producer row, including all 42 kernel class files.
+Actual loaded classes use the fixed corrected Expr/TypeChecker pins while all
+other kernel classes keep their original pins. The legacy six profiles retain
+their original loaded-class policy. A valid corrected class cannot hide damaged
+producer bytes, and resolved disk files cannot substitute for loaded identity.
+
+A genuine fresh constructor passed with all 260 runtime resources, three caller
+resources and 11 public caller operations. It acquired no native leases and
+performed no archive invocation, guest step, strict check, readiness issuance or
+Project operation. All 1,508 input pins matched after process disposal. This gate
+is separate from another actual archive restore. After that restore, ordinary
+inductive preparation and EIO
 builder linking must precede graph/evaluator sealing, with independently trusted
 helpers and actual sessions sharing exact binding/function objects. Neither
 source membership nor this factory authorizes those later operations by itself.

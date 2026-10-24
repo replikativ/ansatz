@@ -771,3 +771,58 @@
       (doseq [[label validate rows] six-profile-cases]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unapproved consumer substitution"
                              (validate (changed rows id #(assoc % :sha256 (get profile/hosted-application-substitutions id))))) label)))))
+
+(deftest producer-provenance-and-actual-corrected-class-resources-are-independent
+  ;; Producer byte hashes here are models; loaded class resources are actual.
+  ;; Original archived class bytes are opaque provenance, never executed here.
+  (let [directory (java.nio.file.Files/createTempDirectory "ansatz-producer-class-proof-"
+                                                        (make-array java.nio.file.attribute.FileAttribute 0))
+        bytes (fn [s] (.getBytes ^String s java.nio.charset.StandardCharsets/UTF_8))
+        actual (fn [id] (with-open [input (io/input-stream (io/resource id))] (.readAllBytes input)))
+        content {"ansatz/kernel/Expr.class" (bytes "modeled original Expr bytes")
+                 "ansatz/kernel/TypeChecker.class" (bytes "modeled original TypeChecker bytes")
+                 "ansatz/kernel/Name.class" (actual "ansatz/kernel/Name.class")
+                 "producer/model.clj" (bytes "(ns original.producer)")}
+        paths (into {} (map-indexed (fn [i [id value]]
+                                     (let [path (.resolve directory (str i ".bin"))]
+                                       (java.nio.file.Files/write path ^bytes value (make-array java.nio.file.OpenOption 0))
+                                       [id path])) content))
+        rows (mapv (fn [[id value]] {:id id :kind (if (.endsWith ^String id ".class") :kernel-class :host-source)
+                                    :sha256 (wire/sha256 value)}) content)
+        recipe {:build-inventory rows}
+        preparation {:implementation-sha256 (#'factory/build-identity rows)}
+        reads (atom []) resolver (fn [id] (swap! reads conj id) (.toFile ^java.nio.file.Path (get paths id)))]
+    (try
+      (doseq [id ["ansatz/kernel/Expr.class" "ansatz/kernel/TypeChecker.class"]]
+        (is (= (get profile/hosted-application-substitutions id) (wire/sha256 (actual id)))))
+      (is (nil? (#'factory/authenticate-hosted-application-build! recipe preparation resolver)))
+      (is (= (set (keys content)) (set @reads)))
+      ;; The legacy policy still requires the producer's actual class bytes;
+      ;; it does not consult arbitrary resolved disk files for loaded identity.
+      (reset! reads [])
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Loaded kernel class resource drift"
+                           (#'factory/authenticate-build! recipe preparation resolver)))
+      (is (empty? @reads))
+      ;; A valid corrected loaded class cannot hide corrupted archived bytes.
+      (java.nio.file.Files/write (get paths "ansatz/kernel/Expr.class") (bytes "tampered")
+                                (make-array java.nio.file.OpenOption 0))
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Archived producer kernel class drift"
+                           (#'factory/authenticate-hosted-application-build! recipe preparation resolver)))
+      (java.nio.file.Files/write (get paths "ansatz/kernel/Expr.class") (get content "ansatz/kernel/Expr.class")
+                                (make-array java.nio.file.OpenOption 0))
+      ;; A non-overridden class must still match its original row against the
+      ;; real selected class resource, even when its archive file hashes agree.
+      (let [wrong (bytes "different original Name bytes")
+            rows (changed rows "ansatz/kernel/Name.class" #(assoc % :sha256 (wire/sha256 wrong)))
+            recipe {:build-inventory rows} preparation {:implementation-sha256 (#'factory/build-identity rows)}]
+        (java.nio.file.Files/write (get paths "ansatz/kernel/Name.class") wrong (make-array java.nio.file.OpenOption 0))
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Loaded hosted application kernel class resource drift"
+                             (#'factory/authenticate-hosted-application-build! recipe preparation resolver))))
+      (reset! reads [])
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Factory build identity mismatch"
+                           (#'factory/authenticate-hosted-application-build!
+                             recipe (assoc preparation :implementation-sha256 model-hash) resolver)))
+      (is (empty? @reads))
+      (finally
+        (doseq [path (vals paths)] (java.nio.file.Files/delete path))
+        (java.nio.file.Files/delete directory)))))

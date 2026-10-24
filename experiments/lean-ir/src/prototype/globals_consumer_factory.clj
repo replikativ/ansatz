@@ -243,22 +243,43 @@
   (wire/sha256 (.getBytes (str "ansatz-full-init-factory-build/1\n"
                               (apply str (for [{:keys [id kind sha256]} (sort-by :id inventory)]
                                            (str id "\t" (name kind) "\t" sha256 "\n")))) StandardCharsets/UTF_8)))
+(defn- loaded-kernel-class-sha256! [id]
+  ;; Select through the actual loaded kernel's class loader, never a resolver's
+  ;; arbitrary .class filename. Fresh bootstrap separately attests CodeSource.
+  (wire/check (.endsWith ^String id ".class") "Invalid kernel class inventory ID")
+  (let [class-name (subs (str/replace id "/" ".") 0 (- (count id) 6))
+        class (Class/forName class-name false (.getClassLoader ansatz.kernel.TypeChecker))]
+    (with-open [input (.getResourceAsStream class (str "/" id))]
+      (wire/check input "Kernel class resource unavailable")
+      (let [digest (java.security.MessageDigest/getInstance "SHA-256") bytes (byte-array 65536)]
+        (loop [] (let [n (.read input bytes)] (when (pos? n) (.update digest bytes 0 n) (recur))))
+        (.formatHex (java.util.HexFormat/of) (.digest digest))))))
+
 (defn- authenticate-build! [recipe preparation resolve-artifact]
   (wire/check (= (:implementation-sha256 preparation) (build-identity (:build-inventory recipe))) "Factory build identity mismatch")
   (doseq [{:keys [id kind sha256]} (:build-inventory recipe)]
     (if (= :kernel-class kind)
-      ;; Hash the actual class-loader resource selected by the loaded kernel
-      ;; class, never a separately resolved arbitrary disk .class filename.
-      (let [_ (wire/check (.endsWith ^String id ".class") "Invalid kernel class inventory ID")
-            class-name (subs (str/replace id "/" ".") 0 (- (count id) 6))
-            class (Class/forName class-name false (.getClassLoader ansatz.kernel.TypeChecker))
-            resource (str "/" id)]
-        (with-open [input (.getResourceAsStream class resource)]
-          (wire/check input "Kernel class resource unavailable")
-          (let [digest (java.security.MessageDigest/getInstance "SHA-256") bytes (byte-array 65536)]
-            (loop [] (let [n (.read input bytes)] (when (pos? n) (.update digest bytes 0 n) (recur))))
-            (wire/check (= sha256 (.formatHex (java.util.HexFormat/of) (.digest digest))) "Loaded kernel class resource drift"))))
+      (wire/check (= sha256 (loaded-kernel-class-sha256! id)) "Loaded kernel class resource drift")
       (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id))) "Host implementation source/resource drift"))))
+
+(defn- authenticate-hosted-application-build!
+  "Keep original producer bytes/digest separate from the seventh consumer's
+   fixed corrected kernel classes. Its resolver supplies every producer row,
+   including original archived classes; no arbitrary loaded-class waiver exists."
+  [recipe preparation resolve-artifact]
+  (wire/check (= (:implementation-sha256 preparation) (build-identity (:build-inventory recipe)))
+              "Factory build identity mismatch")
+  (doseq [{:keys [id kind sha256]} (:build-inventory recipe)]
+    (if (= :kernel-class kind)
+      (let [loaded (get compatibility/hosted-application-substitutions id sha256)]
+        ;; Original archived bytes remain producer provenance, independently of
+        ;; the actual corrected class selected by this consumer's class loader.
+        (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
+                    "Archived producer kernel class drift")
+        (wire/check (= loaded (loaded-kernel-class-sha256! id))
+                    "Loaded hosted application kernel class resource drift"))
+      (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
+                  "Host implementation source/resource drift"))))
 
 (defn- private-index-sha256 [^java.io.RandomAccessFile index]
   (locking index
@@ -447,7 +468,9 @@
     (wire/check (= (:declaration-index pinned) (:declaration-index recipe)) "Pinned declaration index drift")
     (wire/check (= (vec (concat roots [(:witness profile) exporter])) (:trusted-roots expected-preparation))
                 "Factory helper-root inventory drift")
-    (authenticate-build! recipe expected-preparation resolve-artifact)
+    (if hosted-application?
+      (authenticate-hosted-application-build! recipe expected-preparation resolve-artifact)
+      (authenticate-build! recipe expected-preparation resolve-artifact))
     (fn [{:keys [preparation world functions prepared-functions resources] :as parsed}]
       (exact! parsed #{:preparation :world :functions :prepared-functions :resources} "parsed restore context")
       (wire/check (wire/same-data? expected-preparation preparation) "Restore preparation drift")
