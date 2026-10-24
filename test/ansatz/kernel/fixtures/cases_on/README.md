@@ -1,0 +1,7 @@
+These fixtures were produced by Lean 4.33.1 at commit `819816b2e0a3bf405af45ae5c7af2491d8f5bee6`, using the archived structurally patched `lean4export` producer. The patch preserves binder names and annotations that the exporter’s ordinary alpha-equivalence map can merge. `manifest.json` records exact file and producer hashes, selected roots, and reproduction steps.
+
+The combined capture compiled the module and completed the nine-root export, then its available-memory guard stopped the process during the typed-error step. A separate bounded capture subsequently completed both actual native errors. The combined capture remains failed; its successful export component is the source of `native.ndjson`.
+
+The JVM test removes all nine output definitions from the parsed environment, constructs each definition again, compares every complete ConstantInfo field, and checks the result relative to the remaining native input carriers. Those input carriers are assembled without whole-prefix admission. Synthetic source-kernel fixtures in `cases_on_test.clj` provide separate checked-family tests. This does not establish the guest runtime binding or hosted frontend integration.
+
+The patch is stored as UTF-8 text in a JSON envelope so its original unified-diff context whitespace is preserved exactly. Decode the `patch` field and verify its embedded SHA before applying it. All nine selected output definitions have no metadata nodes. An incidental imported `Nat.add` body has metadata which the existing parser erases; no whole imported-prefix equality claim is made.

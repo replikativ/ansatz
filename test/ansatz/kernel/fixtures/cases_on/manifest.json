@@ -1,0 +1,69 @@
+{
+  "schema": "ansatz-cases-on-native-fixture/1",
+  "scope": "Structural native input/output oracle only; no JVM input-prefix certificate or hosted Lean frontend acceptance.",
+  "lean": {
+    "version": "4.33.1",
+    "commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+  },
+  "producer": {
+    "repository": "https://github.com/leanprover/lean4export",
+    "commit": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+    "structuralPatch": "lean4export-structural-exprs.patch.json",
+    "binarySha256": "f490a3c0529308e852e38757e363d2e7b1e6bf7e776cd797a2e6f8f228855b5e",
+    "sourceInventorySha256": "1569f003dab5dea958fdf3e606e417a4492f0f7b1282edb6e764e0ee6c9e31f6",
+    "generationRecordSha256": "29ffe8f5df8ec1b6ba2e80452e14d32c83fb84277abf640fd91109ba67960246",
+    "status": "Already-built structurally patched producer from historical candidate-c; no candidate manifest/promotion authority is inferred.",
+    "structuralPatchEncoding": "UTF-8 text in JSON patch field; decode to reproduce exact original bytes including unified-diff context whitespace."
+  },
+  "files": {
+    "CasesOnOracle.lean": "9914b90b02b5b94f9d6b2459731a50fc9afd0900e55b36b9e0c9f8bd269ba694",
+    "native-errors.ndjson": "5033ff4e33aa4452d495b596c4426211cf1ba7d4dc3489d2be1d5960ad35a229",
+    "native.ndjson": "e99e7defd1f78debd454c07286b12c556357e23536a3dd1cb7a187524f5800ac",
+    "lean4export-structural-exprs.patch.json": "f06f7d29e181fd800df170dd7037e8de2dde6f4535ee9b635a8f769ed2bf9441"
+  },
+  "roots": [
+    "CasesOnOracle.Colour.casesOn",
+    "CasesOnOracle.Pair.casesOn",
+    "CasesOnOracle.Box.casesOn",
+    "CasesOnOracle.Sized.casesOn",
+    "CasesOnOracle.Ping.casesOn",
+    "CasesOnOracle.Pong.casesOn",
+    "CasesOnOracle.Rose.casesOn",
+    "CasesOnOracle.ChoiceProp.casesOn",
+    "CasesOnOracle.UnsafeBox.casesOn"
+  ],
+  "capture": {
+    "combinedPlanSha256": "4b01fb65ea66a4fbe54a901c6532c19eddb4637b00d6647aa92f585df976cd08",
+    "combinedStatus": "resource-floor-stopped AFTER compile and structural export succeeded; before typed-error result",
+    "combinedReceiptSha256": "b0b6e192d42a157cc9f039a011d3cbceda39cc7c2199cbdc2adc8e3909c8f788",
+    "combinedPostcheckSha256": "fb177fb6b94c1db31ff7a250021f7ddf0291053d18a2975cb2679e0f99beadcb",
+    "exportExitCode": 0,
+    "exportHeaderCommitVerified": true,
+    "exportBytes": 75220,
+    "exportRecords": 1218,
+    "selectedDefinitions": 9,
+    "fullCombinedGatePassed": false,
+    "typedErrorsPlanSha256": "6a0b0d07d1bce1d942d26b70b17784da581ecee9a458d57996d63a8dc2489f56",
+    "typedErrorsStatus": "passed",
+    "typedErrorsReceiptSha256": "5e3204aee55065f669a8e61789abc03f8c52948dc34d9ece10a7dd1354aec659",
+    "typedErrorsPostcheckSha256": "4c7136cf4282c40b7ed6734f990ae0357a94b14c2d0c24812e8bcad80ef85cde",
+    "nativeErrorCases": [
+      "missing/unknownConstant",
+      "not-inductive/other"
+    ],
+    "allOriginalInputsUnchangedAfterDisposal": true,
+    "metadataScope": "The nine selected output definitions contain no mdata nodes; incidental dependency Nat.add has one metadata node. Existing parser erases metadata on that imported dependency, not on any compared selected output."
+  },
+  "reproduction": {
+    "module": "CasesOnOracle",
+    "source": "CasesOnOracle.lean",
+    "instructions": [
+      "Use Lean4.33.1 with actual githash exactly the pinned commit.",
+      "Build a separate lean4export checkout at the producer commit. Decode the captured JSON patch field as UTF-8 to a patch file, verify its embedded SHA, and apply it with --fuzz=0; retain the original checkout.",
+      "Compile CasesOnOracle.lean to a fresh .olean. Set LEAN_PATH to that module directory.",
+      "Run the structural exporter with --export-unsafe --export-mdata CasesOnOracle -- and the exact roots in this manifest.",
+      "Run lean --run CasesOnOracle.lean to capture native typed errors. Verify all file hashes and actual producer metadata.",
+      "Normal JVM tests read these checked-in files; they do not launch Lean or build a native toolchain."
+    ]
+  }
+}
