@@ -79,3 +79,113 @@
                                  {:original-expressions (:original-expressions result)})]
         (is (= array result-array))
         (is (= (:heap after) (:heap fork)))))))
+
+(def ^:private scoped-host ["str" ["anonymous"] "encoder-scoped-host"])
+(def ^:private following-helper ["str" ["anonymous"] "encoder-following-helper"])
+(def ^:private parent-control-keys [:body :locals :joins :frames :status :result :resume-var :host-request])
+(defn- encode-selected [kind world invoke]
+  (case kind
+    :names (encoding/encode-names world invoke names)
+    :name (encoding/encode-name world invoke (last names))
+    :family (encoding/encode-family world invoke [])))
+(defn- invalid-root [world [_ roots]]
+  ;; Test-only mutation of the owned root-index array, using its actual layout.
+  ;; The real guest decoder consumes both arguments and returns Except.error.
+  (m/replace-node world roots (assoc (m/node world roots) :fields [999999])))
+(defn- scoped-fixture [backend kind fault]
+  (let [observed (atom {})
+        binding {:signature {:params [] :return-type "object"}
+                 :handler
+                 (fn [context world _]
+                   (swap! observed assoc :entry world)
+                   (let [invoke (fn [w target args]
+                                  (let [w (if (and (= fault :bad-descriptor) (= target encoding/names-helper))
+                                            (invalid-root w args) w)
+                                        [after value] ((:invoke context) w target args)]
+                                    (swap! observed assoc :last-invoke {:world after :value value})
+                                    [(if (= fault :illegal-control)
+                                       (assoc after :locals {999 :illegal-control-mutation}) after) value]))]
+                     (try
+                       (let [[after value] (encode-selected kind world invoke)
+                             _ (swap! observed assoc :encoded {:world after :value value})
+                             after (m/release after value 1)
+                             [after answer] ((:invoke context) after following-helper [])]
+                         (swap! observed assoc :following-completed true)
+                         [after answer])
+                       (catch Throwable cause
+                         (swap! observed assoc :encoder-failure cause)
+                         (throw cause)))))}
+        functions (assoc @functions
+                         scoped-host {:params [] :body [:host "test_guest_encoder" [] 0 [:return [:var 0]]]}
+                         following-helper {:params [] :body [:return [:imm 7]]})
+        session (raw/open-functions functions {"test_guest_encoder" binding} {:backend backend :fuel 1000000})]
+    {:world (m/world functions) :session session :observed observed}))
+
+(deftest real-encoders-preserve-absent-and-present-parent-results-across-raw-helper-boundaries
+  (doseq [backend [:reference :mutable :jvm] kind [:names :name :family]
+          result-kind [:absent :nil :zero :scalar :owned-ref]]
+    (let [{:keys [world session observed]} (scoped-fixture backend kind nil)
+          [world marker] (m/allocate world :ctor 0 [])
+          started (m/start world scoped-host [])
+          ;; raw/continue accepts explicit running machine states. The result
+          ;; slot may be absent or an existing register alias; never an owner.
+          started (case result-kind :absent started :nil (assoc started :result nil)
+                         :zero (assoc started :result 0) :scalar (assoc started :result 41)
+                         :owned-ref (assoc started :result marker))
+          called (raw/continue session started)
+          {:keys [entry encoded following-completed]} @observed]
+      (is (= 7 (:value called)))
+      (is following-completed)
+      (is (= (select-keys entry parent-control-keys)
+             (select-keys (:world encoded) parent-control-keys)))
+      (is (= (contains? entry :result) (contains? (:world encoded) :result)))
+      (is (= 1 (:rc (m/node (:state called) marker))))
+      (is (not-any? (fn [[id node]] (and (not= id (:id marker)) (pos? (:rc node)))) (:heap (:state called))))
+      (is (not-any? (comp pos? :rc val) (:heap (m/release (:state called) marker 1)))))))
+
+(deftest top-level-invokers-do-not-leave-a-consumed-except-in-the-result-slot
+  (doseq [backend [:reference :mutable :jvm] kind [:names :name :family] present? [false true]]
+    (let [[world invoke] (world-and-invoke backend)
+          [world marker] (m/allocate world :ctor 0 [])
+          world (if present? (assoc world :result marker) (dissoc world :result))
+          [after value] (encode-selected kind world invoke)]
+      (is (= (find world :result) (find after :result)))
+      (when present? (is (identical? marker (:result after))))
+      (is (= 1 (:rc (m/node after marker))))
+      (is (not-any? (comp pos? :rc val)
+                    (:heap (-> after (m/release value 1) (m/release marker 1))))))))
+
+(deftest encoder-cleanup-does-not-mask-other-illegal-control-mutations
+  (doseq [backend [:reference :mutable :jvm]]
+    (let [{:keys [world session observed]} (scoped-fixture backend :family :illegal-control)
+          cause (try (raw/call session world scoped-host []) nil (catch Throwable cause cause))]
+      (is (instance? clojure.lang.ExceptionInfo cause))
+      (is (= "Raw handler changed guest control state" (.getMessage cause)))
+      (is (not (:following-completed @observed)))
+      (is (= {999 :illegal-control-mutation} (get-in @observed [:encoded :world :locals])))
+      (is (= following-helper (get-in (ex-data cause) [:failed-helper :target]))))))
+
+(deftest actual-guest-decoder-error-retains-its-owned-except-and-canonical-checkpoint
+  (doseq [backend [:reference :mutable :jvm] scoped? [false true]]
+    (let [observed (atom {})
+          [world session invoke run]
+          (if scoped?
+            (let [f (scoped-fixture backend :names :bad-descriptor)]
+              [(:world f) (:session f) nil #(raw/call (:session f) (:world f) scoped-host [])])
+            (let [[w call] (world-and-invoke backend)
+                  invoke (fn [world target args]
+                           (let [world (invalid-root world args)
+                                 [world value] (call world target args)]
+                             (reset! observed {:world world :value value}) [world value]))]
+              [w nil invoke #(encoding/encode-names w invoke names)]))
+          cause (try (run) nil (catch Throwable cause cause))
+          data (ex-data cause) checkpoint (:checkpoint data) result (:result data)
+          node (m/node checkpoint result)]
+      (is (= "Guest encoding rejected descriptors" (.getMessage cause)))
+      (is (= 0 (:tag node))) (is (= 1 (:rc node)))
+      (is (= 1 (count (:fields node))))
+      (when-not scoped?
+        (is (identical? (:world @observed) checkpoint))
+        (is (= (:value @observed) result (:result checkpoint))))
+      ;; Error ownership is caller-held, not silently consumed/normalized.
+      (is (not-any? (comp pos? :rc val) (:heap (m/release checkpoint result 1)))))))

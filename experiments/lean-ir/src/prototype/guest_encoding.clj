@@ -85,25 +85,36 @@
                         [world node] (m/allocate world :ctor 0 [kind number text args original])]
                     [world (conj out node)])) [world []] rows)]
     (array world values)))
-(defn- unwrap [world result]
+(defn- unwrap [world result entry-result]
   (let [node (when (m/ref? result) (m/node world result))]
     (when-not (and (= :ctor (:kind node)) (contains? #{0 1} (:tag node)) (= 1 (count (:fields node))))
       (fail "Malformed guest encoder result" {:checkpoint world :result result}))
     (if (= 0 (:tag node))
       (fail "Guest encoding rejected descriptors"
             {:checkpoint world :result result :message (string/string-value {:ref? m/ref? :node m/node} world (first (:fields node)))})
-      (let [value (first (:fields node))]
-        [(-> world (m/retain value 1) (m/release result 1) (assoc :result 0)) value]))))
+      (let [value (first (:fields node))
+            world (-> world (m/retain value 1) (m/release result 1))]
+        ;; A top-level invoker can leave its owned Except in :result; scoped
+        ;; invokers already restored the parent's control. Consuming the Except
+        ;; must neither leave that freed wrapper as a root nor add/change a
+        ;; parent's result slot. Normalize only this slot, on success only.
+        [(if entry-result (assoc world :result (val entry-result)) (dissoc world :result)) value]))))
 (defn encode-names
   "Encode structured Java Names into one caller-owned guest Array Name using
-   real Lean constructors. invoke is raw scoped [world target args]→[world value]."
+   real Lean constructors. invoke returns [world owned-Except] from a scoped raw
+   helper or a host adapter over raw/call. The encoder consumes that wrapper;
+   any pre-existing entry :result remains the caller's alias, without an extra
+   retain/release. Other returned control belongs to the supplied invoker.
+   Success preserves the entry :result slot's presence/value and leaves other
+   invoker control fields untouched. Failure preserves its actual checkpoint."
   ([world invoke names] (encode-names world invoke names {}))
   ([world invoke names {:keys [helper] :or {helper names-helper}}]
-   (let [builder (builder nil) roots (mapv #(node-index! builder :name %) names)
+   (let [entry-result (find world :result)
+         builder (builder nil) roots (mapv #(node-index! builder :name %) names)
          [world inputs] (allocate-nodes world (:name @(:rows builder)))
          [world roots] (array world roots)
          [world result] (invoke world helper [inputs roots])]
-     (unwrap world result))))
+     (unwrap world result entry-result))))
 (defn encode-name
   ([world invoke name] (encode-name world invoke name {}))
   ([world invoke name options]
@@ -145,16 +156,18 @@
 (defn encode-family
   "One guest decode call, followed by exact full ConstantInfo reprojection. Returns
    an owned Array ConstantInfo. Does not admit or publish anything. Original Java
-   Expr identities can map to borrowed original guest roots via :original-expressions."
+   Expr identities can map to borrowed original guest roots via :original-expressions.
+   Successful cleanup preserves the entry result slot as encode-names does."
   ([world invoke constants] (encode-family world invoke constants {}))
   ([world invoke constants {:keys [helper original-expressions] :or {helper family-helper}}]
-   (let [builder (builder original-expressions) specs (mapv #(constant-spec! builder %) constants)
+   (let [entry-result (find world :result)
+         builder (builder original-expressions) specs (mapv #(constant-spec! builder %) constants)
          [world names] (allocate-nodes world (:name @(:rows builder)))
          [world levels] (allocate-nodes world (:level @(:rows builder)))
          [world expressions] (allocate-nodes world (:expr @(:rows builder)))
          [world inputs] (allocate-constants world specs)
          [world result] (invoke world helper [names levels expressions inputs])
-         [world value] (unwrap world result)
+         [world value] (unwrap world result entry-result)
          node (m/node world value)]
      (when-not (and (= :array (:kind node)) (= (count constants) (count (:fields node))))
        (fail "Guest encoded family has wrong shape/completeness" {:checkpoint world :value value}))
