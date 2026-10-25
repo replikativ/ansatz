@@ -20,7 +20,8 @@
             [prototype.eval-const :as eval]
             [prototype.preparation :as prep]
             [prototype.machine :as machine]
-            [prototype.globals-consumer-profile :as compatibility])
+            [prototype.globals-consumer-profile :as compatibility]
+            [prototype.coherent-consumer-profile :as coherent])
   (:import [java.nio.charset StandardCharsets CodingErrorAction]
            [java.nio ByteBuffer]
            [java.lang.ref WeakReference ReferenceQueue]
@@ -281,6 +282,20 @@
       (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
                   "Host implementation source/resource drift"))))
 
+(defn- authenticate-coherent-build!
+  "Second factory gate: authenticate ALL original producer bytes through only
+   its resolver, then independently check the CURRENT selected kernel classes.
+   No old substitution table or producer-class equality applies to this branch."
+  [recipe preparation resolve-artifact consumer-inventory]
+  (wire/check (= (:implementation-sha256 preparation) (build-identity (:build-inventory recipe)))
+              "Factory coherent producer build identity mismatch")
+  (doseq [{:keys [id sha256]} (:build-inventory recipe)]
+    (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
+                "Factory coherent original producer source/class drift"))
+  (doseq [{:keys [id kind sha256]} consumer-inventory :when (= :kernel-class kind)]
+    (wire/check (= sha256 (loaded-kernel-class-sha256! id))
+                "Factory coherent loaded kernel class drift")))
+
 (defn- private-index-sha256 [^java.io.RandomAccessFile index]
   (locking index
     (let [position (.getFilePointer index) digest (java.security.MessageDigest/getInstance "SHA-256")
@@ -444,6 +459,7 @@
                                    (case hosted-application-revision
                                      :v1 (compatibility/authenticate-hosted-application! options)
                                      :v2 (compatibility/authenticate-hosted-application-control! options)
+                                     :coherent (coherent/authenticate! options)
                                      (throw (ex-info "Unknown hosted application revision" {})))
                                    graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
                                    source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
@@ -472,9 +488,12 @@
     (wire/check (= (:declaration-index pinned) (:declaration-index recipe)) "Pinned declaration index drift")
     (wire/check (= (vec (concat roots [(:witness profile) exporter])) (:trusted-roots expected-preparation))
                 "Factory helper-root inventory drift")
-    (if hosted-application-revision
+    (cond
+      (= :coherent hosted-application-revision)
+      (authenticate-coherent-build! recipe expected-preparation resolve-artifact (:consumer-inventory options))
+      hosted-application-revision
       (authenticate-hosted-application-build! recipe expected-preparation resolve-artifact)
-      (authenticate-build! recipe expected-preparation resolve-artifact))
+      :else (authenticate-build! recipe expected-preparation resolve-artifact))
     (fn [{:keys [preparation world functions prepared-functions resources] :as parsed}]
       (exact! parsed #{:preparation :world :functions :prepared-functions :resources} "parsed restore context")
       (wire/check (wire/same-data? expected-preparation preparation) "Restore preparation drift")
@@ -574,6 +593,7 @@
                                                   (case hosted-application-revision
                                                     :v1 compatibility/hosted-application-profile-id
                                                     :v2 compatibility/hosted-application-control-profile-id
+                                                    :coherent coherent/profile-id
                                                     (throw (ex-info "Unknown hosted application revision" {})))
                                                   graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
                                                   source-graph? compatibility/source-graph-reconstruction-profile-id
@@ -645,6 +665,14 @@
    option contract. This constructor executes no guest code."
   [options]
   (issue-factory* true true true true true :v2 options (Object.)))
+
+(defn make-coherent-frontend-factory
+  "Issue one manifest-pinned current frontend consumer of producer50f. The
+   externally accepted contract closes sources/classes/controllers/helpers and
+   composition. Original producer provenance and current loaded classes are
+   independently authenticated. No guest steps or kernel policy widening."
+  [options]
+  (issue-factory* true true true true true :coherent options (Object.)))
 
 (deftype NativeInitReadiness [])
 (defonce ^:private native-readiness-issued (java.util.WeakHashMap.))

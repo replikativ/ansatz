@@ -14,7 +14,8 @@
             [prototype.runtime-abi :as abi]
             [prototype.raw-interop :as raw]
             [prototype.globals-consumer-factory :as factory]
-            [prototype.globals-consumer-profile :as compatibility])
+            [prototype.globals-consumer-profile :as compatibility]
+            [prototype.coherent-consumer-profile :as coherent])
   (:import [java.io DataInputStream DataOutputStream BufferedInputStream BufferedOutputStream]
            [java.nio.file Files StandardCopyOption StandardOpenOption]
            [java.nio.channels FileChannel]
@@ -381,7 +382,8 @@
                                   compatibility/source-graph-reconstruction-profile-id
                                   compatibility/source-graph-frontend-reconstruction-profile-id
                                   compatibility/hosted-application-profile-id
-                                  compatibility/hosted-application-control-profile-id} profile))
+                                  compatibility/hosted-application-control-profile-id
+                                  coherent/profile-id} profile))
                 "Restore consumer capability identity mismatch")
     profile))
 (defn- factory-result! [produced producer consumer compatibility-profile manifest]
