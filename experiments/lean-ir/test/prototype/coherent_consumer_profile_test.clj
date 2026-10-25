@@ -211,3 +211,44 @@
   (is (= "prototype/frontend__init.class" (#'coherent/aot-resource-id "prototype/frontend.clj")))
   (is (= "prototype/machine__init.class" (#'coherent/aot-resource-id "prototype/machine.cljc")))
   (is (nil? (#'coherent/aot-resource-id "prototype/runtime_signatures.edn"))))
+
+(deftest all-legacy-constructors-preserve-routing-and-issued-descriptors
+  ;; Only the already-authenticated construction envelope is modeled. These are
+  ;; real public issuance, private registry, descriptor and invoke paths, not an
+  ;; archive/restore claim. Nine constructors cover eight historical profiles;
+  ;; native-base intentionally shares the frontend profile with a private owner.
+  (let [producer {:factory-id factory/shared-linear-factory-id
+                  :catalogue-recipe {:schema "full-init-checkpoint-preparation/2"}
+                  :kernel-policy factory/kernel-policy
+                  :trusted-roots (vec (concat factory/assembly-roots [factory/shared-linear-target factory/exporter]))}
+        routes [[factory/make-factory [false false false false false nil] old/profile-id false]
+                [factory/make-reconstruction-factory [true false false false false nil] old/reconstruction-profile-id false]
+                [factory/make-runtime-ops-reconstruction-factory [true true false false false nil] old/runtime-ops-reconstruction-profile-id false]
+                [factory/make-heap-net-dirty-reconstruction-factory [true true true false false nil] old/heap-net-dirty-reconstruction-profile-id false]
+                [factory/make-source-graph-reconstruction-factory [true true true true false nil] old/source-graph-reconstruction-profile-id false]
+                [factory/make-source-graph-frontend-reconstruction-factory [true true true true true nil] old/source-graph-frontend-reconstruction-profile-id false]
+                [factory/make-source-graph-native-base-factory [true true true true true nil] old/source-graph-frontend-reconstruction-profile-id true]
+                [factory/make-hosted-application-factory [true true true true true :v1] old/hosted-application-profile-id true]
+                [factory/make-hosted-application-control-factory [true true true true true :v2] old/hosted-application-control-profile-id true]]]
+    (doseq [[construct expected-flags profile owns-native?] routes]
+      (testing profile
+        (let [options {:producer-preparation producer}
+              description {:producer-preparation producer :consumer-implementation-sha256 a :compatibility-profile profile}
+              input (Object.) calls (atom 0)
+              capability (with-redefs-fn
+                           {#'factory/make-factory*
+                            (fn [& args]
+                              (swap! calls inc)
+                              (is (= expected-flags (subvec (vec args) 1 7)))
+                              (is (identical? options (nth args 7)))
+                              (is (= owns-native? (some? (nth args 8))))
+                              {:description description :coherent-contract nil
+                               :invoke (fn [actual] (is (identical? input actual)) description)})}
+                           #(construct options))]
+          (is (= 1 @calls))
+          (is (identical? description (factory/descriptor capability)))
+          (is (= #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile}
+                 (set (keys (factory/descriptor capability)))))
+          (is (identical? description (factory/invoke! capability input)))
+          (is (thrown? clojure.lang.ExceptionInfo (factory/coherent-contract capability)))
+          (is (thrown? clojure.lang.ExceptionInfo (factory/descriptor description))))))))

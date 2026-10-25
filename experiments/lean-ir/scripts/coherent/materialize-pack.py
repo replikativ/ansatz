@@ -94,6 +94,14 @@ class Keyword(str):
     pass
 
 
+def fixed_policies():
+    # Distinct ledgers: inherited per-declaration Java checking versus RAW call.
+    # Fresh maps prevent an earlier candidate edit from changing later packs.
+    return {"limits": {"max-helper-bytes": 8 * 1024 * 1024,
+                       "max-helper-declarations": 10000, "checker-fuel": 20000000},
+            "execution": {"backend": Keyword("mutable"), "fuel": 500000000, "compile-threshold": 1}}
+
+
 class Tagged:
     def __init__(self, name, value):
         self.name, self.value = name, value
@@ -469,7 +477,7 @@ def main():
     pack.add("cas/" + ORIGINAL, original_path, ORIGINAL)
     bootstrap = file_pin(spec["bootstrap"], 1024 * 1024)
     pack.add("bootstrap", bootstrap, spec["bootstrap"]["sha256"], "bootstrap.clj")
-    contract = kws({"schema": "ansatz-coherent-frontend-contract/1", "profile": "ansatz-producer50f-coherent-frontend-consumer/1", "producer": {"implementation-sha256": PRODUCER, "recipe-sha256": RECIPE}, "lean-commit": LEAN, "target": {"triple": "x86_64-unknown-linux-gnu", "word-bits": 64}, "inventory": inv, "implementation-sha256": observed["implementation-sha256"], "composition": {"controllers": [{"id": k, "entrypoints": v} for k, v in CONTROLLERS.items()], "helpers": helpers, "redirects": [{"symbol": "lean_mk_cases_on", "target": ["str", ["str", ["anonymous"], "KernelCasesOnRaw"], "construct"], "row-sha256": ORIGINAL}], "stages": [Keyword(x) for x in STAGES]}, "kernel-policy": {"allow-axioms?": True, "allow-unsafe?": True, "allow-compiler-markers?": True}, "limits": {"max-helper-bytes": 8 * 1024 * 1024, "max-helper-declarations": 10000, "checker-fuel": 500000000}})
+    contract = kws({"schema": "ansatz-coherent-frontend-contract/1", "profile": "ansatz-producer50f-coherent-frontend-consumer/1", "producer": {"implementation-sha256": PRODUCER, "recipe-sha256": RECIPE}, "lean-commit": LEAN, "target": {"triple": "x86_64-unknown-linux-gnu", "word-bits": 64}, "inventory": inv, "implementation-sha256": observed["implementation-sha256"], "composition": {"controllers": [{"id": k, "entrypoints": v} for k, v in CONTROLLERS.items()], "helpers": helpers, "redirects": [{"symbol": "lean_mk_cases_on", "target": ["str", ["str", ["anonymous"], "KernelCasesOnRaw"], "construct"], "row-sha256": ORIGINAL}], "stages": [Keyword(x) for x in STAGES]}, "kernel-policy": {"allow-axioms?": True, "allow-unsafe?": True, "allow-compiler-markers?": True}, "limits": fixed_policies()["limits"]})
     for row in contract[key("inventory")]:
         row[key("kind")] = Keyword(row[key("kind")])
     contract_path = pack.root / "contract.edn"
@@ -479,7 +487,7 @@ def main():
     for field, path in [("java-sha256", "bin/java"), ("release-sha256", "release"),
                         ("libjvm-sha256", "lib/server/libjvm.so"), ("modules-sha256", "lib/modules")]:
         check(digest(jdk_root / path) == jdk[field], "actual JDK path differs from observed build")
-    launch = kws({"schema": "ansatz-coherent-launch/1", "commit": args.source_commit, "source-root": "selected", "class-root": "classes", "dependencies": dependencies, "inventory": inv, "direct-inputs": list(pack.inputs.values()), "external-stores": [{"role": Keyword("producer-declarations"), "root": str(store_root), "index-relative": "indexes/" + index.name, "index-sha256": store["index-sha256"]}], "contract-id": "contract.edn", "contract-sha256": digest(contract_path), "jdk": jdk, "entrypoint": "prototype.coherent-campaign/construct!", "execution": {"backend": Keyword("mutable"), "fuel": 500000000, "compile-threshold": 1}})
+    launch = kws({"schema": "ansatz-coherent-launch/1", "commit": args.source_commit, "source-root": "selected", "class-root": "classes", "dependencies": dependencies, "inventory": inv, "direct-inputs": list(pack.inputs.values()), "external-stores": [{"role": Keyword("producer-declarations"), "root": str(store_root), "index-relative": "indexes/" + index.name, "index-sha256": store["index-sha256"]}], "contract-id": "contract.edn", "contract-sha256": digest(contract_path), "jdk": jdk, "entrypoint": "prototype.coherent-campaign/construct!", "execution": fixed_policies()["execution"]})
     for row in launch[key("inventory")]:
         row[key("kind")] = Keyword(row[key("kind")])
     (pack.root / "launch.edn").write_text(edn(launch) + "\n")

@@ -12,6 +12,15 @@ spec.loader.exec_module(m)
 
 
 class PackMetadataTests(unittest.TestCase):
+    def test_java_checker_and_raw_invocation_ledgers_remain_distinct(self):
+        policies = m.fixed_policies()
+        self.assertEqual(20000000, policies['limits']['checker-fuel'])
+        self.assertEqual({'backend': m.Keyword('mutable'), 'fuel': 500000000, 'compile-threshold': 1}, policies['execution'])
+        policies['limits']['checker-fuel'] = 1
+        policies['execution']['fuel'] = 1
+        self.assertEqual(20000000, m.fixed_policies()['limits']['checker-fuel'])
+        self.assertEqual(500000000, m.fixed_policies()['execution']['fuel'])
+
     def test_producer_edn_roundtrip_preserves_keyword_and_string_roles(self):
         value = m.EDN('{:factory-id "source-bound" :kernel-policy {:allow-unsafe? true} :roots [["str" ["anonymous"] "I"]] :count 0}').read()
         self.assertEqual(value, m.EDN(m.edn(value)).read())

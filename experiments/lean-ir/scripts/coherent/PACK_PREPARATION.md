@@ -67,7 +67,9 @@ symlinks. No generic external input or classpath fallback exists.
 Bootstrap rejects existing output/provider paths and symbolic-link ancestors
 before any project namespace loads. Its classpath is exactly the four declared
 jars followed by the selected source and fresh class directories. Constructor
-policy is fixed to mutable, fuel 500,000,000 and compile threshold 1. The pack
+policy is fixed to mutable, RAW invocation fuel 500,000,000 and compile threshold 1.
+The independent per-declaration Java imported checker limit is 20,000,000,
+preserving the established baseline rather than conflating the two fuel ledgers. The pack
 builder emits only the `construct!` entrypoint, never `run!`.
 
 Run the small host-only metadata/path regressions with:

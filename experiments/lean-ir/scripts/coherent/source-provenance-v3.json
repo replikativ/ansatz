@@ -49,5 +49,7 @@
       "repository-path": "experiments/lean-ir/test/prototype/coherent_stage_guards_test.clj",
       "sha256": "8da38cb9762062c975a46a00fcee50a2c4627bc4968a351258ff901acf226811"
     }
-  ]
+  ],
+  "status": "HISTORICAL_V3_SOURCE_SNAPSHOT_NOT_FULL_CURRENT_BUILD_ATTESTATION",
+  "interpretation": "Original reviewed mapping retained as provenance. Later reviewed commits supersede some file bytes; authenticate a final committed capture/observed build independently."
 }

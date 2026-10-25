@@ -1,0 +1,71 @@
+{
+  "schema": "coherent-consumer-infrastructure-evidence/1",
+  "status": "COMPONENT_INFRASTRUCTURE_NOT_FULL_FRONTEND_ACCEPTANCE",
+  "frozen-host-source-commit": "14039caf8a4968c92ac9dba80fc9ba6cf8761b9c",
+  "producer-implementation": "50f0b30693b1d696dd60790a0bb09aeeeba58baf2b2fdabe13e17f0103bf2849",
+  "actual-current-java": {
+    "sources": 24,
+    "classes": 48,
+    "input-pins": 259,
+    "all-post-pins-match": true
+  },
+  "v3-definitions-models": {
+    "tests": 19,
+    "assertions": 96,
+    "failures": 0,
+    "errors": 0
+  },
+  "full-input-constructor": {
+    "status": "passed",
+    "input-pins": 609,
+    "all-post-pins-match": true,
+    "strictly-checked": false,
+    "native-resources-acquired": false,
+    "guest-executed": false
+  },
+  "bootstrap-negatives": {
+    "status": "passed",
+    "fresh-sequential-jvms": 11,
+    "input-pins": 3316,
+    "project-namespaces-loaded": 0,
+    "scope": "Reduced direct inputs; pre-project rejection only."
+  },
+  "outer-launcher-models": {
+    "status": "passed",
+    "scenarios": 3,
+    "rich-world-print-touches": 0,
+    "input-pins": 22,
+    "scope": "Actual launcher/capsules, modeled bootstrap; original cause/checkpoint identity retained."
+  },
+  "tracked-component-ci": {
+    "status": "passed",
+    "tests": 28,
+    "assertions": 260,
+    "python-tests": 10,
+    "legacy-fresh-isolated-probe": "passed",
+    "elapsed-seconds": 34.64751513899682,
+    "peak-group-rss-bytes": 487473152,
+    "input-pins": 269,
+    "all-post-pins-match": true,
+    "plan-sha256": "f930d605357d07162cfd6a32b5854b0f883830a164950b14c292a8fa307bd76e",
+    "receipt-sha256": "721127d3586d6c8f961d80edcae4f23f54eab9f637b7797368f44aa1131a10e2",
+    "postcheck-sha256": "d75f5c2988e863ee31d9505d1bf52de8dd6cd3f5a6c533ae7c3cad2415d7f926",
+    "scope": "Allocation/resource figures describe this component gate, not full frontend performance."
+  },
+  "full-run-attempt": {
+    "status": "preflight-refused",
+    "child-launched": false,
+    "verified-input-pins": 620,
+    "available-bytes": 3523981312,
+    "required-start-bytes": 6442450944,
+    "all-post-pins-match": true,
+    "checker-fuel-per-declaration": 20000000,
+    "raw-invocation-fuel": 500000000
+  },
+  "not-established": [
+    "Actual restored current-cohort frontend checking",
+    "Genuine Project/typed-IO/ordinary/chain/diamond/reload/disposal for this cohort",
+    "Full restore allocation or retained-heap improvement",
+    "Production or turnkey Lean-on-JVM release"
+  ]
+}

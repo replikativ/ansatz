@@ -54,3 +54,7 @@ echo "Running portable RAW casesOn constructor and preseal policy tests"
   cd experiments/lean-ir
   clojure -J-Xmx384m -J-Xss8m -M scripts/test-cases-on.clj
 )
+
+echo
+echo "Running fixture-free coherent consumer infrastructure tests"
+python3 experiments/lean-ir/scripts/test-coherent.py

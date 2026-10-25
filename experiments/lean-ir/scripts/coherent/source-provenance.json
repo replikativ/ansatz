@@ -104,5 +104,7 @@
       "sha256": "44f14b8c6690cad041de77cdd1d6ba2daadb91b1f8f7b55b2c83b9e17e116dac"
     }
   ],
-  "profile-change": "Insert required helper-value stage after seal; no other profile-policy change."
+  "profile-change": "Insert required helper-value stage after seal; no other profile-policy change.",
+  "status": "HISTORICAL_V2_SOURCE_SNAPSHOT_NOT_CURRENT_FILE_ATTESTATION",
+  "interpretation": "Original reviewed mapping retained as provenance. Later reviewed commits supersede some file bytes; authenticate a final committed capture/observed build independently."
 }
