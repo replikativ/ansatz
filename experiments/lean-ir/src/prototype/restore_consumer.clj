@@ -135,13 +135,13 @@
     (quiescent! world)
     (doseq [[name f] (:functions world)]
       (wire/check (and (vector? name) (map? f) (vector? (:params f)) (vector? (:body f))) "Invalid executable")
-      (wire/wire-value [name f]) (values! [name f] world ranges true))
-    (doseq [[id node] (:heap world)] (node! world id node) (wire/wire-value node) (values! node world ranges true))
+      (wire/validate-value! [name f]) (values! [name f] world ranges true))
+    (doseq [[id node] (:heap world)] (node! world id node) (wire/validate-value! node) (values! node world ranges true))
     (doseq [[name entry] (:globals world)]
       (exact! entry #{:status :value} "global") (wire/check (= :ready (:status entry)) "Incomplete global initializer")
-      (wire/wire-value [name entry]) (values! [name entry] world ranges true))
+      (wire/validate-value! [name entry]) (values! [name entry] world ranges true))
     (let [state (state-of world)]
-      (wire/wire-value state)
+      (wire/validate-value! state)
       (values! (apply dissoc state inactive) world ranges true)
       (values! (select-keys state inactive) world ranges false))
     (exact! roots #{:io-result} "application roots")
