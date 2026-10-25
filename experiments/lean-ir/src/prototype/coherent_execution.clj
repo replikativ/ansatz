@@ -7,6 +7,7 @@
             [prototype.checkpoint-wire :as wire]
             [prototype.coherent-source-preparation :as source]
             [prototype.coherent-typed-eio :as eio]
+            [prototype.coherent-owner-ledger :as owners]
             [prototype.resident-preparation :as preparation]
             [prototype.resident-frontend :as resident]
             [prototype.resident-init-prefix :as prefix]
@@ -42,8 +43,10 @@
 (defn- exported [module member] (name/mk-str (name/mk-str (name/anonymous) module) member))
 (defn- own-project! [p] (swap! state update :projects conj {:project p :closed? false}) p)
 (defn- close-project! [p]
-  (project/close-project! p)
-  (swap! state update :projects (fn [rows] (mapv #(if (identical? p (:project %)) (assoc % :closed? true) %) rows))))
+  (let [index (first (keep-indexed (fn [i row] (when (identical? p (:project row)) i)) (:projects @state)))]
+    (check! (some? index) "Only an escrowed issued Project can close")
+    (owners/operation! state [:project-close index] #(project/close-project! p))
+    (swap! state assoc-in [:projects index :closed?] true)))
 (defn- call! [p module member input expected]
   (let [codec (if (string? input) :string :nat)
         result (project/invoke p (wire-name module) (exported module member) [input]
@@ -91,36 +94,41 @@
        :native-readiness readiness :provider provider :native-modules [(wire-name "Init")]
        :limits limits :policies policies})))
 
+(defn- close-eio-prefix! []
+  (when (= :prefix-ready (:phase (eio/checkpoint)))
+    (let [released (owners/release-prefix! state :eio-prefix
+                     (:prefix-result (eio/checkpoint)) prefix/release-prefix resident/close! false)]
+      (swap! state assoc :eio-prefix-release released)
+      ;; The EIO controller also checkpoints each of its four actual wrappers.
+      (owners/operation! state [:eio :close-contexts] eio/close-contexts!))))
+
 (defn dispose!
-  "Retire actual issued failure/load controls first, successful Project versions,
-   typed-IO contexts, prefix and resident Contexts; close lease LAST. Unrecognized
-   partial adoption/check failures deliberately retain canonical escrow/lease."
+  "One cleanup claim; each fallible destructive action has a terminal checkpoint.
+   Unknown/failed owners retain the lease and their canonical returned packets."
   []
-  (let [{:keys [unsafe-partial? failure active-load]} @state]
-    (check! (not unsafe-partial?) "Partial non-Project operation needs its named canonical owner disposition; lease retained")
-    (swap! state assoc :disposal-phase :disposing)
+  (if (= :already-disposed (owners/begin-disposal! state))
+    {:phase :disposed :guest-replayed false}
     (try
-      (when-let [capsule (:project-failure-diagnostic (ex-data failure))]
-        (project/dispose-failure! capsule))
-      (when (and active-load (nil? (:project-failure-diagnostic (ex-data failure))))
-        (project/dispose-load! active-load))
+      (let [{:keys [failure active-load]} @state]
+        (when-let [capsule (:project-failure-diagnostic (ex-data failure))]
+          (owners/operation! state [:project-failure] #(project/dispose-failure! capsule)))
+        (when (and active-load (nil? (:project-failure-diagnostic (ex-data failure))))
+          (owners/operation! state [:active-load] #(project/dispose-load! active-load))))
       (doseq [{:keys [project closed?]} (reverse (:projects @state)) :when (not closed?)]
         (close-project! project))
-      (when (= :prefix-ready (:phase (eio/checkpoint)))
-        (let [r (:prefix-result (eio/checkpoint)) released (prefix/release-prefix (:context r) (:prefix r))]
-          (swap! state assoc :eio-prefix-release released)
-          (resident/close! (:context released))
-          (eio/close-contexts!)))
+      (close-eio-prefix!)
       (when-let [r (:prefix-result @state)]
-        (let [released (prefix/release-prefix (:context r) (:prefix r))]
-          (swap! state assoc :prefix-release released)
-          (resident/close! (:context released))
-          (resident/close! (:context r))))
-      (when-let [context (:resident-context @state)] (resident/close! context))
+        (let [released (owners/release-prefix! state :primary-prefix r
+                         prefix/release-prefix resident/close! true)]
+          (swap! state assoc :prefix-release released)))
+      (when-let [context (:resident-context @state)]
+        (owners/operation! state [:resident-context-close] #(resident/close! context)))
       (check! (every? :closed? (:projects @state)) "Source lease cannot close before every tracked Project version")
-      (when-let [lease (:lease @state)] (.close ^java.io.Closeable lease))
-      (when-let [native-source (:native-source @state)]
-        (check! (true? @(:closed native-source)) "Native Source lease did not close after retiring borrowers"))
+      (when-let [lease (:lease @state)]
+        (owners/operation! state [:lease-close] #(.close ^java.io.Closeable lease)
+          (fn [_]
+            (when-let [native-source (:native-source @state)]
+              (check! (true? @(:closed native-source)) "Native Source lease did not close after retiring borrowers")))))
       (swap! state assoc :disposal-phase :disposed)
       {:phase :disposed :guest-replayed false}
       (catch Throwable failure
@@ -131,11 +139,7 @@
   "Continue the SAME actual Factory/checked/prepared lineage. All fixtures are
    direct immutable launch inputs. No arbitrary callback or duplicate helper pins."
   [approved actual-factory checked prepared restored]
-  (let [before @state]
-    (check! (and (= :ready (:phase before))
-                 (compare-and-set! state before
-                   {:phase :opening :projects [] :receipts [] :lease (:resource-lease restored)}))
-            "Execution campaign is one-shot"))
+  (owners/claim-execution! state (:resource-lease restored) checked prepared)
   (try
     (let [contract (factory/coherent-contract actual-factory)
           _ (check! (= (:sha256 contract) (:consumer-contract-sha256 prepared)) "Execution Factory/prepared composition mismatch")
@@ -154,9 +158,7 @@
           original (get-in prepared [:original-support :session :bindings])
           native (:prefix-native-bindings prepared)
           _ (source/validate-prefix-native-bindings! original native (:trusted-bindings configuration))
-          _ (swap! state assoc :unsafe-partial? true)
-          context (preparation/open-checked prepared configuration)
-          _ (swap! state assoc :resident-context context :unsafe-partial? false)
+          context (owners/adopt! state #(preparation/open-checked prepared configuration))
           _ (ack! :resident {:live-checked-context true})
           _ (swap! state assoc :unsafe-partial? true)
           r (prefix/prepare-init-prefix context checked {:configuration configuration :native-bindings native})
@@ -196,7 +198,8 @@
                                   (cond (identical? e expected) true (or (nil? e) (zero? left)) false
                                         :else (recur (.getCause ^Throwable e) (dec left))))]
                   (check! matching? "Unexpected typed IO failure; no retry")
-                  (eio/dispose-call-failure! failure))))
+                  (owners/operation! state [:eio :call-failure-disposal]
+                    #(eio/dispose-call-failure! failure)))))
           _ (let [called (eio/invoke! app-loaded (wire-name "ProjectAppEIO") (exported "ProjectAppEIO" "run")
                           ["after"] {:arguments [:string] :result :string} 1)]
               (own-project! (:project called)) (check! (= "after" (:value called)) "Post-disposal typed IO call disagrees")
@@ -206,10 +209,7 @@
           _ (ack! :typed-io {:service-effects 6 :host-failure-disposed true})
           _ (close-project! app-loaded)
           _ (close-project! app-p)
-          _ (let [released (prefix/release-prefix (:context app-r) (:prefix app-r))]
-              (swap! state assoc :eio-prefix-release released)
-              (resident/close! (:context released))
-              (eio/close-contexts!))
+          _ (close-eio-prefix!)
           ordinary (load! p0 "CoherentOrdinary" [["CoherentOrdinary" ["nat" "text" "answer"]]] [["CoherentOrdinary"]])
           _ (call! ordinary "CoherentOrdinary" "nat" 41 41)
           _ (call! ordinary "CoherentOrdinary" "text" "λ 🦉" "λ 🦉")
@@ -251,6 +251,4 @@
       {:status :passed :consumer-contract-sha256 (:sha256 contract) :disposal-phase :disposed
        :stages (mapv :stage (:receipts @state))})
     (catch Throwable failure
-      (swap! state assoc :phase :failed :failure failure)
-      (try (dispose!) (catch Throwable cleanup (.addSuppressed ^Throwable failure cleanup)))
-      (throw failure))))
+      (owners/recover! state failure dispose!))))

@@ -2,6 +2,7 @@
   "Captured experiment controller. Definitions only; no automatic preparation.
    Genuine source/Project acceptance requires a separately admitted stage."
   (:require [prototype.typed-eio :as eio]
+            [prototype.coherent-owner-ledger :as owners]
             [prototype.resident-frontend :as resident]
             [prototype.resident-init-prefix :as prefix]
             [prototype.project-loader :as project]))
@@ -119,8 +120,9 @@
                (identical? cause (:pending-failure @state))
                (:project-failure-diagnostic (ex-data cause)))
           "Matching pending issued Project failure required")
-  (let [receipt (project/dispose-failure! (:project-failure-diagnostic (ex-data cause)))]
-    (preserved!)
+  (let [receipt (owners/operation! state [:pending-call-failure]
+                  #(project/dispose-failure! (:project-failure-diagnostic (ex-data cause)))
+                  (fn [_] (preserved!)))]
     (swap! state dissoc :pending-failure)
     receipt))
 
@@ -131,8 +133,11 @@
   (let [{:keys [phase contexts effects pending-failure]} @state]
     (check! (and (= :prefix-ready phase) (nil? pending-failure) (= 4 (count contexts)))
             "Normal EIO cleanup requires completed call disposition")
-    (doseq [context (reverse contexts)] (resident/close! context))
-    (preserved!)
-    (reset! state {:phase :closed :closed-contexts 4 :service-effects (count effects)})
+    (owners/begin-disposal! state)
+    (doseq [[index context] (reverse (map-indexed vector contexts))]
+      (owners/operation! state [:context-close index] #(resident/close! context)))
+    (owners/operation! state [:preserved-after-close] (constantly nil) (fn [_] (preserved!)))
+    (swap! state assoc :phase :closed :disposal-phase :disposed
+                       :closed-contexts 4 :service-effects (count effects))
     {:phase :closed :closed-contexts 4 :service-effects (count effects)
      :original-admission-preserved true :borrowed-source-closed false}))
