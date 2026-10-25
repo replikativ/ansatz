@@ -216,7 +216,7 @@
                       (update catalogue :manifests conj (first rows)) (rest rows))))
           {:manifests [] :declarations {}} paths))
 
-(defn static-targets
+(defn- static-targets-tree
   "Static executable edges at instruction/rvalue positions only. Literal data
    is never executable merely because it contains :direct or :closure vectors."
   [root]
@@ -239,6 +239,132 @@
               (:global :begin-init) (recur pending (add-target targets b))
               (:return :jump :publish-global :unreachable :read-global :publish-io-global :trap)
               (recur pending targets)))))))
+
+(def ^:private frozen-target-scalar-classes
+  #{java.lang.Long java.lang.Integer java.lang.Short java.lang.Byte
+    java.math.BigInteger clojure.lang.BigInt})
+(defn- frozen-target? [root]
+  ;; Canonical Lean Name spines need no temporary traversal stack. Unknown
+  ;; names fall back without sequencing/hashing their potentially mutable data.
+  (loop [value root]
+    (cond
+      (or (string? value) (keyword? value)
+          (contains? frozen-target-scalar-classes (class value))) true
+      (= clojure.lang.PersistentVector (class value))
+      (let [tag (nth value 0 nil)]
+        (and (string? tag)
+             (case tag
+               "anonymous" (= 1 (count value))
+               "str" (and (= 3 (count value)) (string? (nth value 2))
+                          (recur (nth value 1)))
+               "num" (and (= 3 (count value))
+                          (or (string? (nth value 2))
+                              (contains? frozen-target-scalar-classes (class (nth value 2))))
+                          (recur (nth value 1)))
+               false)))
+      :else false)))
+
+(defn- canonical-target [targets container expected-op]
+  (if-not (= clojure.lang.PersistentVector (class container)) ::fallback
+    (if (= expected-op (nth container 0 nil))
+      (let [target (nth container 1 nil)]
+        (if (frozen-target? target) (conj targets target) ::fallback))
+      targets)))
+
+(defn- static-targets-canonical [root]
+  ;; The stack and identity table are private to this call. No exotic container
+  ;; is sequenced/hashed; callers discard this probe and use the old scanner.
+  (let [pending (java.util.ArrayList.)]
+    (.add pending root)
+    (loop [targets #{} seen nil]
+      (if (.isEmpty pending) targets
+        (let [node (.remove pending (int (dec (.size pending))))]
+          (if-not (and (= clojure.lang.PersistentVector (class node))
+                       (keyword? (nth node 0 nil))) ::fallback
+            (if (and seen (.containsKey ^java.util.IdentityHashMap seen node))
+              (recur targets seen)
+              (let [[op a b c d] node
+                    seen (or seen (when (contains? #{:join :case} op) (java.util.IdentityHashMap.)))]
+                (when seen (.put ^java.util.IdentityHashMap seen node true))
+                (case op
+                  :let (let [next (canonical-target targets b :closure)]
+                         (if (= ::fallback next) ::fallback
+                           (do (.add pending c) (recur next seen))))
+                  :call (let [next (canonical-target targets b :direct)]
+                          (if (= ::fallback next) ::fallback
+                            (do (.add pending d) (recur next seen))))
+                  :tail (let [next (canonical-target targets a :direct)]
+                          (if (= ::fallback next) ::fallback (recur next seen)))
+                  :join (do (.add pending d) (.add pending c) (recur targets seen))
+                  :case (if (and (= clojure.lang.PersistentVector (class b))
+                                 (every? #(and (= clojure.lang.PersistentVector (class %))
+                                               (<= 2 (count %))) b))
+                          (do (doseq [arm b] (.add pending (nth arm 1))) (recur targets seen)) ::fallback)
+                  (:inc :dec :set-tag) (do (.add pending c) (recur targets seen))
+                  :del (do (.add pending b) (recur targets seen))
+                  (:set :scalar-set :host) (do (.add pending d) (recur targets seen))
+                  :suspend (do (.add pending b) (recur targets seen))
+                  (:global :begin-init) (if (frozen-target? b) (recur (conj targets b) seen) ::fallback)
+                  (:return :jump :publish-global :unreachable :read-global :publish-io-global :trap)
+                  (recur targets seen)
+                  ::fallback)))))))))
+
+(defn- static-targets-shared
+  "Static executable edges. Private scratch state detects actual instruction
+   sharing before probing a canonical immutable DAG. Exotic containers retain
+   their original sequencing; literal data is never executable code."
+  [root]
+  (let [pending (java.util.ArrayList.)
+        add-target (fn [targets name]
+                     (when (nil? name) (m/fail "Malformed static executable dependency" {}))
+                     (conj targets name))]
+    (.add pending root)
+    (loop [targets #{} seen nil probe? true]
+      (if (.isEmpty pending) targets
+        (let [node (.remove pending (int (dec (.size pending))))]
+          (if (and seen (= clojure.lang.PersistentVector (class node))
+                   (.containsKey ^java.util.IdentityHashMap seen node))
+            (let [result (static-targets-canonical root)]
+              (if (= ::fallback result)
+                ;; Resume at this exact node, without replaying earlier exotic
+                ;; reads. ArrayList accepts nil just as the original stack did.
+                (do (.add pending node) (recur targets nil false))
+                result))
+            (let [[op a b c d] node]
+              (when (and seen (= clojure.lang.PersistentVector (class node)))
+                (.put ^java.util.IdentityHashMap seen node true))
+              (case op
+                :let (do (.add pending c) (recur (cond-> targets (= :closure (first b)) (add-target (second b))) seen probe?))
+                :call (do (.add pending d) (recur (cond-> targets (= :direct (first b)) (add-target (second b))) seen probe?))
+                :tail (recur (cond-> targets (= :direct (first a)) (add-target (second a))) seen probe?)
+                :join (do (.add pending d) (.add pending c)
+                          (recur targets (or seen (when probe? (java.util.IdentityHashMap.))) probe?))
+                :case (do (if (= clojure.lang.PersistentVector (class b))
+                            (doseq [arm b] (.add pending (second arm)))
+                            ;; Preserve map's legacy chunk-rest behavior for
+                            ;; exotic arm sequences rather than doseq's next.
+                            (doseq [child (into [] (map second b))] (.add pending child)))
+                          (recur targets (or seen (when probe? (java.util.IdentityHashMap.))) probe?))
+                (:inc :dec :set-tag) (do (.add pending c) (recur targets seen probe?))
+                :del (do (.add pending b) (recur targets seen probe?))
+                (:set :scalar-set :host) (do (.add pending d) (recur targets seen probe?))
+                :suspend (do (.add pending b) (recur targets seen probe?))
+                (:global :begin-init) (recur (add-target targets b) seen probe?)
+                (:return :jump :publish-global :unreachable :read-global :publish-io-global :trap)
+                (recur targets seen probe?)))))))))
+
+(def ^:private terminal-static-ops
+  #{:tail :global :begin-init :return :jump :publish-global :unreachable
+    :read-global :publish-io-global :trap})
+(defn static-targets
+  "Static executable edges with per-call canonical-DAG identity traversal.
+   Nonbranching leaves and exotic containers preserve legacy semantics; literal
+   payloads are never interpreted as executable edges."
+  [root]
+  (let [op (when (= clojure.lang.PersistentVector (class root)) (nth root 0 nil))]
+    (if (and (keyword? op) (contains? terminal-static-ops op))
+      (static-targets-tree root)
+      (static-targets-shared root))))
 
 (defn load-closure
   "Link a trusted catalogue's selected closure. :existing-functions preserves

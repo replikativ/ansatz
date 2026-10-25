@@ -38,14 +38,15 @@ echo "bundled-init-test exercises the zero-setup (a/init!) path from the in-jar 
 echo "Integration tests requiring the FULL test-data store are not part of the default CI unit suite."
 
 
-echo "Running fixture-free experimental checkpoint and world validation contracts"
+echo "Running fixture-free experimental checkpoint, world validation and IR dependency contracts"
 # Keep the experimental interpreter source paths scoped to this separate JVM;
 # they are not added to the core artifact or its normal test classpath.
 clojure -J-Xmx384m -J-Xss8m \
   -Sdeps '{:paths ["src" "classes" "resources" "experiments/lean-ir/src" "experiments/lean-ir/test"]}' \
   -M -e '(require (quote [clojure.test :as t])
                   (quote prototype.checkpoint-wire-test)
-                  (quote prototype.restore-validation-test))
+                  (quote prototype.restore-validation-test)
+                  (quote prototype.import-ir-dag-test))
          (def seen (atom #{}))
          (defmethod t/report :begin-test-var [event] (swap! seen conj (:var event)))
          (defmethod t/report :fail [event]
@@ -58,10 +59,11 @@ clojure -J-Xmx384m -J-Xss8m \
                (let [message (or (.getMessage ^Throwable cause) "")]
                  (println (.getName (class cause)) (subs message 0 (min 512 (count message)))))
                (recur (.getCause ^Throwable cause) (dec remaining)))))
-         (let [nss [(quote prototype.checkpoint-wire-test) (quote prototype.restore-validation-test)]
+         (let [nss [(quote prototype.checkpoint-wire-test) (quote prototype.restore-validation-test)
+                    (quote prototype.import-ir-dag-test)]
                expected (set (for [n nss [_ v] (ns-publics n) :when (:test (meta v))] v))
                result (apply t/run-tests nss)]
-           (System/exit (if (and (= 17 (count expected) (:test result)) (= expected @seen)
+           (System/exit (if (and (= 26 (count expected) (:test result)) (= expected @seen)
                                  (zero? (+ (:fail result) (:error result)))) 0 1)))'
 
 echo
