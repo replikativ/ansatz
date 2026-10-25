@@ -34,6 +34,32 @@
     (check! (.startsWith (.toPath canonical) (.toPath ^java.io.File root)) "Bootstrap input escapes captured pack")
     (check! (not (Files/isSymbolicLink (.toPath file))) "Bootstrap symbolic-link input")
     canonical))
+(defn- no-symlink-ancestors! [^java.io.File file]
+  (let [path (.normalize (.toAbsolutePath (.toPath file)))]
+    (loop [cursor path]
+      (when cursor
+        (check! (not (Files/isSymbolicLink cursor)) "Bootstrap symbolic-link ancestor")
+        (recur (.getParent cursor))))
+    (check! (= path (.toPath (.getCanonicalFile file))) "Bootstrap canonical path mismatch")
+    file))
+(defn- external-store! [stores]
+  (check! (and (vector? stores) (= 1 (count stores))) "Bootstrap exact external CAS store required")
+  (let [store (first stores)
+        _ (exact! store #{:role :root :index-relative :index-sha256} "external CAS store")
+        _ (check! (and (= :producer-declarations (:role store)) (string? (:root store))
+                       (.isAbsolute (io/file (:root store))) (sha? (:index-sha256 store))
+                       (= (str "indexes/" (:index-sha256 store) ".json") (:index-relative store)))
+                  "Bootstrap external CAS role/index mismatch")
+        root (no-symlink-ancestors! (io/file (:root store)))
+        index (no-symlink-ancestors! (io/file root (:index-relative store)))
+        _ (check! (and (.isDirectory root) (.isFile index)
+                       (.isDirectory (io/file root "declarations"))
+                       (= (.getCanonicalFile root) (.getParentFile (.getParentFile (.getCanonicalFile index))))
+                       (= (:index-sha256 store) (file-sha index))) "Bootstrap external CAS root/index drift")]
+    ;; Only this exact index is returned externally. declaration_store retains
+    ;; its per-blob SHA + exact Name checks. This is content authentication, not
+    ;; a claim that external blob paths are a filesystem sandbox.
+    {:root root :index index :sha256 (:index-sha256 store)}))
 (defn- bytes! [file bound]
   (check! (and (.isFile ^java.io.File file) (<= 1 (.length ^java.io.File file) bound)) "Bootstrap file byte bound/missing file")
   (let [bytes (Files/readAllBytes (.toPath ^java.io.File file))]
@@ -97,7 +123,7 @@
         _ (check! (= expected-manifest (sha manifest-bytes)) "Bootstrap external launch manifest digest mismatch")
         manifest (read-data manifest-bytes)
         _ (exact! manifest #{:schema :commit :source-root :class-root :dependencies :inventory
-                             :direct-inputs :contract-id :contract-sha256 :jdk :entrypoint :execution} "launch manifest")
+                             :direct-inputs :external-stores :contract-id :contract-sha256 :jdk :entrypoint :execution} "launch manifest")
         _ (check! (and (= "ansatz-coherent-launch/1" (:schema manifest))
                        (re-matches #"[0-9a-f]{40}" (:commit manifest))
                        (= expected-contract (:contract-sha256 manifest))) "Bootstrap fixed manifest identity mismatch")
@@ -113,6 +139,13 @@
                        (= inventory (:inventory contract))) "Bootstrap exact contract inventory mismatch")
         source-root (resolve-file root (:source-root manifest)) class-root (resolve-file root (:class-root manifest))
         deps (:dependencies manifest) direct (:direct-inputs manifest)
+        external (external-store! (:external-stores manifest))
+        _ (check! (not-any? #(= "producer/declaration-index" (:id %)) direct) "Bootstrap external CAS ID duplicated in direct inputs")
+        output-root (no-symlink-ancestors! (io/file root "run-output"))
+        provider-root (no-symlink-ancestors! (io/file output-root "provider"))
+        _ (check! (and (not (Files/exists (.toPath output-root) (into-array LinkOption [LinkOption/NOFOLLOW_LINKS])))
+                       (not (Files/exists (.toPath provider-root) (into-array LinkOption [LinkOption/NOFOLLOW_LINKS]))))
+                  "Bootstrap new output/provider paths required before any creation")
         _ (check! (and (vector? deps) (<= 1 (count deps) 16) (vector? direct) (<= (count direct) 10000))
                   "Bootstrap dependency/direct-input bounds")
         _ (doseq [rows [deps direct]]
@@ -190,7 +223,7 @@
                     "Bootstrap project namespace loaded before selection authentication"))]
     {:manifest manifest :execution (:execution manifest) :contract-source (utf8 contract-bytes) :contract-sha256 expected-contract
      :inventory inventory :implementation-sha256 digest :entrypoint [namespace operation]
-     :output-root (io/file root "run-output")
+     :output-root output-root
      :resolve-consumer-source
      (fn [id]
        (let [row (first (filter #(= id (:id %)) inventory))
@@ -198,11 +231,16 @@
              base (if (contains? #{:kernel-class :runtime-class} (:kind row)) class-root source-root)
              file (resolve-file base id)]
          (check! (= (:sha256 row) (file-sha file)) "Bootstrap selected input drift at use") file))
-     :resolve-input (fn [id]
-                      (let [row (first (filter #(= id (:id %)) direct))]
-                        (check! row "Bootstrap undeclared direct input requested")
-                        (let [file (resolve-file root (:path row))]
-                          (check! (= (:sha256 row) (file-sha file)) "Bootstrap direct input drift at use") file)))}))
+     :resolve-input
+     (fn [id]
+       (if (= id "producer/declaration-index")
+         (let [file (no-symlink-ancestors! (:index external))]
+           (check! (and (= (:root external) (.getParentFile (.getParentFile (.getCanonicalFile file))))
+                        (= (:sha256 external) (file-sha file))) "Bootstrap external CAS index drift at use") file)
+         (let [row (first (filter #(= id (:id %)) direct))]
+           (check! row "Bootstrap undeclared direct input requested")
+           (let [file (resolve-file root (:path row))]
+             (check! (= (:sha256 row) (file-sha file)) "Bootstrap direct input drift at use") file))))}))
 
 (let [[root manifest expected-manifest expected-contract & extra] *command-line-args*]
   (check! (and root manifest expected-manifest expected-contract (empty? extra)) "Exact bootstrap arguments required")
