@@ -36,7 +36,7 @@
    "ansatz/kernel/Expr.class" :kernel-class})
 (def ^:private stage-order
   [:fresh-init :graph-helpers :panic :ordinary-helpers :typed-eio :cases-on
-   :seal :project :typed-io :ordinary-module :chain :diamond :reload])
+   :seal :helper-value :project :typed-io :ordinary-module :chain :diamond :reload])
 (def ^:private stage-rank (zipmap stage-order (range)))
 
 (defn- exact! [value expected label]
