@@ -50,7 +50,7 @@
     "plan-sha256": "f930d605357d07162cfd6a32b5854b0f883830a164950b14c292a8fa307bd76e",
     "receipt-sha256": "721127d3586d6c8f961d80edcae4f23f54eab9f637b7797368f44aa1131a10e2",
     "postcheck-sha256": "d75f5c2988e863ee31d9505d1bf52de8dd6cd3f5a6c533ae7c3cad2415d7f926",
-    "scope": "Allocation/resource figures describe this component gate, not full frontend performance."
+    "scope": "Explicit --classpath dependency basis; validates component logic but did not exercise the CLI default dependency-resolution route."
   },
   "full-run-attempt": {
     "status": "preflight-refused",
@@ -67,5 +67,23 @@
     "Genuine Project/typed-IO/ordinary/chain/diamond/reload/disposal for this cohort",
     "Full restore allocation or retained-heap improvement",
     "Production or turnkey Lean-on-JVM release"
-  ]
+  ],
+  "tracked-default-component-ci": {
+    "status": "passed",
+    "tests": 28,
+    "assertions": 260,
+    "python-tests": 10,
+    "legacy-fresh-isolated-probe": "passed",
+    "classpath-override": false,
+    "basis-resolution": "Repository root direct dependencies via CLI -Srepro -Spath",
+    "selected-clojure-compiler": "clojure-1.12.0.jar",
+    "elapsed-seconds": 34.24624657700042,
+    "peak-group-rss-bytes": 455258112,
+    "input-pins": 275,
+    "all-post-pins-match": true,
+    "plan-sha256": "4524235e2900e0c4e4582446edb0d1cc1ed6f4f16c970558ce47f3d084cbc6ef",
+    "receipt-sha256": "c5d30946b64fe364d9a9757692e6be948a50376c947289237b266e30e37288c1",
+    "postcheck-sha256": "34a919d27a2cb0bd2367b0057fc9ba8692b33360c0ab9aca95b91b08343d001f",
+    "scope": "Actual default tracked runner; no full restore, guest or frontend claim."
+  }
 }

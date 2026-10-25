@@ -25,14 +25,15 @@ def main():
     repo = experiment.parents[1]
     basis = args.classpath
     if basis is None:
-        basis = subprocess.check_output(['clojure', '-Spath'], cwd=experiment, text=True).strip()
+        basis = subprocess.check_output(['clojure', '-J-Xmx128m', '-Srepro', '-Spath'], cwd=repo, text=True).strip()
     # Keep dependency jars; source/class roots are explicitly selected below.
     jars = [Path(x).resolve(strict=True) for x in basis.split(os.pathsep) if x.endswith('.jar')]
     if not jars or len(jars) != len(set(jars)):
         raise ValueError('explicit unique dependency jars required')
     clojure = [p for p in jars if p.name == 'clojure-1.12.0.jar']
     if len(clojure) != 1:
-        raise ValueError('Clojure 1.12.0 compiler basis required')
+        raise ValueError('Clojure 1.12.0 compiler basis required; selected ' + ','.join(p.name for p in jars if p.name.startswith('clojure-'))[:256])
+    print('Coherent compiler basis: ' + clojure[0].name, flush=True)
     java = sorted((repo / 'src-java').rglob('*.java')) + [experiment / 'java/prototype/TypedLongMemo.java']
     if len(java) != 24 or not all(p.is_file() for p in java):
         raise ValueError('all current 23 core Java sources plus TypedLongMemo required')

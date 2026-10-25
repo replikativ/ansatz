@@ -89,7 +89,9 @@ Project/typed-IO/ordinary/chain/diamond/reload/disposal run. The successful port
 ## Fixture-free CI
 
 `bin/run-unittests` runs [`scripts/test-coherent.py`](../scripts/test-coherent.py).
-It compiles one fresh 24-source Java cohort, checks the actual Java class origins,
+It resolves the repository root's direct dependencies with CLI `-Srepro -Spath`,
+so an installation default cannot replace the transitive Clojure pin through the
+experiment project. It compiles one fresh 24-source Java cohort, checks the actual Java class origins,
 loads the six controller namespaces without calling them, and executes the exact
 28 contract/stage/owner test Vars. A parameterized regression covers nine legacy
 constructor APIs across eight historical profiles using the real issuance registry,
