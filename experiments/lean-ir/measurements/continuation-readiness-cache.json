@@ -1,0 +1,88 @@
+{
+  "schema": "ansatz-continuation-readiness-cache/1",
+  "base_commit": "5cd359615e6196ab80f5bd65a8b6a22667002e2f",
+  "scope": "Private per-control continuation closure-proof cache; host model measurements only. No post-change restored frontend/file-load timing.",
+  "source_sha256": {
+    "experiments/lean-ir/src/prototype/resident_init_prefix.clj": "ca0652c30327ddee941d78782eac4615f7e01dcb8be8d29777b5eacd7851e721",
+    "experiments/lean-ir/test/prototype/continuation_readiness_test.clj": "60d8597bafd451da2154f76f7dc0683a94fb38f24401afbd58ad85f9d543b84b"
+  },
+  "baseline_resident_init_prefix_sha256": "f3d6eedec808099a91c0985f300fc61d00007446ea4cd249ee0e0ba8aae88a57",
+  "evidence_sha256": {
+    "cache-benchmark.edn": "92062e64e6da3636daacfbcb08061b1286a8b4b9bfcdf02c5060e0b047182aa8",
+    "benchmark.clj": "a0d972a4313a0bd726b83277382d1a1dfff1d451beccc0bd142b673686f2e56a",
+    "authentic-eligibility.edn": "b456b454cf9b9dfa4aa4e748591a285583fa8201b52bd309a420ec2575546f1e",
+    "cache-staged-tests.edn": "40504f6d8fddfa5655dbb8bda3b76f8f9d2ed68d97a86d448ba96ef691837df8",
+    "exact-ci-tests.edn": "7fc0bfd1ff4ab3d13adb8d6b762a1489552f9da03de398ab5b9f5a3126058a2b"
+  },
+  "runtime": {
+    "jdk": "GraalVM JDK 25.0.1+8.1",
+    "clojure": "1.12.0",
+    "heap_bytes": 536870912,
+    "direct_linking": false
+  },
+  "workload": {
+    "functions": 1000,
+    "function_names": "Canonical structured Lean names",
+    "graph": "Linear static dependency chain",
+    "host_bindings": 64,
+    "readiness_calls_per_sample": 100,
+    "warmup_triples": 5,
+    "alternating_measured_triples": 5
+  },
+  "modes": {
+    "uncached": "Full one-argument readiness validator on every call.",
+    "hit": "Same functions, registry, roots and graph mode after a proof is installed.",
+    "forced_miss": "Remove private stamp before every call, then validate and test cache eligibility."
+  },
+  "median_batch_results": {
+    "uncached": {
+      "wall_ms": 104.827953,
+      "thread_cpu_ms": 88.382603,
+      "thread_allocated_bytes": 155778048
+    },
+    "hit": {
+      "wall_ms": 1.494223,
+      "thread_cpu_ms": 1.502342,
+      "thread_allocated_bytes": 4385248
+    },
+    "forced_miss": {
+      "wall_ms": 252.706576,
+      "thread_cpu_ms": 124.329138,
+      "thread_allocated_bytes": 221586048
+    }
+  },
+  "authentic_eligibility_only": {
+    "normalized_function_rows": 271,
+    "eligible": true,
+    "grants_admission": false
+  },
+  "limits": [
+    "Actual continuation hit rate and end-to-end benefit remain unmeasured.",
+    "Forced misses increase allocation by approximately 42% and have a higher wall-time median; this is not an unconditional speedup.",
+    "All modes still perform source/anchor/session/binding checks; graph hits also validate the live issued graph profile.",
+    "Finish and native-base validation remain uncached.",
+    "A separate pre-change ordinary-file trace attributed about 87 seconds / 127 GB allocation to closure validation within a 537-second load. This optimization concerns that component; it is not a measured post-change file-load improvement."
+  ],
+  "validation": {
+    "new_cache_tests": 11,
+    "new_cache_assertions": 48,
+    "exact_ci_tests": 37,
+    "exact_ci_assertions": 1364,
+    "ci_namespaces": [
+      "prototype.checkpoint-wire-test",
+      "prototype.restore-validation-test",
+      "prototype.import-ir-dag-test",
+      "prototype.continuation-readiness-test"
+    ],
+    "cache_and_staged_regression_tests": 57,
+    "cache_and_staged_regression_assertions": 765,
+    "regression_namespaces": [
+      "prototype.source-graph-staged-test",
+      "prototype.native-init-base-test",
+      "prototype.operation-disposal-test"
+    ],
+    "failures": 0,
+    "errors": 0,
+    "execution": "Existing warm host REPL only; regressions use their established tiny sources and modeled transports. No restored frontend bootstrap or full Init campaign."
+  }
+}
