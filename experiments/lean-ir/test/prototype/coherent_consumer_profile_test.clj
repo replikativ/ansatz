@@ -77,7 +77,7 @@
                (assoc-in contract [:composition :redirects 0 :target] ["invented"])
                (assoc-in contract [:composition :stages] [:fresh-init :seal :cases-on])
                (contract-for (vec (remove #(= "src-java/ansatz/kernel/Env.java" (:id %)) inventory)))
-               (contract-for (conj inventory {:id "../escape.clj" :kind :host-source :sha256 a}))
+               (assoc contract :inventory (conj inventory {:id "../escape.clj" :kind :host-source :sha256 a}))
                (contract-for (conj inventory {:id "prototype/finalizer_checkpoint.clj" :kind :host-source :sha256 a}))]]
     (is (thrown? clojure.lang.ExceptionInfo (valid! bad)))))
 
