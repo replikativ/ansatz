@@ -1,5 +1,10 @@
 # Lean IR runtime REPL experiment
 
+[RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
+constructor and preseal redirect with portable native-oracle regressions.
+Construction and preparation remain separate from kernel admission and whole
+hosted frontend acceptance.
+
 [Explicit managed-operation abandonment](research/OPERATION_DISPOSAL.md) is an
 optional lifecycle API with focused regression coverage.
 [Project failure disposal](research/PROJECT_FAILURE_DISPOSAL.md) extends it to

@@ -75,7 +75,16 @@
                    (if-let [read-declaration (:read-declaration catalogue)]
                      (read-declaration name)
                      (get-in catalogue [:declarations name])))]
-    {:manifests (into (vec (:manifests base)) (:manifests overlay-catalogue))
+    (let [redirects (reduce-kv
+                     (fn [out symbol redirect]
+                       (when-let [old (get out symbol)]
+                         (when-not (= old redirect)
+                           (m/fail "Conflicting consumer redirect overlay" {:symbol symbol})))
+                       (assoc out symbol redirect))
+                     (or (:prototype.runtime-abi/consumer-redirects base) {})
+                     (or (:prototype.runtime-abi/consumer-redirects overlay-catalogue) {}))]
+    {:prototype.runtime-abi/consumer-redirects redirects
+     :manifests (into (vec (:manifests base)) (:manifests overlay-catalogue))
      :declarations (merge base-declarations overlay-declarations)
      :read-declaration
      (fn [name]
@@ -86,7 +95,7 @@
            (ir/reconcile-declarations (read-row base name) (read-row overlay-catalogue name))
            overlay? (read-row overlay-catalogue name)
            base? (read-row base name)
-           :else nil)))}))
+           :else nil)))})))
 
 (defn- catalogue [root declarations manifests counters]
   (let [root (.getCanonicalPath (io/file root))]
@@ -109,6 +118,8 @@
   "Publish one row and return a new catalogue. Old catalogues keep old hashes.
   Counters are shared across these versions; no full index is written here."
   [store row]
+  (when (seq (:prototype.runtime-abi/consumer-redirects store))
+    (m/fail "Consumer redirects are host configuration, not a writable producer store" {}))
   (when-not (and (= "decl" (:kind row)) (vector? (:name row)))
     (m/fail "Invalid store declaration" {:row row}))
   (let [{:keys [hash]} (publish! (:root store) "declarations" row)]
@@ -138,6 +149,8 @@
   "Publish immutable index metadata; return its content hash. This full index
   checkpoint is separate from incremental in-memory declaration-map edits."
   [store]
+  (when (seq (:prototype.runtime-abi/consumer-redirects store))
+    (m/fail "Reconstruct consumer redirects from authenticated host configuration after restore" {}))
   ;; Stream the same canonical bytes as publish!, without postwalking the whole
   ;; index and retaining its transformed tree, String and UTF-8 byte array.
   (let [dir (io/file (:root store) "indexes")

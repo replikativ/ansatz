@@ -237,7 +237,11 @@
                                                                         (range) (:params shape))}}})
                           (reader n)))
          alias-catalogue {:manifests (into (vec (:manifests catalogue)) (:manifests candidate))
-                          :declarations {} :read-declaration alias-reader}
+                          :declarations {} :read-declaration alias-reader
+                          ;; Consumer policy is trusted host configuration;
+                          ;; never accept this capability from compiler output.
+                          :prototype.runtime-abi/consumer-redirects
+                          (:prototype.runtime-abi/consumer-redirects catalogue)}
          _ (doseq [n (keys (:declarations candidate))]
              (name! n)
              (let [row (read-row candidate n)]

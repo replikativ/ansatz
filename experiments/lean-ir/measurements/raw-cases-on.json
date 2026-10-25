@@ -1,0 +1,74 @@
+{
+  "schema": "raw-cases-on-component-evidence/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "scope": "Compiled RAW construction, raw ownership and native parity. Existing kernel admission remains separate. No general hosted frontend/closed-profile/competitive-performance claim.",
+  "native": {
+    "planSha256": "57498e76aa75c789f7c07e9a6c4b2b651a4c6cae10d53abc74e2f38fdaa7ae30",
+    "fullExpressionAndDefinitionCases": 14,
+    "annotatedInputAndIndependentOutputChecks": 4,
+    "typedErrors": 5,
+    "result": "passed"
+  },
+  "originalJvmMatrix": {
+    "planSha256": "b01405a0b0a8d859f90b4829b2d5595e9bd13b707a80ef32b8e669bee6a73fa6",
+    "receiptSha256": "b16ed8e8bcc2df624c2106b8e1322404f9328b1753f91b5931c5215caa840596",
+    "result": "passed",
+    "tests": 1,
+    "assertions": 894,
+    "backends": [
+      "reference",
+      "mutable",
+      "jvm"
+    ],
+    "uniqueConstructorCasesPerBackend": 14,
+    "hostedErrorScenarios": 3,
+    "elapsedSeconds": 36.99258556699897,
+    "peakGroupRSSBytes": 497012736,
+    "resourcePolicy": {
+      "heapMiB": 384,
+      "groupRSSMiB": 768,
+      "wallSeconds": 120,
+      "startMiB": 1792,
+      "floorMiB": 1024
+    },
+    "verifiedInputsUnchanged": 5255,
+    "generatedJvmExecutorCalls": {
+      "annotated": 65715,
+      "ordinary": 153302
+    },
+    "fallbackExecutorCalls": 0,
+    "interpretation": "Instrumented component execution evidence, not a performance benchmark."
+  },
+  "policyModelsAndRegressions": {
+    "planSha256": "e944a7ef881d837316a125abc6f1bc03360661a8c2e3302796b78b7614f8b2cd",
+    "result": "passed",
+    "tests": 47,
+    "assertions": 782,
+    "scope": "Eight preseal models plus existing ABI/raw-interop/program-install regressions; modeled constructor helper, not native constructor acceptance."
+  },
+  "portableDerivative": {
+    "result": "passed",
+    "planSha256": "f61bf7499e33ee2bcc07c3bc91d54266b306f59ea3c01acd1a9dff4b587009df",
+    "receiptSha256": "20d91c886e9d44010796b580b1bdf2926a1933827918a6bb211fd28289629eb7",
+    "tests": 48,
+    "assertions": 1677,
+    "elapsedSeconds": 77.07964785100012,
+    "peakGroupRSSBytes": 570380288,
+    "verifiedInputsUnchanged": 553,
+    "backends": [
+      "reference",
+      "mutable",
+      "jvm"
+    ],
+    "uniqueConstructorCasesPerBackend": 14,
+    "backendDatasetCompletions": 6,
+    "changes": "Metadata-only native artifact path normalization, deterministic gzip, bounded test-owned temporary files, unused alias catalogue omitted, normal test-support host namespace. Original host-source text preserved in JSON; standard support differs only in final-LF framing, checked explicitly.",
+    "testedSourceSha256": "0eb52de52c2a9e036fdc65040d8c26bc34ec6611b6f1cc6e41f5a4d86e1c54ff",
+    "finalSourceDifference": "None: exact final code, support and fixture bytes passed. Only descriptive evidence/docs updated afterward."
+  },
+  "failedAttemptsPreserved": [
+    "Initial cache assertion was after fixture execution (389 pass, one test assertion failed).",
+    "Relocation first referred to a later namespace alias (compiler failure; no tests).",
+    "Two fourteen-case starts refused before JVM launch at the original 2GiB threshold."
+  ]
+}
