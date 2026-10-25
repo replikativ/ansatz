@@ -9,6 +9,7 @@
             [prototype.checkpoint-wire :as wire])
   (:import [java.nio.charset StandardCharsets]))
 
+(def coherent-frontend-profile-id "ansatz-producer50f-coherent-frontend-consumer/1")
 (def profile-id "ansatz-producer50f-globals-overlay-consumer/2")
 (def reconstruction-profile-id "ansatz-producer50f-reconstruction-consumer/1")
 (def runtime-ops-reconstruction-profile-id "ansatz-producer50f-runtime-ops-reconstruction-consumer/1")

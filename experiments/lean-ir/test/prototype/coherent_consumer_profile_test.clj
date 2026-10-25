@@ -25,7 +25,7 @@
    "ansatz/kernel/Env.class" :kernel-class
    "ansatz/kernel/Expr.class" :kernel-class})
 (def inventory (mapv (fn [[id kind]] {:id id :kind kind :sha256 a}) (sort-by key member-kinds)))
-(def target ["str" ["str" ["anonymous"] "KernelCasesOnRaw"] "mkCasesOn"])
+(def target coherent/cases-on-target)
 (defn contract-for [rows]
   {:schema coherent/schema :profile coherent/profile-id
    :producer {:implementation-sha256 old/producer-implementation-sha256
@@ -36,7 +36,7 @@
    :limits {:max-helper-bytes 1048576 :max-helper-declarations 1000 :checker-fuel 1000000}
    :composition {:controllers [{:id "controller/prepare.clj" :entrypoints ["controller.prepare/prepare"]}]
                  :helpers [{:id "cases-on" :source-id "helpers/KernelCasesOnRaw.lean" :source-sha256 a
-                            :ir-id "helpers/cases-on.ndjson" :ir-sha256 b :entrypoints ["KernelCasesOnRaw.mkCasesOn"]}]
+                            :ir-id "helpers/cases-on.ndjson" :ir-sha256 b :entrypoints ["KernelCasesOnRaw.construct"]}]
                  :redirects [{:symbol "lean_mk_cases_on" :target target :row-sha256 coherent/cases-on-original-row-sha256}]
                  :stages [:fresh-init :ordinary-helpers :cases-on :seal :project :typed-io
                           :ordinary-module :chain :diamond :reload]}})
@@ -139,9 +139,75 @@
 (deftest restore-recognizes-only-issued-description-with-exact-identities
   (let [producer {:model :producer} digest (:implementation-sha256 contract)
         description {:producer-preparation producer :consumer-implementation-sha256 digest
-                     :compatibility-profile coherent/profile-id}]
+                     :compatibility-profile coherent/profile-id :consumer-contract-sha256 b}]
     (is (= coherent/profile-id (#'restore/factory-profile! description producer digest)))
     (doseq [bad [(assoc description :compatibility-profile "arbitrary-consumer")
                  (assoc description :producer-preparation {})
                  (assoc description :consumer-implementation-sha256 a)]]
       (is (thrown? clojure.lang.ExceptionInfo (#'restore/factory-profile! bad producer digest))))))
+
+(deftest actual-issued-capability-retains-its-authenticated-composition
+  ;; Model ONLY the private construction's already-authenticated envelope. Actual
+  ;; Factory issuance/registry/accessors/invoke and restore identity checks below
+  ;; are real. These models do not prove fresh bootstrap or loaded-code closure.
+  (let [one contract
+        two (assoc-in contract [:composition :helpers 0 :ir-sha256] a)
+        _ (is (= (:inventory one) (:inventory two)))
+        _ (is (= (:implementation-sha256 one) (:implementation-sha256 two)))
+        _ (is (= one (valid! one)))
+        _ (is (= two (valid! two)))
+        producer {:factory-id factory/shared-linear-factory-id
+                  :catalogue-recipe {:schema "full-init-checkpoint-preparation/2"}
+                  :kernel-policy factory/kernel-policy
+                  :trusted-roots (vec (concat factory/assembly-roots [factory/shared-linear-target factory/exporter]))}
+        describe (fn [contract]
+                   {:producer-preparation producer
+                    :consumer-implementation-sha256 (:implementation-sha256 contract)
+                    :compatibility-profile coherent/profile-id
+                    :consumer-contract-sha256 (text-digest (pr-str contract))})
+        issue (fn [contract]
+                (with-redefs-fn
+                  {#'factory/make-factory*
+                   (fn [& args]
+                     (is (= :coherent (nth args 6)))
+                     (let [description (describe contract)]
+                       {:description description
+                        :coherent-contract {:sha256 (:consumer-contract-sha256 description) :contract contract}
+                        :invoke (fn [_] (assoc description :catalogue {} :bindings {}))}))}
+                  #(factory/make-coherent-frontend-factory {:producer-preparation producer})))
+        f1 (issue one) f2 (issue two)
+        d1 (factory/descriptor f1) d2 (factory/descriptor f2)
+        c1 (factory/coherent-contract f1) c2 (factory/coherent-contract f2)
+        r1 (factory/invoke! f1 {})
+        manifest {:binding-signatures {}}]
+    (is (not= d1 d2))
+    (is (not= (:sha256 c1) (:sha256 c2)))
+    (is (identical? one (:contract c1)))
+    (is (identical? two (:contract c2)))
+    (is (identical? r1 (#'restore/factory-result! r1 producer (:implementation-sha256 one)
+                       coherent/profile-id manifest d1)))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"contract digest mismatch"
+                          (#'restore/factory-result! r1 producer (:implementation-sha256 one)
+                           coherent/profile-id manifest d2)))
+    (doseq [fake [d1 c1 {} (Object.) (factory/->Factory)]]
+      (is (thrown? clojure.lang.ExceptionInfo (factory/coherent-contract fake))))
+    (doseq [description [(dissoc d1 :consumer-contract-sha256)
+                         (assoc d1 :consumer-contract-sha256 "bad")
+                         (assoc d1 :extra true)]]
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (#'restore/factory-profile! description producer (:implementation-sha256 one)))))
+    (let [legacy-description (dissoc (assoc d1 :compatibility-profile old/profile-id)
+                                    :consumer-contract-sha256)
+          legacy (with-redefs-fn
+                   {#'factory/make-factory* (fn [& _] {:description legacy-description
+                                                     :coherent-contract nil :invoke identity})}
+                   #(factory/make-factory {:producer-preparation producer}))]
+      (is (= legacy-description (factory/descriptor legacy)))
+      (is (thrown? clojure.lang.ExceptionInfo (factory/coherent-contract legacy))))))
+
+(deftest clj-and-cljc-shadow-names-are-both-covered
+  ;; Shape test only; actual extra-root/jar shadow rejection belongs to the
+  ;; pre-project isolated bootstrap, before either namespace could execute.
+  (is (= "prototype/frontend__init.class" (#'coherent/aot-resource-id "prototype/frontend.clj")))
+  (is (= "prototype/machine__init.class" (#'coherent/aot-resource-id "prototype/machine.cljc")))
+  (is (nil? (#'coherent/aot-resource-id "prototype/runtime_signatures.edn"))))

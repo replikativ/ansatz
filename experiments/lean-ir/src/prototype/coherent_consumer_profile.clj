@@ -13,7 +13,8 @@
            [java.nio.file Files]
            [java.security MessageDigest]))
 
-(def profile-id "ansatz-producer50f-coherent-frontend-consumer/1")
+(def profile-id old/coherent-frontend-profile-id)
+(def cases-on-target ["str" ["str" ["anonymous"] "KernelCasesOnRaw"] "construct"])
 (def schema "ansatz-coherent-frontend-contract/1")
 (def lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6")
 (def target {:triple "x86_64-unknown-linux-gnu" :word-bits 64})
@@ -128,6 +129,10 @@
       (doseq [key [:source-sha256 :ir-sha256]]
         (wire/check (wire/hash? (get helper key)) "Invalid coherent helper digest"))
       (entries! (:entrypoints helper)))
+    (let [cases-on (filter #(= "cases-on" (:id %)) (:helpers composition))]
+      (wire/check (and (= 1 (count cases-on))
+                       (= ["KernelCasesOnRaw.construct"] (:entrypoints (first cases-on))))
+                  "Coherent exact casesOn helper identity required"))
     (wire/check (= 1 (count (:redirects composition))) "Coherent casesOn redirect required")
     (wire/check (= (count (:redirects composition)) (count (set (map :symbol (:redirects composition)))))
                 "Duplicate coherent construction redirect")
@@ -135,7 +140,8 @@
       (exact! redirect #{:symbol :target :row-sha256} "construction redirect")
       (wire/check (and (= "lean_mk_cases_on" (:symbol redirect)) (= cases-on-original-row-sha256 (:row-sha256 redirect)))
                   "Unapproved coherent construction redirect")
-      (name! (:target redirect)))
+      (name! (:target redirect))
+      (wire/check (= cases-on-target (:target redirect)) "Coherent exact casesOn target mismatch"))
     (let [stages (:stages composition) positions (zipmap stages (range))]
       (wire/check (and (seq stages) (= (count stages) (count (set stages)))
                        (every? stage-rank stages)
@@ -197,6 +203,9 @@
                      (= expected (canonical-file (.toURI ^java.net.URL (first urls)))))
                 "Coherent resource selection/duplicate/root mismatch")
     (first urls)))
+(defn- aot-resource-id [id]
+  (when-let [extension (cond (str/ends-with? id ".clj") 4 (str/ends-with? id ".cljc") 5)]
+    (str (subs id 0 (- (count id) extension)) "__init.class")))
 (defn- authenticate-selected! [row resolve-source]
   (let [{:keys [id kind sha256]} row
         file (canonical-file (resolve-source id))
@@ -205,9 +214,8 @@
       (:java-source :provenance-source) nil
       :selected-resource
       (do (selected-url! (clojure.lang.RT/baseLoader) id file)
-          (when (str/ends-with? id ".clj")
-            (wire/check (nil? (io/resource (str (subs id 0 (- (count id) 4)) "__init.class")))
-                        "Coherent project AOT shadow")))
+          (when-let [aot-id (aot-resource-id id)]
+            (wire/check (nil? (io/resource aot-id)) "Coherent project AOT shadow")))
       :selected-class
       (let [class-name (subs (str/replace id "/" ".") 0 (- (count id) 6))
             loader (if (= :kernel-class kind) (.getClassLoader ansatz.kernel.TypeChecker)
@@ -271,6 +279,9 @@
       (let [file (consumer-resolve-source id)
             bytes (wire/read-file-bytes file (get-in contract [:limits :max-helper-bytes]))]
         (wire/check (= expected (wire/sha256 bytes)) "Coherent helper source/IR drift")))
-    {:producer-preparation producer-preparation
-     :consumer-implementation-sha256 expected-consumer-implementation-sha256
-     :compatibility-profile profile-id}))
+    {:description {:producer-preparation producer-preparation
+                   :consumer-implementation-sha256 expected-consumer-implementation-sha256
+                   :compatibility-profile profile-id
+                   :consumer-contract-sha256 expected-consumer-contract-sha256}
+     :consumer-contract-sha256 expected-consumer-contract-sha256
+     :contract contract}))
