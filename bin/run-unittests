@@ -42,7 +42,7 @@ echo "Running fixture-free experimental checkpoint and world validation contract
 # Keep the experimental interpreter source paths scoped to this separate JVM;
 # they are not added to the core artifact or its normal test classpath.
 clojure -J-Xmx384m -J-Xss8m \
-  -Sdeps '{:paths ["experiments/lean-ir/src" "experiments/lean-ir/test"]}' \
+  -Sdeps '{:paths ["src" "classes" "resources" "experiments/lean-ir/src" "experiments/lean-ir/test"]}' \
   -M -e '(require (quote [clojure.test :as t])
                   (quote prototype.checkpoint-wire-test)
                   (quote prototype.restore-validation-test))
