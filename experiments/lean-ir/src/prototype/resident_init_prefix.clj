@@ -14,6 +14,7 @@
             [prototype.module-import :as imports]
             [prototype.module-store :as store]
             [prototype.eval-const :as eval]
+            [prototype.import-ir :as ir]
             [prototype.raw-interop :as raw]
             [prototype.machine :as m]
             [prototype.kernel-bridge :as bridge]
@@ -242,6 +243,7 @@
     (:reconstruction data) (assoc :reconstruction {:audit (get-in data [:reconstruction :audit])})
     (:graph-operation? data) (assoc :graph-operation? true :graph-audit (:graph-audit data))))
 (defn- import-failure! [state cause]
+  (swap! state dissoc :readiness-stamp)
   ;; Graph proof/check helpers may perform host RC work after their final raw
   ;; getter. Preserve the cause's later exact World/session and paired owners
   ;; in private state as well as the canonical outer exception. Legacy escrow
@@ -335,7 +337,7 @@
 
 (declare graph-profile! source-graph-roots)
 
-(defn- continuation-readiness! [{:keys [world session prefix certificate configuration] :as data}]
+(defn- continuation-scaffold! [{:keys [world session prefix certificate configuration]}]
   ;; Only issued private continuations enter here. Full scaffold/range checks
   ;; remain at existing public assemble/finish use boundaries, not each slice.
   (when-not (and (identical? (:functions world) (:functions session))
@@ -351,15 +353,69 @@
   (doseq [[symbol binding] (:trusted-bindings configuration)]
     (when-not (identical? binding (get-in session [:bindings symbol]))
       (fail "Init import continuation host capability changed" {:symbol symbol})))
-  (eval/validate-executables! world (:trusted-functions configuration)
-                            (concat preparation-roots standalone/import-roots))
-  (when (:graph-operation? data)
-    (let [p (graph-profile! (get-in data [:source-graph :profile]))]
-      (when-not (and (identical? p (get-in data [:source-graph :profile-data]))
-                     (identical? (:token p) (get-in data [:source-graph :profile-token])))
-        (fail "Source graph continuation lost its exact issued profile" {}))
-      (eval/validate-executables! world (:trusted-functions configuration) source-graph-roots)))
   true)
+
+(defn- standard-function-map? [x]
+  (or (= clojure.lang.PersistentArrayMap (class x))
+      (= clojure.lang.PersistentHashMap (class x))))
+(defn- frozen-readiness-roots? [roots]
+  (and (= clojure.lang.PersistentVector (class roots))
+       (every? #'ir/frozen-target? roots)))
+(defn- stable-executable-closure? [functions registry closure]
+  ;; Eligibility grants no authority. Unknown containers remain accepted through
+  ;; the original uncached validator. Only dependency-reading structure matters;
+  ;; literal payloads, dynamic operands and metadata are deliberately ignored.
+  (and (standard-function-map? functions) (standard-function-map? registry)
+       ;; Canonical lookup targets alone do not seal stored map keys: reject
+       ;; exotic mutable keys even when they currently compare equal to a name.
+       (every? #'ir/frozen-target? (keys functions))
+       (every? #'ir/frozen-target? (keys registry))
+       (every?
+         (fn [[_ f]]
+           (and (standard-function-map? f)
+                (not= :prototype.import-ir/fallback (#'ir/static-targets-canonical (:body f)))
+                (let [runtime (:runtime-dependencies f []) c (class runtime)]
+                  (and (or (= c clojure.lang.PersistentVector)
+                           (= c clojure.lang.PersistentHashSet)
+                           (= c clojure.lang.PersistentList)
+                           (= c clojure.lang.PersistentList$EmptyList))
+                       (every? #'ir/frozen-target? runtime))))) closure)))
+(defn- continuation-readiness!
+  ([data] (continuation-readiness! data nil))
+  ([{:keys [world configuration graph-operation?] :as data} cache-state]
+   (continuation-scaffold! data)
+   (let [functions (:functions world) registry (:trusted-functions configuration)
+         prep-roots preparation-roots import-roots standalone/import-roots graph-roots source-graph-roots
+         stamp (when cache-state (:readiness-stamp @cache-state))
+         hit? (and stamp (identical? functions (:functions stamp))
+                   (identical? registry (:registry stamp))
+                   (= (boolean graph-operation?) (:graph? stamp))
+                   (identical? prep-roots (:preparation-roots stamp))
+                   (identical? import-roots (:import-roots stamp))
+                   (identical? graph-roots (:graph-roots stamp)))
+         _ (when (and cache-state (not hit?)) (swap! cache-state dissoc :readiness-stamp))
+         ordinary (when-not hit?
+                    (eval/validate-executables! world registry (concat prep-roots import-roots)))
+         graph (when graph-operation?
+                 ;; This live issued-profile check is mandatory even on a hit.
+                 (let [p (graph-profile! (get-in data [:source-graph :profile]))]
+                   (when-not (and (identical? p (get-in data [:source-graph :profile-data]))
+                                  (identical? (:token p) (get-in data [:source-graph :profile-token])))
+                     (fail "Source graph continuation lost its exact issued profile" {}))
+                   (when-not hit? (eval/validate-executables! world registry graph-roots))))]
+     (when (and cache-state (not hit?)
+                (frozen-readiness-roots? prep-roots)
+                (frozen-readiness-roots? import-roots)
+                (or (not graph-operation?) (frozen-readiness-roots? graph-roots))
+                (stable-executable-closure? functions registry ordinary)
+                (or (not graph-operation?) (stable-executable-closure? functions registry graph)))
+       ;; One private entry in the issued control only. Never retain the seen
+       ;; closure, World, Source, heap, control key or a history of old images.
+       (swap! cache-state assoc :readiness-stamp
+              {:functions functions :registry registry :graph? (boolean graph-operation?)
+               :preparation-roots prep-roots :import-roots import-roots
+               :graph-roots graph-roots}))
+     true)))
 
 (declare in-reconstruction-scope release-reconstruction-owners
          graph-invocation finish-source-graph-operation!)
@@ -389,7 +445,7 @@
         (positive-long! max-operations :max-operations) (positive-long! wall-ms :wall-ms)
         (let [started (System/nanoTime)]
           (loop [operations 0]
-            (continuation-readiness! @state)
+            (continuation-readiness! @state state)
             (let [{:keys [phase assembly world session budgets event used]} @state]
               (if (or (= :io-completed phase) (>= operations max-operations)
                       (>= (/ (- (System/nanoTime) started) 1000000.0) wall-ms))
