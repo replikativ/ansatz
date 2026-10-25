@@ -153,13 +153,18 @@
               install! (fn [state bundle options]
                          (scope!) (boundary! (active-session context) current state)
                          (let [bindings (:bindings (active-session context))
+                               custom (:lower-extern options)
+                               _ (when (and custom (not (fn? custom)))
+                                   (fail "Invalid trusted extern lowerer" {}))
                                ;; A source unit may select only an explicit
                                ;; binding already admitted by this session. All
-                               ;; other externs retain normal catalogue/trap
-                               ;; semantics; an ABI mismatch never falls back.
+                               ;; other externs retain the explicitly admitted
+                               ;; consumer policy and normal catalogue semantics.
+                               ;; A bound ABI mismatch never falls back.
                                lower-extern (fn [row]
-                                              (when (contains? bindings (abi/symbol-for (get-in row [:ir :extern])))
-                                                (lower bindings row)))
+                                              (if (contains? bindings (abi/symbol-for (get-in row [:ir :extern])))
+                                                (lower bindings row)
+                                                (when custom (custom row))))
                                installed (install/install-at-host-boundary state bundle
                                                                            (assoc options :lower-extern lower-extern))
                                next-world (:world installed)

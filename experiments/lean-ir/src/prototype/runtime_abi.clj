@@ -70,17 +70,45 @@
         targets (export-targets manifests)]
     (assoc catalogue :manifests manifests ::export-manifests manifests ::export-targets targets)))
 
+(defn with-consumer-redirects
+  "Explicit host configuration, separate from producer exports/CAS evidence.
+   Each symbol maps to {:original-row <authenticated producer row> :target Name}.
+   Installation does not authenticate supplied bytes or confer kernel authority;
+   the enclosing preparation profile must do that. Every later lowering checks
+   the actual source row and actual target ABI. Existing redirects cannot change."
+  [catalogue redirects]
+  (when-not (map? redirects) (m/fail "Invalid consumer redirect configuration" {}))
+  (doseq [[symbol {:keys [original-row target] :as redirect}] redirects]
+    (when-not (and (= #{:original-row :target} (set (keys redirect)))
+                   (string? symbol) (seq symbol) (= "decl" (:kind original-row))
+                   (= (:name original-row) (get-in original-row [:ir :extern :f]))
+                   (= symbol (some-> original-row :ir :extern symbol-for))
+                   (nil? (:redirect original-row)))
+      (m/fail "Invalid consumer redirect origin" {:symbol symbol}))
+    (name! target)
+    (when-let [old (get (::consumer-redirects catalogue) symbol)]
+      (when-not (= old redirect) (m/fail "Conflicting consumer redirect" {:symbol symbol}))))
+  (update catalogue ::consumer-redirects merge redirects))
+
 (defn- resolve-export-redirect [catalogue row]
   (if-let [ext (get-in row [:ir :extern])]
     (let [symbol (symbol-for ext)
           targets (if (identical? (::export-manifests catalogue) (:manifests catalogue))
                     (or (::export-targets catalogue) (export-targets (:manifests catalogue)))
                     (export-targets (:manifests catalogue)))
+          consumer (get (::consumer-redirects catalogue) symbol)
+          _ (when consumer
+              (when-not (= (:name row) (get-in consumer [:original-row :name]))
+                (m/fail "Consumer redirect source name mismatch" {:symbol symbol}))
+              ;; Reuse ordinary reconciliation: same IR/dependency edges and
+              ;; redirect metadata, with only its existing source-local rules.
+              (ir/reconcile-declarations (:original-row consumer) row))
           manifest-target (get targets symbol)
           explicit-target (get-in row [:redirect :name])
-          target (or explicit-target manifest-target)]
-      (when (and explicit-target manifest-target (not= explicit-target manifest-target))
-        (m/fail "Conflicting explicit export redirect" {:symbol symbol :target explicit-target :manifest-target manifest-target}))
+          selected (remove nil? [(:target consumer) explicit-target manifest-target])
+          target (first selected)]
+      (when (> (count (set selected)) 1)
+        (m/fail "Conflicting explicit export redirect" {:symbol symbol :targets selected}))
       (if target
         (let [target-row (if-let [read-declaration (:read-declaration catalogue)]
                            (read-declaration target) (get-in catalogue [:declarations target]))
