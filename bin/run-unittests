@@ -47,3 +47,10 @@ clojure -J-Xmx384m -J-Xss8m \
          (let [result (clojure.test/run-tests (quote prototype.checkpoint-wire-test))]
            (System/exit (if (and (pos? (:test result))
                                 (zero? (+ (:fail result) (:error result)))) 0 1)))'
+
+echo
+echo "Running portable RAW casesOn constructor and preseal policy tests"
+(
+  cd experiments/lean-ir
+  clojure -J-Xmx384m -J-Xss8m -M scripts/test-cases-on.clj
+)

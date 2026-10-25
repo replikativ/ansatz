@@ -1,0 +1,112 @@
+{
+  "parentOracleObservationSha256": "0ed5a621158d6833aa2c1c7acf3e7404d8ceb7007078d86dde99751c0a23fd99",
+  "fields": [
+    "mdata",
+    "letFalse",
+    "letTrue",
+    "rawMax",
+    "rawIMax",
+    "implicit",
+    "instImplicit",
+    "syntaxPayloads",
+    "markedBvarMask"
+  ],
+  "expected": {
+    "Metadata": {
+      "input": [
+        1,
+        0,
+        0,
+        1,
+        0,
+        2,
+        1,
+        1,
+        2
+      ],
+      "output": [
+        1,
+        0,
+        0,
+        1,
+        0,
+        2,
+        1,
+        1,
+        4
+      ]
+    },
+    "DependentLet": {
+      "input": [
+        1,
+        1,
+        0,
+        2,
+        0,
+        2,
+        1,
+        1,
+        3
+      ],
+      "output": [
+        1,
+        1,
+        0,
+        2,
+        0,
+        2,
+        1,
+        1,
+        5
+      ]
+    },
+    "NondependentLet": {
+      "input": [
+        1,
+        0,
+        1,
+        2,
+        0,
+        2,
+        1,
+        1,
+        6
+      ],
+      "output": [
+        1,
+        0,
+        1,
+        2,
+        0,
+        2,
+        1,
+        1,
+        12
+      ]
+    },
+    "IMax": {
+      "input": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        2,
+        1,
+        1,
+        2
+      ],
+      "output": [
+        1,
+        0,
+        0,
+        0,
+        1,
+        2,
+        1,
+        1,
+        4
+      ]
+    }
+  }
+}

@@ -13,6 +13,8 @@
 (require '[clojure.test :as t]
          'prototype.test-runner
          'prototype.source-inductive-preparation-test
+         'prototype.cases-on-preparation-test
+         'prototype.kernel-cases-on-raw-test
          'prototype.bootstrap-function-verification-test
          'prototype.checkpoint-wire-test
          'prototype.compact-kernel-projection-test
