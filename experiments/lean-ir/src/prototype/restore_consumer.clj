@@ -372,7 +372,12 @@
                     (when-not (identical? error cleanup) (.addSuppressed error cleanup))))
              (throw error))))))
 (defn- factory-profile! [description producer consumer]
-  (let [profile (:compatibility-profile description)]
+  (let [profile (:compatibility-profile description)
+        coherent? (= compatibility/coherent-frontend-profile-id profile)]
+    (when coherent?
+      (exact! description #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile
+                             :consumer-contract-sha256} "coherent factory descriptor")
+      (wire/check (wire/hash? (:consumer-contract-sha256 description)) "Invalid coherent factory contract digest"))
     (wire/check (and (wire/same-data? producer (:producer-preparation description))
                      (= consumer (:consumer-implementation-sha256 description))
                      (contains? #{compatibility/profile-id compatibility/reconstruction-profile-id
@@ -381,19 +386,29 @@
                                   compatibility/source-graph-reconstruction-profile-id
                                   compatibility/source-graph-frontend-reconstruction-profile-id
                                   compatibility/hosted-application-profile-id
-                                  compatibility/hosted-application-control-profile-id} profile))
+                                  compatibility/hosted-application-control-profile-id
+                                  compatibility/coherent-frontend-profile-id} profile))
                 "Restore consumer capability identity mismatch")
     profile))
-(defn- factory-result! [produced producer consumer compatibility-profile manifest]
-  (exact! produced #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile
-                     :catalogue :bindings} "consumer factory result")
-  (wire/check (and (wire/same-data? (:producer-preparation produced) producer)
-                   (= (:consumer-implementation-sha256 produced) consumer)
-                   (= compatibility-profile (:compatibility-profile produced))
-                   (= (:binding-signatures manifest)
-                      (into {} (map (fn [[symbol binding]] [symbol (:signature binding)])) (:bindings produced))))
-              "Consumer factory identity/signature mismatch")
-  produced)
+(defn- factory-result!
+  ([produced producer consumer compatibility-profile manifest]
+   (factory-result! produced producer consumer compatibility-profile manifest nil))
+  ([produced producer consumer compatibility-profile manifest description]
+   (let [coherent? (= compatibility/coherent-frontend-profile-id compatibility-profile)]
+     (exact! produced (cond-> #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile
+                               :catalogue :bindings}
+                        coherent? (conj :consumer-contract-sha256)) "consumer factory result")
+     (when coherent?
+       (wire/check (and (wire/hash? (:consumer-contract-sha256 description))
+                        (= (:consumer-contract-sha256 description) (:consumer-contract-sha256 produced)))
+                   "Consumer factory coherent contract digest mismatch"))
+     (wire/check (and (wire/same-data? (:producer-preparation produced) producer)
+                      (= (:consumer-implementation-sha256 produced) consumer)
+                      (= compatibility-profile (:compatibility-profile produced))
+                      (= (:binding-signatures manifest)
+                         (into {} (map (fn [[symbol binding]] [symbol (:signature binding)])) (:bindings produced))))
+                 "Consumer factory identity/signature mismatch")
+     produced)))
 (defn restore!
   "Restore privately, reopen verified resources at saved bases, canonicalize ONLY
    recorded prepared/imported identities and invoke the authenticated closed factory.
@@ -408,7 +423,8 @@
      (exact! options #{:expected-manifest-sha256 :producer-preparation :consumer-implementation-sha256
                        :factory :resolve-resource :backend :fuel} "restore consumer options")
      (preparation! producer-preparation)
-     (let [compatibility-profile (factory-profile! (factory/descriptor factory)
+     (let [factory-description (factory/descriptor factory)
+           compatibility-profile (factory-profile! factory-description
                                                    producer-preparation consumer-implementation-sha256)
            _ (wire/check (and (wire/hash? expected-manifest-sha256) (wire/hash? consumer-implementation-sha256)
                               (fn? resolve-resource) (= :mutable backend)
@@ -442,15 +458,17 @@
                produced (factory/invoke! factory {:preparation producer-preparation :world world
                                                   :functions (:functions world) :prepared-functions (:prepared-functions parsed)
                                                   :resources @owned})
-               _ (factory-result! produced producer-preparation consumer-implementation-sha256 compatibility-profile manifest)
+               _ (factory-result! produced producer-preparation consumer-implementation-sha256 compatibility-profile manifest factory-description)
                _ (authorization! world (:prepared-functions parsed) (:catalogue produced) (:bindings produced) (:trusted-roots producer-preparation))
                session (raw/open-functions (:functions world) (:bindings produced) {:backend backend :fuel fuel})]
-           {:status :restored-precheck :world world :session session :io-result (get-in manifest [:roots :io-result])
+           (cond-> {:status :restored-precheck :world world :session session :io-result (get-in manifest [:roots :io-result])
             :roots (:roots manifest) :catalogue (:catalogue produced) :resource-lease lease
             :trusted-functions (:prepared-functions parsed) :trusted-bindings (:bindings produced)
             :producer-preparation producer-preparation :consumer-implementation-sha256 consumer-implementation-sha256
             :compatibility-profile compatibility-profile
-            :manifest-sha256 expected-manifest-sha256 :strictly-checked? false})
+            :manifest-sha256 expected-manifest-sha256 :strictly-checked? false}
+             (= compatibility/coherent-frontend-profile-id compatibility-profile)
+             (assoc :consumer-contract-sha256 (:consumer-contract-sha256 factory-description))))
          (catch Throwable e
            (try (.close ^java.io.Closeable lease) (catch Throwable close-error
                                                     (when-not (identical? e close-error) (.addSuppressed e close-error))))

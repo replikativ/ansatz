@@ -281,6 +281,20 @@
       (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
                   "Host implementation source/resource drift"))))
 
+(defn- authenticate-coherent-build!
+  "Second factory gate: authenticate ALL original producer bytes through only
+   its resolver, then independently check the CURRENT selected kernel classes.
+   No old substitution table or producer-class equality applies to this branch."
+  [recipe preparation resolve-artifact consumer-inventory]
+  (wire/check (= (:implementation-sha256 preparation) (build-identity (:build-inventory recipe)))
+              "Factory coherent producer build identity mismatch")
+  (doseq [{:keys [id sha256]} (:build-inventory recipe)]
+    (wire/check (= sha256 (wire/file-sha256 (resolve-artifact id)))
+                "Factory coherent original producer source/class drift"))
+  (doseq [{:keys [id kind sha256]} consumer-inventory :when (= :kernel-class kind)]
+    (wire/check (= sha256 (loaded-kernel-class-sha256! id))
+                "Factory coherent loaded kernel class drift")))
+
 (defn- private-index-sha256 [^java.io.RandomAccessFile index]
   (locking index
     (let [position (.getFilePointer index) digest (java.security.MessageDigest/getInstance "SHA-256")
@@ -440,10 +454,11 @@
    On-disk hashes alone cannot attest loaded Vars after with-redefs/reload.
    This function and produced factory execute host validation/linking only."
   [profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision {:keys [producer-preparation producer-resolve-artifact store-root] :as options} native-owner]
-  (let [consumer-description (cond hosted-application-revision
+  (let [authenticated (cond hosted-application-revision
                                    (case hosted-application-revision
                                      :v1 (compatibility/authenticate-hosted-application! options)
                                      :v2 (compatibility/authenticate-hosted-application-control! options)
+                                     :coherent ((requiring-resolve 'prototype.coherent-consumer-profile/authenticate!) options)
                                      (throw (ex-info "Unknown hosted application revision" {})))
                                    graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
                                    source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
@@ -451,6 +466,11 @@
                                    runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
                                    reconstruction? (compatibility/authenticate-reconstruction! options)
                                    :else (compatibility/authenticate! options))
+        coherent? (= :coherent hosted-application-revision)
+        consumer-description (if coherent? (:description authenticated) authenticated)
+        coherent-contract (when coherent?
+                            {:sha256 (:consumer-contract-sha256 authenticated)
+                             :contract (:contract authenticated)})
         expected-preparation producer-preparation
         resolve-artifact producer-resolve-artifact
         recipe (:catalogue-recipe expected-preparation)
@@ -472,10 +492,14 @@
     (wire/check (= (:declaration-index pinned) (:declaration-index recipe)) "Pinned declaration index drift")
     (wire/check (= (vec (concat roots [(:witness profile) exporter])) (:trusted-roots expected-preparation))
                 "Factory helper-root inventory drift")
-    (if hosted-application-revision
+    (cond
+      (= :coherent hosted-application-revision)
+      (authenticate-coherent-build! recipe expected-preparation resolve-artifact (:consumer-inventory options))
+      hosted-application-revision
       (authenticate-hosted-application-build! recipe expected-preparation resolve-artifact)
-      (authenticate-build! recipe expected-preparation resolve-artifact))
-    (fn [{:keys [preparation world functions prepared-functions resources] :as parsed}]
+      :else (authenticate-build! recipe expected-preparation resolve-artifact))
+    {:description consumer-description :coherent-contract coherent-contract
+     :invoke (fn [{:keys [preparation world functions prepared-functions resources] :as parsed}]
       (exact! parsed #{:preparation :world :functions :prepared-functions :resources} "parsed restore context")
       (wire/check (wire/same-data? expected-preparation preparation) "Restore preparation drift")
       (wire/check (identical? functions (:functions world)) "Factory candidate/world mismatch")
@@ -540,7 +564,7 @@
                           "Native readiness requires the fixed authenticated initializer binding")
               (native-binding-proof! binding (assoc metadata :owner native-owner :source source
                                                     :producer compatibility/producer-implementation-sha256))))
-          result)))))
+          result)))}))
 
 (deftype Factory [])
 (def ^:private issued-factories (java.util.WeakHashMap.))
@@ -555,6 +579,18 @@
   "Immutable identities of this authenticated closed capability; no resource ownership."
   [factory]
   (:descriptor (capability! factory)))
+(defn coherent-contract
+  "Approved descriptive composition of an actually issued coherent Factory.
+   No guest admission/readiness. Controllers must derive helper pins/configuration
+   from this accessor on their actual Factory, never an adjacent duplicate map."
+  [factory]
+  (let [{:keys [descriptor coherent-contract]} (capability! factory)]
+    (wire/check (and (= compatibility/coherent-frontend-profile-id (:compatibility-profile descriptor))
+                     (wire/hash? (:consumer-contract-sha256 descriptor))
+                     (= (:consumer-contract-sha256 descriptor) (:sha256 coherent-contract))
+                     (map? (:contract coherent-contract)))
+                "Coherent contract requires an issued coherent consumer factory")
+    coherent-contract))
 (defn invoke!
   "Reconstruct authenticated catalogue/bindings over the parser's exact function
    identities. No guest steps, initializer replay, Java association or source close."
@@ -567,24 +603,15 @@
    Returns an identity-registered capability, never a supplied reconstruction fn."
   [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision options native-owner]
   (let [profile (selected-profile (:producer-preparation options))
-        invoke (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision options native-owner)
-        description {:producer-preparation (:producer-preparation options)
-                     :consumer-implementation-sha256 (:expected-consumer-implementation-sha256 options)
-                     :compatibility-profile (cond hosted-application-revision
-                                                  (case hosted-application-revision
-                                                    :v1 compatibility/hosted-application-profile-id
-                                                    :v2 compatibility/hosted-application-control-profile-id
-                                                    (throw (ex-info "Unknown hosted application revision" {})))
-                                                  graph-frontend? compatibility/source-graph-frontend-reconstruction-profile-id
-                                                  source-graph? compatibility/source-graph-reconstruction-profile-id
-                                                  heap-net-dirty? compatibility/heap-net-dirty-reconstruction-profile-id
-                                                  runtime-ops? compatibility/runtime-ops-reconstruction-profile-id
-                                                  reconstruction? compatibility/reconstruction-profile-id
-                                                  :else compatibility/profile-id)}]
-    (let [factory (Factory.)]
-      (locking issued-factories
-        (.put issued-factories factory {:descriptor description :invoke invoke :native-owner native-owner}))
-      factory)))
+        {:keys [invoke description coherent-contract]}
+        (make-factory* profile reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? hosted-application-revision options native-owner)
+        factory (Factory.)]
+    ;; The description and contract come from that SAME authenticated construction,
+    ;; never from re-reading caller options or a second independently supplied map.
+    (locking issued-factories
+      (.put issued-factories factory {:descriptor description :invoke invoke
+                                     :coherent-contract coherent-contract :native-owner native-owner}))
+    factory))
 
 (defn- issue-factory [reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? options]
   (issue-factory* reconstruction? runtime-ops? heap-net-dirty? source-graph? graph-frontend? nil options nil))
@@ -645,6 +672,14 @@
    option contract. This constructor executes no guest code."
   [options]
   (issue-factory* true true true true true :v2 options (Object.)))
+
+(defn make-coherent-frontend-factory
+  "Issue one manifest-pinned current frontend consumer of producer50f. The
+   externally accepted contract closes sources/classes/controllers/helpers and
+   composition. Original producer provenance and current loaded classes are
+   independently authenticated. No guest steps or kernel policy widening."
+  [options]
+  (issue-factory* true true true true true :coherent options (Object.)))
 
 (deftype NativeInitReadiness [])
 (defonce ^:private native-readiness-issued (java.util.WeakHashMap.))

@@ -5,6 +5,11 @@ constructor and preseal redirect with portable native-oracle regressions.
 Construction and preparation remain separate from kernel admission and whole
 hosted frontend acceptance.
 
+The [manifest-pinned coherent consumer infrastructure](research/COHERENT_CONSUMER.md)
+separates the original producer from a complete current source/class cohort and
+its controller/helper composition. Constructor, protocol and CI gates passed;
+fresh full-run acceptance remains pending after a host-memory preflight refusal.
+
 [Explicit managed-operation abandonment](research/OPERATION_DISPOSAL.md) is an
 optional lifecycle API with focused regression coverage.
 [Project failure disposal](research/PROJECT_FAILURE_DISPOSAL.md) extends it to
