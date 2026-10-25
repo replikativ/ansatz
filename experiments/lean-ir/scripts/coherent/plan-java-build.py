@@ -13,8 +13,12 @@ import shutil
 
 
 def digest(path):
-    with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+    # Python 3.10 is used by component CI; keep bounded streaming portable.
+    result = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        while block := stream.read(1024 * 1024):
+            result.update(block)
+    return result.hexdigest()
 
 
 def quoted(value):

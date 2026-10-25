@@ -85,5 +85,24 @@
     "receipt-sha256": "c5d30946b64fe364d9a9757692e6be948a50376c947289237b266e30e37288c1",
     "postcheck-sha256": "34a919d27a2cb0bd2367b0057fc9ba8692b33360c0ab9aca95b91b08343d001f",
     "scope": "Actual default tracked runner; no full restore, guest or frontend claim."
+  },
+  "portable-tool-hash-regression": {
+    "status": "passed",
+    "python-tests": 11,
+    "actual-local-python": "3.12.2",
+    "python-310-runtime-local": false,
+    "syntax-checked-against-python-310-grammar": true,
+    "python-311-file-digest-api-disabled-during-known-vector-test": true,
+    "sha-vectors": [
+      "empty",
+      "abc",
+      "1048584-byte chunk crossing"
+    ],
+    "tools-covered": [
+      "materialize-pack.py",
+      "observe-class-inventory.py",
+      "plan-java-build.py"
+    ],
+    "scope": "Host-only portable streaming SHA tests; historical full28-test gates above ran ten Python tests. Actual Python3.10 end-to-end validation belongs to required remote CI."
   }
 }

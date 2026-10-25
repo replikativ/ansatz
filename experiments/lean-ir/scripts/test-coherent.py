@@ -2,7 +2,7 @@
 """Fixture-free coherent infrastructure checks, never restore or guest execution.
 
 Build all 24 Java sources into one fresh class directory. Run the 28 host models
-and six namespace definitions, ten Python metadata tests, then a separate JVM
+and six namespace definitions, eleven Python metadata tests, then a separate JVM
 whose copied source tree physically excludes coherent namespaces/AOT outputs.
 This is component CI, not a closed runtime/bootstrap attestation.
 """

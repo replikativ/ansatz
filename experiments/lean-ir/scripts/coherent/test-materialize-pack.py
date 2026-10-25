@@ -2,6 +2,8 @@
 """Host-only metadata/path regressions. No JVM, native process or old code load."""
 import importlib.util
 import json
+import hashlib
+from unittest import mock
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,6 +14,23 @@ spec.loader.exec_module(m)
 
 
 class PackMetadataTests(unittest.TestCase):
+    def test_all_tools_stream_known_sha_vectors_without_python311_api(self):
+        tools = [m]
+        for name in ['observe-class-inventory.py', 'plan-java-build.py']:
+            spec = importlib.util.spec_from_file_location(name.replace('-', '_'), Path(__file__).with_name(name))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            tools.append(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'bytes'
+            # Explicitly make the Python 3.11-only convenience API unavailable.
+            with mock.patch.object(hashlib, 'file_digest', None, create=True):
+                for data in [b'', b'abc', b'01234567' * 131073]:
+                    path.write_bytes(data)
+                    expected = hashlib.sha256(data).hexdigest()
+                    for tool in tools:
+                        self.assertEqual(expected, tool.digest(path))
+
     def test_java_checker_and_raw_invocation_ledgers_remain_distinct(self):
         policies = m.fixed_policies()
         self.assertEqual(20000000, policies['limits']['checker-fuel'])

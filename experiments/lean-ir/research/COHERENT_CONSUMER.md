@@ -96,7 +96,7 @@ loads the six controller namespaces without calling them, and executes the exact
 28 contract/stage/owner test Vars. A parameterized regression covers nine legacy
 constructor APIs across eight historical profiles using the real issuance registry,
 descriptor and invoke routes; only the already-authenticated construction envelope
-is modeled. Ten Python tests cover metadata, typed Names, path handling and the two
+is modeled. Eleven Python tests cover streaming SHA compatibility, metadata, typed Names, path handling and the two
 distinct fuel ledgers. A separate JVM gets copied source/resources physically
 excluding coherent namespaces and AOT output, then exercises legacy loading and
 its unchanged option rejection. These tests require no Lean SDK or checkpoint.
