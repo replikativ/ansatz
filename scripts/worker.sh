@@ -6,6 +6,7 @@
 #                                     background; the brief is docs/quality/tasks/ID.md (committed
 #                                     on BASE)
 #   scripts/worker.sh review ID       run a Codex review of branch quality/ID against BASE
+#   scripts/worker.sh resume ID MSG   continue worker ID's Codex session with a message
 #
 # Logs and the worker's final message go to /tmp/claude-1000/ansatz-workers/ID.{log,last.md}.
 # MODEL / EFFORT override the model (default gpt-6.1-sol) and reasoning effort (default medium).
@@ -27,6 +28,20 @@ codex_run() {  # dir prompt id
   echo $! > "$OUT/$id.pid"
   echo "worker $id: pid $(cat "$OUT/$id.pid"), log $OUT/$id.log"
 }
+
+if [ "${1:-}" = "resume" ]; then
+  id=${2:?id}; msg=${3:?message}
+  sid=$(grep -m1 "session id:" "$OUT/$id.log" | awk '{print $3}')
+  [ -n "$sid" ] || { echo "no session id in $OUT/$id.log" >&2; exit 1; }
+  cp "$OUT/$id.log" "$OUT/$id.log.$(date +%s)"
+  ( cd "$WT_ROOT/$id" && nohup codex exec resume -m "$MODEL" -c model_reasoning_effort="\"$EFFORT\"" \
+      -c sandbox_mode='"workspace-write"' \
+      -c sandbox_workspace_write.network_access=true \
+      -c 'sandbox_workspace_write.writable_roots=["/tmp/claude-1000"]' \
+      -o "$OUT/$id.last.md" "$sid" "$msg" > "$OUT/$id.log" 2>&1 & echo $! > "$OUT/$id.pid" )
+  echo "worker $id resumed: pid $(cat "$OUT/$id.pid"), session $sid"
+  exit 0
+fi
 
 if [ "${1:-}" = "review" ]; then
   id=${2:?id}; base=${3:-$(git -C "$REPO" rev-parse --abbrev-ref HEAD)}
