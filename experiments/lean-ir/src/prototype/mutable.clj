@@ -728,3 +728,57 @@
        (identical? (nth tokens 3) (scalar/scalar-integer-token))
        (identical? (nth tokens 4) (native/scalar-carrier-token))
        (builtin-scalar-wrapper? symbol operation)))
+
+(defn tail-entry-state?
+  "Internal guard: framefree, no joins, and exactly the declared parameter locals."
+  [s params]
+  (let [^objects locals (ctl s 1)]
+    (and (not (neg? (aget ^longs (:counters s) 3)))
+         (.isEmpty ^ArrayDeque (:frames s)) (.isEmpty ^HashMap (ctl s 2))
+         (nil? (:leaf-plans s)) (nil? (:register-layouts s))
+         (every? (fn [id] (and (< -1 id (alength locals)) (not (identical? unbound (aget locals (int id)))))) params)
+         (= (count params) (loop [i 0 n 0]
+                             (if (= i (alength locals)) n
+                                 (recur (inc i) (if (identical? unbound (aget locals i)) n (inc n)))))))))
+
+(defn- tail-peak! [s peak]
+  (let [^longs counters (:counters s)]
+    (aset-long counters 3 (max (aget counters 3) (long peak)))))
+
+(defn materialize-tail-entry!
+  "Internal exit ABI. Values are canonical carriers, steps already account for
+   logical tail transfer; call-values! adds no extra instruction charge."
+  [s name arguments logical-steps peak]
+  (call-values! s [:direct name] arguments nil nil)
+  (add-steps! s logical-steps)
+  (tail-peak! s peak)
+  s)
+
+(defn materialize-tail-return!
+  "Restore every visible local and exact return PC before ordinary delivery."
+  [s name arguments return-body all-locals result logical-steps peak]
+  (materialize-tail-entry! s name arguments logical-steps peak)
+  (let [^objects locals (ctl s 1)]
+    (doseq [[id value] all-locals] (aset locals (int id) value)))
+  (put! s 0 return-body)
+  (deliver! s result)
+  s)
+
+(def ^:private tail-region-generation (Object.))
+(def ^:private tail-region-roots
+  [call-values! callee-slots bind-params! registers deliver! push-frame!
+   tail-entry-state? tail-peak! materialize-tail-entry! materialize-tail-return!
+   has-frames? status steps function-slots])
+(defn tail-region-tokens []
+  [(scalar-wrapper-tokens) tail-region-generation (slots/tail-layout-token)])
+(defn current-tail-region? [tokens symbols]
+  (let [[call layout bind registers-root deliver push entry peak entry! return! frames status-root steps-root function-slots-root] tail-region-roots]
+    (and (identical? (nth tokens 1) tail-region-generation)
+         (= (nth tokens 2) (slots/tail-layout-token)) (slots/builtin-tail-layout?)
+         (identical? call call-values!) (identical? layout callee-slots) (identical? bind bind-params!)
+         (identical? registers-root registers) (identical? deliver deliver!) (identical? push push-frame!)
+         (identical? entry tail-entry-state?) (identical? peak tail-peak!)
+         (identical? entry! materialize-tail-entry!) (identical? return! materialize-tail-return!)
+         (identical? frames has-frames?) (identical? status-root status) (identical? steps-root steps) (identical? function-slots-root function-slots)
+         (current-scalar-wrapper? (nth tokens 0) "lean_uint64_add" :add)
+         (every? (fn [[symbol operation]] (current-scalar-wrapper? (nth tokens 0) symbol operation)) symbols))))

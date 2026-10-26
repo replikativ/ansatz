@@ -3,19 +3,22 @@
 The draft [typed IR and Pattern design](research/TYPED_IR_PATTERN_DESIGN.md)
 maps a proposed typed compiler pipeline, pass contracts and snapshot boundaries.
 Its [executable instruction fragment](research/typed-ir-pattern-example.clj)
-checks one UInt64 lowering with Pattern; the general pipeline remains proposed.
+checks one UInt64 lowering with Pattern; the bounded scalar region path below
+implements part of that pipeline.
 The [implementation contract](research/TYPED_IR_IMPLEMENTATION_SPEC.md) fixes
 kernel/interop boundaries and acceptance gates. Its first step adds opt-in
 typed companions for selected declarations; ordinary lowering does not prepare
 them eagerly. Bounded scalar [block preparation](measurements/typed-block-preparation.json)
 now validates selected control flow and reconstructs canonical interpreter bodies.
-Execution of the new block encoding remains a later step. Opt-in
+These blocks feed the optional scalar region path below. Opt-in
 [unsigned wrapper specialization](measurements/scalar-wrapper-specialization.json)
 now compiles selected UInt64/USize add/sub wrapper instructions on the existing
 JVM backends; guest calls and returns remain explicit. The optional
 [typed tail-region preparation](measurements/typed-tail-preparation.json) now uses
-Pattern to build validated graph, trace and carrier data; region execution follows
-in the next increment.
+Pattern to build validated graph, trace and carrier data. Optional
+[typed tail-region execution](measurements/typed-tail-execution.json) emits primitive
+scalar loops with exact fuel and snapshot materialization on existing JVM drivers;
+joins and general non-tail source calls still fall back.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.
