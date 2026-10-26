@@ -60,3 +60,10 @@
      :cljs (let [word (inc (* 2 (payload value)))]
              (when-not (js/Number.isSafeInteger word)
                (fail "Native pointer word outside exact JS profile" {:value value})) word)))
+
+#?(:clj
+   (do
+     (def ^:private scalar-carrier-generation (Object.))
+     (def ^:private scalar-carrier-root native-scalar?)
+     (defn scalar-carrier-token [] scalar-carrier-generation)
+     (defn builtin-scalar-carrier? [] (identical? scalar-carrier-root native-scalar?))))

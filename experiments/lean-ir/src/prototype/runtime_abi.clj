@@ -152,10 +152,8 @@
                    :message "Enabled profiling requires injected clock/event capabilities"}
              [[:var category] [:var options]]]]]]]]))
 
-(defn lower [row]
-  (if (:redirect row) (lower-redirect row)
-  (if-let [ext (get-in row [:ir :extern])]
-    (let [symbol (symbol-for ext) spec (get prim/supported-symbols symbol)
+(defn- validate-extern! [ext]
+  (let [symbol (symbol-for ext) spec (get prim/supported-symbols symbol)
           params (mapv #(get-in % [:x :idx]) (:xs ext))
           arities (or (:arities spec) #{(:arity spec)})
           dest (inc (reduce max 0 params))]
@@ -165,6 +163,83 @@
         (when-not (some #{shape} (get @signatures symbol))
           (m/fail "Unrecognized raw runtime ownership/type signature" {:symbol symbol :shape shape})))
       (doseq [ty (cons (:type ext) (map :ty (:xs ext)))] (ir/type! ty))
+      {:symbol symbol :params params :dest dest}))
+
+(def ^:private scalar-description-generation (Object.))
+(defn scalar-description-token [] scalar-description-generation)
+
+(def ^:private scalar-wrapper-operations
+  {"lean_uint64_add" ["uint64" :add] "lean_uint64_sub" ["uint64" :sub]
+   "lean_usize_add" ["usize" :add] "lean_usize_sub" ["usize" :sub]})
+
+(defn- scalar-name [name]
+  (loop [part name pieces []]
+    (when-not (and (= clojure.lang.PersistentVector (class part)) (< (count pieces) 4096))
+      (m/fail "Invalid or oversized scalar wrapper name" {}))
+    (let [[op parent value] part]
+      (case op
+        "anonymous" (do (when-not (= 1 (count part)) (m/fail "Invalid scalar wrapper name" {}))
+                        (reduce (fn [parent [op value]] [op parent value]) ["anonymous"] (rseq pieces)))
+        ("str" "num") (do
+                          (when-not (and (= 3 (count part))
+                                         (if (= op "str") (string? value)
+                                             (or (and (contains? #{Long Integer Short Byte clojure.lang.BigInt java.math.BigInteger} (class value)) (<= 0 value))
+                                                 (and (string? value) (re-matches #"0|[1-9][0-9]*" value)))))
+                            (m/fail "Invalid scalar wrapper name" {}))
+                          (recur parent (conj pieces [op value])))
+        (m/fail "Invalid scalar wrapper name" {})))))
+
+(defn validate-scalar-description!
+  "Validate immutable selected ABI data. A description grants no execution or
+   source authority. This first scalar lane admits only four unsigned externs."
+  [d]
+  (let [[type operation] (get scalar-wrapper-operations (:extern d))
+        p (:profile d) ps (:params d)]
+    (when-not (and (contains? #{clojure.lang.PersistentArrayMap clojure.lang.PersistentHashMap} (class d))
+                   (contains? #{clojure.lang.PersistentArrayMap clojure.lang.PersistentHashMap} (class p))
+                   (= #{:schema :name :extern :params :result-type :profile :domain :operation :lane :semantic-generation}
+                     (set (keys d)))
+                   (= "lean-scalar-wrapper/1" (:schema d)) type
+                   (= :unsigned64 (:domain d)) (= operation (:operation d))
+                   (= :long-bits (:lane d)) (= "unsigned-wrapper/1" (:semantic-generation d))
+                   (= type (:result-type d))
+                   (= #{:schema :producer-commit :phase :word-bits :layout :abi-generation :target} (set (keys p)))
+                   (= ["lean-block-profile/1" (get prim/pinned-build "lean_get_githash") :expanded-rc 64 :lean-64 :jvm]
+                      (mapv p [:schema :producer-commit :phase :word-bits :layout :target]))
+                   (string? (:abi-generation p)) (seq (:abi-generation p))
+                   (= clojure.lang.PersistentVector (class ps)) (= 2 (count ps))
+                   (every? #(and (contains? #{clojure.lang.PersistentArrayMap clojure.lang.PersistentHashMap} (class %))
+                                  (= #{:id :type :borrow} (set (keys %)))
+                                  (contains? #{Long Integer Short Byte clojure.lang.BigInt java.math.BigInteger} (class (:id %)))
+                                  (<= 0 (:id %) 65534)
+                                  (= type (:type %)) (boolean? (:borrow %))) ps)
+                   (= 2 (count (set (map :id ps))))
+                   (some #{{:params (mapv (fn [p] {:ty (:type p) :borrow (:borrow p)}) ps) :return-type type}}
+                         (get @signatures (:extern d))))
+      (m/fail "Invalid scalar wrapper description" {}))
+    ;; Copy closed plain data to discard metadata and caller containers.
+    (assoc (into {} d) :name (scalar-name (:name d))
+           :params (mapv #(into {} %) ps) :profile (into {} p))))
+
+(defn describe-scalar
+  "Opt-in immutable ABI/operation data from one selected extern row. Shares the
+   ordinary lower validation; unsupported specialization returns nil."
+  [row profile]
+  (when-let [ext (get-in row [:ir :extern])]
+    (when (:redirect row) (m/fail "Redirected extern is not a scalar wrapper" {}))
+    (let [{:keys [symbol]} (validate-extern! ext)]
+      (when-let [[type operation] (get scalar-wrapper-operations symbol)]
+        (when-not (= (:name row) (:f ext)) (m/fail "Scalar wrapper name mismatch" {}))
+        (validate-scalar-description!
+         {:schema "lean-scalar-wrapper/1" :name (:f ext) :extern symbol
+          :params (mapv (fn [p] {:id (get-in p [:x :idx]) :type (:ty p) :borrow (:borrow p)}) (:xs ext))
+          :result-type type :profile profile :domain :unsigned64 :operation operation
+          :lane :long-bits :semantic-generation "unsigned-wrapper/1"})))))
+
+(defn lower [row]
+  (if (:redirect row) (lower-redirect row)
+  (if-let [ext (get-in row [:ir :extern])]
+    (let [{:keys [symbol params dest]} (validate-extern! ext)]
       [(:f ext) (cond-> {:params params :runtime-extern symbol
                 :body (cond
                         (= symbol "lean_replace_expr") (expr-replace/body params dest)

@@ -18,9 +18,9 @@
   ([functions] (open-program functions {} (code-cache)))
   ([functions options] (open-program functions options (code-cache)))
   ([functions options cache]
-   (let [options (merge {:compile-threshold 1
+   (let [options (b/prepare-options (merge {:compile-threshold 1
                          :lexical-joins true
-                         :direct-linking (boolean (:direct-linking *compiler-options*))} options)]
+                         :direct-linking (boolean (:direct-linking *compiler-options*))} options))]
      (when-not (and (integer? (:compile-threshold options))
                     (<= 1 (:compile-threshold options) Integer/MAX_VALUE))
        (m/fail "Invalid lazy compilation threshold" {:compile-threshold (:compile-threshold options)}))
@@ -100,10 +100,11 @@
         (vreset! (:size shared-hints) 0)))))
 
 (defn- matching-hint [program body]
-  (some (fn [[generation lexical? direct? _ arities :as key]]
+  (some (fn [[generation lexical? direct? _ arities scalar-extension :as key]]
           (when (and (identical? generation (:generation program))
                      (= lexical? (boolean (get-in program [:options :lexical-joins])))
                      (= direct? (boolean (get-in program [:options :direct-linking])))
+                     (= scalar-extension (b/runtime-block-extension (:functions program) body (:options program)))
                      ;; A caller body can survive a callee arity edit. Its cached
                      ;; region is valid only under the original key contract.
                      (every? (fn [[name arity]]

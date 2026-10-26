@@ -9,7 +9,10 @@ kernel/interop boundaries and acceptance gates. Its first step adds opt-in
 typed companions for selected declarations; ordinary lowering does not prepare
 them eagerly. Bounded scalar [block preparation](measurements/typed-block-preparation.json)
 now validates selected control flow and reconstructs canonical interpreter bodies.
-Execution of the new block encoding remains a later step.
+Execution of the new block encoding remains a later step. Opt-in
+[unsigned wrapper specialization](measurements/scalar-wrapper-specialization.json)
+now compiles selected UInt64/USize add/sub wrapper instructions on the existing
+JVM backends; guest calls and returns remain explicit.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.
