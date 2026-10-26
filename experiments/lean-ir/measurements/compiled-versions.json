@@ -1,0 +1,89 @@
+{
+  "schema": "compiled-versions-validation/1",
+  "status": "passed three bounded code-image/cache tests and41 composed tests; genuine public source-edit/re-elaboration acceptance remains separate",
+  "tested_commit": "e73311c2751ae327b0190be7375e39857d61c388",
+  "original_focused_source_commit": "1f1da446edf0e8a98038c623ee3cc0aec688aacb",
+  "runtime_base": "523fb3eb1b187247d31078b740c75ebca9e79e93",
+  "source_sha256": {
+    "experiments/lean-ir/src/prototype/machine.cljc": "bfa6d02190a580b816edbdd4ba4ab8b7ccba5bf51856c9d605291bcd8423f5cc",
+    "experiments/lean-ir/src/prototype/mutable.clj": "0d8469f9c00a6f265c650562678f605f224df109e3129a294eac2f313ef0ba2c",
+    "experiments/lean-ir/src/prototype/raw_interop.clj": "4d1affb4467995bccaf0ede550811fae2ff233479ffc646ffb3ac7eb2874f8c6",
+    "experiments/lean-ir/src/prototype/interop.clj": "827cbb0465d645f6e479e359f3de6eaaaceafdd0c0d87b5ac31c9a4030b37569",
+    "experiments/lean-ir/src/prototype/interop_codec.clj": "6edc65b1970589188ec7bf8f2c51d360496597e8fca8ba07dbbcf84fb780021f",
+    "experiments/lean-ir/src/prototype/lazy_runtime.clj": "82c2b15efe5237b5776727fa0033ab44cb3b6cf2dcb13c67c62bdbd9383519b8",
+    "experiments/lean-ir/src/prototype/block_compile.clj": "8adebf6205bb0101fb6b7e42d79072e5f73898a7c98eb53bf773132863a3e376",
+    "experiments/lean-ir/src/prototype/session_compiler_options.clj": "3a7e7b3d5d4bce74f72ecfec0ce5964fa23aae3cf8e0acada4036769e69a22de",
+    "experiments/lean-ir/src/prototype/typed_ir.clj": "4351688ed417664e1efb4da4c13979cdf774bedc5f87d023f0ceb6252ee3c0f0",
+    "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
+    "experiments/lean-ir/src/prototype/typed_tail.clj": "6285f44e7f8175846a8ca5a4aa7a9f78c5dfbb9e0685c32d8f8d059e6e2b5975",
+    "experiments/lean-ir/src/prototype/typed_tail_emit.clj": "e8bfdb1cbbc38e9cc64674261bbcd8cb7c9cb523ac950a16ba3c00b2f8ddb443",
+    "experiments/lean-ir/src/prototype/typed_tail_execution.clj": "a2c0eb1e1c05442de95b19db6fe16c9336c14895dabf73e00e04e02eb7cb2721",
+    "experiments/lean-ir/src/prototype/runtime_abi.clj": "45df0a1d84a964d82982906046f7ec970da0d538609139b7a9c6b05570c62e3a",
+    "experiments/lean-ir/src/prototype/scalar_wrapper.clj": "14e5b7e62180aa213d6fbf8b728b2b2c12e8201da9a3efbb494e649bdc43988b",
+    "experiments/lean-ir/src/prototype/resident_frontend.clj": "12bbf0cbc7ad930e127bbd51bc647f85c71342edefea84ae5b48892c4e514cdd",
+    "experiments/lean-ir/src/prototype/program_install.clj": "98d7a8d3400744a0d1ec6958e81076c6c5688958fd82c09be15c5823c55c5b01",
+    "experiments/lean-ir/src/prototype/eval_const.clj": "81bcbf9d38b2105c6165e1b42609908757adc09a2686f05ec48195bb94be91be",
+    "experiments/lean-ir/src/prototype/project_loader.clj": "18ff27fa1c86e981e1660d30085dc1c579417a3377b817ae3d3aab4183291a58",
+    "experiments/lean-ir/test/prototype/compiled_versions_test.clj": "78cb895f958be47538fc234acd75907705baf2a907f4d50d18e7b8ba955e59e9",
+    "experiments/lean-ir/test/prototype/typed_tail_test.clj": "2d86b7ba932e5a12b34367ede4202a4d3a684c372d82ccfdba570c0c255273f8",
+    "experiments/lean-ir/test/prototype/typed_tail_execution_test.clj": "1fb2ef0b099011f845fad8a845668ff2583557b023260543511e73883ed38b33",
+    "experiments/lean-ir/test/prototype/session_compiler_options_test.clj": "d82c76c8a7659bfc86da6dd637eca9893f34b7ff757c9c9cf5250a515f485712",
+    "experiments/lean-ir/test/prototype/resident_frontend_test.clj": "454fbf850710e7641b8e986e20bcabce5b6a5f39b0272ec5ca4e4a87bd4e9406",
+    "experiments/lean-ir/test/prototype/hosted_file_test.clj": "a53f71f2e6f2dac79b75241c07d9da9f3c3f5809e4f5883f6e69633ed48a0c3c",
+    "experiments/lean-ir/scripts/test-typed-tail.clj": "1d1675889cae4dee1468c863cfaa320298ba46d31def4d16f5d22b643bc03759",
+    "experiments/lean-ir/fixtures/compiled-version-a.jsonl": "07a6c0d178468e9ce77f36b92f01b4643658c2b71f449bbbf8df111d02b325c3",
+    "experiments/lean-ir/fixtures/compiled-version-b.jsonl": "28061f47d6aa4fa5bf6f53c01c0a5088331e8a7fed83ed94000b41d842c31df9",
+    "experiments/lean-ir/fixtures/compiled-version-values.json": "7729225b92e5dfdd30f46025030ff6b8d71ab23b117fb3ce6ecc0fd78fd75151",
+    "experiments/lean-ir/lean/CompiledVersionA.lean": "d3c29c2d6c9c5daae1139ff9d3331103126827f5a93f0d92fd9631220d590694",
+    "experiments/lean-ir/lean/CompiledVersionB.lean": "bf97287afea2e3788f72747fde4fef063431eb917b8961d1688ad25f28a09dbb",
+    "experiments/lean-ir/measurements/compiled-version-native-export.json": "572d0b18e5d4d510e5ba05a4e2306ba37a7989e94b15935cbf1487607cfdd54d"
+  },
+  "checks": {
+    "focused_resident": {
+      "tests": 3,
+      "assertions": 80,
+      "failures": 0,
+      "errors": 0,
+      "request_sha256": "5643d0bce53d24f5d386b46f701b3e95a6c61ba7e303b1e40150b2439a4aa654"
+    },
+    "composed_resident": {
+      "tests": 41,
+      "assertions": 19221,
+      "failures": 0,
+      "errors": 0,
+      "request_sha256": "0ba1ba71a6adc2b0b27ed1ceead94c57dc0e124932962c6c2bd11322a02badcb",
+      "namespaces": [
+        "prototype.typed-tail-test",
+        "prototype.typed-tail-execution-test",
+        "prototype.session-compiler-options-test",
+        "prototype.tail-caller-frames-test",
+        "prototype.compiled-boundary-test",
+        "prototype.compiled-versions-test"
+      ]
+    },
+    "runtime": {
+      "resident_port": 71903,
+      "heap_MiB": 192,
+      "resident_RSS_guard_MiB": 768,
+      "loading": "Only new M6 test file loaded. Runtime and Pattern remained unchanged in restored current main203 cohort. Peer scoped the common fixture directory to this checkout and restored it in finally. No new JVM or Source/Init restore."
+    }
+  },
+  "evidence": {
+    "native": "Independent full A/B elaboration/export under same main module/name set; native main ran sum/entry/identity and ordinary arithmetic operation-source-oracle. It did NOT run the custom chosenOp alias successfully. See separate native export record.",
+    "source_edit": "Actual exported sum code differs (acc+n vs acc+n+1), entry/identity remain identical. Calls and captured Clojure function handles return old/new/old55/65/55.",
+    "artifacts": "Identical generic entry/identity keys and cached artifact identity are reused with actual cache hits; changed selected sum and actual extern wrapper dependencies produce distinct typed-tail keys/artifacts. Every selected raw/function invocation proves same-artifact :typed-tail/:specialized in its own event interval.",
+    "worlds": "Saved A prefix/siblings resume after B execution with complete reference state/carrier parity. Retained A/B resource roots and old artifact identity survive shared-cache use. Wrong session/World pairing and stale source/wrapper selections reject.",
+    "resident_model": "Identity frontend envelope and FileHandle transport are modeled in independently prepared actual A/B scalar images. Public with-externs preserves separate bindings/cache/selection; cross-generation handles reject before argument encoding. No public source-edit path or self-hosted compilation is inferred.",
+    "actual_edit_path_audit": "Project.prepare-load already forks its retained pristine baseline and recaptures provider input. program-install forbids overwriting existing source names; evalConst reuse requires exact authorized IR. No new replacement registry is needed."
+  },
+  "not_run": [
+    "Genuine current-cohort Project load A/source edit B/re-elaboration with retained A and changed dependent module",
+    "Cold CI Pattern lane after adding new tests (same41 vars passed in resident)",
+    "Fresh optional jar/Java compiled-version consumer",
+    "Authenticated whole source/class cohort",
+    "Native custom-alias FFI execution",
+    "Source/Init/mathlib restore or performance benchmark"
+  ],
+  "remaining": "These tests cover cache/image and modeled handle boundaries, not completion of M6. A later thin resident/facade compiler-options setter and FileHandle-bound unboxed-worker convenience are proposed separately, not implemented here.",
+  "focused_rebase_test_diff": []
+}
