@@ -96,9 +96,11 @@
         (is (= before @scans))))))
 
 (deftest incremental-programs-reuse-unchanged-weak-function-sizes
-  (let [old {:params [] :body [:let 12 [:imm 1] [:return [:var 12]]]}
+  ;; Construct fresh identity fixtures on each invocation: this test is rerun
+  ;; in a resident REPL whose weak sizing caches may still hold literal maps.
+  (let [old (hash-map :params [] :body [:let 12 [:imm 1] [:return [:var 12]]])
         functions {:entry old}
-        new {:params [80] :body [:return [:var 80]]}
+        new (hash-map :params [80] :body [:return [:var 80]])
         original walk/forms scans (atom [])]
     (with-redefs [walk/forms (fn [form] (swap! scans conj form) (original form))]
       (is (= 13 (slots/program-slots functions)))

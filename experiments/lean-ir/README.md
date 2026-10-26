@@ -7,7 +7,9 @@ checks one UInt64 lowering with Pattern; the general pipeline remains proposed.
 The [implementation contract](research/TYPED_IR_IMPLEMENTATION_SPEC.md) fixes
 kernel/interop boundaries and acceptance gates. Its first step adds opt-in
 typed companions for selected declarations; ordinary lowering does not prepare
-them eagerly.
+them eagerly. Bounded scalar [block preparation](measurements/typed-block-preparation.json)
+now validates selected control flow and reconstructs canonical interpreter bodies.
+Execution of the new block encoding remains a later step.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.
