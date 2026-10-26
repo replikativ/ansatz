@@ -1,6 +1,6 @@
 # Preserving callers around a compiled tail region
 
-Status: implementation proposal following the frame-free M3c baseline. This
+Status: caller-frame implementation following the frame-free M3c baseline. This
 document grants no new source, kernel, native ABI or hosted acceptance authority.
 
 Lean's boxed entrypoints normally unbox arguments, call the unboxed function,
@@ -44,3 +44,7 @@ hosted control-flow tests. Recheck helper redefinitions and compile refusal.
 The M3c warming benchmark remains its original immutable measurement. This
 increment needs its own source pins and test receipt, and makes no new frontend
 performance or current-cohort integration claim.
+
+See the [validation record](../measurements/tail-caller-frames.json) for the
+bounded resident tests, authentic native wrapper export, failed development
+attempts, and separate JVM heap/process memory observations.
