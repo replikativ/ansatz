@@ -639,6 +639,9 @@ This selection slice does not accept kernel integration, all codec families,
 genuine frontend execution or a new source/class cohort. Tests must observe both
 an actual artifact with `:specialization {:kind :typed-tail ...}` and an executed
 hook returning `:specialized`; generic compilation counters are insufficient.
+The [focused validation record](../measurements/session-compiler-options.json)
+records six passing boundary tests and 65 existing/composed session regressions
+in the shared resident REPL. Frontend helpers in that slice are modeled; genuine hosted acceptance remains separate.
 
 ## M6 REPL versions and ownership
 

@@ -20,6 +20,12 @@ Pattern to build validated graph, trace and carrier data. Optional
 scalar loops with exact fuel and snapshot materialization on existing JVM drivers;
 joins and general non-tail source calls still fall back.
 
+The additive [session compiler selection contract](research/TYPED_IR_IMPLEMENTATION_SPEC.md#session-compiler-selection)
+threads explicit `:compiler-options` through existing interop sessions and frontend
+reopens. Its [focused boundary tests](measurements/session-compiler-options.json)
+cover selected scalar execution, callbacks and retained caches; genuine hosted
+frontend and Java compiler-tier acceptance remain separate.
+
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.
 Construction and preparation remain separate from kernel admission and whole
