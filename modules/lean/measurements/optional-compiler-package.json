@@ -443,5 +443,11 @@
     "Full repository CI locally",
     "Artifact installation, publishing or release"
   ],
-  "receipt_policy": "Current-core jar packaging evidence only; historical receipts unchanged and genuine hosted acceptance remains distinct."
+  "receipt_policy": "Current-core jar packaging evidence only; historical receipts unchanged and genuine hosted acceptance remains distinct.",
+  "integration_rebase": {
+    "base_commit": "797d972c865911edcd9a41b11e9c97c07d595c9b",
+    "tested_source_pin_changes": [],
+    "core_input_changes_from_built_base": [],
+    "scope": "Rebased onto merged main204. All88 tested source pins unchanged; core source/resource/dependency/build inputs match the actual523fb3 core build. No artifact rebuild or new acceptance inferred."
+  }
 }
