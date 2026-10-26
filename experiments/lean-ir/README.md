@@ -35,6 +35,10 @@ The [bounded kernel/callback composition](measurements/compiled-boundaries.json)
 checks actual kernel admission followed by independent scalar execution, scoped
 callback reentry and typed String ownership; its host anchors and callers are
 explicit fixtures, with genuine hosted acceptance still separate.
+The [compiled version fixtures](measurements/compiled-versions.json) retain native
+A/B code images and shared compiler artifacts through old/new/old calls; their
+resident FileHandle checks are modeled, and genuine source-edit loading remains
+a separate [existing Project-loader gate](research/COMPILED_VERSION_PLAN.md).
 
 Data-only [Nat preparation](measurements/nat-preparation.json) additionally retains
 object-family numeric literals and exact RC annotations, with directional boxed

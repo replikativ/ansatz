@@ -740,7 +740,8 @@ explicit roots is a separate runtime policy.
 
 The [compiled version plan](COMPILED_VERSION_PLAN.md) separates native A/B
 code-cache/handle fixtures from the remaining genuine pristine-baseline source
-edit gate. The existing Project loader already supplies that baseline-fork path;
+edit gate. Its [validation record](../measurements/compiled-versions.json) covers
+actual A/B exported code and explicitly modeled resident FileHandle transport. The existing Project loader already supplies that baseline-fork path;
 no replacement registry is proposed. The [selection API plan](COMPILER_SELECTION_API_PLAN.md)
 describes a later thin setter and bounded worker discovery after file loading.
 

@@ -1,6 +1,7 @@
 # Compiled persistent source versions
 
-Status: bounded M6 cache/image fixtures. Separate native A/B elaboration and
+Status: bounded M6 cache/image fixtures passed three focused tests (80 assertions)
+and 41 composed tests (19,221 assertions). Separate native A/B elaboration and
 source-value evidence are available; hosted source-edit acceptance is separate.
 No new loader, invocation engine, handle registry or version store is proposed.
 
@@ -20,7 +21,8 @@ The final `main` prints explicitly labeled ordinary UInt64 arithmetic values
 13/5, which are source-value oracles, not proof of the custom alias's FFI route.
 The exporter still supplies the real changed external declaration/ABI.
 
-See [native export evidence](../measurements/compiled-version-native-export.json).
+See [native export evidence](../measurements/compiled-version-native-export.json)
+and [resident test evidence](../measurements/compiled-versions.json).
 The fixture streams are exact independent exports, not map-edited positive
 evidence. They do not constitute self-hosted Lean compilation or source admission.
 
