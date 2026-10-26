@@ -92,9 +92,9 @@
         (is (= initial (start input [5000 0])))))))
 
 (deftest caller-depth-helper-redefinition-declines-before-emission
-  (let [input (wrapped (fixture/bundle "typed-tail-programs.jsonl") "identity" 2)
+  (let [input (wrapped (fixture/bundle "typed-tail-programs.jsonl") "identity64" 2)
         initial (entry input [7]) ctx (execution-test/context input)
-        target (fixture/target (:typed input) "identity")
+        target (fixture/target (:typed input) "identity64")
         plan (execution/compile-entry ctx (get-in input [:runtime target :body]))
         machine (execution/bind-context (u/thaw initial) ctx)
         expected (u/freeze (u/run! (u/thaw initial) 10))]
@@ -153,6 +153,10 @@
               terminal (m/run initial) program (lazy/open-program fs opts)
               programs [[:lazy program] [:eager (block/compile-program fs nil opts)] [:mutable nil]]]
           (is (= result (codec/decode-boxed terminal descriptor (:result terminal))))
+          ;; Exact terminal fuel may reserve less than the worst-case chunk and
+          ;; deliberately finish via the interpreter. Give the observed route
+          ;; enough slack to prove an entirely specialized region return too.
+          (is (= terminal (execution-test/run :lazy program initial 10000)))
           (doseq [fuel (range (+ 2 (get-in terminal [:stats :steps]))) [backend chosen] programs]
             (let [expected (m/run initial fuel)
                   actual (execution-test/run backend chosen initial fuel)]
