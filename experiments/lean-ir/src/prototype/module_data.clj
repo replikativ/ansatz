@@ -25,7 +25,15 @@
 (defn bytes! [text]
   (when-not (and (string? text) (even? (count text)) (re-matches #"[0-9a-f]*" text))
     (m/fail "Invalid ModuleData hexadecimal storage" {}))
-  (mapv #(Integer/parseInt (subs text % (+ % 2)) 16) (range 0 (count text) 2)))
+  (let [^String text text n (.length text)]
+    (if (zero? n) []
+      (loop [i 0 out (transient [])]
+        (if (< i n)
+          (let [a (int (.charAt text i)) b (int (.charAt text (inc i)))
+                hi (if (<= a 57) (- a 48) (- a 87))
+                lo (if (<= b 57) (- b 48) (- b 87))]
+            (recur (+ i 2) (conj! out (Integer/valueOf (int (+ (* 16 hi) lo))))))
+          (persistent! out))))))
 
 (defn decimal! [text signed?]
   (when-not (and (string? text) (re-matches (if signed? #"0|-?[1-9][0-9]*" #"0|[1-9][0-9]*") text))
