@@ -1,0 +1,290 @@
+{
+  "schema": "nat-tail-execution-validation/1",
+  "scope": "Bounded opt-in exact Long Nat execution in the common represented emitter; checked promotion exits through existing mutable execution. No new interpreter, source restore, MPZ allocation policy, or native RC parity claim.",
+  "base": "aeca6bb3f444cb1d19ca532c288fe46ee0fb845d (Nat DATA PR205)",
+  "source-sha256": {
+    "experiments/lean-ir/README.md": "6c3bd0092d3095e5eba12d907a6dc45a9b499c178f9a1321a244688bb2c1dd93",
+    "experiments/lean-ir/research/NAT_REPRESENTATION_PLAN.md": "37db72628e04749ab98a31ad0fb479ed1a52c78a191d4d59e9437d6378ef170f",
+    "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": "113bf3be0519efdf136dfb64dcf0777a261ef0f45c0bbe91a55a597254d21ee0",
+    "experiments/lean-ir/research/nat-tail-benchmark.clj": "c65f5eb07c9d0a771ba60ee05c8bb4e91d177f48ea12cbb05ce6c1658dd6db28",
+    "experiments/lean-ir/scripts/test-typed-tail.clj": "cf4bcf3321e363db72e627e9624a3984a5ae1c54e28a6173fcd4b73bed6e1af3",
+    "experiments/lean-ir/src/prototype/mutable.clj": "f5fffb8782180371519b55d77e205ded19a2f17c209d71bc3c87cbc5455e3c90",
+    "experiments/lean-ir/src/prototype/native_scalar.cljc": "70fe64bd2815de51a511ed550c3b677a7d0af1f7437d55efe0ce8d3052ad2061",
+    "experiments/lean-ir/src/prototype/runtime_abi.clj": "e03a9e0a47e4fa487af434e533846d3cbf6f5e9350cb6bc27d32987c8f377278",
+    "experiments/lean-ir/src/prototype/runtime_prim.cljc": "c3b59a901bf17e8d343b2898b6aecb290c16f120662af4267493fd252afa34ac",
+    "experiments/lean-ir/src/prototype/scalar_wrapper.clj": "de3d1549f63ee183ab796b85c990e6512be435b3df9676e4821228bdac26a2bf",
+    "experiments/lean-ir/src/prototype/typed_tail.clj": "65eb937b3c0d9ab43da8054477a605a7d1219f886ef6f0fb14e49b8789533294",
+    "experiments/lean-ir/src/prototype/typed_tail_emit.clj": "2f8d9788c0793d13c2fbc3ce2ba170d9ff0ef4b950c44040da90105ed985cd7e",
+    "experiments/lean-ir/src/prototype/typed_tail_execution.clj": "9bc1680fcefe241676f71b863b87c1db4c0ebb868caea0db751b40baa4f6548a",
+    "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
+    "experiments/lean-ir/src/prototype/typed_ir.clj": "4351688ed417664e1efb4da4c13979cdf774bedc5f87d023f0ceb6252ee3c0f0",
+    "experiments/lean-ir/src/prototype/machine.cljc": "bfa6d02190a580b816edbdd4ba4ab8b7ccba5bf51856c9d605291bcd8423f5cc",
+    "experiments/lean-ir/src/prototype/lazy_runtime.clj": "82c2b15efe5237b5776727fa0033ab44cb3b6cf2dcb13c67c62bdbd9383519b8",
+    "experiments/lean-ir/src/prototype/block_compile.clj": "8adebf6205bb0101fb6b7e42d79072e5f73898a7c98eb53bf773132863a3e376",
+    "experiments/lean-ir/test/prototype/nat_regions_test.clj": "48ee22fd41c737a33d918bc3eafda331f4bb59958a07afb5bfc5d9b2d87f57fb",
+    "experiments/lean-ir/test/prototype/nat_tail_execution_test.clj": "7da9aa75acdb475b3f6b2514c6f9562732ec12755d92582867c5ee12bef2fcd6",
+    "experiments/lean-ir/test/prototype/typed_tail_test.clj": "e480cf77fff26a0fcb381506b4679ed65e83e59608fd56fd580dc609c49395e9",
+    "experiments/lean-ir/test/prototype/typed_tail_execution_test.clj": "1fb2ef0b099011f845fad8a845668ff2583557b023260543511e73883ed38b33",
+    "experiments/lean-ir/test/prototype/scalar_wrapper_test.clj": "4242cc60af5975c6ac6179c42f13916670a60c21710b57a20a0e38e7f8a4f47c",
+    "experiments/lean-ir/test/prototype/tail_caller_frames_test.clj": "c11d47c840f33dd47ada9f566635b310d100f35198b9bb62c775b7b1d20d0b49",
+    "experiments/lean-ir/fixtures/nat-region-programs.jsonl": "a409d911e16952241da145dc452a7b42b2d9e1a0fe13540580c43a6d9a70a4e4",
+    "experiments/lean-ir/fixtures/nat-region-program-values.json": "d5bc83cfe24b838a02019beb891211a2fe23de3eaca97cb268a9c33108363137",
+    "experiments/lean-ir/lean/NatRegionProbe.lean": "bb6d3dd0c3b5ddf0b1c06cc1224492cb12d9cb1ef262c87f54167a2630849719"
+  },
+  "validation": {
+    "focused": {
+      "tests": 9,
+      "assertions": 4161,
+      "failures": 0,
+      "errors": 0
+    },
+    "joint": {
+      "test": 69,
+      "pass": 29420,
+      "fail": 0,
+      "error": 0,
+      "expected-tests": 69,
+      "seen-tests": 69
+    },
+    "overlap": "Focused tests are included in joint69; counts must not be summed. Joint includes main20441 + NatDATA10 + Nat execution9 + standalone wrappers9. Every test checks candidate Nat ABI/file epoch.",
+    "CI": "Optional typed-tail lane explicitly registers60 vars (joint69 without standalone wrapper9 already covered by the default lane). CI not run locally; source registration and same-source tests verified.",
+    "controls": [
+      "Actual pinned sum/identity/constant/subtraction: every small fuel, carrier classes, siblings/resume; genuine borrowed mutual non-tail controls remain unsupported.",
+      "Late promotion after completed chunks across real saved caller depths0/1/2, historical peak7, current chunk dead locals and wrapper PCs.",
+      "Funded fallback observer: sum starts mutable at step15 with n2/accMAX-1; simultaneous2-to3 tail starts at step2 with swapped args and literal third lane; huge fuel retained as BigInt.",
+      "Terminal add/eq exact prefix and wrapper-local materialization, first-chunk overflow, non-Long/negative/danglingRef entries, unrelated heap/globals/events.",
+      "Definition-owner roots before and after factory realization, own generation tokens, live numeric route edits, registry redefinitions before prep, malformed lane/RC/conditional proof refusal.",
+      "Joint old unsigned wrappers/regions, caller frames, kernel/interop boundary and version fixtures remain passing."
+    ],
+    "development-failures": [
+      "Initial focused3: three observer assertions expected a route even when dangling Ref correctly threw; exact error/World already matched. Fixed observer to distinguish thrown guest error from returned route.",
+      "Synthetic terminalEq control initially retained subtraction tobject destination annotation, correctly declined as type-compatibility; changed synthetic destination/result to uint8.",
+      "First joint70 encountered one retired DATA-only test Var retained by REPL namespace reload (1fail/1error); explicit unmap of renamed obsolete test yielded exact current69 pass. No runtime patch or skipped current test.",
+      "Memory capture helper initially used unresolved ProcessHandle shorthand; corrected to java.lang.ProcessHandle; not a guest/test failure."
+    ]
+  },
+  "runtime-cohort": {
+    "repl-session": 71903,
+    "jvm": "GraalVM JDK25.0.1+8.1",
+    "memory": {
+      "heap-used-bytes": 73578632,
+      "heap-limit-bytes": 201326592,
+      "process-rss-line": "VmRSS:\t  489456 kB",
+      "pid": 120
+    },
+    "guard": "192MiB heap,768MiB process RSS cap,256MiB host availability floor; existing shared process, not guest footprint.",
+    "source-loading": "Read/eval exact own new forms and owning functions from candidate native_scalar/runtime_prim/mutable under their defining namespaces. Existing Ref/Tag/RawNativeScalar/Machine classes retained. Full candidate ABI/scalar_wrapper/typed_blocks/typed_tail/emitter/context loaded; candidate test sources explicitly loaded. Unchanged classes/source match base. Final fresh-process/packaged acceptance remains CI/subsequent gate.",
+    "owner-epoch": "Owner baselines minted at definition owners, not snapshots of arbitrary current foreign helpers. m/ref? uses existing machine owner seal. ABI reload tests point to candidate worktree, preventing stale six-op registry reload.",
+    "source-scope": "No Source/Init restore, no new JVM or native export. Existing modeled NativeSource/bridge fixtures do not establish hosted frontend compatibility.",
+    "pattern-commit": "6d0242ee589d88b336f7dd6f820efa993d2b6f3b; existing retained source/eight-jar loader; LLVM not loaded"
+  },
+  "benchmark": {
+    "schema": "nat-tail-benchmark/1",
+    "iterations": 10000,
+    "trials": 3,
+    "scope": {
+      "prepare": "Fresh programs; compiler/Pattern classes already loaded",
+      "emission": "Shared factory forced outside warm execution",
+      "promotion": "Generic JVM first n=10 lazy compilation",
+      "run": "Initial World setup excluded; thaw/run/freeze included; CPU and allocation for current thread",
+      "oracle": "Full World and carrier shape compared outside measurement",
+      "warmup": "Five paired n=1000 runs; steady state not established"
+    },
+    "compilation": {
+      "generic-prepare": {
+        "cpu-ns": 112353,
+        "wall-ns": 106161,
+        "allocated-bytes": 3080
+      },
+      "nat-prepare": {
+        "cpu-ns": 49995764,
+        "wall-ns": 101894998,
+        "allocated-bytes": 9203544
+      },
+      "nat-emission": {
+        "cpu-ns": 6305895,
+        "wall-ns": 11284641,
+        "allocated-bytes": 7805408
+      },
+      "generic-first-promotion": {
+        "cpu-ns": 14140264,
+        "wall-ns": 14140970,
+        "allocated-bytes": 4513840
+      }
+    },
+    "runs": [
+      {
+        "cpu-ns": 151929885,
+        "wall-ns": 154194546,
+        "allocated-bytes": 62453104,
+        "trial": 0,
+        "backend": "jvm",
+        "result": 50005000,
+        "steps": 150007
+      },
+      {
+        "cpu-ns": 2688504,
+        "wall-ns": 2687762,
+        "allocated-bytes": 1051216,
+        "trial": 0,
+        "backend": "nat-region",
+        "result": 50005000,
+        "steps": 150007
+      },
+      {
+        "cpu-ns": 2555486,
+        "wall-ns": 2620076,
+        "allocated-bytes": 1051192,
+        "trial": 1,
+        "backend": "nat-region",
+        "result": 50005000,
+        "steps": 150007
+      },
+      {
+        "cpu-ns": 180541599,
+        "wall-ns": 196867259,
+        "allocated-bytes": 62183056,
+        "trial": 1,
+        "backend": "jvm",
+        "result": 50005000,
+        "steps": 150007
+      },
+      {
+        "cpu-ns": 180133950,
+        "wall-ns": 194023552,
+        "allocated-bytes": 62183056,
+        "trial": 2,
+        "backend": "jvm",
+        "result": 50005000,
+        "steps": 150007
+      },
+      {
+        "cpu-ns": 4872641,
+        "wall-ns": 4869022,
+        "allocated-bytes": 1051192,
+        "trial": 2,
+        "backend": "nat-region",
+        "result": 50005000,
+        "steps": 150007
+      }
+    ]
+  },
+  "benchmark-summary": {
+    "jvm": {
+      "cpu-ns": {
+        "min": 151929885,
+        "median": 180133950,
+        "max": 180541599
+      },
+      "wall-ns": {
+        "min": 154194546,
+        "median": 194023552,
+        "max": 196867259
+      },
+      "allocated-bytes": {
+        "min": 62183056,
+        "median": 62183056,
+        "max": 62453104
+      }
+    },
+    "nat-region": {
+      "cpu-ns": {
+        "min": 2555486,
+        "median": 2688504,
+        "max": 4872641
+      },
+      "wall-ns": {
+        "min": 2620076,
+        "median": 2687762,
+        "max": 4869022
+      },
+      "allocated-bytes": {
+        "min": 1051192,
+        "median": 1051192,
+        "max": 1051216
+      }
+    }
+  },
+  "benchmark-conclusion": {
+    "cpu-median-ratio": 67.00155551191294,
+    "allocation-median-ratio": 59.154803309005395,
+    "limits": "Three warmed alternating pairs after five n1000 pairs, same cumulative REPL; not host-JIT steady state or competitive-native claim. First pilot is superseded. Functional promotion tests are separate from successful Long-loop timing."
+  },
+  "native-oracle": "Unchanged Nat DATA receipt retains exact pinned819816b producer and native8 mathematical values/export provenance; six source functions/three borrowed externs. Fast4 tested here, mutual2 remain unsupported.",
+  "native-provenance": {
+    "native-evidence": {
+      "schema": "nat-region-native-oracle/1",
+      "lean-version": "4.33.1",
+      "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "source-sha256": "bb6d3dd0c3b5ddf0b1c06cc1224492cb12d9cb1ef262c87f54167a2630849719",
+      "exporter-sha256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
+      "fixture-sha256": "a409d911e16952241da145dc452a7b42b2d9e1a0fe13540580c43a6d9a70a4e4",
+      "value-fixture-sha256": "d5bc83cfe24b838a02019beb891211a2fe23de3eaca97cb268a9c33108363137",
+      "rows": 10,
+      "source-functions": 6,
+      "externs": 3,
+      "export-exit-code": 0,
+      "native-run-exit-code": 0,
+      "export-peak-rss-kib": 1707168,
+      "native-run-peak-rss-kib": 271712,
+      "native-output": [
+        "sum:55",
+        "sum-promote:9223372036854775810",
+        "subtract-saturate:0",
+        "subtract:5",
+        "identity-big:9223372036854775808",
+        "constant:7",
+        "bounceA:12",
+        "bounceB:14"
+      ],
+      "observed-producer": "Only Nat.add/sub/decEq externs with borrowed tobject inputs; six functions include actual inc/dec and differing ownership/arity. Sum parameters owned; identity/constant/subtract/mutual parameters borrowed.",
+      "commands": [
+        "LEAN_SYSROOT=<pinned-release-prefix> <pinned-release-prefix>/bin/lean --run experiments/lean-ir/lean/Export.lean --source experiments/lean-ir/lean/NatRegionProbe.lean --closure NatRegionProbe NatRegionProbe.sum NatRegionProbe.subtract NatRegionProbe.identityNat NatRegionProbe.constantNat NatRegionProbe.bounceA NatRegionProbe.bounceB",
+        "<pinned-release-prefix>/bin/lean --run experiments/lean-ir/lean/NatRegionProbe.lean"
+      ],
+      "scope": "Native producer/value/ABI oracle only, no JVM memory measurement or hosted frontend acceptance; native MPZ allocation/heartbeat differs from hosted semantic-integer profile.",
+      "actual-mutual-profile": "Borrowed bounceA/B have non-tail calls followed by real dec instructions. They are unsupported controls, not mutual-Nat fast coverage."
+    }
+  },
+  "requests-sha256": {
+    "guard-request.clj": "90636f7e777bb521656df74903045904b3e16eae26fea0b2789187796ae10310",
+    "smoke-request.clj": "5cfcd1c20253d5e6d73879e58dca3094c5119100ed49646f8016b2c583c9f290",
+    "focused-request.clj": "6ef15bc49ed42c7aa70bef12fc8110df9324de7f19a668856f2dcbd20e5c06e1",
+    "joint-request.clj": "334e5a5bd3179e715c4ae1f231664d20925e1170706b640b21fefaeebf60b087",
+    "benchmark-request.clj": "96bac1af4129a8a082b484372a466a1dcbe0674040adc27de94775b9259162b9"
+  },
+  "remaining": [
+    "BigInt/BigInteger/RawNativeScalar/Ref entry interpreted; Java small BigInteger inputs are not normalized.",
+    "General joins, non-tail source calls and actual borrowed mutual Nat fast execution unsupported.",
+    "Hosted semantic integer/logical allocation profile unchanged; native MPZ/GMP allocation/heartbeat differ.",
+    "No fresh-process, packaged Java or full hosted frontend acceptance established by this cumulative REPL cohort."
+  ],
+  "benchmark-history": {
+    "before-metric-preflight": {
+      "jvm-median-cpu-ns": 127864977,
+      "nat-region-median-cpu-ns": 2484840,
+      "cpu-ratio": 51.4580323079152,
+      "scope": "Earlier three pairs with the same runtime source; benchmark helper subsequently gained supported/enabled metric preflight. Superseded by final checked helper run; retained to expose warm-run variability."
+    },
+    "interpretation": "Small warmed cumulative-REPL trials vary substantially; use the raw ranges and separate preparation costs, not the largest observed ratio as a stable throughput claim."
+  },
+  "integration-rebase": {
+    "main": "041fc1ef811a499072c9bb1b077a1e58e34f0770",
+    "changed-inputs": {},
+    "note": "Rebased after reviewed normal Pattern packaging; original runtime/test source hashes remain exact; no new execution claims from rebase."
+  },
+  "setter-integration-rebase": {
+    "main": "cf45a387b1ea3353ec56969123b9a01e3301946c",
+    "changed-inputs": {
+      "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": {
+        "tested-sha256": "113bf3be0519efdf136dfb64dcf0777a261ef0f45c0bbe91a55a597254d21ee0",
+        "integrated-sha256": "19047e0fb2b894f2346920ade458d239db49547ed2c218f66f7092b398330948"
+      },
+      "experiments/lean-ir/scripts/test-typed-tail.clj": {
+        "tested-sha256": "cf4bcf3321e363db72e627e9624a3984a5ae1c54e28a6173fcd4b73bed6e1af3",
+        "integrated-sha256": "c63bac54bbb3600e62d5e1e47d951a9af60c053da793ad7eb055fbdde939be58"
+      }
+    },
+    "note": "Production Nat execution and tests unchanged. Upstream206 adds setter and documentation; combined runner63 retains all60 Nat lane vars plus resident3. Historical 69/29420 evidence remains unchanged; new integrated CI is separate."
+  }
+}

@@ -11,32 +11,70 @@
 
 (defn- check-representation! [region names]
   (let [scalars #{"uint8" "uint16" "uint32" "uint64" "usize"}
-        repr? (fn [x] (and (vector? x) (= 3 (count x))
-                           (= :repr (first x)) (scalars (second x)) (= :long-bits (nth x 2))))
+        nats #{"tagged" "tobject"}
+        nat? (= "lean-represented-tail/2" (:schema region))
+        invalid! #(throw (ex-info "Invalid represented tail proof" {:typed-tail-invalid-representation true}))
+        repr? (fn [x] (and (vector? x) (= 3 (count x)) (= :repr (first x))
+                           (or (and (scalars (second x)) (= :long-bits (nth x 2)))
+                               (and nat? (nats (second x)) (= :nonnegative-long (nth x 2))))))
         intrinsic? (fn [repr domain operation carrier]
-                     (and (repr? repr) (= :unsigned64 domain)
-                          (case operation
-                            :eq (and (= "uint8" (second repr)) (= [:carrier :long] carrier))
-                            (:add :sub) (and (#{"uint64" "usize"} (second repr))
-                                             (= [:carrier :unsigned-bigint] carrier))
+                     (and (repr? repr)
+                          (case domain
+                            :unsigned64 (case operation
+                                          :eq (and (= "uint8" (second repr)) (= [:carrier :long] carrier))
+                                          (:add :sub) (and (#{"uint64" "usize"} (second repr))
+                                                           (= [:carrier :unsigned-bigint] carrier)) false)
+                            :nat (and nat? (= [:carrier :long] carrier)
+                                      (case operation :eq (= "uint8" (second repr))
+                                            (:add :sub) (nats (second repr)) false))
                             false)))]
-    (when-not (= "lean-represented-tail/1" (:schema region)) (refuse! :representation))
-    (doseq [name names
-            :let [f (get-in region [:functions name])]]
-      (when-not (every? #(scalars (:type %)) (:params f)) (refuse! :representation))
-      (doseq [block (:blocks f)
-              :let [op (:operation block)]]
-        (when-not
-         (and (vector? op)
-              (case (first op)
-                :literal (and (= 6 (count op)) (repr? (nth op 3)) (= [:carrier :literal] (nth op 5)))
-                :intrinsic (and (= 9 (count op)) (intrinsic? (nth op 3) (nth op 4) (nth op 5) (nth op 8)))
-                :tail-intrinsic (and (= 8 (count op)) (intrinsic? (nth op 2) (nth op 3) (nth op 4) (nth op 7)))
-                :case (and (= 5 (count op)) (= :long-bits (nth op 4)))
-                :tail (and (= 5 (count op)) (= :simultaneous-carriers (nth op 4)))
-                :return (and (= 4 (count op)) (= [:carrier :propagate] (nth op 3)))
-                false))
-          (refuse! :representation))))))
+    (when-not (contains? #{"lean-represented-tail/1" "lean-represented-tail/2"} (:schema region)) (invalid!))
+    (doseq [name names :let [f (get-in region [:functions name]) table (:representations f)]]
+      (letfn [(local! [id repr]
+                (when-not (and (repr? repr)
+                               (or (not nat?)
+                                   (let [entry (get table id)]
+                                     (and (= (:ir-type entry) (second repr)) (= (:lane entry) (nth repr 2))
+                                          (= (:domain entry) (if (nats (second repr)) :nat-integer :unsigned-integer)))))) (invalid!)))]
+        (doseq [{:keys [id type]} (:params f)]
+          (local! id [:repr type (if (nats type) :nonnegative-long :long-bits)])
+          (when (and nat? (not= (get-in table [id :proof])
+                                         (if (nats type) {:kind :entry-guard :carrier :long :range [0 Long/MAX_VALUE]}
+                                             {:kind :entry-guard :carriers [:long :bigint]}))) (invalid!)))
+        (doseq [block (:blocks f) :let [op (:operation block)]]
+          (when-not
+           (and (vector? op)
+                (case (first op)
+                  :literal (and (= 6 (count op)) (repr? (nth op 3)) (= [:carrier :literal] (nth op 5))
+                                (or (not (nats (second (nth op 3))))
+                                    (and (= Long (class (nth op 4))) (<= 0 (nth op 4)))))
+                  :intrinsic (and (= 9 (count op)) (intrinsic? (nth op 3) (nth op 4) (nth op 5) (nth op 8)))
+                  :tail-intrinsic (and (= 8 (count op)) (intrinsic? (nth op 2) (nth op 3) (nth op 4) (nth op 7)))
+                  :rc (and nat? (= 9 (count op)) (#{:inc :dec} (nth op 2))
+                           (integer? (nth op 4)) (<= 0 (nth op 4) Integer/MAX_VALUE)
+                           (boolean? (nth op 5)) (boolean? (nth op 6))
+                           (= [:proof :nonreference] (nth op 8)) (repr? (nth op 7)))
+                  :case (and (= 5 (count op)) (= :long-bits (nth op 4)))
+                  :tail (and (= 5 (count op)) (= :simultaneous-carriers (nth op 4)))
+                  :return (and (= 4 (count op)) (= [:carrier :propagate] (nth op 3))) false)) (invalid!))
+          (case (first op)
+            :literal (do (local! (nth op 2) (nth op 3))
+                         (when (and nat? (not= (get-in table [(nth op 2) :proof])
+                                              {:kind :literal :carrier (if (nats (second (nth op 3))) :long :literal)
+                                               :value (nth op 4) :class (.getName (class (nth op 4)))})) (invalid!)))
+            :intrinsic (do (local! (nth op 2) (nth op 3))
+                           (when nat?
+                             (let [descriptor (get-in region [:descriptors (nth op 6)])
+                                   proof (get-in table [(nth op 2) :proof])]
+                               (when-not (= proof {:kind :intrinsic :domain (nth op 4) :extern (:extern descriptor)
+                                                   :carrier (second (nth op 8))
+                                                   :condition (if (and (= :nat (nth op 4)) (= :add (nth op 5)))
+                                                                :checked-small-add :unconditional)}) (invalid!)))))
+            :rc (local! (nth op 3) (nth op 7))
+            nil)
+          (when (and nat? (contains? #{:intrinsic :tail-intrinsic} (first op)))
+            (let [[domain args] (if (= :intrinsic (first op)) [(nth op 4) (nth op 7)] [(nth op 3) (nth op 6)])]
+              (when (and (= :nat domain) (not (every? #(= :nonnegative-long (get-in table [(second %) :lane])) args))) (invalid!)))))))))
 
 (defn- check-form!
   "Bound the realized form as well as graph expansion. Walk iteratively so a
@@ -86,11 +124,11 @@
                     `(do (if ~one (prototype.mutable/step! ~machine)
                              (prototype.mutable/run! ~machine (- ~fuel ~completed))) :interpreted)
                     :specialized)))
-            (intrinsic [operation args env]
+            (intrinsic [domain operation args env]
               (let [[a b] (map #(-> (operand env %) :bits) args)]
                 (case operation
                   :add `(unchecked-add ~a ~b)
-                  :sub `(unchecked-subtract ~a ~b)
+                  :sub (if (= domain :nat) `(long (if (< ~a ~b) 0 (unchecked-subtract ~a ~b))) `(unchecked-subtract ~a ~b))
                   :eq `(long (if (== ~a ~b) 1 0))
                   (throw (ex-info "Unsupported represented intrinsic" {:operation operation})))))
             (emit [name f id env entry-env cost local-peak]
@@ -110,9 +148,17 @@
                        ~(emit name f next-id (assoc env dest {:bits b :carrier c}) entry-env (inc cost) local-peak)))
 
                   :intrinsic
-                  (let [[_ _ dest _ _ operation _ args] op b (gensym "intrinsic") c (gensym "recipe")]
-                    `(let [~b ~(intrinsic operation args env) ~c (long ~(if (= operation :eq) 0 1))]
-                       ~(emit name f next-id (assoc env dest {:bits b :carrier c}) entry-env (+ cost 3) 1)))
+                  (let [[_ _ dest _ domain operation _ args] op b (gensym "intrinsic") c (gensym "recipe")
+                        success `(let [~b ~(intrinsic domain operation args env) ~c (long ~(if (or (= domain :nat) (= operation :eq)) 0 1))]
+                                   ~(emit name f next-id (assoc env dest {:bits b :carrier c}) entry-env (+ cost 3) 1))]
+                    (if (and (= domain :nat) (= operation :add))
+                      (let [[a b] (map #(-> (operand env %) :bits) args)]
+                        `(if (<= ~a (unchecked-subtract Long/MAX_VALUE ~b)) ~success ~(entry-exit name f entry-env true)))
+                      success))
+
+                  :rc
+                  (do (operand env [:var (nth op 3)])
+                      (emit name f next-id env entry-env (inc cost) local-peak))
 
                   :case
                   (let [[_ _ args alternatives] op
@@ -151,7 +197,7 @@
                        :specialized))
 
                   :tail-intrinsic
-                  (let [[_ _ _ _ operation target args] op b (gensym "result") c (gensym "recipe")
+                  (let [[_ _ _ domain operation target args] op b (gensym "result") c (gensym "recipe")
                         dependency (get-in region [:dependencies target]) params (:params dependency)
                         _ (spend! (+ 384 (* 64 (count args)) (* 32 (count params))))
                         result {:bits b :carrier c}
@@ -159,12 +205,16 @@
                         target-tag (gensym "target") body (gensym "body")
                         target-locals (conj (mapv (fn [id value] `[~id ~value]) params values)
                                             `[(second ~body) ~(scalar result)])]
-                    `(let [~b ~(intrinsic operation args env) ~c (long ~(if (= operation :eq) 0 1))
+                    (let [success `(let [~b ~(intrinsic domain operation args env) ~c (long ~(if (or (= domain :nat) (= operation :eq)) 0 1))
                            ~target-tag '~target ~body (get-in (:dependencies ~context) [~target-tag :body])]
                        (prototype.mutable/materialize-tail-return!
                         ~machine ~target-tag ~values (nth ~body 3) ~target-locals ~(scalar result)
                         (unchecked-add ~completed (long ~(+ cost 3))) (long (max ~peak (unchecked-add ~depth (long ~local-peak)))))
-                       :specialized))
+                       :specialized)]
+                      (if (and (= domain :nat) (= operation :add))
+                        (let [[a b] (map #(-> (operand env %) :bits) args)]
+                          `(if (<= ~a (unchecked-subtract Long/MAX_VALUE ~b)) ~success ~(entry-exit name f entry-env true)))
+                        success)))
                   (throw (ex-info "Unsupported represented operation" {:operation (first op)})))))
             (arm [i name]
               (spend! 128)

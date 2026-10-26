@@ -1,8 +1,9 @@
 # Guarded Nat represented regions and promotion exits
 
-Status: registry/data selection, Pattern forms and versioned proof units are
-implemented, with explicit runtime decline before factory creation. Guards,
-compiled Nat execution and promotion exits below remain the next increment.
+Status: guarded nonnegative Long Nat execution and checked promotion exits are
+implemented in the common represented emitter. Unsigned schema1 remains accepted;
+Nat schema2 uses the same materializer and eager/lazy drivers. General borrowed
+mutual source calls remain unsupported when the producer retains post-call RC.
 Actual pinned native fixtures are available as independent producer/value evidence. Build
 on the existing `prepare-region -> Pattern representation -> primitive trampoline
 -> existing eager/lazy drivers` path. Do not add an interpreter or MPZ allocator.

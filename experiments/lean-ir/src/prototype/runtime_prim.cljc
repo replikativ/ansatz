@@ -500,13 +500,8 @@
      (defn- scalar-route-absent? [table symbol]
        (and (or (ordinary-scalar-table? table) (= clojure.lang.PersistentHashSet (class table)))
             (not (contains? table symbol))))
-     (defn builtin-scalar-arithmetic? [symbol operation]
-       (let [[e n x a neg u p f] scalar-arithmetic-roots]
-         (and (contains? #{"lean_uint64_add" "lean_uint64_sub" "lean_usize_add" "lean_usize_sub" "lean_uint64_dec_eq" "lean_usize_dec_eq"} symbol)
-              (identical? e evaluate) (identical? n numeric) (identical? x exact!)
-              (identical? a add) (identical? neg negate) (identical? u unsigned)
-              (identical? p pow2) (identical? f fail)
-              (scalar/builtin-scalar-integer?)
+     (defn- builtin-numeric-route? [symbol operation]
+       (and
               (ordinary-scalar-table? supported-symbols)
               (ordinary-scalar-table? (get supported-symbols symbol))
               (= {:arity 2} (get supported-symbols symbol))
@@ -539,4 +534,27 @@
               (scalar-route-absent? expr-mvars/internal-symbols symbol)
               (scalar-route-absent? io/supported-symbols symbol)
               (scalar-route-absent? sync/supported-symbols symbol)
-              (scalar-route-absent? heartbeat/supported-symbols symbol))))))
+              (scalar-route-absent? heartbeat/supported-symbols symbol) ))
+     (defn builtin-scalar-arithmetic? [symbol operation]
+       (let [[e n x a neg u p f] scalar-arithmetic-roots]
+         (and (contains? #{"lean_uint64_add" "lean_uint64_sub" "lean_usize_add" "lean_usize_sub" "lean_uint64_dec_eq" "lean_usize_dec_eq"} symbol)
+              (identical? e evaluate) (identical? n numeric) (identical? x exact!)
+              (identical? a add) (identical? neg negate) (identical? u unsigned)
+              (identical? p pow2) (identical? f fail)
+              (scalar/builtin-scalar-integer?)
+              (builtin-numeric-route? symbol operation))))))
+
+#?(:clj
+   (do
+     (def ^:private nat-arithmetic-generation (Object.))
+     (def ^:private nat-arithmetic-roots [evaluate numeric nat! exact! add negate fail])
+     (defn nat-arithmetic-token [] nat-arithmetic-generation)
+     (defn builtin-nat-arithmetic?
+       "Operation is the exact runtime operation from the sealed ABI registry."
+       [symbol operation]
+       (let [[e n nat exact a neg f] nat-arithmetic-roots]
+         (and (contains? #{"lean_nat_add" "lean_nat_sub" "lean_nat_dec_eq"} symbol)
+              (identical? e evaluate) (identical? n numeric) (identical? nat nat!)
+              (identical? exact exact!) (identical? a add) (identical? neg negate)
+              (identical? f fail) (native/builtin-native-number?)
+              (builtin-numeric-route? symbol operation))))))

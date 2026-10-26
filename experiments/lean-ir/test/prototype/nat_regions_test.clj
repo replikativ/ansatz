@@ -116,19 +116,15 @@
       (is (thrown? clojure.lang.ExceptionInfo (prototype.typed-tail-test/small-bundle rc-row))))
     (is (zero? @calls))))
 
-(deftest data-only-nat-units-decline-before-factory-while-unsigned-execution-remains
+(deftest nat-context-preparation-is-lazy-and-unsigned-execution-remains
   (let [input (nat-program) roots (fast-roots input)
         config {:typed-functions (:typed input) :roots roots :descriptors (:descriptors input)
                 :profile scalar-fixture/profile :budgets prototype.typed-tail-test/budgets}
         called (atom 0)]
-    (with-redefs [prototype.typed-tail-emit/emit-factory (fn [& _] (swap! called inc) (throw (ex-info "Factory should not run" {})))]
-      (is (= {:status :fallback :reason :unsupported-represented-schema}
-             (prototype.typed-tail-execution/prepare-context (:runtime input) config {})))
-      (let [name (prototype.typed-tail-test/target (:typed input) "sum")
-            initial (prototype.machine/start (prototype.machine/world (:runtime input)) name [10 0])
-            program (prototype.lazy-runtime/open-program (:runtime input) {:typed-tail config})
-            actual (prototype.mutable/freeze (prototype.lazy-runtime/run! program (prototype.mutable/thaw initial) 1000))]
-        (is (= (prototype.machine/run initial) actual))))
+    (with-redefs [prototype.typed-tail-emit/emit-factory (fn [& _] (swap! called inc) (throw (ex-info "Factory should not run during preparation" {})))]
+      (let [ctx (prototype.typed-tail-execution/prepare-context (:runtime input) config {})]
+        (is (= "lean-represented-tail/2" (get-in ctx [:region :schema])))
+        (is (not (realized? (:factory ctx))))))
     (is (zero? @called)))
   (let [input (prototype.typed-tail-test/bundle "scalar-wrapper-programs.jsonl")]
     (is (= "lean-represented-tail/1" (get-in (prepare-program input (vec (keys (:typed input)))) [:region :schema])))

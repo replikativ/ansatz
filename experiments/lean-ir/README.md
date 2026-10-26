@@ -44,7 +44,10 @@ Data-only [Nat preparation](measurements/nat-preparation.json) additionally reta
 object-family numeric literals and exact RC annotations, with directional boxed
 representation compatibility. It does not compile Nat or alter MPZ ownership. Optional [guarded Nat representation data](measurements/nat-represented-data.json)
 adds three exact Nat extern descriptors and explicit scalar/refinement/RC facts;
-the existing runtime declines these new units until the Nat emitter is implemented.
+[guarded Nat execution](measurements/nat-tail-execution.json) runs exact nonnegative
+Long lanes in the common emitter, with checked-add promotion through the existing
+mutable fallback. BigInt/BigInteger/Ref inputs and actual non-tail mutual Nat
+calls still use existing execution. MPZ allocation policy is unchanged.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.

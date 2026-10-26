@@ -66,4 +66,13 @@
      (def ^:private scalar-carrier-generation (Object.))
      (def ^:private scalar-carrier-root native-scalar?)
      (defn scalar-carrier-token [] scalar-carrier-generation)
-     (defn builtin-scalar-carrier? [] (identical? scalar-carrier-root native-scalar?))))
+     (defn builtin-scalar-carrier? [] (identical? scalar-carrier-root native-scalar?))
+     ;; Owned numeric definitions, not foreign roots captured by a compiler.
+     (def ^:private native-number-generation (Object.))
+     (def ^:private native-number-roots [number-value nat-value payload])
+     (defn native-number-token [] native-number-generation)
+     (defn builtin-native-number? []
+       (let [[number nat payload-root] native-number-roots]
+         (and (builtin-scalar-carrier?)
+              (identical? number number-value) (identical? nat nat-value)
+              (identical? payload-root payload))))))
