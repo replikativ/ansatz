@@ -222,7 +222,11 @@
                             (let [origin [name pc] op (:op terminator)
                                   [form successors cost trace carrier]
                                   (case op
-                                    :next (let [{:keys [id type value]} (first ops)]
+                                    :next (let [{:keys [id type value] operation :op} (first ops)
+                                                _ (when-not (= :literal operation)
+                                                    (fallback! :unsupported-rc {:op operation :name name}))
+                                                _ (when-not (contains? scalar-types type)
+                                                    (fallback! :non-scalar-local {:type type :name name}))]
                                             [[:literal origin id type value] [(:block terminator)] 1
                                              [{:space :canonical :function name :pc pc :event :literal}]
                                              {:kind :literal :value value :class (.getName (class value))}])

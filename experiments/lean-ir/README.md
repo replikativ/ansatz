@@ -26,6 +26,10 @@ reopens. Its [focused boundary tests](measurements/session-compiler-options.json
 cover selected scalar execution, callbacks and retained caches; genuine hosted
 frontend and Java compiler-tier acceptance remain separate.
 
+Data-only [Nat preparation](measurements/nat-preparation.json) additionally retains
+object-family numeric literals and exact RC annotations, with directional boxed
+representation compatibility. It does not compile Nat or alter MPZ ownership.
+
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.
 Construction and preparation remain separate from kernel admission and whole

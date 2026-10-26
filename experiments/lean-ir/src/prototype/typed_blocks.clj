@@ -6,6 +6,7 @@
             [prototype.typed-ir :as typed]))
 
 (def ^:private integer-types #{"uint8" "uint16" "uint32" "uint64" "usize"})
+(def ^:private object-value-types #{"object" "tagged" "tobject"})
 (def ^:private profile-fields
   #{:schema :producer-commit :phase :word-bits :layout :abi-generation :target})
 
@@ -77,10 +78,12 @@
 (defn- instruction! [node]
   (require! (and (= clojure.lang.PersistentVector (class node)) (seq node))
             "Invalid canonical instruction container" {})
-  (when-not (contains? #{:let :call :tail :return :join :jump :case} (first node))
+  (when-not (contains? #{:let :call :tail :return :join :jump :case :inc :dec} (first node))
     (fallback! :unsupported-instruction {:op (first node)}))
   (require! (and (= clojure.lang.PersistentVector (class node))
-                 (= (get {:let 4 :call 5 :tail 3 :return 2 :join 5 :jump 3 :case 3} (first node)) (count node)))
+                 (if (contains? #{:inc :dec} (first node))
+                   (or (= 4 (count node)) (and (= 5 (count node)) (true? (nth node 4))))
+                   (= (get {:let 4 :call 5 :tail 3 :return 2 :join 5 :jump 3 :case 3} (first node)) (count node))))
             "Malformed canonical instruction" {:op (first node)})
   (when (= :case (first node))
     (let [alts (nth node 2)]
@@ -95,7 +98,7 @@
 
 (defn- children [[op _ _ _ _ :as node]]
   (case op
-    :let [(nth node 3)] :call [(nth node 4)]
+    (:let :inc :dec) [(nth node 3)] :call [(nth node 4)]
     :join [(nth node 3) (nth node 4)]
     :case (mapv second (nth node 2))
     (:tail :return :jump) []
@@ -104,13 +107,14 @@
 (defn- skeleton [[op a b c :as node]]
   (case op
     :let [:let a b nil] :call [:call a b c nil]
+    (:inc :dec) (assoc node 3 nil)
     :join [:join a b nil nil]
     :case [:case a (mapv (fn [[tag _]] [tag nil]) b)]
     node))
 
 (defn- restore [form children]
   (case (first form)
-    :let (assoc form 3 (first children))
+    (:let :inc :dec) (assoc form 3 (first children))
     :call (assoc form 4 (first children))
     :join (assoc form 3 (first children) 4 (second children))
     :case (assoc form 2 (mapv (fn [[tag _] body] [tag body]) (nth form 2) children))
@@ -146,7 +150,8 @@
 (defn- compatible! [actual expected]
   ;; Lean's checker intentionally leaves some representation compatibility to
   ;; compiler invariants. Stronger unavailable proofs disable optimization.
-  (when-not (= actual expected)
+  (when-not (or (= actual expected)
+                (and (= expected "tobject") (contains? #{"tagged" "object"} actual)))
     (fallback! :type-compatibility {:actual actual :expected expected})))
 
 (defn- args! [env args params]
@@ -208,14 +213,28 @@
                 :let (do (align! :vdecl 1)
                          (require! (= a (:id fact)) "Typed binder mismatch" {:pc pc})
                          (when-not (and (vector? b) (= 2 (count b)) (= :literal (first b)) (integer? (second b))
-                                        (not (neg? (second b))) (contains? integer-types (:type fact)))
+                                        (not (neg? (second b)))
+                                        (or (contains? integer-types (:type fact))
+                                            (contains? object-value-types (:type fact))))
                            (fallback! :unsupported-literal {:type (:type fact)}))
-                         (let [width (get {"uint8" 8 "uint16" 16 "uint32" 32 "uint64" 64 "usize" 64} (:type fact))]
+                         (when-let [width (get {"uint8" 8 "uint16" 16 "uint32" 32 "uint64" 64 "usize" 64} (:type fact))]
                            (when (>= (bigint (second b)) (bigint (.shiftLeft java.math.BigInteger/ONE width)))
                              (fallback! :literal-range {:type (:type fact)})))
                          (mark! a)
                          (assoc base :ops [{:pc pc :op :literal :id a :type (:type fact) :value (second b)}]
                                 :terminator {:op :next :args {:kind :identity-registers} :block (edge! 0 (assoc env a (:type fact)) joins)}))
+                (:inc :dec) (do (align! op 1)
+                                (require! (and (= a [:var (:id fact)])
+                                               (integer? b) (<= 0 b)
+                                               (= b (:count fact))
+                                               (boolean? (:check fact)) (boolean? (:persistent fact))
+                                               (= (true? d) (:persistent fact)))
+                                          "Typed RC companion/body mismatch" {:pc pc})
+                                (let [type (operand-type! env a)]
+                                  (assoc base :ops [{:pc pc :op op :id (:id fact) :type type
+                                                    :count b :check (:check fact) :persistent (:persistent fact)}]
+                                         :terminator {:op :next :args {:kind :identity-registers}
+                                                      :block (edge! 0 env joins)})))
                 :call (do (align! :vdecl 1)
                           (require! (= a (:id fact)) "Typed call binder mismatch" {:pc pc})
                           (direct! b c (:type fact)) (mark! a)
