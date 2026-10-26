@@ -2,8 +2,8 @@
   "schema": "nat-preparation-validation/1",
   "scope": "Data-only M2 object-family numeric literals, RC facts and conservative directional representation compatibility; no compiled Nat execution",
   "source-sha256": {
-    "experiments/lean-ir/README.md": "bc7aef06d8f0b4cd2b7ed48200fc044df9700d71394c9e6f62eb1a9468841816",
-    "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": "607ad25ef9b7c0630edd22ab7a4005590495a4784a38c1bcb0dd1bb4fc324af4",
+    "experiments/lean-ir/README.md": "a207ede0d652e3040a73a82c3841d8ab9f6f297bb6fd5594ab499333495d2897",
+    "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": "b83aae40f433153931b67abf47cf3ece88781bfe5e5bb0e199895449d1fdbc1e",
     "experiments/lean-ir/research/NAT_PREPARATION_PLAN.md": "7fedee53e41123ec548fc0eb0b60725d036e7f9fc29307e83923156b7dbe8a09",
     "experiments/lean-ir/scripts/test-cold-check-progress.clj": "5aed94822a4a701e5cd3e4f81819597146bfe46942966f365959870f82bea9a5",
     "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
@@ -149,5 +149,14 @@
       "actual-full60-lane": "CI rerun pending; no new full-lane pass claim"
     },
     "cohort": "Resource-only proof ran after parent frame focused request in same small NMT-enabled resident; source/fixtures unchanged except this locator."
+  },
+  "rebase-integration": {
+    "base": "b4a4f5b6e9ff9ecb3cf3e0ef3c18a5c04a8d9e38",
+    "prior-green-head": "60e18d08ee6479b662a8ce2ffd0c9f82fabb10de",
+    "changed-own-inputs": [
+      "experiments/lean-ir/README.md",
+      "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md"
+    ],
+    "resolution": "Preserve both merged session/compiler documentation and Nat preparation documentation; all runtime and test source pins unchanged. No new runtime acceptance or semantic rerun claimed for documentation reconciliation."
   }
 }
