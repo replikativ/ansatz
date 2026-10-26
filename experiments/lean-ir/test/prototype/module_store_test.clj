@@ -1,11 +1,49 @@
 (ns prototype.module-store-test
   (:require [clojure.test :refer [deftest is]]
+            [clojure.data.json :as json]
             [clojure.java.io :as io]
             [prototype.machine :as m]
             [prototype.mutable :as u]
             [prototype.module-data :as data]
             [prototype.module-store :as store]
-            [prototype.native-heap :as heap]))
+            [prototype.native-heap :as heap])
+  (:import [java.nio ByteBuffer]
+           [java.nio.charset StandardCharsets CodingErrorAction]))
+
+(defn- previous-parse [bytes]
+  (let [decoder (doto (.newDecoder StandardCharsets/UTF_8)
+                  (.onMalformedInput CodingErrorAction/REPORT)
+                  (.onUnmappableCharacter CodingErrorAction/REPORT))]
+    (json/read-str (str (.decode decoder (ByteBuffer/wrap bytes))) :key-fn keyword)))
+(defn- parse-outcome [parse bytes]
+  (try (let [value (parse bytes)] [:ok (some-> value class) value])
+       (catch Throwable error [:error (class error) (.getMessage error) (ex-data error)])))
+
+(deftest ascii-row-decoding-preserves-json-and-strict-utf8-results
+  (let [texts ["" "{}" "[]" "null" "false" "true" "0" "-0" "-123.5" "1e12" "-1.25e-9"
+               "9223372036854775808" "{\"nested\":[1,true,null,{\"value\":\"\\u03bb\"}]}"
+               "\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"" "\"\\ud83d\\ude00\""
+               "{\"éλ😀\":\"العربية 日本語\"}" "\"𝄞\"" "\"λ\"" "\"é\""
+               "{" "[1,]" "{\"a\":}" "\"unterminated" "\u0000" "\"a\u0001b\""
+               (json/write-str (apply str (map char (range 128))))]
+        malformed [[-1] [-64 -128] [-63 -65] [-62] [-30 -126] [-16 -97 -104]
+                   [-128] [-65] [-32 -128 -128] [-16 -128 -128 -128]
+                   [-19 -96 -128] [-19 -65 -65] [-12 -112 -128 -128] [-11 -128 -128 -128]
+                   [-2] [-1] [-61 40] [-30 40 -95]]
+        inputs (concat (map #(.getBytes ^String % StandardCharsets/UTF_8) texts)
+                       (for [n (range 256)] (byte-array [(unchecked-byte n)]))
+                       (for [n (range 256)] (byte-array [34 (unchecked-byte n) 34]))
+                       (map #(byte-array (map unchecked-byte %)) malformed)
+                       (map #(byte-array (map unchecked-byte (concat [34] % [34]))) malformed)
+                       [(byte-array (map unchecked-byte [239 187 191 123 125]))])]
+    (doseq [[i bytes] (map-indexed vector inputs)]
+      (is (= (parse-outcome previous-parse bytes) (parse-outcome #'store/parse bytes))
+          (str "UTF8/JSON corpus input " i)))))
+
+(deftest row-decoding-preserves-wrong-carrier-errors
+  (doseq [value [nil "{}" [123 125] (object-array [123 125]) (long-array [123 125])
+                 (ByteBuffer/wrap (byte-array [123 125])) (Object.)]]
+    (is (= (parse-outcome previous-parse value) (parse-outcome #'store/parse value)))))
 
 (deftest lazy-and-eager-native-canary-match-without-hydrating-world
   (let [world (m/world {}) eager (data/load-file world "fixtures/module-data-canary.jsonl")
