@@ -702,7 +702,10 @@ continuation. The handler invokes selected `sum64` through its scoped existing
 interpreter/mutable/JVM state parity. Paired artifact/execution events must show
 `[:typed-tail :specialized]` in the frame-cleared helper. Success and post-effect
 failure each invoke the host once; failed invocations retain exact checkpoints
-and sessions without retry or external-effect rollback.
+and sessions without retry or external-effect rollback. Successful helper returns
+compare the complete restored reference World, including steps. A throwing generic
+helper preserves its last published raw checkpoint; its unreported consumed steps
+are not reconstructed or claimed by this fixture.
 
 A String callback variant delegates to the unchanged `typed-extern` adapter,
 passing its original context and aliased inputs after the same selected helper.
@@ -713,6 +716,9 @@ String input Refs retain separately counted owners. No allocated result is inven
 Host exceptions preserve typed owner stages and the raw checkpoint/session.
 The frontend, Java/boxed calls and EIO protocols require their own integration
 evidence; these hand-built callback callers do not imply their acceptance.
+The [validation record](../measurements/compiled-boundaries.json) records three
+passing tests, the corrected String-carrier fixture mistake and the exact
+inherited-runtime/source evidence scope.
 
 ## M6 REPL versions and ownership
 

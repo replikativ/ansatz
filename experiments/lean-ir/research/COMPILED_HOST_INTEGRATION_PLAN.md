@@ -52,3 +52,8 @@ JVM evidence pairs the actual typed artifact with its executed specialized hook.
 The host kernel anchor and hand-built callback callers are explicit fixtures, not
 a hosted Lean Environment or new source admission. No Java, frontend or EIO
 acceptance is inferred. See the implementation spec's bounded composition section.
+
+The [bounded validation record](../measurements/compiled-boundaries.json) records
+three passing tests (1,209 assertions) on the inherited frame+Nat resident runtime.
+This is partial composed boundary evidence, not completion of M4/M5 or a freshly
+authenticated hosted source/class cohort.

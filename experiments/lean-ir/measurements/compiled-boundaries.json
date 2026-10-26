@@ -1,0 +1,116 @@
+{
+  "schema": "compiled-boundary-validation/1",
+  "status": "passed three focused and 38 composed checker/scalar/callback tests; broader M4/M5 and authenticated hosted acceptance remain separate",
+  "tested_commit": "c8a2578a7721cf4d17577ac705a95776695b0bee",
+  "runtime_base": "7ddf0cb32bb67bb1832c6e3a22965aba3e4a9da6",
+  "source_sha256": {
+    "experiments/lean-ir/src/prototype/machine.cljc": "bfa6d02190a580b816edbdd4ba4ab8b7ccba5bf51856c9d605291bcd8423f5cc",
+    "experiments/lean-ir/src/prototype/mutable.clj": "0d8469f9c00a6f265c650562678f605f224df109e3129a294eac2f313ef0ba2c",
+    "experiments/lean-ir/src/prototype/kernel_bridge.clj": "53e9488878f46ac5cf967b47b964589d9dfd998776f79c320c3c4068b603801f",
+    "experiments/lean-ir/src/prototype/kernel_declaration.clj": "67c35bd111436b3b77345292c80c0f641c474c554c63bf220bea08ed6c5d146e",
+    "experiments/lean-ir/src/prototype/raw_interop.clj": "4d1affb4467995bccaf0ede550811fae2ff233479ffc646ffb3ac7eb2874f8c6",
+    "experiments/lean-ir/src/prototype/typed_extern.clj": "6b75bbae43ff87dfdd6a5a5e2a19635a1e96405e759cd82cb2669f57b9c733d1",
+    "experiments/lean-ir/src/prototype/interop_codec.clj": "6edc65b1970589188ec7bf8f2c51d360496597e8fca8ba07dbbcf84fb780021f",
+    "experiments/lean-ir/src/prototype/lazy_runtime.clj": "82c2b15efe5237b5776727fa0033ab44cb3b6cf2dcb13c67c62bdbd9383519b8",
+    "experiments/lean-ir/src/prototype/block_compile.clj": "8adebf6205bb0101fb6b7e42d79072e5f73898a7c98eb53bf773132863a3e376",
+    "experiments/lean-ir/src/prototype/session_compiler_options.clj": "3a7e7b3d5d4bce74f72ecfec0ce5964fa23aae3cf8e0acada4036769e69a22de",
+    "experiments/lean-ir/src/prototype/typed_ir.clj": "4351688ed417664e1efb4da4c13979cdf774bedc5f87d023f0ceb6252ee3c0f0",
+    "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
+    "experiments/lean-ir/src/prototype/typed_tail.clj": "6285f44e7f8175846a8ca5a4aa7a9f78c5dfbb9e0685c32d8f8d059e6e2b5975",
+    "experiments/lean-ir/src/prototype/typed_tail_emit.clj": "e8bfdb1cbbc38e9cc64674261bbcd8cb7c9cb523ac950a16ba3c00b2f8ddb443",
+    "experiments/lean-ir/src/prototype/typed_tail_execution.clj": "a2c0eb1e1c05442de95b19db6fe16c9336c14895dabf73e00e04e02eb7cb2721",
+    "experiments/lean-ir/test/prototype/compiled_boundary_test.clj": "db4e61ed064b9ae1968ae0c95be063a5cf18410d3256497f4d59c70ad389a3a4",
+    "experiments/lean-ir/test/prototype/kernel_bridge_test.clj": "455385e0ba27248c997896bd59d7ab4193675607bc21df14367e2831120d0e2e",
+    "experiments/lean-ir/test/prototype/typed_extern_test.clj": "aecb65f5bda691494b9240037f197dad6ff350d4e0538aad948fcc6685ceea31",
+    "experiments/lean-ir/test/prototype/typed_tail_test.clj": "2d86b7ba932e5a12b34367ede4202a4d3a684c372d82ccfdba570c0c255273f8",
+    "experiments/lean-ir/test/prototype/typed_tail_execution_test.clj": "1fb2ef0b099011f845fad8a845668ff2583557b023260543511e73883ed38b33",
+    "experiments/lean-ir/fixtures/scalar-wrapper-programs.jsonl": "7bc89db1dbc5107a6f675adcfca7979adbcba1ddfb3885faa9b07b7500e1f26b",
+    "experiments/lean-ir/scripts/test-typed-tail.clj": "d6e2ec2d4f0ed793c8303d03dbccecec97dfd4384384d46b058efe131d86fe6d",
+    "experiments/lean-ir/src/prototype/runtime_abi.clj": "45df0a1d84a964d82982906046f7ec970da0d538609139b7a9c6b05570c62e3a",
+    "experiments/lean-ir/src/prototype/scalar_wrapper.clj": "14e5b7e62180aa213d6fbf8b728b2b2c12e8201da9a3efbb494e649bdc43988b",
+    "experiments/lean-ir/src/prototype/runtime_prim.cljc": "6cae1c3dd1329a4de23156d6e0bda97dece43fee7979d2f3f9706279c77a631f",
+    "experiments/lean-ir/src/prototype/native_scalar.cljc": "598aa09a795a16fcd59f9ae5de193b978c34bc16040bdd33db601fb3524bfcbd",
+    "experiments/lean-ir/src/prototype/scalar.cljc": "cc6d1634ea6fef64da740dfe6358452170fe68c8c10f08d60688fbf1f52f68a5"
+  },
+  "checks": {
+    "initial_fixture_prepass": {
+      "tests": 3,
+      "passed_assertions": 863,
+      "failures": 6,
+      "errors": 36,
+      "diagnosis": "Fixture incorrectly treated codec String encoding as an allocated guest Ref. Real codec returns immediate JVM String; invalid m/node assumptions caused Dangling guest reference errors. No runtime bug or runtime fix inferred.",
+      "source_commit": "fb1ad44",
+      "test_source_sha256": "0900efe5e7ed4450c5512dd7823d841bc6ef5d2b35974501880d717ab49b5376"
+    },
+    "reference_microprobe": {
+      "cases": [
+        "unaliased owned input",
+        "owned/owned alias",
+        "owned/borrowed alias"
+      ],
+      "initial_genuine_StringRef_rc": 3,
+      "after_helper_rc": [
+        3,
+        3,
+        3
+      ],
+      "after_adapter_rc": [
+        2,
+        1,
+        2
+      ],
+      "result_carrier": "java.lang.String, nonRef",
+      "host_effects_each": 1,
+      "request_sha256": "43c64dfe7479f098d96c03cbe24dfc1a71faa2871702a343f6fc7a79bc2c49cb"
+    },
+    "final_focused": {
+      "tests": 3,
+      "assertions": 1209,
+      "failures": 0,
+      "errors": 0,
+      "resident_port": 71903,
+      "heap_MiB": 192,
+      "resident_RSS_guard_MiB": 768,
+      "request_sha256": "df25ae236f12c053cafea72c88e51035ede477d2f2fdfd4a7863711edaabb83f",
+      "loading": "Only the new test file reloaded. Existing current frame+Nat runtime and pinned Pattern loader remained unchanged. No new JVM or Source/Init restore."
+    },
+    "composed_resident": {
+      "tests": 38,
+      "assertions": 19141,
+      "failures": 0,
+      "errors": 0,
+      "resident_port": 71903,
+      "heap_MiB": 192,
+      "resident_RSS_guard_MiB": 768,
+      "namespaces": [
+        "prototype.typed-tail-test",
+        "prototype.typed-tail-execution-test",
+        "prototype.session-compiler-options-test",
+        "prototype.tail-caller-frames-test",
+        "prototype.compiled-boundary-test"
+      ],
+      "request_sha256": "d822df4dfcdba2c3fe359b466b7165ae1cb859e0dcaa4b321071f32cd6436b23",
+      "loading": "Test-only boundary reload; current preparation/execution/session/caller-frame namespaces already loaded. No runtime/Pattern reload, new JVM or Source restore."
+    }
+  },
+  "evidence": {
+    "kernel": "Actual guest constructor projection, strict bridge/admit-definition, Nat inductive checker and Java Env lookup; declaration graph and returned Env identity preserved through independent emitted scalar execution, all fuel prefixes and saved siblings.",
+    "independent_programs": "BoundaryAnswer : Nat has value42; sum64 is independent pinned emitted IR. No compiler-correctness or source-generation link between them is inferred.",
+    "anchor": "Host-supplied snapshot anchor to the actual checker result, not an authenticated guest Lean Environment/protected association or source receipt.",
+    "route": "Each JVM callback invocation pairs actual artifact kind :typed-tail with executed :specialized and frame-cleared helper entry; no :program substitution.",
+    "interop": "Public raw sessions, scoped helper invocation, ordinary outer continuation, exact unsigned ABI, complete World/carrier parity and exact successful helper step charges. Failed generic helpers retain last published checkpoints/sessions, without claims about unreported consumed steps or implicit retry.",
+    "typed_values": "Unchanged typed-extern handler with genuine String Ref aliases, externally retained owners, encode-before-input-release, immediate immutable String result, dead local Ref preservation, exact terminal owner/failure packets.",
+    "cache": "Later binding variations record actual shared-cache hits and correct distinct success/failure behavior."
+  },
+  "not_run": [
+    "Cold CI tool/optional Pattern lane launch after adding the three tests (same 38 vars passed in the resident REPL)",
+    "Fresh optional jar/isolated consumers for this source cohort",
+    "Authenticated whole source/class cohort or genuine hosted frontend acceptance",
+    "Guest Lean Environment publication/protected association integration",
+    "Java/boxed facade or EIO composed acceptance",
+    "Native Source/Init/mathlib restore or backend performance measurement"
+  ],
+  "scope": "Test and documentation additions only; no runtime API/authority/ownership/scheduler/loader changes. Inherited resident Java classes/runtime sources are not a new loaded-code attestation.",
+  "merged_equivalent_runtime_base": "e4c4f80b2f9f29deaebd48f642c16429f9354c3a",
+  "runtime_input_diff_to_merged_base": []
+}
