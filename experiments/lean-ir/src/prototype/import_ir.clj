@@ -2,6 +2,7 @@
   (:require [clojure.data.json :as json]
             [clojure.string :as str]
             [prototype.scalar :as scalar]
+            [prototype.typed-ir :as typed]
             [prototype.walk :as walk]
             [prototype.machine :as m]))
 
@@ -19,8 +20,7 @@
     (m/fail "Invalid constructor layout" {:layout i})))
 
 (defn type! [ty]
-  (when-not (contains? #{"erased" "object" "tobject" "tagged" "void" "uint8" "uint16" "uint32" "uint64" "usize" "float" "float32"} ty)
-    (m/fail "Unsupported imported runtime type" {:type ty})))
+  (typed/type! ty))
 
 (defn expression
   ([e] (expression e nil))
@@ -145,6 +145,14 @@
                            initialized? (assoc :runtime-initializer (get-in row [:runtime :initializer]) :result-type (:type f))
                            (contains? #{"closed" "ground" "value"} role) (assoc :global-role role))
                 {:runtime-param-types (mapv :ty (:xs f))})])))
+
+(defn lower-typed-declaration
+  "Opt-in typed facts for one selected producer declaration. Ordinary lowering
+   and bundle installation retain their original function shape and metadata."
+  [row]
+  (let [facts (typed/companion (get-in row [:ir :fdecl]))
+        [name function] (lower-declaration row)]
+    [name (assoc function :typed-ir facts)]))
 
 (defn- check-function-profile! [manifests row function]
   ;; The raw lowering function is also used by static audits. Executable bundle
