@@ -359,11 +359,13 @@
 (def compiled-executions (atom 0))
 (def fallback-executions (atom 0))
 (require '[prototype.block-compile :as block])
-(def original-compile-runtime-block block/compile-runtime-block)
+(def original-compile-runtime-block-prepared block/compile-runtime-block-prepared)
 (defn observe-compile [functions body options]
-  (let [result (original-compile-runtime-block functions body options) execute (:execute! result)
+  (let [result (original-compile-runtime-block-prepared functions body options)
         counter (if (some? (:form result)) compiled-executions fallback-executions)]
-    (assoc result :execute! (fn [machine] (swap! counter inc) (execute machine)))))
+    (cond-> (assoc result :execute! (fn [machine] (swap! counter inc) ((:execute! result) machine)))
+      (:execute-budget! result)
+      (assoc :execute-budget! (fn [machine fuel] (swap! counter inc) ((:execute-budget! result) machine fuel))))))
 (defn exercise-backend! [backend dataset]
   (let [f (fixture backend dataset) source (:source (:opened f)) world (:world f)
         snapshot (source-snapshot f world) first-input (get (:by-name f) (nm (:prefix dataset) (if (= :ordinary (:kind dataset)) "Colour" "Metadata")))
@@ -430,9 +432,10 @@
     (let [start (System/nanoTime)]
       (when (= :jvm backend) (reset! compiled-executions 0) (reset! fallback-executions 0))
       (if (= :jvm backend)
-        ;; Test observability only: same actual compiler, unchanged generated
-        ;; IR/form and exact executor; wrapper increments a bounded host count.
-        (with-redefs [block/compile-runtime-block observe-compile] (exercise-backend! backend dataset))
+        ;; Observe the actual normalized-program compiler boundary. Public raw
+        ;; compilation revalidates options and is not called by lazy dispatch.
+        ;; Same compiler/form/executors; only a bounded host count is added.
+        (with-redefs [block/compile-runtime-block-prepared observe-compile] (exercise-backend! backend dataset))
         (exercise-backend! backend dataset))
       (swap! observations conj {:kind :backend-complete :backend backend :dataset (:kind dataset)
                                 :elapsed-ms (/ (- (System/nanoTime) start) 1e6)}))))

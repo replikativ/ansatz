@@ -26,7 +26,8 @@
     "experiments/lean-ir/fixtures/scalar-wrapper-program-values.json": "4fbc9c327bf1dca764db46796f2ad0e71f959064d5f7e0149521b80b47641d5a",
     "experiments/lean-ir/fixtures/typed-tail-programs.jsonl": "0b84c7f7c63f5e9248b814532057f3bfb646412c1cebd72d9ce0f98c05b6819e",
     "experiments/lean-ir/fixtures/typed-tail-program-values.json": "a6bd2e62050bd4d2a497cee0ad55f0eb06775aaa00444f06b76a6686beeadaf2",
-    "experiments/lean-ir/fixtures/scalar-wrapper-compare-native.jsonl": "f179914d80ac7e3d442eda0bedfffb76db15f0d666eb03fa3345d89b8044b1c7"
+    "experiments/lean-ir/fixtures/scalar-wrapper-compare-native.jsonl": "f179914d80ac7e3d442eda0bedfffb76db15f0d666eb03fa3345d89b8044b1c7",
+    "experiments/lean-ir/test/prototype/kernel_cases_on_raw_test.clj": "0209d121f75a88b037234ff8108843b38653375c2a4b5f33a5feaa65ce45ed62"
   },
   "pattern": {
     "commit": "6d0242ee589d88b336f7dd6f820efa993d2b6f3b",
@@ -571,5 +572,59 @@
     "Initial unrelated-context fixture failed two assertions because arbitrary extra keys are discarded by baseline mutable thaw/freeze; replaced with supported :environment, no runtime behavior changed.",
     "A test-only nested reader shorthand and expected emission-reason label were corrected before final successful load/runs.",
     "Source/fixture native oracles are historical pinned evidence reused unchanged; no native/JVM Init export performed for this increment."
-  ]
+  ],
+  "ci-observer-followup": {
+    "trigger": {
+      "job": 2521,
+      "url": "https://circleci.com/gh/replikativ/ansatz/2521",
+      "failed-lane": "portable RAW casesOn",
+      "tests": 48,
+      "assertions": 1677,
+      "failures": 44,
+      "errors": 0,
+      "failure-kind": "compiled-route observer still wrapped public raw compiler instead of actual prepared-program compiler"
+    },
+    "fix": "Test-only observer follows compile-runtime-block-prepared and delegates unchanged execute!/execute-budget! hooks. All route/native/state assertions retained; no runtime changes.",
+    "focused-reproduction": {
+      "public-raw-compile-observations": 0,
+      "prepared-compile-observations": 1,
+      "runtime": "existing 192MiB JVM before guard termination"
+    },
+    "old-repl-termination": {
+      "reason": "RSS guard exceeded during attempted RAW fixture validation after accumulated compiler work",
+      "rss-limit-bytes": 469762048,
+      "peak-rss-bytes": 475906048,
+      "minimum-host-available-bytes": 1906356224,
+      "raw-validation-completed": false,
+      "prior-focused-regression-and-benchmark-evidence-complete": true
+    },
+    "isolated-validation": {
+      "tests": 48,
+      "assertions": 1677,
+      "failures": 0,
+      "errors": 0,
+      "marker": "RAW_CASES_ON_PORTABLE_FOURTEEN_PASS",
+      "profile": {
+        "argv": [
+          "clojure",
+          "-J-Xmx384m",
+          "-J-Xss8m",
+          "-M",
+          "scripts/test-cases-on.clj"
+        ],
+        "heap-limit-bytes": 402653184,
+        "rss-limit-bytes": 805306368,
+        "host-floor-bytes": 268435456,
+        "start-available": 5238276096,
+        "peak-rss": 560689152,
+        "min-available": 5020045312,
+        "exit-code": 0,
+        "status": "passed",
+        "elapsed-seconds": 30.904180633006035
+      },
+      "source-opened": "bounded RAW fixture native Sources, disposed after test scopes; no full Init/hosted frontend restore",
+      "fresh-java-classes": "23 current src-java sources compiled before equivalent CI command; source11/target11"
+    },
+    "benchmark": "Original pinned source, full benchmark rows and prior127/19481 regression unchanged; not rerun for this test-only observer correction."
+  }
 }
