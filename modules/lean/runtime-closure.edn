@@ -1,5 +1,6 @@
 ;; Audited resident preparation/frontend and typed extern source closure.
 {:sources [
+  "prototype/binding_dependencies.clj"
   "prototype/block_compile.clj"
   "prototype/constructor_layout.cljc"
   "prototype/entropy.cljc"
@@ -52,9 +53,11 @@
   "prototype/runtime_task.cljc"
   "prototype/runtime_thunk.cljc"
   "prototype/scalar.cljc"
+  "prototype/scalar_wrapper.clj"
   "prototype/slot_count.clj"
   "prototype/source_module.clj"
   "prototype/typed_extern.clj"
+  "prototype/typed_ir.clj"
   "prototype/walk.cljc"
 ]
  :resources ["prototype/runtime_signatures.edn"]
