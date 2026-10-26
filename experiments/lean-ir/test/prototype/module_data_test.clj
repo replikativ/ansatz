@@ -13,6 +13,23 @@
 (def fixture-sha "d3c1f3b06d2490832df99c32f94b4a06deefdabc68f4e5585c55353864ebb9a4")
 (def ops {:ref? m/ref? :node m/node :release m/release})
 
+(defn- previous-bytes! [text]
+  (when-not (and (string? text) (even? (count text)) (re-matches #"[0-9a-f]*" text))
+    (m/fail "Invalid ModuleData hexadecimal storage" {}))
+  (mapv #(Integer/parseInt (subs text % (+ % 2)) 16) (range 0 (count text) 2)))
+(defn- bytes-outcome [decode text]
+  (try (let [value (decode text)] [:ok (class value) (mapv class value) value])
+       (catch Throwable error [:error (class error) (.getMessage error) (ex-data error)])))
+
+(deftest hexadecimal-decoding-preserves-values-carriers-and-errors
+  (let [inputs (concat (map #(format "%02x" %) (range 256))
+                       ["" "0001027f80feff" "0123456789abcdef" (apply str (repeat 512 "ff"))
+                        "A0" "aF" "FF" "0" "abc" "0g" "  " "00\n" "λ0" "💥"
+                        nil false 0 [] {} (Object.)])]
+    (doseq [[index text] (map-indexed vector inputs)]
+      (is (= (bytes-outcome previous-bytes! text) (bytes-outcome data/bytes! text))
+          (str "Hex input " index)))))
+
 (deftest actual-native-compacted-canary-retains-sharing-bits-and-typed-number-views
   (let [[old anchor] (m/resource (assoc (m/world {}) :environment {"preserved" "yes"}) :old-owner)
         result (data/load-file old fixture {:sha256 fixture-sha})
