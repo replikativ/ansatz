@@ -125,5 +125,13 @@
     "native external host callback execution",
     "genuine Source/Init restore",
     "current packaged end-to-end application"
-  ]
+  ],
+  "logical-source-name-policy": {
+    "sha256": "f825342f122af87fc288511c891224ed32e010d78c47b6978edfc911a17d3db2",
+    "change": "Public entry and identity source Names replace physical _boxed Names; resident resolves actual manifest boxedTarget. Original native source/IR/producer receipts and earlier audit/policy evidence remain unchanged.",
+    "validation": "Closed policy true; both original workers remain ready with costs13/16. Data/native eligibility only.",
+    "request-sha256": "a3e1af59f5126f448d2984cccbc6be1e8669a8a44228fec9d3b68e2d583da26a",
+    "verbatim-result-sha256": "faf9cb7d9f115050c3c47b80e9f58b51f0f11f1f25935a2082fd9f4676ceb0c1",
+    "verbatim-result": "user=> :actual-jvm-application-policy-v2-valid true\n:actual-native-worker-v2-eligibility \"A\" {:status :ready} :functions 1 :max-cost 13\n:actual-native-worker-v2-eligibility \"B\" {:status :ready} :functions 1 :max-cost 16\n"
+  }
 }

@@ -8,14 +8,14 @@
    :module ["str" ["anonymous"] "JVMApplicationProbe"]
    :source-a-id "fixtures/JVMApplicationA.lean"
    :source-b-id "fixtures/JVMApplicationB.lean"
-   :entry ["str" ["str" ["str" ["anonymous"] "JVMApplicationProbe"] "entry"] "_boxed"]
+   :entry ["str" ["str" ["anonymous"] "JVMApplicationProbe"] "entry"]
    :worker ["str" ["str" ["anonymous"] "JVMApplicationProbe"] "sum64"]
    :signature {:arguments [:uint64 :uint64] :result :uint64}
    :calls [{:args [0 7] :expected-a 7 :expected-b 7}
            {:args [10 0] :expected-a 55 :expected-b 65}
            {:args [100 0] :expected-a 5050 :expected-b 5150}]
    :fallback
-   {:entry ["str" ["str" ["str" ["anonymous"] "JVMApplicationProbe"] "identity64"] "_boxed"]
+   {:entry ["str" ["str" ["anonymous"] "JVMApplicationProbe"] "identity64"]
     :signature {:arguments [:uint64] :result :uint64}
     :args [17] :expected 17}}]
  :callback
