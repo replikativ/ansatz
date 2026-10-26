@@ -151,12 +151,12 @@ Run from `modules/lean`, after building a pinned core jar. This checkout's core
 build derives the version from its revision count; pass the actual built version.
 The development dependency points at that built jar; `:dev` instead selects core
 and prototype source explicitly. The generated optional POM pins a supplied core
-Maven version rather than publishing machine-local paths.
+Maven version and Pattern `1.0.452` as its direct dependencies. It does not publish
+machine-local paths or inherit the build tool's default Clojure dependency.
 
 ```sh
 clj -T:build jar :core-jar '"../../target/ansatz.jar"' :core-version '"0.2.<actual-revision>"'
 clj -M:dev:test
-python3 consumer/check.py --core-classpath '<pinned-core-and-Maven-dependency-jar-classpath>' --core-version '0.2.<actual-revision>'
 ```
 
 `runtime-closure.edn` lists every staged prototype source and the required
@@ -169,6 +169,49 @@ artifact inventories or bootstrap assets are copied. Build never AOT-compiles th
 facade/prototype runtime. Bootstrap/helpers/checkpoints are **not distributed** by
 this jar; provider setup remains a separate obligation.
 
+The optional module depends on the published Pattern `1.0.452` artifact, so no
+extra dependency profile is required to select JVM `:typed-tail` compilation.
+The three compiler source namespaces still load lazily. Ordinary facade/session
+construction and reference/mutable selection validation leave Pattern compiler
+namespaces unloaded. Core Ansatz remains independent of Pattern; LLVM is separate.
+
+`runtime-closure.edn` additionally lists the exact five dynamic compiler Var
+resolutions. `build/check-closure` reads source as data with reader evaluation
+disabled, checks every dynamic target against its staged namespace/definition,
+and rejects missing/extra rows or computed resolver targets. It does not require
+the compiler namespaces. The existing literal source/resource audit still runs.
+The full closed inventory is embedded at
+`META-INF/ansatz-lean/runtime-closure.edn` for jar inspection.
+
+```sh
+clj -T:build check-closure
+clj -T:build test-audit
+clj -T:build consumer-bases :core-jar '"../../target/ansatz.jar"' \
+  :module-jar '"target/ansatz-lean.jar"' :output-dir '"target/consumer-bases"'
+python3 consumer/check.py --core-classpath '<contents-of-target/consumer-bases/default.cp>' \
+  --core-version '0.2.<actual-revision>' \
+  --module-classpath '<contents-of-target/consumer-bases/enabled.cp>' \
+  --pattern-repository '<Pattern-git-repository>'
+```
+
+CI combines the first two checks with `clj -T:build check-package` in one tool
+JVM; malformed dynamic inventories are tested rather than merely documented.
+
+The released Pattern artifact's 19 core source files match Git commit
+`6d0242ee589d88b336f7dd6f820efa993d2b6f3b`. Its AOT classes are covered by the
+actual jar-only compiler gate. This does not change the source-loaded Ansatz
+prototype/facade policy. For development, `:pattern-git` overrides the dependency
+with that exact Git pin. `build-pattern-profile.py` additionally constructs a
+distinct local source-only jar from immutable Git objects, preserving pinned
+LICENSE/README/NOTICE when present, with no compilation, install or publishing.
+That reproducer is optional; normal module users receive the Maven dependency.
+
+`consumer-bases` resolves core-only and module profiles independently, with CLI
+root/user/project dependency defaults disabled. Each complete classpath contains
+one selected version per library. The module resolution reads the actual built
+optional POM and uses the same core jar. It is never appended as an extra jar list
+that could let an older core dependency shadow a compiler upgrade.
+
 `consumer/check.py` stages fresh Clojure/Java consumers in an isolated directory.
 The runtime classpath is jars only (plus freshly compiled Java consumer classes):
 no repository `src`, experiment paths or target artifact inventories. It audits
@@ -176,6 +219,18 @@ jar entries, exact staged source bytes and the selected core Maven POM version,
 checks core-alone loading with optional
 API absent, loads optional Clojure and Java entrypoints, and tests rejection of an
 unchecked provider. These are packaging/load checks, not frontend acceptance.
+The consumer checks that ordinary module loading leaves the compiler lazy, then runs authentic
+exported boxed UInt64/USize wrappers, exact fuel/World/carrier comparisons, the
+actual specialized execution route and shared-cache reuse. A Java provider smoke
+checks option forwarding and executes selected raw code inside its provider,
+then verifies that deliberately unchecked prepared input is rejected. It does
+not fabricate an admitted Java Context or establish genuine Java/frontend calls.
+Test fixtures are data in a temporary resource jar; no checkout source directory
+is on a consumer runtime classpath. Cached-core packaging compatibility and a
+current authenticated source/class hosted cohort remain separate gates.
+The [current-core compiler packaging record](measurements/optional-compiler-package.json)
+pins the isolated jars, complete Maven inputs and passing default/enabled gates.
+It accepts packaging on its stated core revision, not a genuine frontend cohort.
 
 `consumer/PreparedAcceptance.java` is the public Java fixture used by the genuine
 provider campaign: exact BigInteger beyond long, Unicode/NUL String, two Java SAM

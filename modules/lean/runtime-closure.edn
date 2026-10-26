@@ -1,5 +1,6 @@
 ;; Audited resident preparation/frontend and typed extern source closure.
-{:sources [
+{:schema "lean-runtime-closure/2"
+ :sources [
   "prototype/binding_dependencies.clj"
   "prototype/block_compile.clj"
   "prototype/constructor_layout.cljc"
@@ -60,7 +61,20 @@
   "prototype/typed_blocks.clj"
   "prototype/typed_extern.clj"
   "prototype/typed_ir.clj"
+  "prototype/typed_tail.clj"
+  "prototype/typed_tail_emit.clj"
+  "prototype/typed_tail_execution.clj"
   "prototype/walk.cljc"
 ]
  :resources ["prototype/runtime_signatures.edn"]
- :java []}
+ :java []
+ :dynamic-resolves
+ [{:source "prototype/block_compile.clj" :var prototype.typed-tail-execution/prepare-context :feature :typed-compiler}
+  {:source "prototype/block_compile.clj" :var prototype.typed-tail-execution/extension-key :feature :typed-compiler}
+  {:source "prototype/block_compile.clj" :var prototype.typed-tail-execution/compile-entry :feature :typed-compiler}
+  {:source "prototype/block_compile.clj" :var prototype.typed-tail-execution/bind-context :feature :typed-compiler}
+  {:source "prototype/block_compile.clj" :var prototype.typed-tail-execution/force-compilation! :feature :typed-compiler}]
+ :compiler-profile
+ {:schema "lean-compiler-dependency/1" :lib org.replikativ/pattern :mvn/version "1.0.452"
+  :source-git/url "https://github.com/replikativ/pattern.git"
+  :source-git/sha "6d0242ee589d88b336f7dd6f820efa993d2b6f3b" :prototype-aot false}}
