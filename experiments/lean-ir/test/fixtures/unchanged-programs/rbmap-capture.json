@@ -1,0 +1,16 @@
+{
+  "schema": "unchanged-program-native-capture/1",
+  "producer": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "sourceSha256": "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29",
+  "exporterSha256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+  "exit": 0,
+  "guardStop": null,
+  "peakRssBytes": 704090112,
+  "wallSeconds": 5.097033244004706,
+  "source": "rbmap.lean",
+  "roots": [
+    "mkMap",
+    "fold",
+    "main"
+  ]
+}
