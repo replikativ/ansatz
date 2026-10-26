@@ -191,7 +191,7 @@
         roles (cond-> ["graph" "export" "import" "old-import" "visibility"
                        "ordinary-publication" "ordinary-encoding" "cases-on"]
                 typed? (conj "eio-builders"))]
-    (guards/stage-prefix! stages typed?)
+    (guards/profile-stage-prefix! (:profile contract) stages typed?)
     (guards/helper-roles! (get-in contract [:composition :helpers])
                          (into {} (map (fn [role] [role (mapv lean-name-label (get helper-entrypoint-roots role))]) roles)))
     (doseq [role roles] (helper-spec contract role))
@@ -243,7 +243,7 @@
         typed? (boolean (some #{:typed-eio} stages))
         expected (cond-> [:fresh-init :graph-helpers :panic :ordinary-helpers]
                    typed? (conj :typed-eio))
-        _ (guards/stage-prefix! stages typed?)
+        _ (guards/profile-stage-prefix! (:profile contract) stages typed?)
         ordinary {:publication (assoc (helper-artifact contract resolve-artifact "ordinary-publication")
                                       :expected-root-abi publication-abi)
                   :encoding (assoc (helper-artifact contract resolve-artifact "ordinary-encoding")

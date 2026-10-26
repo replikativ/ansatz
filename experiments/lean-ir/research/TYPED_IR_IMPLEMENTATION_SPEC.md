@@ -864,3 +864,17 @@ Guarded Long Nat promotion now uses the same represented pipeline; broader
 [Nat promotion](NAT_PROMOTION_PLAN.md), joins and general non-tail source calls
 remain work. Hosted BigInt and native MPZ/heartbeat profiles stay distinct.
 Kernel/interop fixtures and hosted frontend acceptance retain their own gates.
+
+
+## Finite genuine-file integration consumer
+
+The additive [finite JVM slice contract](COHERENT_JVM_SLICE.md) defines a new
+identity-issued consumer profile and public mutable-frontend/JVM-application
+transition. It preserves the original producer/preparation/kernel/archive and
+historical consumer profile. Its17 stages include direct resident A/B file loads,
+actual selected executor events, a separately authorized typed callback, shared
+A/B cache and retained old-A calls; they do not stand in for Project graph reload.
+Returned owners are escrowed before observers and Source closes after all known
+prefix/Context borrowers. Unknown partial failures remain unresolved and do not
+produce a successful disposal receipt. Current component models/native exports
+are prerequisites, not genuine hosted frontend or efficient loading acceptance.

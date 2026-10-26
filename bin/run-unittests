@@ -77,13 +77,18 @@ echo
 echo "Running compact checking progress, cold controller phase and native Store decoding contracts"
 mkdir -p target
 cold_check_classes=$(mktemp -d "$PWD/target/cold-check-classes.XXXXXX")
+cleanup_cold_check_classes() {
+  if [[ -n "${cold_check_classes:-}" && -d "$cold_check_classes" ]]; then
+    rm -r -- "$cold_check_classes"
+  fi
+}
+trap cleanup_cold_check_classes EXIT
 javac -source 11 -target 11 -d "$cold_check_classes" experiments/lean-ir/java/prototype/TypedLongMemo.java
 (
   cd experiments/lean-ir
   clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
     -M scripts/test-cold-check-progress.clj
 )
-rm -r "$cold_check_classes"
 
 echo
 echo "Running portable RAW casesOn constructor and preseal policy tests"
@@ -101,5 +106,6 @@ echo
 echo "Running optional Pattern typed tail-region preparation contracts"
 (
   cd experiments/lean-ir
-  clojure -J-Xmx384m -J-Xss8m -M:typed-tail scripts/test-typed-tail.clj
+  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
+    -M:typed-tail scripts/test-typed-tail.clj
 )

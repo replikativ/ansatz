@@ -16,6 +16,11 @@
 (def profile-id old/coherent-frontend-profile-id)
 (def cases-on-target ["str" ["str" ["anonymous"] "KernelCasesOnRaw"] "construct"])
 (def schema "ansatz-coherent-frontend-contract/1")
+(def jvm-profile-id old/coherent-jvm-application-profile-id)
+(def jvm-schema "ansatz-coherent-jvm-application-contract/1")
+(def jvm-stages
+  [:fresh-init :graph-helpers :panic :ordinary-helpers :typed-eio :cases-on :seal :helper-value
+   :init-prefix :load-a :select-a :call-a :callback :load-b :select-b :call-b-a :dispose])
 (def lean-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6")
 (def target {:triple "x86_64-unknown-linux-gnu" :word-bits 64})
 ;; EXACT original producer PRECHECK policy. This is not the effective post-user
@@ -73,16 +78,80 @@
     (if (= outer "prototype/TypedLongMemo") "java/prototype/TypedLongMemo.java"
         (str "src-java/" outer ".java"))))
 
-(defn validate-contract!
+(def execution-roles
+  {:frontend {:backend :mutable :fuel 500000000 :compile-threshold 1}
+   :application {:backend :jvm :fuel 500000000 :compile-threshold 1}})
+(def selection-limits
+  {:max-functions 16 :max-descriptors 64 :max-work 100000 :max-source-bytes 16384})
+(def ^:private application-codecs #{:uint8 :uint16 :uint32 :uint64 :usize :nat})
+(defn- scalar-value! [value]
+  (wire/check (and (integer? value) (<= 0 value 18446744073709551615N)) "Bounded immutable numeric application value required"))
+(defn- call-signature! [signature]
+  (exact! signature #{:arguments :result} "application call signature")
+  (bounded-vector! (:arguments signature) 4 "application arguments")
+  (wire/check (and (every? application-codecs (:arguments signature)) (application-codecs (:result signature)))
+              "Unsupported finite application codec"))
+(defn validate-application!
+  "Closed inert policy for this finite slice; confers no code/binding authority."
+  [application]
+  (exact! application #{:execution-roles :transition :corpus :callback :selection-limits} "application policy")
+  (wire/check (and (= execution-roles (:execution-roles application)) (= [:mutable :jvm] (:transition application))
+                   (= selection-limits (:selection-limits application))) "Unapproved finite execution/selection policy")
+  (bounded-vector! (:corpus application) 4 "application corpus")
+  (wire/check (and (seq (:corpus application))
+                   (= (count (:corpus application)) (count (set (map :id (:corpus application)))))) "Duplicate/empty corpus")
+  (let [sources (mapcat (juxt :source-a-id :source-b-id) (:corpus application))]
+    (wire/check (= (count sources) (count (set sources))) "Corpus requires distinct A/B capture input IDs"))
+  (doseq [row (:corpus application)]
+    (exact! row #{:id :module :source-a-id :source-b-id :entry :worker :signature :calls :fallback} "corpus row")
+    (doseq [key [:id :source-a-id :source-b-id]] (id! (get row key)))
+    (wire/check (not= (:source-a-id row) (:source-b-id row)) "A/B captures must be distinct inputs")
+    (doseq [key [:module :entry :worker]] (name! (get row key)))
+    (call-signature! (:signature row))
+    (bounded-vector! (:calls row) 4 "application calls")
+    (wire/check (seq (:calls row)) "At least one actual application call required")
+    (doseq [call (:calls row)]
+      (exact! call #{:args :expected-a :expected-b} "application call")
+      (bounded-vector! (:args call) 4 "application argument values")
+      (wire/check (= (count (:args call)) (count (get-in row [:signature :arguments]))) "Application argument arity mismatch")
+      (doseq [v (concat (:args call) [(:expected-a call) (:expected-b call)])] (scalar-value! v)))
+    (let [fallback (:fallback row)]
+      (exact! fallback #{:entry :signature :args :expected} "fallback control")
+      (name! (:entry fallback)) (call-signature! (:signature fallback))
+      (bounded-vector! (:args fallback) 4 "fallback values")
+      (wire/check (= (count (:args fallback)) (count (get-in fallback [:signature :arguments]))) "Fallback arity mismatch")
+      (doseq [v (conj (:args fallback) (:expected fallback))] (scalar-value! v))))
+  (let [callback (:callback application)]
+    (exact! callback #{:symbol :entry :signature :arguments :result :input :expected :implementation} "callback")
+    (wire/check (and (string? (:symbol callback)) (re-matches #"[A-Za-z_][A-Za-z0-9_]{0,255}" (:symbol callback))
+                     (= :utf8-length (:implementation callback)) (= :nat (:result callback))
+                     (string? (:input callback)) (<= (count (:input callback)) 4096)
+                     (= (count (.getBytes ^String (:input callback) StandardCharsets/UTF_8)) (:expected callback)))
+                "Only the fixed bounded String-to-Nat callback is supported")
+    (name! (:entry callback))
+    (exact! (:signature callback) #{:params :return-type} "callback ABI")
+    (bounded-vector! (get-in callback [:signature :params]) 1 "callback ABI parameters")
+    (bounded-vector! (:arguments callback) 1 "callback argument codecs")
+    (wire/check (= 1 (count (get-in callback [:signature :params])) (count (:arguments callback))) "One callback argument required")
+    (let [param (first (get-in callback [:signature :params])) argument (first (:arguments callback))]
+      (exact! param #{:ty :borrow} "callback ABI parameter")
+      (exact! argument #{:codec :ownership} "callback codec")
+      (wire/check (and (#{"object" "tobject" "tagged"} (:ty param)) (boolean? (:borrow param))
+                       (#{"object" "tobject" "tagged"} (get-in callback [:signature :return-type]))
+                       (= :string (:codec argument)) (= (if (:borrow param) :borrowed :owned) (:ownership argument)))
+                  "Callback codec/ownership differs from declared ABI")))
+  application)
+
+(defn- validate-contract*
   "Validate closed build data against an independently accepted implementation
    identity. Callers must authenticate exact contract bytes BEFORE parsing them.
    Returns the same contract; does not resolve files or authorize guest code."
-  [contract expected-implementation]
+  [contract expected-implementation selected-profile selected-schema selected-stage-rank]
   (exact! contract #{:schema :profile :producer :lean-commit :target :inventory
                       :implementation-sha256 :composition :kernel-policy :limits} "contract")
   (exact! (:producer contract) #{:implementation-sha256 :recipe-sha256} "producer identity")
   (exact! (:limits contract) #{:max-helper-bytes :max-helper-declarations :checker-fuel} "limits")
-  (wire/check (and (= schema (:schema contract)) (= profile-id (:profile contract))
+  (wire/check (and (= selected-schema (:schema contract)) (= selected-profile (:profile contract))
                    (= {:implementation-sha256 old/producer-implementation-sha256
                        :recipe-sha256 old/producer-recipe-sha256} (:producer contract))
                    (= lean-commit (:lean-commit contract)) (= target (:target contract))
@@ -109,7 +178,9 @@
                     "Coherent class missing source provenance/AOT prohibited")))
     (doseq [[id kind] required-inputs]
       (wire/check (= kind (get-in by-id [id :kind])) "Coherent essential member missing/role mismatch"))
-    (exact! composition #{:controllers :helpers :redirects :stages} "composition")
+    (exact! composition (cond-> #{:controllers :helpers :redirects :stages}
+                           (= jvm-profile-id selected-profile) (conj :application)) "composition")
+    (when (= jvm-profile-id selected-profile) (validate-application! (:application composition)))
     (doseq [[key maximum] {:controllers 64 :helpers 32 :redirects 16 :stages 32}]
       (bounded-vector! (get composition key) maximum (name key)))
     (wire/check (and (seq (:controllers composition))
@@ -144,11 +215,18 @@
       (wire/check (= cases-on-target (:target redirect)) "Coherent exact casesOn target mismatch"))
     (let [stages (:stages composition) positions (zipmap stages (range))]
       (wire/check (and (seq stages) (= (count stages) (count (set stages)))
-                       (every? stage-rank stages)
-                       (apply < (map stage-rank stages)) (= :fresh-init (first stages))
+                       (every? selected-stage-rank stages)
+                       (apply < (map selected-stage-rank stages)) (= :fresh-init (first stages))
                        (integer? (:cases-on positions)) (integer? (:seal positions))
                        (< (:cases-on positions) (:seal positions))) "Invalid coherent stage order")))
+  (when (= jvm-profile-id selected-profile)
+    (wire/check (= jvm-stages (get-in contract [:composition :stages])) "Exact finite JVM application stages required"))
   contract)
+
+(defn validate-contract! [contract expected-implementation]
+  (validate-contract* contract expected-implementation profile-id schema stage-rank))
+(defn validate-jvm-contract! [contract expected-implementation]
+  (validate-contract* contract expected-implementation jvm-profile-id jvm-schema (zipmap jvm-stages (range))))
 
 (defn- bounded-edn! [source]
   ;; Bound reader recursion before constructing data. Contracts use only maps,
@@ -237,18 +315,18 @@
         ;; Return selected class root for an exact output inventory audit below.
         (canonical-file (.toURI ^java.net.URL code-url))))))
 
-(defn authenticate!
+(defn- authenticate*
   "Host-only two-cohort authentication. Original producer bytes remain resolver-
    only provenance. Consumer disk selection, actual classes and fresh launcher
    attestation must all agree. Result retains the old exact descriptor shape."
   [{:keys [producer-preparation producer-recipe-source producer-resolve-artifact store-root
            consumer-inventory expected-consumer-implementation-sha256
            loaded-consumer-implementation-sha256 consumer-resolve-source
-           consumer-contract-source expected-consumer-contract-sha256] :as options}]
+           consumer-contract-source expected-consumer-contract-sha256] :as options} validate selected-profile]
   (exact! options option-keys "factory options")
   ;; No resolver, selected namespace/class lookup, or producer parsing before pin.
   (let [contract (read-contract! consumer-contract-source expected-consumer-contract-sha256)]
-    (validate-contract! contract expected-consumer-implementation-sha256)
+    (validate contract expected-consumer-implementation-sha256)
     (wire/check (and (fn? producer-resolve-artifact) (fn? consumer-resolve-source)
                      (string? store-root) (seq store-root)
                      (= expected-consumer-implementation-sha256 loaded-consumer-implementation-sha256)
@@ -281,7 +359,12 @@
         (wire/check (= expected (wire/sha256 bytes)) "Coherent helper source/IR drift")))
     {:description {:producer-preparation producer-preparation
                    :consumer-implementation-sha256 expected-consumer-implementation-sha256
-                   :compatibility-profile profile-id
+                   :compatibility-profile selected-profile
                    :consumer-contract-sha256 expected-consumer-contract-sha256}
      :consumer-contract-sha256 expected-consumer-contract-sha256
      :contract contract}))
+
+(defn authenticate! [options]
+  (authenticate* options validate-contract! profile-id))
+(defn authenticate-jvm! [options]
+  (authenticate* options validate-jvm-contract! jvm-profile-id))
