@@ -7,6 +7,8 @@ from unittest import mock
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
+import maven_basis
 
 spec = importlib.util.spec_from_file_location("pack_materializer", Path(__file__).with_name("materialize-pack.py"))
 m = importlib.util.module_from_spec(spec)
@@ -14,6 +16,18 @@ spec.loader.exec_module(m)
 
 
 class PackMetadataTests(unittest.TestCase):
+    def test_old_and_new_controller_lists_do_not_relabel_project_stages(self):
+        self.assertIn('project', m.STAGES)
+        self.assertNotIn('project', m.JVM_STAGES)
+        self.assertEqual('dispose', m.JVM_STAGES[-1])
+        self.assertIn('prototype/coherent_campaign.clj', m.controllers())
+        self.assertNotIn('prototype/coherent_campaign.clj', m.controllers(True))
+        self.assertEqual(['prototype.coherent-jvm-slice/construct!', 'prototype.coherent-jvm-slice/run!'],
+                         m.controllers(True)['prototype/coherent_jvm_slice.clj'])
+        edited = m.controllers(True)
+        edited.clear()
+        self.assertTrue(m.controllers(True))
+
     def test_all_tools_stream_known_sha_vectors_without_python311_api(self):
         tools = [m]
         for name in ['observe-class-inventory.py', 'plan-java-build.py']:
@@ -128,6 +142,79 @@ class PackMetadataTests(unittest.TestCase):
             write([])
             with self.assertRaises(m.Reject):
                 m.helper_roots(p, 'import')
+
+
+class MavenBasisTests(unittest.TestCase):
+    def make_basis(self, directory):
+        rows = []
+        for lib, version in sorted(maven_basis.LIBS.items()):
+            stem = lib.split('/')[-1] + '-' + version
+            jar, pom = directory / (stem + '.jar'), directory / (stem + '.pom')
+            with zipfile.ZipFile(jar, 'w') as archive:
+                archive.writestr('META-INF/MANIFEST.MF', 'Manifest-Version: 1.0\n\n')
+            pom.write_text('<project/>')
+            rows.append({'lib': lib, 'version': version, 'id': 'dependencies/' + jar.name,
+                         'path': str(jar), 'sha256': maven_basis.digest(jar),
+                         'pom-path': str(pom), 'pom-sha256': maven_basis.digest(pom)})
+        return {'schema': 'coherent-maven-basis/1', 'roots': dict(maven_basis.ROOTS), 'dependencies': rows}
+
+    def write_load(self, base, data):
+        lock = base / 'lock.json'
+        lock.write_text(json.dumps(data))
+        return maven_basis.load(lock, maven_basis.digest(lock))
+
+    def test_unique_pinned_closure_and_pattern_aot_are_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp); data = self.make_basis(base)
+            pattern = next(r for r in data['dependencies'] if r['lib'] == 'org.replikativ/pattern')
+            with zipfile.ZipFile(pattern['path'], 'a') as archive:
+                archive.writestr('pattern/compiler__init.class', b'authenticated dependency AOT')
+            pattern['sha256'] = maven_basis.digest(pattern['path'])
+            self.assertEqual(data, self.write_load(base, data))
+
+    def test_duplicate_versions_extra_roots_missing_transitives_and_drift_reject(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp); original = self.make_basis(base)
+            changes = [lambda d: d['roots'].update({'unexpected/library': '1'}),
+                       lambda d: d['dependencies'].pop(),
+                       lambda d: d['dependencies'].__setitem__(1, dict(d['dependencies'][0])),
+                       lambda d: d['dependencies'][0].update({'sha256': '0' * 64}),
+                       lambda d: d['dependencies'][0].update({'pom-sha256': '0' * 64}),
+                       lambda d: d['dependencies'][0].update({'version': '0'})]
+            for change in changes:
+                data = json.loads(json.dumps(original)); change(data)
+                with self.subTest(change=change), self.assertRaises(ValueError):
+                    self.write_load(base, data)
+
+    def test_project_and_multi_release_providers_and_manifest_classpath_reject(self):
+        for resource in ['ansatz/kernel/Expr.class', 'prototype/runtime.clj',
+                         'META-INF/versions/25/ansatz/kernel/Expr.class']:
+            with self.subTest(resource=resource), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp); data = self.make_basis(base); row = data['dependencies'][0]
+                with zipfile.ZipFile(row['path'], 'a') as archive:
+                    archive.writestr(resource, b'shadow')
+                row['sha256'] = maven_basis.digest(row['path'])
+                with self.assertRaisesRegex(ValueError, 'project provider'):
+                    self.write_load(base, data)
+        with tempfile.TemporaryDirectory() as tmp:
+            jar = Path(tmp) / 'implicit.jar'
+            with zipfile.ZipFile(jar, 'w') as archive:
+                archive.writestr('META-INF/MANIFEST.MF', 'Manifest-Version: 1.0\nClass-Path: hidden.jar\n\n')
+            with self.assertRaisesRegex(ValueError, 'Class-Path'):
+                maven_basis.check_jar(jar)
+
+    def test_external_lock_digest_and_duplicate_json_and_symlinks_reject(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp); data = self.make_basis(base); self.write_load(base, data)
+            lock = base / 'lock.json'
+            with self.assertRaisesRegex(ValueError, 'digest'):
+                maven_basis.load(lock, '0' * 64)
+            alias = base / 'alias.json'; alias.symlink_to(lock)
+            with self.assertRaisesRegex(ValueError, 'physical'):
+                maven_basis.load(alias, maven_basis.digest(alias))
+            lock.write_text('{"schema":"one","schema":"two"}')
+            with self.assertRaisesRegex(ValueError, 'duplicate'):
+                maven_basis.load(lock, maven_basis.digest(lock))
 
 
 if __name__ == '__main__':

@@ -15,6 +15,7 @@ from pathlib import Path
 import re
 import shutil
 import sys
+import maven_basis
 
 SHA = re.compile(r"[0-9a-f]{64}\Z")
 ID = re.compile(r"[A-Za-z0-9_./$-]{1,512}\Z")
@@ -24,6 +25,7 @@ RECIPE = "9a1d53dce65909c15330ee4fa7289804e727927b30f504ed010680a0c1971e70"
 LEAN = "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
 ORIGINAL = "d7a54765268331ebe9afdfa4695a7702b8d53c95cd1a8c51da8ef41d1468e43d"
 STAGES = "fresh-init graph-helpers panic ordinary-helpers typed-eio cases-on seal helper-value project typed-io ordinary-module chain diamond reload".split()
+JVM_STAGES = "fresh-init graph-helpers panic ordinary-helpers typed-eio cases-on seal helper-value init-prefix load-a select-a call-a callback load-b select-b call-b-a dispose".split()
 HELPER_COMPONENTS = {
     "graph": [("SourceModuleGraphImport", "assembleClassicGraphOverInit")],
     "export": [("SourceModuleExport", "exportClassic", "_boxed")],
@@ -47,6 +49,15 @@ CONTROLLERS = {
     "prototype/coherent_execution.clj": ["prototype.coherent-execution/run!"],
     "prototype/coherent_typed_eio.clj": ["prototype.coherent-typed-eio/" + n for n in ["prepare-prefix!", "assert-no-compilation-effects!", "invoke!", "dispose-call-failure!", "close-contexts!"]],
 }
+
+
+def controllers(jvm=False):
+    result = dict(CONTROLLERS)
+    if jvm:
+        result.pop("prototype/coherent_campaign.clj")
+        result.pop("prototype/coherent_execution.clj")
+        result["prototype/coherent_jvm_slice.clj"] = ["prototype.coherent-jvm-slice/construct!", "prototype.coherent-jvm-slice/run!"]
+    return result
 
 
 class Reject(ValueError):
@@ -326,8 +337,23 @@ def main():
     capture, observed, spec = map(read_json, [capture_path, observed_path, spec_path])
     check(capture["commit"] == observed["commit"] == args.source_commit, "source/build commit mismatch")
     check(observed["capture-sha256"] == args.expected_capture_sha256, "observed build capture mismatch")
-    check(spec["schema"] == "coherent-pack-inputs/1", "pack input schema")
-    check(set(spec) == {"schema", "producer-payload", "producer-store", "helpers", "fixtures", "bootstrap", "provenance", "final-source-approved", "build-evidence", "old-import-provenance"}, "input specification keys")
+    jvm = spec["schema"] == "coherent-pack-inputs/2"
+    check(jvm or spec["schema"] == "coherent-pack-inputs/1", "pack input schema")
+    check(set(spec) == {"schema", "producer-payload", "producer-store", "helpers", "fixtures", "bootstrap", "provenance", "final-source-approved", "build-evidence", "old-import-provenance"}
+          | ({"application-policy", "dependency-lock"} if jvm else set()), "input specification keys")
+    basis = None
+    application = None
+    if jvm:
+        lock_path = file_pin(spec["dependency-lock"], 1024 * 1024)
+        basis = maven_basis.load(lock_path, spec["dependency-lock"]["sha256"])
+        check(observed.get("schema") == "coherent-observed-build/2"
+              and observed.get("dependency-lock-sha256") == spec["dependency-lock"]["sha256"], "observed build isolated basis mismatch")
+        policy = file_pin(spec["application-policy"], 65536)
+        application = EDN(policy.read_text()).read()
+        check(isinstance(application, dict), "application policy map required")
+    else:
+        check(observed.get("schema") == "coherent-observed-build/1"
+              and "dependency-lock-sha256" not in observed, "legacy observed build schema mismatch")
     # This flag records the reviewer's intended source revision, not authority.
     check(isinstance(spec["final-source-approved"], bool), "source review marker")
     inv = observed["inventory"]
@@ -344,17 +370,23 @@ def main():
         target = pack.root / dest
         target.parent.mkdir(parents=True, exist_ok=True)
         os.link(source, target) if source.stat().st_dev == pack.root.stat().st_dev else shutil.copyfile(source, target)
-    for resource in CONTROLLERS:
+    for resource in controllers(jvm):
         check(any(r["id"] == resource and r["kind"] == "host-source" for r in inv), "required controller absent")
     dependencies = []
-    dependency_names = ["clojure-1.12.0.jar", "core.specs.alpha-0.4.74.jar", "spec.alpha-0.5.238.jar", "data.json-2.5.1.jar"]
+    dependency_names = ([Path(r["path"]).name for r in basis["dependencies"]] if jvm else
+                        ["clojure-1.12.0.jar", "core.specs.alpha-0.4.74.jar", "spec.alpha-0.5.238.jar", "data.json-2.5.1.jar"])
     by_dependency = {Path(row["path"]).name: row for row in observed["dependencies"]}
-    check(len(observed["dependencies"]) == 4 and set(by_dependency) == set(dependency_names), "explicit final current four-jar basis required")
+    check(len(observed["dependencies"]) == len(dependency_names) and set(by_dependency) == set(dependency_names), "explicit dependency basis required")
+    if jvm:
+        check(observed["dependencies"] == [{"id": r["id"], "path": r["id"], "sha256": r["sha256"]} for r in basis["dependencies"]], "observed dependency order/pins differ from isolated basis")
     for dependency_name in dependency_names:
         row = by_dependency[dependency_name]
         target = pack.add("dependency/" + Path(row["path"]).name, args.capture.resolve() / row["path"], row["sha256"], row["path"])
         dependencies.append({"id": row["id"], "path": str(target.relative_to(pack.root)), "sha256": row["sha256"]})
-    check(len(dependencies) == 4 and len({r["id"] for r in dependencies}) == 4, "four ordered dependency jars required")
+    check(len(dependencies) == len(dependency_names) and len({r["id"] for r in dependencies}) == len(dependency_names), "unique ordered dependency jars required")
+    if jvm:
+        pack.add("cohort/dependency-lock", lock_path, spec["dependency-lock"]["sha256"])
+        pack.add("application/policy", policy, spec["application-policy"]["sha256"])
     evidence = spec["build-evidence"]
     check(set(evidence) == {"receipt", "postcheck"}, "build evidence schema")
     compile_receipt = file_pin(evidence["receipt"], 1024 * 1024)
@@ -474,14 +506,27 @@ def main():
     selection["historic-export-receipt-sha256"] = legacy_proof["export-receipt"]["sha256"]
     pack.write("helpers/old-import/selection-proof", (json.dumps(selection, indent=2) + "\n").encode())
     fixture_names = {"CoherentA.lean", "CoherentA-reload.lean", "CoherentB.lean", "CoherentC.lean", "CoherentD.lean", "CoherentE.lean", "CoherentOrdinary.lean", "ProjectAppEIO.lean"}
+    if jvm:
+        corpus = application.get(key("corpus"))
+        check(isinstance(corpus, list) and 1 <= len(corpus) <= 4, "bounded application corpus required")
+        ids = {r.get(key(k)) for r in corpus if isinstance(r, dict) for k in ["source-a-id", "source-b-id"]}
+        check(len(ids) == 2 * len(corpus) and all(isinstance(x, str) and x.startswith("fixtures/") for x in ids), "distinct application A/B fixture IDs required")
+        fixture_names = {relative(x[len("fixtures/"):]) for x in ids}
     check(set(spec["fixtures"]) == fixture_names, "exact fixture set required")
     for name, row in spec["fixtures"].items():
-        pack.add("fixtures/" + name, file_pin(row, 65536), row["sha256"])
+        pack.add("fixtures/" + name, file_pin(row, 16384 if jvm else 65536), row["sha256"])
     original_path = store_root / "declarations" / (ORIGINAL + ".json")
     pack.add("cas/" + ORIGINAL, original_path, ORIGINAL)
     bootstrap = file_pin(spec["bootstrap"], 1024 * 1024)
     pack.add("bootstrap", bootstrap, spec["bootstrap"]["sha256"], "bootstrap.clj")
     contract = kws({"schema": "ansatz-coherent-frontend-contract/1", "profile": "ansatz-producer50f-coherent-frontend-consumer/1", "producer": {"implementation-sha256": PRODUCER, "recipe-sha256": RECIPE}, "lean-commit": LEAN, "target": {"triple": "x86_64-unknown-linux-gnu", "word-bits": 64}, "inventory": inv, "implementation-sha256": observed["implementation-sha256"], "composition": {"controllers": [{"id": k, "entrypoints": v} for k, v in CONTROLLERS.items()], "helpers": helpers, "redirects": [{"symbol": "lean_mk_cases_on", "target": ["str", ["str", ["anonymous"], "KernelCasesOnRaw"], "construct"], "row-sha256": ORIGINAL}], "stages": [Keyword(x) for x in STAGES]}, "kernel-policy": {"allow-axioms?": True, "allow-unsafe?": True, "allow-compiler-markers?": True}, "limits": fixed_policies()["limits"]})
+    if jvm:
+        contract[key("schema")] = "ansatz-coherent-jvm-application-contract/1"
+        contract[key("profile")] = "ansatz-producer50f-coherent-jvm-application-consumer/1"
+        composition = contract[key("composition")]
+        composition[key("controllers")] = kws([{"id": k, "entrypoints": v} for k, v in controllers(True).items()])
+        composition[key("stages")] = [Keyword(x) for x in JVM_STAGES]
+        composition[key("application")] = application
     for row in contract[key("inventory")]:
         row[key("kind")] = Keyword(row[key("kind")])
     contract_path = pack.root / "contract.edn"
@@ -492,6 +537,9 @@ def main():
                         ("libjvm-sha256", "lib/server/libjvm.so"), ("modules-sha256", "lib/modules")]:
         check(digest(jdk_root / path) == jdk[field], "actual JDK path differs from observed build")
     launch = kws({"schema": "ansatz-coherent-launch/1", "commit": args.source_commit, "source-root": "selected", "class-root": "classes", "dependencies": dependencies, "inventory": inv, "direct-inputs": list(pack.inputs.values()), "external-stores": [{"role": Keyword("producer-declarations"), "root": str(store_root), "index-relative": "indexes/" + index.name, "index-sha256": store["index-sha256"]}], "contract-id": "contract.edn", "contract-sha256": digest(contract_path), "jdk": jdk, "entrypoint": "prototype.coherent-campaign/construct!", "execution": fixed_policies()["execution"]})
+    if jvm:
+        launch[key("schema")] = "ansatz-coherent-launch/2"
+        launch[key("entrypoint")] = "prototype.coherent-jvm-slice/construct!"
     for row in launch[key("inventory")]:
         row[key("kind")] = Keyword(row[key("kind")])
     (pack.root / "launch.edn").write_text(edn(launch) + "\n")

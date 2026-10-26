@@ -74,6 +74,11 @@ def main():
               "inventory": rows, "class-output-provenance": outputs, "dependencies": plan["dependencies"],
               "jdk": plan["jdk"], "compile-receipt-sha256": args.expected_compile_receipt_sha256,
               "capture-sha256": args.expected_capture_sha256, "build-plan-sha256": args.expected_build_plan_sha256}
+    if plan["schema"] == "coherent-java-build-plan/2":
+        result["schema"] = "coherent-observed-build/2"
+        result["dependency-lock-sha256"] = plan["dependency-lock-sha256"]
+    elif plan["schema"] != "coherent-java-build-plan/1":
+        raise ValueError("unsupported build plan schema")
     output = root / "observed-build.json"
     if output.exists():
         raise ValueError("new observation must not overwrite prior evidence")
