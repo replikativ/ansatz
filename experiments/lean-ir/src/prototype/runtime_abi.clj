@@ -169,8 +169,19 @@
 (defn scalar-description-token [] scalar-description-generation)
 
 (def ^:private scalar-wrapper-operations
-  {"lean_uint64_add" ["uint64" :add] "lean_uint64_sub" ["uint64" :sub]
-   "lean_usize_add" ["usize" :add] "lean_usize_sub" ["usize" :sub]})
+  {"lean_uint64_add" ["uint64" :add "uint64" :unsigned-bigint]
+   "lean_uint64_sub" ["uint64" :sub "uint64" :unsigned-bigint]
+   "lean_usize_add" ["usize" :add "usize" :unsigned-bigint]
+   "lean_usize_sub" ["usize" :sub "usize" :unsigned-bigint]
+   "lean_uint64_dec_eq" ["uint64" :eq "uint8" :long]
+   "lean_usize_dec_eq" ["usize" :eq "uint8" :long]})
+
+(defn scalar-operation
+  "Known unsigned semantic operation, independent of a declaration's IR carrier."
+  [symbol]
+  (when-let [[type operation result carrier] (get scalar-wrapper-operations symbol)]
+    {:domain :unsigned64 :operation operation :operand-types [type type]
+     :result-type result :lane :long-bits :result-carrier carrier}))
 
 (defn- scalar-name [name]
   (loop [part name pieces []]
@@ -191,9 +202,9 @@
 
 (defn validate-scalar-description!
   "Validate immutable selected ABI data. A description grants no execution or
-   source authority. This first scalar lane admits only four unsigned externs."
+   source authority. This scalar lane admits six versioned unsigned externs."
   [d]
-  (let [[type operation] (get scalar-wrapper-operations (:extern d))
+  (let [[type operation result-type] (get scalar-wrapper-operations (:extern d))
         p (:profile d) ps (:params d)]
     (when-not (and (contains? #{clojure.lang.PersistentArrayMap clojure.lang.PersistentHashMap} (class d))
                    (contains? #{clojure.lang.PersistentArrayMap clojure.lang.PersistentHashMap} (class p))
@@ -201,8 +212,10 @@
                      (set (keys d)))
                    (= "lean-scalar-wrapper/1" (:schema d)) type
                    (= :unsigned64 (:domain d)) (= operation (:operation d))
-                   (= :long-bits (:lane d)) (= "unsigned-wrapper/1" (:semantic-generation d))
-                   (= type (:result-type d))
+                   (= :long-bits (:lane d))
+                   (or (= "unsigned-wrapper/2" (:semantic-generation d))
+                       (and (not= :eq operation) (= "unsigned-wrapper/1" (:semantic-generation d))))
+                   (= result-type (:result-type d))
                    (= #{:schema :producer-commit :phase :word-bits :layout :abi-generation :target} (set (keys p)))
                    (= ["lean-block-profile/1" (get prim/pinned-build "lean_get_githash") :expanded-rc 64 :lean-64 :jvm]
                       (mapv p [:schema :producer-commit :phase :word-bits :layout :target]))
@@ -214,7 +227,7 @@
                                   (<= 0 (:id %) 65534)
                                   (= type (:type %)) (boolean? (:borrow %))) ps)
                    (= 2 (count (set (map :id ps))))
-                   (some #{{:params (mapv (fn [p] {:ty (:type p) :borrow (:borrow p)}) ps) :return-type type}}
+                   (some #{{:params (mapv (fn [p] {:ty (:type p) :borrow (:borrow p)}) ps) :return-type result-type}}
                          (get @signatures (:extern d))))
       (m/fail "Invalid scalar wrapper description" {}))
     ;; Copy closed plain data to discard metadata and caller containers.
@@ -228,13 +241,13 @@
   (when-let [ext (get-in row [:ir :extern])]
     (when (:redirect row) (m/fail "Redirected extern is not a scalar wrapper" {}))
     (let [{:keys [symbol]} (validate-extern! ext)]
-      (when-let [[type operation] (get scalar-wrapper-operations symbol)]
+      (when-let [[type operation result-type] (get scalar-wrapper-operations symbol)]
         (when-not (= (:name row) (:f ext)) (m/fail "Scalar wrapper name mismatch" {}))
         (validate-scalar-description!
          {:schema "lean-scalar-wrapper/1" :name (:f ext) :extern symbol
           :params (mapv (fn [p] {:id (get-in p [:x :idx]) :type (:ty p) :borrow (:borrow p)}) (:xs ext))
-          :result-type type :profile profile :domain :unsigned64 :operation operation
-          :lane :long-bits :semantic-generation "unsigned-wrapper/1"})))))
+          :result-type result-type :profile profile :domain :unsigned64 :operation operation
+          :lane :long-bits :semantic-generation "unsigned-wrapper/2"})))))
 
 (defn lower [row]
   (if (:redirect row) (lower-redirect row)

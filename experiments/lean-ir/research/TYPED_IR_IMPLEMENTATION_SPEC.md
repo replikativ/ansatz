@@ -300,11 +300,12 @@ Default lowering output is unchanged. Descriptors have closed fields:
           {:id 2 :type "uint64" :borrow false}]
  :result-type "uint64" :profile block-profile
  :domain :unsigned64 :operation :add :lane :long-bits
- :semantic-generation "unsigned-wrapper/1"}
+ :semantic-generation "unsigned-wrapper/2"}
 ```
 
 The profile is the M2 profile above, with the pinned producer commit. Only
-UInt64/USize add/sub are implemented, and only the 64-bit guest layout. The exact
+UInt64/USize add/sub were introduced in M3a; M3b also supports decEq in this
+same wrapper tier. Only the 64-bit guest layout is supported. The exact
 extern symbol determines the unsigned domain; IR `uint64` alone does not imply
 UInt64 rather than Int64. Selected registries contain at most 64 descriptors.
 Name spines have a 4096-part limit and parameter indices are at most 65534, leaving
@@ -369,6 +370,105 @@ REPL. It separates fresh plan compilation with already loaded compiler classes
 from warmed execution, includes thaw/run/freeze for mutable/JVM paths and checks
 complete Worlds outside timing. These small experiments do not establish steady
 host-JIT performance, whole-library coverage or hosted frontend acceptance.
+
+### Next general region increments
+
+The [tail-region plan](TYPED_TAIL_REGION_PLAN.md) fixes the next two increments.
+M3b provides the shared six-operation unsigned registry and bounded Pattern represented
+preparation, validating actual installed source/wrapper dependencies. M3c separately
+adds generic tail-region execution, exact carrier/materialization recipes and
+fuel-aware integration with existing drivers. Joins initially fall back because
+lexical scope does not reconstruct observable dynamic dead join history.
+
+A fueled region hook must always progress or stop. On guard/error-proof decline,
+materialize completed chunks at their next exact entry and use the mutable
+interpreter for the remaining prefix; do not redispatch a zero-step Running
+state or expose the generic compiler's older error-prefix limitation. Actual
+wrapper code, not only its descriptor, belongs to the dependency contract.
+
+### M3b represented preparation data contract
+
+```clojure
+(prototype.typed-tail/prepare-region
+  runtime-functions selected-typed-functions roots descriptors profile budgets)
+;; => {:status :ready :region region}, or explicit optimization fallback
+```
+
+This optional namespace requires the pinned experiment `:typed-tail` alias. Pattern
+is absent from the library's normal dependency/AOT path. The dedicated CI lane
+runs its tests with that alias and fails if the dependency is missing. LLVM is not
+required or loaded.
+
+M3b consumes M2 blocks with separate block IDs and canonical PCs, validates demanded
+actual source and extern code, and lowers operation forms with the real
+`TypedTailOp -> RepresentedTailOp` Pattern pass. The graph stores successor IDs,
+not recursive successor copies. It contains:
+
+```clojure
+{:schema "lean-represented-tail/1" :preparation-generation "typed-tail/1"
+ :profile profile :roots roots :pattern-commit pinned-pattern-commit
+ :functions {name {:params typed-parameters :result-type ir-type
+                   :entry block-id :entry-pc canonical-pc :origins producer-origins
+                   :canonical-instructions canonical-table
+                   :max-cost worst-logical-chunk-cost
+                   :expanded-operations preparation-estimate
+                   :blocks [{:id block-id :pc canonical-pc
+                             :typed-operation typed-form :operation represented-form
+                             :successors [block-id ...] :cost logical-instruction-cost
+                             :trace [logical-instruction ...] :carrier recipe
+                             :logical-frame-peak 0-or-1 :debug-scope derived-types} ...]}}
+ :descriptors demanded-validated-descriptors
+ :dependencies demanded-pure-code-facts :typed-code-keys demanded-M1-keys
+ :tail-graph direct-tail-edges :components strongly-connected-components
+ :budgets budgets :counts work-counts :key semantic-preparation-key}
+```
+
+The literal representation is
+`[:literal origin destination [:repr type :long-bits] value [:carrier :literal]]`.
+Intrinsic forms explicitly retain unsigned domain, operation, callee, arguments,
+result type/lane and carrier. Ordinary tail transfer records
+`:simultaneous-carriers`; return propagates its operand recipe. Literal recipes
+retain the exact immutable source integer and its class. Arithmetic recipes are
+unsigned BigInt; decEq recipes are Long. Distinct numeric carrier classes in actual
+code must match selected code exactly, even if Clojure numeric equality says the
+literal values are equal.
+
+Actual installed wrappers must match exact generated body, parameters and extern
+symbol. Source functions must match selected canonical code. Only demanded pure
+code facts are retained, never the whole runtime catalogue. Function root metadata
+is discarded; retained data boundaries and Names reject owner-bearing metadata or
+opaque values before hashing. Full M1 typed keys are computed after bounded
+validation and must have no opaque identity guards. Demanded descriptor profiles
+must match the region profile. Descriptions minted now use
+`unsigned-wrapper/2` for six operations; `unsigned-wrapper/1` stays valid only for
+the original four arithmetic externs.
+
+Budgets have the five M2 fields plus `:max-params`, `:max-emission`,
+`:max-constants` and `:max-chunk-cost`. Functions and parameters are capped at 16.
+The last three are preparation estimates: logical path cost is exact for the
+supported trace, expanded operations count CFG copies, and constants count planned
+operation sites. They are not a JVM method-size or emitted constant-pool proof.
+M3c must charge its actual expanded forms and constant pool before eval.
+Intrafunction cycle checks and DAG cost propagation precede region publication.
+Literal/case/tail/return cost one; a numeric call costs three with logical frame
+peak one, while a terminal intrinsic tail costs three without pushing a frame.
+Joins and non-intrinsic non-tail source calls fall back.
+
+The semantic key covers complete source typed keys, represented semantic fields,
+actual canonical wrapper facts, profile, budgets and preparation generation.
+Redundant canonical source bodies and derived debug scope prefix maps are omitted
+from generic key traversal: traversing every shared scope prefix would be quadratic.
+`:debug-scope` is not an authoritative emitter input. M3c must derive/check types
+from parameters and represented definitions; an editable map or caller-supplied
+cache key is not a typing or execution receipt.
+
+[Validation and preparation measurements](../measurements/typed-tail-preparation.json)
+cover actual imported sums, mutual tails with different arities, nested branches,
+identity, constant and terminal intrinsic shapes. The
+[small REPL benchmark](typed-tail-preparation-benchmark.clj) measures preparation
+with Pattern/classes already loaded and input decoding/key comparison excluded.
+There is no region executor in M3b. Native fixture values are executed through
+existing reference/wrapper backends; they do not establish represented execution.
 
 ## M4 kernel integration
 

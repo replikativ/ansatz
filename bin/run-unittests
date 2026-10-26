@@ -89,3 +89,11 @@ echo "Running portable RAW casesOn constructor and preseal policy tests"
 echo
 echo "Running fixture-free coherent consumer infrastructure tests"
 python3 experiments/lean-ir/scripts/test-coherent.py
+
+
+echo
+echo "Running optional Pattern typed tail-region preparation contracts"
+(
+  cd experiments/lean-ir
+  clojure -J-Xmx384m -J-Xss8m -M:typed-tail scripts/test-typed-tail.clj
+)

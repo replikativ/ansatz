@@ -502,7 +502,7 @@
             (not (contains? table symbol))))
      (defn builtin-scalar-arithmetic? [symbol operation]
        (let [[e n x a neg u p f] scalar-arithmetic-roots]
-         (and (contains? #{"lean_uint64_add" "lean_uint64_sub" "lean_usize_add" "lean_usize_sub"} symbol)
+         (and (contains? #{"lean_uint64_add" "lean_uint64_sub" "lean_usize_add" "lean_usize_sub" "lean_uint64_dec_eq" "lean_usize_dec_eq"} symbol)
               (identical? e evaluate) (identical? n numeric) (identical? x exact!)
               (identical? a add) (identical? neg negate) (identical? u unsigned)
               (identical? p pow2) (identical? f fail)

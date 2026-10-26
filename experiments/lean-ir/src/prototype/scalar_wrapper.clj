@@ -51,7 +51,8 @@
    (when-let [d (descriptor-for functions body options)]
     (let [[a b] (mapv :id (:params d)) dest (second body) continuation (nth body 3)
           operation (:operation d) symbol (:extern d) tokens (:scalar-wrapper-tokens options)
-          arithmetic (case operation :add `unchecked-add :sub `unchecked-subtract)
+          arithmetic (case operation :add `unchecked-add :sub `unchecked-subtract :eq `=)
+          comparison? (= :eq operation)
           abi-generation (abi/scalar-description-token)
           form `(fn [compiler-generation# abi-generation# tokens# continuation#]
                   (fn [machine#]
@@ -67,7 +68,7 @@
                             (let [left# (.longValue ^Number (aget ^"[Ljava.lang.Object;" locals# ~a))
                                   right# (.longValue ^Number (aget ^"[Ljava.lang.Object;" locals# ~b))
                                   bits# (~arithmetic left# right#)]
-                              (aset ^"[Ljava.lang.Object;" locals# ~dest (result-value bits#))
+                              (aset ^"[Ljava.lang.Object;" locals# ~dest (if ~comparison? (if bits# 1 0) (result-value bits#)))
                               (u/set-body! machine# continuation#)
                               :specialized))
                           (do (u/step! machine#) :interpreted)))

@@ -202,3 +202,27 @@
         (is (= :interpreted ((:execute! p) machine)))
         (is (= (u/freeze (u/step! (u/thaw start))) (u/freeze machine)))))
     (is (= :specialized ((:execute! (plan symbol)) (u/thaw start))))))
+
+(deftest versioned-shared-equality-registry-native-values-and-long-carriers
+  (let [rows (rest (read-rows "scalar-wrapper-programs.jsonl"))
+        fs (into {} (map abi/lower) rows)
+        descriptions (into {} (keep (fn [row] (when-let [d (abi/describe-scalar row profile)] [(:name d) d]))) rows)
+        options {:scalar-wrappers descriptions}
+        cases (rest (read-rows "scalar-wrapper-compare-native.jsonl"))
+        plans (into {} (for [[name d] descriptions :when (= :eq (:operation d))]
+                        [(:extern d) [name (block/compile-runtime-block fs (get-in fs [name :body]) options)]]))]
+    (is (= 6 (count descriptions)))
+    (is (= 162 (count cases)))
+    (doseq [{:keys [symbol a b result]} cases]
+      (let [[name p] (get plans symbol) start (m/start (m/world fs) name [(carrier a) (carrier b)])
+            machine (u/thaw start) dest (second (get-in fs [name :body]))]
+        (is (= :specialized ((:execute! p) machine)))
+        (is (= (Long/parseLong result) (get-in (u/freeze machine) [:locals dest])))
+        (is (= Long (class (get-in (u/freeze machine) [:locals dest]))))
+        (is (= (m/step start) (u/freeze machine)))))
+    (let [d (first (filter #(= :add (:operation %)) (vals descriptions)))
+          legacy (assoc d :semantic-generation "unsigned-wrapper/1")]
+      (is (= legacy (abi/validate-scalar-description! legacy))))
+    (let [d (first (filter #(= :eq (:operation %)) (vals descriptions)))]
+      (is (= "unsigned-wrapper/2" (:semantic-generation d)))
+      (is (thrown? clojure.lang.ExceptionInfo (abi/validate-scalar-description! (assoc d :semantic-generation "unsigned-wrapper/1")))))))
