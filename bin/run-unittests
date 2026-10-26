@@ -2,10 +2,10 @@
 
 set -eo pipefail
 
-echo "Checking optional Lean runtime source closure"
+echo "Checking optional Lean source closure and audit contracts"
 (
   cd modules/lean
-  clojure -J-Xmx384m -T:build check-closure
+  clojure -J-Xmx384m -T:build check-package
 )
 
 echo "Running fixture-free JVM unit tests"

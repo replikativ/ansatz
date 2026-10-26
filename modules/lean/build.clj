@@ -3,7 +3,8 @@
   (:require [clojure.tools.build.api :as b]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [build-audit :as audit]))
 
 (def lib 'org.replikativ/ansatz-lean)
 (def class-dir "target/classes")
@@ -33,6 +34,8 @@
     (doseq [path (:resources closure)]
       (when-not (= "prototype/runtime_signatures.edn" path)
         (throw (ex-info "Unaudited runtime resource" {:path path}))))
+    (audit/verify! closure root "src")
+    (audit/verify-dependency! (edn/read-string (slurp "deps.edn")))
     closure))
 
 (defn check-closure
@@ -42,6 +45,54 @@
     (println "Optional Lean runtime closure verified:" (count (:sources closure)) "sources")
     {:source-count (count (:sources closure))
      :resource-count (count (:resources closure))}))
+
+(defn test-audit
+  "Reader/inventory negative tests, without optional compiler/core namespaces."
+  [_]
+  (load-file "test/build_audit_test.clj")
+  (let [result ((resolve 'build-audit-test/run-tests!))]
+    (when-not (and (= 3 (:test result)) (zero? (+ (:fail result) (:error result))))
+      (throw (ex-info "Optional package audit tests failed" result)))
+    result))
+
+(defn check-package
+  "One tool JVM for the strict inventory and its negative audit contracts."
+  [_]
+  {:closure (check-closure {}) :audit-tests (test-audit {})})
+
+(defn consumer-bases
+  "Resolve isolated core-only and compiler consumer classpaths. Never append a
+   different resolved closure: each output has one selected coordinate per lib."
+  [{:keys [core-jar module-jar output-dir]}]
+  (doseq [path [core-jar module-jar]]
+    (when-not (and (string? path) (.isFile (io/file path)) (str/ends-with? path ".jar"))
+      (throw (ex-info "Explicit existing consumer input jars required" {}))))
+  (let [core (.getCanonicalPath (io/file core-jar))
+        module (.getCanonicalPath (io/file module-jar))
+        resolve-basis (fn [deps]
+                        (let [basis (b/create-basis
+                                     {:root nil :user nil :project nil
+                                      :extra {:paths [] :deps deps
+                                              :mvn/repos {"central" {:url "https://repo.maven.apache.org/maven2/"}
+                                                          "clojars" {:url "https://repo.clojars.org/"}}}})
+                              roots (:classpath-roots basis)]
+                          (when-not (and (= (count roots) (count (set roots)))
+                                         (every? #(and (.isFile (io/file %)) (str/ends-with? % ".jar")) roots))
+                            (throw (ex-info "Consumer basis must contain unique jars only" {})))
+                          {:jars roots :libs (update-vals (:libs basis) #(select-keys % [:mvn/version :local/root :paths]))}))
+        default (resolve-basis {'org.replikativ/ansatz {:local/root core}})
+        enabled (resolve-basis {'org.replikativ/ansatz {:local/root core}
+                                'org.replikativ/ansatz-lean {:local/root module}})
+        result {:schema "lean-consumer-bases/1" :configuration {:root nil :user nil :project nil}
+                :pattern-profile :module-pom
+                :default default :enabled enabled}]
+    (.mkdirs (io/file output-dir))
+    (spit (io/file output-dir "consumer-bases.edn") (pr-str result))
+    (doseq [[label data] [[:default default] [:enabled enabled]]]
+      (spit (io/file output-dir (str (name label) ".cp"))
+            (str/join java.io.File/pathSeparator (:jars data))))
+    (println "Isolated consumer jars:" {:default (count (:jars default)) :enabled (count (:jars enabled))})
+    result))
 
 (defn jar
   "Run from modules/lean. Requires an explicit pinned core jar and its actual
@@ -56,8 +107,9 @@
         basis (b/create-basis {:project "deps.edn"
                                :extra {:deps {'org.replikativ/ansatz {:local/root core-jar}}}})
         ;; Published POM uses the pinned core Maven coordinate, not local paths.
-        pom-basis (assoc-in basis [:libs 'org.replikativ/ansatz]
-                            {:mvn/version core-version})]
+        ;; Only declared module dependencies enter the POM, not CLI/tool defaults.
+        pom-basis (assoc basis :libs {'org.replikativ/ansatz {:mvn/version core-version}
+                                     'org.replikativ/pattern (select-keys audit/pattern-profile [:mvn/version])})]
     (b/delete {:path class-dir})
     (b/delete {:path jar-file})
     (b/copy-dir {:src-dirs ["src"] :target-dir class-dir})
@@ -66,6 +118,9 @@
             target (io/file class-dir path)]
         (io/make-parents target)
         (io/copy source target)))
+    (let [target (io/file class-dir "META-INF/ansatz-lean/runtime-closure.edn")]
+      (io/make-parents target)
+      (io/copy (io/file "runtime-closure.edn") target))
     (b/javac {:src-dirs ["src-java"] :class-dir class-dir :basis basis
               :javac-opts ["--release" "11"]})
     (b/write-pom {:class-dir class-dir :lib lib :version version

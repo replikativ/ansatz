@@ -1,7 +1,11 @@
 {:paths ["src" "target/classes"]
- :deps {org.replikativ/ansatz {:local/root "../../target/ansatz.jar"}}
+ :deps {org.replikativ/ansatz {:local/root "../../target/ansatz.jar"}
+        org.replikativ/pattern {:mvn/version "1.0.452"}}
  :aliases
- {:dev {:override-deps {org.replikativ/ansatz {:local/root "../.."}}
+ {:pattern-git {:override-deps {org.replikativ/pattern
+                              {:git/url "https://github.com/replikativ/pattern.git"
+                               :git/sha "6d0242ee589d88b336f7dd6f820efa993d2b6f3b"}}}
+  :dev {:override-deps {org.replikativ/ansatz {:local/root "../.."}}
         :extra-paths ["../../experiments/lean-ir/src" "test"]}
   :test {:extra-paths ["test"]
          :main-opts ["-m" "ansatz.lean-test"]}
