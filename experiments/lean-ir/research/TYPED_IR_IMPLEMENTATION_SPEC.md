@@ -707,7 +707,9 @@ and sessions without retry or external-effect rollback.
 A String callback variant delegates to the unchanged `typed-extern` adapter,
 passing its original context and aliased inputs after the same selected helper.
 Owned/owned and owned/borrowed aliases retain an external owner. Result encoding
-precedes owned-input discharge; returned result ownership remains explicit.
+precedes owned-input discharge. The current String codec returns an immediate
+immutable JVM String, so that result has no guest Ref or RC owner; genuine guest
+String input Refs retain separately counted owners. No allocated result is invented.
 Host exceptions preserve typed owner stages and the raw checkpoint/session.
 The frontend, Java/boxed calls and EIO protocols require their own integration
 evidence; these hand-built callback callers do not imply their acceptance.

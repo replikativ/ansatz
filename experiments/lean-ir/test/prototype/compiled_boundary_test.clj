@@ -9,6 +9,7 @@
             [prototype.typed-tail-execution :as execution]
             [prototype.raw-interop :as raw]
             [prototype.typed-extern :as typed]
+            [prototype.typed-extern-test :as typed-fixture]
             [prototype.interop-codec :as codec]
             [prototype.machine :as m]
             [prototype.mutable :as u]
@@ -17,6 +18,7 @@
   (:import [ansatz.kernel Env]))
 
 (def backends [:reference :mutable :jvm])
+(def boundary-text (str "boundary λ" (char 0)))
 (def control-keys [:body :locals :joins :frames :status :result :resume-var :host-request])
 (def storage-keys [:heap :next-id :globals :events :kernel-environments])
 
@@ -72,6 +74,7 @@
               :let [s (session functions {} backend input cache 10000)
                     completed (raw/call s world target args)]]
         (is (= terminal (:state completed)))
+        (is (= (execution-fixture/carrier-shape terminal) (execution-fixture/carrier-shape (:state completed))))
         (is (= (select-keys world storage-keys) (select-keys (:state completed) storage-keys)))
         (is (identical? (:env admitted) (get-in completed [:state :kernel-environments (:id anchor) :env])))
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"different world"
@@ -80,12 +83,16 @@
                 :let [prefix (:state (raw/advance-to-boundary (assoc s :fuel fuel) initial))
                       expected (m/run initial fuel)]]
           (is (= expected prefix))
+          (is (= (execution-fixture/carrier-shape expected) (execution-fixture/carrier-shape prefix)))
           (is (= (select-keys world storage-keys) (select-keys prefix storage-keys)))
           (when (= :paused (:status prefix))
             (let [saved prefix
                   left (raw/continue s (m/resume saved nil))
                   right (raw/continue s (m/resume saved nil))]
               (is (= terminal (:state left) (:state right)))
+              (is (= (execution-fixture/carrier-shape terminal)
+                     (execution-fixture/carrier-shape (:state left))
+                     (execution-fixture/carrier-shape (:state right))))
               (is (= saved prefix))))))
       (is (compiled-helper? @events)))
     (is (= initial (m/start world target args)))
@@ -160,9 +167,14 @@
         (is (= 1 @effects))
         (is (= 1 (count @controls)))
         (is (apply = (first @controls)))
+        (when (and (= :jvm backend) (not= :success mode))
+          (is (pos? (:cache-hits (lazy/summary (:program s))))))
         (when (= :jvm backend) (is (compiled-helper? (subvec @events seen)))))
       (is (apply = @results))
-      (doseq [snapshots (vals @failures)] (is (apply = snapshots))))
+      (is (apply = (map execution-fixture/carrier-shape @results)))
+      (doseq [snapshots (vals @failures)]
+        (is (apply = snapshots))
+        (is (apply = (map execution-fixture/carrier-shape snapshots)))))
     (is (empty? (:events world)))
     (is (nil? (:status world)))))
 
@@ -181,7 +193,7 @@
                                      callback {:params [1 2] :raw-extern {:symbol symbol :signature signature}
                                                :body [:host symbol [[:var 1] [:var 2]] 3 [:return [:var 3]]]})
                     base (:world (checked-world functions))
-                    [world input-ref] (encode base :string "boundary λ\u0000")
+                    [world input-ref] (typed-fixture/guest-string base boundary-text)
                     world (m/retain world input-ref 2)
                     snapshots (atom [])]]
         (doseq [backend backends
@@ -221,17 +233,25 @@
                 (swap! snapshots conj (:checkpoint data)))
               (let [{:keys [state value]} (raw/call s world caller [input-ref input-ref])
                     owned (count (filter #{:owned} ownerships))]
-                (is (= "boundary λ\u0000" (codec/decode-boxed state :string value)))
+                (is (= boundary-text (codec/decode-boxed state :string value)))
+                (is (string? value))
+                (is (not (m/ref? value)))
                 (is (not= input-ref value))
-                (is (= 1 (:rc (m/node state value))))
                 (is (= (- 3 owned) (:rc (m/node state input-ref))))
                 (is (= input-ref (get-in state [:locals 1])))
                 (is (= input-ref (get-in state [:locals 2])))
                 (is (= 1 @encodings))
-                (is (not (contains? (:heap (m/release state value 1)) (:id value))))
+                ;; String encoding returns an immediate immutable JVM String,
+                ;; not an allocated guest Ref. Its release is a no-op; real
+                ;; aliased guest input owners remain independently observable.
+                (is (= state (m/release state value 1)))
+                (is (= (:next-id world) (:next-id state)))
+                (is (not (contains? (:heap (m/release state input-ref (- 3 owned))) (:id input-ref))))
                 (is (= (:kernel-environments world) (:kernel-environments state)))
                 (swap! snapshots conj state))))
           (is (= 1 @effects))
           (is (= 3 (:rc (m/node world input-ref))))
+          (when (and (= :jvm backend) fail?)
+            (is (pos? (:cache-hits (lazy/summary (:program s))))))
           (when (= :jvm backend) (is (compiled-helper? (subvec @events seen)))))
         (is (apply = @snapshots))))))
