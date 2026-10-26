@@ -143,8 +143,7 @@
             world (:world installed)
             session @active
             next-session (raw/open-functions (:functions world) bindings
-                           (assoc (select-keys session [:backend :fuel :compile-threshold])
-                             :cache (or (get-in session [:program :cache]) (:cache session))))
+                           (raw/session-options session))
             _ (reset! active next-session)
             _ (record! world next-session :session-reopened)]
         (assoc base :world world :session next-session

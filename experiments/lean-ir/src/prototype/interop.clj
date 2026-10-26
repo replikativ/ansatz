@@ -7,7 +7,8 @@
             [prototype.interop-codec :as codec]
             [prototype.machine :as m]
             [prototype.mutable :as u]
-            [prototype.lazy-runtime :as lazy]))
+            [prototype.lazy-runtime :as lazy]
+            [prototype.session-compiler-options :as compiler]))
 
 (defn extern-symbol [decl]
   (or (runtime-abi/symbol-for decl)
@@ -39,24 +40,30 @@
       (runtime-abi/lower row)
       (lower-host bindings row))))
 
-(defn open-functions [functions bindings backend cache]
+(defn open-functions
+  ([functions bindings backend cache] (open-functions functions bindings backend cache {}))
+  ([functions bindings backend cache {:keys [compiler-options] :as options}]
    (when-not (contains? #{:reference :mutable :jvm} backend) (m/fail "Unknown backend" {:backend backend}))
-   (let [signatures (reduce (fn [signatures [_ f]]
+   (let [selection (when (contains? options :compiler-options) (compiler/validate functions compiler-options))
+         signatures (reduce (fn [signatures [_ f]]
                               (if-let [{:keys [symbol params]} (:extern f)]
                                 (let [shape (mapv #(select-keys % [:ty :borrow]) params)]
                                   (when-let [old (get signatures symbol)]
                                     (when-not (= shape (mapv #(select-keys % [:ty :borrow]) old))
                                       (m/fail "Incompatible declarations for host symbol" {:symbol symbol})))
                                   (assoc signatures symbol params)) signatures)) {} functions)]
-     {:functions functions :bindings bindings :signatures signatures :backend backend
-      :program (when (= :jvm backend) (lazy/open-program functions {} cache)) :fuel 1000000}))
+     (cond-> {:functions functions :bindings bindings :signatures signatures :backend backend
+              :program (when (= :jvm backend) (lazy/open-program functions selection cache)) :fuel 1000000}
+       (contains? options :compiler-options) (assoc :compiler-options selection)))))
 
 (defn open-session
   ([catalogue roots bindings] (open-session catalogue roots bindings :jvm))
   ([catalogue roots bindings backend]
    (open-session catalogue roots bindings backend (lazy/code-cache)))
   ([catalogue roots bindings backend cache]
-   (open-functions (ir/load-closure catalogue roots #(lower bindings %)) bindings backend cache)))
+   (open-session catalogue roots bindings backend cache {}))
+  ([catalogue roots bindings backend cache options]
+   (open-functions (ir/load-closure catalogue roots #(lower bindings %)) bindings backend cache options)))
 
 (defn resolve [session name]
   (if (vector? name)

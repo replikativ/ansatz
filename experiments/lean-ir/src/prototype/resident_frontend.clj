@@ -380,8 +380,7 @@
         (when (contains? (:bindings session) symbol)
           (fail "Resident extern configuration cannot replace an existing capability" {:symbol symbol})))
       (let [next-session (raw/open-functions (:functions session) (merge (:bindings session) bindings)
-                                             (assoc (select-keys session [:backend :fuel :compile-threshold])
-                                                    :cache (or (get-in session [:program :cache]) (:cache session))))
+                                             (raw/session-options session))
             ;; The complete retained/admitted binding registry shares one root
             ;; budget; repeated additions cannot bypass aggregate bounds.
             roots (dependencies/declared-roots (:bindings next-session))

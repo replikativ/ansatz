@@ -16,7 +16,8 @@
             [prototype.program-install :as install]
             [prototype.machine :as m]
             [prototype.mutable :as u]
-            [prototype.lazy-runtime :as lazy])
+            [prototype.lazy-runtime :as lazy]
+            [prototype.session-compiler-options :as compiler])
   (:import [java.util WeakHashMap]))
 
 (defn- fail [message data] (throw (ex-info message data)))
@@ -54,7 +55,8 @@
 
 (defn open-functions
   ([functions bindings] (open-functions functions bindings {}))
-  ([functions bindings {:keys [backend fuel cache compile-threshold] :or {backend :jvm fuel 1000000 compile-threshold 1}}]
+  ([functions bindings {:keys [backend fuel cache compile-threshold compiler-options] :as options
+                        :or {backend :jvm fuel 1000000 compile-threshold 1}}]
    (when-not (contains? #{:reference :mutable :jvm} backend) (fail "Unknown raw runtime backend" {:backend backend}))
    (when-not (and (integer? fuel) (<= 0 fuel Long/MAX_VALUE)) (fail "Invalid raw runtime budget" {:fuel fuel}))
    (when-not (and (integer? compile-threshold) (<= 1 compile-threshold Integer/MAX_VALUE))
@@ -63,15 +65,20 @@
    (doseq [[name function] functions :let [ext (:raw-extern function)] :when ext]
      (when-not (= (:signature ext) (:signature (get bindings (:symbol ext))))
        (fail "Raw runtime session ABI mismatch" {:name name :symbol (:symbol ext)})))
-   (let [cache (or cache (when (= :jvm backend) (lazy/code-cache)))]
+   (let [selection (when (contains? options :compiler-options) (compiler/validate functions compiler-options))
+         cache (or cache (when (= :jvm backend) (lazy/code-cache)))]
      (cond-> {:functions functions :bindings bindings :backend backend :fuel fuel :compile-threshold compile-threshold
-              :program (when (= :jvm backend) (lazy/open-program functions {:compile-threshold compile-threshold} cache))}
+              :program (when (= :jvm backend) (lazy/open-program functions (assoc selection :compile-threshold compile-threshold) cache))}
        ;; Retain the same cache capability through a temporary mutable/reference
        ;; session, so switching back need not discard already compiled blocks.
-       cache (assoc :cache cache)))))
+       cache (assoc :cache cache)
+       (contains? options :compiler-options) (assoc :compiler-options selection)))))
 
-(defn- session-options [session]
-  (cond-> (select-keys session [:backend :fuel :compile-threshold])
+(defn session-options
+  "Raw public options for reopening this session. Compiler selections are raw data,
+   revalidated against the next executable map; optimization caches stay shared."
+  [session]
+  (cond-> (select-keys session [:backend :fuel :compile-threshold :compiler-options])
     (or (get-in session [:program :cache]) (:cache session))
     (assoc :cache (or (get-in session [:program :cache]) (:cache session)))))
 

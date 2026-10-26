@@ -1,5 +1,5 @@
 ;; Explicit optional compiler lane. Missing Pattern is a failure, never a skip.
-(require '[clojure.test :as t] 'prototype.typed-tail-test 'prototype.typed-tail-execution-test)
+(require '[clojure.test :as t] 'prototype.typed-tail-test 'prototype.typed-tail-execution-test 'prototype.session-compiler-options-test)
 (def seen (atom #{}))
 (defmethod t/report :begin-test-var [event] (swap! seen conj (:var event)))
 (defmethod t/report :fail [event]
@@ -8,10 +8,10 @@
 (defmethod t/report :error [event]
   (t/inc-report-counter :error)
   (println "TYPED_TAIL_TEST_ERROR" (.getName (class (:actual event)))))
-(let [namespaces ['prototype.typed-tail-test 'prototype.typed-tail-execution-test]
+(let [namespaces ['prototype.typed-tail-test 'prototype.typed-tail-execution-test 'prototype.session-compiler-options-test]
       expected (set (for [n namespaces [_ v] (ns-publics n) :when (:test (meta v))] v))
       result (apply t/run-tests namespaces)]
   (shutdown-agents)
-  (System/exit (if (and (= 23 (count expected) (:test result)))
+  (System/exit (if (and (= 29 (count expected) (:test result)))
                 (if (and (= expected @seen) (zero? (+ (:fail result) (:error result)))) 0 1)
                 1)))
