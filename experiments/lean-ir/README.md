@@ -1,5 +1,10 @@
 # Lean IR runtime REPL experiment
 
+The draft [typed IR and Pattern design](research/TYPED_IR_PATTERN_DESIGN.md)
+maps a proposed typed compiler pipeline, pass contracts and snapshot boundaries.
+Its [executable instruction fragment](research/typed-ir-pattern-example.clj)
+checks one UInt64 lowering with Pattern; the general pipeline remains proposed.
+
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.
 Construction and preparation remain separate from kernel admission and whole
