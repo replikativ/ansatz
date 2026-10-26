@@ -12,7 +12,10 @@ now validates selected control flow and reconstructs canonical interpreter bodie
 Execution of the new block encoding remains a later step. Opt-in
 [unsigned wrapper specialization](measurements/scalar-wrapper-specialization.json)
 now compiles selected UInt64/USize add/sub wrapper instructions on the existing
-JVM backends; guest calls and returns remain explicit.
+JVM backends; guest calls and returns remain explicit. The optional
+[typed tail-region preparation](measurements/typed-tail-preparation.json) now uses
+Pattern to build validated graph, trace and carrier data; region execution follows
+in the next increment.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.

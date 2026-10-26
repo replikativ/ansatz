@@ -1,0 +1,77 @@
+{
+  "schema": "typed-tail-program-values/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "cases": [
+    {
+      "function": "bounceA",
+      "args": [
+        "10",
+        "0"
+      ],
+      "result": "35"
+    },
+    {
+      "function": "bounceB",
+      "args": [
+        "10",
+        "0",
+        "3"
+      ],
+      "result": "32"
+    },
+    {
+      "function": "nested",
+      "args": [
+        "0",
+        "0"
+      ],
+      "result": "7"
+    },
+    {
+      "function": "nested",
+      "args": [
+        "0",
+        "9"
+      ],
+      "result": "8"
+    },
+    {
+      "function": "nested",
+      "args": [
+        "2",
+        "3"
+      ],
+      "result": "5"
+    },
+    {
+      "function": "identity64",
+      "args": [
+        "18446744073709551615"
+      ],
+      "result": "18446744073709551615"
+    },
+    {
+      "function": "constant64",
+      "args": [
+        "123"
+      ],
+      "result": "7"
+    },
+    {
+      "function": "terminalAdd",
+      "args": [
+        "18446744073709551615",
+        "1"
+      ],
+      "result": "0"
+    },
+    {
+      "function": "terminalEq",
+      "args": [
+        "18446744073709551615",
+        "18446744073709551615"
+      ],
+      "result": "1"
+    }
+  ]
+}

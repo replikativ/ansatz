@@ -20,5 +20,5 @@
                         (t/do-report (assoc @t/*report-counters* :type :summary))
                         @t/*report-counters*)]
   (shutdown-agents)
-  (System/exit (if (and (= 53 (count expected) (+ (:test result) (:test targeted-result))) (= expected @seen)
+  (System/exit (if (and (= 54 (count expected) (+ (:test result) (:test targeted-result))) (= expected @seen)
                        (zero? (+ (:fail result) (:error result) (:fail targeted-result) (:error targeted-result)))) 0 1)))
