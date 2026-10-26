@@ -31,6 +31,10 @@ threads explicit `:compiler-options` through existing interop sessions and front
 reopens. Its [focused boundary tests](measurements/session-compiler-options.json)
 cover selected scalar execution, callbacks and retained caches; genuine hosted
 frontend and Java compiler-tier acceptance remain separate.
+The [bounded kernel/callback composition](measurements/compiled-boundaries.json)
+checks actual kernel admission followed by independent scalar execution, scoped
+callback reentry and typed String ownership; its host anchors and callers are
+explicit fixtures, with genuine hosted acceptance still separate.
 
 Data-only [Nat preparation](measurements/nat-preparation.json) additionally retains
 object-family numeric literals and exact RC annotations, with directional boxed

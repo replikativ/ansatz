@@ -681,6 +681,45 @@ The [focused validation record](../measurements/session-compiler-options.json)
 records six passing boundary tests and 65 existing/composed session regressions
 in the shared resident REPL. Frontend helpers in that slice are modeled; genuine hosted acceptance remains separate.
 
+### Bounded kernel and callback composition
+
+The compiled boundary fixture composes the actual guest constructor layout,
+`kernel-bridge/admit-definition` and Java checker with subsequent execution of
+independent pinned exported `sum64` IR in the same World. The checked Nat
+`BoundaryAnswer` body is 42; the scalar sum remains a separate program. This
+fixture does not establish that the admitted declaration generated that IR or
+that scalar compiler correctness follows from checking its Nat value.
+
+The fixture's explicit host anchor preserves the actual returned Java Env and
+guest declaration graph across complete scalar fuel prefixes and saved siblings.
+It is not a guest Lean Environment implementation, protected association minting,
+source admission or a hosted frontend. Projection still borrows its exact World;
+reusing a projector with a returned execution World fails its existing guard.
+
+Raw callback fixtures use an explicit UInt64 ABI and an ordinary outer guest
+continuation. The handler invokes selected `sum64` through its scoped existing
+`:invoke`, then checks exact control restoration, helper-step charges and full
+interpreter/mutable/JVM state parity. Paired artifact/execution events must show
+`[:typed-tail :specialized]` in the frame-cleared helper. Success and post-effect
+failure each invoke the host once; failed invocations retain exact checkpoints
+and sessions without retry or external-effect rollback. Successful helper returns
+compare the complete restored reference World, including steps. A throwing generic
+helper preserves its last published raw checkpoint; its unreported consumed steps
+are not reconstructed or claimed by this fixture.
+
+A String callback variant delegates to the unchanged `typed-extern` adapter,
+passing its original context and aliased inputs after the same selected helper.
+Owned/owned and owned/borrowed aliases retain an external owner. Result encoding
+precedes owned-input discharge. The current String codec returns an immediate
+immutable JVM String, so that result has no guest Ref or RC owner; genuine guest
+String input Refs retain separately counted owners. No allocated result is invented.
+Host exceptions preserve typed owner stages and the raw checkpoint/session.
+The frontend, Java/boxed calls and EIO protocols require their own integration
+evidence; these hand-built callback callers do not imply their acceptance.
+The [validation record](../measurements/compiled-boundaries.json) records three
+passing tests, the corrected String-carrier fixture mistake and the exact
+inherited-runtime/source evidence scope.
+
 ## M6 REPL versions and ownership
 
 Loading A and then edited B creates distinct code/environment images. A retained
