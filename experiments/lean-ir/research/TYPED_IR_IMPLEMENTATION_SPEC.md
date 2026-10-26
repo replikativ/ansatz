@@ -241,6 +241,36 @@ roundtrip tests execute reconstructed legacy bodies on existing backends; they
 do not claim that the new block encoding executes independently. Native value
 and ABI conformance and optimized chunk reconstruction remain M3 gates.
 
+### Object-family literal and RC preparation before Nat execution
+
+M2 additionally retains nonnegative numeric literal facts for `object`, `tagged`
+and `tobject`, preserving the declared IR type and exact host carrier/value.
+These are structural producer facts, not an independent native layout, Nat-domain
+or small-immediate proof. Deliberately oversized tagged literals remain data only;
+future represented Nat lowering must check actual literal ranges. `void` does not
+participate in this extension. Existing unboxed scalar range checks remain intact.
+
+Transfer compatibility is exact equality plus the explicit directional widenings
+`object -> tobject` and `tagged -> tobject`. The converse and `object <-> tagged`
+still fall back. Borrow facts remain separate. Pinned Lean's checker does not
+require exact full-call operand types, so unavailable stronger representation
+proofs disable optimization rather than declaring those upstream programs invalid.
+
+Canonical `:inc`/`:dec` blocks retain local ID/type, count and producer check and
+persistent annotations. Each costs one canonical instruction, preserves scope,
+and has an identity-register `:next` transfer. A canonical four-field RC instruction
+means persistent=false; the fifth field is admitted only when exactly true.
+The producer check bit remains provenance: ordinary lowering omits it, the pinned
+native interpreter ignores it and hosted persistent checks have their existing
+semantics. No RC instruction is eliminated by preparation.
+
+M3b selection explicitly declines these new RC/object-local forms before Pattern;
+no accidental Nat lanes reach the scalar emitter. The
+[bounded preparation plan](NAT_PREPARATION_PLAN.md) and
+[validation record](../measurements/nat-preparation.json) cover actual producer
+rows, borrowed Nat.add behavior, exact carrier/annotation roundtrip and RC prefixes.
+No arithmetic, MPZ allocation, heartbeat or runtime ownership policy changes here.
+
 ## M3 represented operations and JVM execution
 
 Logical IR types and operation domains remain distinct from storage lanes.

@@ -1,0 +1,128 @@
+{
+  "schema": "nat-preparation-validation/1",
+  "scope": "Data-only M2 object-family numeric literals, RC facts and conservative directional representation compatibility; no compiled Nat execution",
+  "source-sha256": {
+    "experiments/lean-ir/README.md": "bc7aef06d8f0b4cd2b7ed48200fc044df9700d71394c9e6f62eb1a9468841816",
+    "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": "607ad25ef9b7c0630edd22ab7a4005590495a4784a38c1bcb0dd1bb4fc324af4",
+    "experiments/lean-ir/research/NAT_PREPARATION_PLAN.md": "7fedee53e41123ec548fc0eb0b60725d036e7f9fc29307e83923156b7dbe8a09",
+    "experiments/lean-ir/scripts/test-cold-check-progress.clj": "5aed94822a4a701e5cd3e4f81819597146bfe46942966f365959870f82bea9a5",
+    "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
+    "experiments/lean-ir/src/prototype/typed_tail.clj": "6285f44e7f8175846a8ca5a4aa7a9f78c5dfbb9e0685c32d8f8d059e6e2b5975",
+    "experiments/lean-ir/test/prototype/nat_preparation_test.clj": "58ac73b985198c79eff518a91bb2256c7cd5eddd0ff51c39392552a96a3abe35",
+    "experiments/lean-ir/test/prototype/typed_tail_test.clj": "2d86b7ba932e5a12b34367ede4202a4d3a684c372d82ccfdba570c0c255273f8",
+    "experiments/lean-ir/fixtures/globals.jsonl": "8feea862d93ea229a7c9a50a612135fc38f7a763eead44069192dcb750c51aea",
+    "experiments/lean-ir/src/prototype/import_ir.clj": "08189f0549a88f7dfb5bba8e2f59e06b4733d460ec54a3f4752c7bce37d6ee81",
+    "experiments/lean-ir/src/prototype/typed_ir.clj": "4351688ed417664e1efb4da4c13979cdf774bedc5f87d023f0ceb6252ee3c0f0",
+    "experiments/lean-ir/src/prototype/runtime_abi.clj": "45df0a1d84a964d82982906046f7ec970da0d538609139b7a9c6b05570c62e3a",
+    "experiments/lean-ir/src/prototype/machine.cljc": "bfa6d02190a580b816edbdd4ba4ab8b7ccba5bf51856c9d605291bcd8423f5cc",
+    "experiments/lean-ir/src/prototype/mutable.clj": "a065a7908077c5bdcc951a68c9250161aef17189dda8f8d3c4253a2508a2a2e1"
+  },
+  "upstream": {
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "sources": [
+      "src/Lean/Compiler/IR/Basic.lean",
+      "src/Lean/Compiler/IR/Checker.lean",
+      "src/library/ir_interpreter.cpp"
+    ],
+    "evidence": "Read exact pinned git-show source locally. Checker full calls validate arity/scope, RC validates local scope; stronger compatibility is preparation policy, not a claim all valid native IR is checked."
+  },
+  "implementation": {
+    "schema": "lean-blocks/1 additive data forms",
+    "new-literal-facts": [
+      "object",
+      "tagged",
+      "tobject"
+    ],
+    "literal-proof": "Declared IR annotation and exact immutable carrier/value only; no independent native layout/nonreference/Nat/small-immediate proof, even deliberately huge tagged test literals",
+    "new-rc-facts": [
+      "op",
+      "pc",
+      "id",
+      "type",
+      "count",
+      "check",
+      "persistent"
+    ],
+    "rc-transfer": "one canonical instruction; identity-register :next; scope unchanged; exact canonical 4/5-field reconstruction",
+    "producer-check": "retained provenance only; omitted by ordinary lowering, not a new native or hosted semantic rule",
+    "directional-widenings": [
+      "object->tobject",
+      "tagged->tobject"
+    ],
+    "excluded-widenings": [
+      "tobject->object",
+      "tobject->tagged",
+      "object->tagged",
+      "tagged->object",
+      "void->tobject"
+    ],
+    "represented-scalar-path": "explicit fallback before Pattern for RC and object local literals",
+    "runtime/ABI/MPZ-changes": false
+  },
+  "runs": [
+    {
+      "name": "final Nat preparation focused",
+      "tests": 6,
+      "assertions": 386,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "bounded M2/M1/Pattern/M3c/wrapper/key/dependency/slot regression",
+      "tests": 74,
+      "assertions": 15082,
+      "failures": 0,
+      "errors": 0,
+      "overlaps-focused": true
+    },
+    {
+      "name": "separate peer session request in same serial resident",
+      "tests": 6,
+      "assertions": 60,
+      "failures": 0,
+      "errors": 0,
+      "scope": "Peer session source was explicitly loaded then finally restored; not Nat feature acceptance or part of74count."
+    }
+  ],
+  "checks": [
+    "Actual pinned exported GlobalProbe.noncapturing tagged literal -> Nat.add borrowing signature, preserved canonical body",
+    "Actual Nat.add invocation over existing owned and modeled imported MPZ refs: input unchanged, exact host big integer result, no logical guest allocation; every small fuel on reference/mutable/JVM after reconstruction",
+    "Actual GlobalProbe.readValues persistent inc annotation; GlobalProbe.values represented only by known signature boundary, not fabricated native extern authority",
+    "Long/BigInt/BigInteger and large literal carrier identity/value/type roundtrip; void excluded from new literal support",
+    "Directional return, direct call, folded tail and lexical jump type-transfer matrix",
+    "Exact RC count/check/persistent fields, unchanged scopes and identity transfer; canonical4-field vs5-field true shape",
+    "Unknown locals, malformed counts/check/persistent/producer-body mismatches and5-fieldfalse reject",
+    "All small fuel/sibling continuations for reconstructed scalar/local-owned/local-RC0/modeled-imported MPZ RC snapshots",
+    "Persistent ordinary owned-ref errors compare before/after reconstruction within each unchanged legacy backend; no broader default compiler error-prefix repair claimed",
+    "Resource budget fallback retained",
+    "Scalar-signature RC and dead object literals explicitly decline before lower-operation!/Pattern; old scalar M3c suite passes"
+  ],
+  "ci": {
+    "default-cold-check-vars": 60,
+    "added-nat-test-vars": 6,
+    "optional-pattern-vars-unchanged": 23,
+    "missing-test-or-Pattern-policy": "hard gate, no skipped tests"
+  },
+  "resource-profile": {
+    "heap-limit-bytes": 201326592,
+    "last-observed-heap-bytes": 76932152,
+    "actual-Source-opened": false,
+    "modeled-NativeSource-used": true,
+    "Init-restored": false,
+    "native-export-performed": false,
+    "resident": "One fresh small JVM shared serially with peer session tests; current Java source classes copied from fresh CI-equivalent compile, no stale AOT runtime namespaces",
+    "rss-measurement": null
+  },
+  "limitations": [
+    "No Nat represented lane/arithmetic/promotion execution yet; scalar Pattern grammar/emitter unchanged.",
+    "No new native number allocation, MPZ identity or native heartbeat parity.",
+    "Object-family annotation is not a semantic Nat/ref/nonreference proof; future entry/literal guards remain necessary.",
+    "Actual borrowing fixture is reused unchanged, not a newly exported native cohort.",
+    "Modeled imported protocol nodes are immutable RC0 test data, not real Source imports.",
+    "No Source/Init restore, whole-library or hosted frontend acceptance."
+  ],
+  "notes": [
+    "One test lexical-scope typo was caught by the first small REPL load and corrected before final focused/regression runs.",
+    "Historical M3b/M3c receipts/benchmark rows remain unchanged; new receipt pins changed preparation source."
+  ]
+}
