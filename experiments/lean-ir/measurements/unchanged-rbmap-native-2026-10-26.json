@@ -1,0 +1,163 @@
+{
+  "schema": "unchanged-rbmap-native-c/1",
+  "scope": "Pinned original main compiled to native C, -O3. Five separate-process n1000 measurements include startup, Init initialization, argument parsing and stdout. No native kernel allocation metric; not comparable as a kernel-only or steady-state ratio to resident JVM measurements. Prior lean --run remains distinct.",
+  "sourceSha256": "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29",
+  "generatedCSha256": "de755f9d6dc60f9c7ffc97955cc7d0a22090a148fb7811d21aa65ef1fda667d9",
+  "binarySha256": "5f4154292851f23c8524c6f496329007adc668561a84aeb30018e22071e7df66",
+  "toolchainPinsSha256": "0c877e24636cd5d17cce581c2923a2e11afc5d9581267b13211a251deddee4da",
+  "compile": {
+    "label": "lean-c",
+    "command": [
+      "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1/bin/lean",
+      "-c",
+      "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.c",
+      "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/test/fixtures/unchanged-programs/rbmap.lean"
+    ],
+    "exit": 0,
+    "guardStop": null,
+    "wallNs": 4584645427,
+    "userCpuNs": 547810000,
+    "systemCpuNs": 841757000,
+    "cpuNs": 1389567000,
+    "wait4MaxRssBytes": 279875584,
+    "sampledGroupPeakRssBytes": 279613440,
+    "stdout": "",
+    "stderrFile": "lean-c.stderr"
+  },
+  "link": {
+    "label": "leanc-o3",
+    "command": [
+      "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1/bin/leanc",
+      "-O3",
+      "-v",
+      "-o",
+      "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+      "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.c"
+    ],
+    "exit": 0,
+    "guardStop": null,
+    "wallNs": 7170831627,
+    "userCpuNs": 868608000,
+    "systemCpuNs": 771130000,
+    "cpuNs": 1639738000,
+    "wait4MaxRssBytes": 269754368,
+    "sampledGroupPeakRssBytes": 340987904,
+    "stdout": "",
+    "stderrFile": "leanc-o3.stderr"
+  },
+  "runs": [
+    {
+      "label": "run-1000-0",
+      "command": [
+        "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+        "1000"
+      ],
+      "exit": 0,
+      "guardStop": null,
+      "wallNs": 25351346,
+      "userCpuNs": 1194000,
+      "systemCpuNs": 10753000,
+      "cpuNs": 11947000,
+      "wait4MaxRssBytes": 18628608,
+      "sampledGroupPeakRssBytes": 4448256,
+      "stdout": "100\n",
+      "stderrFile": "run-1000-0.stderr"
+    },
+    {
+      "label": "run-1000-1",
+      "command": [
+        "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+        "1000"
+      ],
+      "exit": 0,
+      "guardStop": null,
+      "wallNs": 97340788,
+      "userCpuNs": 1330000,
+      "systemCpuNs": 81996000,
+      "cpuNs": 83326000,
+      "wait4MaxRssBytes": 18628608,
+      "sampledGroupPeakRssBytes": 4296704,
+      "stdout": "100\n",
+      "stderrFile": "run-1000-1.stderr"
+    },
+    {
+      "label": "run-1000-2",
+      "command": [
+        "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+        "1000"
+      ],
+      "exit": 0,
+      "guardStop": null,
+      "wallNs": 20240775,
+      "userCpuNs": 1503000,
+      "systemCpuNs": 4509000,
+      "cpuNs": 6012000,
+      "wait4MaxRssBytes": 18628608,
+      "sampledGroupPeakRssBytes": 4452352,
+      "stdout": "100\n",
+      "stderrFile": "run-1000-2.stderr"
+    },
+    {
+      "label": "run-1000-3",
+      "command": [
+        "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+        "1000"
+      ],
+      "exit": 0,
+      "guardStop": null,
+      "wallNs": 15103753,
+      "userCpuNs": 0,
+      "systemCpuNs": 5843000,
+      "cpuNs": 5843000,
+      "wait4MaxRssBytes": 18628608,
+      "sampledGroupPeakRssBytes": 4169728,
+      "stdout": "100\n",
+      "stderrFile": "run-1000-3.stderr"
+    },
+    {
+      "label": "run-1000-4",
+      "command": [
+        "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+        "1000"
+      ],
+      "exit": 0,
+      "guardStop": null,
+      "wallNs": 16518147,
+      "userCpuNs": 1793000,
+      "systemCpuNs": 3587000,
+      "cpuNs": 5380000,
+      "wait4MaxRssBytes": 18628608,
+      "sampledGroupPeakRssBytes": 3686400,
+      "stdout": "100\n",
+      "stderrFile": "run-1000-4.stderr"
+    },
+    {
+      "label": "run-10000-0",
+      "command": [
+        "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/experiments/lean-ir/target/native-rbmap-v1/rbmap.bin",
+        "10000"
+      ],
+      "exit": 0,
+      "guardStop": null,
+      "wallNs": 26807500,
+      "userCpuNs": 6523000,
+      "systemCpuNs": 3914000,
+      "cpuNs": 10437000,
+      "wait4MaxRssBytes": 18628608,
+      "sampledGroupPeakRssBytes": 4726784,
+      "stdout": "1000\n",
+      "stderrFile": "run-10000-0.stderr"
+    }
+  ],
+  "n1000Medians": {
+    "cpuNs": 6012000,
+    "wallNs": 20240775,
+    "wait4MaxRssBytes": 18628608
+  },
+  "measurementLimits": {
+    "wall": "Popen start through wait4 observation; includes launcher and process-group guard polling/proc scanning overhead, not only child elapsed work. Separate process samples are short and variable.",
+    "cpu": "wait4 child lifetime user+system CPU, including pre-exec child launch work; native runtime/Init/argv/main/stdout included.",
+    "rss": "wait4 child lifetime high-water RSS can include inherited pre-exec launcher pages; sampled process-group RSS may miss short peaks. Neither metric measures native heap allocation.",
+    "jvmComparison": "Prior resident n1000 medians:265.8ms current-thread CPU,297.9ms wall,163432144 thread allocated bytes. JVM interval includes thaw/run/freeze+fold-start, excludes JVM/module/callback startup. Scopes differ; no kernel-only or steady-state ratio."
+  }
+}

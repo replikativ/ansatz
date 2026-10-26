@@ -373,7 +373,7 @@
              (throw error))))))
 (defn- factory-profile! [description producer consumer]
   (let [profile (:compatibility-profile description)
-        coherent? (= compatibility/coherent-frontend-profile-id profile)]
+        coherent? (contains? #{compatibility/coherent-frontend-profile-id compatibility/coherent-jvm-application-profile-id} profile)]
     (when coherent?
       (exact! description #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile
                              :consumer-contract-sha256} "coherent factory descriptor")
@@ -387,14 +387,14 @@
                                   compatibility/source-graph-frontend-reconstruction-profile-id
                                   compatibility/hosted-application-profile-id
                                   compatibility/hosted-application-control-profile-id
-                                  compatibility/coherent-frontend-profile-id} profile))
+                                  compatibility/coherent-frontend-profile-id compatibility/coherent-jvm-application-profile-id} profile))
                 "Restore consumer capability identity mismatch")
     profile))
 (defn- factory-result!
   ([produced producer consumer compatibility-profile manifest]
    (factory-result! produced producer consumer compatibility-profile manifest nil))
   ([produced producer consumer compatibility-profile manifest description]
-   (let [coherent? (= compatibility/coherent-frontend-profile-id compatibility-profile)]
+   (let [coherent? (contains? #{compatibility/coherent-frontend-profile-id compatibility/coherent-jvm-application-profile-id} compatibility-profile)]
      (exact! produced (cond-> #{:producer-preparation :consumer-implementation-sha256 :compatibility-profile
                                :catalogue :bindings}
                         coherent? (conj :consumer-contract-sha256)) "consumer factory result")
@@ -467,7 +467,7 @@
             :producer-preparation producer-preparation :consumer-implementation-sha256 consumer-implementation-sha256
             :compatibility-profile compatibility-profile
             :manifest-sha256 expected-manifest-sha256 :strictly-checked? false}
-             (= compatibility/coherent-frontend-profile-id compatibility-profile)
+             (contains? #{compatibility/coherent-frontend-profile-id compatibility/coherent-jvm-application-profile-id} compatibility-profile)
              (assoc :consumer-contract-sha256 (:consumer-contract-sha256 factory-description))))
          (catch Throwable e
            (try (.close ^java.io.Closeable lease) (catch Throwable close-error

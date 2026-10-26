@@ -50,6 +50,18 @@
                  (= prefix (subvec stages 0 (count prefix)))) "Missing/misordered required coherent preparation stages")
     prefix))
 
+(def jvm-stages
+  [:fresh-init :graph-helpers :panic :ordinary-helpers :typed-eio :cases-on :seal :helper-value
+   :init-prefix :load-a :select-a :call-a :callback :load-b :select-b :call-b-a :dispose])
+(defn jvm-stage-prefix! [stages typed?]
+  (check! (and (true? typed?) (= jvm-stages stages)) "Exact finite JVM application stage program required")
+  (subvec stages 0 9))
+(defn profile-stage-prefix! [profile stages typed?]
+  (case profile
+    "ansatz-producer50f-coherent-frontend-consumer/1" (stage-prefix! stages typed?)
+    "ansatz-producer50f-coherent-jvm-application-consumer/1" (jvm-stage-prefix! stages typed?)
+    (throw (ex-info "Unknown coherent composition profile" {}))))
+
 (defn helper-roles! [helpers expected]
   (doseq [[id entries] expected]
     (let [rows (filter #(= id (:id %)) helpers)]

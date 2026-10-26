@@ -10,6 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
+import maven_basis
 
 
 def digest(path):
@@ -35,7 +36,15 @@ def main():
     p.add_argument("--jdk", type=Path, required=True)
     p.add_argument("--expected-release-sha256", required=True)
     p.add_argument("--dependency", action="append", required=True, help="PATH=EXTERNAL_SHA256")
+    p.add_argument("--dependency-lock", type=Path)
+    p.add_argument("--expected-dependency-lock-sha256")
     args = p.parse_args()
+    if bool(args.dependency_lock) != bool(args.expected_dependency_lock_sha256):
+        raise ValueError("dependency lock and independent digest required together")
+    basis = (maven_basis.load(args.dependency_lock, args.expected_dependency_lock_sha256)
+             if args.dependency_lock else None)
+    if basis is not None and args.dependency != [row["path"] + "=" + row["sha256"] for row in basis["dependencies"]]:
+        raise ValueError("dependency arguments must exactly match isolated lock order")
     root = args.capture.resolve(strict=True)
     capture_file = root / "source-capture.json"
     if digest(capture_file) != args.expected_capture_sha256:
@@ -78,7 +87,7 @@ def main():
             raise ValueError("dependency copy drift")
         dependencies.append({"id": "dependencies/" + path.name, "path": "dependencies/" + path.name,
                              "sha256": expected_hash})
-    if not any("clojure-1.12.0" in n for n in names) or not any("data.json-2.5.1" in n for n in names):
+    if basis is None and (not any("clojure-1.12.0" in n for n in names) or not any("data.json-2.5.1" in n for n in names)):
         raise ValueError("explicit Clojure 1.12.0/data.json 2.5.1 dependency jars required")
     java_ids = sorted(row["id"] for row in capture["inputs"] if row["id"].endswith(".java"))
     if "java/prototype/TypedLongMemo.java" not in java_ids:
@@ -97,6 +106,9 @@ def main():
               "dependencies": dependencies, "javac-options": ["-source", "11", "-target", "11"],
               "javac-argfile-sha256": digest(build / "javac.args"),
               "guarded-command-proposal": [str(jdk / "bin/javac"), "@" + str(build / "javac.args")]}
+    if basis is not None:
+        record["schema"] = "coherent-java-build-plan/2"
+        record["dependency-lock-sha256"] = args.expected_dependency_lock_sha256
     (build / "plan.json").write_text(json.dumps(record, indent=2) + "\n")
     print(json.dumps({"status": record["status"], "java-sources": len(java_ids), "dependencies": len(dependencies)}))
 

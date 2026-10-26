@@ -81,3 +81,59 @@ python3 scripts/coherent/test-materialize-pack.py
 These tests establish data and path handling, not actual bootstrap, constructor,
 restore, callback, checking, guest or frontend acceptance. Those remain separate
 reviewed execution gates.
+
+## Finite hosted-file/JVM application composition
+
+The historical `/1` contracts and four-jar launch basis above remain unchanged.
+`coherent-pack-inputs/2` selects a separate finite experiment, with two additional
+file pins:
+
+- `dependency-lock`: a `coherent-maven-basis/1` JSON lock with exact roots
+  Clojure 1.12.4, data.json 2.5.1 and Pattern 1.0.452. Its thirteen ordered rows
+  contain `lib`, `version`, `id`, `path`, `sha256`, `pom-path`, `pom-sha256`.
+  Every path is a physical absolute regular file. The resolver disables root,
+  user and project configuration. Resolution provenance is recorded separately;
+  hashes authenticate artifact bytes, not a remote repository's identity.
+- `application-policy`: bounded inert EDN matching the new controller's closed
+  `:application` policy. It names finite A/B file inputs, original module and
+  callable Names, expected results, callback ABI and selection limits. The first
+  corpus row contains the callback. `fixtures` contains exactly the referenced
+  distinct A/B files, each at most 16 KiB. These initial scalar fixtures exercise
+  the combined loading/compiler path; broader real-program coverage is a
+  separate corpus, not inferred from these fixtures.
+
+Pass `--dependency-lock LOCK --expected-dependency-lock-sha256 SHA` to
+`plan-java-build.py` as well as every `--dependency PATH=SHA` in the lock's order.
+The plan and observed build use `/2` schemas and carry the exact lock digest.
+The pack builder checks that linkage and every ordered jar identity/hash. It
+rejects project providers in dependency jars, including multi-release entries;
+Pattern's own authenticated AOT classes are permitted. The core and optional
+Ansatz jars must not be appended to this source/fresh-Java cohort.
+
+The resulting contract is `ansatz-coherent-jvm-application-contract/1`, profile
+`ansatz-producer50f-coherent-jvm-application-consumer/1`, and launch manifest is
+`ansatz-coherent-launch/2`. The bootstrap requires that exact schema pairing.
+The frontend retains the mutable/500M/threshold1 policy; application execution
+uses a distinct JVM/500M/threshold1 branch. The controller reopens and adopts it
+through public APIs under the independently retained original configuration.
+Compiler selection conveys no checking authority.
+
+The finite stages replace the historical Project campaign with Init prefix,
+real A load/selection/calls/callback, real B load/selection, A/B/A calls and
+managed disposal. Bootstrap acceptance checks the exact seventeen stages,
+contract/profile/implementation identity, both execution roles, callback effect
+counts and ordered phase summaries. It does not promote a successful constructor
+or a data-model test into a successful hosted run. Preparation substage timing
+may share one measured span; overlapping spans must not be added.
+For this new profile, a failed controller prints only its exception class and a
+bounded message before nonzero process exit. Exception data may contain entire
+Worlds or owner checkpoints and is never serialized by this telemetry path.
+Process termination does not prove managed disposal.
+
+`test-bootstrap-result.clj` reads the reviewed bootstrap, evaluates only its
+definitions in a scratch namespace, and tests terminal result validation. It
+never evaluates the launch form. Run it in the existing small REPL after the
+host-only Python tests; it is not a fresh Source/Init restore or actual bootstrap
+acceptance. A genuine launch still needs the final committed cohort, fresh Java
+classes, original pinned producer inputs, independent composition review and
+resource preflight.

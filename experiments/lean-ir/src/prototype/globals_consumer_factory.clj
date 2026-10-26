@@ -459,6 +459,7 @@
                                      :v1 (compatibility/authenticate-hosted-application! options)
                                      :v2 (compatibility/authenticate-hosted-application-control! options)
                                      :coherent ((requiring-resolve 'prototype.coherent-consumer-profile/authenticate!) options)
+                                     :coherent-jvm ((requiring-resolve 'prototype.coherent-consumer-profile/authenticate-jvm!) options)
                                      (throw (ex-info "Unknown hosted application revision" {})))
                                    graph-frontend? (compatibility/authenticate-source-graph-frontend-reconstruction! options)
                                    source-graph? (compatibility/authenticate-source-graph-reconstruction! options)
@@ -466,7 +467,7 @@
                                    runtime-ops? (compatibility/authenticate-runtime-ops-reconstruction! options)
                                    reconstruction? (compatibility/authenticate-reconstruction! options)
                                    :else (compatibility/authenticate! options))
-        coherent? (= :coherent hosted-application-revision)
+        coherent? (contains? #{:coherent :coherent-jvm} hosted-application-revision)
         consumer-description (if coherent? (:description authenticated) authenticated)
         coherent-contract (when coherent?
                             {:sha256 (:consumer-contract-sha256 authenticated)
@@ -493,7 +494,7 @@
     (wire/check (= (vec (concat roots [(:witness profile) exporter])) (:trusted-roots expected-preparation))
                 "Factory helper-root inventory drift")
     (cond
-      (= :coherent hosted-application-revision)
+      (contains? #{:coherent :coherent-jvm} hosted-application-revision)
       (authenticate-coherent-build! recipe expected-preparation resolve-artifact (:consumer-inventory options))
       hosted-application-revision
       (authenticate-hosted-application-build! recipe expected-preparation resolve-artifact)
@@ -585,7 +586,7 @@
    from this accessor on their actual Factory, never an adjacent duplicate map."
   [factory]
   (let [{:keys [descriptor coherent-contract]} (capability! factory)]
-    (wire/check (and (= compatibility/coherent-frontend-profile-id (:compatibility-profile descriptor))
+    (wire/check (and (contains? #{compatibility/coherent-frontend-profile-id compatibility/coherent-jvm-application-profile-id} (:compatibility-profile descriptor))
                      (wire/hash? (:consumer-contract-sha256 descriptor))
                      (= (:consumer-contract-sha256 descriptor) (:sha256 coherent-contract))
                      (map? (:contract coherent-contract)))
@@ -683,6 +684,11 @@
 
 (deftype NativeInitReadiness [])
 (defonce ^:private native-readiness-issued (java.util.WeakHashMap.))
+(defn make-coherent-jvm-application-factory
+  "Explicit new finite mutable-frontend/JVM-application consumer composition."
+  [options]
+  (issue-factory* true true true true true :coherent-jvm options (Object.)))
+
 (defn- native-readiness! [token]
   (let [entry (when (instance? NativeInitReadiness token)
                 (locking native-readiness-issued (.get native-readiness-issued token)))]

@@ -1,0 +1,137 @@
+{
+  "schema": "coherent-jvm-fixture-preflight/1",
+  "scope": "NEW integration fixture, separate from unchanged upstream corpus; native frontend source-local demanded IR, not hosted-source runtime evidence; host extern never executed natively",
+  "audit-sha256": "dfafb483152710f9963c8471a3db7d8d4358af3cb3a664d9c53c9ce77fd86d87",
+  "audit": {
+    "schema": "new-jvm-application-fixture-audit/1",
+    "scope": "NEW integration fixture, separate from unchanged upstream corpus; native frontend source-local demanded IR, not hosted-source runtime evidence; host extern never executed natively",
+    "policyValidated": true,
+    "policySha256": "ac67ba323ee42d263b808c42273e1fc6fbb518a4a636fff0244bb1298761aae7",
+    "module": "JVMApplicationProbe",
+    "callback": {
+      "symbol": "ansatz_jvm_utf8_length",
+      "params": [
+        {
+          "ty": "object",
+          "borrow": false
+        }
+      ],
+      "return-type": "tobject",
+      "input": "Lean \u03bb \ud83d\ude00",
+      "expectedUtf8Bytes": 12
+    },
+    "sources": {
+      "A": {
+        "sha256": "3f9dea612b2afe9e19f089072c5c283dd4e54b27502a55e6cbce323f8adbbcd4",
+        "nativeReceipt": {
+          "schema": "unchanged-program-native-capture/1",
+          "command": [
+            "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/experiments/lean-ir/target/lean-ir-export",
+            "--source",
+            "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-jvm-slice-pack/experiments/lean-ir/lean/JVMApplicationA.lean",
+            "--closure",
+            "JVMApplicationProbe",
+            "JVMApplicationProbe.sum64",
+            "JVMApplicationProbe.entry",
+            "JVMApplicationProbe.entry._boxed",
+            "JVMApplicationProbe.identity64._boxed",
+            "JVMApplicationProbe.callHost"
+          ],
+          "sysroot": "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1",
+          "producer": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+          "sourceSha256": "3f9dea612b2afe9e19f089072c5c283dd4e54b27502a55e6cbce323f8adbbcd4",
+          "exporterSha256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+          "exit": 0,
+          "guardStop": null,
+          "peakRssBytes": 687427584,
+          "wallSeconds": 4.198590632004198
+        },
+        "workerPreparation": {
+          "status": "ready",
+          "sourceFunctions": 1,
+          "maxChunkCost": 13
+        },
+        "declarationCount": 10,
+        "sourceLocalCount": 7,
+        "initializationActions": []
+      },
+      "B": {
+        "sha256": "0f0086b0ed4eba11aeb92afbe4d43b074b268fa7309b319c7d9a8f3b113d218e",
+        "nativeReceipt": {
+          "schema": "unchanged-program-native-capture/1",
+          "command": [
+            "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-ir-prototype/experiments/lean-ir/target/lean-ir-export",
+            "--source",
+            "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-jvm-slice-pack/experiments/lean-ir/lean/JVMApplicationB.lean",
+            "--closure",
+            "JVMApplicationProbe",
+            "JVMApplicationProbe.sum64",
+            "JVMApplicationProbe.entry",
+            "JVMApplicationProbe.entry._boxed",
+            "JVMApplicationProbe.identity64._boxed",
+            "JVMApplicationProbe.callHost"
+          ],
+          "sysroot": "/home/christian-weilbach/.elan/toolchains/leanprover--lean4---v4.33.1",
+          "producer": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+          "sourceSha256": "0f0086b0ed4eba11aeb92afbe4d43b074b268fa7309b319c7d9a8f3b113d218e",
+          "exporterSha256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+          "exit": 0,
+          "guardStop": null,
+          "peakRssBytes": 692576256,
+          "wallSeconds": 2.2656502239988185
+        },
+        "workerPreparation": {
+          "status": "ready",
+          "sourceFunctions": 1,
+          "maxChunkCost": 16
+        },
+        "declarationCount": 10,
+        "sourceLocalCount": 7,
+        "initializationActions": []
+      }
+    },
+    "developmentNotes": [
+      {
+        "attempt": "a",
+        "status": "failed before source frontend input was available",
+        "cause": "Agent used wrong working directory during initial fixture creation, then launched native exporter against the absent JVMApplicationA.lean. No Lean program or IR shape was rejected.",
+        "stdoutBytes": 0,
+        "stderrSha256": "bf4a6a14b2ed36b8b44e655e2eee21042b56e045e7d7d1877b01a8e96d7f162d",
+        "stderr": "uncaught exception: no such file or directory (ENOENT), source JVMApplicationA.lean",
+        "retry": "Source files created at authorized absolute target paths, then A exported into fresh a-repeat because the capture refuses overwrite. Requested roots unchanged. Native success claims refer only to a-repeat and b."
+      }
+    ],
+    "eligibilityEvidence": {
+      "scope": "Pure native-export data preparation and inert policy validation in existing resident REPL; no hosted load or callback binding execution",
+      "artifacts": {
+        "policy-result.stdout": {
+          "path": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/target/jvm-application-fixtures/policy-result.stdout",
+          "sha256": "2d42db3f20183f96a4b614758790dfa0b18fde682a2d43e8f4e8d990cb5a8b51"
+        },
+        "policy-request.clj": {
+          "path": "/home/christian-weilbach/Development/simm.is/.tmp/ansatz-real-program-runtime/target/jvm-application-fixtures/policy-request.clj",
+          "sha256": "cadda49dbf90c15aab901096dfcfd7217e37c473192c3bc53f4b629ddce8898e"
+        }
+      },
+      "result": "Policy true; A ready max-cost13 and B ready max-cost16; each one demanded source function"
+    }
+  },
+  "native-ir-sha256": {
+    "A": "f2b5f93d298369eb15ed9883057745248cfe1c2fdee2372f9f90377668dc4636",
+    "B": "c1cd1a4feb279bc8c0d8ab0dcd33bd453f32ba68186451f1019eda4754ec2ab7"
+  },
+  "not-run": [
+    "hosted JVM frontend source elaboration/admission",
+    "native external host callback execution",
+    "genuine Source/Init restore",
+    "current packaged end-to-end application"
+  ],
+  "logical-source-name-policy": {
+    "sha256": "f825342f122af87fc288511c891224ed32e010d78c47b6978edfc911a17d3db2",
+    "change": "Public entry and identity source Names replace physical _boxed Names; resident resolves actual manifest boxedTarget. Original native source/IR/producer receipts and earlier audit/policy evidence remain unchanged.",
+    "validation": "Closed policy true; both original workers remain ready with costs13/16. Data/native eligibility only.",
+    "request-sha256": "a3e1af59f5126f448d2984cccbc6be1e8669a8a44228fec9d3b68e2d583da26a",
+    "verbatim-result-sha256": "faf9cb7d9f115050c3c47b80e9f58b51f0f11f1f25935a2082fd9f4676ceb0c1",
+    "verbatim-result": "user=> :actual-jvm-application-policy-v2-valid true\n:actual-native-worker-v2-eligibility \"A\" {:status :ready} :functions 1 :max-cost 13\n:actual-native-worker-v2-eligibility \"B\" {:status :ready} :functions 1 :max-cost 16\n"
+  }
+}

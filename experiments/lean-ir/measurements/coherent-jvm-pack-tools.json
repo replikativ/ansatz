@@ -1,0 +1,46 @@
+{
+  "schema": "coherent-jvm-pack-tools-validation/1",
+  "scope": "Additive finite hosted-file/JVM composition tooling. Metadata and definition-model tests only; no source restore, actual bootstrap constructor, checking or hosted file execution.",
+  "source-sha256": {
+    "experiments/lean-ir/scripts/coherent/maven_basis.py": "82c904aa5195222e610cc717be5b70c2ae7955b7998c82fa2a4ee277d609737e",
+    "experiments/lean-ir/scripts/coherent/plan-java-build.py": "efa1b38468578466581d52875b16147a2a3e02671ab4277362f3623c4ab789ec",
+    "experiments/lean-ir/scripts/coherent/observe-class-inventory.py": "643e12d4a0f3f667a29106bd9f6e12d3d49f771b60dc37c20a118a367418565c",
+    "experiments/lean-ir/scripts/coherent/materialize-pack.py": "66afb9f4deee41c85c2f292915a82640f05a6977a152b891ae9827113867c529",
+    "experiments/lean-ir/scripts/coherent/bootstrap.clj": "97354e7733aae5ef984224d9c84c3c05c208ae7075f99c6ffab85010a4d7e964",
+    "experiments/lean-ir/scripts/coherent/test-materialize-pack.py": "ad914a75c21174747ccaf373f7f8a8ee70e0b957bc333d1ada75b7007d82d4d9",
+    "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "186e23d2edce5d0c45ff60ba3c07e101d3156927b0e4d42cd190620d4dde7d36",
+    "experiments/lean-ir/scripts/coherent/PACK_PREPARATION.md": "a6c1a41c1c44c0a289288cf5d9a0bc8e9fae1581b177ced1e500c68b7e5a4641",
+    "experiments/lean-ir/research/TYPED_JIT_STAGING_STRATEGY.md": "576911b25c8edf656f78a19fb83d1238a7087bf179b92c6b31a42ef62a3ed32e"
+  },
+  "checks": {
+    "Python": "16 tests passed",
+    "bootstrap-model": "3 tests /19 assertions passed in existing resident71903 after bounded failure telemetry addition; definitions only, final launch/System.exit never evaluated",
+    "independent-source-review": "approved; exact JVM terminal result checks corrected initial blocker; legacy schema remains separate",
+    "failure-policy": "New profile only prints bounded class/message without exception data; nonzero exit makes no managed-disposal success claim."
+  },
+  "isolated-basis": {
+    "lock-sha256": "2fa853f6b933d9d6ab4fd37625fb517b9ac21b59a89f59edacea86dc03e589a7",
+    "jars": 13,
+    "actual-resolver": "single tools.deps create-basis, root/user/project nil, explicit Clojure1.12.4/data.json2.5.1/Pattern1.0.452",
+    "elapsed-seconds": 4.723,
+    "sampled-peak-RSS-bytes": 282038272,
+    "heap-MiB": 384,
+    "RSS-cap-MiB": 640,
+    "no-project-runtime-loaded": true
+  },
+  "remaining": [
+    "final committed runtime controller and source cohort",
+    "fresh Java class/build evidence",
+    "independent assembled contract/input review",
+    "resource preflight",
+    "genuine hosted A/B/callback/version/disposal acceptance"
+  ],
+  "previous-tested-bootstrap-source-pins": {
+    "experiments/lean-ir/scripts/coherent/bootstrap.clj": "8e7249d337d6ed64d284d97528059cf743f56c018ffdb6ac1e33262405c17433",
+    "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "1b66c17b18189fc5495f74f2636dd097c9800939d967030d97b8e51acb2be5ec"
+  },
+  "research-note-native-baseline-addition": {
+    "previous-sha256": "8d689e34389bc2256e2b937085761782ea4c2d5043828e6ad327c66aa2ed0213",
+    "scope": "Append separately measured native C baseline; no tested tool/runtime source changed."
+  }
+}

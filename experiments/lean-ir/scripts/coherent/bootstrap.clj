@@ -16,6 +16,13 @@
 (defn- check! [ok message] (when-not ok (throw (ex-info message {}))))
 (defn- exact! [value keys label]
   (check! (and (map? value) (= keys (set (clojure.core/keys value)))) (str "Invalid bootstrap " label)))
+(defn- failure-summary [^Throwable failure]
+  ;; Exception data may retain a World/Context. Never hand that graph to main's
+  ;; automatic report printer or serialize it as experiment telemetry.
+  (let [message (or (.getMessage failure) "")]
+    {:status :failed :error-class (.getName (class failure))
+     :message (subs message 0 (min 512 (count message)))
+     :managed-disposal-proven false}))
 (defn- sha? [x] (and (string? x) (boolean (re-matches #"[0-9a-f]{64}" x))))
 (defn- sha [bytes]
   (.formatHex (java.util.HexFormat/of) (.digest (MessageDigest/getInstance "SHA-256") ^bytes bytes)))
@@ -113,6 +120,29 @@
                  (= expected (.getCanonicalFile (io/file (.toURI ^java.net.URL (first urls))))))
             "Bootstrap duplicate/mislocated selected resource")))
 
+(def jvm-stages
+  [:fresh-init :graph-helpers :panic :ordinary-helpers :typed-eio :cases-on :seal :helper-value
+   :init-prefix :load-a :select-a :call-a :callback :load-b :select-b :call-b-a :dispose])
+
+(defn- verify-jvm-result! [approved result]
+  (exact! result #{:status :disposal-phase :stages :consumer-contract-sha256
+                   :consumer-implementation-sha256 :compatibility-profile :backend :fuel
+                   :compile-threshold :application-execution :measurements} "JVM slice result")
+  (check! (and (= (:contract-sha256 approved) (:consumer-contract-sha256 result))
+               (= (:implementation-sha256 approved) (:consumer-implementation-sha256 result))
+               (= (:compatibility-profile approved) (:compatibility-profile result))
+               (= :passed (:status result)) (= :disposed (:disposal-phase result))
+               (= (:execution approved) (select-keys result [:backend :fuel :compile-threshold]))
+               (= jvm-stages (:stages result))
+               (= {:backend :jvm :fuel 500000000 :compile-threshold 1} (:application-execution result)))
+          "Bootstrap JVM slice identity/stages/application execution mismatch")
+  (let [measurements (:measurements result)]
+    (exact! measurements #{:corpus :callback :phases} "JVM slice measurements")
+    (check! (and (vector? (:corpus measurements)) (<= 1 (count (:corpus measurements)) 4)
+                 (= {:loading-effects 0 :invocation-effects 1} (:callback measurements))
+                 (vector? (:phases measurements)) (= jvm-stages (mapv :stage (:phases measurements))))
+            "Bootstrap JVM slice measurements mismatch")))
+
 (defn verify!
   "Authenticate complete selection before ANY project require/Class.forName.
    Returns captured text and a descriptor, never kernel admission/readiness."
@@ -124,7 +154,8 @@
         manifest (read-data manifest-bytes)
         _ (exact! manifest #{:schema :commit :source-root :class-root :dependencies :inventory
                              :direct-inputs :external-stores :contract-id :contract-sha256 :jdk :entrypoint :execution} "launch manifest")
-        _ (check! (and (= "ansatz-coherent-launch/1" (:schema manifest))
+        jvm? (= "ansatz-coherent-launch/2" (:schema manifest))
+        _ (check! (and (or jvm? (= "ansatz-coherent-launch/1" (:schema manifest)))
                        (re-matches #"[0-9a-f]{40}" (:commit manifest))
                        (= expected-contract (:contract-sha256 manifest))) "Bootstrap fixed manifest identity mismatch")
         _ (exact! (:execution manifest) #{:backend :fuel :compile-threshold} "execution policy")
@@ -133,6 +164,11 @@
         contract-bytes (bytes! (resolve-file root (:contract-id manifest)) (* 4 1024 1024))
         _ (check! (= expected-contract (sha contract-bytes)) "Bootstrap external contract digest mismatch")
         contract (read-data contract-bytes)
+        _ (check! (= [(:schema contract) (:profile contract)]
+                    (if jvm?
+                      ["ansatz-coherent-jvm-application-contract/1" "ansatz-producer50f-coherent-jvm-application-consumer/1"]
+                      ["ansatz-coherent-frontend-contract/1" "ansatz-producer50f-coherent-frontend-consumer/1"]))
+                  "Bootstrap launch/contract profile mismatch")
         inventory (:inventory manifest)
         _ (check! (and (vector? inventory) (<= 1 (count inventory) 1000)
                        (= (count inventory) (count (set (map :id inventory))))
@@ -213,6 +249,9 @@
         _ (check! (and (string? entry) (re-matches #"[A-Za-z0-9_.!?*-]+/[A-Za-z0-9_!?*-]+" entry))
                   "Bootstrap entrypoint shape")
         [namespace operation] (str/split entry #"/" 2)
+        _ (check! (or (not jvm?)
+                       (and (= namespace "prototype.coherent-jvm-slice") (contains? #{"construct!" "run!"} operation)))
+                  "Bootstrap application entrypoint mismatch")
         entry-id (str (str/replace (str/replace namespace "." "/") "-" "_") ".clj")
         approved (filter #(and (= entry-id (:id %)) (some #{entry} (:entrypoints %))) (get-in contract [:composition :controllers]))
         _ (check! (and (= 1 (count approved)) (contains? source-ids entry-id)
@@ -222,6 +261,7 @@
             (check! (not (or (str/starts-with? n "ansatz.") (str/starts-with? n "prototype.") (= namespace n)))
                     "Bootstrap project namespace loaded before selection authentication"))]
     {:manifest manifest :execution (:execution manifest) :contract-source (utf8 contract-bytes) :contract-sha256 expected-contract
+     :compatibility-profile (:profile contract)
      :inventory inventory :implementation-sha256 digest :entrypoint [namespace operation]
      :output-root output-root
      :resolve-consumer-source
@@ -251,20 +291,27 @@
     (require (symbol namespace))
     (let [entry (ns-resolve (symbol namespace) (symbol operation))]
       (check! (and entry (not (:private (meta entry))) (fn? @entry)) "Bootstrap approved entrypoint unavailable")
-      (let [result (entry approved)]
+      (let [result (if (= "ansatz-producer50f-coherent-jvm-application-consumer/1" (:compatibility-profile approved))
+                     (try (entry approved)
+                          (catch Throwable failure
+                            (binding [*out* *err*] (println (pr-str (failure-summary failure))) (flush))
+                            (System/exit 1)))
+                     (entry approved))]
         (if (= "construct!" operation)
           (do
             (check! (and (= #{:status :consumer-contract-sha256 :consumer-implementation-sha256 :compatibility-profile
                               :native-resources-acquired :guest-executed :strictly-checked? :backend :fuel :compile-threshold} (set (keys result)))
                          (= (:execution approved) (select-keys result [:backend :fuel :compile-threshold]))
                          (= :constructed (:status result))
-                         (= "ansatz-producer50f-coherent-frontend-consumer/1" (:compatibility-profile result))
+                         (= (:compatibility-profile approved) (:compatibility-profile result))
                          (= expected-contract (:consumer-contract-sha256 result))
                          (= (:implementation-sha256 approved) (:consumer-implementation-sha256 result))
                          (false? (:native-resources-acquired result)) (false? (:guest-executed result))
                          (false? (:strictly-checked? result))) "Bootstrap constructor returned wrong/unbounded stage")
             (println (pr-str result)) (flush))
           (do
+            (when (= "ansatz-producer50f-coherent-jvm-application-consumer/1" (:compatibility-profile approved))
+              (verify-jvm-result! approved result))
             (check! (and (= :passed (:status result)) (= :disposed (:disposal-phase result))
                          (= (:execution approved) (select-keys result [:backend :fuel :compile-threshold])))
                     "Bootstrap campaign did not complete all stages and disposal")
