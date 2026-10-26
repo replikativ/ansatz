@@ -355,6 +355,21 @@
   (call context file name (conj values nil)
         {:arguments (conj (:arguments signature) :erased) :result [:io (:result signature)]}))
 
+(defn with-compiler-options
+  "Fork this idle Context with a replacement advanced raw compiler selection.
+   SELECTION uses the existing :scalar-wrappers/:typed-tail contract; {} clears
+   it. Selected facts must match already installed code. No source discovery,
+   checking authority, initializer execution or ownership transfer occurs.
+   Retained input Contexts and the shared code-cache capability remain intact."
+  [context selection]
+  (locking context
+    (let [{:keys [prepared] :as data} (context-data context)
+          _ (valid-context! data)
+          session (:session prepared)
+          next-session (raw/open-functions (:functions session) (:bindings session)
+                                           (assoc (raw/session-options session) :compiler-options selection))]
+      (make-context (assoc data :prepared (assoc prepared :session next-session))))))
+
 (defn with-externs
   "Add new application raw extern bindings. Existing runtime/kernel bindings cannot
    be replaced. New symbols require :application-extern-symbols in independent
