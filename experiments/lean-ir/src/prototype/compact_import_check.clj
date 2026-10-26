@@ -76,9 +76,12 @@
     (Check. (atom {:phase :ready :entry entry :configuration configuration :helpers helpers}))))
 
 (defn summary [control]
-  (let [{:keys [phase result failure]} (checkpoint control)
+  (let [{:keys [phase result failure verification-progress verification-ended-ns]} (checkpoint control)
+        progress (cond-> verification-progress
+                   (:item-started-ns verification-progress)
+                   (assoc :item-elapsed-ns (- (or verification-ended-ns (System/nanoTime)) (:item-started-ns verification-progress))))
         message (some-> failure .getMessage)]
-    {:verification-progress (:verification-progress (checkpoint control))
+    {:verification-progress progress
      :phase phase :checking-completed (= :ok (:status result))
      :guest-io-error (= :io-error (:status result))
      :constants (count (get-in result [:certificate :constants]))
@@ -108,12 +111,19 @@
   (stage! {:phase :projection :projected-constants 0 :constants-total (count values)})
   (let [project-constant (:project-constant (compact/make-scoped-projector world))]
     (mapv (fn [index guest]
-            (let [constant (project-constant world guest)]
-              (when (zero? (mod (inc index) 1024))
-                (stage! {:phase :projection :projected-constants (inc index)
-                         :constants-total (count values)}))
-              {:guest guest :constant constant}))
+            (let [started (System/nanoTime)]
+              (stage! {:phase :projection :projected-constants index :constants-total (count values)
+                       :guest-id (when (m/ref? guest) (:id guest)) :item-started-ns started})
+              (let [constant (project-constant world guest)]
+                (stage! {:phase :projection :projected-constants (inc index) :constants-total (count values)
+                         :last-item-wall-ns (- (System/nanoTime) started)})
+                {:guest guest :constant constant})))
           (range) values)))
+
+(defn- group-label [members]
+  ;; Diagnostic text only; an observer must not change a checker failure.
+  (try (let [s (str (.name ^ConstantInfo (first members)))] (subs s 0 (min 256 (count s))))
+       (catch Throwable _ nil)))
 
 (defn verify-constants
   "Fresh strict admission with a compact projector and unchanged pinned checker rules.
@@ -160,6 +170,10 @@
                     :projected (into {} (map (fn [{:keys [^ConstantInfo constant]}] [(.name constant) constant])) entries)
                     :order order :axioms (set (map #(.name ^ConstantInfo (:constant %)) (filter #(.isAxiom ^ConstantInfo (:constant %)) entries)))}))
                (let [key (nth queue cursor) members (get members-by-key key)
+                     started (System/nanoTime) label (group-label members)
+                     _ (stage! {:phase :kernel-admission :groups-checked cursor :groups-total group-count
+                                :group-kind (first key) :group-name label :group-size (count members)
+                                :item-started-ns started :fuel fuel})
                      checked (case (first key)
                                :single (let [^ConstantInfo ci (first members)]
                                          (when (.isQuot ci) (validate-quot-bootstrap checked))
@@ -170,6 +184,8 @@
                                             (env/check-inductive-bundle checked
                                                                         (env/mk-inductive-bundle (vec (.levelParams first-ind)) (.numParams first-ind) (.isUnsafe first-ind)
                                                                                                  inds (filterv #(.isCtor ^ConstantInfo %) members) (filterv #(.isRecursor ^ConstantInfo %) members)) fuel)))
+                     _ (stage! {:phase :kernel-admission :groups-checked (inc cursor) :groups-total group-count
+                                :last-group-name label :last-item-wall-ns (- (System/nanoTime) started)})
                      [degrees queue] (reduce (fn [[degrees queue] dependent]
                                                (let [degree (dec (get degrees dependent))]
                                                  [(assoc degrees dependent degree) (if (zero? degree) (conj queue dependent) queue)]))
@@ -204,10 +220,12 @@
                                                     {:checkpoint world :io-result result :finalizer-result finalizer-result}))
              world (-> world (m/retain environment 1) (m/release result 1) (assoc :result 0))]
          (try
-           (let [[world constants] (invoke world (:constants targets) [environment])
+           (let [_ (stage! {:phase :constants-getter})
+                 [world constants] (invoke world (:constants targets) [environment])
                  values (array! world constants)
                  certificate (verify-constants world values (:kernel-policy options))
                  world (m/release world constants 1)
+                 _ (stage! {:phase :quotient-flag})
                  [world certificate] (project-finalizer-flag world environment invoke targets certificate
                                                              (:finalizer-attestation options))
                  _ (stage! {:phase :association :constants (count (:constants certificate))})
@@ -277,5 +295,5 @@
                                  (merge data {:restored-check-entry entry
                                               :restored-check-progress @progress
                                               :restored-check-result (:result @state)}) cause)]
-            (swap! state assoc :phase :failed :failure failure)
+            (swap! state assoc :phase :failed :failure failure :verification-ended-ns (System/nanoTime))
             (throw failure)))))))
