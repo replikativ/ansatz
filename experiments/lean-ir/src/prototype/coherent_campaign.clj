@@ -87,10 +87,14 @@
       (swap! state assoc :phase :failed :failure failure)
       (throw failure))))
 
-(defn- restore-and-prepare!
-  "Private SAME-process continuation through unchanged restore, fresh strict Init
-   and contract-derived preparation. Actual returned phase is validated against
-   controller escrow; only run! may continue its live owners to later stages."
+(defn- continuation-failure! [failure]
+  ;; Preserve the same canonical owners and controller diagnostics in both phases.
+  (swap! state assoc :phase :failed :failure failure
+         :checking-escrow (source/checking-checkpoint) :preparation-escrow (source/checkpoint))
+  (throw failure))
+
+(defn- restore-only!
+  "Restore once into canonical escrow; return no owners or checking authority."
   []
   (let [{:keys [phase bootstrap factory options] :as entry} @state]
     (wire/check (and (= :constructed phase) factory
@@ -105,13 +109,22 @@
                         :resolve-resource (fn [id]
                                             {:descriptor-path ((:resolve-input bootstrap) (str "resource/" id "/descriptor"))
                                              :source-path ((:resolve-input bootstrap) (str "resource/" id "/source"))})})
-            _ (swap! state assoc :phase :restored :restored restored)
+            _ (swap! state assoc :restored restored)
             _ (wire/check (= (get-in bootstrap [:execution :compile-threshold])
                               (get-in restored [:session :compile-threshold])) "Reader's fixed threshold differs from explicit launch policy")
             restored (assoc restored :session (raw/open-functions (get-in restored [:world :functions])
                                                                   (:trusted-bindings restored) (:execution bootstrap)))
-            _ (swap! state assoc :phase :restored :restored restored)
-            branch (source/prepare-bootstrap-support factory restored (:resolve-input bootstrap))
+            _ (swap! state assoc :phase :restored :restored restored)]
+        {:phase :restored})
+      (catch Throwable failure (continuation-failure! failure)))))
+
+(defn- check-and-prepare! []
+  (let [{:keys [phase bootstrap factory restored] :as entry} @state]
+    (wire/check (and (= :restored phase) factory restored
+                     (compare-and-set! state entry (assoc entry :phase :preparing-check)))
+                "Actual restored cohort required once")
+    (try
+      (let [branch (source/prepare-bootstrap-support factory restored (:resolve-input bootstrap))
             _ (swap! state assoc :phase :checking :bootstrap-support branch)
             checked (source/check-restored! {:factory factory :restored (:candidate branch) :support (:support branch)})
             _ (swap! state assoc :phase :preparing :checked checked)
@@ -124,13 +137,13 @@
           (ack! :preparation {:helper-value-required (= :helper-value-required phase)
                               :cases-on-before-seal true :callback-captured true})
           summary))
-      (catch Throwable failure
-        ;; Preserve actual restored lease, bootstrap-support packet and both
-        ;; controllers' latest canonical progress. Never close a Source while a
-        ;; checked Environment, Project/prefix or diagnostic owner may borrow it.
-        (swap! state assoc :phase :failed :failure failure
-               :checking-escrow (source/checking-checkpoint) :preparation-escrow (source/checkpoint))
-        (throw failure)))))
+      (catch Throwable failure (continuation-failure! failure)))))
+
+(defn- restore-and-prepare!
+  "Compatibility continuation: identical restore, checking and preparation order."
+  []
+  (restore-only!)
+  (check-and-prepare!))
 
 (defn- dispose-pre-context!
   "Only a known quiescent checked Env before Context transfer is released here.

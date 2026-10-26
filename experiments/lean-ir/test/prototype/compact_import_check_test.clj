@@ -163,3 +163,25 @@
         (is (some? actual))
         (is (= (.getMessage expected) (.getMessage actual)))
         (is (re-find #"Declaration value type does not match" (.getMessage actual)))))))
+
+(deftest failed-item-progress-is-bounded-accurate-and-frozen
+  (doseq [where [:projection :kernel-admission]]
+    (let [{:keys [entry configuration]} (fixture/fixture)
+          control (compact/prepare entry configuration) original (ex-info "modeled item failure" {})
+          replacements (if (= where :projection)
+                         {#'projection/make-scoped-projector (fn [_] {:project-constant (fn [& _] (throw original))})}
+                         {(ns-resolve 'prototype.compact-import-check 'validate-quot-bootstrap) (fn [_] (throw original))})
+          failure (with-redefs-fn replacements #(fixture/failure (fn [] (compact/check! control))))
+          first-progress (:verification-progress (compact/summary control))]
+      (is (some #(identical? original %) (take-while some? (iterate #(.getCause ^Throwable %) failure))))
+      (is (= :failed (:phase (compact/summary control))))
+      (is (= where (:phase first-progress)))
+      (is (integer? (:item-elapsed-ns first-progress)))
+      (Thread/sleep 2)
+      (is (= (:item-elapsed-ns first-progress)
+             (get-in (compact/summary control) [:verification-progress :item-elapsed-ns])))
+      (if (= where :projection)
+        (do (is (= 0 (:projected-constants first-progress))) (is (integer? (:guest-id first-progress))))
+        (do (is (< (:groups-checked first-progress) (:groups-total first-progress)))
+            (is (<= (count (:group-name first-progress)) 256))))
+      (is (nil? (:result (compact/checkpoint control)))))))
