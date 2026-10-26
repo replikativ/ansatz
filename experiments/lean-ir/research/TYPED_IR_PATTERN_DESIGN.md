@@ -6,6 +6,9 @@ derive both prepared interpreter operations and compiled JVM regions from it.
 Canonical code and snapshots remain persistent; executable plans are disposable
 derived objects.
 
+The [implementation contract](TYPED_IR_IMPLEMENTATION_SPEC.md) fixes interfaces,
+the demand-driven migration, kernel/interop boundaries and acceptance gates.
+
 The existing runtime has a persistent reference interpreter, a mutable register
 interpreter, and a JVM region compiler that emits Clojure forms through `eval`.
 A separate REPL prototype recognizes one internal scalar SUM loop and preserves
@@ -86,6 +89,8 @@ During migration, the typed representation can be a companion to the current
 normalized instruction image. It must be bound to that exact image and producer
 profile. Existing World snapshots keep their current body, local and frame
 representation; reconstruction maps translate typed positions back into it.
+Companions are prepared only for selected compiler units. Ordinary loading does
+not eagerly attach full type graphs to every Init function.
 
 The following is a proposed `LeanBlocks` shape, not an existing public API:
 
@@ -294,10 +299,10 @@ programs, resume partitions, saved parents/siblings, code edits, wrong guards,
 overflow/promotion, traps and resource effects. Measure preparation, compilation,
 run time, allocation and snapshot publication separately in a reused REPL.
 
-The main remaining decisions are the exact typed data encoding, how much join
-context to make explicit, and the representation/carrier ABI for general object
-values. The initial fragment and its validators can evolve while preserving the
-pass contracts above.
+The implementation contract chooses a compact source-fact companion for the
+first milestone and fixes the block and representation boundaries for subsequent
+work. Representation optimizations and join analysis can evolve within those
+contracts; broader object ABIs require explicit descriptors and acceptance tests.
 
 ## Sources
 

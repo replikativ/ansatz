@@ -4,6 +4,10 @@ The draft [typed IR and Pattern design](research/TYPED_IR_PATTERN_DESIGN.md)
 maps a proposed typed compiler pipeline, pass contracts and snapshot boundaries.
 Its [executable instruction fragment](research/typed-ir-pattern-example.clj)
 checks one UInt64 lowering with Pattern; the general pipeline remains proposed.
+The [implementation contract](research/TYPED_IR_IMPLEMENTATION_SPEC.md) fixes
+kernel/interop boundaries and acceptance gates. Its first step adds opt-in
+typed companions for selected declarations; ordinary lowering does not prepare
+them eagerly.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.

@@ -107,6 +107,13 @@
                                                         (str (System/identityHashCode value))]))
                        (conj opaque (IdentityKey. value)))))))))))
 
+(defn uncached-key
+  "Calculate a complete fingerprint without retaining its input in the root cache.
+   Callers traversing DAGs must memoize nodes themselves before using this on
+   child-digest envelopes; this generic calculation does not deduplicate DAGs."
+  [value]
+  (calculate value))
+
 (defn key
   "Return [SHA256 opaque-identities]. Independent equivalent parses match;
    opaque literals match only when their actual JVM objects are identical.
