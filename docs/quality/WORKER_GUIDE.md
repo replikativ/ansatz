@@ -16,9 +16,15 @@ Your task brief (`docs/quality/tasks/<ID>.md`) states the goal, the scope fence 
 - Project rules are in `CLAUDE.md` at the repo root. They apply to you too.
 
 ## JVM / REPL (shared machine: memory is the bottleneck)
-- Start a JVM **only** through the slot script, on the port your brief assigns:
-  `scripts/jvm-slot.sh repl <PORT> "<ID> worker"`. It waits for a free slot (max 3 machine-wide)
-  and starts an nREPL at `-Xmx1g` in your worktree.
+- Your sandbox kills background processes when a command ends, so **you cannot start a REPL
+  yourself**. The coordinator starts one for you in your worktree, on the port your brief names,
+  when a slot is free (max 3 machine-wide). Check it with
+  `clj-nrepl-eval -p <PORT> --timeout 10000 "(+ 1 1)"`. If it isn't up, work without it and use
+  the foreground mode below. Do not start, stop or restart REPLs (no `jvm-slot.sh repl`/`stop`);
+  if your REPL dies, say so in your result.
+- Foreground JVM runs (a test namespace, `javac`) go through a slot, at most `-Xmx1g`:
+  `scripts/jvm-slot.sh run -- clj -J-Xmx1g -M:test -e :wip -n <ns> [-n <ns> …]`. They wait for a
+  slot, so prefer the REPL when you have one.
 - Evaluate with `clj-nrepl-eval -p <PORT> --timeout 600000 "<code>"`. Reload changed namespaces
   with `(require 'ns :reload)`. After reloading `ansatz.core`, also run
   `(reset! ansatz.core/tactic-registry @#'ansatz.core/builtin-tactics)`: the registry is a
@@ -26,12 +32,10 @@ Your task brief (`docs/quality/tasks/<ID>.md`) states the goal, the scope fence 
 - Run only the test namespaces your brief names, in the REPL:
   `(binding [clojure.test/*test-out* *out*] (clojure.test/run-tests 'ns1 'ns2))`. Write long
   output to a file and grep it; don't rerun to grep.
-- **Never** run the full suite (`clj -M:test`), never use `-Xmx` above 1g, never start a JVM
-  outside the slot script, never kill a process you did not start. The coordinator runs the full
-  suite at merge time.
-- When you are done (or blocked), stop your REPL: `scripts/jvm-slot.sh stop <PORT>`.
-- Java sources (`src-java`) need `clj -J-Xmx1g -T:build javac` after a change, run while you hold
-  your slot (stop the REPL first, then restart it).
+- **Never** run the full suite, never use `-Xmx` above 1g, never start a JVM outside the slot
+  script, never kill a process you did not start. The coordinator runs the full suite at merge time.
+- Java sources (`src-java`) need `scripts/jvm-slot.sh run -- clj -J-Xmx1g -T:build javac`; the REPL
+  must then be restarted by the coordinator (say so in your result).
 
 ## Engineering rules
 - **Fail loudly.** A tactic that does not apply throws

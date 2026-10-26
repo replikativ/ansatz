@@ -11,7 +11,12 @@
 #
 # Usage:
 #   scripts/jvm-slot.sh repl PORT [OWNER]   take a slot, start an nREPL (-Xmx1g) on PORT in the
-#                                            current directory; the slot is released when it exits
+#                                            current directory; the slot is released when it exits.
+#                                            HOST ONLY: a sandboxed agent (Codex) kills background
+#                                            processes when its command ends, so the coordinator
+#                                            starts worker REPLs; the worker only connects.
+#   scripts/jvm-slot.sh run -- CMD…         run one foreground JVM command (-Xmx1g) holding a slot;
+#                                            works inside a sandbox
 #   scripts/jvm-slot.sh stop PORT           stop the nREPL started on PORT and release its slot
 #   scripts/jvm-slot.sh exclusive -- CMD…   run CMD holding jvm.lock + all slots (waits for them)
 #   scripts/jvm-slot.sh status              show who holds what
@@ -80,6 +85,13 @@ case "$cmd" in
     fi
     ;;
 
+  run)
+    [ "${1:-}" = "--" ] && shift
+    slot=$(claim_slot "run: $* (in $PWD)")
+    trap 'rm -rf "$slot"' EXIT
+    "$@"
+    ;;
+
   stop)
     port=${1:?port}
     for d in "$SLOTS"/slot-*; do
@@ -110,5 +122,5 @@ case "$cmd" in
     "$@"
     ;;
 
-  *) echo "usage: jvm-slot.sh {status|repl PORT [OWNER]|stop PORT|exclusive -- CMD...}" >&2; exit 2 ;;
+  *) echo "usage: jvm-slot.sh {status|repl PORT [OWNER]|run -- CMD...|stop PORT|exclusive -- CMD...}" >&2; exit 2 ;;
 esac
