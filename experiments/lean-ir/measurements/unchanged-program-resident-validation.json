@@ -1,0 +1,39 @@
+{
+  "schema": "unchanged-program-resident-validation/1",
+  "date": "2026-10-26",
+  "jvm": "Existing resident REPL71903; 192 MiB heap; 768 MiB RSS process-group guard; existing caller-frame classpath with Nat execution code loaded additively; no runtime namespace/class reload",
+  "execution": "One serialized resident future per program;120second host deadline; finite per-phase guestfuel; allocation+CPU measured on same executingworker thread",
+  "harnessSha256": "7d6e5f2e366e16c1e7b93119f6053cc0491016fcae3a97b471cd8a4fb191ef9c",
+  "sourceClaims": "native frontend exported unchanged programs; no hosted loader/kernel admission/native C timing claim",
+  "rbmap": {
+    "inputs": [
+      0,
+      1,
+      11,
+      100,
+      1000
+    ],
+    "trials": 3,
+    "completeWorldParity": true,
+    "nativeOracle100": 10,
+    "functionCount": 16,
+    "jvmRoute": {
+      "compiled": 35,
+      "cache-hits": 0,
+      "dispatch-blocks": 35,
+      "cached-blocks": 35
+    }
+  },
+  "compilerIR": {
+    "trials": 2,
+    "completeWorldParity": true,
+    "functionCount": 162,
+    "jvmRoute": {
+      "compiled": 292,
+      "cache-hits": 133,
+      "dispatch-blocks": 292,
+      "cached-blocks": 292
+    },
+    "independentNativeValueOracle": false
+  }
+}

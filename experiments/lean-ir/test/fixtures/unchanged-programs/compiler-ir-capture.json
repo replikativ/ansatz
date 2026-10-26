@@ -1,0 +1,17 @@
+{
+  "schema": "unchanged-program-native-capture/1",
+  "producer": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "sourceSha256": "bd4681f3ce6ba9050125d2bf8dd4f630fc5bbcf7f7870616975727cd85fca4f2",
+  "exporterSha256": "0b0344058631b8c3dc18a8a1a600f8100611eaf49c3b4ee5ad18a121651e736e",
+  "exit": 0,
+  "guardStop": null,
+  "peakRssBytes": 713932800,
+  "wallSeconds": 2.220395530006499,
+  "source": "CompilerIR.lean",
+  "roots": [
+    "Mcmc.Executable.Finite.CompilerIR.categoricalProgram",
+    "Mcmc.Executable.Finite.CompilerIR.metropolisHastingsProgram",
+    "Mcmc.Executable.Finite.CompilerIR.twoStateTarget",
+    "Mcmc.Executable.Finite.CompilerIR.twoStateProposal"
+  ]
+}
