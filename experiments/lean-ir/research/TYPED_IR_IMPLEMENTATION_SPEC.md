@@ -127,6 +127,120 @@ optimization with a fallback reason. No pass scans all Init definitions merely
 to compile a small requested unit. Prepared plans are owned by a program or kept
 in bounded caches.
 
+### M2 implemented data contract
+
+```clojure
+(prototype.typed-blocks/prepare-unit selected-functions roots profile intrinsics budgets)
+;; => {:status :ready :unit unit}
+;; or {:status :fallback :reason keyword :details data}
+
+(prototype.typed-blocks/legacy-body prepared-function)
+;; => reconstructed canonical interpreter body
+```
+
+`selected-functions` must contain paired canonical outputs of
+`lower-typed-declaration`, rather than independently assembled bodies and
+companions. Minimal M1 facts cannot authenticate literal payloads against a
+source digest without the original producer row. M2 validates represented
+structural alignment and scope; it does not authenticate source provenance.
+A source key is retained as provenance data, never admission authority.
+
+The closed profile shape is:
+
+```clojure
+{:schema "lean-block-profile/1"
+ :producer-commit "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+ :phase :expanded-rc :word-bits 64 :layout :lean-64
+ :abi-generation "ansatz-runtime/1" :target :jvm}
+```
+
+The producer digest and ABI generation are explicit caller obligations. The
+profile neither verifies upstream checkout identity nor grants execution
+capabilities. Unsupported phase/word/layout/target combinations fall back.
+Budgets require positive integer `:max-functions`, `:max-instructions`,
+`:max-blocks`, `:max-work` and `:max-registers`. Function budget counts demanded
+signatures, including extern descriptors. Instruction budget counts unique
+canonical instruction identities; block budget counts lexical validation states,
+including revisits of shared nodes. Work counts collection entries before
+parameter, operand, alternative, root and companion scans, plus visited states
+and names. It is a conservative work counter, not an allocation or CPU quota.
+Register indices must be below `:max-registers`. Limits stop preparation with a
+fallback before any guest execution.
+
+The initial persistent encoding is:
+
+```clojure
+{:schema "lean-blocks/1" :profile profile :profile-key profile-key :roots roots
+ :intrinsics {demanded-name descriptor}
+ :counts resource-counts
+ :functions
+ {name {:name name :params typed-parameters :result-type ir-type
+        :source-key producer-source-key :entry block-id :entry-pc canonical-pc
+        :instructions [{:pc canonical-pc :form childless-legacy-form
+                        :children [canonical-pc ...]} ...]
+        :origins {canonical-pc {:producer-node-ids [producer-id ...]}}
+        :blocks [{:id block-id :pc canonical-pc
+                  :params {:kind :canonical-registers :types {var-id ir-type}}
+                  :scope {var-id ir-type}
+                  :ops [typed-operation ...]
+                  :terminator typed-terminator} ...]}}}
+```
+
+One canonical instruction forms one block initially. Canonical PCs are stable
+identity-indexed sites within the selected function, independent of producer
+postorder IDs. Multiple lexical states may reference the same PC. The instruction
+table retains every canonical operation and reconstructs the original body
+stack-safely without tree-expanding a shared DAG. In particular, a folded tail
+has one canonical instruction and both producer origins. It still costs one
+existing interpreter step.
+
+Register block parameters use a persistent map, shared with `:scope`, rather
+than copying all preceding binders into a parameter vector at each instruction.
+An ordinary edge has `:args {:kind :identity-registers}`. A call continuation has
+`:continuation-args {:kind :call-result :dest id :preserve :identity-registers}`.
+Case alternatives retain ordered `[tag {:block id :args identity-transfer}]`
+entries. A join descriptor has typed `:params`, declaration-scope `:captures`
+and its body `:block`; its continuation carries an identity transfer. A jump
+records that descriptor's captures, target block and argument vector with
+`:transfer :simultaneous`. All source arguments must be read before writing join
+parameters. Captures and scope maps describe types, not saved runtime values.
+The canonical table is the reconstruction description; future execution must
+still reconstruct actual complete World values.
+
+The supported slice consists of in-range unsigned integer literal lets, direct
+calls/tails with demanded signatures, returns, lexical joins/jumps and scalar
+cases over UInt8/UInt16/UInt32. Cases require unique tags and at most one default,
+placed last. Native Lean selects alternatives in source order whereas the hosted
+reference chooses explicit matches before a default; this restriction avoids
+that existing disagreement. UInt64/USize case interpretation also needs a later
+explicit domain/profile treatment and currently falls back. Heap, RC, runtime,
+closure, initialized-global and aggregate operations remain interpreted outside
+this preparation slice.
+
+Pinned `Lean/Compiler/IR/Checker.lean` uses one globally fresh index namespace
+for variables and joins, including distinct branches. A repeated shared binder
+region is invalid under its structural traversal; shared binder-free terminals
+are supported. A join body sees outer joins and its own parameters, but not the
+newly declared join itself. Its continuation sees the new join. M2 rejects
+unknown locals/joins, duplicate binders, arity mistakes and companion/op/ID
+mismatches. The pinned checker does not establish exact call/return/jump type
+compatibility for all representation-compatible IR. Missing stronger type proof
+therefore causes optimization fallback, rather than asserting the Lean source
+is malformed.
+
+An intrinsic descriptor has closed fields `:params` (typed/borrowed parameters),
+`:result-type`, nonempty `:generation` and nonempty `:extern` symbol string.
+Only demanded descriptors are validated and retained. These are call boundaries,
+not intrinsic implementations, and no wrapper instruction or fuel is removed.
+Extern bodies without typed producer companions are unsupported as unit roots.
+
+M2 has no executable artifact cache or block execution backend. `:profile-key`
+is only a profile key: a later artifact key must also cover complete typed code,
+compiler generation and exact demanded intrinsic dependencies. The canonical
+roundtrip tests execute reconstructed legacy bodies on existing backends; they
+do not claim that the new block encoding executes independently. Native value
+and ABI conformance and optimized chunk reconstruction remain M3 gates.
+
 ## M3 represented operations and JVM execution
 
 Logical IR types and operation domains remain distinct from storage lanes.
@@ -271,5 +385,7 @@ rewrites preserve those contracts.
 The existing SUM and UInt64 Pattern fragments are research evidence, not general
 compiler implementation. M1 provides the demand-only companion and typed-key
 APIs, with focused [validation results](../measurements/typed-ir-companion.json).
-Scoped typechecking, block formation and subsequent milestones remain
-implementation work.
+M2 provides bounded scalar control-flow preparation and exact canonical body
+reconstruction, with focused [validation results](../measurements/typed-block-preparation.json).
+Represented operations, new block execution, kernel/interop integration and the
+remaining milestones are still implementation work.
