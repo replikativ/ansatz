@@ -1,13 +1,14 @@
 # Compiler selection after file loading
 
-Status: proposal for the next bounded API increment; no setter/root selector is
-implemented by the compiled-version cache fixtures. Existing public compiler
-options require explicitly prepared facts for already installed code. The current
-provider-first profile is not turnkey optimized file loading.
+Status: advanced immutable Clojure setter implemented; four focused tests and
+44 composed regressions passed in the shared resident REPL.
+The FileHandle/root selector below remains a proposal. Callers still prepare
+explicit facts for already installed code. The current provider-first profile is
+not turnkey optimized file loading.
 
 ## First increment: immutable advanced Clojure setter
 
-Add `resident/with-compiler-options [context selection]` as a thin adapter over
+`resident/with-compiler-options [context selection]` is a thin adapter over
 the existing raw constructor, following `resident/fork` and `with-externs`:
 
 1. Lock the supplied Context, check it is open, and validate protected functions
@@ -27,11 +28,11 @@ permission to call an uninitialized/unadmitted file.
 
 The thin Clojure facade delegates through its existing `operate`/`child` pattern,
 preserving the borrowed provider scope and lease through every descendant and
-failure object. Keep Java unchanged initially. Passing opaque Clojure compiler
+failure object. Java remains unchanged. Passing opaque Clojure compiler
 fact maps should not be presented as a convenient Java API; a later meaningful
 profile/FileHandle/names interface can receive a thin Java adapter.
 
-Tests should cover default→selected→cleared children with retained old contexts,
+The focused tests cover default→selected→cleared children with retained old contexts,
 actual execution-route evidence, shared cache identity, malformed/stale selection
 before child issuance, closed contexts, protected authority and borrowed provider
 scope. Reuse existing resident/facade failure packets and ownership tests.
@@ -71,3 +72,8 @@ contracts as well.
 Report unsupported roots/profile cases explicitly and preserve existing generic
 execution. New code still needs ordinary kernel admission, source receipts and
 initializer readiness. This convenience supplies optimization facts only.
+
+The [setter validation record](../measurements/resident-compiler-options.json)
+pins the exact new-function injection and test source. Frontend transport and
+facade lease tests are models; selected boxed execution uses actual emitted IR.
+No genuine source/class cohort or hosted file-loading gate is accepted here.

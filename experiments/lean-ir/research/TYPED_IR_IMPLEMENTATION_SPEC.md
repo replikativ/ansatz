@@ -706,6 +706,22 @@ map. File loading under an inherited stale selection fails before adopting the
 new session and preserves the existing exact installation/checkpoint evidence.
 The caller retains its original Context; no failed load invents a usable child.
 
+`resident-frontend/with-compiler-options` and the Clojure facade's
+`ansatz.lean/with-compiler-options` replace the advanced selection on a separately
+closeable child of an idle Context. They validate existing protected functions and
+bindings before reopening the same function map, preserve World/Env/Options roots,
+active file identities and the shared cache, and issue no child on validation
+failure. `{}` clears selection. The facade inherits the borrowed provider scope
+through its existing operation/child path. Construction runs no guest code,
+checking, source capture or initialization. The input Context remains usable.
+The [selection API plan](COMPILER_SELECTION_API_PLAN.md) distinguishes this setter
+from future bounded active-FileHandle/root discovery. Java receives no opaque
+compiler-map API; automatic optimized file loading remains unaccepted. The
+[setter validation record](../measurements/resident-compiler-options.json) records
+four focused tests (57 assertions) and 44 composed tests (19,269 assertions);
+the three resident setter tests overlap those counts. Its modeled frontend and
+facade lease scopes remain distinct from actual emitted boxed-code execution.
+
 `raw-interop/session-options` supplies the single reopening contract for raw
 install/link/backend changes, frontend installation and resident `with-externs`.
 All retain the same code-cache capability and revalidate the raw selection. The

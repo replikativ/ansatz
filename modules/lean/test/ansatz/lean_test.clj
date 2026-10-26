@@ -3,6 +3,7 @@
    these tests cannot establish strict/frontend/real-codec acceptance."
   (:require [clojure.test :refer [deftest is run-tests]]
             [ansatz.lean :as lean]
+            [ansatz.lean-compiler-options-test]
             [prototype.resident-preparation :as preparation]
             [prototype.resident-frontend :as resident]
             [prototype.machine :as machine]
@@ -184,6 +185,7 @@
                          (.call compiled (.file loaded) "answer" [[-1 0]]
                                 (LeanRuntime$CallSignature. ["bytes"] "bytes"))))))))))
 
+
 (defn -main [& _]
-  (let [{:keys [fail error]} (run-tests 'ansatz.lean-test)]
+  (let [{:keys [fail error]} (run-tests 'ansatz.lean-test 'ansatz.lean-compiler-options-test)]
     (when (pos? (+ fail error)) (System/exit 1))))

@@ -185,3 +185,11 @@
 (defn with-externs [context bindings]
   (operate context :with-externs
            (fn [r scope] (child (resident/with-externs r bindings) scope))))
+
+(defn with-compiler-options
+  "Return a separately closeable child with an advanced raw compiler selection.
+   Facts must describe already loaded code; {} clears selection. Provider scope
+   stays borrowed. This does not discover roots or change admission/readiness."
+  [context selection]
+  (operate context :with-compiler-options
+           (fn [r scope] (child (resident/with-compiler-options r selection) scope))))
