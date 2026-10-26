@@ -109,5 +109,43 @@
     "Java compiler-options API or Java genuine frontend acceptance",
     "automatic FileHandle/root discovery"
   ],
-  "remaining": "Advanced raw facts must be prepared for actual loaded code. Java compiler-map API intentionally unchanged. Root selection and one warm genuine load/call/callback/edit acceptance are separate finite work."
+  "remaining": "Advanced raw facts must be prepared for actual loaded code. Java compiler-map API intentionally unchanged. Root selection and one warm genuine load/call/callback/edit acceptance are separate finite work.",
+  "integration_rebase": {
+    "main": "041fc1ef811a499072c9bb1b077a1e58e34f0770",
+    "changed_inputs": {
+      "experiments/lean-ir/src/prototype/typed_tail.clj": {
+        "tested_sha256": "6285f44e7f8175846a8ca5a4aa7a9f78c5dfbb9e0685c32d8f8d059e6e2b5975",
+        "integrated_sha256": "65eb937b3c0d9ab43da8054477a605a7d1219f886ef6f0fb14e49b8789533294"
+      },
+      "experiments/lean-ir/src/prototype/typed_tail_execution.clj": {
+        "tested_sha256": "a2c0eb1e1c05442de95b19db6fe16c9336c14895dabf73e00e04e02eb7cb2721",
+        "integrated_sha256": "10225e01f076873a4af8e96cf6a3025f8d6bf8020f1e296a03df770c3024120c"
+      },
+      "experiments/lean-ir/src/prototype/runtime_abi.clj": {
+        "tested_sha256": "45df0a1d84a964d82982906046f7ec970da0d538609139b7a9c6b05570c62e3a",
+        "integrated_sha256": "f77e397455efb2354ba4a36227b57490999c3f238522dfdfe87b8a1ab766ccdf"
+      },
+      "experiments/lean-ir/src/prototype/scalar_wrapper.clj": {
+        "tested_sha256": "14e5b7e62180aa213d6fbf8b728b2b2c12e8201da9a3efbb494e649bdc43988b",
+        "integrated_sha256": "de3d1549f63ee183ab796b85c990e6512be435b3df9676e4821228bdac26a2bf"
+      },
+      "experiments/lean-ir/test/prototype/typed_tail_test.clj": {
+        "tested_sha256": "2d86b7ba932e5a12b34367ede4202a4d3a684c372d82ccfdba570c0c255273f8",
+        "integrated_sha256": "e480cf77fff26a0fcb381506b4679ed65e83e59608fd56fd580dc609c49395e9"
+      },
+      "experiments/lean-ir/scripts/test-typed-tail.clj": {
+        "tested_sha256": "f1ff0f7a7dadf44f17039beef81b1e2d4baa016b9d18f5bc5f023b3b5d2ffa7c",
+        "integrated_sha256": "a90a67994c5a54623158de68db44b97eae72d1e0125e67790c425abb3cd9cf39"
+      },
+      "modules/lean/README.md": {
+        "tested_sha256": "e15996cbd9077f93e9839b9a5714c4f22c8052118ef578ce4787e7a1e9c11e33",
+        "integrated_sha256": "3e30570bd2291f3604391348c18b7677dc96aed417f32a6bfb39d20dac6eec6b"
+      },
+      "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": {
+        "tested_sha256": "65f9903a957687db17714c4827f2a6d0d9c7ca2b7db1efa9a7f631d54e7f4aa3",
+        "integrated_sha256": "ae9922e065d03b833c44af4f520aa31eaca836aeca94f61de3da16a9ecc317f1"
+      }
+    },
+    "notes": "Original resident REPL test evidence and hashes above remain historical. Upstream Nat DATA and normal Pattern packaging are integrated; runner now includes both Nat10 and resident3 (54 vars). Production setter and its tests unchanged. Current integrated CI is a separate gate."
+  }
 }
