@@ -774,9 +774,21 @@
   [call-values! callee-slots bind-params! registers deliver! push-frame!
    tail-entry-state? tail-peak! materialize-tail-entry! materialize-tail-return!
    has-frames? status steps function-slots tail-frame-depth])
-(defn tail-region-tokens []
-  [(scalar-wrapper-tokens) tail-region-generation (slots/tail-layout-token)])
-(defn current-tail-region? [tokens symbols]
+(def ^:private nat-rc-generation (Object.))
+(def ^:private nat-rc-roots [retain! release! assert-persistent!])
+(defn- builtin-nat-rc? []
+  (let [[retain release persistent] nat-rc-roots]
+    (and (identical? retain retain!) (identical? release release!)
+         (identical? persistent assert-persistent!) (m/builtin-scalar-reference?))))
+
+(defn tail-region-tokens
+  ([] (tail-region-tokens false))
+  ([nat?]
+   (cond-> [(scalar-wrapper-tokens) tail-region-generation (slots/tail-layout-token)]
+     nat? (conj [nat-rc-generation (runtime/nat-arithmetic-token) (native/native-number-token)]))))
+(defn current-tail-region?
+  ([tokens symbols] (current-tail-region? tokens symbols false))
+  ([tokens symbols nat?]
   (let [[call layout bind registers-root deliver push entry peak entry! return! frames status-root steps-root function-slots-root depth-root] tail-region-roots]
     (and (identical? (nth tokens 1) tail-region-generation)
          (= (nth tokens 2) (slots/tail-layout-token)) (slots/builtin-tail-layout?)
@@ -787,4 +799,10 @@
          (identical? frames has-frames?) (identical? status-root status) (identical? steps-root steps) (identical? function-slots-root function-slots)
          (identical? depth-root tail-frame-depth)
          (current-scalar-wrapper? (nth tokens 0) "lean_uint64_add" :add)
-         (every? (fn [[symbol operation]] (current-scalar-wrapper? (nth tokens 0) symbol operation)) symbols))))
+         (or (not nat?)
+             (and (= (nth tokens 3 nil) [nat-rc-generation (runtime/nat-arithmetic-token) (native/native-number-token)])
+                  (builtin-nat-rc?) (runtime/builtin-nat-arithmetic? "lean_nat_add" :add)))
+         (every? (fn [[symbol operation domain runtime-operation]]
+                   (if (= :nat domain)
+                     (runtime/builtin-nat-arithmetic? symbol runtime-operation)
+                     (current-scalar-wrapper? (nth tokens 0) symbol operation))) symbols)))))

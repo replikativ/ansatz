@@ -576,7 +576,7 @@ separates preparation, factory eval and warm execution with full-World compariso
 outside timing. General joins, heap/RC operations, other non-tail source calls,
 Nat promotion and complete M3/frontend acceptance remain outside this increment.
 
-### Guarded Nat representation data before execution
+### Guarded Nat representation and execution
 
 The shared exact-symbol registry additionally describes Nat.add, Nat.sub and
 Nat.decEq with actual borrowed `tobject` parameters. Nat descriptors use
@@ -605,19 +605,40 @@ justify an unchecked arithmetic result. Complete proof/operation/descriptor data
 belongs in the semantic key; derived debug scopes do not replace those facts.
 Unused Nat descriptors alone do not change an unsigned unit, key or executor.
 
-The current execution context explicitly declines `/2` BEFORE constructing or
-forcing a factory. Valid Nat programs continue through existing execution.
-There is no compiled Nat performance, promotion or native MPZ allocation claim
-in this data increment. Genuine pinned sum/identity/constant/subtraction producer
-bodies guide the next emitter. The borrowed native mutual examples have real
-post-call decs and remain unsupported non-tail controls; do not erase their
-observable call frames or claim mutual-Nat fast coverage from them.
+The common execution context accepts `/1` and `/2`. Every Nat parameter, even an
+unused parameter, must be an exact nonnegative JVM Long before primitive entry.
+BigInt, BigInteger, RawNativeScalar and Ref arguments decline without normalization.
+The Java/Clojure Nat codecs preserve their input carrier classes, so a small
+BigInteger from Java also follows the existing interpreter path in this profile.
 
-The [Nat representation plan](NAT_REPRESENTATION_PLAN.md) specifies the subsequent
-guards/common-emitter/promotion exit work. [Data validation](../measurements/nat-represented-data.json)
-covers actual ABI rows, per-function proofs, synthetic simultaneous cross-tail
-rules, bounded pre-hash refusal, clean interpreter fallback and unchanged unsigned
-execution. Native producer/value evidence is independent from compiled execution.
+The common emitter consumes represented domain/lane/proof facts. Nat subtraction
+saturates at zero; equality and successful arithmetic retain Long carriers. An
+add checks `a <= Long/MAX_VALUE - b` before computing its result. A failed check
+abandons the current speculative chunk, materializes its entry with earlier
+completed chunks charged exactly once, then invokes mutable execution for ALL
+remaining fuel. The speculative chunk has no effects: RC sites are one charged
+instruction only when every operand is a proven nonreference lane. The same exit
+works for terminal intrinsics, swapped arguments, unequal arities, saved caller
+frames/joins and large fuel. It never replays completed tails or physical effects.
+
+Definition-owner generations and current-root guards cover the Nat runtime
+arithmetic, native numeric extraction and mutable RC/assertion helpers. Exact ABI
+registry roots are checked before preparation and entry; relevant current routing
+memberships are checked before guest work. Existing code-image, wrapper, factory,
+layout and cache-hint guards remain. Arbitrary core/private seal API tampering and
+concurrent redefinition are outside the supported redefinition contract.
+
+The [Nat representation plan](NAT_REPRESENTATION_PLAN.md) records these contracts.
+[Data validation](../measurements/nat-represented-data.json) and
+[execution validation](../measurements/nat-tail-execution.json) distinguish the
+native mathematical/ABI oracle from full hosted World/carrier parity. Actual
+sum/identity/constant/subtraction bodies compile; borrowed native mutual bodies
+with post-call decs remain unsupported non-tail controls. Synthetic true-tail
+controls establish simultaneous transfer rules without changing those exports.
+The existing hosted semantic-integer/logical-allocation profile is unchanged;
+compiled Long specialization does not claim native MPZ allocation or heartbeat
+parity. General joins/non-tail source calls and full frontend acceptance remain
+separate gates.
 
 ## M4 kernel integration
 
@@ -839,7 +860,7 @@ M2 provides bounded scalar control-flow preparation and exact canonical body
 reconstruction, with focused [validation results](../measurements/typed-block-preparation.json).
 M3a adds guarded UInt64/USize wrapper-let specialization on existing JVM backends.
 M3b/M3c add optional represented scalar tail-region preparation and execution.
-Joins, general non-tail source calls, [Nat promotion](NAT_PROMOTION_PLAN.md),
-kernel/interop integration and remaining milestones are still implementation work.
-The Nat document is a proposal only; current hosted BigInt and native MPZ/heartbeat
-profiles remain distinct, rather than treating promotion as allocation elimination.
+Guarded Long Nat promotion now uses the same represented pipeline; broader
+[Nat promotion](NAT_PROMOTION_PLAN.md), joins and general non-tail source calls
+remain work. Hosted BigInt and native MPZ/heartbeat profiles stay distinct.
+Kernel/interop fixtures and hosted frontend acceptance retain their own gates.

@@ -257,6 +257,15 @@
           :result-type result-type :profile profile :domain domain :operation operation
           :lane lane :semantic-generation generation})))))
 
+(def ^:private scalar-description-roots
+  [scalar-wrapper-operations scalar-operation validate-scalar-description! describe-scalar])
+(defn builtin-scalar-description?
+  "Semantic registry definitions must still match their definition-owner epoch."
+  []
+  (let [[registry operation validate describe] scalar-description-roots]
+    (and (identical? registry scalar-wrapper-operations) (identical? operation scalar-operation)
+         (identical? validate validate-scalar-description!) (identical? describe describe-scalar))))
+
 (defn lower [row]
   (if (:redirect row) (lower-redirect row)
   (if-let [ext (get-in row [:ir :extern])]

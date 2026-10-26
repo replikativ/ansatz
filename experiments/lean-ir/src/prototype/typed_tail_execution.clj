@@ -35,9 +35,10 @@
               :else false))))))
 
 (defn- carrier? [type value]
-  (and (or (= Long (class value)) (= clojure.lang.BigInt (class value)))
+  (and (if (#{"tagged" "tobject"} type) (= Long (class value))
+           (or (= Long (class value)) (= clojure.lang.BigInt (class value))))
        (<= 0 value)
-       (<= value (case type "uint8" 255 "uint16" 65535 "uint32" 4294967295 maximum))))
+       (<= value (case type "tagged" Long/MAX_VALUE "tobject" Long/MAX_VALUE "uint8" 255 "uint16" 65535 "uint32" 4294967295 maximum))))
 
 (defn- scalar-value [context bits tag]
   (case (long tag)
@@ -48,9 +49,13 @@
 (defn- context-valid? [context machine]
   (and (instance? Context context) (identical? generation (:owner context))
        (identical? (abi/scalar-description-token) (:abi-token context))
+       (abi/builtin-scalar-description?)
        (identical? (emit/generation-token) (:emit-token context))
        (u/current-tail-region? (:tokens context)
-                               (mapv (juxt :extern :operation) (vals (get-in context [:region :descriptors]))))
+                               (mapv (fn [d] (let [op (abi/scalar-operation (:extern d))]
+                                               [(:extern d) (:operation d) (:domain op) (:runtime-operation op)]))
+                                     (vals (get-in context [:region :descriptors])))
+                               (= "lean-represented-tail/2" (get-in context [:region :schema])))
        (every? (fn [[name expected]]
                  (let [actual (get (:functions machine) name)
                        cached (when-let [cache (:function-slot-cache machine)] (.get ^java.util.IdentityHashMap cache actual))]
@@ -85,11 +90,13 @@
  (try
   (when-not (and (map? config) (= #{:typed-functions :roots :descriptors :profile :budgets} (set (keys config))))
     (m/fail "Invalid typed-tail compiler configuration" {}))
+  (when-not (abi/builtin-scalar-description?)
+    (throw (ex-info "Unsupported scalar semantic registry redefinition" {::fallback :scalar-registry-redefined})))
   (let [prepared (prep/prepare-region functions (:typed-functions config) (:roots config)
                                        (:descriptors config) (:profile config) (:budgets config))]
     (cond
       (not= :ready (:status prepared)) {:status :fallback :reason (:reason prepared)}
-      (not= "lean-represented-tail/1" (get-in prepared [:region :schema]))
+      (not (contains? #{"lean-represented-tail/1" "lean-represented-tail/2"} (get-in prepared [:region :schema])))
       {:status :fallback :reason :unsupported-represented-schema}
       :else
       (let [region (:region prepared) names (vec (sort-by pr-str (keys (:functions region))))
@@ -116,13 +123,13 @@
                                :when (= :literal (first (:operation block)))]
                            {:site [name (:id block)] :value (get-in block [:carrier :value])}))
             literal-tags (into {} (map-indexed (fn [i literal] [(:site literal) (+ i 2)]) literals))
-            key [::region-v1 generation (emit/generation-token) (abi/scalar-description-token) (u/tail-region-tokens)
+            key [::region-v1 generation (emit/generation-token) (abi/scalar-description-token) (u/tail-region-tokens (= "lean-represented-tail/2" (:schema region)))
                  (:key region) names (mapv #(select-keys % [:site :value]) literals)
                  (boolean (:direct-linking options))]
             emission-options {:direct-linking (boolean (:direct-linking options))}
             factory (delay (factory-plan region names literal-tags emission-options))]
         (->Context region key names entry-info dependencies (mapv :value literals) literal-tags
-                   (u/tail-region-tokens) (abi/scalar-description-token) (emit/generation-token) generation factory))))
+                   (u/tail-region-tokens (= "lean-represented-tail/2" (:schema region))) (abi/scalar-description-token) (emit/generation-token) generation factory))))
   (catch clojure.lang.ExceptionInfo e
     (if-let [reason (::fallback (ex-data e))] {:status :fallback :reason reason} (throw e)))))
 
@@ -168,6 +175,7 @@
   [context]
   (if (and (instance? Context context) (identical? generation (:owner context))
            (identical? (emit/generation-token) (:emit-token context))
-           (identical? (abi/scalar-description-token) (:abi-token context)))
+           (identical? (abi/scalar-description-token) (:abi-token context))
+       (abi/builtin-scalar-description?))
     @(:factory context)
     {:fallback :stale-or-unsupported-context}))
