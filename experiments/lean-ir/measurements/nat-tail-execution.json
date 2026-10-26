@@ -267,5 +267,10 @@
       "scope": "Earlier three pairs with the same runtime source; benchmark helper subsequently gained supported/enabled metric preflight. Superseded by final checked helper run; retained to expose warm-run variability."
     },
     "interpretation": "Small warmed cumulative-REPL trials vary substantially; use the raw ranges and separate preparation costs, not the largest observed ratio as a stable throughput claim."
+  },
+  "integration-rebase": {
+    "main": "041fc1ef811a499072c9bb1b077a1e58e34f0770",
+    "changed-inputs": {},
+    "note": "Rebased after reviewed normal Pattern packaging; original runtime/test source hashes remain exact; no new execution claims from rebase."
   }
 }
