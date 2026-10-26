@@ -40,7 +40,8 @@
       "errors": 36,
       "diagnosis": "Fixture incorrectly treated codec String encoding as an allocated guest Ref. Real codec returns immediate JVM String; invalid m/node assumptions caused Dangling guest reference errors. No runtime bug or runtime fix inferred.",
       "source_commit": "fb1ad44",
-      "test_source_sha256": "0900efe5e7ed4450c5512dd7823d841bc6ef5d2b35974501880d717ab49b5376"
+      "test_source_sha256": "0900efe5e7ed4450c5512dd7823d841bc6ef5d2b35974501880d717ab49b5376",
+      "rebased_equivalent_source_commit": "879b2a7"
     },
     "reference_microprobe": {
       "cases": [
@@ -112,5 +113,8 @@
   ],
   "scope": "Test and documentation additions only; no runtime API/authority/ownership/scheduler/loader changes. Inherited resident Java classes/runtime sources are not a new loaded-code attestation.",
   "merged_equivalent_runtime_base": "e4c4f80b2f9f29deaebd48f642c16429f9354c3a",
-  "runtime_input_diff_to_merged_base": []
+  "runtime_input_diff_to_merged_base": [],
+  "rebased_equivalent_test_commit": "d6f85c7",
+  "rebase_input_diff": [],
+  "rebase_evidence": "All 27 recorded source/fixture/runner bytes match the rebased tree on merged202. Original tested commits remain recorded; rebase is source-byte equivalence, not a new run or authenticated runtime cohort."
 }
