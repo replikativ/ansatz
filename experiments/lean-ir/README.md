@@ -20,6 +20,12 @@ Pattern to build validated graph, trace and carrier data. Optional
 scalar loops with exact fuel and snapshot materialization on existing JVM drivers;
 joins and general non-tail source calls still fall back.
 
+The [caller-frame extension](research/TAIL_CALLER_FRAME_PLAN.md) lets those scalar
+regions run beneath existing callers, including actual exported boxed entrypoints.
+It restores the caller before continuing ordinary execution; its
+[validation record](measurements/tail-caller-frames.json) remains separate from
+hosted frontend and Java consumer acceptance.
+
 The additive [session compiler selection contract](research/TYPED_IR_IMPLEMENTATION_SPEC.md#session-compiler-selection)
 threads explicit `:compiler-options` through existing interop sessions and frontend
 reopens. Its [focused boundary tests](measurements/session-compiler-options.json)

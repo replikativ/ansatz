@@ -729,12 +729,17 @@
        (identical? (nth tokens 4) (native/scalar-carrier-token))
        (builtin-scalar-wrapper? symbol operation)))
 
+(defn tail-frame-depth
+  "Current caller depth, read from this invocation rather than compiled code."
+  ^long [s]
+  (long (.size ^ArrayDeque (:frames s))))
+
 (defn tail-entry-state?
-  "Internal guard: framefree, no joins, and exactly the declared parameter locals."
+  "Internal guard: valid caller peak, no joins, and exactly the parameter locals."
   [s params]
   (let [^objects locals (ctl s 1)]
-    (and (not (neg? (aget ^longs (:counters s) 3)))
-         (.isEmpty ^ArrayDeque (:frames s)) (.isEmpty ^HashMap (ctl s 2))
+    (and (<= (tail-frame-depth s) (aget ^longs (:counters s) 3))
+         (.isEmpty ^HashMap (ctl s 2))
          (nil? (:leaf-plans s)) (nil? (:register-layouts s))
          (every? (fn [id] (and (< -1 id (alength locals)) (not (identical? unbound (aget locals (int id)))))) params)
          (= (count params) (loop [i 0 n 0]
@@ -768,11 +773,11 @@
 (def ^:private tail-region-roots
   [call-values! callee-slots bind-params! registers deliver! push-frame!
    tail-entry-state? tail-peak! materialize-tail-entry! materialize-tail-return!
-   has-frames? status steps function-slots])
+   has-frames? status steps function-slots tail-frame-depth])
 (defn tail-region-tokens []
   [(scalar-wrapper-tokens) tail-region-generation (slots/tail-layout-token)])
 (defn current-tail-region? [tokens symbols]
-  (let [[call layout bind registers-root deliver push entry peak entry! return! frames status-root steps-root function-slots-root] tail-region-roots]
+  (let [[call layout bind registers-root deliver push entry peak entry! return! frames status-root steps-root function-slots-root depth-root] tail-region-roots]
     (and (identical? (nth tokens 1) tail-region-generation)
          (= (nth tokens 2) (slots/tail-layout-token)) (slots/builtin-tail-layout?)
          (identical? call call-values!) (identical? layout callee-slots) (identical? bind bind-params!)
@@ -780,5 +785,6 @@
          (identical? entry tail-entry-state?) (identical? peak tail-peak!)
          (identical? entry! materialize-tail-entry!) (identical? return! materialize-tail-return!)
          (identical? frames has-frames?) (identical? status-root status) (identical? steps-root steps) (identical? function-slots-root function-slots)
+         (identical? depth-root tail-frame-depth)
          (current-scalar-wrapper? (nth tokens 0) "lean_uint64_add" :add)
          (every? (fn [[symbol operation]] (current-scalar-wrapper? (nth tokens 0) symbol operation)) symbols))))

@@ -59,7 +59,7 @@
   (let [machine (gensym "machine") context (gensym "context") initial (gensym "initial")
         safe (gensym "safe") fuel (gensym "fuel") limit (gensym "limit") one (gensym "one")
         registers (with-meta (gensym "registers") {:tag 'objects}) tag (gensym "tag") remaining (gensym "remaining")
-        completed (gensym "completed") peak (gensym "peak") chunks (gensym "chunks")
+        completed (gensym "completed") peak (gensym "peak") chunks (gensym "chunks") depth (gensym "caller_depth")
         width (reduce max 0 (map #(count (get-in region [:functions % :params])) names))
         lanes (mapv (fn [_] [(gensym "bits") (gensym "carrier")]) (range width))
         tags (zipmap names (range))
@@ -135,7 +135,7 @@
                             ~@(mapcat (fn [i] (if-let [v (get values i)] [(:bits v) (:carrier v)] [`(long 0) `(long 0)])) (range width))
                             (unchecked-subtract ~remaining (long ~n))
                             (unchecked-add ~completed (long ~n))
-                            (long (max ~peak (long ~local-peak)))
+                            (long (max ~peak (unchecked-add ~depth (long ~local-peak))))
                             (unchecked-inc ~chunks)))
 
                   :return
@@ -147,7 +147,7 @@
                         ~machine (nth (:names ~context) ~(get tags name)) ~(arguments f entry-env)
                         (prototype.typed-tail-execution/return-body ~context (nth (:names ~context) ~(get tags name)) ~(:pc block))
                         ~locals ~(scalar (operand env (first args)))
-                        (unchecked-add ~completed (long ~(inc cost))) (long (max ~peak (long ~local-peak))))
+                        (unchecked-add ~completed (long ~(inc cost))) (long (max ~peak (unchecked-add ~depth (long ~local-peak)))))
                        :specialized))
 
                   :tail-intrinsic
@@ -163,7 +163,7 @@
                            ~target-tag '~target ~body (get-in (:dependencies ~context) [~target-tag :body])]
                        (prototype.mutable/materialize-tail-return!
                         ~machine ~target-tag ~values (nth ~body 3) ~target-locals ~(scalar result)
-                        (unchecked-add ~completed (long ~(+ cost 3))) (long (max ~peak (long ~local-peak))))
+                        (unchecked-add ~completed (long ~(+ cost 3))) (long (max ~peak (unchecked-add ~depth (long ~local-peak)))))
                        :specialized))
                   (throw (ex-info "Unsupported represented operation" {:operation (first op)})))))
             (arm [i name]
@@ -183,12 +183,13 @@
                            (map-indexed vector names))))]
       (spend! (+ 512 (* 64 width)))
       (let [form `(fn [~machine ~context ~initial ~safe ~fuel ~limit ~one]
-                    (let [~registers (prototype.mutable/locals-array ~machine)]
+                    (let [~registers (prototype.mutable/locals-array ~machine)
+                          ~depth (long (prototype.mutable/tail-frame-depth ~machine))]
                       (loop [~tag (long ~initial)
                              ~@(mapcat (fn [i [b c]]
                                          [b `(.longValue ^Number ~(initial-value i))
                                           c `(long (if (= Long (class ~(initial-value i))) 0 1))]) (range width) lanes)
-                             ~remaining (long ~safe) ~completed (long 0) ~peak (long 0) ~chunks (long 0)]
+                             ~remaining (long ~safe) ~completed (long 0) ~peak (long ~depth) ~chunks (long 0)]
                         (case ~tag
                           ~@(mapcat (fn [[i name]] [i (arm i name)]) (map-indexed vector names))
                           (throw (ex-info "Invalid typed-tail tag" {}))))))]

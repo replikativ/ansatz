@@ -1,0 +1,172 @@
+{
+  "schema": "tail-caller-frames-validation/1",
+  "status": "Passed focused,35-var and combined41-var resident gates plus current8-var preparation test reload; current source coverage explicit per run, no hosted/frontend acceptance",
+  "base-profile": "Existing reference World and scalar represented tail-region semantics; no numeric/heap/RC/native ABI policy change",
+  "source-sha256": {
+    "experiments/lean-ir/README.md": "d9566dab00f164512a5714aa8a5cf29339fb54a3b87299d8809f85c9e2b5ad27",
+    "experiments/lean-ir/research/TAIL_CALLER_FRAME_PLAN.md": "df6b02efb2d51e104a2989669277454bf555c8a7fbb2068d0d72d5437a1f213d",
+    "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": "2d370c089a9cdaa9a3b684b7605b676ad81f8376ee3b8087b87a5b0bc937fd98",
+    "experiments/lean-ir/research/TYPED_TAIL_REGION_PLAN.md": "c4a5a61cd65194c885d528044ed69893d73d50375e16e8fbd669b48315b6bb82",
+    "experiments/lean-ir/src/prototype/machine.cljc": "bfa6d02190a580b816edbdd4ba4ab8b7ccba5bf51856c9d605291bcd8423f5cc",
+    "experiments/lean-ir/src/prototype/mutable.clj": "0d8469f9c00a6f265c650562678f605f224df109e3129a294eac2f313ef0ba2c",
+    "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
+    "experiments/lean-ir/src/prototype/typed_tail.clj": "6285f44e7f8175846a8ca5a4aa7a9f78c5dfbb9e0685c32d8f8d059e6e2b5975",
+    "experiments/lean-ir/src/prototype/typed_tail_emit.clj": "e8bfdb1cbbc38e9cc64674261bbcd8cb7c9cb523ac950a16ba3c00b2f8ddb443",
+    "experiments/lean-ir/src/prototype/typed_tail_execution.clj": "a2c0eb1e1c05442de95b19db6fe16c9336c14895dabf73e00e04e02eb7cb2721",
+    "experiments/lean-ir/src/prototype/block_compile.clj": "8adebf6205bb0101fb6b7e42d79072e5f73898a7c98eb53bf773132863a3e376",
+    "experiments/lean-ir/src/prototype/lazy_runtime.clj": "82c2b15efe5237b5776727fa0033ab44cb3b6cf2dcb13c67c62bdbd9383519b8",
+    "experiments/lean-ir/src/prototype/runtime_abi.clj": "45df0a1d84a964d82982906046f7ec970da0d538609139b7a9c6b05570c62e3a",
+    "experiments/lean-ir/src/prototype/scalar_wrapper.clj": "14e5b7e62180aa213d6fbf8b728b2b2c12e8201da9a3efbb494e649bdc43988b",
+    "experiments/lean-ir/src/prototype/slot_count.clj": "6decdaaf633db43951fcd10aac0db0e5b529c3b1752b623bd520aa747ea4d7d1",
+    "experiments/lean-ir/src/prototype/walk.cljc": "fb6b59a7760701dee138b45c8d4223415537fc37e6f24fe714fe3fd9f7a281a4",
+    "experiments/lean-ir/src/prototype/session_compiler_options.clj": "3a7e7b3d5d4bce74f72ecfec0ce5964fa23aae3cf8e0acada4036769e69a22de",
+    "experiments/lean-ir/test/prototype/tail_caller_frames_test.clj": "c11d47c840f33dd47ada9f566635b310d100f35198b9bb62c775b7b1d20d0b49",
+    "experiments/lean-ir/test/prototype/typed_tail_execution_test.clj": "1fb2ef0b099011f845fad8a845668ff2583557b023260543511e73883ed38b33",
+    "experiments/lean-ir/test/prototype/typed_tail_test.clj": "2d86b7ba932e5a12b34367ede4202a4d3a684c372d82ccfdba570c0c255273f8",
+    "experiments/lean-ir/test/prototype/session_compiler_options_test.clj": "d82c76c8a7659bfc86da6dd637eca9893f34b7ff757c9c9cf5250a515f485712",
+    "experiments/lean-ir/test/prototype/nat_preparation_test.clj": "e2c9a1eca4fa481011e583c7ac8be5124be56b9405b9721573fb2328789ecfdf",
+    "experiments/lean-ir/scripts/test-typed-tail.clj": "053a69ab529d781f70ca13b8063bbf1e81d5015122a6c8939390b65bec29bfc4",
+    "experiments/lean-ir/fixtures/boxed-scalar-wrapper-programs.jsonl": "699f6ecb545b200a99dcff7ebf5de2008af17ad881aaab2d0dd8cbb9d545d4e4",
+    "experiments/lean-ir/fixtures/scalar-wrapper-programs.jsonl": "7bc89db1dbc5107a6f675adcfca7979adbcba1ddfb3885faa9b07b7500e1f26b",
+    "experiments/lean-ir/fixtures/scalar-wrapper-program-values.json": "4fbc9c327bf1dca764db46796f2ad0e71f959064d5f7e0149521b80b47641d5a",
+    "experiments/lean-ir/fixtures/typed-tail-programs.jsonl": "0b84c7f7c63f5e9248b814532057f3bfb646412c1cebd72d9ce0f98c05b6819e",
+    "experiments/lean-ir/fixtures/typed-tail-program-values.json": "a6bd2e62050bd4d2a497cee0ad55f0eb06775aaa00444f06b76a6686beeadaf2",
+    "experiments/lean-ir/lean/Export.lean": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
+    "experiments/lean-ir/lean/ScalarWrapperProbe.lean": "7d9eb07071d687ede666e60e576f04da9a7173381dcc73dde0dbd75ff71b7108"
+  },
+  "implementation": {
+    "caller-storage": "Existing mutable frame deque retained through chunks, entry exits and yields; ordinary deliver restores one caller and region stops before its continuation",
+    "guard": "Empty current-function joins and exact scalar parameter locals; actual caller depth must not exceed historical peak; other original entry/layout/helper guards remain",
+    "peaks": "Read depth from this invocation once; add local logical call peak to it, preserve larger historical maximum",
+    "code-reuse": "No caller stack/depth in code image; tests assert same compiled artifact identity with cache hits across depths1/2/1",
+    "boxed-proof": "Authentic pinned native boxed wrappers execute the selected scalar callee, then ordinary code boxes/returns the result; not public Java or frontend acceptance"
+  },
+  "native-export": {
+    "schema": "boxed-scalar-wrapper-native-export/1",
+    "lean-commit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    "lean-version": "4.33.1",
+    "exporter-sha256": "3311d15c99dc91b599771e328475f2a65a70a0c4fe4c71bfe82b1c2883499f95",
+    "source-sha256": "7d9eb07071d687ede666e60e576f04da9a7173381dcc73dde0dbd75ff71b7108",
+    "fixture-sha256": "699f6ecb545b200a99dcff7ebf5de2008af17ad881aaab2d0dd8cbb9d545d4e4",
+    "fixture-bytes": 108902,
+    "rows": 11,
+    "source-functions": 4,
+    "externs": 6,
+    "exit-code": 0,
+    "native-export-peak-rss-kib": 1703680,
+    "native-export-wall-seconds": 12.59,
+    "roots": [
+      "ScalarWrapperProbe.sum64._boxed",
+      "ScalarWrapperProbe.sumSize._boxed"
+    ],
+    "command": "LEAN_SYSROOT=<pinned-release-prefix> <pinned-release-prefix>/bin/lean --run experiments/lean-ir/lean/Export.lean --source experiments/lean-ir/lean/ScalarWrapperProbe.lean --closure ScalarWrapperProbe ScalarWrapperProbe.sum64._boxed ScalarWrapperProbe.sumSize._boxed",
+    "scope": "Authentic native exported boxed wrappers; mathematical result oracle is the existing unchanged scalar-wrapper-program-values.json. No hosted frontend or Java consumer acceptance."
+  },
+  "runs": [
+    {
+      "name": "final focused caller-frame contracts",
+      "tests": 6,
+      "assertions": 9633,
+      "failures": 0,
+      "errors": 0,
+      "elapsed-ms": 13999.511593,
+      "heap-used-bytes": 46099728,
+      "loaded-source-overrides": {
+        "experiments/lean-ir/src/prototype/typed_blocks.clj": "834a475882ba8fea7259641ad3f492e5a7bbf3ad240d35943e98eff1345b95d9",
+        "experiments/lean-ir/src/prototype/typed_tail.clj": "de5614a5e3c2102ee0d051cfbfa2447330e28466e8f4d3d98fdac287a0650080",
+        "experiments/lean-ir/test/prototype/typed_tail_test.clj": "20b0d5c5110cd43f32ba3e67f4304764995fb4066595ac2c704f462af748db9c"
+      },
+      "override-scope": "Before Nat integration, these loaded source versions differ from the final source inventory. All caller-frame runtime/executor sources match final pins."
+    },
+    {
+      "name": "existing scalar+session and frame regression before Nat preparation integration",
+      "tests": 35,
+      "assertions": 17928,
+      "failures": 0,
+      "errors": 0,
+      "elapsed-ms": 28858.643045,
+      "heap-used-bytes": 64035256,
+      "overlaps-focused": true,
+      "loaded-source-overrides": {
+        "experiments/lean-ir/src/prototype/typed_blocks.clj": "834a475882ba8fea7259641ad3f492e5a7bbf3ad240d35943e98eff1345b95d9",
+        "experiments/lean-ir/src/prototype/typed_tail.clj": "de5614a5e3c2102ee0d051cfbfa2447330e28466e8f4d3d98fdac287a0650080",
+        "experiments/lean-ir/test/prototype/typed_tail_test.clj": "20b0d5c5110cd43f32ba3e67f4304764995fb4066595ac2c704f462af748db9c"
+      },
+      "override-scope": "Before Nat integration, these loaded source versions differ from the final source inventory. All caller-frame runtime/executor sources match final pins."
+    },
+    {
+      "name": "combined frame+Nat preparation+session source integration",
+      "tests": 41,
+      "assertions": 18314,
+      "failures": 0,
+      "errors": 0,
+      "elapsed-ms": 14721,
+      "heap-used-bytes": 38594376,
+      "overlaps-earlier": true,
+      "loaded-source-overrides": {
+        "experiments/lean-ir/test/prototype/typed_tail_test.clj": "20b0d5c5110cd43f32ba3e67f4304764995fb4066595ac2c704f462af748db9c"
+      },
+      "override-scope": "Current two Nat preparation runtime files and six Nat test vars loaded explicitly; existing eight Pattern preparation test vars still used the pre-Nat test file with130 assertions."
+    },
+    {
+      "name": "current Pattern preparation tests after test-only source reload",
+      "tests": 8,
+      "assertions": 134,
+      "failures": 0,
+      "errors": 0,
+      "overlaps-earlier": true,
+      "loaded-source-overrides": {},
+      "scope": "Reload only current typed_tail_test.clj and fixture directory; no runtime/Pattern reload. Covers the four added Nat fallback-before-Pattern assertions missing from prior loaded test vars."
+    }
+  ],
+  "checks": [
+    "Every small fuel prefix and numeric carrier classes across eager/lazy/mutable/reference, real caller depths1/2 and saved dead locals/joins",
+    "Region return leaves caller running at its exact continuation without running another instruction",
+    "Historical peaks equal caller depth and larger7; terminal intrinsic and asymmetric mutual tails",
+    "4096 chunk quantum, partial/resume-compatible snapshots and same artifact across changed caller depth",
+    "Missing case after committed cross-function tail preserves caller deque and exact mutable error prefix",
+    "Caller-depth helper redefinition invalidates before delayed compilation",
+    "Actual boxed UInt64/USize wrappers use ordinary codecs, all small fuel snapshots and generous-budget same-artifact [:typed-tail :specialized] proof"
+  ],
+  "ci": {
+    "optional-Pattern-vars": 35,
+    "Nat-data-vars": "Six separate tests in existing cold-check lane;41-var integration plus current8-var preparation rerun passed in resident REPL"
+  },
+  "memory": {
+    "resident-heap-limit-bytes": 201326592,
+    "resident-process-group-RSS-cap-bytes": 805306368,
+    "java": "GraalVM JDK25.0.1+8.1",
+    "NMT": "summary enabled for functional tests, not performance measurement",
+    "after-broad35": {
+      "jvm-RSS-KiB": 393652,
+      "NMT-committed-KiB": 337489,
+      "heap-used-bytes": 63510968,
+      "sampling-window-ns": 1053913
+    },
+    "interpretation": "Heap use, committed VM native memory and process RSS are distinct observations. NMT committed is not resident memory or a peak measurement."
+  },
+  "development-attempts": [
+    "An earlier accumulated192MiB REPL hit its fixed448MiB process RSS guard during boxed tests; no completion/pass claimed. Replacement keeps192MiB heap and uses a fixed768MiB process-group RSS cap.",
+    "Fresh harness initially referred to a Var before loading its namespace; corrected to ns-resolve before any tests executed.",
+    "Initial six-var run had a wrong native identity fixture name and an overly strict specialized-return observer at exact terminal fuel. All prefix assertions retained; corrected name and added separate generous-fuel full-World run. Final six-var run passed.",
+    "Harness initially double-counted test-vars begin events; final six/35 counts use ordinary test-vars counter with marker-only begin observer."
+  ],
+  "not-run": [
+    "Public Java consumer or genuine current frontend acceptance",
+    "Source/Init/mathlib restoration",
+    "New performance benchmark or native-relative throughput",
+    "Native-style MPZ allocation/heartbeat parity"
+  ],
+  "receipt-policy": "Historical scalar and hosted receipts remain unchanged; this record grants no source/admission/current hosted cohort authority.",
+  "tested-source-commit": "7ddf0cb32bb67bb1832c6e3a22965aba3e4a9da6",
+  "validation-artifact-sha256": {
+    "native-export-proof.json": "78e9159b64871da7841862325d8d51b47a02607218cad9afeff83f1b4cb95380",
+    "test-only-retry.clj": "096d2cdde59a30a8a6e7732991d3b616f64247865087a93207cdfd9f1e53b6da",
+    "final-focused-response.log": "59e8cbc9d62c830e18a40f04620122c01000ff84e5903e2d801c2cfdeaafebd4",
+    "broad35-tests-only.clj": "8229c0878e0d922a4588962179968c07f019ae81d6d7cc47b316d5dcc4495c78",
+    "final-broad35-response.log": "cdf3bc05b1d997b37e4dd040a2a1ec8b8cda7183996dd28e44a1f61b9762d54f",
+    "combined41.clj": "d75a27238fdab4d77a9c2ae0dc764a7b9462d8a95fa20890a5d4712b7c6ef1bf",
+    "nmt-after-broad35.txt": "bfcd82888cd536c80506fa6ff86550c872cc1a39954bd10de7671de087ed00d4",
+    "nmt-after-broad35-stats.edn": "78e0cff6111d0ede96fd1d211929b8c39f4127d0f4554085f01b76ed507ffdf0"
+  }
+}
