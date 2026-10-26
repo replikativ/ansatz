@@ -12,8 +12,6 @@
             [prototype.import-ir :as ir]
             [prototype.runtime-abi :as abi]
             [prototype.raw-interop :as raw]
-            [prototype.machine :as m]
-            [prototype.interop-codec :as codec]
             [prototype.typed-tail-test :as fixture]
             [prototype.scalar-wrapper-test :as scalar-fixture]
             [prototype.session-compiler-options-test :as session-fixture]

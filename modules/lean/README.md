@@ -38,7 +38,8 @@ last context closes or open fails. Strong references keep provider scope reachab
 they cannot prevent a caller from explicitly closing borrowed backing too early.
 There is no ownership transfer, reference-counted lease release or Cleaner.
 
-Each successful `open`, `fork`, `initialize` and `with-externs` creates a separately
+Each successful `open`, `fork`, `initialize`, `with-externs` and
+`with-compiler-options` creates a separately
 closeable context. `load-file`, `load-string` and `call` return their matching child
 context. Always use that returned context for subsequent work and close every
 context you retain. Closing a parent leaves a child usable while the borrowed
@@ -102,6 +103,26 @@ provider's application allowlist or replaces reserved/runtime bindings. Inbound
 values are exactly the existing synchronous Nat/String subset, with explicit ABI
 borrow bits. Host functions receive ordinary immutable decoded values by positional
 application. No raw world, Ref, IO or arbitrary host object is passed to a callback.
+
+## Advanced compiler selection
+
+`(lean/with-compiler-options context selection)` returns a separately closeable
+child with a replacement raw compiler selection for code already loaded in that
+Context. `{}` clears selection. It preserves the World, active file identities,
+protected helper/binding registries, shared executable cache and borrowed provider
+scope. Invalid or stale facts fail before issuing a child; the original Context
+remains usable. Construction does not read source, run initializers or confer
+checking authority.
+
+This advanced Clojure API accepts the existing bounded `:scalar-wrappers` and
+`:typed-tail` facts, validated against the actual installed functions. It does
+not derive facts from source names or a FileHandle. Callers must prepare matching
+facts from their active admitted rows and select eligible unboxed workers; public
+boxed wrappers can enter those workers through the ordinary caller-frame path.
+See the [selection contract and remaining convenience plan](../../experiments/lean-ir/research/COMPILER_SELECTION_API_PLAN.md).
+There is no corresponding Java compiler-map method yet. Small Nat values supplied
+as BigInteger/Clojure BigInt are not implicitly converted to Long for a compiler
+guard. Automatic optimized file loading remains a separate acceptance gate.
 
 ## Failures
 
