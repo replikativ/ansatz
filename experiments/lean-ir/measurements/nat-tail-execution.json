@@ -272,5 +272,19 @@
     "main": "041fc1ef811a499072c9bb1b077a1e58e34f0770",
     "changed-inputs": {},
     "note": "Rebased after reviewed normal Pattern packaging; original runtime/test source hashes remain exact; no new execution claims from rebase."
+  },
+  "setter-integration-rebase": {
+    "main": "cf45a387b1ea3353ec56969123b9a01e3301946c",
+    "changed-inputs": {
+      "experiments/lean-ir/research/TYPED_IR_IMPLEMENTATION_SPEC.md": {
+        "tested-sha256": "113bf3be0519efdf136dfb64dcf0777a261ef0f45c0bbe91a55a597254d21ee0",
+        "integrated-sha256": "19047e0fb2b894f2346920ade458d239db49547ed2c218f66f7092b398330948"
+      },
+      "experiments/lean-ir/scripts/test-typed-tail.clj": {
+        "tested-sha256": "cf4bcf3321e363db72e627e9624a3984a5ae1c54e28a6173fcd4b73bed6e1af3",
+        "integrated-sha256": "c63bac54bbb3600e62d5e1e47d951a9af60c053da793ad7eb055fbdde939be58"
+      }
+    },
+    "note": "Production Nat execution and tests unchanged. Upstream206 adds setter and documentation; combined runner63 retains all60 Nat lane vars plus resident3. Historical 69/29420 evidence remains unchanged; new integrated CI is separate."
   }
 }
