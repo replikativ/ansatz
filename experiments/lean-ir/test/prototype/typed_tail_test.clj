@@ -148,10 +148,9 @@
         (is (= :opaque-code-data (:reason result)))))))
 
 (deftest unsupported-control-and-malformed-scopes-remain-explicit
-  ;; M2 now preserves these facts; scalar representation must decline BEFORE
-  ;; Pattern sees an unsupported RC operation or object-family literal.
+  ;; Scalar-only RC and unsupported Nat literal carriers decline before Pattern.
   (doseq [[body expected] [[["inc" {:idx 0} 1 true false (return-node 0)] :unsupported-rc]
-                           [["vdecl" {:idx 1} "tagged" {:lit {:v {:num {:v 7}}}} (return-node 0)] :non-scalar-local]]]
+                           [["vdecl" {:idx 1} "tagged" {:lit {:v {:num {:v 7N}}}} (return-node 0)] :unsupported-nat-literal]]]
     (let [input (small-bundle (row "new-facts" body)) calls (atom 0)]
       (with-redefs [tail/lower-operation! (fn [_] (swap! calls inc) (throw (ex-info "Pattern should not run" {})))]
         (is (= expected (reason input))))

@@ -42,7 +42,9 @@ a separate [existing Project-loader gate](research/COMPILED_VERSION_PLAN.md).
 
 Data-only [Nat preparation](measurements/nat-preparation.json) additionally retains
 object-family numeric literals and exact RC annotations, with directional boxed
-representation compatibility. It does not compile Nat or alter MPZ ownership.
+representation compatibility. It does not compile Nat or alter MPZ ownership. Optional [guarded Nat representation data](measurements/nat-represented-data.json)
+adds three exact Nat extern descriptors and explicit scalar/refinement/RC facts;
+the existing runtime declines these new units until the Nat emitter is implemented.
 
 [RAW casesOn construction](research/RAW_CASES_ON.md) adds an explicit guest-code
 constructor and preseal redirect with portable native-oracle regressions.

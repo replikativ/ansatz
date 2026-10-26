@@ -576,6 +576,49 @@ separates preparation, factory eval and warm execution with full-World compariso
 outside timing. General joins, heap/RC operations, other non-tail source calls,
 Nat promotion and complete M3/frontend acceptance remain outside this increment.
 
+### Guarded Nat representation data before execution
+
+The shared exact-symbol registry additionally describes Nat.add, Nat.sub and
+Nat.decEq with actual borrowed `tobject` parameters. Nat descriptors use
+`nat-wrapper/1`, domain `:nat` and lane `:nonnegative-long`; unsigned generations
+remain accepted unchanged. The standalone wrapping unsigned tier explicitly
+declines Nat descriptors. No symbol-prefix or function-name recognition is used.
+Nat small-add's Long result proof is conditional on a checked result; subtraction
+is saturating and equality returns uint8 Long. This metadata is not a callable
+implementation or authority to execute unchecked code.
+
+Nat proof units use `lean-represented-tail/2` and `typed-tail/2`, while unsigned-only
+units keep `/1`. The same six-argument preparation API and Pattern pipeline produce
+both. Each `/2` function has its own local-ID `:representations` table, separating
+IR type, value domain, physical lane and proof condition. Every parameter,
+including an unused one, needs a supported representation. A Nat entry proof is
+an ordinary nonnegative Long invocation-guard obligation, not static Nat typing
+from `tobject`/`tagged`. Definite-reference `object` parameters remain unsupported.
+Literal proofs require exact Long/range checks before typed-code fingerprinting;
+other numeric source data is bounded to 4096 bits before generic hashing. M1's
+existing bounded RC count profile is retained.
+
+RC forms retain check/persistent/count data, one-step traces and explicit
+nonreference obligations. Source-tail transfers validate simultaneous arguments
+against each target function's required lanes. Conditional Nat-add facts cannot
+justify an unchecked arithmetic result. Complete proof/operation/descriptor data
+belongs in the semantic key; derived debug scopes do not replace those facts.
+Unused Nat descriptors alone do not change an unsigned unit, key or executor.
+
+The current execution context explicitly declines `/2` BEFORE constructing or
+forcing a factory. Valid Nat programs continue through existing execution.
+There is no compiled Nat performance, promotion or native MPZ allocation claim
+in this data increment. Genuine pinned sum/identity/constant/subtraction producer
+bodies guide the next emitter. The borrowed native mutual examples have real
+post-call decs and remain unsupported non-tail controls; do not erase their
+observable call frames or claim mutual-Nat fast coverage from them.
+
+The [Nat representation plan](NAT_REPRESENTATION_PLAN.md) specifies the subsequent
+guards/common-emitter/promotion exit work. [Data validation](../measurements/nat-represented-data.json)
+covers actual ABI rows, per-function proofs, synthetic simultaneous cross-tail
+rules, bounded pre-hash refusal, clean interpreter fallback and unchanged unsigned
+execution. Native producer/value evidence is independent from compiled execution.
+
 ## M4 kernel integration
 
 Continue to use the existing kernel bridge and protected environment association
