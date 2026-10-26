@@ -1,0 +1,77 @@
+{
+  "schema": "nat-region-program-values/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "cases": [
+    {
+      "function": "sum",
+      "args": [
+        "10",
+        "0"
+      ],
+      "result": "55",
+      "case": "sum"
+    },
+    {
+      "function": "sum",
+      "args": [
+        "2",
+        "9223372036854775807"
+      ],
+      "result": "9223372036854775810",
+      "case": "sum-promote"
+    },
+    {
+      "function": "subtract",
+      "args": [
+        "2",
+        "7"
+      ],
+      "result": "0",
+      "case": "subtract-saturate"
+    },
+    {
+      "function": "subtract",
+      "args": [
+        "7",
+        "2"
+      ],
+      "result": "5",
+      "case": "subtract"
+    },
+    {
+      "function": "identityNat",
+      "args": [
+        "9223372036854775808"
+      ],
+      "result": "9223372036854775808",
+      "case": "identity-big"
+    },
+    {
+      "function": "constantNat",
+      "args": [
+        "99"
+      ],
+      "result": "7",
+      "case": "constant"
+    },
+    {
+      "function": "bounceA",
+      "args": [
+        "3",
+        "0"
+      ],
+      "result": "12",
+      "case": "bounceA"
+    },
+    {
+      "function": "bounceB",
+      "args": [
+        "3",
+        "0",
+        "5"
+      ],
+      "result": "14",
+      "case": "bounceB"
+    }
+  ]
+}

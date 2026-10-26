@@ -28,7 +28,8 @@
           (let [f (get functions name) params (mapv :id (:params d))
                 dest (inc (reduce max 0 params))
                 expected [:let dest [:runtime (:extern d) (mapv #(vector :var %) params)] [:return [:var dest]]]]
-            (when (and (= params (:params f)) (= (:extern d) (:runtime-extern f))
+            ;; Checked Nat descriptors never enter the wrapping unsigned tier.
+            (when (and (= :unsigned64 (:domain d)) (= params (:params f)) (= (:extern d) (:runtime-extern f))
                        (= expected (:body f)) (= expected body)) d)))
         (:scalar-wrappers options)))
 

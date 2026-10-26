@@ -87,7 +87,11 @@
     (m/fail "Invalid typed-tail compiler configuration" {}))
   (let [prepared (prep/prepare-region functions (:typed-functions config) (:roots config)
                                        (:descriptors config) (:profile config) (:budgets config))]
-    (if-not (= :ready (:status prepared)) {:status :fallback :reason (:reason prepared)}
+    (cond
+      (not= :ready (:status prepared)) {:status :fallback :reason (:reason prepared)}
+      (not= "lean-represented-tail/1" (get-in prepared [:region :schema]))
+      {:status :fallback :reason :unsupported-represented-schema}
+      :else
       (let [region (:region prepared) names (vec (sort-by pr-str (keys (:functions region))))
             dependencies (into {} (for [[name expected] (:dependencies region)
                                         :let [actual (get functions name)]]
