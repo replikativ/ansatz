@@ -20,11 +20,22 @@
 
 (defn- sha [bytes] (.digest (MessageDigest/getInstance "SHA-256") ^bytes bytes))
 (defn- hex [bytes] (apply str (map #(format "%02x" (bit-and 255 %)) bytes)))
+(defn- ascii-bytes? [value]
+  (and (bytes? value)
+       (let [^bytes bytes value]
+         (loop [i 0]
+           (if (< i (alength bytes))
+             (if (neg? (aget bytes i)) false (recur (inc i)))
+             true)))))
 (defn- parse [bytes]
-  (let [decoder (doto (.newDecoder StandardCharsets/UTF_8)
+  ;; ASCII has the same characters in UTF8 and Latin1. Keep strict UTF8
+  ;; decoding for every other input, including malformed byte sequences.
+  (if (ascii-bytes? bytes)
+    (json/read-str (String. ^bytes bytes StandardCharsets/ISO_8859_1) :key-fn keyword)
+    (let [decoder (doto (.newDecoder StandardCharsets/UTF_8)
                   (.onMalformedInput CodingErrorAction/REPORT)
                   (.onUnmappableCharacter CodingErrorAction/REPORT))]
-    (json/read-str (str (.decode decoder (ByteBuffer/wrap bytes))) :key-fn keyword)))
+    (json/read-str (str (.decode decoder (ByteBuffer/wrap bytes))) :key-fn keyword))))
 (defn- line! [^BufferedReader in maximum]
   (when-let [line (.readLine in)]
     (let [bytes (.getBytes ^String line StandardCharsets/UTF_8)]

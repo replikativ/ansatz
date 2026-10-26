@@ -68,7 +68,7 @@ clojure -J-Xmx384m -J-Xss8m \
                                  (zero? (+ (:fail result) (:error result)))) 0 1)))'
 
 echo
-echo "Running compact checking progress and cold controller phase contracts"
+echo "Running compact checking progress, cold controller phase and native Store decoding contracts"
 mkdir -p target
 cold_check_classes=$(mktemp -d "$PWD/target/cold-check-classes.XXXXXX")
 javac -source 11 -target 11 -d "$cold_check_classes" experiments/lean-ir/java/prototype/TypedLongMemo.java
