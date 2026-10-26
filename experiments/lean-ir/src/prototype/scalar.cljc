@@ -134,3 +134,13 @@
 
 (defn box-slot [type]
   {:index 0 :offset 0 :type type :region (if (= type "usize") :usize :scalar)})
+
+#?(:clj
+   (do
+     (def ^:private scalar-integer-generation (Object.))
+     (def ^:private scalar-integer-roots [integer! width float-type?])
+     (defn scalar-integer-token [] scalar-integer-generation)
+     (defn builtin-scalar-integer? []
+       (let [[i w f] scalar-integer-roots]
+         (and (identical? i integer!) (identical? w width) (identical? f float-type?)
+              (native/builtin-scalar-carrier?))))))

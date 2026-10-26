@@ -1,0 +1,38 @@
+{
+  "schema": "scalar-wrapper-program-values/1",
+  "leanCommit": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+  "cases": [
+    {
+      "function": "sum64",
+      "args": [
+        "10",
+        "0"
+      ],
+      "result": "55"
+    },
+    {
+      "function": "sumSize",
+      "args": [
+        "10",
+        "0"
+      ],
+      "result": "55"
+    },
+    {
+      "function": "sum64",
+      "args": [
+        "2",
+        "18446744073709551615"
+      ],
+      "result": "2"
+    },
+    {
+      "function": "sumSize",
+      "args": [
+        "2",
+        "18446744073709551615"
+      ],
+      "result": "2"
+    }
+  ]
+}

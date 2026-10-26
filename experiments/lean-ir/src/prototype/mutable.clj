@@ -699,3 +699,32 @@
     :paused (put! s 4 :running)
     :host-call (do (aset ^objects (ctl s 1) (int (:dest (ctl s 6))) x) (put! s 6 nil) (put! s 4 :running))
     (m/fail "State is not resumable" {:status (ctl s 4)})) s)
+
+;; Selected pure-wrapper guards compose definition-owner baselines, including
+;; reference classification that runtime-value! otherwise reads at call entry.
+(def ^:private scalar-wrapper-generation (Object.))
+(def ^:private scalar-wrapper-roots
+  [runtime-value! runtime-ops node take-entropy! replace-node! step! expr! value
+   read-local ctl put! bump! locals-array add-steps! set-body!])
+(defn scalar-wrapper-token []
+  scalar-wrapper-generation)
+(defn builtin-scalar-wrapper? [symbol operation]
+  (let [[r ops n entropy replace step expr value-root read ctl-root put bump locals steps body] scalar-wrapper-roots]
+    (and (identical? r runtime-value!) (identical? ops runtime-ops) (identical? n node)
+         (identical? entropy take-entropy!) (identical? replace replace-node!)
+         (identical? step step!) (identical? expr expr!) (identical? value-root value)
+         (identical? read read-local) (identical? ctl-root ctl) (identical? put put!)
+         (identical? bump bump!) (identical? locals locals-array) (identical? steps add-steps!)
+         (identical? body set-body!) (m/builtin-scalar-reference?)
+         (runtime/builtin-scalar-arithmetic? symbol operation))))
+
+(defn scalar-wrapper-tokens []
+  [(scalar-wrapper-token) (m/scalar-reference-token) (runtime/scalar-arithmetic-token)
+   (scalar/scalar-integer-token) (native/scalar-carrier-token)])
+(defn current-scalar-wrapper? [tokens symbol operation]
+  (and (identical? (nth tokens 0) (scalar-wrapper-token))
+       (identical? (nth tokens 1) (m/scalar-reference-token))
+       (identical? (nth tokens 2) (runtime/scalar-arithmetic-token))
+       (identical? (nth tokens 3) (scalar/scalar-integer-token))
+       (identical? (nth tokens 4) (native/scalar-carrier-token))
+       (builtin-scalar-wrapper? symbol operation)))

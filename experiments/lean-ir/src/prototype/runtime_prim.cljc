@@ -487,3 +487,56 @@
         (let [ref (nth args 2) value (nth args 3) node (node! ops world ref :ref)
               world (reduce #(release ops %1 %2) world (:fields node))]
           [(replace-fields ops world ref node [value]) 0])))))
+
+#?(:clj
+   (do
+     ;; Definition-owner baselines, never a snapshot taken by a compiler under
+     ;; with-redefs. Foreign classification is checked at its defining owner.
+     (def ^:private scalar-arithmetic-generation (Object.))
+     (def ^:private scalar-arithmetic-roots [evaluate numeric exact! add negate unsigned pow2 fail])
+     (defn scalar-arithmetic-token [] scalar-arithmetic-generation)
+     (defn- ordinary-scalar-table? [table]
+       (or (= clojure.lang.PersistentArrayMap (class table)) (= clojure.lang.PersistentHashMap (class table))))
+     (defn- scalar-route-absent? [table symbol]
+       (and (or (ordinary-scalar-table? table) (= clojure.lang.PersistentHashSet (class table)))
+            (not (contains? table symbol))))
+     (defn builtin-scalar-arithmetic? [symbol operation]
+       (let [[e n x a neg u p f] scalar-arithmetic-roots]
+         (and (contains? #{"lean_uint64_add" "lean_uint64_sub" "lean_usize_add" "lean_usize_sub"} symbol)
+              (identical? e evaluate) (identical? n numeric) (identical? x exact!)
+              (identical? a add) (identical? neg negate) (identical? u unsigned)
+              (identical? p pow2) (identical? f fail)
+              (scalar/builtin-scalar-integer?)
+              (ordinary-scalar-table? supported-symbols)
+              (ordinary-scalar-table? (get supported-symbols symbol))
+              (= {:arity 2} (get supported-symbols symbol))
+              (ordinary-scalar-table? scalar-operations)
+              (ordinary-scalar-table? fixed-signed-operations)
+              (= operation (get scalar-operations symbol))
+              (not (contains? fixed-signed-operations symbol))
+              ;; These are the actual earlier evaluate branches. Check relevant
+              ;; membership rather than freezing unrelated modules' registries.
+              (scalar-route-absent? unsigned-casts symbol)
+              (scalar-route-absent? ffi-build-queries symbol)
+              (scalar-route-absent? numeric-build-queries symbol)
+              (scalar-route-absent? pinned-build symbol)
+              (scalar-route-absent? string/supported-symbols symbol)
+              (scalar-route-absent? object/supported-symbols symbol)
+              (scalar-route-absent? float/supported-symbols symbol)
+              (scalar-route-absent? thunk/supported-symbols symbol)
+              (scalar-route-absent? thunk/internal-symbols symbol)
+              (scalar-route-absent? task/supported-symbols symbol)
+              (scalar-route-absent? task/internal-symbols symbol)
+              (scalar-route-absent? expr/supported-symbols symbol)
+              (scalar-route-absent? sharecommon/supported-symbols symbol)
+              (scalar-route-absent? expr-replace/internal-symbols symbol)
+              (scalar-route-absent? search/internal-symbols symbol)
+              (scalar-route-absent? transform/supported-symbols symbol)
+              (scalar-route-absent? bvars/supported-symbols symbol)
+              (scalar-route-absent? mvars/supported-symbols symbol)
+              (scalar-route-absent? mvars/internal-symbols symbol)
+              (scalar-route-absent? expr-mvars/supported-symbols symbol)
+              (scalar-route-absent? expr-mvars/internal-symbols symbol)
+              (scalar-route-absent? io/supported-symbols symbol)
+              (scalar-route-absent? sync/supported-symbols symbol)
+              (scalar-route-absent? heartbeat/supported-symbols symbol))))))

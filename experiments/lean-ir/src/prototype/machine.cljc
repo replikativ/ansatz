@@ -431,3 +431,12 @@
   (loop [r root xs []]
     (if (= 0 (tag s r)) xs
       (let [[head tail] (:fields (node s r))] (recur tail (conj xs head))))))
+
+#?(:clj
+   (do
+     (def ^:private scalar-reference-generation (Object.))
+     (def ^:private scalar-reference-roots [ref? node native-reference?])
+     (defn scalar-reference-token [] scalar-reference-generation)
+     (defn builtin-scalar-reference? []
+       (let [[r n nr] scalar-reference-roots]
+         (and (identical? r ref?) (identical? n node) (identical? nr native-reference?))))))

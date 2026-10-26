@@ -5,7 +5,8 @@
   (:require [prototype.machine :as m]
             [prototype.fingerprint :as fingerprint]
             [prototype.leaf-compile :as leaf]
-            [prototype.mutable :as u])
+            [prototype.mutable :as u]
+            [prototype.scalar-wrapper :as scalar-wrapper])
   (:import [java.util IdentityHashMap]))
 
 ;; Reloading the compiler invalidates its in-memory block cache.
@@ -245,24 +246,33 @@
   ([functions] (compile-program functions nil))
   ([functions previous]
    (compile-program functions previous {}))
-  ([functions previous {:keys [lexical-joins leaf-calls compact-registers]}]
+  ([functions previous {:keys [lexical-joins leaf-calls compact-registers] :as requested-options}]
    (when (and leaf-calls (not lexical-joins))
      (m/fail "Leaf calls require lexical regions" {}))
-   (let [bodies (entries functions)
+   (let [prepared-options (scalar-wrapper/prepare-options requested-options)
+         bodies (entries functions)
          options (cond-> {:direct-linking (boolean (:direct-linking *compiler-options*))
                           :lexical-joins (boolean lexical-joins)
                           :leaf-calls (boolean leaf-calls)
                           :compact-registers (boolean compact-registers)}
                    ;; Eliding a direct guest tail frame's materialization relies
                    ;; on callee existence and arity, never its implementation.
+                   (:scalar-wrappers prepared-options)
+                   (assoc :scalar-wrappers (:scalar-wrappers prepared-options)
+                          :scalar-wrapper-tokens (:scalar-wrapper-tokens prepared-options))
                    lexical-joins (assoc :tail-signatures (update-vals functions #(count (:params %)))))
          reuse? (and (identical? generation (:generation previous))
                      (= options (:compiler-options previous)))
          reusable (if reuse? (:blocks previous) {})
-         reused (count (filter #(contains? reusable (fingerprint/key %)) bodies))
+         reuse-block (fn [body]
+                       (when-let [block (get reusable (fingerprint/key body))]
+                         (when (= (:scalar-extension block) (scalar-wrapper/extension-key functions body prepared-options)) block)))
+         reused (count (filter reuse-block bodies))
          plans (when leaf-calls (leaf/compile-plans functions (when reuse? (:leaf-plans previous))))
          leaf-names (set (keys plans))
-         blocks (into {} (map (fn [body] [(fingerprint/key body) (or (get reusable (fingerprint/key body)) (compile-block body functions lexical-joins leaf-calls leaf-names))]) bodies))
+         blocks (into {} (map (fn [body] [(fingerprint/key body) (or (reuse-block body)
+                                                                                         (scalar-wrapper/compile-wrapper functions body prepared-options)
+                                                                                         (compile-block body functions lexical-joins leaf-calls leaf-names))]) bodies))
          dispatch (IdentityHashMap.)]
      ;; Eager dispatch knows its entries. Fuel pauses inside a region must not
      ;; fingerprint every suffix merely to discover it is not an entry.
@@ -299,18 +309,28 @@
                        (m/fail "Unsupported compiled instruction" {:op op}))]
         (recur (into pending children) found)))))
 
+(defn prepare-options [options] (scalar-wrapper/prepare-options options))
+
+(defn runtime-block-extension [functions body options]
+  (scalar-wrapper/extension-key functions body options))
+
 (defn runtime-block-key [functions body options]
   (when (or (:leaf-calls options) (:compact-registers options))
     (m/fail "Lazy prototype supports plain blocks and lexical regions" {:options options}))
-  [generation (boolean (:lexical-joins options)) (boolean (:direct-linking options)) (fingerprint/key body)
+  (let [options (prepare-options options)
+        base [generation (boolean (:lexical-joins options)) (boolean (:direct-linking options)) (fingerprint/key body)
    (when (:lexical-joins options)
      (into {} (map (fn [name] [name (when-let [f (get functions name)] (count (:params f)))])
-                   (tail-targets body))))])
+                   (tail-targets body))))]
+        extension (runtime-block-extension functions body options)]
+    (cond-> base extension (conj extension))))
 
 (defn compile-runtime-block [functions body options]
-  (runtime-block-key functions body options)
-  (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
-    (compile-block body functions (:lexical-joins options) false #{})))
+  (let [options (prepare-options options)]
+   (runtime-block-key functions body options)
+   (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
+    (or (scalar-wrapper/compile-wrapper functions body options)
+        (compile-block body functions (:lexical-joins options) false #{})))))
 
 (defn- check-program! [program machine]
   (when-not (= (:functions program) (:functions machine))
