@@ -17,6 +17,7 @@
 
 (def verify-result (ns-resolve 'coherent-bootstrap-result-model 'verify-jvm-result!))
 (def stages @(ns-resolve 'coherent-bootstrap-result-model 'jvm-stages))
+(def summarize-failure (ns-resolve 'coherent-bootstrap-result-model 'failure-summary))
 (def approved {:contract-sha256 (apply str (repeat 64 "a"))
                :implementation-sha256 (apply str (repeat 64 "b"))
                :compatibility-profile "ansatz-producer50f-coherent-jvm-application-consumer/1"
@@ -52,5 +53,12 @@
                   (fn [r] (assoc-in r [:measurements :corpus] []))
                   (fn [r] (assoc-in r [:measurements :corpus] (vec (repeat 5 {}))))]]
     (t/is (thrown? clojure.lang.ExceptionInfo (verify-result approved (change good-result))))))
+
+(t/deftest failure-telemetry-excludes-owner-bearing-data
+  (let [owner (Object.)
+        result (summarize-failure (ex-info (apply str (repeat 1024 "x")) {:world owner :checkpoint owner}))]
+    (t/is (= {:status :failed :error-class "clojure.lang.ExceptionInfo"
+              :message (apply str (repeat 512 "x")) :managed-disposal-proven false} result))
+    (t/is (not-any? #(identical? owner %) (vals result)))))
 
 (t/run-tests 'coherent-bootstrap-result-test)

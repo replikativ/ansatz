@@ -6,16 +6,17 @@
     "experiments/lean-ir/scripts/coherent/plan-java-build.py": "efa1b38468578466581d52875b16147a2a3e02671ab4277362f3623c4ab789ec",
     "experiments/lean-ir/scripts/coherent/observe-class-inventory.py": "643e12d4a0f3f667a29106bd9f6e12d3d49f771b60dc37c20a118a367418565c",
     "experiments/lean-ir/scripts/coherent/materialize-pack.py": "66afb9f4deee41c85c2f292915a82640f05a6977a152b891ae9827113867c529",
-    "experiments/lean-ir/scripts/coherent/bootstrap.clj": "8e7249d337d6ed64d284d97528059cf743f56c018ffdb6ac1e33262405c17433",
+    "experiments/lean-ir/scripts/coherent/bootstrap.clj": "97354e7733aae5ef984224d9c84c3c05c208ae7075f99c6ffab85010a4d7e964",
     "experiments/lean-ir/scripts/coherent/test-materialize-pack.py": "ad914a75c21174747ccaf373f7f8a8ee70e0b957bc333d1ada75b7007d82d4d9",
-    "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "1b66c17b18189fc5495f74f2636dd097c9800939d967030d97b8e51acb2be5ec",
-    "experiments/lean-ir/scripts/coherent/PACK_PREPARATION.md": "5ec1f86aef2f79f34cb3873415d67d5143adc934d76bc8a9547b587e365c29d9",
+    "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "186e23d2edce5d0c45ff60ba3c07e101d3156927b0e4d42cd190620d4dde7d36",
+    "experiments/lean-ir/scripts/coherent/PACK_PREPARATION.md": "a6c1a41c1c44c0a289288cf5d9a0bc8e9fae1581b177ced1e500c68b7e5a4641",
     "experiments/lean-ir/research/TYPED_JIT_STAGING_STRATEGY.md": "8d689e34389bc2256e2b937085761782ea4c2d5043828e6ad327c66aa2ed0213"
   },
   "checks": {
     "Python": "16 tests passed",
-    "bootstrap-model": "2 tests /17 assertions passed in existing resident71903; definitions only, final launch not evaluated",
-    "independent-source-review": "approved; exact JVM terminal result checks corrected initial blocker; legacy schema remains separate"
+    "bootstrap-model": "3 tests /19 assertions passed in existing resident71903 after bounded failure telemetry addition; definitions only, final launch/System.exit never evaluated",
+    "independent-source-review": "approved; exact JVM terminal result checks corrected initial blocker; legacy schema remains separate",
+    "failure-policy": "New profile only prints bounded class/message without exception data; nonzero exit makes no managed-disposal success claim."
   },
   "isolated-basis": {
     "lock-sha256": "2fa853f6b933d9d6ab4fd37625fb517b9ac21b59a89f59edacea86dc03e589a7",
@@ -33,5 +34,9 @@
     "independent assembled contract/input review",
     "resource preflight",
     "genuine hosted A/B/callback/version/disposal acceptance"
-  ]
+  ],
+  "previous-tested-bootstrap-source-pins": {
+    "experiments/lean-ir/scripts/coherent/bootstrap.clj": "8e7249d337d6ed64d284d97528059cf743f56c018ffdb6ac1e33262405c17433",
+    "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "1b66c17b18189fc5495f74f2636dd097c9800939d967030d97b8e51acb2be5ec"
+  }
 }

@@ -16,6 +16,13 @@
 (defn- check! [ok message] (when-not ok (throw (ex-info message {}))))
 (defn- exact! [value keys label]
   (check! (and (map? value) (= keys (set (clojure.core/keys value)))) (str "Invalid bootstrap " label)))
+(defn- failure-summary [^Throwable failure]
+  ;; Exception data may retain a World/Context. Never hand that graph to main's
+  ;; automatic report printer or serialize it as experiment telemetry.
+  (let [message (or (.getMessage failure) "")]
+    {:status :failed :error-class (.getName (class failure))
+     :message (subs message 0 (min 512 (count message)))
+     :managed-disposal-proven false}))
 (defn- sha? [x] (and (string? x) (boolean (re-matches #"[0-9a-f]{64}" x))))
 (defn- sha [bytes]
   (.formatHex (java.util.HexFormat/of) (.digest (MessageDigest/getInstance "SHA-256") ^bytes bytes)))
@@ -284,7 +291,12 @@
     (require (symbol namespace))
     (let [entry (ns-resolve (symbol namespace) (symbol operation))]
       (check! (and entry (not (:private (meta entry))) (fn? @entry)) "Bootstrap approved entrypoint unavailable")
-      (let [result (entry approved)]
+      (let [result (if (= "ansatz-producer50f-coherent-jvm-application-consumer/1" (:compatibility-profile approved))
+                     (try (entry approved)
+                          (catch Throwable failure
+                            (binding [*out* *err*] (println (pr-str (failure-summary failure))) (flush))
+                            (System/exit 1)))
+                     (entry approved))]
         (if (= "construct!" operation)
           (do
             (check! (and (= #{:status :consumer-contract-sha256 :consumer-implementation-sha256 :compatibility-profile

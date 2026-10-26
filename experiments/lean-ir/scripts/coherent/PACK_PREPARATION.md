@@ -125,6 +125,10 @@ contract/profile/implementation identity, both execution roles, callback effect
 counts and ordered phase summaries. It does not promote a successful constructor
 or a data-model test into a successful hosted run. Preparation substage timing
 may share one measured span; overlapping spans must not be added.
+For this new profile, a failed controller prints only its exception class and a
+bounded message before nonzero process exit. Exception data may contain entire
+Worlds or owner checkpoints and is never serialized by this telemetry path.
+Process termination does not prove managed disposal.
 
 `test-bootstrap-result.clj` reads the reviewed bootstrap, evaluates only its
 definitions in a scratch namespace, and tests terminal result validation. It
