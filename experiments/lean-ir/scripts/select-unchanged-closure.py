@@ -7,13 +7,18 @@ p.add_argument('capture',type=Path)
 p.add_argument('output',type=Path)
 p.add_argument('roots',nargs='+')
 a=p.parse_args()
+if a.output.exists():raise SystemExit('Refusing to overwrite selected closure')
 def label(n):
  if n[0]=='anonymous':return ''
  parent=label(n[1])
  return parent+('.' if parent else '')+str(n[2])
 lines=a.capture.read_text().splitlines(keepends=True)
 rows=[json.loads(line) for line in lines]
-byname={label(row['name']):(row,line) for row,line in zip(rows[1:],lines[1:])}
+byname={}
+for row,line in zip(rows[1:],lines[1:]):
+ key=label(row['name'])
+ if key in byname:raise SystemExit('Duplicate or ambiguous rendered Name label: '+key)
+ byname[key]=(row,line)
 seen=set();todo=a.roots[:]
 while todo:
  n=todo.pop()

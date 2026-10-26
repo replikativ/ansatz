@@ -46,13 +46,16 @@
   (let [{:keys [names functions program runners preparation]} (setup path ["mkMap" "fold._redArg" "main._closed_0"])
         [mk fold callback] names
         callback-world (m/run (m/start (m/world functions) callback []) 10000)
+        _ (when-not (= :done (:status callback-world)) (throw (ex-info "Callback initialization budget exhausted" (describe callback-world))))
         callback-value (:result callback-world)
         initial #(m/start callback-world mk [%])
         run (fn [backend state]
               (let [runner (runners backend) tree-world (runner state 2000000)]
                 (when-not (= :done (:status tree-world)) (throw (ex-info "Tree budget exhausted" (describe tree-world))))
-                (with-meta (runner (m/start tree-world fold [callback-value (:result tree-world) 0]) 2000000)
-                  {:tree-at-fold-start (select-keys (describe tree-world) [:heap-nodes :next-id :stats])})))
+                (let [fold-world (runner (m/start tree-world fold [callback-value (:result tree-world) 0]) 2000000)]
+                  (when-not (= :done (:status fold-world)) (throw (ex-info "Fold budget exhausted" (describe fold-world))))
+                  (with-meta fold-world
+                    {:tree-at-fold-start (select-keys (describe tree-world) [:heap-nodes :next-id :stats])}))))
         cold (mapv (fn [backend] (let [[actual metrics] (measure #(run backend (initial 11)))]
                                   (assoc metrics :backend backend :result (:result actual) :world (describe actual))))
                    [:reference :mutable :jvm])
@@ -79,6 +82,8 @@
                                  expected ((runners :reference) initial 100000)]
                            trial (range trials) backend [:reference :mutable :jvm]]
                        (let [[actual metrics] (measure #((runners backend) initial 100000))]
+                         (when-not (and (= :done (:status expected)) (= :done (:status actual)))
+                           (throw (ex-info "CompilerIR constructor budget exhausted" {:label label :backend backend})))
                          (when-not (= expected actual) (throw (ex-info "CompilerIR complete World mismatch" {:label label :backend backend})))
                          (assoc metrics :label label :trial trial :backend backend :world (describe actual)))))]
     {:schema "unchanged-compiler-ir-runtime/1" :scope "Original sampler DSL constructor values only; no sampling/interpreter/hosted loader/proof checking claim. Backend complete World parity; no independent native value oracle yet."

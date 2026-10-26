@@ -60,9 +60,10 @@ cumulative guest World steps/allocations and retained heap shape. The rbmap
 World counters include the original callback initialization, which occurs outside
 the timed execution. `next-id` is a cumulative allocation identifier, not a
 measurement of maximum simultaneous live objects. The retained tree at fold
-entry is recorded separately from the heap remaining after fold. Fresh World construction is
-outside measured execution; thaw/run/freeze and the intermediate fold start are
-inside it. The JVM summary reports actual compiled/cache/dispatch counts for the generic
+entry is recorded separately from the heap remaining after fold. The callback World is
+constructed outside measured execution. Starting the map call, thaw/run/freeze
+and the intermediate fold start are inside it. CompilerIR's initial World/start
+is outside its measured execution. The JVM summary reports actual compiled/cache/dispatch counts for the generic
 lazy JVM route; this harness requests no scalar-region specialization.
 Preparation and the first n=11 run are recorded separately. Two n=11 warmups do
 not establish steady state. These numbers cannot be read as compiled-native
