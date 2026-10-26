@@ -8,8 +8,8 @@
   is `(induction xs) A B` (alternatives come in constructor order; the cons fields are named
   `head`/`tail`/`ih_tail`); `cases h : e` is `(cases h e)`; `simp [a, b]` is `(simp [a b])`;
   `p x && q x` is `(Bool.and (p x) (q x))`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [ansatz.core :as a]))
+  (:require [clojure.test :refer [deftest]]
+            [ansatz.conformance-support :as cs]))
 
 (def ^:private defs
   '[(ansatz.core/defn mylen [xs :- (List Nat)] Nat
@@ -98,30 +98,5 @@
     [c20_sum_rev [xs :- (List Nat)] (= (mysum (myrev xs)) (mysum xs))
      [(and_then (and_then (induction xs) (simp [myrev mysum c11_sum_app *])) (omega))]]])
 
-(defn- attempt
-  "Prove one theorem with a time budget; :ok, or the failure message."
-  [[nm params stmt tactics] timeout-ms]
-  (let [f (future (try (a/prove-theorem nm params stmt tactics) :ok
-                       (catch Throwable t (or (.getMessage t) (str (class t))))))
-        r (deref f timeout-ms ::timeout)]
-    (when (= ::timeout r) (future-cancel f))
-    (if (= ::timeout r) (str "timeout after " timeout-ms " ms") r)))
-
-(defn run-conformance
-  "Define the functions on a fresh Init env and attempt every theorem in order. Returns
-   [[name result] …]. Usable from the REPL to see the current score."
-  []
-  (a/load-init!)
-  (binding [a/*verbose* false
-            *ns* (the-ns 'ansatz.list-conformance-test)]
-    (run! eval defs)
-    (mapv (fn [t] [(first t) (attempt t 60000)]) theorems)))
-
 (deftest list-conformance
-  (let [results (run-conformance)
-        passed (count (filter #(= :ok (second %)) results))]
-    (println (str "list conformance: " passed "/" (count results) " Lean scripts go through"))
-    (doseq [[nm r] results :when (not= :ok r)]
-      (println " " nm "-" (subs r 0 (min 160 (count r)))))
-    (doseq [[nm r] results]
-      (testing (str nm) (is (= :ok r))))))
+  (cs/check-suite "list" (cs/run-suite 'ansatz.list-conformance-test defs theorems) {}))
