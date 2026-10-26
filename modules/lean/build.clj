@@ -35,6 +35,14 @@
         (throw (ex-info "Unaudited runtime resource" {:path path}))))
     closure))
 
+(defn check-closure
+  "Run the strict source inventory audit from modules/lean without a core jar."
+  [_]
+  (let [closure (verify-closure! (edn/read-string (slurp "runtime-closure.edn")))]
+    (println "Optional Lean runtime closure verified:" (count (:sources closure)) "sources")
+    {:source-count (count (:sources closure))
+     :resource-count (count (:resources closure))}))
+
 (defn jar
   "Run from modules/lean. Requires an explicit pinned core jar and its actual
    Maven version; source-tree root classes are never accepted as the core basis.
