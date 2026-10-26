@@ -3,7 +3,11 @@
   (:require [clojure.test :refer [deftest is]]
             [prototype.coherent-consumer-profile :as profile]
             [prototype.coherent-consumer-profile-test :as old]
-            [prototype.coherent-stage-guards :as guards]))
+            [prototype.coherent-stage-guards :as guards]
+            [prototype.coherent-owner-ledger :as owners]
+            [prototype.coherent-jvm-slice]
+            [prototype.resident-frontend-test]
+            [prototype.hosted-file-test]))
 
 (defn name-of [s] ["str" ["anonymous"] s])
 (def application
@@ -85,7 +89,7 @@
          (is (identical? owner (get-in @ledger [:returned-operation :result])))
          (is (:unsafe-partial? @ledger))
          (is (thrown? clojure.lang.ExceptionInfo
-               (prototype.coherent-owner-ledger/begin-disposal! ledger)))))))
+               (owners/begin-disposal! ledger)))))))
 
 (deftest prefix-branches-close-before-source-and-failed-close-is-never-retried
   (let [ns 'prototype.coherent-jvm-slice

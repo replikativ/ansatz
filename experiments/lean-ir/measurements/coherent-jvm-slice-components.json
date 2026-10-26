@@ -169,5 +169,22 @@
     "Fresh committed source/class/dependency capture with exact Maven lock and new controller bootstrap.",
     "Root resource preflight and one genuine restore/check/file A/B/selected call/callback/cache/disposal run; blocked scheduling is not success.",
     "Efficient frontend loading, Project dependency reload, broad general-call JIT, Mcmc sampling and packaged Java composition remain separate gates."
-  ]
+  ],
+  "fresh-ci-test-loading-correction": {
+    "CI-job": 2673,
+    "failure": "coherent_jvm_slice_test used ownership-ledger qualified Var without requiring namespace; warm resident hid compile prerequisite. Other controller/fixture ns-resolve prerequisites also made explicit to avoid test-order dependence.",
+    "scope": "Test namespace requires only; no runtime/Java/cohort-source bytes changed. Original measured source pins remain historical.",
+    "current-test-sha256": "01514be007bebd5638cbcaf7573fd5585f9ca77ea813465bcfa7052e075eb53a",
+    "integrated-CI": "pending retry",
+    "cold-component-retest": {
+      "tests": 26,
+      "assertions": 259,
+      "failures": 0,
+      "errors": 0,
+      "scope": "Fresh384MiB JVM using exact captured runtime sources/fresh48 Java classes/isolated13 Maven basis with Pattern452, current explicit test requires. No Source/Init restore.",
+      "receipt-sha256": "99cc18fc5c00c1f496bcf5f4dadd488ca84ad350fc33366625005ee0ac1f6521",
+      "elapsed-seconds": 14.956856276010512,
+      "sampled-process-group-peak-RSS-bytes": 440754176
+    }
+  }
 }
