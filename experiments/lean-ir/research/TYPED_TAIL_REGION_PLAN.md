@@ -307,8 +307,12 @@ The eventual execution contract is fixed now:
   generic compiled error-prefix limitation and is insufficient for fueled parity.
 - Step-only entry points may decline with one ordinary mutable step; they do not
   claim independently reconstructed multi-instruction error prefixes.
-- Full entry guards require actual unambiguous function entry, no live frames or
-  joins and exactly parameter locals. Existing unrelated heap, globals, events and
+- Full entry guards require actual unambiguous function entry, no current-function
+  joins and exactly parameter locals. The [caller-frame extension](TAIL_CALLER_FRAME_PLAN.md)
+  retains real callers, requires historical peak >= caller depth, and adds that
+  invocation's depth to represented local peaks. A return restores one caller
+  and exits the region before its continuation. Saved caller joins stay intact.
+  Existing unrelated heap, globals, events and
   runtime context are allowed and remain unchanged.
 - Historical max-frames survives: materialization uses max(existing peak, elided
   logical peak). Padding for different arities never appears in guest locals.
@@ -319,5 +323,7 @@ The eventual execution contract is fixed now:
   M3c claims parity; declining to mutable execution alone is not that proof.
 
 Schema, ABI, carrier, snapshot or authority changes update this plan and the main
-implementation contract with their tests. Region execution remains future work
-until M3c passes its own complete gate.
+implementation contract with their tests. M3c's bounded scalar execution has its
+own [validation record](../measurements/typed-tail-execution.json). Nat support
+and complete frontend integration remain separate gates; the caller extension
+requires its own tests and receipt.

@@ -102,10 +102,12 @@
           fs (assoc (:runtime input) caller {:params [0] :body [:call 1 [:direct name] [[:var 0]] [:return [:var 1]]]})
           chosen (assoc input :runtime fs)
           paused (m/run (m/start (m/world fs) caller [7]) 1)
-          initial (m/resume paused nil)
+          initial (assoc-in (m/resume paused nil) [:stats :max-frames] 0)
           actual (execute-plan chosen "identity" initial 10)]
+      ;; A real caller is supported; a peak below that caller depth is not.
       (is (= :interpreted (:route actual)))
-      (is (= (m/run initial 10) (:state actual))))))
+      (is (= (m/run initial 10) (:state actual)))
+      (is (false? (:factory-realized? actual))))))
 
 (deftest failed-intrinsic-and-missing-case-retain-committed-mutable-prefix
   (let [input (fixture/bundle "scalar-wrapper-programs.jsonl")]

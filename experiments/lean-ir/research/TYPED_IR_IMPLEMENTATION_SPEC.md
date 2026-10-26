@@ -535,13 +535,21 @@ Long, 1 reconstructs unsigned BigInt, and higher tags preserve exact immutable
 literal carriers. Padding lanes never become guest locals. No special SUM shape
 or guest-name recognizer exists.
 
-Entry requires no live frames or joins, exact declared parameter locals, valid
-Long/BigInt unsigned carriers and nonnegative counters. Unrelated heap, globals,
+Entry requires no current-function joins, exact declared parameter locals, valid
+Long/BigInt unsigned carriers and nonnegative counters. The caller-frame
+extension retains the real caller deque and requires the historical maximum to
+cover its current depth. Saved caller joins remain in their frames. The emitted
+function reads depth from each invocation, rather than capturing a caller in the
+artifact. Unrelated heap, globals,
 events and supported mutable World context fields survive. Each completed tail
 chunk clears old locals; terminal source return restores every visible dead local
 and its canonical return PC. Terminal intrinsic tails instead restore the exact
 ABI wrapper locals/PC. Logical steps and historical maximum frames are preserved;
-elided non-tail wrappers contribute a peak of one, terminal wrappers do not.
+elided non-tail wrappers contribute one above the retained caller depth,
+terminal wrappers do not. On return, ordinary delivery restores one caller;
+the region exits immediately, before executing its continuation. See the
+[caller-frame contract](TAIL_CALLER_FRAME_PLAN.md). The initial M3c measurement
+below predates this extension and remains a historical frame-free receipt.
 
 Existing eager/lazy run loops optionally call `:execute-budget!`. A positive-fuel
 call always consumes guest work or stops. It executes at most 4096 chunks, checks
