@@ -16,4 +16,3 @@ def validate(data, core_version):
         raise AssertionError('optional POM must declare exactly pinned core and Pattern: ' + str(coordinates))
     if any(node.tag.rsplit('}', 1)[-1] in {'systemPath', 'local/root'} for node in pom.iter()):
         raise AssertionError('local-path POM dependency')
-

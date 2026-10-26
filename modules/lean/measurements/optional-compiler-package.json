@@ -82,7 +82,7 @@
     "modules/lean/consumer/compiler-lazy.clj": "8c8b0a5e06517bfa2abb092e81f1fd9e4bfc9dd6b76c1f817d5d797ea4c8d6e6",
     "modules/lean/consumer/compiler-smoke.clj": "e0d5a3d209ade709466f9918b4148d761030214bc24ae55c8d40d0872a9ba118",
     "modules/lean/consumer/pattern_contract.py": "d2c9d4fdc373b5f1f675af2c28a25e8c4a5f36ce896a25d07c9af555db89c649",
-    "modules/lean/consumer/pom_contract.py": "47421417642b43d12b81d6bbf962710c9a588bfb68446386a4cbc2a7407bd921",
+    "modules/lean/consumer/pom_contract.py": "000e9b032faea8f4ed6920f51bf199eebc9dd37c38eb9aee5c59a7602092031c",
     "modules/lean/consumer/smoke.clj": "c61ccb5c837c4d6cfdd6017d816a701c443b2be76fa62d247cc6ac71769fd81f",
     "modules/lean/consumer/test_pattern_contract.py": "e25230f9f4ea5f7da2ba73973b2c4090a8166cfbff27b5c7dac0fd22f8042183",
     "modules/lean/consumer/test_pom_contract.py": "49477e9470c3a1d389b8fba7e8d0ea860ccf87754711f96d09bcbf47a4769fc5",
@@ -449,5 +449,10 @@
     "tested_source_pin_changes": [],
     "core_input_changes_from_built_base": [],
     "scope": "Rebased onto merged main204. All88 tested source pins unchanged; core source/resource/dependency/build inputs match the actual523fb3 core build. No artifact rebuild or new acceptance inferred."
+  },
+  "post_test_formatting": {
+    "path": "modules/lean/consumer/pom_contract.py",
+    "tested_sha256": "47421417642b43d12b81d6bbf962710c9a588bfb68446386a4cbc2a7407bd921",
+    "change": "Remove one blank line at EOF; stripped source text identical. No behavior/test assertion changed."
   }
 }
