@@ -262,6 +262,14 @@
 
 (declare grind-core)
 
+;; Per-branch split state, bound by the `grind` loop for the goal being worked on (Lean keeps it
+;; in the branch's `Goal`): conditions already split on, and whether the branch may split again
+;; (`*grind-splits*`). A split whose condition was already split on in this branch can only repeat
+;; the same two cases — it is what made grind diverge when simp left the condition un-rewritten.
+(def ^:private ^:dynamic *branch-split-conds* #{})
+(def ^:private ^:dynamic *branch-may-split?* true)
+(def ^:private ^:dynamic *last-split-cond* nil)
+
 (defn- find-splittable-hyp
   "Find the first hypothesis suitable for case splitting.
    Skip types in already-split set (Lean 4 generation tracking).
@@ -307,7 +315,8 @@
                      (scan (e/app-arg e)))))]
          (scan whnf-type))
        (when-let [cond-expr @found]
-         {:cond-expr cond-expr :kind :bool}))
+         (when-not (contains? *branch-split-conds* cond-expr)
+           {:cond-expr cond-expr :kind :bool})))
       ;; 3. Bool-typed variable in context (Lean 4: split on value types)
       ;;    When the goal depends on a Bool variable, case-split on it
      (let [bool-name (name/from-string "Bool")]
@@ -323,14 +332,19 @@
 
 (defn- try-case-split
   "Try splitting on a hypothesis. Does NOT recurse — the outer loop handles it.
-   Tracks Bool conditions by string to prevent re-splitting."
+   A Bool condition is split at most once per branch (`*branch-split-conds*`) and a branch
+   splits at most `*grind-splits*` times."
   [ps _depth lemma-names already-split]
-  (when-let [target (find-splittable-hyp ps (proof/current-goal ps) already-split)]
-    (try
-      (case (:kind target)
-        :inductive (basic/cases ps (:fvar-id target))
-        :bool (basic/by-cases ps (:cond-expr target)))
-      (catch clojure.lang.ExceptionInfo _ nil))))
+  (when *branch-may-split?*
+    (when-let [target (find-splittable-hyp ps (proof/current-goal ps) already-split)]
+      (try
+        (let [r (case (:kind target)
+                  :inductive (basic/cases ps (:fvar-id target))
+                  :bool (basic/by-cases ps (:cond-expr target)))]
+          (when (and r *last-split-cond* (= :bool (:kind target)))
+            (reset! *last-split-cond* (:cond-expr target)))
+          r)
+        (catch clojure.lang.ExceptionInfo _ nil)))))
 
 ;; ============================================================
 ;; Core grind loop — Lean 4's Finish.lean
@@ -758,12 +772,21 @@
   ([ps] (grind ps []))
   ([ps lemma-names]
    (let [lnames (if (sequential? lemma-names) lemma-names [])
-         max-iter 2000]
+         max-iter 2000
+         deadline (when config/*grind-timeout-ms*
+                    (+ (System/currentTimeMillis) (long config/*grind-timeout-ms*)))]
      (loop [ps ps
             iter 0
             already-split #{}
             last-goal-count (count (:goals ps))
-            seen-goals #{}]
+            seen-goals #{}
+            ;; goal id → {:splits n :conds #{cond}}: the split state of the branch the goal is in
+            branches {}]
+       (when (.isInterrupted (Thread/currentThread))
+         (tactic-error! "grind: interrupted" {:iter iter}))
+       (when (and deadline (> (System/currentTimeMillis) deadline))
+         (tactic-error! (str "grind: time budget exhausted (" config/*grind-timeout-ms* " ms)")
+                        {:iter iter :goal (some-> (proof/current-goal ps) :type)}))
        (if (or (proof/solved? ps) (>= iter max-iter))
          (if (proof/solved? ps)
            ps
@@ -783,7 +806,12 @@
                      (println (str "grind[" iter "] goals=" (count (:goals ps))
                                    " type=" (when ts (subs ts 0 (min 80 (count ts))))))))
                seen? (and goal-type-key (contains? seen-goals goal-type-key))
-               result (if seen?
+               branch (get branches (:id goal-before) {:splits 0 :conds #{}})
+               split-cond (atom nil)
+               result (binding [*branch-split-conds* (:conds branch)
+                                *branch-may-split?* (< (:splits branch) config/*grind-splits*)
+                                *last-split-cond* split-cond]
+                        (if seen?
                         ;; Skip simp — we've already tried it on this goal.
                         ;; Still try quick tactics + constructors + case-split.
                         (or (try (basic/rfl ps) (catch clojure.lang.ExceptionInfo _ nil))
@@ -792,7 +820,7 @@
                             (try (let [f (requiring-resolve 'ansatz.tactic.omega/omega)] (f ps))
                                  (catch clojure.lang.ExceptionInfo _ nil))
                             (try-case-split ps 0 lnames already-split))
-                        (grind-core ps 0 lnames already-split))]
+                        (grind-core ps 0 lnames already-split)))]
            (if (or (nil? result) (identical? result ps))
              ;; grind-core failed or made no progress — give up
              (tactic-error! "grind: all strategies failed"
@@ -808,5 +836,14 @@
                                    (conj already-split (name/->string (e/const-name h)))
                                    already-split))
                                already-split)]
-               (recur result (inc iter) new-split new-count
-                      (if goal-type-key (conj seen-goals goal-type-key) seen-goals))))))))))
+               ;; goals this step created inherit the branch state of the goal it worked on
+               ;; (one more split when it split on a Bool condition)
+               (let [old-ids (set (:goals ps))
+                     branch' (if-let [c @split-cond]
+                               (-> branch (update :splits inc) (update :conds conj c))
+                               branch)
+                     branches (reduce (fn [m id] (if (old-ids id) m (assoc m id branch')))
+                                      branches (:goals result))]
+                 (recur result (inc iter) new-split new-count
+                        (if goal-type-key (conj seen-goals goal-type-key) seen-goals)
+                        branches))))))))))

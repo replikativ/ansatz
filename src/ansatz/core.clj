@@ -732,6 +732,8 @@
   [_name f]
   (swap! simproc-registry conj f))
 
+(declare latest-local-id-by-name)
+
 (clojure.core/defn- simp-lemma-args
   "Resolve a surface `(simp …)` argument list into simp's lemma vector. A bare symbol stays a
    symbol (env name resolution / @[simp]-set merge). A COMPOUND form — `(WSemiring.mul_zero m)`,
@@ -745,12 +747,26 @@
         ;; (mis)elaborated as a term, throwing (and under all_goals that throw is swallowed → the
         ;; tactic silently no-ops).
         args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
-        g (proof/current-goal ps)]
-    (mapv (fn [a]
+        g (proof/current-goal ps)
+        lctx (:lctx g)
+        ;; Lean's `simp [*]`: every Prop hypothesis of the goal is a rewrite rule
+        prop-hyps (fn []
+                    (let [st (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)]
+                      (keep (fn [[id d]]
+                              (when (and (= :local (:tag d))
+                                         (try (let [s (#'tc/cached-whnf st (tc/infer-type st (:type d)))]
+                                                (and (e/sort? s) (= lvl/zero (e/sort-level s))))
+                                              (catch clojure.lang.ExceptionInfo _ false)))
+                                (e/fvar id)))
+                            (sort-by key lctx))))]
+    (into []
+          (mapcat (fn [a]
             (cond
-              ;; A bare symbol is a lemma/def NAME (resolved by simp). This is the ONE canonical
-              ;; way to name things in the tactic DSL.
-              (symbol? a) a
+              (= '* a) (prop-hyps)
+              ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
+              ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
+              ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
+              (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)] [(e/fvar fid)] [a])
               ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
               ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
               ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
@@ -761,8 +777,8 @@
                                    "(simp [" a "]) not (simp [" (pr-str a) "]).")
                               {:kind :tactic-error :arg a}))
               ;; Anything else (a compound form) elaborates to a proof term in the goal context.
-              :else (elab/elaborate-in-context (:env ps) (:lctx g) a)))
-          args)))
+              :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
+          args))))
 
 (clojure.core/defn- apply-hole-symbol?
   [x]
@@ -994,8 +1010,19 @@
    ;; @[simp] corpus, using ONLY the given lemmas (+ reflexive-closer builtins). See simp/simp opts.
    'simp      (fn [ps args]
                 (let [only? (= 'only (first args))
-                      args  (if only? (rest args) args)]
+                      args  (if only? (rest args) args)
+                      ;; Lean's `simp [...] at h₁ h₂`: simplify those hypotheses, not the goal
+                      [args locs] (split-with #(not= 'at %) args)
+                      locs (rest locs)]
                   (cond
+                    (seq locs)
+                    (reduce (fn [ps loc]
+                              (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) loc)]
+                                (when-not fid
+                                  (throw (ex-info (str "simp at: no hypothesis named " loc)
+                                                  {:kind :tactic-error :name loc})))
+                                (simp/simp-at ps fid (simp-lemma-args ps args) {:only? only?})))
+                            ps locs)
                     only?      (simp/simp ps (simp-lemma-args ps args) {:only? true})
                     (seq args) (simp/simp ps (simp-lemma-args ps args))
                     :else      (simp/simp ps))))

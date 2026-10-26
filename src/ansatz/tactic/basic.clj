@@ -23,7 +23,7 @@
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
 ;; Forward declarations for mutually-dependent tactics/helpers
-(declare generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear)
+(declare generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front)
 
 (defn- mk-tc
   "Create a TC state from the proof state and a goal's local context."
@@ -1588,14 +1588,9 @@
 ;; Lean 4: induction produces subgoals with induction hypotheses.
 ;; Like cases but each recursive field gets an IH hypothesis.
 
-(defn induction
-  "Perform structural induction on a hypothesis of inductive type.
-   Like cases but adds induction hypotheses for recursive fields.
-   Following Lean 4's Induction tactic.
-
-   Creates one subgoal per constructor. For each constructor field
-   that has the same type as the inductive being eliminated,
-   adds an induction hypothesis to the local context."
+(defn- induction-core
+  "Structural induction on `hyp-fvar-id` WITHOUT generalization: the motive abstracts the target
+   (and its fvar indices) from the goal only. `induction` reverts the dependent hypotheses first."
   [ps hyp-fvar-id]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -1773,6 +1768,77 @@
                                  (let [branch-set (set branch-ids)
                                        others (filterv #(not (branch-set %)) gs)]
                                    (into (vec branch-ids) others))))))))))
+
+;; Lean's `generalizeVars` (Elab/Tactic/Induction.lean) over Meta/GeneralizeVars.lean: the
+;; target, its fvar indices and everything their types depend on are FORBIDDEN; every other local
+;; that depends (transitively, in context order) on a target is reverted before the motive is built
+;; and re-introduced in each alternative (`introNP generalized.size`). Without this a hypothesis
+;; `h : P os` keeps naming the consumed target and the IH speaks about the original `os`.
+(defn- induction-fvars-to-generalize
+  [lctx target-ids]
+  (let [forbidden (loop [todo (vec target-ids) seen #{}]
+                    (if-let [id (peek todo)]
+                      (let [todo (pop todo)]
+                        (if (contains? seen id)
+                          (recur todo seen)
+                          (let [d (red/lctx-lookup lctx id)
+                                deps (when d (into (collect-fvar-ids (:type d))
+                                                   (some-> (:value d) collect-fvar-ids)))]
+                            (recur (into todo (filter #(contains? lctx %)) deps) (conj seen id)))))
+                      seen))]
+    ;; fvar ids are allocated monotonically, so id order IS context (declaration) order
+    (loop [decls (sort-by key (seq lctx)) s (set target-ids) r []]
+      (if-let [[id d] (first decls)]
+        (if (and (not (contains? forbidden id))
+                 (= :local (:tag d))
+                 (some s (into (collect-fvar-ids (:type d))
+                               (some-> (:value d) collect-fvar-ids))))
+          (recur (rest decls) (conj s id) (conj r id))
+          (recur (rest decls) s r))
+        r))))
+
+(defn induction
+  "Perform structural induction on a hypothesis of inductive type.
+   Like cases but adds induction hypotheses for recursive fields.
+   Following Lean 4's Induction tactic: hypotheses depending on the target are reverted first
+   (so the motive, hence every IH, quantifies over them) and re-introduced in each case.
+
+   Creates one subgoal per constructor. For each constructor field
+   that has the same type as the inductive being eliminated,
+   adds an induction hypothesis to the local context."
+  [ps hyp-fvar-id]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        lctx (:lctx goal)
+        hyp-decl (red/lctx-lookup lctx hyp-fvar-id)
+        _ (when-not hyp-decl
+            (tactic-error! "induction: hypothesis not in context" {:id hyp-fvar-id}))
+        [type-head type-args] (e/get-app-fn-args (whnf-in-goal ps lctx (:type hyp-decl)))
+        ;; the targets are the major premise and its INDEX fvars — never the parameters (`S` of
+        ;; `List S`): a local mentioning only a parameter is not generalized
+        num-params (or (when (e/const? type-head)
+                         (when-let [^ConstantInfo ci (env/lookup (:env ps) (e/const-name type-head))]
+                           (when (.isInduct ci) (.numParams ci))))
+                       (count type-args))
+        index-ids (keep (fn [a] (when (and (e/fvar? a) (contains? lctx (e/fvar-id a))) (e/fvar-id a)))
+                        (drop num-params type-args))
+        generalized (induction-fvars-to-generalize lctx (cons hyp-fvar-id index-ids))]
+    (if (empty? generalized)
+      (induction-core ps hyp-fvar-id)
+      (let [names (mapv #(:name (red/lctx-lookup lctx %)) generalized)
+            ;; revert innermost first, so no remaining local mentions a reverted one
+            ps (reduce revert ps (rseq generalized))
+            n-before (count (:goals ps))
+            ps (induction-core ps hyp-fvar-id)
+            n-alts (inc (- (count (:goals ps)) n-before))
+            alt-ids (vec (take n-alts (:goals ps)))]
+        (let [[ps children]
+              (reduce (fn [[ps children] alt-id]
+                        (let [ps (move-goals-to-front ps [alt-id])
+                              ps (reduce intro ps names)]
+                          [ps (conj children (first (:goals ps)))]))
+                      [ps []] alt-ids)]
+          (move-goals-to-front ps children))))))
 
 ;; ============================================================
 ;; have (introduce intermediate lemma)

@@ -41,6 +41,16 @@
   "When true, print exceptions caught during grind sub-tactic dispatch."
   false)
 
+(def ^:dynamic *grind-splits*
+  "Maximum number of case splits in one grind proof-search branch (Lean's `Grind.Config.splits`,
+   default 9). Normalization splits are not counted in Lean either."
+  9)
+
+(def ^:dynamic *grind-timeout-ms*
+  "Wall-clock budget for one `grind` call; on expiry it fails with a tactic error instead of
+   running on. nil disables it."
+  20000)
+
 ;; -- Custom simprocs --
 (def ^:dynamic *simprocs*
   "Vector of user-registered simproc functions.

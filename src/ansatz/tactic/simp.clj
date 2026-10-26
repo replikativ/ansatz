@@ -60,6 +60,9 @@
 (def ^:private iff-name (name/from-string "Iff"))
 (def ^:private true-name (name/from-string "True"))
 (def ^:private false-name (name/from-string "False"))
+
+(defn- true-const? [t] (and (e/const? t) (= "True" (name/->string (e/const-name t)))))
+(defn- false-const? [t] (and (e/const? t) (= (e/const-name t) false-name)))
 (def ^:private eq-refl-name (name/from-string "Eq.refl"))
 (def ^:private eq-trans-name (name/from-string "Eq.trans"))
 (def ^:private true-intro-name (name/from-string "True.intro"))
@@ -984,8 +987,19 @@
                            subst
                           ;; Walk forall telescope with progressive instantiation.
                           ;; Uses instantiate1 to keep bvar indices correct.
-                           (let [ci (env/lookup env (:name lemma))
-                                 ctype0 (when ci (.type ^ConstantInfo ci))
+                           (let [;; the lemma's statement: a hypothesis rule (a conditional IH
+                                 ;; `h : p → lhs = rhs`) has no constant — its type is the local's,
+                                 ;; a term rule's is inferred. Only the premise prefix is walked, and
+                                 ;; premises are peeled BEFORE an And split, so an And-projected
+                                 ;; hypothesis shares its premises with the hypothesis type.
+                                 ctype0 (cond
+                                          (:proof-term lemma)
+                                          (try (tc/infer-type st (:proof-term lemma)) (catch Exception _ nil))
+                                          (:hyp-fvar-id lemma)
+                                          (:type (red/lctx-lookup (:lctx st) (:hyp-fvar-id lemma)))
+                                          (:name lemma)
+                                          (when-let [ci (env/lookup env (:name lemma))] (.type ^ConstantInfo ci))
+                                          :else nil)
                                 ;; Resolve the lemma's universe level params from the matched subst
                                 ;; FIRST, then instantiate them into ctype — so discharge obligations
                                 ;; carry CONCRETE levels. Without this, e.g. `beq_iff_eq`'s `LawfulBEq α`
@@ -1073,7 +1087,11 @@
                                                  ;; term lemma (`simp [<proof-term>]`): apply the term
                                                   (:proof-term lemma)
                                                   (reduce e/app (:proof-term lemma) (reverse param-vals))
-                                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                                  (:hyp-fvar-id lemma)
+                                                  ;; a conditional hypothesis `h : p₁ → … → lhs = rhs`
+                                                  ;; is applied to its discharged premises (And
+                                                  ;; projections, if any, wrap the applied proof)
+                                                  (reduce e/app (e/fvar (:hyp-fvar-id lemma)) (reverse param-vals))
                                                   :else (reduce e/app
                                                                 (e/const' (:name lemma) inst-levels)
                                                                 (reverse param-vals)))
@@ -2204,7 +2222,8 @@
                           proof (cond
                                   (:proof-term lemma)
                                   (reduce e/app (:proof-term lemma) (reverse param-vals))
-                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                  (:hyp-fvar-id lemma)
+                                  (reduce e/app (e/fvar (:hyp-fvar-id lemma)) (reverse param-vals))
                                   :else (reduce e/app
                                                 (e/const' (:name lemma) inst-levels)
                                                 (reverse param-vals)))]
@@ -2950,15 +2969,11 @@
                                              :simplified simplified})
                          (proof/record-tactic :simp lemma-names (:id goal))))))))))))
 
-(defn simp
-  "Simplify the current goal using rewrite lemmas.
-   Options: :contextual? :single-pass? :max-depth :decide? (default true)"
-  ([ps] (simp ps []))
-  ([ps lemma-names] (simp ps lemma-names {}))
-  ([ps lemma-names opts]
-   (let [goal (proof/current-goal ps)
-         _ (when-not goal (tactic-error! "No goals" {}))
-         env (or (ensure-ble-eq (:env ps)) (:env ps))
+(defn- simp-setup
+  "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
+   from the contextual / term lemmas (Lean erases the simplified hypothesis itself in `simp at h`)."
+  [ps goal lemma-names opts]
+  (let [env (or (ensure-ble-eq (:env ps)) (:env ps))
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
@@ -3028,8 +3043,70 @@
                  :ext-trie ext-trie
                  ;; Lazy instance index for TC synthesis in discharge
                  :inst-index (delay (inst/index-for env))}
+         ]
+    [ps st env lemma-index config]))
+
+(defn simp
+  "Simplify the current goal using rewrite lemmas.
+   Options: :contextual? :single-pass? :max-depth :decide? (default true)"
+  ([ps] (simp ps []))
+  ([ps lemma-names] (simp ps lemma-names {}))
+  ([ps lemma-names opts]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
          result (simp-expr* st env lemma-index (:type goal) config)]
      (close-goal-with-proof ps goal st result lemma-names))))
+
+(defn simp-at
+  "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
+   simplify the TYPE of hypothesis `hyp-id` with the simp set (not containing `h` itself).
+   `False` closes the goal; `True` clears `h`; otherwise `h` is replaced (same name) by its
+   simplified form, transported with `Eq.mp`. No progress is an error, as in Lean."
+  ([ps hyp-id lemma-names] (simp-at ps hyp-id lemma-names {}))
+  ([ps hyp-id lemma-names opts]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         decl (red/lctx-lookup (:lctx goal) hyp-id)
+         _ (when-not decl (tactic-error! "simp at: hypothesis not in context" {:id hyp-id}))
+         lemma-names (remove #(and (instance? ansatz.kernel.Expr %) (e/fvar? %) (= hyp-id (e/fvar-id %)))
+                             lemma-names)
+         [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
+         old-type (:type decl)
+         result (simp-expr* st env lemma-index old-type config)
+         new-type (:expr result)
+         _ (when (or (identical? new-type old-type) (= new-type old-type))
+             (tactic-error! "simp at: made no progress" {:hyp (:name decl)}))
+         [proof-old proof-new]
+         (if-let [pf (:proof? result)]
+           (let [pw (#'tc/cached-whnf st (tc/infer-type st pf))
+                 [h a] (e/get-app-fn-args pw)]
+             (if (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count a)))
+               [(nth a 1) (nth a 2)]
+               [old-type new-type]))
+           [old-type new-type])
+         [ps new-id] (proof/alloc-id ps)
+         rep {:old-fvar-id hyp-id :new-fvar-id new-id :name (:name decl)
+              :old-type old-type :new-type new-type
+              :proof-old-type proof-old :proof-new-type proof-new
+              :eq-proof (:proof? result)}
+         child-lctx (cond-> (dissoc (:lctx goal) hyp-id)
+                      (not (true-const? new-type))
+                      (assoc new-id {:tag :local :id new-id :name (:name decl) :type new-type}))
+         [ps child-id] (proof/fresh-mvar ps (:type goal) child-lctx)
+         ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
+                (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
+                (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))]
+     (if (false-const? new-type)
+       (let [st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) child-lctx)
+             s (try (#'tc/cached-whnf st' (tc/infer-type st' (:type goal)))
+                    (catch clojure.lang.ExceptionInfo _ nil))
+             u (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)]
+         (proof/assign-mvar ps child-id
+                            {:kind :exact
+                             :term (e/app* (e/const' (name/from-string "False.elim") [u])
+                                           (:type goal) (e/fvar new-id))}))
+       ps))))
 
 (defn- hyp-type->lemmas
   "Extract simp lemma(s) from a single hypothesis type.
@@ -3129,16 +3206,21 @@
                        (catch Exception _ nil))))
                  lctx))))
 
-(defn simp-all
-  "Simplify goal + all hypotheses (Lean 4's SimpAll).
-   Following Lean 4's SimpAll.lean:
-   Phase 1: simplify hypothesis entries (in-memory, no lctx modification).
-   Phase 2: build simp-all-hyps wrapper with expanded lctx.
+(def ^:private ^:dynamic *simp-all-superseded*
+  "Within one `simp-all` call: an atom of the hypothesis fvar ids an earlier round replaced."
+  nil)
+
+(defn- simp-all-pass
+  "ONE round of Lean 4's SimpAll `loop` (Meta/Tactic/Simp/SimpAll.lean):
+   Phase 1: simplify every hypothesis entry against the others.
+   Phase 2: assert the simplified entries (`simp-all-hyps` wrapper) as `h'` NEXT TO the
+            originals — unlike Lean, which clears them: code compiles `(<= x y)` to `Nat.ble x y`,
+            and only the original form still rewrites it once the entry is in normal form `x ≤ y`.
+            Later rounds do not re-simplify a replaced original (`*simp-all-superseded*`). An entry
+            simplified to `True` is not asserted; one simplified to `False` closes the goal.
    Phase 3: simp the goal in the updated lctx (eq-proof consistent).
    This order ensures the goal's Eq.mpr is built in the correct lctx."
-  ([ps] (simp-all ps []))
-  ([ps lemma-names] (simp-all ps lemma-names {}))
-  ([ps lemma-names opts]
+  [ps lemma-names opts]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          env (or (ensure-ble-eq (:env ps)) (:env ps))
@@ -3175,7 +3257,12 @@
                                            (str n)))))
                            all-names)
            inst-index (delay (inst/index-for env))
-           hyps (vec (filter (fn [[_ d]] (= :local (:tag d))) lctx))
+           ;; an entry a previous round already simplified stays in the context (its original
+           ;; form keeps rewriting the goal: `(<= x y)` in code is `Nat.ble x y`, which the
+           ;; normal form `x ≤ y` no longer matches) but is not simplified again — Lean erases the
+           ;; replaced entry; re-simplifying it would re-add the same entry every round.
+           superseded (if *simp-all-superseded* @*simp-all-superseded* #{})
+           hyps (vec (filter (fn [[id d]] (and (= :local (:tag d)) (not (superseded id)))) lctx))
              ;; Compute simplified hypothesis types
            replacements
            (reduce
@@ -3243,20 +3330,24 @@
                  ;; a separate hypothesis visible to omega and other tactics.
                [ps' replacements']
                (reduce (fn [[ps reps] rep]
-                         (letfn [(expand [ps ty name-base]
+                         (letfn [(expand [ps ty name-base proj]
                                    (let [[head args] (e/get-app-fn-args ty)]
                                      (if (and (e/const? head)
                                               (= (e/const-name head) and-name)
                                               (= 2 (count args)))
-                                         ;; And P Q → expand left and right
-                                       (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081"))
-                                             [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082"))]
+                                         ;; And P Q → expand left and right; each conjunct is reached
+                                         ;; from the transported whole by its And.left/And.right chain
+                                       (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081")
+                                                                     (conj proj [:left (nth args 0) (nth args 1)]))
+                                             [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082")
+                                                                      (conj proj [:right (nth args 0) (nth args 1)]))]
                                          [ps' (into left-reps right-reps)])
                                          ;; Leaf — allocate one fvar
                                        (let [[ps' new-id] (proof/alloc-id ps)]
                                          [ps' [(assoc rep :new-fvar-id new-id
-                                                      :new-type ty :name name-base)]]))))]
-                           (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep))]
+                                                      :new-type ty :name name-base
+                                                      :and-proj proj)]]))))]
+                           (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep) [])]
                              [ps' (into reps new-entries)])))
                        [ps []]
                        replacements)
@@ -3264,11 +3355,15 @@
                  ;; Use distinct names (append ') to avoid name collision with
                  ;; originals — otherwise sexp->ansatz name lookup picks the wrong one
                new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type]}]
-                                  (assoc lctx new-fvar-id
-                                         {:tag :local :id new-fvar-id
-                                          :name (str name "'") :type new-type}))
+                                  (if (true-const? new-type)
+                                    lctx
+                                    (assoc lctx new-fvar-id
+                                           {:tag :local :id new-fvar-id
+                                            :name (str name "'") :type new-type})))
                                 lctx
                                 replacements')
+               _ (when *simp-all-superseded*
+                   (swap! *simp-all-superseded* into (map :old-fvar-id replacements')))
                  ;; Create body sub-goal (insert at front for priority)
                [ps'' body-goal-id]
                (let [[ps''' id] (proof/fresh-mvar ps' (:type goal') new-lctx)]
@@ -3280,10 +3375,44 @@
                                             :replacements replacements'
                                             :child body-goal-id})
                         (proof/record-tactic :simp-all (vec lemma-names) (:id goal')))]
-             ;; Phase 2 (Lean 4 order): simp the goal AFTER hypothesis expansion.
+             ;; An entry simplified to `False` closes the goal (SimpAll `simpStep` → none).
+           (if-let [false-rep (first (filter #(false-const? (:new-type %)) replacements'))]
+             (let [goal-sort (try (let [st' (tc/attach-lctx (tc/mk-tc-state (:env ps'')) new-lctx)
+                                        s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal')))]
+                                    (if (e/sort? s) (e/sort-level s) lvl/zero))
+                                  (catch Exception _ lvl/zero))]
+               (proof/assign-mvar ps'' body-goal-id
+                                  {:kind :exact
+                                   :term (e/app* (e/const' (name/from-string "False.elim") [goal-sort])
+                                                 (:type goal') (e/fvar (:new-fvar-id false-rep)))}))
+             ;; Phase 3 (Lean 4 order): simp the goal AFTER hypothesis expansion.
              ;; The goal's eq-proof is now built in the expanded lctx — consistent!
-           (try (simp ps'' lemma-names {:contextual? true})
-                (catch Exception _ ps''))))))))
+             (try (simp ps'' lemma-names {:contextual? true})
+                  (catch clojure.lang.ExceptionInfo _ ps''))))))))
+
+(def ^:private simp-all-max-rounds
+  "Bound on SimpAll rounds (Lean bounds the loop by `maxSteps` through the shared stats)."
+  32)
+
+(defn simp-all
+  "Simplify goal + all hypotheses (Lean 4's SimpAll): repeat `simp-all-pass` while it changes
+   the focused goal — each round simplifies the hypotheses against the ones the previous round
+   produced — until a fixpoint, the goal is closed, or `simp-all-max-rounds`."
+  ([ps] (simp-all ps []))
+  ([ps lemma-names] (simp-all ps lemma-names {}))
+  ([ps lemma-names opts]
+   (binding [*simp-all-superseded* (atom #{})]
+    (loop [ps ps round 0]
+     (let [g (proof/current-goal ps)
+           n (count (:goals ps))
+           ps' (simp-all-pass ps lemma-names opts)
+           g' (proof/current-goal ps')]
+       (if (or (< (count (:goals ps')) n)            ; focused goal closed
+               (nil? g')
+               (= (:id g) (:id g'))                   ; no change this round
+               (>= (inc round) simp-all-max-rounds))
+         ps'
+         (recur ps' (inc round))))))))
 
 ;; ============================================================
 ;; Nat offset decomposition — Lean 4's NatOffset (Simprocs/Nat.lean)

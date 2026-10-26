@@ -452,6 +452,15 @@ Give the type explicitly only when no operand carries it — all numerals, as Le
                              ;;   is Ratio division, which is not what `Nat.div` means)
 ```
 
+Implications and function types are written `=>` (or `→`, or `arrow`), n-ary and
+right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never an arrow:
+
+```clojure
+(=> (= (memq x op) true) (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true))
+;; = memq x op = true → Nat.beq x sc = false → memq x (dropNat sc op) = true
+(=> Nat Nat)                 ;; the function type Nat → Nat
+```
+
 ### Definitions
 
 ```clojure
@@ -547,11 +556,17 @@ Give the type explicitly only when no operand carries it — all numerals, as Le
 |--------|-------------|
 | `(apply lemma_name)` | Apply a lemma, generating subgoals for arguments |
 | `(assumption)` | Close goal from local context |
-| `(simp [lemma1 lemma2])` | Simplify using rewrite lemmas |
+| `(simp [lemma1 lemma2])` | Simplify using rewrite lemmas; a recursive definition's name unfolds it by its equation lemmas |
+| `(simp_all [lemmas])` | Simplify the goal and every hypothesis against each other until nothing changes (Lean's `simp_all`) |
 | `(rfl)` | Close `a = a` goals |
-| `(intro)` / `(intros x y)` | Introduce forall binders |
-| `(induction n)` | Structural induction |
+| `(intro h)` / `(intros h1 h2)` | Introduce forall binders / implication premises under the given names |
+| `(intros)` | Introduce ALL binders; premises of `=>` have no name, so they stay anonymous (unreachable by name — name them with `(intros h1 h2)` when a later tactic must refer to them) |
+| `(induction n)` | Structural induction; hypotheses that depend on `n` are reverted and re-introduced in each case, so the IH covers them (Lean's `induction`). Cases come in constructor order, fields named after the constructor's (`head`, `tail`, IH `ih_tail`) |
+| `(induction n generalizing acc)` | Also generalize `acc` |
 | `(cases h)` | Case analysis |
+| `(cases h e)` | Lean's `cases h : e` on a Bool `e`: one case per value, with `h : e = true` / `h : e = false` |
+| `(decide)` | Close a closed decidable proposition by evaluation |
+| `(grind [defs])` | Automation; bounded by `*grind-splits*` case splits per branch and `*grind-timeout-ms*` |
 | `(omega)` | Linear arithmetic on Nat/Int |
 | `(ring)` | Polynomial identity |
 | `(linarith)` | Linear arithmetic over ordered fields |
@@ -567,6 +582,27 @@ Give the type explicitly only when no operand carries it — all numerals, as Le
 | `(try (tactic))` | Try tactic, ignore failure |
 | `(all_goals (tactic))` | Apply to all open goals |
 | `(first (tac1) (tac2))` | Try tactics in order |
+| `(and_then (tac1) (tac2))` | Lean's `tac1 <;> tac2`: run `tac2` on every goal `tac1` produces; nest for `a <;> b <;> c` |
+
+A Lean script translates line by line. Lean's
+
+```lean
+induction op with
+| nil => simp [memq]
+| cons h t ih =>
+  intro hm hne
+  cases hh : Nat.beq h sc <;> cases hx : Nat.beq x h <;> simp_all [memq, dropNat, Nat.beq_eq]
+```
+
+is
+
+```clojure
+(induction op)
+(simp [memq])                                   ;; nil
+(intro hm) (intro hne)                          ;; cons: fields head, tail, ih_tail
+(and_then (and_then (cases hh (Nat.beq head sc)) (cases hx (Nat.beq x head)))
+          (simp_all [memq drop-nat Nat.beq_eq]))
+```
 
 ## Configuration
 
@@ -598,6 +634,8 @@ All limits are configurable via dynamic vars in `ansatz.config`:
 | `*max-simp-steps*` | 100k | Maximum simp rewrite steps |
 | `*verbose*` | true | Print proof/definition results |
 | `*grind-debug*` | false | Log grind tactic exceptions |
+| `*grind-splits*` | 9 | Case splits per grind proof branch (Lean's `splits`) |
+| `*grind-timeout-ms*` | 20000 | Wall-clock budget per `grind` call; nil disables |
 | `*simprocs*` | [] | User-registered simplification procedures |
 
 ## Extending Ansatz
