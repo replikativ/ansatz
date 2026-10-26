@@ -16,3 +16,10 @@
                      (cons value (step pending)))
                    (recur (pop pending)))))))]
     (step [(list root)])))
+
+#?(:clj
+   (do
+     (def ^:private tail-walk-generation (Object.))
+     (def ^:private tail-walk-root forms)
+     (defn tail-walk-token [] tail-walk-generation)
+     (defn builtin-tail-walk? [] (identical? tail-walk-root forms))))

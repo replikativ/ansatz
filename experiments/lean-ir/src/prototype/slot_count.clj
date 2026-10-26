@@ -164,3 +164,13 @@
   "Live bindings can introduce registers absent from the immutable program."
   [locals]
   (inc (reduce max 0 (filter integer? (keys locals)))))
+
+;; Owner baseline for optional scalar regions bypassing repeated call layout work.
+(def ^:private tail-layout-generation (Object.))
+(def ^:private tail-layout-roots [function-slots program-slots local-slots cached-function-proof measure-function standard-map? mutable-collection? standard-collection-classes])
+(defn tail-layout-token [] [tail-layout-generation (walk/tail-walk-token)])
+(defn builtin-tail-layout? []
+  (let [[f p l c measure standard mutable classes] tail-layout-roots]
+    (and (walk/builtin-tail-walk?) (identical? f function-slots) (identical? p program-slots) (identical? l local-slots)
+         (identical? c cached-function-proof) (identical? measure measure-function) (identical? standard standard-map?)
+         (identical? mutable mutable-collection?) (identical? classes standard-collection-classes))))

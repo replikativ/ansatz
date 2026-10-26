@@ -354,10 +354,8 @@ code, descriptors and generation tokens, never Machine, Source, World or authori
 owners. Their internal diagnostic return is `:specialized` or `:interpreted`;
 existing dispatch ignores this host-only result.
 
-This is not general represented-block compilation. M2 blocks are not yet consumed
-by a representation pass, Pattern remains optional and no LLVM is needed. Full
-scalar regions, tail-call SCC compilation, guard amortization and reconstruction
-of inlined call/wrapper/return traces remain subsequent M3 work. The existing
+M3a alone is standalone wrapper compilation. M3b/M3c below add the bounded
+represented scalar region path; Pattern remains optional and no LLVM is needed. The existing
 generic compiled path's broader failure-prefix limitation is unchanged: the exact
 error-state guarantee here applies to recognized standalone wrappers and their
 guarded interpreter fallback.
@@ -469,6 +467,76 @@ identity, constant and terminal intrinsic shapes. The
 with Pattern/classes already loaded and input decoding/key comparison excluded.
 There is no region executor in M3b. Native fixture values are executed through
 existing reference/wrapper backends; they do not establish represented execution.
+
+### M3c represented tail-region execution contract
+
+The optional `:typed-tail` compiler option is a closed map containing
+`:typed-functions`, `:roots`, `:descriptors`, `:profile` and `:budgets` as accepted
+by M3b. `block-compile/prepare-program-options` prepares it once per program.
+Public raw block key/compile entry points validate again; only program-owned
+internal prepared helpers bypass this boundary. Caller maps/tokens/provider keys
+are never preparation certificates. Default options retain their previous keys
+and do not require Pattern.
+
+`typed-tail-execution/prepare-context` returns an opaque immutable context or an
+explicit optimization fallback. It retains only demanded owner-free installed
+bodies, validated region data, immutable literals, generation tokens and closed
+emission flags. It never captures the raw catalogue, config, World or Source.
+Actual body identity is indexed after validation, so separately lowered equal
+bodies work. Selected functions with ambiguous equal entry bodies decline;
+actual body metadata or extra function attributes currently decline. These are
+optimization restrictions, not invalid Lean programs.
+
+One delayed emitted factory is shared across all entries in a region. Cache keys
+bind exact source/wrapper semantics, name/tag order, literal pool recipes,
+compiler/ABI/runtime generations and emission options. A cached artifact captures
+the pure factory delay rather than an old program context; entry checks use the
+current Machine context. Supported numeric/layout helper redefinitions and owner
+reloads invalidate entry before any effects or forcing emission. Function slot
+proofs must match static represented widths, including per-Machine/global hints.
+Arbitrary core/private guard tampering and concurrent redefinition remain outside
+the supported contract.
+
+The emitter consumes Pattern `RepresentedTailOp` forms and parameter/definition
+types. Diagnostic typed operations and debug scopes are not authoritative. It
+emits primitive long bits plus long carrier-recipe lanes into one `loop`/`case`
+trampoline, including mutual tails with different arities. Recipe 0 reconstructs
+Long, 1 reconstructs unsigned BigInt, and higher tags preserve exact immutable
+literal carriers. Padding lanes never become guest locals. No special SUM shape
+or guest-name recognizer exists.
+
+Entry requires no live frames or joins, exact declared parameter locals, valid
+Long/BigInt unsigned carriers and nonnegative counters. Unrelated heap, globals,
+events and supported mutable World context fields survive. Each completed tail
+chunk clears old locals; terminal source return restores every visible dead local
+and its canonical return PC. Terminal intrinsic tails instead restore the exact
+ABI wrapper locals/PC. Logical steps and historical maximum frames are preserved;
+elided non-tail wrappers contribute a peak of one, terminal wrappers do not.
+
+Existing eager/lazy run loops optionally call `:execute-budget!`. A positive-fuel
+call always consumes guest work or stops. It executes at most 4096 chunks, checks
+fuel and signed-long step headroom before coercing even huge BigInt fuel, and
+materializes exact state at yield. Short fuel, entry/guard decline and missing
+cases use mutable execution for the full remaining fuel after materializing only
+completed chunks. Failed speculative work is never committed or replayed.
+Standalone `:execute!` performs at most one chunk and may decline with one mutable
+step. Near-overflow fallback matches the existing checked counter behavior; it
+does not introduce a new counter policy.
+
+Before eval, emitted construction work, nesting and realized forms/constants are
+bounded. Explicit emission refusal and recognized JVM method/class size failures
+are remembered as optimization fallbacks before guest changes; unknown compiler
+bugs surface. These limits are conservative, not a proof of JVM bytecode size.
+`force-runtime-compilation!` is an internal measurement hook for separating lazy
+factory eval from warm execution, not another invocation engine.
+
+[Execution validation and paired measurements](../measurements/typed-tail-execution.json)
+cover actual pinned native fixture values, all small fuel prefixes including
+carrier classes, sibling/resume behavior, completed-prefix errors, quantum yields,
+cache/config/helper guards and emission refusal. The [REPL benchmark](typed-tail-benchmark.clj)
+separates preparation, factory eval and warm execution with full-World comparison
+outside timing. General joins, heap/RC operations, other non-tail source calls,
+Nat promotion and complete M3/frontend acceptance remain outside this increment.
 
 ## M4 kernel integration
 
@@ -582,5 +650,6 @@ APIs, with focused [validation results](../measurements/typed-ir-companion.json)
 M2 provides bounded scalar control-flow preparation and exact canonical body
 reconstruction, with focused [validation results](../measurements/typed-block-preparation.json).
 M3a adds guarded UInt64/USize wrapper-let specialization on existing JVM backends.
-General represented-block execution, kernel/interop integration and remaining
-milestones are still implementation work.
+M3b/M3c add optional represented scalar tail-region preparation and execution.
+Joins, general non-tail source calls, Nat promotion, kernel/interop integration and
+remaining milestones are still implementation work.

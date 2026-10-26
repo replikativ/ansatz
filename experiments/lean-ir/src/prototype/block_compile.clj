@@ -242,6 +242,44 @@
            :region-limit 1 :compilation-attempts attempts :fallback (:limit attempt)
            :execute! (fn [machine] (u/step! machine))})))))
 
+(declare runtime-block-key-prepared compile-runtime-block-prepared runtime-block-extension-prepared)
+
+(def ^:private tail-provider-key ::tail-provider)
+
+(defn prepare-program-options
+  "Public raw-option boundary. Private program-owned provider fields are never
+   accepted as validation certificates; discard them before normalization."
+  [functions requested]
+  (let [options (scalar-wrapper/prepare-options (dissoc requested tail-provider-key))]
+    (if-let [config (:typed-tail options)]
+      (let [prepare (requiring-resolve 'prototype.typed-tail-execution/prepare-context)
+            extension (requiring-resolve 'prototype.typed-tail-execution/extension-key)
+            compile (requiring-resolve 'prototype.typed-tail-execution/compile-entry)
+            bind (requiring-resolve 'prototype.typed-tail-execution/bind-context)
+            force (requiring-resolve 'prototype.typed-tail-execution/force-compilation!)
+            context (prepare functions config {:direct-linking (boolean (get options :direct-linking (:direct-linking *compiler-options*)))})
+            provider {:key (or (:key context) [:typed-tail-fallback (:reason context)])
+                      :extension (fn [body] (extension context body))
+                      :compile (fn [body] (compile context body))
+                      :bind (fn [machine] (bind machine context))
+                      :force (fn [] (force context))}]
+        (-> (into {} (select-keys options [:compile-threshold :lexical-joins :direct-linking :leaf-calls :compact-registers
+                                              :scalar-wrappers :scalar-wrapper-tokens]))
+            (assoc tail-provider-key provider)))
+      options)))
+
+(defn force-runtime-compilation!
+  "Internal benchmark hook for an already normalized program. No guest execution."
+  [program]
+  (when-let [provider (or (get (:runtime-options program) tail-provider-key)
+                          (get (:options program) tail-provider-key))]
+    ((:force provider))))
+
+(defn install-runtime-context
+  "Internal normalized-program option contract, not a raw-option entry point."
+  [options machine]
+  (if-let [provider (get options tail-provider-key)] ((:bind provider) machine) (dissoc machine :prototype.typed-tail-execution/context)))
+
 (defn compile-program
   ([functions] (compile-program functions nil))
   ([functions previous]
@@ -249,7 +287,7 @@
   ([functions previous {:keys [lexical-joins leaf-calls compact-registers] :as requested-options}]
    (when (and leaf-calls (not lexical-joins))
      (m/fail "Leaf calls require lexical regions" {}))
-   (let [prepared-options (scalar-wrapper/prepare-options requested-options)
+   (let [prepared-options (prepare-program-options functions requested-options)
          bodies (entries functions)
          options (cond-> {:direct-linking (boolean (:direct-linking *compiler-options*))
                           :lexical-joins (boolean lexical-joins)
@@ -257,6 +295,8 @@
                           :compact-registers (boolean compact-registers)}
                    ;; Eliding a direct guest tail frame's materialization relies
                    ;; on callee existence and arity, never its implementation.
+                   (get prepared-options tail-provider-key)
+                   (assoc :typed-tail-key (:key (get prepared-options tail-provider-key)))
                    (:scalar-wrappers prepared-options)
                    (assoc :scalar-wrappers (:scalar-wrappers prepared-options)
                           :scalar-wrapper-tokens (:scalar-wrapper-tokens prepared-options))
@@ -266,11 +306,12 @@
          reusable (if reuse? (:blocks previous) {})
          reuse-block (fn [body]
                        (when-let [block (get reusable (fingerprint/key body))]
-                         (when (= (:scalar-extension block) (scalar-wrapper/extension-key functions body prepared-options)) block)))
+                         (when (= (or (:tail-extension block) (:scalar-extension block)) (runtime-block-extension-prepared functions body prepared-options)) block)))
          reused (count (filter reuse-block bodies))
          plans (when leaf-calls (leaf/compile-plans functions (when reuse? (:leaf-plans previous))))
          leaf-names (set (keys plans))
          blocks (into {} (map (fn [body] [(fingerprint/key body) (or (reuse-block body)
+                                                                                         (when-let [provider (get prepared-options tail-provider-key)] ((:compile provider) body))
                                                                                          (scalar-wrapper/compile-wrapper functions body prepared-options)
                                                                                          (compile-block body functions lexical-joins leaf-calls leaf-names))]) bodies))
          dispatch (IdentityHashMap.)]
@@ -282,7 +323,7 @@
        (doseq [body (keys (:identity-blocks previous))]
          (when-let [block (get blocks (fingerprint/key body))]
            (.put dispatch body block))))
-     {:functions functions :generation generation :compiler-options options
+     {:functions functions :generation generation :compiler-options options :runtime-options (into {} (select-keys prepared-options [tail-provider-key]))
       :compiled-blocks (- (count bodies) reused) :reused-blocks reused
       :leaf-plans plans
       :register-layouts (when compact-registers (update-vals functions u/function-slots))
@@ -290,7 +331,8 @@
       :blocks blocks :identity-blocks dispatch})))
 
 (defn- execution-context [program machine]
-  (assoc machine :leaf-plans (:leaf-plans program) :register-layouts (:register-layouts program)))
+  (install-runtime-context (:runtime-options program)
+                           (assoc machine :leaf-plans (:leaf-plans program) :register-layouts (:register-layouts program))))
 
 (defn compiler-token [] generation)
 
@@ -311,26 +353,37 @@
 
 (defn prepare-options [options] (scalar-wrapper/prepare-options options))
 
-(defn runtime-block-extension [functions body options]
-  (scalar-wrapper/extension-key functions body options))
+(defn runtime-block-extension-prepared
+  "Internal normalized-program options only. Public raw APIs below revalidate."
+  [functions body options]
+  (or (when-let [provider (get options tail-provider-key)] ((:extension provider) body))
+      (scalar-wrapper/extension-key functions body options)))
 
-(defn runtime-block-key [functions body options]
+(defn runtime-block-extension [functions body options]
+  (runtime-block-extension-prepared functions body (prepare-program-options functions options)))
+
+(defn runtime-block-key-prepared [functions body options]
   (when (or (:leaf-calls options) (:compact-registers options))
-    (m/fail "Lazy prototype supports plain blocks and lexical regions" {:options options}))
-  (let [options (prepare-options options)
-        base [generation (boolean (:lexical-joins options)) (boolean (:direct-linking options)) (fingerprint/key body)
-   (when (:lexical-joins options)
-     (into {} (map (fn [name] [name (when-let [f (get functions name)] (count (:params f)))])
-                   (tail-targets body))))]
-        extension (runtime-block-extension functions body options)]
+    (m/fail "Lazy prototype supports plain blocks and lexical regions" {}))
+  (let [base [generation (boolean (:lexical-joins options)) (boolean (:direct-linking options)) (fingerprint/key body)
+              (when (:lexical-joins options)
+                (into {} (map (fn [name] [name (when-let [f (get functions name)] (count (:params f)))])
+                              (tail-targets body))))]
+        extension (runtime-block-extension-prepared functions body options)]
     (cond-> base extension (conj extension))))
 
+(defn runtime-block-key [functions body options]
+  (runtime-block-key-prepared functions body (prepare-program-options functions options)))
+
+(defn compile-runtime-block-prepared [functions body options]
+  (runtime-block-key-prepared functions body options)
+  (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
+    (or (when-let [provider (get options tail-provider-key)] ((:compile provider) body))
+        (scalar-wrapper/compile-wrapper functions body options)
+        (compile-block body functions (:lexical-joins options) false #{}))))
+
 (defn compile-runtime-block [functions body options]
-  (let [options (prepare-options options)]
-   (runtime-block-key functions body options)
-   (binding [*compiler-options* (assoc *compiler-options* :direct-linking (boolean (:direct-linking options)))]
-    (or (scalar-wrapper/compile-wrapper functions body options)
-        (compile-block body functions (:lexical-joins options) false #{})))))
+  (compile-runtime-block-prepared functions body (prepare-program-options functions options)))
 
 (defn- check-program! [program machine]
   (when-not (= (:functions program) (:functions machine))
@@ -358,7 +411,9 @@
        (if-let [block (.get ^IdentityHashMap (:identity-blocks program) (u/body-of machine))]
          (if (>= remaining (:max-cost block))
            (let [before (u/steps machine)]
-             ((:execute! block) machine)
+             (if-let [budget-executor (:execute-budget! block)]
+               (budget-executor machine remaining)
+               ((:execute! block) machine))
              (recur (- remaining (- (u/steps machine) before)) machine))
            (u/run! machine remaining))
          (do (u/step! machine) (recur (dec remaining) machine)))))))

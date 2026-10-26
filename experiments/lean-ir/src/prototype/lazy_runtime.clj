@@ -18,13 +18,13 @@
   ([functions] (open-program functions {} (code-cache)))
   ([functions options] (open-program functions options (code-cache)))
   ([functions options cache]
-   (let [options (b/prepare-options (merge {:compile-threshold 1
+   (let [options (b/prepare-program-options functions (merge {:compile-threshold 1
                          :lexical-joins true
                          :direct-linking (boolean (:direct-linking *compiler-options*))} options))]
      (when-not (and (integer? (:compile-threshold options))
                     (<= 1 (:compile-threshold options) Integer/MAX_VALUE))
        (m/fail "Invalid lazy compilation threshold" {:compile-threshold (:compile-threshold options)}))
-     (b/runtime-block-key functions [:return [:imm 0]] options)
+     (b/runtime-block-key-prepared functions [:return [:imm 0]] options)
      {:functions functions :options options :cache cache
       :visits (IdentityHashMap.) :identity-keys (IdentityHashMap.)
       :generation (b/compiler-token) :dispatch (atom {}) :identity-dispatch (IdentityHashMap.)
@@ -104,7 +104,7 @@
           (when (and (identical? generation (:generation program))
                      (= lexical? (boolean (get-in program [:options :lexical-joins])))
                      (= direct? (boolean (get-in program [:options :direct-linking])))
-                     (= scalar-extension (b/runtime-block-extension (:functions program) body (:options program)))
+                     (= scalar-extension (b/runtime-block-extension-prepared (:functions program) body (:options program)))
                      ;; A caller body can survive a callee arity edit. Its cached
                      ;; region is valid only under the original key contract.
                      (every? (fn [[name arity]]
@@ -133,7 +133,7 @@
                     [body-key key]
                     (or (.get keys body)
                         (let [pair [(fingerprint/key body)
-                                    (b/runtime-block-key (:functions program) body (:options program))]]
+                                    (b/runtime-block-key-prepared (:functions program) body (:options program))]]
                           (.put keys body pair) pair))
                     cache (:cache program)
                     [canonical-key block]
@@ -141,7 +141,7 @@
                       (if-let [entry (find @cache key)]
                         (do (swap! (:counts program) update :cache-hits inc)
                             [(clojure.core/key entry) (val entry)])
-                        (let [compiled (b/compile-runtime-block (:functions program) body (:options program))]
+                        (let [compiled (b/compile-runtime-block-prepared (:functions program) body (:options program))]
                           (swap! cache assoc key compiled)
                           (swap! (:counts program) update :compiled inc)
                           [(clojure.core/key (find @cache key)) compiled])))]
@@ -158,7 +158,7 @@
 (defn step-region! [program machine]
   (check! program machine)
   (when-not (= :running (u/status machine)) (m/fail "Machine is not running" {:status (u/status machine)}))
-  (let [machine (assoc machine :leaf-plans nil :register-layouts nil)]
+  (let [machine (b/install-runtime-context (:options program) (assoc machine :leaf-plans nil :register-layouts nil))]
     (if-let [block (block! program (u/body-of machine))]
       ((:execute! block) machine)
       (cold-step! program machine)))
@@ -169,7 +169,7 @@
   ([program machine fuel]
    (check! program machine)
    (when-not (and (integer? fuel) (not (neg? fuel))) (m/fail "Invalid step budget" {:fuel fuel}))
-   (loop [remaining fuel machine (assoc machine :leaf-plans nil :register-layouts nil)]
+   (loop [remaining fuel machine (b/install-runtime-context (:options program) (assoc machine :leaf-plans nil :register-layouts nil))]
      (cond
        (not= :running (u/status machine)) machine
        (zero? remaining) (u/pause! machine)
@@ -182,6 +182,8 @@
 
            (>= remaining (:max-cost block))
            (let [before (u/steps machine)]
-             ((:execute! block) machine)
+             (if-let [budget-executor (:execute-budget! block)]
+               (budget-executor machine remaining)
+               ((:execute! block) machine))
              (recur (- remaining (- (u/steps machine) before)) machine))
            :else (u/run! machine remaining)))))))

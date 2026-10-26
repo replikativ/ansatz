@@ -1,6 +1,8 @@
 # Generic represented tail-region implementation plan
 
-Status: M3b preparation data is implemented; M3c region execution remains a plan.
+Status: M3b preparation and the bounded M3c scalar tail-region executor are
+implemented. Broader M3 coverage remains open; see the execution contract and
+[validation record](../measurements/typed-tail-execution.json).
 The [implementation contract](TYPED_IR_IMPLEMENTATION_SPEC.md) remains authoritative
 for execution, snapshots, ownership and admission. This plan makes the remaining
 scalar region compiler sequence explicit. It builds on the M2 typed blocks and
