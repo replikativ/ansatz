@@ -10,7 +10,7 @@
     "experiments/lean-ir/scripts/coherent/test-materialize-pack.py": "ad914a75c21174747ccaf373f7f8a8ee70e0b957bc333d1ada75b7007d82d4d9",
     "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "186e23d2edce5d0c45ff60ba3c07e101d3156927b0e4d42cd190620d4dde7d36",
     "experiments/lean-ir/scripts/coherent/PACK_PREPARATION.md": "a6c1a41c1c44c0a289288cf5d9a0bc8e9fae1581b177ced1e500c68b7e5a4641",
-    "experiments/lean-ir/research/TYPED_JIT_STAGING_STRATEGY.md": "8d689e34389bc2256e2b937085761782ea4c2d5043828e6ad327c66aa2ed0213"
+    "experiments/lean-ir/research/TYPED_JIT_STAGING_STRATEGY.md": "576911b25c8edf656f78a19fb83d1238a7087bf179b92c6b31a42ef62a3ed32e"
   },
   "checks": {
     "Python": "16 tests passed",
@@ -38,5 +38,9 @@
   "previous-tested-bootstrap-source-pins": {
     "experiments/lean-ir/scripts/coherent/bootstrap.clj": "8e7249d337d6ed64d284d97528059cf743f56c018ffdb6ac1e33262405c17433",
     "experiments/lean-ir/scripts/coherent/test-bootstrap-result.clj": "1b66c17b18189fc5495f74f2636dd097c9800939d967030d97b8e51acb2be5ec"
+  },
+  "research-note-native-baseline-addition": {
+    "previous-sha256": "8d689e34389bc2256e2b937085761782ea4c2d5043828e6ad327c66aa2ed0213",
+    "scope": "Append separately measured native C baseline; no tested tool/runtime source changed."
   }
 }

@@ -89,3 +89,24 @@ Hosted frontend loading remains a separate workload. Restore, checking,
 projection, repeated closure validation and publication can dominate it.
 Primitive application speedups do not establish fast loading, and native-exported
 IR execution does not establish hosted elaboration of the original files.
+
+## Compiled-native comparison
+
+The unchanged upstream rbmap source was subsequently compiled with pinned Lean
+4.33.1 and bundled `leanc -O3`. All five n=1000 processes printed `100`; median
+child-lifetime CPU was 6.012 ms and observed wall 20.241 ms. One sample used
+83.326 ms CPU, illustrating the variability of short runs on this busy machine.
+An additional n=10000 process printed `1000`.
+
+Native timing includes startup, Init initialization, arguments and stdout;
+observed wall also includes launcher/monitoring overhead. JVM timing excludes
+JVM/module/callback startup and includes World start/thaw/run/freeze/fold. This
+shows substantial headroom but does not establish a steady-state or kernel-only
+speed ratio. Neither sampled RSS nor process high-water RSS measures native heap
+allocation; there is no comparable native allocation result.
+
+Exact samples/build commands and source/C/binary identities are recorded in
+[the native measurement](../measurements/unchanged-rbmap-native-2026-10-26.json).
+[Toolchain pins](../measurements/unchanged-rbmap-native-toolchain-2026-10-26.json)
+identify the compiler, headers and runtime libraries used. This is separate
+from the earlier `lean --run` value oracle and from hosted JVM source loading.
