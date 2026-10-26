@@ -598,6 +598,48 @@ They add no second scheduler, heap or ownership policy. Optional native Lean
 bindings need their own handle/marshalling and RC lifetime contract; they are not
 required for this JVM compiler.
 
+### Session compiler selection
+
+The additive `:compiler-options` session option initially accepts only
+`:scalar-wrappers` and `:typed-tail`, with their existing public descriptor/config
+shapes. `raw-interop/open-functions` accepts it in its options map;
+`interop/open-functions` adds a fifth options argument and `open-session` adds a
+sixth, preserving every existing arity. Omission retains default behavior.
+
+Sessions retain bounded plain immutable raw selections, never private normalized
+provider closures. Copying removes metadata at every collection boundary; opaque
+values and nonstandard containers reject. The initial bound is 200,000 visited
+nodes/edges, nesting depth 256, 4,194,304 UTF-16 string/keyword units,
+4,096 bits per integer and 1,048,576 aggregate numeric bits. Container edges
+are charged before allocating child vectors; demanded installed code receives
+the same bounded validation before fingerprinting. Only selected facts are traversed;
+the runtime catalogue is not copied or typed eagerly. Existing scalar descriptor,
+M1 executable key and M2 profile/root validation are reused. Full represented
+Pattern preparation remains at JVM construction, not reference/mutable execution.
+
+Every constructor/reopen validates selected source and wrapper code against its
+actual function map before adoption. A stale selection fails deterministically;
+it does not authorize changed code or silently disappear. Callers deliberately
+replace or clear selection by constructing a session with a replacement options
+map. File loading under an inherited stale selection fails before adopting the
+new session and preserves the existing exact installation/checkpoint evidence.
+The caller retains its original Context; no failed load invents a usable child.
+
+`raw-interop/session-options` supplies the single reopening contract for raw
+install/link/backend changes, frontend installation and resident `with-externs`.
+All retain the same code-cache capability and revalidate the raw selection. The
+existing backend switch option allowlist remains cache/threshold only; selection
+is inherited across reference/mutable/JVM roundtrips. Compiler options carry no
+kernel association, checking receipt or source authority. Retained A handles are
+called with retained A Contexts, and B handles with B Contexts.
+
+The [compiled host integration plan](COMPILED_HOST_INTEGRATION_PLAN.md) records
+existing loader/Java/provider APIs and the remaining composed acceptance gates.
+This selection slice does not accept kernel integration, all codec families,
+genuine frontend execution or a new source/class cohort. Tests must observe both
+an actual artifact with `:specialization {:kind :typed-tail ...}` and an executed
+hook returning `:specialized`; generic compilation counters are insufficient.
+
 ## M6 REPL versions and ownership
 
 Loading A and then edited B creates distinct code/environment images. A retained
@@ -651,5 +693,7 @@ M2 provides bounded scalar control-flow preparation and exact canonical body
 reconstruction, with focused [validation results](../measurements/typed-block-preparation.json).
 M3a adds guarded UInt64/USize wrapper-let specialization on existing JVM backends.
 M3b/M3c add optional represented scalar tail-region preparation and execution.
-Joins, general non-tail source calls, Nat promotion, kernel/interop integration and
-remaining milestones are still implementation work.
+Joins, general non-tail source calls, [Nat promotion](NAT_PROMOTION_PLAN.md),
+kernel/interop integration and remaining milestones are still implementation work.
+The Nat document is a proposal only; current hosted BigInt and native MPZ/heartbeat
+profiles remain distinct, rather than treating promotion as allocation elimination.
