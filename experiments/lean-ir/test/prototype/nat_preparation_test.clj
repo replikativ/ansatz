@@ -7,9 +7,11 @@
             [prototype.native-heap :as native-heap] [prototype.lazy-runtime :as lazy]))
 
 (def fixture-dir
-  (.getParentFile (.getParentFile (.getParentFile (.getAbsoluteFile (io/file *file*))))))
+  (first (filter #(.exists (io/file % "globals.jsonl"))
+                 [(io/file "fixtures") (io/file "experiments/lean-ir/fixtures")
+                  (io/file (.getParentFile (.getParentFile (.getParentFile (.getAbsoluteFile (io/file *file*))))) "fixtures")])))
 (defn actual-rows [file wanted]
-  (with-open [input (io/reader (io/file fixture-dir "fixtures" file))]
+  (with-open [input (io/reader (io/file fixture-dir file))]
     (reduce (fn [out line]
               (let [r (json/read-str line :key-fn keyword)]
                 (if (contains? wanted (:name r)) (assoc out (:name r) r) out))) {} (line-seq input))))

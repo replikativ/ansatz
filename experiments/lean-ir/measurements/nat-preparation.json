@@ -8,7 +8,7 @@
     "experiments/lean-ir/scripts/test-cold-check-progress.clj": "5aed94822a4a701e5cd3e4f81819597146bfe46942966f365959870f82bea9a5",
     "experiments/lean-ir/src/prototype/typed_blocks.clj": "02fd6e0ceb5723798f72758d1e47280e542137e22062eeff29719d6f56bddf0c",
     "experiments/lean-ir/src/prototype/typed_tail.clj": "6285f44e7f8175846a8ca5a4aa7a9f78c5dfbb9e0685c32d8f8d059e6e2b5975",
-    "experiments/lean-ir/test/prototype/nat_preparation_test.clj": "58ac73b985198c79eff518a91bb2256c7cd5eddd0ff51c39392552a96a3abe35",
+    "experiments/lean-ir/test/prototype/nat_preparation_test.clj": "e2c9a1eca4fa481011e583c7ac8be5124be56b9405b9721573fb2328789ecfdf",
     "experiments/lean-ir/test/prototype/typed_tail_test.clj": "2d86b7ba932e5a12b34367ede4202a4d3a684c372d82ccfdba570c0c255273f8",
     "experiments/lean-ir/fixtures/globals.jsonl": "8feea862d93ea229a7c9a50a612135fc38f7a763eead44069192dcb750c51aea",
     "experiments/lean-ir/src/prototype/import_ir.clj": "08189f0549a88f7dfb5bba8e2f59e06b4733d460ec54a3f4752c7bce37d6ee81",
@@ -65,7 +65,8 @@
       "tests": 6,
       "assertions": 386,
       "failures": 0,
-      "errors": 0
+      "errors": 0,
+      "test-fixture-version": "Before classpath-relative fixture path correction; preparation/runtime implementation unchanged."
     },
     {
       "name": "bounded M2/M1/Pattern/M3c/wrapper/key/dependency/slot regression",
@@ -73,7 +74,8 @@
       "assertions": 15082,
       "failures": 0,
       "errors": 0,
-      "overlaps-focused": true
+      "overlaps-focused": true,
+      "test-fixture-version": "Before classpath-relative fixture path correction; preparation/runtime implementation unchanged."
     },
     {
       "name": "separate peer session request in same serial resident",
@@ -124,5 +126,28 @@
   "notes": [
     "One test lexical-scope typo was caught by the first small REPL load and corrected before final focused/regression runs.",
     "Historical M3b/M3c receipts/benchmark rows remain unchanged; new receipt pins changed preparation source."
-  ]
+  ],
+  "ci-fixture-path-followup": {
+    "trigger": {
+      "job": 2550,
+      "url": "https://circleci.com/gh/replikativ/ansatz/2550",
+      "cold-lane-tests": 59,
+      "cold-lane-assertions": 7476,
+      "failures": 0,
+      "errors": 1,
+      "error": "FileNotFoundException: relative classpath *file* made unconditional parent traversal select experiments/fixtures instead of lean-ir/fixtures"
+    },
+    "prior-test-source-sha256": "58ac73b985198c79eff518a91bb2256c7cd5eddd0ff51c39392552a96a3abe35",
+    "fix": "Use verified cwd/project-relative/absolute-file fixture candidates already used by typed-tail tests; actual-rows reads from resolved fixture directory. No assertions or runtime changed.",
+    "validation": {
+      "namespace-loaded-through-require": true,
+      "source-file": "prototype/nat_preparation_test.clj",
+      "resolved-fixtures": "fixtures",
+      "known-Nat.add-rows-read": 1,
+      "preparation-namespaces-overridden": false,
+      "Nat-semantic-tests-rerun": false,
+      "actual-full60-lane": "CI rerun pending; no new full-lane pass claim"
+    },
+    "cohort": "Resource-only proof ran after parent frame focused request in same small NMT-enabled resident; source/fixtures unchanged except this locator."
+  }
 }
