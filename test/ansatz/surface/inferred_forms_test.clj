@@ -49,6 +49,18 @@
         (exact (let [part :- Bool b]
                  (let [hp :- (= part true) (Eq.trans (Eq.refl part) h)] hp))))))
 
+(deftest local-type-aliases-in-proof-terms
+  (is (a/deftheorem local-proposition-alias [b :- Bool, h :- (Eq Bool b true)]
+        (Eq Bool b true)
+        (exact (let [T (Eq Bool b true)] (let [hp T h] hp)))))
+  (is (a/deftheorem local-list-type-alias [xs :- (List Bool)]
+        (Eq (List Bool) xs xs)
+        (exact (let [T (List Bool)] (Eq.refl ((fn [ys :- T] ys) xs))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"let value type mismatch"
+        (a/theorem incompatible-local-proposition-alias [b :- Bool, h :- (Eq Bool b true)]
+          False
+          (exact (let [T False] (let [hp T h] hp)))))))
+
 (deftest computational-lambda-body-keeps-bool-comparisons
   (a/defn comparison-lambda [n :- Nat] Bool ((fn [x :- Nat] (= x 1)) n))
   (is (true? (comparison-lambda 1)))

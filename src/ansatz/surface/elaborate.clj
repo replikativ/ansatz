@@ -323,7 +323,10 @@
   (sync-meta-decls! est)
   (let [a (zonk est a)
         b (zonk est b)
-        st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))]
+        ;; Lean's elabLetDeclAux checks in a live metavariable context. The
+        ;; kernel defeq fallback must also see instantiated local let values.
+        st (tc/attach-lctx (tc/mk-tc-state (:env est))
+                           (surface-lctx->meta est (:lctx (:tc est))))]
     (when-let [mctx (meta/is-def-eq @(:meta-mctx est) st a b)]
       (reset! (:meta-mctx est) mctx)
       true)))
