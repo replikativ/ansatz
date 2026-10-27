@@ -781,11 +781,16 @@
                                    (and (e/const? dh)
                                         (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
                                          (name/->string (e/const-name dh))))))
+              ;; This backend's native literal handlers consume the numeral,
+              ;; not its dictionary (unlike ordinary Lean dictionary calls).
+              erased-type-heads (case h
+                                  "OfNat.ofNat" #{"OfNat"}
+                                  "OfScientific.ofScientific" #{"OfScientific"}
+                                  nil)
               ;; Erased parameters never reach expression lowering or runtime calls.
               ca (mapv (fn [i arg]
                          (when-not (or (< i (or (:erased cc) 0))
-                                       (and (= h "OfNat.ofNat") (#{0 2} i))
-                                       (and (= h "OfScientific.ofScientific") (< i 2))
+                                       (types/irrelevant? env arg names erased-type-heads)
                                        ;; hop extracts the actual field from the
                                        ;; raw instance before emitting operands;
                                        ;; its type/dictionary prefix is not emitted.

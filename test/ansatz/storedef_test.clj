@@ -9,6 +9,7 @@
             [ansatz.core :as a]
             [ansatz.eqns :as eqns]
             [ansatz.codegen :as cg]
+            [ansatz.codegen.types :as types]
             [ansatz.codegen.storedef :as sd]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -229,7 +230,10 @@
                        :hints {:regular 1})
         en (env/check-constant (a/env) ci)
         two (e/lit-nat (biginteger 2))
-        term (e/app* (c "OfNat.ofNat") nat two (e/app* (e/const' nm []) nat two))]
+        instance (e/app* (e/const' nm []) nat two)
+        term (e/app* (c "OfNat.ofNat") nat two instance)]
+    (is (not (types/irrelevant? en instance [])))
+    (is (types/irrelevant? en instance [] #{"OfNat"}))
     (is (nil? (sd/try-compile-store-def! en "ExplicitNumeralInstance")))
     (is (= "ExplicitNumeralInstance" (:declaration (sd/failure-reason "ExplicitNumeralInstance"))))
     (is (re-find #"unsupported runtime binder telescope" (:reason (sd/failure-reason "ExplicitNumeralInstance"))))

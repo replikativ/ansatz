@@ -87,19 +87,26 @@
 
 (defn irrelevant-type?
   "Lean's visit/visitAppArg: erase proofs and values of Sort or As → Sort.
+   Native lowerings may additionally declare dictionary type heads erased.
    Clojure uses nil for LCNF's erased value, including type arguments."
-  [env type names]
-  (or (loop [t type ctx names]
-        (let [t (whnf env t ctx)]
-          (cond (e/sort? t) true
-                (e/forall? t) (recur (e/forall-body t)
-                                     (bind-type ctx "_" (e/forall-type t)))
-                :else false)))
-      (when-let [sort (infer-type env type names)]
-        (let [sort (whnf env sort names)]
-          (and (e/sort? sort) (Level/isZero (e/sort-level sort)))))))
+  ([env type names] (irrelevant-type? env type names nil))
+  ([env type names erased-type-heads]
+   (or (when (seq erased-type-heads)
+         (let [[head _] (e/get-app-fn-args (whnf env type names))]
+           (and (e/const? head) (contains? erased-type-heads (name/->string (e/const-name head))))))
+       (loop [t type ctx names]
+         (let [t (whnf env t ctx)]
+           (cond (e/sort? t) true
+                 (e/forall? t) (recur (e/forall-body t)
+                                      (bind-type ctx "_" (e/forall-type t)))
+                 :else false)))
+       (when-let [sort (infer-type env type names)]
+         (let [sort (whnf env sort names)]
+           (and (e/sort? sort) (Level/isZero (e/sort-level sort))))))))
 
-(defn irrelevant? [env expr names]
-  (or (e/sort? expr) (e/forall? expr)
-      (when-let [type (infer-type env expr names)]
-        (irrelevant-type? env type names))))
+(defn irrelevant?
+  ([env expr names] (irrelevant? env expr names nil))
+  ([env expr names erased-type-heads]
+   (or (e/sort? expr) (e/forall? expr)
+       (when-let [type (infer-type env expr names)]
+         (irrelevant-type? env type names erased-type-heads)))))
