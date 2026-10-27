@@ -20,8 +20,8 @@
    name (an unqualified dotted symbol resolves as a class, but a namespace-QUALIFIED dotted
    symbol resolves as a var) and registered in the arity-registry as
    {:arity n :erased k :sym qualified-sym}, which the codegen FAP path and the csimp
-   lowerability guard consume. Any failure anywhere leaves the registries untouched and
-   unsupported definitions raise a named codegen error before runtime emission."
+   lowerability guard consume. Successful artifacts are memoized; optional probes record
+   refusals, and terminal emission raises a named error for unsupported definitions."
   (:require [ansatz.eqns :as eqns]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -35,6 +35,14 @@
 ;; available after installing a runtime lowering; failures must remain diagnostic.
 (defonce ^:private compiled (atom {}))
 
+;; Diagnostics are not a negative cache: every probe may be retried.
+(defonce ^:private compilation-failures (atom {}))
+
+(defn failure-reason
+  "Return the last store-body refusal, or nil. A refusal never suppresses a later probe."
+  [cname]
+  (get @compilation-failures cname))
+
 ;; Names currently being compiled (cycle guard). Self-references inside the body being
 ;; emitted hit this guard, fall through codegen as bare curried applications of the dotted
 ;; name, and are collapsed/rewritten by the post-processing below. Mutual recursion leaves
@@ -45,7 +53,8 @@
   "Drop all memoized compilations (they are NOT unregistered from the arity-registry;
    test/debug helper)."
   []
-  (reset! compiled {}))
+  (reset! compiled {})
+  (reset! compilation-failures {}))
 
 ;; ── eq_def parsing ────────────────────────────────────────────────────────────
 
@@ -294,7 +303,7 @@
   (ex-info (str "Codegen error: cannot compile '" cname "': " reason)
            {:kind :codegen-error :declaration cname :reason reason}))
 
-(defn- compile!*
+(defn- compilation-plan
   [env ^String cname ^ConstantInfo ci]
   (let [eqd (parse-eq-def env cname)
         ;; Lean Elab/PreDefinition/Basic.lean compiles the pre-encoding body.
@@ -314,55 +323,86 @@
               (reduce e/app (e/lift rhs missing 0) (map e/bvar (reverse (range missing))))
               rhs)
         binders (if (pos? missing) (into (vec binders) (drop (count binders) type-binders)) binders)
-        refs (const-refs rhs)]
-    (when-let [ref (first (sort (filter unexecutable-ref? refs)))]
-      (throw (compilation-error cname
-                               (str "kernel recursion encoding " ref
-                                    "; exported direct equation body (.eq_def) is unavailable"))))
-    (when (and (not eqd) (contains? refs cname))
-      (throw (compilation-error cname "recursive value requires an exported direct equation body")))
-    (when (not= (count binders) (count type-binders))
-      (throw (compilation-error cname "eta-contracted value does not expose the declaration telescope")))
-    (let [{:keys [erased arity] :as audit} (audit-binders binders)]
-      (when-not audit
-        (throw (compilation-error cname
-                                  "unsupported runtime binder telescope: requires an erased prefix and 1..20 explicit non-type parameters (arity limit 20)")))
+        refs (const-refs rhs)
+        ref (first (sort (filter unexecutable-ref? refs)))
+        audit (audit-binders binders)]
+    ;; ToLCNF's specialized visitors use explicit shape guards before selecting
+    ;; a lowering. A store body is only one candidate, so refusal is data here.
+    (cond
+      ref {:reason (str "kernel recursion encoding " ref
+                        "; exported direct equation body (.eq_def) is unavailable")}
+      (and (not eqd) (contains? refs cname))
+      {:reason "recursive value requires an exported direct equation body"}
+      (not= (count binders) (count type-binders))
+      {:reason "eta-contracted value does not expose the declaration telescope"}
+      (nil? audit)
+      {:reason "unsupported runtime binder telescope: requires an erased prefix and 1..20 explicit non-type parameters (arity limit 20)"}
+      :else (assoc audit :binders binders :rhs rhs :eqd eqd))))
+
+(defn- compile!*
+  [env ^String cname ^ConstantInfo ci]
+  (let [{:keys [reason binders rhs eqd erased arity]} (compilation-plan env cname ci)]
+    (if reason
+      {:reason reason}
       (let [lam (reduce (fn [body [bn bt bi]] (e/lam bn bt body bi)) rhs (rseq (vec binders)))
             emitted (emit-direct-recursion env cname lam {:erased erased :arity arity})]
-        (when-not emitted
-          (throw (compilation-error cname "direct recursion emission cannot erase binders or match self-call arity")))
-        (intern runtime-ns (symbol cname) (:fn emitted))
-        (assoc (:convention emitted)
-               :sym (symbol (str (ns-name runtime-ns)) cname)
-               :provenance (cond (nil? eqd) :value
-                                 (= (name/->string (:equation eqd)) (str cname ".eq_def")) :eq-def
-                                 :else :equation)
-               :equation (:equation eqd))))))
+        (if-not emitted
+          {:reason "direct recursion emission cannot erase binders or match self-call arity"}
+          (do
+            (intern runtime-ns (symbol cname) (:fn emitted))
+            (assoc (:convention emitted)
+                   :sym (symbol (str (ns-name runtime-ns)) cname)
+                   :provenance (cond (nil? eqd) :value
+                                     (= (name/->string (:equation eqd)) (str cname ".eq_def")) :eq-def
+                                     :else :equation)
+                   :equation (:equation eqd))))))))
 
-(defn compile-store-def!
-  "Compile a plain store definition and register its runtime convention. Ineligible
-   constants and active recursive references return nil. Unsupported definitions
-   throw :codegen-error naming the declaration and cause; failures are not cached."
+(defn try-compile-store-def!
+  "Probe the store-body lowering. Unsupported shapes return nil and record a
+   declaration/reason via failure-reason. Ineligible constants and recursive
+   references also return nil. Programming/compiler failures still propagate."
   [env ^String cname]
-  ;; Ignore legacy negative entries retained by defonce during a hot reload.
-  (let [memo (get @compiled cname)]
+  (swap! compilation-failures dissoc cname)
+  (let [memo (get @compiled cname)
+        refuse! (fn [reason]
+                  (swap! compilation-failures assoc cname
+                         {:declaration cname :reason reason})
+                  nil)]
     (if (:sym memo)
       (do
-        ;; A caller may have restored an isolated arity registry since this
-        ;; compilation. Reinstall the convention before codegen redispatches.
         (swap! (deref (requiring-resolve 'ansatz.surface.ingest/arity-registry)) assoc cname memo)
         memo)
       (when-not (contains? *in-progress* cname)
         (when-let [^ConstantInfo ci (env/lookup env (name/from-string cname))]
           (when (and (<= 0 (.getHintsCode ci)) (some? (.getValue ci))
                      (not (contains? (env/get-extension env :extern #{}) cname)))
-            (let [res (try
-                        (compile!* env cname ci)
-                        (catch clojure.lang.Compiler$CompilerException ex
-                          (throw (ex-info (str "Codegen error: cannot compile '" cname "': "
-                                               (.getMessage (.getCause ex)))
-                                          {:kind :codegen-error :declaration cname
-                                           :reason (.getMessage (.getCause ex))} ex))))]
-              (swap! (deref (requiring-resolve 'ansatz.surface.ingest/arity-registry)) assoc cname res)
-              (swap! compiled assoc cname res)
-              res)))))))
+            (try
+              (let [res (compile!* env cname ci)]
+                (if-let [reason (:reason res)]
+                  (refuse! reason)
+                  (do
+                    (swap! (deref (requiring-resolve 'ansatz.surface.ingest/arity-registry)) assoc cname res)
+                    (swap! compiled assoc cname res)
+                    res)))
+              (catch clojure.lang.ExceptionInfo ex
+                ;; A dependency reached its terminal lowering while probing this
+                ;; candidate. Only explicit store-shape refusals are inapplicable.
+                (if (and (= :codegen-error (:kind (ex-data ex)))
+                         (:storedef-unsupported (ex-data ex)))
+                  (refuse! (.getMessage ex))
+                  (throw ex)))
+              (catch clojure.lang.Compiler$CompilerException ex
+                (throw (ex-info (str "Codegen error: cannot compile '" cname "': "
+                                     (.getMessage (.getCause ex)))
+                                {:kind :codegen-error :declaration cname
+                                 :reason (.getMessage (.getCause ex))} ex))))))))))
+
+(defn compile-store-def!
+  "Terminal store-body lowering: unsupported shapes are named codegen errors.
+   Call try-compile-store-def! instead when another lowering can handle the head."
+  [env ^String cname]
+  (or (try-compile-store-def! env cname)
+      (when-let [{:keys [reason]} (failure-reason cname)]
+        (throw (ex-info (.getMessage (compilation-error cname reason))
+                        {:kind :codegen-error :declaration cname :reason reason
+                         :storedef-unsupported true})))))

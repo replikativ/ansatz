@@ -31,3 +31,7 @@ example (n : Nat) : runtimeEquationBody n = n := rfl
 
 def runtimeSubtype (x : { n : Nat // 0 ≤ n }) : Nat := x.val + 1
 example : runtimeSubtype ⟨3, Nat.zero_le 3⟩ = 4 := rfl
+
+def explicitNumeralInstance (_α : Type) (n : Nat) : OfNat Nat n := ⟨n⟩
+def explicitNumeral : Nat := @OfNat.ofNat Nat 2 (explicitNumeralInstance Nat 2)
+example : explicitNumeral = 2 := rfl

@@ -288,6 +288,9 @@
   [env ^String cname]
   ((requiring-resolve 'ansatz.codegen.storedef/compile-store-def!) env cname))
 
+(clojure.core/defn- storedef-compile? [env cname]
+  ((requiring-resolve 'ansatz.codegen.storedef/try-compile-store-def!) env cname))
+
 (clojure.core/defn- csimp-target
   "Lean @[csimp] f→g: return g only when codegen can actually LOWER it as a head
    (builtin / registered / arity-registry / ctor / .rec recursor / :abbrev def — or, last
@@ -311,9 +314,7 @@
                 (when *compile-store-defs*
                   ;; An optional compiler replacement may use native machinery
                   ;; absent from this runtime. Keep the original definition then.
-                  (try (some? (storedef-compile! env g))
-                       (catch clojure.lang.ExceptionInfo ex
-                         (if (= :codegen-error (:kind (ex-data ex))) nil (throw ex))))))
+                  (some? (storedef-compile? env g))))
         g))))
 
 (def ^:private match-aux-re #"\.match_\d+$")
@@ -765,6 +766,11 @@
               ca (mapv (fn [i arg]
                          (when-not (or (< i (or (:erased cc) 0))
                                        (and (= h "List.foldl") (< i 2))
+                                       ;; ToLCNF.visitAppArg: numeral handlers
+                                       ;; consume the raw carrier and numeral,
+                                       ;; never the type/instance runtime forms.
+                                       (and (= h "OfNat.ofNat") (#{0 2} i))
+                                       (and (= h "OfScientific.ofScientific") (< i 2))
                                        ;; Subtype.val/mk erase the predicate;
                                        ;; mk also erases its proof argument.
                                        (and (#{"Subtype.val" "Subtype.mk"} h) (< i 2))
@@ -1044,7 +1050,9 @@
             ;; Plain (non-abbrev) recursive/wrapper store def: compile it from its exported
             ;; equation lemma (f.eq_def) or non-recursive value (ansatz.codegen.storedef),
             ;; which interns + registers {:arity :erased :sym}, then re-dispatch (hits the
-            ;; :sym-aware registry path below). Unsupported definitions fail here.
+            ;; :sym-aware registry path below). All builtin/numeric/instance-field
+            ;; lowerings above are exhausted here, so this is a terminal request;
+            ;; optional replacement probes use storedef-compile? instead.
                       (when (and *compile-store-defs* (not (contains? @arity-registry h)))
                         (when (storedef-compile! env h)
                           (ansatz->clj env expr names)))

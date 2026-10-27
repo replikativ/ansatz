@@ -212,3 +212,58 @@
           entry (sd/compile-store-def! en "RuntimeEquationBody")]
       (is (= (.name general) (:equation entry)))
       (is (= 11 ((deref (resolve (:sym entry))) 11))))))
+
+(deftest optional-store-candidate-records-refusal-before-other-lowerings
+  (let [nat (e/const' (name/from-string "Nat") [])
+        type0 (e/sort' (lvl/succ lvl/zero))
+        c (fn [s] (e/const' (name/from-string s) [lvl/zero]))
+        nm (name/from-string "ExplicitNumeralInstance")
+        ci (env/mk-def nm []
+                       (e/forall "alpha" type0
+                                 (e/forall "n" nat (e/app* (c "OfNat") nat (e/bvar 0)) :default)
+                                 :default)
+                       (e/lam "alpha" type0
+                              (e/lam "n" nat
+                                     (e/app* (c "OfNat.mk") nat (e/bvar 0) (e/bvar 0)) :default)
+                              :default)
+                       :hints {:regular 1})
+        en (env/check-constant (a/env) ci)
+        two (e/lit-nat (biginteger 2))
+        term (e/app* (c "OfNat.ofNat") nat two (e/app* (e/const' nm []) nat two))]
+    (is (nil? (sd/try-compile-store-def! en "ExplicitNumeralInstance")))
+    (is (= "ExplicitNumeralInstance" (:declaration (sd/failure-reason "ExplicitNumeralInstance"))))
+    (is (re-find #"unsupported runtime binder telescope" (:reason (sd/failure-reason "ExplicitNumeralInstance"))))
+    (testing "the numeric lowering follows the declined store candidate"
+      (is (env/verifies? en
+                        (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat term two)
+                        (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat two)))
+      (is (= 2 (eval (cg/ansatz->clj en term [])))))
+    (testing "without a numeric lowering, the same refusal remains a hard named error"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ExplicitNumeralInstance.*unsupported runtime binder telescope"
+                            (cg/ansatz->clj en (e/app* (e/const' nm []) nat two) []))))))
+
+(deftest optional-store-candidate-does-not-swallow-handler-errors
+  (let [nat (e/const' (name/from-string "Nat") [])
+        ty (e/forall "n" nat nat :default)
+        dep (name/from-string "FaultyRuntimeHandler")
+        ci (env/mk-def (name/from-string "RuntimeHandlerCaller") [] ty
+                       (e/lam "n" nat (e/app (e/const' dep []) (e/bvar 0)) :default)
+                       :hints {:regular 1})
+        en (-> (a/env) (env/check-constant (env/mk-axiom dep [] ty)) (env/check-constant ci))
+        original (env/mk-def (name/from-string "RuntimeHandlerOriginal") [] ty
+                             (e/lam "n" nat (e/bvar 0) :default) :hints {:regular 1})
+        en (-> en (env/check-constant original)
+               (env/update-extension :csimp {} assoc "RuntimeHandlerOriginal" "RuntimeHandlerCaller"))
+        failure (ex-info "runtime handler bug" {:kind :codegen-error})
+        saved @a/codegen-registry]
+    (try
+      (swap! a/codegen-registry assoc "FaultyRuntimeHandler" (fn [& _] (throw failure)))
+      (is (identical? failure
+                      (try (sd/try-compile-store-def! en "RuntimeHandlerCaller")
+                           (catch clojure.lang.ExceptionInfo ex ex))))
+      (is (identical? failure
+                      (try (cg/ansatz->clj en
+                                          (e/app (e/const' (name/from-string "RuntimeHandlerOriginal") [])
+                                                 (e/lit-nat (biginteger 5))) [])
+                           (catch clojure.lang.ExceptionInfo ex ex))))
+      (finally (reset! a/codegen-registry saved)))))
