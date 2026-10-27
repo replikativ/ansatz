@@ -21,6 +21,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
+            [ansatz.meta :as meta]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.proof :as proof]
@@ -836,7 +837,7 @@
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
    matching), or an applied Eq term. `reverse?` rewrites right-to-left."
-  [ps reverse? spec]
+  [ps reverse? spec hyp-id]
   (let [g (proof/current-goal ps)
         hyp-fid (when (symbol? spec)
                   (reduce (fn [best [id d]]
@@ -851,29 +852,49 @@
                (elab/elaborate-in-context
                 (:env ps) (:lctx g)
                 (if (symbol? spec) (symbol (str "@" spec)) spec)))]
-    (basic/rewrite-lemma ps term reverse?)))
+    (basic/rewrite-lemma ps term reverse? hyp-id)))
+
+(declare latest-local-id-by-name)
 
 (clojure.core/defn- do-rewrite
-  "Lean's `rewrite` (NOT `rw`): rewrite the goal by a local hypothesis (by name), an env lemma
-   (∀-quantified, instantiated by matching), or an applied Eq term. Faithful to Lean's bracketed
-   `rewrite [r1, r2, …]`: a VECTOR argument is a SEQUENCE of rewrite rules applied left-to-right, each
-   optionally prefixed `←`/`<-` for a right-to-left rewrite (Lean's `rw [← h, g]`). A bare/applied
-   form (or a leading `←`/`<-`) is a single rule. NOTE: the vector must NOT be elaborated as a term —
-   `[lemma]` is a list literal whose element-universe level mvar is never constrained, so it would
-   surface as an 'unsolved universe level' error. Does NOT close the goal — that's `rw`'s `try rfl`."
+  "Lean Elab/Tactic/Rewrite.lean evalRewriteSeq and Location.lean withLocation:
+   each rule runs at each selected local, then the target; wildcard skips mismatches."
   [ps args]
-  (if (vector? (first args))
-    ;; rw [r1, r2, …] — sequential rewrites, per-element ←/<- for reverse
-    (loop [ps ps, toks (seq (first args))]
-      (if (empty? toks)
-        ps
-        (let [rev? (boolean (#{'<- '←} (first toks)))
-              spec (if rev? (second toks) (first toks))
-              rest-toks (if rev? (drop 2 toks) (rest toks))]
-          (recur (do-rewrite-one ps rev? spec) rest-toks))))
-    (let [reverse? (boolean (#{'<- '←} (first args)))
-          spec (if reverse? (second args) (first args))]
-      (do-rewrite-one ps reverse? spec))))
+  (let [[rules location] (split-with #(not= 'at %) args)
+        locs (when (seq location) (vec (rest location)))
+        _ (when (and location (seq location) (empty? locs))
+            (throw (ex-info "Tactic error: rewrite: empty location" {:kind :tactic-error})))
+        toks (if (vector? (first rules)) (seq (first rules)) (seq rules))
+        at-rule
+        (fn [ps reverse? spec]
+          (let [at-local (fn [ps loc]
+                           (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) loc)]
+                             (when-not fid
+                               (throw (ex-info (str "Tactic error: rewrite: unknown local " loc)
+                                               {:kind :tactic-error})))
+                             (do-rewrite-one ps reverse? spec fid)))]
+            (if (= ['*] locs)
+              (let [attempt (fn [ps f]
+                              (try [(f ps) true]
+                                   (catch clojure.lang.ExceptionInfo ex
+                                     (if (= :tactic-error (:kind (ex-data ex))) [ps false] (throw ex)))))
+                    names (mapv (comp :name val) (reverse (sort-by key (:lctx (proof/current-goal ps)))))
+                    [ps worked?] (attempt ps #(do-rewrite-one % reverse? spec nil))
+                    [ps worked?] (reduce (fn [[ps worked?] nm]
+                                           (let [[ps ok?] (attempt ps #(at-local % nm))]
+                                             [ps (or worked? ok?)]))
+                                         [ps worked?] names)]
+                (when-not worked?
+                  (throw (ex-info "Tactic error: rewrite: no matching occurrence" {:kind :tactic-error})))
+                ps)
+              (let [ps (reduce at-local ps (remove #{'⊢ '|-} locs))]
+                (if (or (nil? locs) (some #{'⊢ '|-} locs))
+                  (do-rewrite-one ps reverse? spec nil) ps)))))]
+    (loop [ps ps toks toks]
+      (if-not (seq toks) ps
+              (let [rev? (boolean (#{'<- '←} (first toks)))
+                    spec (if rev? (second toks) (first toks))]
+                (recur (at-rule ps rev? spec) (if rev? (drop 2 toks) (rest toks))))))))
 
 (clojure.core/defn- latest-local-id-by-name
   [lctx local-name]
@@ -884,6 +905,80 @@
                 id best))
             nil
             lctx)))
+
+(clojure.core/defn- get-case-goal
+  "Lean BuiltinTactic.lean getCaseGoals/findTag?: exact, suffix, then prefix."
+  [ps tag]
+  (let [gs (:goals ps)
+        tagged (fn [id] (some-> (proof/mvar-user-name ps id) name/->string))
+        tag (some-> tag str)
+        gid (if tag
+              (or (some #(when (= tag (tagged %)) %) gs)
+                  (some #(when (some-> (tagged %) (clojure.string/ends-with? (str "." tag))) %) gs)
+                  (some #(when (some-> (tagged %) (clojure.string/starts-with? (str tag "."))) %) gs))
+              (first gs))]
+    (or gid (throw (ex-info (str "Tactic error: case tag not found: " tag) {:kind :tactic-error})))))
+
+(clojure.core/defn- rename-branch-locals [ps gid fields names]
+  (when (> (count names) (count fields))
+    (throw (ex-info "Tactic error: too many case variable names" {:kind :tactic-error})))
+  (let [lctx (reduce (fn [ctx [fid nm]]
+                       (if (= '_ nm) ctx
+                           (-> ctx (assoc-in [fid :name] (str nm))
+                               (assoc-in [fid :inaccessible] false))))
+                     (proof/mvar-lctx ps gid) (map vector fields names))]
+    (update ps :meta-mctx meta/set-expr-mvar-lctx gid lctx)))
+
+(clojure.core/defn- eval-case
+  "Lean BuiltinTactic.lean evalCase: select a tag, rename trailing inaccessibles,
+   and close it. Local :inaccessible flags represent macro-scope differences."
+  [ps tag names body]
+  (let [gs (:goals ps)
+        gid (get-case-goal ps tag)
+        fields (mapv key (filter (comp :inaccessible val)
+                                 (sort-by key (proof/mvar-lctx ps gid))))
+        ps (-> (rename-branch-locals ps gid (take-last (count names) fields) names)
+               (assoc :goals [gid])
+               (proof/set-mvar-user-name gid (name/anonymous)))
+        ps (reduce run-tactic ps body)]
+    (when (seq (:goals ps))
+      (throw (ex-info "Tactic error: case body did not close its goals" {:kind :tactic-error})))
+    (assoc ps :goals (filterv #(and (not= gid %) (not (proof/mvar-assigned? ps %))) gs))))
+
+(clojure.core/defn- eval-alts
+  "Lean Elab/Tactic/Induction.lean evalAlts.applyAltStx: introN consumes names
+   from the first constructor field, followed by IHs, independently of case/next."
+  [ps alts tail original-fids]
+  (let [ps (reduce (fn [ps alt]
+                     (let [[pattern & body] alt
+                           [tag & names] (if (sequential? pattern) pattern [pattern])
+                           tag (if (nil? tag) "nil" tag)
+                           gid (get-case-goal ps tag)
+                           fields (mapv key (filter (fn [[fid d]]
+                                                      (and (:inaccessible d)
+                                                           (not (contains? original-fids fid))))
+                                                    (sort-by (fn [[fid d]] [(boolean (:is-ih d)) fid])
+                                                             (proof/mvar-lctx ps gid))))
+                           ps (rename-branch-locals ps gid (take (count names) fields) names)]
+                       (eval-case ps tag [] body)))
+                   ps alts)]
+    (when (some #(not (contains? (set tail) %)) (:goals ps))
+      (throw (ex-info "Tactic error: missing constructor alternatives" {:kind :tactic-error})))
+    ps))
+
+(clojure.core/defn- intro-inaccessible [ps]
+  ;; Lean Meta/Tactic/Intro.lean intro1 (vs intro1P): hygienic local names.
+  (let [nm (str "a✝" (:next-id ps))
+        ps (basic/intro ps nm)
+        g (proof/current-goal ps)
+        fid (latest-local-id-by-name (:lctx g) nm)]
+    (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
+            (assoc-in (:lctx g) [fid :inaccessible] true))))
+
+(clojure.core/defn- intro-names [ps names]
+  (reduce (fn [ps nm]
+            (if (= '_ nm) (intro-inaccessible ps) (basic/intro ps (str nm))))
+          ps names))
 
 (def ^:private builtin-tactics
   {'rfl        (fn [ps _] (basic/rfl ps))
@@ -1038,14 +1133,21 @@
                     :else      (simp/simp ps))))
    'simp_all  (fn [ps args]
                 (let [only? (= 'only (first args))
-                      args  (if only? (rest args) args)]
+                      args  (if only? (rest args) args)
+                      _ (when (some #{'at} args)
+                          (throw (ex-info "Tactic error: simp_all does not accept locations" {:kind :tactic-error})))]
                   (cond
                     only?      (simp/simp-all ps (simp-lemma-args ps args) {:only? true})
                     (seq args) (simp/simp-all ps (simp-lemma-args ps args))
                     :else      (simp/simp-all ps))))
    'dsimp     (fn [ps _args] (simp/dsimp ps))
-   'intro     (fn [ps args] (if (seq args) (basic/intros ps (mapv str args)) (basic/intro ps)))
-   'intros    (fn [ps args] (basic/intros ps (mapv str args)))
+   'intro     (fn [ps args] (if (seq args) (intro-names ps args) (intro-inaccessible ps)))
+   'intros    (fn [ps args]
+                (if (seq args) (intro-names ps args)
+                    (loop [ps ps]
+                      (let [g (proof/current-goal ps)]
+                        (if (and g (e/forall? (#'basic/whnf-in-goal ps (:lctx g) (:type g))))
+                          (recur (intro-inaccessible ps)) ps)))))
    'apply     (fn [ps args]
                 (let [g (proof/current-goal ps)
                       [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
@@ -1072,7 +1174,10 @@
                 ;; full is-def-eq vs Lean's reducible-only — a benign superset under `try`: it can only
                 ;; close MORE refl goals, never reject.)
                 (let [ps' (do-rewrite ps args)]
-                  (try (basic/rfl ps') (catch Throwable _ ps'))))
+                  (if (seq (:goals ps'))
+                    (try (basic/rfl ps')
+                         (catch clojure.lang.ExceptionInfo ex
+                           (if (= :tactic-error (:kind (ex-data ex))) ps' (throw ex)))) ps')))
    'rcases    (fn [ps args]
                 (let [[term & pats] args
                       pat (if (= 'with (first pats)) (second pats) (first pats))
@@ -1139,19 +1244,24 @@
                 ;; (cases h)      — case-split on hypothesis `h` (by name)
                 ;; (cases hp e)   — faithful `cases hp : e`: substitute inductive discriminant `e`,
                 ;;                  adding `hp : e = ctor …` per branch (Lean's idiom)
-                (let [rest-args (rest args)]
-                  (if (seq rest-args)
-                    (let [hname (str (first args))
-                          g (proof/current-goal ps)
-                          cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
-                      (basic/cases-eq ps cond-expr hname))
-                    (let [nm (str (first args))
-                          fid (reduce (fn [best [id d]]
-                                        (if (and (= nm (:name d))
-                                                 (or (nil? best) (> (long id) (long best))))
-                                          id best))
-                                      nil (:lctx (proof/current-goal ps)))]
-                      (basic/cases ps fid)))))
+                (let [[args alts] (split-with #(not= :with %) args)
+                      rest-args (rest args)
+                      tail (vec (rest (:goals ps)))
+                      original-fids (set (keys (:lctx (proof/current-goal ps))))
+                      result
+                      (if (seq rest-args)
+                        (let [hname (str (first args))
+                              g (proof/current-goal ps)
+                              cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
+                          (basic/cases-eq ps cond-expr hname))
+                        (let [nm (str (first args))
+                              fid (reduce (fn [best [id d]]
+                                            (if (and (= nm (:name d))
+                                                     (or (nil? best) (> (long id) (long best))))
+                                              id best))
+                                          nil (:lctx (proof/current-goal ps)))]
+                          (basic/cases ps fid)))]
+                  (if (seq alts) (eval-alts result (rest alts) tail original-fids) result)))
    'generalize (fn [ps args]
                  ;; (generalize x h e) — Lean's `generalize h : e = x`: abstract term `e` in the goal
                  ;; as fresh var `x` (+ hyp `h : e = x`), so `cases`/`induction` can split a NESTED
@@ -1166,7 +1276,10 @@
                 ;; revert the named hyps INTO the goal first (so the induction motive becomes
                 ;; ∀ acc…, P x and the IH is the ∀-quantified `∀ acc…, P tail` foldl proofs need),
                 ;; do induction on x, then re-intro acc… in every resulting case.
-                (let [find-fid (fn [ps nm]
+                (let [[args alts] (split-with #(not= :with %) args)
+                      tail (vec (rest (:goals ps)))
+                      original-fids (set (keys (:lctx (proof/current-goal ps))))
+                      find-fid (fn [ps nm]
                                  (reduce (fn [best [id d]]
                                            (if (and (= nm (:name d))
                                                     (or (nil? best) (> (long id) (long best))))
@@ -1177,10 +1290,13 @@
                       ;; revert innermost-last (reverse order) so re-intro restores original order
                       ps (reduce (fn [ps g] (basic/revert ps (find-fid ps (str g))))
                                  ps (reverse gen-syms))
-                      ps (basic/induction ps (find-fid ps (str (first args))))]
-                  (if (seq gen-syms)
-                    (basic/all-goals ps (fn [ps'] (basic/intros ps' (mapv str gen-syms))))
-                    ps)))
+                      ps (basic/induction ps (find-fid ps (str (first args))))
+                      ps (if (seq gen-syms)
+                           (let [branches (remove (set tail) (:goals ps))
+                                 ps (basic/all-goals (assoc ps :goals (vec branches))
+                                                     #(basic/intros % (mapv str gen-syms)))]
+                             (update ps :goals into tail)) ps)]
+                  (if (seq alts) (eval-alts ps (rest alts) tail original-fids) ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))
@@ -1195,6 +1311,15 @@
    'all_goals (fn [ps args]
                 ;; (all_goals (tactic args)) — apply inner tactic to every open goal
                 (basic/all-goals ps (fn [ps'] (reduce run-tactic ps' args))))
+   'any_goals (fn [ps args] (basic/any-goals ps #(reduce run-tactic % args)))
+   'case      (fn [ps args]
+                (let [[pattern & body] args
+                      [tag & names] (if (sequential? pattern) pattern [pattern])]
+                  (eval-case ps (if (nil? tag) "nil" tag) names body)))
+   'next      (fn [ps args]
+                (let [names (if (vector? (first args)) (first args) [])
+                      body (if (vector? (first args)) (rest args) args)]
+                  (eval-case ps nil names body)))
    'first     (fn [ps args]
                 ;; (first (tac1 args) (tac2 args) ...) — try each tactic in order
                 (apply basic/first-tac ps
@@ -1202,8 +1327,11 @@
    'and_then  (fn [ps args]
                 ;; (and_then (tac1 args) (tac2 args) ...) — run tac1, then apply remaining tactics to all goals
                 ;; Semantics of Lean 4's <;> operator
-                (let [ps' (run-tactic ps (first args))]
-                  (basic/all-goals ps' (fn [ps''] (reduce run-tactic ps'' (rest args))))))
+                (let [tail (vec (rest (:goals ps)))
+                      ps' (run-tactic (assoc ps :goals (vec (take 1 (:goals ps)))) (first args))
+                      ps' (basic/all-goals ps' #(reduce run-tactic % (rest args)))]
+                  (update ps' :goals into (remove #(proof/mvar-assigned? ps' %) tail))))
+   (symbol "<;>") (fn [ps args] (run-tactic ps (cons 'and_then args)))
    ;; Decision procedures
    'decide    (fn [ps _args]
                 (let [f (requiring-resolve 'ansatz.tactic.decide/decide)] (f ps)))
@@ -1265,13 +1393,21 @@
   (reset! tactic-registry builtin-tactics))
 
 (clojure.core/defn run-tactic [ps tac]
-  (let [registry @tactic-registry]
-    (if (symbol? tac)
-      (if-let [f (get registry tac)] (f ps nil)
-              (throw (ex-info (str "Unknown tactic: " tac) {:available (keys registry)})))
-      (let [[name & args] tac]
-        (if-let [f (get registry name)] (f ps (vec args))
-                (throw (ex-info (str "Unknown tactic: " name) {:available (keys registry)})))))))
+  (try
+    (let [registry @tactic-registry]
+      (if (symbol? tac)
+        (if-let [f (get registry tac)] (f ps nil)
+                (throw (ex-info (str "Unknown tactic: " tac) {:kind :tactic-error :available (keys registry)})))
+        (let [[name & args] tac]
+          (if-let [f (get registry name)] (f ps (vec args))
+                  (throw (ex-info (str "Unknown tactic: " name) {:kind :tactic-error :available (keys registry)}))))))
+    (catch clojure.lang.ExceptionInfo ex
+      ;; Elaborating a tactic argument can fail before its meta operation runs.
+      ;; Lean reports these as tactic failures too (e.g. any_goals (exact h)).
+      (if (= :elab-error (:kind (ex-data ex)))
+        (throw (ex-info (str "Tactic error: " (.getMessage ex))
+                        (assoc (ex-data ex) :kind :tactic-error) ex))
+        (throw ex)))))
 
 ;; ============================================================
 ;; Param parsing — handles :- and :inst markers
@@ -1381,7 +1517,9 @@
         ptypes (loop [i 0 lctx {} acc []]
                  (if (= i n) acc
                      (let [p (nth pairs i)
-                           pt (elab/elaborate-in-context env lctx (second p))]
+                           ;; Lean/Elab/Binders.lean elabBinderViews uses elabType
+                           ;; for annotations even while elaborating a computational body.
+                           pt (elab/elaborate-in-context env lctx (second p) nil {:type-position true})]
                        (recur (inc i)
                               (assoc lctx (nth fids i) {:name (str (first p)) :type pt :tag :local})
                               (conj acc pt)))))

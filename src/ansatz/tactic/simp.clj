@@ -3027,114 +3027,116 @@
    - If simplified to True: close with of_eq_true
    - If simplified is an Eq with def-eq sides: close with rfl
    - Otherwise: replace goal type with simplified (via Eq.mpr)"
-  [ps goal st result lemma-names]
-  (let [simplified (:expr result)
-        simplified-whnf (#'tc/cached-whnf st simplified)
+  ([ps goal st result lemma-names]
+   (close-goal-with-proof ps goal st result lemma-names false))
+  ([ps goal st result lemma-names target-core?]
+   (let [simplified (:expr result)
+         simplified-whnf (#'tc/cached-whnf st simplified)
         ;; For Eq.mpr, goal-type must match the eq-proof's LHS exactly.
         ;; simp-expr* may start from a WHNF'd or rewritten form, so the eq-proof's
         ;; LHS might differ from (:type goal). Extract the actual LHS from the proof.
-        raw-goal-type (:type goal)
+         raw-goal-type (:type goal)
         ;; A proof-free simp step must be definitional equality. Check both
         ;; endpoints before assigning a goal or constructing Eq.mpr transport.
-        _ (if-let [h (:proof? result)]
-            (let [[head args] (e/get-app-fn-args (#'tc/cached-whnf st (tc/infer-type st h)))]
-              (when-not (and (e/const? head) (= eq-name (e/const-name head))
-                             (= 3 (count args))
-                             (tc/is-def-eq st raw-goal-type (nth args 1))
-                             (tc/is-def-eq st simplified (nth args 2)))
-                (tactic-error! "simp: invalid equality proof" {:proof-construction true :goal raw-goal-type})))
-            (when-not (tc/is-def-eq st raw-goal-type simplified)
-              (tactic-error! "simp: uncertified simplification" {:proof-construction true :goal raw-goal-type})))
+         _ (if-let [h (:proof? result)]
+             (let [[head args] (e/get-app-fn-args (#'tc/cached-whnf st (tc/infer-type st h)))]
+               (when-not (and (e/const? head) (= eq-name (e/const-name head))
+                              (= 3 (count args))
+                              (tc/is-def-eq st raw-goal-type (nth args 1))
+                              (tc/is-def-eq st simplified (nth args 2)))
+                 (tactic-error! "simp: invalid equality proof" {:proof-construction true :goal raw-goal-type})))
+             (when-not (tc/is-def-eq st raw-goal-type simplified)
+               (tactic-error! "simp: uncertified simplification" {:proof-construction true :goal raw-goal-type})))
         ;; Extract actual LHS/RHS from eq-proof for Eq.mpr consistency.
         ;; simp-expr* may WHNF before rewriting, so the proof's type endpoints
         ;; might differ from the raw input/output expressions.
-        [goal-type simplified-from-proof]
-        (if-let [proof (:proof? result)]
-          (let [proof-type (tc/infer-type st proof)
-                proof-whnf (when proof-type (#'tc/cached-whnf st proof-type))
-                [head args] (when proof-whnf (e/get-app-fn-args proof-whnf))]
-            (if (and head (e/const? head)
-                     (= (e/const-name head) (name/from-string "Eq"))
-                     (= 3 (count args)))
-              [(nth args 1) (nth args 2)]
-              [raw-goal-type nil]))
-          [raw-goal-type nil])
+         [goal-type simplified-from-proof]
+         (if-let [proof (:proof? result)]
+           (let [proof-type (tc/infer-type st proof)
+                 proof-whnf (when proof-type (#'tc/cached-whnf st proof-type))
+                 [head args] (when proof-whnf (e/get-app-fn-args proof-whnf))]
+             (if (and head (e/const? head)
+                      (= (e/const-name head) (name/from-string "Eq"))
+                      (= 3 (count args)))
+               [(nth args 1) (nth args 2)]
+               [raw-goal-type nil]))
+           [raw-goal-type nil])
         ;; Use proof-extracted simplified if available, otherwise the raw simp result
-        simplified (or simplified-from-proof simplified)]
-    (cond
+         simplified (or simplified-from-proof simplified)]
+     (cond
       ;; Simplified to True
       ;; Lean 4: if r.expr.isTrue → close with of_eq_true
       ;; of_eq_true : {p : Prop} → (p = True) → p
-      (and (e/const? simplified-whnf) (= (e/const-name simplified-whnf) true-name))
-      (if (:proof? result)
-        (let [;; of_eq_true takes {p} (the original goal) and h : p = True
-              proof-term (e/app* (e/const' of-eq-true-name [])
-                                 goal-type (:proof? result))]
-          (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
-              (proof/record-tactic :simp lemma-names (:id goal))))
-        (try (decide-goal ps)
-             (catch clojure.lang.ExceptionInfo ex
-               (if (and (= :tactic-error (:kind (ex-data ex)))
-                        (not (:limit (ex-data ex)))
-                        (not (:proof-construction (ex-data ex))))
-                 (tactic-error! "simplified to True but cannot certify" {:goal goal-type}) (throw ex)))))
+       (and (e/const? simplified-whnf) (= (e/const-name simplified-whnf) true-name))
+       (if (:proof? result)
+         (let [;; of_eq_true takes {p} (the original goal) and h : p = True
+               proof-term (e/app* (e/const' of-eq-true-name [])
+                                  goal-type (:proof? result))]
+           (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
+               (proof/record-tactic :simp lemma-names (:id goal))))
+         (try (decide-goal ps)
+              (catch clojure.lang.ExceptionInfo ex
+                (if (and (= :tactic-error (:kind (ex-data ex)))
+                         (not (:limit (ex-data ex)))
+                         (not (:proof-construction (ex-data ex))))
+                  (tactic-error! "simplified to True but cannot certify" {:goal goal-type}) (throw ex)))))
 
       ;; Simplified to False
-      (and (e/const? simplified-whnf) (= (e/const-name simplified-whnf) false-name))
-      (tactic-error! "goal simplified to False" {:goal goal-type})
+       (and (not target-core?) (e/const? simplified-whnf) (= (e/const-name simplified-whnf) false-name))
+       (tactic-error! "goal simplified to False" {:goal goal-type})
 
       ;; Try rfl on SIMPLIFIED or ORIGINAL expression
-      :else
-      (if-let [rfl-proof (if (:proof? result)
+       :else
+       (if-let [rfl-proof (if (:proof? result)
                            ;; Simp has a proof → try rfl on simplified, wrap with Eq.mpr
-                           (try-close-eq-rfl st simplified)
+                            (try-close-eq-rfl st simplified)
                            ;; Simp changed expr but lost proof → try rfl on ORIGINAL goal
                            ;; (kernel may reduce n-n to 0 via def-eq)
-                           (or (try-close-eq-rfl st goal-type)
-                               (try-close-eq-rfl st simplified)))]
-        (let [mpr-level (let [gs (safe-infer st goal-type)
-                              gsw (when gs (safe-whnf st gs))]
-                          (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
-              final-proof (if (and (:proof? result) (not= simplified goal-type))
-                            (e/app* (e/const' eq-mpr-name [mpr-level])
-                                    goal-type simplified (:proof? result) rfl-proof)
-                            rfl-proof)]
-          (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term final-proof})
-              (proof/record-tactic :simp lemma-names (:id goal))))
+                            (or (try-close-eq-rfl st goal-type)
+                                (try-close-eq-rfl st simplified)))]
+         (let [mpr-level (let [gs (safe-infer st goal-type)
+                               gsw (when gs (safe-whnf st gs))]
+                           (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
+               final-proof (if (and (:proof? result) (not= simplified goal-type))
+                             (e/app* (e/const' eq-mpr-name [mpr-level])
+                                     goal-type simplified (:proof? result) rfl-proof)
+                             rfl-proof)]
+           (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term final-proof})
+               (proof/record-tactic :simp lemma-names (:id goal))))
         ;; Try decide as last resort
-        (try (decide-goal ps)
-             (catch clojure.lang.ExceptionInfo ex
-               (if (and (= :tactic-error (:kind (ex-data ex)))
-                        (not (:limit (ex-data ex)))
-                        (not (:proof-construction (ex-data ex))))
-                 (if (= simplified goal-type)
-                   (tactic-error! "simp made no progress" {:goal goal-type})
+         (try (decide-goal ps)
+              (catch clojure.lang.ExceptionInfo ex
+                (if (and (= :tactic-error (:kind (ex-data ex)))
+                         (not (:limit (ex-data ex)))
+                         (not (:proof-construction (ex-data ex))))
+                  (if (= simplified goal-type)
+                    (if target-core? ps (tactic-error! "simp made no progress" {:goal goal-type}))
                  ;; Lean 4: simp replaces goal with simplified form via Eq.mpr
                  ;; when it can't close. Create a new goal with the simplified type.
                  ;; This follows Lean 4's applySimpResultToTarget (Main.lean:780).
-                   (if (:proof? result)
-                     (let [mpr-level (let [gs (safe-infer st goal-type)
-                                           gsw (when gs (safe-whnf st gs))]
-                                       (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
-                           [ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-                       (-> (proof/assign-mvar ps' (:id goal)
-                                              {:kind :simp-reduce
-                                               :eq-proof (:proof? result)
-                                               :child new-id
-                                               :mpr-level mpr-level
-                                               :goal-type goal-type
-                                               :simplified simplified})
-                           (proof/record-tactic :simp lemma-names (:id goal))))
+                    (if (:proof? result)
+                      (let [mpr-level (let [gs (safe-infer st goal-type)
+                                            gsw (when gs (safe-whnf st gs))]
+                                        (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
+                            [ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+                        (-> (proof/assign-mvar ps' (:id goal)
+                                               {:kind :simp-reduce
+                                                :eq-proof (:proof? result)
+                                                :child new-id
+                                                :mpr-level mpr-level
+                                                :goal-type goal-type
+                                                :simplified simplified})
+                            (proof/record-tactic :simp lemma-names (:id goal))))
                    ;; Proof chain is nil (all rfl steps) but simp simplified.
-                     (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-                       (-> (proof/assign-mvar ps' (:id goal)
-                                              {:kind :simp-reduce
-                                               :eq-proof nil
-                                               :child new-id
-                                               :mpr-level lvl/zero
-                                               :goal-type goal-type
-                                               :simplified simplified})
-                           (proof/record-tactic :simp lemma-names (:id goal)))))) (throw ex))))))))
+                      (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+                        (-> (proof/assign-mvar ps' (:id goal)
+                                               {:kind :simp-reduce
+                                                :eq-proof nil
+                                                :child new-id
+                                                :mpr-level lvl/zero
+                                                :goal-type goal-type
+                                                :simplified simplified})
+                            (proof/record-tactic :simp lemma-names (:id goal)))))) (throw ex)))))))))
 
 (defn- simp-setup
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
@@ -3222,7 +3224,17 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
          result (simp-expr* st env lemma-index (:type goal) config)]
-     (close-goal-with-proof ps goal st result lemma-names))))
+     (close-goal-with-proof ps goal st result lemma-names false))))
+
+(defn simp-target
+  "Lean Meta/Tactic/Simp/Main.lean simpTargetCore, used by Mathlib reduceIfsAt:
+   replace the target even when it becomes False; unchanged targets are allowed."
+  [ps lemma-names opts]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
+        result (simp-expr* st env lemma-index (:type goal) config)]
+    (close-goal-with-proof ps goal st result lemma-names true)))
 
 (defn simp-at
   "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):

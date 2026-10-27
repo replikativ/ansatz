@@ -20,6 +20,56 @@
 
 (use-fixtures :once init-once)
 
+(deftest equality-in-proof-lambda-binder
+  (is (a/deftheorem equality-lambda [b :- Bool, h :- (= b true)]
+        (= b true) (exact ((fn [hh :- (= b true)] hh) h))))
+  (is (a/deftheorem nested-equality-lambda [b :- Bool, h :- (= b true)]
+        (= b true)
+        (exact (((fn [x :- Bool] (fn [hh :- (= x true)] hh)) b) h))))
+  (is (a/deftheorem equality-let-annotation [b :- Bool, h :- (= b true)]
+        (= b true) (exact (let [hh :- (= b true) h] hh))))
+  (is (a/deftheorem equality-forall-annotation [b :- Bool, h :- (= b true)]
+        (forall [hh :- (= b true)] (= b true))
+        (exact (fn [hh :- (= b true)] hh)))))
+
+(deftest proof-local-let-aliases
+  (is (a/deftheorem let-bool [b :- Bool, h :- (Eq Bool b true)]
+        (Eq Bool b true)
+        (exact (let [part b hp (Eq.trans (Eq.refl part) h)] hp))))
+  (is (a/deftheorem let-in-proof-lambda [b :- Bool, h :- (= b true)]
+        (= b true)
+        (exact ((fn [x :- Bool, hx :- (= x true)]
+                  (let [part x hp (Eq.trans (Eq.refl part) hx)] hp)) b h))))
+  (is (a/deftheorem nested-proof-lets [b :- Bool, h :- (= b true)]
+        (= b true)
+        (exact (let [part b]
+                 (let [alias part hp (Eq.trans (Eq.refl alias) h)] hp)))))
+  (is (a/deftheorem typed-proof-lets [b :- Bool, h :- (= b true)]
+        (= b true)
+        (exact (let [part :- Bool b]
+                 (let [hp :- (= part true) (Eq.trans (Eq.refl part) h)] hp))))))
+
+(deftest local-type-aliases-in-proof-terms
+  (is (a/deftheorem local-proposition-alias [b :- Bool, h :- (Eq Bool b true)]
+        (Eq Bool b true)
+        (exact (let [T (Eq Bool b true)] (let [hp T h] hp)))))
+  (is (a/deftheorem local-list-type-alias [xs :- (List Bool)]
+        (Eq (List Bool) xs xs)
+        (exact (let [T (List Bool)] (Eq.refl ((fn [ys :- T] ys) xs))))))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"let value type mismatch"
+                        (a/theorem incompatible-local-proposition-alias [b :- Bool, h :- (Eq Bool b true)]
+                                   False
+                                   (exact (let [T False] (let [hp T h] hp)))))))
+
+(deftest computational-lambda-body-keeps-bool-comparisons
+  (a/defn comparison-lambda [n :- Nat] Bool ((fn [x :- Nat] (= x 1)) n))
+  (is (true? (comparison-lambda 1)))
+  (is (false? (comparison-lambda 2)))
+  (a/defn comparison-proof-binder [n :- Nat, h :- (= n 1)] Bool
+    ((fn [hh :- (= n 1)] (= n 1)) h))
+  (is (a/deftheorem comparison-proof-binder-true [n :- Nat, h :- (= n 1)]
+        (= (comparison-proof-binder n h) true) (simp [comparison-proof-binder h]))))
+
 (defn- elab-str [form]
   (e/->string (el/elaborate (a/env) form)))
 
