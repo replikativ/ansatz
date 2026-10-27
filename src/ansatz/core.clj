@@ -36,6 +36,7 @@
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
             [ansatz.codegen :as codegen]
+            [ansatz.codegen.decl :as decl]
             [ansatz.wf :as wf]
             [ansatz.attrs :as attrs]
             [ansatz.matchers :as matchers]
@@ -319,20 +320,6 @@
 
 ;; Dynamic vars for elaboration context threading
 (def ^:dynamic *current-lctx* nil)
-
-;; Lean Compiler/LCNF/Simp/Main.lean inlineApp? separates the declaration's
-;; parameters from over-application arguments. The surface wrapper binds `params` only.
-(clojure.core/defn- compute-arity
-  "Compute runtime arity over the declared parameters, excluding function-valued results.
-   Returns {:arity n :erased k} where n = explicit params, k = erased (implicit/inst) prefix."
-  [fn-type num-params]
-  (loop [t fn-type left num-params explicit 0 erased 0 in-prefix true]
-    (if (and (pos? left) (e/forall? t))
-      (let [bi (e/forall-info t)]
-        (if (= :default bi)
-          (recur (e/forall-body t) (dec left) (inc explicit) erased false)
-          (recur (e/forall-body t) (dec left) explicit (if in-prefix (inc erased) erased) in-prefix)))
-      {:arity explicit :erased erased})))
 
 (clojure.core/defn context
   "Get the current global ProofContext (built from global atoms)."
@@ -1316,7 +1303,7 @@
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
     (swap! ansatz-env env/add-constant ax)
-    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz (count pairs)))
+    (decl/plan! (str fn-name) type-ansatz (count pairs))
     (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
     ;; codegen the recursive body — body-ansatz already IS the direct-recursion term
     ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
@@ -1330,45 +1317,37 @@
                               emitted (emit @ansatz-env (str fn-name) body-ansatz
                                             {:erased (or erased 0) :arity (or arity n)})]
                           (when emitted
-                            (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                            (decl/register! (str fn-name)
+                                          (update emitted :convention assoc :provenance :surface))
                             (:fn emitted)))
                         (catch Exception _ nil)))
-          clj-form (when-not direct-fn (ansatz->clj @ansatz-env body-ansatz []))
-          clj-fn (cond
-                   direct-fn direct-fn
-                   (<= n 1) (eval clj-form)
-                   :else
-                   (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) (vec pairs))
-                         curried-call (reduce (fn [f s] (list f s))
-                                              (list clj-form (first param-syms)) (rest param-syms))]
-                     (eval
-                      `(fn
-                         (~[(first param-syms)]
-                          ~(if (= n 2)
-                             `(fn [~(second param-syms)] ~curried-call)
-                             (reduce (fn [body s] `(fn [~s] ~body))
-                                     curried-call (reverse (rest param-syms)))))
-                         (~param-syms ~curried-call)))))]
+          clj-fn (if direct-fn direct-fn
+                     (decl/emit-classic! (str fn-name)
+                                         #(ansatz->clj @ansatz-env body-ansatz [])))]
       clj-fn)))
 
 (clojure.core/defn define-foreign
   "Declare a TRUSTED FOREIGN function: an arbitrary Clojure fn asserted at the given
    kernel type (installed as an AXIOM — trusted, not verified, never usable in proofs).
-   Unlike `define-partial`, the body is NOT elaborated — the raw Clojure fn IS the runtime.
+   Unlike `define-partial`, the body is NOT elaborated — the Clojure implementation is
+   wrapped using the compiled declaration parameter list.
    In a verified body the foreign name resolves as a constant of its asserted type, so the
    optimizer reasons PARAMETRICALLY around it (fusion/relational laws hold for ANY function),
    and codegen lowers it like any user fn (FAP via the arity registry → calls the def'd var).
    The asserted type is the entire trust boundary — the gradual escape hatch / typed FFI hole."
-  [fn-name params ret-type-form]
-  (let [env (env)
-        pairs (parse-params params)
-        {type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
-        cname (name/from-string (str fn-name))
-        ax (env/mk-axiom cname [] type-ansatz)]
-    (swap! ansatz-env env/add-constant ax)
-    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz (count pairs)))
-    (println "⚠ foreign:" fn-name "— trusted Clojure fn asserted at its type, NOT verified")
-    :foreign))
+  ([fn-name params ret-type-form]
+   (let [env (env)
+         pairs (parse-params params)
+         {type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+         cname (name/from-string (str fn-name))
+         ax (env/mk-axiom cname [] type-ansatz)]
+     (swap! ansatz-env env/add-constant ax)
+     (decl/plan! (str fn-name) type-ansatz (count pairs))
+     (println "⚠ foreign:" fn-name "— trusted Clojure fn asserted at its type, NOT verified")
+     :foreign))
+  ([fn-name params ret-type-form impl]
+   (define-foreign fn-name params ret-type-form)
+   (decl/emit-foreign! (str fn-name) impl)))
 
 ;; ============================================================
 ;; Public API
@@ -1647,7 +1626,7 @@
         ci (env/mk-def cname [] type-ansatz body-ansatz)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz (count pairs)))
+        _ (decl/plan! (str fn-name) type-ansatz (count pairs))
         equation-errors (atom [])
         equation-names (atom [])
         equation-auxiliaries (atom [])
@@ -2223,7 +2202,8 @@
                                 emitted (emit @ansatz-env (str fn-name) direct
                                               {:erased (or erased 0) :arity (or arity n)})]
                             (when emitted
-                              (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                              (decl/register! (str fn-name)
+                                          (update emitted :convention assoc :provenance :surface))
                               (when *verbose* (println "✓" fn-name ":" (pr-str (:fn-form emitted))))
                               (:fn emitted)))))
                       (catch Exception ex
@@ -2238,27 +2218,9 @@
                        (if-let [opt @optimize-hook]
                          (or (opt @ansatz-env (str fn-name) body-ansatz) body-ansatz)
                          body-ansatz))
-        ;; Compile to Clojure — uncurry multi-arg functions for flat calls
-        clj-form (when-not direct-fn (ansatz->clj @ansatz-env runtime-body []))
-        clj-fn (cond
-                 direct-fn direct-fn
-                 (<= n 1) (eval clj-form)
-                 :else
-                 ;; Multi-arg: support both flat (f x y) and curried ((f x) y) calls
-                 (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) (vec pairs))
-                       curried-call (reduce (fn [f s] (list f s))
-                                            (list clj-form (first param-syms))
-                                            (rest param-syms))]
-                   (eval
-                    `(fn
-                       (~[(first param-syms)]
-                        ~(if (= n 2)
-                           `(fn [~(second param-syms)] ~curried-call)
-                           (reduce (fn [body s] `(fn [~s] ~body))
-                                   curried-call
-                                   (reverse (rest param-syms)))))
-                       (~param-syms ~curried-call)))))]
-    (when (and *verbose* (not direct-fn)) (println "✓" fn-name ":" (pr-str clj-form)))
+        clj-fn (if direct-fn direct-fn
+                   (decl/emit-classic! (str fn-name)
+                                       #(ansatz->clj @ansatz-env runtime-body [])))]
     ;; a nullary definition compiles to a plain value (Long, Boolean, …) that cannot carry
     ;; metadata; its equation-generation errors were already printed as warnings
     (if (instance? clojure.lang.IObj clj-fn)
@@ -2487,8 +2449,7 @@
    structure while `sqrt` stays a trusted hole."
   [fn-name params ret-type impl]
   (let [nm (vary-meta fn-name dissoc :- :tag)]
-    `(def ~nm (do (define-foreign '~nm '~params '~ret-type)
-                  (tag-kernel-name ~impl '~nm)))))
+    `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm))))
 
 (defmacro implemented_by
   "Lean's @[implemented_by] / @[extern] correspondence, named to match — an alias of `a/foreign`:

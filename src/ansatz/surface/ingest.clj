@@ -12,7 +12,7 @@
   structure-registry (atom {}))
 
 ;; ── Codegen seams (shared leaf, break the core↔codegen cycle) ────────────────────────────
-;; Arity registry — Lean 4's LCNF arity analysis. Name-string → {:arity n :erased k}; used by
+;; Arity registry — Lean 4's LCNF arity analysis. Name-string → {:params [...] :arity n :erased k :value? bool}; used by
 ;; ansatz.codegen's ansatz->clj to emit flat multi-arg (FAP) instead of curried calls.
 (defonce ^{:doc "Arity registry for compiled functions."} arity-registry (atom {}))
 ;; Codegen registry — the runtime (wandler) extension seam: head Name-string → (fn [env expr names]

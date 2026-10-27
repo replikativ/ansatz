@@ -21,7 +21,8 @@
    codegen falls back to today's behavior (bare symbol / extern throw)."
   (:require [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
-            [ansatz.kernel.name :as name])
+            [ansatz.kernel.name :as name]
+            [ansatz.codegen.decl :as decl])
   (:import [ansatz.kernel ConstantInfo]))
 
 (def ^:private runtime-ns (create-ns 'ansatz.storedef.runtime))
@@ -108,8 +109,8 @@
 
 (defn- audit-binders
   "Runtime shape of a binder telescope: {:erased k :arity n} with the non-default binders
-   required to form a PREFIX (compute-arity silently drops interleaved erased binders and
-   the FAP slice would take the wrong window — bail instead), and no explicit type-like
+   required to form a PREFIX (interleaved erased binders have no contiguous runtime
+   parameter window), and no explicit type-like
    binder. Returns nil when the shape is unsupported."
   [binders]
   (let [infos (mapv (fn [[_ bt bi]] [bi bt]) binders)
@@ -241,23 +242,13 @@
         out (rw form true false)]
     (when-not @fail out)))
 
-(defn- curried-methods
-  "Partial-application methods 1..n-1 for a named multi-arity fn: each returns nested
-   1-ary closures completing the call, so the var also works in curried value position."
-  [fname params]
-  (let [n (count params)]
-    (for [k (range 1 n)]
-      (let [head (subvec params 0 k)
-            tail (subvec params k)]
-        (list head
-              (reduce (fn [body p] (list 'fn [p] body))
-                      (apply list fname params)
-                      (rseq tail)))))))
-
 ;; ── the emitter (shared: store defs here, own a/defn via ansatz.core) ─────────
 
-(defn- ansatz->clj* [env expr]
-  ((requiring-resolve 'ansatz.codegen/ansatz->clj) env expr []))
+(defn- ansatz->clj* [env expr cname]
+  (let [compile (requiring-resolve 'ansatz.codegen/ansatz->clj)
+        raw (requiring-resolve 'ansatz.codegen/*raw-constants*)]
+    (with-bindings {raw (conj @raw cname)}
+      (compile env expr []))))
 
 (defn emit-direct-recursion
   "Compile a DIRECT-RECURSION lambda term — self-calls appear as applications of the
@@ -273,7 +264,7 @@
   [env ^String cname term {:keys [erased arity]}]
   (let [total (+ erased arity)
         raw (binding [*in-progress* (conj *in-progress* cname)]
-              (ansatz->clj* env term))
+              (ansatz->clj* env term cname))
         dsym (symbol cname)
         simplified (-> raw form-beta inline-single-letfn (collapse-head dsym))]
     (when-let [[params body] (peel-fns simplified total)]
@@ -283,10 +274,8 @@
         (when (and body'
                    ;; erased binders must be runtime-irrelevant in the final body
                    (not-any? #(occurs-sym? body' %) (subvec params 0 erased)))
-          (let [fn-form (apply list 'fn local-name
-                               (concat (curried-methods local-name rt-params)
-                                       [(list rt-params body')]))]
-            {:fn-form fn-form :fn (eval fn-form)}))))))
+          (let [emitted (decl/emit-wrapper rt-params body' {:erased erased :local-name local-name})]
+            (assoc emitted :fn (eval (:fn-form emitted)))))))))
 
 ;; ── the store-def compiler ────────────────────────────────────────────────────
 
@@ -316,8 +305,8 @@
               emitted (emit-direct-recursion env cname lam {:erased erased :arity arity})]
           (when emitted
             (intern runtime-ns (symbol cname) (:fn emitted))
-            {:sym (symbol (str (ns-name runtime-ns)) cname)
-             :arity arity :erased erased :provenance provenance}))))))
+            (assoc (:convention emitted)
+                   :sym (symbol (str (ns-name runtime-ns)) cname) :provenance provenance)))))))
 
 (defn compile-store-def!
   "Compile plain store def `cname` to a Clojure fn, intern it, and register

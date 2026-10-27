@@ -19,6 +19,7 @@
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
             [ansatz.codegen :as codegen :refer [ansatz->clj]]
+            [ansatz.codegen.decl :as decl]
             [ansatz.config :as config]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.ingest :as ingest
@@ -31,7 +32,6 @@
 (defn- prove-theorem [& args] (apply (requiring-resolve 'ansatz.core/prove-theorem) args))
 (defn- build-telescope-fvar [& args] (apply (requiring-resolve 'ansatz.core/build-telescope-fvar) args))
 (defn- try-synthesize-instance [& args] (apply (requiring-resolve 'ansatz.core/try-synthesize-instance) args))
-(defn- compute-arity [& args] (apply (requiring-resolve 'ansatz.core/compute-arity) args))
 
 ;; The live-env accessor (mirrors ansatz.core/env). `env` as a fn coexists with the `env/` ns
 ;; alias above — bare `(env)` reads the var, `env/lookup` uses the alias (the convention core uses).
@@ -1046,7 +1046,9 @@
         ;; Universe level for return type
         tc-tmp (ansatz.kernel.TypeChecker. env)
         _ (.setFuel tc-tmp (long config/*default-fuel*))
-        ret-sort (.inferType tc-tmp ret-ansatz)
+        ;; Nat.rec returns the entire parameter telescope. Type parameters can
+        ;; raise its universe above the result's (Lean Nat.rec's motive universe).
+        ret-sort (.inferType tc-tmp type-ansatz)
         ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
 
         ;; Fuel-based approach: Nat.rec on fuel (matching Lean 4's kernel-level pattern).
@@ -1258,7 +1260,7 @@
         ci (env/mk-def cname [] type-ansatz chosen-body)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz n))
+        _ (decl/plan! (str fn-name) type-ansatz n)
         _ (when (verbose?) (println (str "✓ " fn-name " defined (well-founded recursion, "
                                          (case encoding
                                            :wf-fix (if lex? "kernel-enforced lexicographic WellFounded.fix"
@@ -1380,39 +1382,18 @@
                             emitted (emit @ansatz-env (str fn-name) body-ansatz
                                           {:erased (or erased 0) :arity (or arity n)})]
                         (when emitted
-                          (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                          (decl/register! (str fn-name)
+                                          (update emitted :convention assoc :provenance :surface))
                           (:fn emitted)))
                       (catch Exception ex
                         (when (verbose?)
                           (println "  direct-recursion emitter unavailable ("
                                    (.getMessage ex) ") — compiling the WF encoding"))
                         nil)))
-        ;; Compile to Clojure — uncurry for multi-arg
-        clj-form (when-not direct-fn (ansatz->clj @ansatz-env chosen-body []))
-        ;; The compiled form is curried: (fn [p1] (fn [p2] ... body ...))
-        ;; Wrap in uncurried version: (fn [p1 p2 ...] ((curried p1) p2) ...)
-        ;; For multi-arg: create a function that accepts both curried and uncurried calls.
-        ;; Curried: ((f x) y) — needed when called from other compiled code
-        ;; Uncurried: (f x y) — needed for ergonomic Clojure usage
-        clj-fn (cond
-                 direct-fn direct-fn
-                 (<= n 1) (eval clj-form)
-                 :else
-                 (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) pairs)
-                       curried-call (reduce (fn [f s] (list f s))
-                                            (list clj-form (first param-syms))
-                                            (rest param-syms))]
-                   (eval
-                     ;; Multi-arity: 1-arg returns curried, n-arg calls directly
-                    `(fn
-                       (~[(first param-syms)]
-                         ;; Curried: return a fn that takes the remaining args
-                        ~(if (= n 2)
-                           `(fn [~(second param-syms)] ~curried-call)
-                            ;; 3+ args: nested currying
-                           (reduce (fn [body s] `(fn [~s] ~body))
-                                   curried-call
-                                   (reverse (rest param-syms)))))
-                       (~param-syms ~curried-call)))))]
+        ;; The runtime fuel encoding is compilable even when direct emission declines;
+        ;; the kernel keeps its independently checked well-founded definition.
+        runtime-body (if (zero? n) body-ansatz final-body)
+        clj-fn (if direct-fn direct-fn
+                   (decl/emit-classic! (str fn-name)
+                                       #(ansatz->clj @ansatz-env runtime-body [])))]
     clj-fn))
-

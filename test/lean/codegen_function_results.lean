@@ -77,3 +77,24 @@ decreasing_by omega
 /-- info: true -/
 #guard_msgs in
 #eval wfFuel 0 5 == 5 && wfFuel 4 5 == 9
+
+partial def polyResult {S : Type} (n : S) : Nat → S := fun _ => n
+def implicitResult {_S : Type} (n : Nat) : Nat → Nat := fun x => n + x
+def instanceResult [Inhabited Nat] (n : Nat) : Nat → Nat := fun x => n + x
+def implicitWf {S : Type} (n : Nat) : Nat → Nat :=
+  if n ≤ 0 then fun x => x else fun x => 1 + @implicitWf S (n - 1) x
+termination_by n
+decreasing_by omega
+def instanceWf [inst : Inhabited Nat] (n : Nat) : Nat → Nat :=
+  if n ≤ 0 then fun x => x else fun x => 1 + @instanceWf inst (n - 1) x
+termination_by n
+decreasing_by omega
+def fallbackScalar (n : Nat) : Nat :=
+  if n ≤ 0 then 0 else 1 + fallbackScalar (n - 1)
+termination_by n
+decreasing_by omega
+/-- info: true -/
+#guard_msgs in
+#eval polyResult 7 3 == 7 && @implicitResult Nat 4 3 == 7 &&
+      @instanceResult ⟨0⟩ 4 3 == 7 && @implicitWf Nat 4 3 == 7 &&
+      @instanceWf ⟨0⟩ 4 3 == 7 && fallbackScalar 4 == 4
