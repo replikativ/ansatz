@@ -11,6 +11,7 @@
             [ansatz.store :as store]
             [ansatz.state :as state]
             [ansatz.simp-index :as si]
+            [ansatz.session :as session]
             [ansatz.recall :as recall]
             [ansatz.export.storage :as storage]
             [ansatz.kernel.env :as env]
@@ -135,3 +136,36 @@
       (.mkdirs (io/file dir))
       (store/write-manifest! dir {:store/format store/store-format})
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"already exists" (import-medium! dir))))))
+
+(deftest read-only-store-can-open-and-prove
+  (let [dir (tmp-store "readonly")
+        previous (session/capture)]
+    (import-medium! dir)
+    (let [files (vec (file-seq (io/file dir)))
+          permissions (into {} (map (fn [^java.io.File f]
+                                      [f (java.nio.file.Files/getPosixFilePermissions
+                                          (.toPath f) (make-array java.nio.file.LinkOption 0))])) files)
+          snapshot (fn [] (into {} (for [^java.io.File f (file-seq (io/file dir))]
+                                    [(.getPath f) [(.length f) (.lastModified f)]])))
+          before (snapshot)
+          writes #{java.nio.file.attribute.PosixFilePermission/OWNER_WRITE
+                   java.nio.file.attribute.PosixFilePermission/GROUP_WRITE
+                   java.nio.file.attribute.PosixFilePermission/OTHERS_WRITE}]
+      (try
+        (doseq [[^java.io.File f perms] permissions]
+          (java.nio.file.Files/setPosixFilePermissions (.toPath f) (set (remove writes perms))))
+        (binding [a/*verbose* false]
+          (a/init! dir "init")
+          (let [kstore (get-in @state/ansatz-store [:store-map :store])]
+            (is (nil? (storage/store-get kstore :absent)))
+            (is (nil? (storage/read-derived kstore "init" :absent))))
+          (a/prove-theorem 'readonly-nat-refl '[n :- Nat] '(= Nat n n) '[(rfl)])
+          (let [ci (env/lookup (a/env) (name/from-string "readonly-nat-refl"))]
+            (is (some? ci))
+            (is (env/verifies? (a/env) (.type ci) (.value ci)))))
+        (is (= before (snapshot)) "opening, missing reads, lazy resolution and proof leave every file unchanged")
+        (finally
+          (session/activate! previous)
+          (doseq [[^java.io.File f perms] permissions]
+            (java.nio.file.Files/setPosixFilePermissions (.toPath f) perms))
+          (doseq [^java.io.File f (reverse files)] (.delete f)))))))

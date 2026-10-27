@@ -190,3 +190,14 @@
                           (try (parser/parse-ndjson-file-streaming-raw "fixture-reader" nil (fn [s _] s))
                                (catch Throwable actual actual)))))
         (is (thrown? Exception (.readRaw ^ExprStore (last-store states) 127)))))))
+
+(deftest file-parser-reads-lines-without-slurping
+  (let [file (java.io.File/createTempFile "ansatz-parser-lines-" ".ndjson")]
+    (try
+      (spit file (str "\n" ownership-fixture "  \n"))
+      (with-redefs [clojure.core/slurp (fn [& _] (throw (AssertionError. "file parser must stream")))]
+        (parser/with-parser-state
+          (parser/parse-ndjson-file file)
+          (fn [state]
+            (is (= ["P"] (mapv #(str (.name ^ConstantInfo %)) (:decls state)))))))
+      (finally (.delete file)))))

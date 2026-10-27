@@ -17,6 +17,7 @@
    store of another format is refused at open, and the answer is to re-import
    (ansatz.import), not to migrate."
   (:require [konserve.core :as k]
+            [konserve.impl.defaults :as defaults]
             [ansatz.export.codec :as codec]
             [ansatz.store :as store]
             [boring.core :as boring]
@@ -71,10 +72,32 @@
         bb (java.nio.ByteBuffer/wrap d)]
     (UUID. (.getLong bb) (.getLong bb))))
 
+(defn- read-store-value
+  "Read a filestore blob through a read-only channel, retaining konserve's decoder."
+  [store key operation & [locked-cb]]
+  ;; Lean/Environment.lean readModuleData (library/module.cpp
+  ;; lean_read_module_data_parts) opens existing module data with O_RDONLY. Our
+  ;; konserve 0.9.398 backend instead opens even reads with WRITE/CREATE. Bypass
+  ;; that opener (and its exclusive write lock), not the header/codec validation.
+  ;; Store writes use atomic replacement; an open channel retains its inode.
+  (let [store-key (defaults/key->store-key key)
+        path (.toPath (io/file (:base (:backing store)) store-key))
+        channel (try
+                  (java.nio.channels.FileChannel/open
+                   path (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/READ]))
+                  (catch java.nio.file.NoSuchFileException _ nil))]
+    (when channel
+      (with-open [blob channel]
+        (defaults/read-blob*
+         blob (:read-handlers store) (:serializers store)
+         (merge (select-keys store [:config :version :buffer-size :compressor :encryptor])
+                {:sync? true :operation operation :store-key store-key
+                 :locked-cb locked-cb :msg {:key key :type :read-error}}))))))
+
 (defn- read-blob ^bytes [store address]
-  (k/bget store address
-          (fn [{:keys [input-stream]}] (.readAllBytes ^java.io.InputStream input-stream))
-          {:sync? true}))
+  (read-store-value store address :read-binary
+                    (fn [{:keys [input-stream]}]
+                      (.readAllBytes ^java.io.InputStream input-stream))))
 
 ;; PSS calls `store` bottom-up — a Branch stores its dirty children first, then itself — so a
 ;; node's child addresses are settled when it is encoded here, and its own address can be its
@@ -145,7 +168,7 @@
                              {:store store-path :store/format (:store/format manifest)
                               :requested-format selected-format})))
          dir (blobs-dir store-path)
-         _ (.mkdirs dir)
+         _ (when-not (.isDirectory dir) (.mkdirs dir))
          settings-atom (atom (Settings. 64 RefType/WEAK))
          storage-atom (atom nil)
          ;; the PSS root handler resolves its storage through a write-once cell, as the
@@ -334,9 +357,9 @@
   (k/assoc store k v {:sync? true}))
 
 (defn store-get
-  "Get a value from the konserve filestore."
+  "Get a value from the konserve filestore without creating files or requiring write access."
   [store k]
-  (k/get store k nil {:sync? true}))
+  (read-store-value store k :read-edn))
 
 (defn derived-key
   "konserve key of a piece of DERIVED state for a branch — attrs, instances, matchers, recall
@@ -345,7 +368,7 @@
   [branch-name k] [:derived branch-name k])
 
 (defn write-derived! [store branch-name k v] (k/assoc store (derived-key branch-name k) v {:sync? true}))
-(defn read-derived [store branch-name k] (k/get store (derived-key branch-name k) nil {:sync? true}))
+(defn read-derived [store branch-name k] (store-get store (derived-key branch-name k)))
 
 (defn store-multi-put
   "Batch put key-value pairs to the konserve filestore."
@@ -533,7 +556,7 @@
    Returns the raw byte[] (ExprStore binary format)."
   [store-map branch-name expr-id]
   (let [{:keys [storage store]} store-map
-        branch-meta (k/get store [:branches branch-name] nil {:sync? true})]
+        branch-meta (store-get store [:branches branch-name])]
     (when (nil? branch-meta)
       (throw (ex-info "Branch not found" {:branch branch-name})))
     (let [exprs-root (:exprs-root branch-meta)
@@ -546,7 +569,7 @@
   "Load all [id, Name] entries from the names PSS."
   [store-map branch-name]
   (let [{:keys [storage store]} store-map
-        branch-meta (k/get store [:branches branch-name] nil {:sync? true})]
+        branch-meta (store-get store [:branches branch-name])]
     (when (nil? branch-meta)
       (throw (ex-info "Branch not found" {:branch branch-name})))
     (let [names-root (:names-root branch-meta)
@@ -822,7 +845,7 @@
   "Fork a branch — copies root addresses only (O(1), no data copied)."
   [store-map source-branch new-branch]
   (let [{:keys [store]} store-map
-        branch-meta (k/get store [:branches source-branch] nil {:sync? true})]
+        branch-meta (store-get store [:branches source-branch])]
     (when (nil? branch-meta)
       (throw (ex-info "Source branch not found" {:branch source-branch})))
     (let [forked (assoc branch-meta
@@ -840,7 +863,7 @@
          (map :key)
          (filter #(and (vector? %) (= :branches (first %))))
          (mapv (fn [k]
-                 (let [meta (k/get store k nil {:sync? true})]
+                 (let [meta (store-get store k)]
                    {:name (second k)
                     :timestamp (:timestamp meta)
                     :counts {:names (:names-count meta)
