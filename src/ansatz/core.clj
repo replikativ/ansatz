@@ -1303,7 +1303,7 @@
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
     (swap! ansatz-env env/add-constant ax)
-    (decl/plan! (str fn-name) type-ansatz (count pairs))
+    (decl/plan! env (str fn-name) type-ansatz (count pairs))
     (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
     ;; codegen the recursive body — body-ansatz already IS the direct-recursion term
     ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
@@ -1342,7 +1342,7 @@
          cname (name/from-string (str fn-name))
          ax (env/mk-axiom cname [] type-ansatz)]
      (swap! ansatz-env env/add-constant ax)
-     (decl/plan! (str fn-name) type-ansatz (count pairs))
+     (decl/plan! env (str fn-name) type-ansatz (count pairs))
      (println "⚠ foreign:" fn-name "— trusted Clojure fn asserted at its type, NOT verified")
      :foreign))
   ([fn-name params ret-type-form impl]
@@ -1626,7 +1626,7 @@
         ci (env/mk-def cname [] type-ansatz body-ansatz)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (decl/plan! (str fn-name) type-ansatz (count pairs))
+        _ (decl/plan! env (str fn-name) type-ansatz (count pairs))
         equation-errors (atom [])
         equation-names (atom [])
         equation-auxiliaries (atom [])

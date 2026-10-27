@@ -128,3 +128,33 @@
            ['(Prod.fst (Prod.mk Nat Nat 2 3)) :int]
            ['(Prod.snd (Prod.mk Nat Nat 2 3)) :int]]]
     (compare-kernel! application schema)))
+
+(deftest type-and-proposition-values-erase-before-lowering
+  (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+    (eval '(ansatz.core/defn prop-runtime-probe [p :- Prop] Prop (And p p)))
+    (eval '(ansatz.core/theorem prop-probe-kernel [p :- Prop]
+             (= (prop-runtime-probe p) (And p p)) (rfl)))
+    (eval '(ansatz.core/theorem prop-probe-hypothesis
+             [p :- Prop, h :- (prop-runtime-probe p)] p
+             (exact (And.left h))))
+    (eval '(ansatz.core/defn ignore-proposition [p :- Prop, n :- Nat] Nat (+ n 1)))
+    (eval '(ansatz.core/defn pass-proposition [n :- Nat] Nat
+             (ignore-proposition (prop-runtime-probe True) n)))
+    (eval '(ansatz.core/defn runtime-type [] Type Nat))
+    (eval '(ansatz.core/defn ignore-type [t :- Type, n :- Nat] Nat (+ n 2)))
+    (eval '(ansatz.core/defn pass-type [n :- Nat] Nat (ignore-type runtime-type n)))
+    (eval '(ansatz.core/defn ignore-proof [p :- Prop, h :- p, n :- Nat] Nat n))
+    (eval '(ansatz.core/defn pass-proof [n :- Nat] Nat (ignore-proof True True.intro n)))
+    (eval '(ansatz.core/defn ignore-predicate [p :- (=> Nat Prop), n :- Nat] Nat (+ n 3)))
+    (eval '(ansatz.core/defn pass-predicate [n :- Nat] Nat
+             (let [p (fn [x :- Nat] (Eq Nat x x))] (ignore-predicate p n))))
+    (is (nil? ((ns-resolve *ns* 'prop-runtime-probe) nil)))
+    (is (nil? (var-get (ns-resolve *ns* 'runtime-type))))
+    (doseq [form '[Nat (And True True) True.intro (fn [x :- Nat] (Eq Nat x x))]]
+      (is (nil? (cg/ansatz->clj (a/env) (elab/elaborate (a/env) form) []))
+          (pr-str form)))
+    (doseq [n [0 3 12]]
+      (compare-kernel! (list 'pass-proposition n) :int)
+      (compare-kernel! (list 'pass-type n) :int)
+      (compare-kernel! (list 'pass-proof n) :int)
+      (compare-kernel! (list 'pass-predicate n) :int))))
