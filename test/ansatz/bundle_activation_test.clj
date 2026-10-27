@@ -67,15 +67,15 @@
             (is (= {n 47} (env/get-extension (a/env) :simp-priorities {})))
             (is (= {"Fixture.f" target} (env/get-extension (a/env) :csimp {})))))))))
 
-(deftest bundled-default-recheck-rejects-invalid-definitions-before-activation
+(deftest bundled-explicit-recheck-rejects-invalid-definitions-before-activation
   (let [before (session/capture)
         declaration (env/mk-def (name/from-string "invalidBundledDefinition") []
                                 (expr/sort' (level/succ level/zero))
                                 (expr/sort' (level/succ level/zero)))]
     ;; The type is Type, while the value Type itself has type Type 1.
-    ;; TRUST would admit this declaration; the default must reject it.
+    ;; TRUST would admit this declaration; explicit checking must reject it.
     (with-redefs [parser/parse-ndjson-string
                   (fn [_] (assoc (parser/mk-parser-state) :decls [declaration]))]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Replay stopped on error"
-                            (a/load-init!)))
+                            (a/load-init! :verify? true)))
       (is (identical? (:env before) @state/ansatz-env)))))

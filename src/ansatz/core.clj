@@ -269,10 +269,10 @@
 
 (clojure.core/defn load-init!
   "Load the bundled Init export and companion metadata after integrity and
-   consumer preflight. Recheck every declaration by default; `:verify? false`
-   explicitly selects TRUST mode. The manifest's producer and the actual replay
-   mode remain visible on the immutable Env."
-  [& {:keys [verify?] :or {verify? true}}]
+   consumer preflight. Replay in TRUST mode by default; `:verify? true`
+   rechecks every declaration and stops on an error. The manifest's producer and
+   the actual replay mode remain visible on the immutable Env."
+  [& {:keys [verify?] :or {verify? false}}]
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)

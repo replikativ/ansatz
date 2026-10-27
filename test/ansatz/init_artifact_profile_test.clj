@@ -9,17 +9,19 @@
   (:import [ansatz.kernel Env]))
 
 (deftest zero-setup-aliases-retain-the-selected-bundle-profile
-  (let [prepared (atom [])]
+  (let [prepared (atom []) modes (atom [])]
     (with-redefs-fn {;; setup-env! is explicitly modeled below; give the loader's
                     ;; informational size report an isolated model cell as well.
                      #'a/ansatz-env (atom (Env.))
-                     #'a/bundled-medium-env (fn [_] (Env.))
+                     #'a/bundled-medium-env (fn [verify?] (swap! modes conj verify?) (Env.))
                      #'a/setup-env! (fn [base] (swap! prepared conj base))}
       #(binding [a/*verbose* false]
          (with-out-str
-           (a/init!) (a/init! "medium") (a/init! :init-medium) (a/load-init!))))
-    (is (= 4 (count @prepared)))
-    (doseq [[base admission] (map vector @prepared [:trust :trust :trust :checked-export])
+           (a/init!) (a/init! "medium") (a/init! :init-medium) (a/load-init!)
+           (a/load-init! :verify? false) (a/load-init! :verify? true))))
+    (is (= [false false false false false true] @modes))
+    (is (= 6 (count @prepared)))
+    (doseq [[base admission] (map vector @prepared [:trust :trust :trust :trust :trust :checked-export])
             :let [p (env/get-extension base profile/extension-key nil)
                   manifest (env/get-extension base :bundled-artifacts nil)]]
       (is (= profile/schema (:schema p)))

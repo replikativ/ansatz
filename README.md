@@ -378,7 +378,8 @@ needed to use it:
 
 ```clojure
 (require '[ansatz.core :as a])
-(a/load-init!)  ;; full kernel recheck of the bundled export
+(a/load-init!)                ;; integrity-checked bytes, TRUST replay for fast startup
+(a/load-init! :verify? true)  ;; full kernel recheck; stop on the first error
 ```
 
 To regenerate, use the pinned toolchain and exporter source specified in
