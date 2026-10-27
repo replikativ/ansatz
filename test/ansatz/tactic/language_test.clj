@@ -7,7 +7,9 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.proof :as proof]))
+            [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.extract :as extract]
+            [ansatz.surface.elaborate :as elab]))
 
 (use-fixtures :once
   (fn [t]
@@ -310,10 +312,24 @@
             (all_goals (rw [h])) (all_goals (simp [Nat.zero_add]))]))
 
 (deftest split-keeps-reduced-branches-and-sibling-goals-open
-  (proves 'split_open_branches
-          '[i :- Nat, j :- Nat, x :- Nat, y :- Nat]
-          '(And (= (if (== i j) x y) (if (== i j) x y)) True)
-          '[(constructor) (split) (rfl) (rfl) (constructor)]))
+  (let [target (elab/elaborate
+                (a/env)
+                '(forall [i :- Nat j :- Nat x :- Nat y :- Nat]
+                   (And (= (if (== i j) x y) (if (== i j) x y)) True)))
+        [ps _] (proof/start-proof (a/env) target)
+        ps (basic/intros ps ["i" "j" "x" "y"])
+        lctx (:lctx (proof/current-goal ps))
+        local (fn [nm] (e/fvar (some (fn [[id d]] (when (= nm (:name d)) id)) lctx)))
+        eq-self (fn [x] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                               (e/const' (name/from-string "Nat") []) x x))
+        ps (basic/split-tac (basic/constructor ps))]
+    ;; Check the targets before reflexivity can close an unreduced conditional.
+    (is (= [(eq-self (local "y")) (eq-self (local "x"))
+            (e/const' (name/from-string "True") [])]
+           (mapv #(proof/mvar-type ps %) (:goals ps))))
+    (let [done (-> ps basic/rfl basic/rfl basic/constructor)]
+      (is (proof/solved? done))
+      (is (not (e/has-fvar-flag (extract/verify done)))))))
 
 (deftest rename-inaccessible-selects-trailing-fields
   (proves 'rename_trailing_fields
