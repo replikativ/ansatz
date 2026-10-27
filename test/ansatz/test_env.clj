@@ -40,7 +40,7 @@
   [base]
   (env/with-extension base :instances
     (instance/load-bundled-instances
-      {:present? #(some? (env/lookup base (name/from-string %)))})))
+     {:present? #(some? (env/lookup base (name/from-string %)))})))
 
 (defn- store-env [store-dir branch]
   (when (.exists (java.io.File. store-dir))

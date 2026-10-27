@@ -99,7 +99,7 @@
    ["Spin" [] [['pure '[v Nat]] ['await '[id Nat k (=> Nat T10Generated.Spin)]]
                ['yield '[v Nat k T10Generated.Spin]]] []]
    ["Branch" '[A Type] [['leaf '[n Nat] ['n]]
-                         ['node '[n Nat k (forall [m Nat j (Fin (Nat.succ m))] (T10Generated.Branch A m))] ['n]]]
+                        ['node '[n Nat k (forall [m Nat j (Fin (Nat.succ m))] (T10Generated.Branch A m))] ['n]]]
     [:indices '[n Nat]]]
    ["Inf" [] [['node '[children (=> Nat T10Generated.Inf)]]] []]
    ["Rose" [] [['node '[children (List T10Generated.Rose)]]] []]
@@ -135,32 +135,32 @@
       (reset! a/ansatz-env @oracle)
       (binding [*ns* (the-ns 'ansatz.constructions-test) a/*verbose* false]
         (run! #(eval (walk/postwalk-replace {'spin-rec (symbol "@Spin.rec.{1}")
-                                                'nat-rec (symbol "@Nat.rec.{1}")
-                                                'spin-cases (symbol "@Spin.casesOn.{1}")} %))
+                                             'nat-rec (symbol "@Nat.rec.{1}")
+                                             'spin-cases (symbol "@Spin.casesOn.{1}")} %))
               '[(a/inductive Spin []
-                  (pure [v Nat]) (await [id Nat] [k (=> Nat Spin)]) (yield [v Nat] [k Spin]))
+                             (pure [v Nat]) (await [id Nat] [k (=> Nat Spin)]) (yield [v Nat] [k Spin]))
                 (a/defn spin-bind [s :- Spin, f :- (=> Nat Spin)] Spin
                   (spin-rec (fn [_ :- Spin] Spin) f
-                    (fn [id :- Nat, k :- (=> Nat Spin), ih :- (=> Nat Spin)]
-                      (Spin.await id (fn [x :- Nat] (ih x))))
-                    (fn [v :- Nat, k :- Spin, ih :- Spin] (Spin.yield v ih)) s))
+                            (fn [id :- Nat, k :- (=> Nat Spin), ih :- (=> Nat Spin)]
+                              (Spin.await id (fn [x :- Nat] (ih x))))
+                            (fn [v :- Nat, k :- Spin, ih :- Spin] (Spin.yield v ih)) s))
                 (a/defn spin-run [fuel :- Nat, s :- Spin] Nat
                   (nat-rec (fn [_ :- Nat] (=> Spin Nat))
-                    (fn [_ :- Spin] 0)
-                    (fn [n :- Nat, ih :- (=> Spin Nat)]
-                      (fn [s :- Spin]
-                        (spin-cases (fn [_ :- Spin] Nat) s
-                          (fn [v :- Nat] v)
-                          (fn [id :- Nat, k :- (=> Nat Spin)] (ih (k id)))
-                          (fn [v :- Nat, k :- Spin] (ih k))))) fuel s))
+                           (fn [_ :- Spin] 0)
+                           (fn [n :- Nat, ih :- (=> Spin Nat)]
+                             (fn [s :- Spin]
+                               (spin-cases (fn [_ :- Spin] Nat) s
+                                           (fn [v :- Nat] v)
+                                           (fn [id :- Nat, k :- (=> Nat Spin)] (ih (k id)))
+                                           (fn [v :- Nat, k :- Spin] (ih k))))) fuel s))
                 (a/theorem spin-bind-pure [v :- Nat, f :- (=> Nat Spin)]
-                  (= Spin (spin-bind (Spin.pure v) f) (f v)) (rfl))
+                           (= Spin (spin-bind (Spin.pure v) f) (f v)) (rfl))
                 (a/defn spin-program [n :- Nat] Nat
                   (spin-run 4
-                    (spin-bind (Spin.await n (fn [x :- Nat] (Spin.yield 9 (Spin.pure x))))
-                               (fn [x :- Nat] (Spin.pure (+ x 2))))))
+                            (spin-bind (Spin.await n (fn [x :- Nat] (Spin.yield 9 (Spin.pure x))))
+                                       (fn [x :- Nat] (Spin.pure (+ x 2))))))
                 (a/theorem spin-program-kernel [n :- Nat]
-                  (= Nat (spin-program n) (+ n 2)) (rfl))
+                           (= Nat (spin-program n) (+ n 2)) (rfl))
                 (a/defn spin-fuel-program [fuel :- Nat] Nat
                   (spin-run fuel (Spin.await 3 (fn [x :- Nat] (Spin.yield 9 (Spin.pure (+ x 2)))))))
                 (a/theorem spin-fuel-exhausted [] (= Nat (spin-fuel-program 2) 0) (rfl))

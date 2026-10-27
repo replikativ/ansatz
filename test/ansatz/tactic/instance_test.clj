@@ -148,7 +148,7 @@
       (is (not (identical? registry (inst/index-for env)))
           "a process-global registry never answers for an env that does not carry it")
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no instance registry"
-            (inst/index-for (env/with-extension env :instances nil))))
+                            (inst/index-for (env/with-extension env :instances nil))))
       (is (= {} (inst/index-for (env/with-extension env :instances {}))))
       (finally (reset! state/ansatz-instance-index saved)))))
 
@@ -335,7 +335,7 @@
       (is (nil? (inst/synthesize* (tc/mk-tc-state empty-env) empty-env {} goal 0))))
     (testing "synthesis without an environment registry fails loudly"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no instance registry"
-            (inst/synthesize* (tc/mk-tc-state raw-env) raw-env @test-index goal 0))))
+                            (inst/synthesize* (tc/mk-tc-state raw-env) raw-env @test-index goal 0))))
     (testing "scoped Classical instances are absent from the bundled global registry"
       (is (not-any? #(= "Classical.propDecidable" (str (:name %)))
                     (mapcat val (inst/index-for base)))))))
