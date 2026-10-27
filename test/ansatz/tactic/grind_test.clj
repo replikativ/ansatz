@@ -1,6 +1,7 @@
 (ns ansatz.tactic.grind-test
   "Tests for grind tactic and E-graph."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -39,6 +40,8 @@
 ;; ============================================================
 ;; Grind via rfl
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-grind-rfl
   (testing "grind solves a = a via rfl"

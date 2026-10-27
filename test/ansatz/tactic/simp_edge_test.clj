@@ -1,7 +1,8 @@
 (ns ansatz.tactic.simp-edge-test
   "Edge case tests for the simp tactic: perm detection, prop-true,
    discrimination tree matching, and proof construction."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -29,6 +30,8 @@
 ;; ============================================================
 ;; isPerm detection
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-perm-comm-detected
   (testing "add_comm is detected as permutative (LHS and RHS differ only in bvar order)"

@@ -1,7 +1,8 @@
 (ns ansatz.tactic.unify-test
   "Unit tests for metavariable-aware, reduction-aware unification
    (Lean Meta.isDefEq analog, `ansatz.meta/is-def-eq`)."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -25,6 +26,8 @@
 
 (defn- fresh-ctx [id type]
   (meta/add-expr-mvar-decl meta/empty-context id type {}))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-bare-mvar-assign
   (testing "a bare metavariable unifies with any term and gets assigned"

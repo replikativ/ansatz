@@ -1,5 +1,6 @@
 (ns ansatz.meta-test
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is testing]]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -41,6 +42,8 @@
   (let [meta-term (extract/extract ps)]
     (is (proof/solved? ps))
     (is (meta/closed-expr? (:meta-mctx ps) meta-term))))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest zonk-instantiates-expression-and-level-mvars
   (testing "direct expression and level assignments are chased together"

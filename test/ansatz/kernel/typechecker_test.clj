@@ -1,6 +1,7 @@
 (ns ansatz.kernel.typechecker-test
   "Unit tests for TypeChecker: type inference, definitional equality, fuel stats."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.fixtures :as fixtures]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
@@ -355,7 +356,7 @@
 (deftest replay-with-stats-test
   (testing "Replay Nat.add_succ with checkConstantFuelStats"
     (let [f "test-data/Nat.add_succ.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (letfn [(same-name-array? [^objects xs ^objects ys]
                   (and xs ys
                        (= (alength xs) (alength ys))
@@ -442,7 +443,7 @@
 (deftest reject-ill-typed-definition-test
   (testing "checkConstant rejects definitions whose body only typechecks in infer-only mode"
     (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (let [st (parse-ndjson-file f)
               env (:env (replay/replay (:decls st)))
               nat (e/const' (name/from-string "Nat") [])
@@ -509,7 +510,7 @@
    nesting inductive's parameters — a negative occurrence there is unsound and
    Lean rejects it, even though the direct-occurrence check would miss it"
     (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (let [E (:env (replay/replay (:decls (parse-ndjson-file f))))
               n #(name/from-string %)
               c #(e/const' (n %) [])
@@ -537,7 +538,7 @@
    Quot.lift/Quot.ind primitives with their expected types — a raw quot-kind decl must
    not inject an unchecked axiom (Lean generates these internally via add_quot)"
     (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (let [E (:env (replay/replay (:decls (parse-ndjson-file f))))
               False* (e/const' (name/from-string "False") [])]
           ;; A bogus name is rejected — this is the concrete `BogusQuot : False` exploit.
@@ -558,7 +559,7 @@
 (deftest reject-corrupt-imported-recursor-rule-test
   (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
     (let [f "test-data/Nat.add_succ.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (let [members (vec (take 4 (:decls (parse-ndjson-file f))))
               inductives (filterv #(.isInduct ^ConstantInfo %) members)
               ctors (filterv #(.isCtor ^ConstantInfo %) members)

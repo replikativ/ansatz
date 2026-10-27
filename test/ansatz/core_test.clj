@@ -1,7 +1,8 @@
 (ns ansatz.core-test
   "Tests for the public API: defn, theorem, inductive.
    Uses init-medium.ndjson (2997 declarations, ~1.5s load)."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
@@ -41,7 +42,7 @@
     (binding [a/*verbose* false]
       (f))))
 
-(use-fixtures :once with-env)
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"] with-env))
 
 ;; ============================================================
 ;; defn tests

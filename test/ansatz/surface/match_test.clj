@@ -1,6 +1,7 @@
 (ns ansatz.surface.match-test
   "Tests for match expression compilation and theorem/def macros."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -39,6 +40,8 @@
 
 (defn- whnf [env expr]
   (red/whnf env expr))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-structural-self-call-probe-rolls-back-metacontext
   (testing "failed fixed-parameter probes do not leak speculative mvar assignments"

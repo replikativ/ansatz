@@ -3,6 +3,36 @@ version: 2.1
 orbs:
   tools: replikativ/clj-tools@0
 
+# Orb source: github.com/replikativ/circleci-orb (clj-tools branch), src/jobs/unittest.yml.
+# The orb unittest job has no parameters for sharding. Reuse its executor and
+# built workspace, with an explicit medium container (2 vCPU / 4 GiB) per group.
+jobs:
+  unittests:
+    executor: tools/clojurecli
+    resource_class: medium
+    parallelism: 4
+    environment:
+      ANSATZ_STORE_DIR: /tmp/ansatz-ci-empty-stores
+    steps:
+      - attach_workspace:
+          at: /home/circleci
+      - run:
+          name: Run non-WIP unit test group
+          command: ./bin/run-unittests "$CIRCLE_NODE_INDEX"
+          no_output_timeout: 5m
+  test-contracts:
+    executor: tools/clojurecli
+    resource_class: medium
+    environment:
+      ANSATZ_STORE_DIR: /tmp/ansatz-ci-empty-stores
+    steps:
+      - attach_workspace:
+          at: /home/circleci
+      - run:
+          name: Run package and experimental contracts
+          command: ./bin/run-unittests contracts
+          no_output_timeout: 5m
+
 workflows:
   build-test-and-deploy:
     jobs:
@@ -16,7 +46,11 @@ workflows:
           context: docker-deploy
           requires:
             - tools/setup
-      - tools/unittest:
+      - unittests:
+          context: docker-deploy
+          requires:
+            - tools/build
+      - test-contracts:
           context: docker-deploy
           requires:
             - tools/build
@@ -28,7 +62,8 @@ workflows:
             branches:
               only: main
           requires:
-            - tools/unittest
+            - unittests
+            - test-contracts
       - tools/release:
           context:
             - github-token

@@ -1,7 +1,8 @@
 (ns ansatz.tactic.advanced-test
   "Tests for advanced tactics: omega, ring, simp.
    Mirrors Lean 4's test cases where possible."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.fixtures :as fixtures]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -90,6 +91,8 @@
 ;; ============================================================
 ;; Omega tests — ground arithmetic
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-omega-ground-eq
   (testing "Ground equalities"

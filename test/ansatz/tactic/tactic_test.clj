@@ -1,6 +1,7 @@
 (ns ansatz.tactic.tactic-test
   "Tests for the tactic layer: proof states, tactics, extraction, verification."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -47,6 +48,8 @@
 ;; ============================================================
 ;; Test 1: ∀ (a : Prop), a → a — intro + intro + assumption
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-prop-identity
   (testing "∀ (a : Prop), a → a via intro + intro + assumption"

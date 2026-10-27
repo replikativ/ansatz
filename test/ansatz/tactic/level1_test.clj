@@ -1,5 +1,6 @@
 (ns ansatz.tactic.level1-test
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -22,6 +23,8 @@
 (def ^:private u1 (lvl/succ lvl/zero))
 (defn- nat-eq [a b] (e/app* (e/const' (name/from-string "Eq") [u1]) nat a b))
 (defn- fh [ps n] (some (fn [[id d]] (when (= n (:name d)) id)) (:lctx (proof/current-goal ps))))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-grind-transitivity
   (let [goal (e/forall' "a" nat (e/forall' "b" nat (e/forall' "c" nat

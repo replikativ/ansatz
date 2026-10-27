@@ -1,6 +1,7 @@
 (ns ansatz.indexed-inductive-test
   "Tests for indexed inductive families (Vec, Fin, etc.)."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
@@ -48,7 +49,7 @@
     (reset! a/ansatz-env env)
     (f)))
 
-(use-fixtures :once with-init-env)
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"] with-init-env))
 
 ;; ============================================================
 ;; Vec: length-indexed vector

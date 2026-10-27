@@ -2,7 +2,8 @@
   "Tests that verify the examples from examples/ directory work.
    RB tree tests run against init-medium.ndjson (no Mathlib needed).
    GD convergence tests require Mathlib store (skipped if unavailable)."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
@@ -61,6 +62,8 @@
 ;; ============================================================
 ;; Structure tests (init-medium sufficient)
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-structure-definition
   (testing "Define structures with auto-generated projections"
@@ -1030,7 +1033,8 @@
          (finally
            (reset! a/ansatz-env saved-env#)
            (reset! a/ansatz-instance-index saved-idx#))))
-     (is true "skipped: Mathlib store not available")))
+     (do (println "SKIP: Mathlib store not available")
+         (is true "skipped: Mathlib store not available"))))
 
 (deftest test-gd-defn
   (when-mathlib

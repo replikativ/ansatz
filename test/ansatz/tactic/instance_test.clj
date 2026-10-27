@@ -1,6 +1,7 @@
 (ns ansatz.tactic.instance-test
   "Tests for typeclass instance synthesis."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.tactic.instance :as inst]
             [ansatz.kernel.expr :as e]
@@ -33,6 +34,8 @@
 ;; ============================================================
 ;; Basic instance lookup
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-get-instances
   (testing "Instance index has candidates for common classes"

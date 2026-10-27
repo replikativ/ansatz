@@ -810,3 +810,21 @@ Ansatz implements the Calculus of Inductive Constructions following [Lean 4](htt
 Apache License 2.0 — same as Lean 4. See [LICENSE](LICENSE).
 
 Copyright 2026 Christian Weilbach
+
+### CI test groups
+
+`bin/run-unittests 0` through `bin/run-unittests 3` run disjoint groups of all
+`test/**/*_test.clj` namespaces, excluding `:wip` tests. Discovery includes new
+namespaces automatically. `python3 bin/test-namespaces --inventory` lists every
+namespace and its fixture requirements; the commented exclusion map in that script
+contains only namespaces needing uncommitted Init exports or the Mathlib store.
+Committed `test-data/arena`, kernel reference files and `Nat.add_succ.ndjson` run
+in CI. Mixed kernel namespaces print skips for optional exports while running
+all their other assertions. Optional fixture namespaces also print a reason when
+run directly without their exports.
+
+CircleCI runs four independent `medium` containers (2 vCPU, 4 GiB), each with a
+1 GiB test heap. A separate `test-contracts` job runs the existing package and
+experimental contracts via `bin/run-unittests contracts`. Both jobs gate deployment.
+Running `bin/run-unittests` locally runs all four groups and then the contracts.
+Use `ANSATZ_STORE_DIR` pointing at an empty directory to reproduce store-free CI.

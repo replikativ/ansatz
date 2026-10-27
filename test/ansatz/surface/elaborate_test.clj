@@ -1,6 +1,7 @@
 (ns ansatz.surface.elaborate-test
   "Tests for the elaboration function."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -32,6 +33,8 @@
 ;; ============================================================
 ;; Basic elaboration (no implicits needed)
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-elab-sort-shortcuts
   (testing "Prop and Type elaborate correctly"

@@ -1,6 +1,7 @@
 (ns ansatz.tactic.smoke-test
   "REPL smoke test for the tactic layer with init-medium env."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -24,6 +25,8 @@
 (defn- require-env []
   (or @init-medium-env
       (throw (ex-info "init-medium.ndjson not found" {}))))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest smoke-test-repl-workflow
   (testing "Full REPL workflow: prove, intro, rfl, qed"

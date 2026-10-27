@@ -21,7 +21,9 @@
         (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- with-env [t]
-  (when-let [e @init-medium-env] (reset! a/ansatz-env e))
+  (if-let [e @init-medium-env]
+    (reset! a/ansatz-env e)
+    (println "SKIP optional algebra cases: test-data/init-medium.ndjson not present"))
   (t))
 (use-fixtures :once with-env)
 (defn- ready? [] (some? @init-medium-env))

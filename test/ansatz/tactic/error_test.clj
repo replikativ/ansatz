@@ -2,7 +2,8 @@
   "Tests for tactic error handling, edge cases, and error message quality.
    Verifies that wrong tactics, unsolvable goals, and type errors
    produce actionable error messages."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -33,6 +34,8 @@
 ;; ============================================================
 ;; Apply error cases
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-apply-nonexistent-const
   (testing "Apply with nonexistent constant throws"

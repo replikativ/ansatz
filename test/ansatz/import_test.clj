@@ -2,7 +2,8 @@
   "The single importer (ansatz.import) and store format 1: an export in, a COMPLETE store out —
    manifest last, derived state as blobs, content-addressed roots — and `init!` on it, with
    simp served lazily from the store's index and recall from its keys."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [ansatz.fixtures :as fixtures]
+            [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [ansatz.core :as a]
             [ansatz.import :as imp]
@@ -32,6 +33,8 @@
 (defn- nle [x y]
   (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) nat
           (e/const' (name/from-string "instLENat") []) x y))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files [ndjson]))
 
 (deftest an-import-is-a-complete-store
   (let [dir (tmp-store "full")

@@ -5,7 +5,8 @@
    subobject projections, Lean's `fromSubobject`), and BOTH levels admit verified instances with
    the child built compositionally from the parent instance (the distributivity proof checks
    through the subobject projection by defeq)."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
@@ -25,7 +26,7 @@
     (reset! a/ansatz-env env)
     (f)))
 
-(use-fixtures :once with-init-env)
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"] with-init-env))
 
 (defn- has? [s] (some? (env/lookup (a/env) (nm/from-string s))))
 (defn- k [s] (e/const' (nm/from-string s) []))

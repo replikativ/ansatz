@@ -6,7 +6,8 @@
    is high-risk (the Clojure kernel handles open metavars + an attachable mutable lctx the Java
    kernel has no API for), so instead this turns the standing divergence risk into a TEST FAILURE:
    for a sample of Init declarations, both kernels must infer def-equal types."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.fixtures :as fixtures]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.kernel.tc :as tc]
@@ -36,6 +37,8 @@
   (let [cT (tc/infer-type (tc/mk-tc-state e-env) e)
         jT (.inferType jtc e)]
     (.isDefEq jtc cT jT)))
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest two-kernel-conformance
   (testing "Clojure tactic-kernel (tc/reduce) agrees with the Java TypeChecker on a sample of Init decls"

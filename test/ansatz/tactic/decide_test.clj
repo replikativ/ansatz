@@ -1,6 +1,7 @@
 (ns ansatz.tactic.decide-test
   "Tests for instance resolution and the decide tactic."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -36,6 +37,8 @@
 ;; ============================================================
 ;; Instance resolution tests
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-resolve-decidable-eq-nat
   (testing "Resolve Decidable (Eq Nat 0 0)"

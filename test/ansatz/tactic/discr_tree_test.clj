@@ -1,6 +1,7 @@
 (ns ansatz.tactic.discr-tree-test
   "Tests for discrimination tree."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -27,6 +28,8 @@
 ;; ============================================================
 ;; Key encoding tests
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-expr-to-keys-const
   (testing "Bare constant encodes to single const key"

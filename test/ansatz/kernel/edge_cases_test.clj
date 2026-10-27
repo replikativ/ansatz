@@ -1,7 +1,8 @@
 (ns ansatz.kernel.edge-cases-test
   "Tests for kernel edge cases: proof irrelevance, eta reduction,
    deep WHNF, K-recursors, universe levels."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.fixtures :as fixtures]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -23,6 +24,8 @@
 ;; ============================================================
 ;; Proof irrelevance
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-proof-irrelevance-basic
   (testing "Two proofs of same proposition are def-eq"

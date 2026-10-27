@@ -1,111 +1,25 @@
 #!/bin/bash
+set -euo pipefail
 
-set -eo pipefail
-
-echo "Checking optional Lean source closure and audit contracts"
-(
-  cd modules/lean
-  clojure -J-Xmx384m -T:build check-package
-)
-
-echo "Running fixture-free JVM unit tests"
-
-clojure -M:ci \
-	-e integration \
-	-n ansatz.export.parser-test \
-	-n ansatz.export.parser-lifecycle-test \
-	-n ansatz.export.replay-test \
-	-n ansatz.export.storage-test \
-	-n ansatz.kernel.reducer-test \
-	-n ansatz.kernel.typechecker-test \
-	-n ansatz.kernel.expression-identity-test \
-	-n ansatz.kernel.external-cache-test \
-	-n ansatz.kernel.cases-on-test \
-	-n ansatz.kernel.cases-on-native-test \
-	-n ansatz.load-export-test \
-	-n ansatz.surface.lean-test \
-	-n ansatz.surface.pp-test \
-	-n ansatz.theory.convergence-test \
-	-n ansatz.export.evidence-test \
-	-n ansatz.bounded-ci-comparison-test \
-	-n ansatz.companion-overlay-test \
-	-n ansatz.bundle-test \
-	-n ansatz.bundle-validation-test \
-	-n ansatz.bundle-semantic-policy-test \
-	-n ansatz.bundle-closure-plan-test \
-	-n ansatz.wf-supplement-test \
-	-n ansatz.wf-supplement-activation-test \
-	-n ansatz.session-test \
-	-n ansatz.conditional-session-test \
-	-n ansatz.bundled-init-test
-
-echo
-echo "bundled-init-test exercises the zero-setup (a/init!) path from the in-jar medium tier."
-echo "Integration tests requiring the FULL test-data store are not part of the default CI unit suite."
-
-
-echo "Running fixture-free experimental checkpoint, world validation, IR dependency and continuation readiness contracts"
-# Keep the experimental interpreter source paths scoped to this separate JVM;
-# they are not added to the core artifact or its normal test classpath.
-clojure -J-Xmx384m -J-Xss8m \
-  -Sdeps '{:paths ["src" "classes" "resources" "experiments/lean-ir/src" "experiments/lean-ir/test"]}' \
-  -M -e '(require (quote [clojure.test :as t])
-                  (quote prototype.checkpoint-wire-test)
-                  (quote prototype.restore-validation-test)
-                  (quote prototype.import-ir-dag-test)
-                  (quote prototype.continuation-readiness-test))
-         (def seen (atom #{}))
-         (defmethod t/report :begin-test-var [event] (swap! seen conj (:var event)))
-         (defmethod t/report :fail [event]
-           (t/inc-report-counter :fail)
-           (println "BOUNDED_ASSERTION_FAILURE" (:file event) (:line event)))
-         (defmethod t/report :error [event]
-           (t/inc-report-counter :error)
-           (loop [cause (:actual event) remaining 8]
-             (when (and cause (pos? remaining))
-               (let [message (or (.getMessage ^Throwable cause) "")]
-                 (println (.getName (class cause)) (subs message 0 (min 512 (count message)))))
-               (recur (.getCause ^Throwable cause) (dec remaining)))))
-         (let [nss [(quote prototype.checkpoint-wire-test) (quote prototype.restore-validation-test)
-                    (quote prototype.import-ir-dag-test) (quote prototype.continuation-readiness-test)]
-               expected (set (for [n nss [_ v] (ns-publics n) :when (:test (meta v))] v))
-               result (apply t/run-tests nss)]
-           (System/exit (if (and (= 37 (count expected) (:test result)) (= expected @seen)
-                                 (zero? (+ (:fail result) (:error result)))) 0 1)))'
-
-echo
-echo "Running compact checking progress, cold controller phase and native Store decoding contracts"
-mkdir -p target
-cold_check_classes=$(mktemp -d "$PWD/target/cold-check-classes.XXXXXX")
-cleanup_cold_check_classes() {
-  if [[ -n "${cold_check_classes:-}" && -d "$cold_check_classes" ]]; then
-    rm -r -- "$cold_check_classes"
-  fi
-}
-trap cleanup_cold_check_classes EXIT
-javac -source 11 -target 11 -d "$cold_check_classes" experiments/lean-ir/java/prototype/TypedLongMemo.java
-(
-  cd experiments/lean-ir
-  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
-    -M scripts/test-cold-check-progress.clj
-)
-
-echo
-echo "Running portable RAW casesOn constructor and preseal policy tests"
-(
-  cd experiments/lean-ir
-  clojure -J-Xmx384m -J-Xss8m -M scripts/test-cases-on.clj
-)
-
-echo
-echo "Running fixture-free coherent consumer infrastructure tests"
-python3 experiments/lean-ir/scripts/test-coherent.py
-
-
-echo
-echo "Running optional Pattern typed tail-region preparation contracts"
-(
-  cd experiments/lean-ir
-  clojure -J-Xmx384m -J-Xss8m -Sdeps "{:paths [\"src\" \"test\" \"$cold_check_classes\"]}" \
-    -M:typed-tail scripts/test-typed-tail.clj
-)
+# CircleCI uses four independent medium containers; each JVM has a bounded heap.
+# No argument runs the same groups sequentially for local reproduction.
+case "${1:-all}" in
+  contracts) exec ./bin/run-test-contracts ;;
+  all) groups=(0 1 2 3) ;;
+  0|1|2|3) groups=("$1") ;;
+  *) echo "Usage: $0 [0|1|2|3|all|contracts]" >&2; exit 2 ;;
+esac
+for group in "${groups[@]}"; do
+  discovered=$(python3 bin/test-namespaces "$group")
+  [[ -n "$discovered" ]] || { echo "No test namespaces discovered" >&2; exit 1; }
+  mapfile -t namespaces <<< "$discovered"
+  args=()
+  for ns in "${namespaces[@]}"; do args+=(-n "$ns"); done
+  echo "Running CI group $group: ${namespaces[*]}"
+  SECONDS=0
+  clojure -J-Xmx1g -M:ci -e :wip "${args[@]}"
+  echo "CI group $group completed in ${SECONDS}s"
+done
+if [[ "${1:-all}" == all ]]; then
+  exec ./bin/run-test-contracts
+fi

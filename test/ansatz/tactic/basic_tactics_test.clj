@@ -1,7 +1,8 @@
 (ns ansatz.tactic.basic-tactics-test
   "Tests for new core tactics: induction, have, revert, exfalso, subst, clear,
    and tactic combinators."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -38,6 +39,8 @@
 ;; ============================================================
 ;; exact
 ;; ============================================================
+
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
 
 (deftest test-exact-form-closes-goal
   (testing "exact elaborates a surface term against the current target"
