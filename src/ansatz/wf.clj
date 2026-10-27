@@ -19,6 +19,7 @@
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
             [ansatz.codegen :as codegen :refer [ansatz->clj]]
+            [ansatz.codegen.decl :as decl]
             [ansatz.config :as config]
             [ansatz.surface.elaborate :as elab]
             [ansatz.surface.ingest :as ingest
@@ -31,7 +32,6 @@
 (defn- prove-theorem [& args] (apply (requiring-resolve 'ansatz.core/prove-theorem) args))
 (defn- build-telescope-fvar [& args] (apply (requiring-resolve 'ansatz.core/build-telescope-fvar) args))
 (defn- try-synthesize-instance [& args] (apply (requiring-resolve 'ansatz.core/try-synthesize-instance) args))
-(defn- compute-arity [& args] (apply (requiring-resolve 'ansatz.core/compute-arity) args))
 
 ;; The live-env accessor (mirrors ansatz.core/env). `env` as a fn coexists with the `env/` ns
 ;; alias above — bare `(env)` reads the var, `env/lookup` uses the alias (the convention core uses).
@@ -61,7 +61,7 @@
                 (and (e/const? head)
                      (= (name/->string (e/const-name head))
                         (name/->string fn-name))
-                     (= fn-arity (count args)))
+                     (<= fn-arity (count args)))
                 ;; Fuel-based: replace fn-name(args...) with ih(args...), no proof needed
                 (let [walked-args (mapv #(walk % depth-offset discr) args)
                       ih-ref (e/bvar (+ ih-depth depth-offset))]
@@ -188,8 +188,8 @@
          param-type (fn [sym] (some (fn [[p t]] (when (= p sym) t)) pairs))]
      (letfn [(walk [form guards binders]
                (cond
-                 (and (seq? form) (= (first form) fn-name) (= n (count (rest form))))
-                 (do (swap! acc conj {:args (vec (rest form)) :field-binders binders :guards guards})
+                 (and (seq? form) (= (first form) fn-name) (<= n (count (rest form))))
+                 (do (swap! acc conj {:args (vec (take n (rest form))) :field-binders binders :guards guards})
                     ;; nested self-calls inside this call's arguments carry their own obligations
                      (doseq [sub (rest form)] (walk sub guards binders)))
 
@@ -229,7 +229,8 @@
                    (walk bbody guards binders))
 
                  (seq? form)
-                 (doseq [sub (rest form)] (walk sub guards binders))
+                 ;; Nested application may put the recursive call in function position.
+                 (doseq [sub form] (walk sub guards binders))
 
                  :else nil))]
        (walk body [] [])
@@ -356,13 +357,18 @@
             (recur (dec k) (e/lam nm (e/abstract-many ty (subvec ids 0 k)) acc :default)))))))
 
 ;; telescope a Pi type to fvars, WHNF at each step (minor types are beta-redexes `motive (ctor …)`).
-(defn- wf-fix-tele-open [ty reducer]
-  (loop [t (.whnf reducer ty) bs []]
-    (if (e/forall? t)
-      (let [id (wf-fix-fresh)]
-        (recur (.whnf reducer (e/instantiate1 (e/forall-body t) (e/fvar id)))
-               (conj bs [id (e/forall-name t) (e/forall-type t)])))
-      {:binders bs :body t})))
+(defn- wf-fix-tele-open
+  ([ty reducer] (wf-fix-tele-open ty reducer nil))
+  ([ty reducer result-type]
+   ;; Like WF/Fix.lean's bounded telescopes, preserve a function-valued result
+   ;; rather than opening its parameters as constructor fields or the threaded IH.
+   (let [result-type (when result-type (.whnf reducer result-type))]
+     (loop [t (.whnf reducer ty) bs []]
+       (if (and (e/forall? t) (not= t result-type))
+         (let [id (wf-fix-fresh)]
+           (recur (.whnf reducer (e/instantiate1 (e/forall-body t) (e/fvar id)))
+                  (conj bs [id (e/forall-name t) (e/forall-type t)])))
+         {:binders bs :body t})))))
 
 (defn- wf-fix-ty-of [scope id] (some (fn [[i t]] (when (= i id) t)) scope))
 
@@ -805,7 +811,7 @@
         minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))
         process (fn [mi]
                   (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
-                        bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer)) bid (mapv first bs)
+                        bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer ret)) bid (mapv first bs)
                         field-ids (vec (take nf bid))
                         field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
                         fs-id (last bid)
@@ -830,10 +836,13 @@
 (defn- wf-fix-refine [env callspec ret reducer body ih-fvar P scope]
   (let [[h as] (e/get-app-fn-args body)]
     (cond
-      (and (e/const? h) (= (e/const-name h) (:cname callspec)) (= (:arity callspec) (count as)))
+      ;; Lean Elab/PreDefinition/WF/Fix.lean replaceRecApps.processRec:
+      ;; pack the recursion arguments, insert the decrease proof, then apply extras.
+      (and (e/const? h) (= (e/const-name h) (:cname callspec)) (<= (:arity callspec) (count as)))
       (let [args' (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as)
-            arg ((:pack callspec) args')]
-        (e/app* ih-fvar arg ((:decr callspec) env reducer scope arg P)))
+            arg ((:pack callspec) (take (:arity callspec) args'))]
+        (reduce e/app (e/app* ih-fvar arg ((:decr callspec) env reducer scope arg P))
+                (drop (:arity callspec) args')))
       (wf-fix-refinable? env h as P)
       (wf-fix-refine-rec env callspec ret reducer h as ih-fvar P scope)
       (seq as)
@@ -865,7 +874,7 @@
 ;; leaf enumerator: split each case-split-on-a-pattern-var per constructor, composing the
 ;; pattern; stop at dites/leaves. fields = the ∀-binders of the equation ([[id type] …]);
 ;; a split consumes the matched var and appends the constructor's fields.
-(defn- wf-fix-eq-leaves [env tc reducer body pattern fields]
+(defn- wf-fix-eq-leaves [env tc reducer body pattern fields ret]
   (let [[h as] (e/get-app-fn-args body)]
     (if (wf-fix-refinable? env h as pattern)
       (let [rec-name (e/const-name h)
@@ -880,7 +889,7 @@
         (vec (mapcat
               (fn [mi]
                 (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
-                      bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer)) bid (mapv first bs)
+                      bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer ret)) bid (mapv first bs)
                       field-ids (vec (take nf bid))
                       field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
                       ctor-pat (apply e/app* (e/const' ctor-name (vec (rest (e/const-levels h))))
@@ -893,7 +902,7 @@
                       orig (nth as (+ np 1 mi))
                       obody (loop [b orig i 0] (if (and (< i (count bs)) (e/lam? b))
                                                  (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))]
-                  (wf-fix-eq-leaves env tc reducer obody pattern' fields')))
+                  (wf-fix-eq-leaves env tc reducer obody pattern' fields' ret)))
               (range nminors))))
       [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}])))
 
@@ -1037,7 +1046,9 @@
         ;; Universe level for return type
         tc-tmp (ansatz.kernel.TypeChecker. env)
         _ (.setFuel tc-tmp (long config/*default-fuel*))
-        ret-sort (.inferType tc-tmp ret-ansatz)
+        ;; Nat.rec returns the entire parameter telescope. Type parameters can
+        ;; raise its universe above the result's (Lean Nat.rec's motive universe).
+        ret-sort (.inferType tc-tmp type-ansatz)
         ret-level (if (e/sort? ret-sort) (e/sort-level ret-sort) (lvl/succ lvl/zero))
 
         ;; Fuel-based approach: Nat.rec on fuel (matching Lean 4's kernel-level pattern).
@@ -1060,31 +1071,38 @@
         motive-nr (e/lam "fuel" nat arrow-type :default)
         ;; base: λ p1 p2 ... pn => default (unreachable with correct fuel)
         ;; Use type-appropriate default value
-        default-val (let [[rh ra] (e/get-app-fn-args ret-ansatz)]
-                      (cond
-                        ;; Nat → 0
-                        (and (e/const? ret-ansatz)
-                             (= "Nat" (name/->string (e/const-name ret-ansatz))))
-                        (e/lit-nat 0)
-                        ;; List α → List.nil α
-                        (and (e/const? rh)
-                             (= "List" (name/->string (e/const-name rh))))
-                        (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                               (first ra))
-                        ;; Bool → false
-                        (and (e/const? ret-ansatz)
-                             (= "Bool" (name/->string (e/const-name ret-ansatz))))
-                        (e/const' (name/from-string "Bool.false") [])
-                        ;; Fallback: try Inhabited.default
-                        :else
-                        (let [inh-inst (try-synthesize-instance
-                                        env (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)])
-                                                   ret-ansatz))]
-                          (if inh-inst
-                            (e/app* (e/const' (name/from-string "Inhabited.default") [(lvl/succ lvl/zero)])
-                                    ret-ansatz inh-inst)
-                            ;; Last resort: use lit-nat 0 (may cause type error if reached)
-                            (e/lit-nat 0)))))
+        default-val ((fn default-value [ty]
+                       (let [[rh ra] (e/get-app-fn-args ty)]
+                        (cond
+                          ;; Init/Prelude.lean Pi.instInhabited: default functions
+                          ;; return a default at the codomain, without forcing an argument.
+                          (e/forall? ty)
+                          (e/lam (e/forall-name ty) (e/forall-type ty)
+                                 (default-value (e/forall-body ty)) (e/forall-info ty))
+                          ;; Nat → 0
+                          (and (e/const? ty)
+                               (= "Nat" (name/->string (e/const-name ty))))
+                          (e/lit-nat 0)
+                          ;; List α → List.nil α
+                          (and (e/const? rh)
+                               (= "List" (name/->string (e/const-name rh))))
+                          (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
+                                 (first ra))
+                          ;; Bool → false
+                          (and (e/const? ty)
+                               (= "Bool" (name/->string (e/const-name ty))))
+                          (e/const' (name/from-string "Bool.false") [])
+                          ;; Fallback: try Inhabited.default
+                          :else
+                          (let [inh-inst (try-synthesize-instance
+                                          env (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)])
+                                                     ty))]
+                            (if inh-inst
+                              (e/app* (e/const' (name/from-string "Inhabited.default") [(lvl/succ lvl/zero)])
+                                      ty inh-inst)
+                              ;; Last resort: use lit-nat 0 (may cause type error if reached)
+                              (e/lit-nat 0))))))
+                     ret-ansatz)
         base-nr (loop [i (dec n) body default-val]
                   (if (< i 0) body
                       (recur (dec i)
@@ -1176,7 +1194,7 @@
                                           (some? (wf-sizeof-inst @ansatz-env pt))))
                              param-types))
         fix-info
-        (when (or all-nat? sized1? sizedN?)
+        (when (and (pos? n) (or all-nat? sized1? sizedN?))
           (try
             (let [packed-ty (if (= n 1) (nth param-types 0) (wf-fix-pack-ty param-types))
                   tc0 (doto (ansatz.kernel.TypeChecker. env) (.setFuel (long config/*default-fuel*)))
@@ -1230,7 +1248,8 @@
                                  (when lex? " lexicographically") ").")
                             {:fn fn-name :kind :termination-wf-encode-failed})))
         encoding (if fix-info :wf-fix :fuel)
-        chosen-body (or (:value fix-info) final-body)
+        ;; With no declared recursion domain, the definition is already a value.
+        chosen-body (if (zero? n) body-ansatz (or (:value fix-info) final-body))
 
         ;; Type-check on the real env
         tc (ansatz.kernel.TypeChecker. env)
@@ -1241,7 +1260,7 @@
         ci (env/mk-def cname [] type-ansatz chosen-body)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+        _ (decl/plan! (str fn-name) type-ansatz n)
         _ (when (verbose?) (println (str "✓ " fn-name " defined (well-founded recursion, "
                                          (case encoding
                                            :wf-fix (if lex? "kernel-enforced lexicographic WellFounded.fix"
@@ -1279,7 +1298,7 @@
                                             (= 4 (count pas)))
                                      (recur (nth pas 3) (conj acc (nth pas 2)) (dec left))
                                      (throw (ex-info "wf-fix eq: unsplit packed pattern" {})))))))
-                    leaves (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (:packed-ty fix-info)]])]
+                    leaves (wf-fix-eq-leaves env' tc-eq red-eq rawX2 X2 [[X2id (:packed-ty fix-info)]] ret-ansatz)]
                 (doseq [[i {:keys [fields pattern rhs]}] (map-indexed vector leaves)]
                   (let [ids (mapv first fields)
                         eq-core (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
@@ -1356,45 +1375,25 @@
         ;; at tail self-calls — a tail-recursive accumulator defn becomes a real loop
         ;; regardless of the WF/fuel encoding, which stays the kernel-proven artifact.
         ;; Falls back to compiling the encoding on any failure.
-        direct-fn (try
-                    (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
-                          emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
-                          emitted (emit @ansatz-env (str fn-name) body-ansatz
-                                        {:erased (or erased 0) :arity (or arity n)})]
-                      (when emitted
-                        (swap! arity-registry update (str fn-name) assoc :provenance :surface)
-                        (:fn emitted)))
-                    (catch Exception ex
-                      (when (verbose?)
-                        (println "  direct-recursion emitter unavailable ("
-                                 (.getMessage ex) ") — compiling the WF encoding"))
-                      nil))
-        ;; Compile to Clojure — uncurry for multi-arg
-        clj-form (when-not direct-fn (ansatz->clj @ansatz-env final-body []))
-        ;; The compiled form is curried: (fn [p1] (fn [p2] ... body ...))
-        ;; Wrap in uncurried version: (fn [p1 p2 ...] ((curried p1) p2) ...)
-        ;; For multi-arg: create a function that accepts both curried and uncurried calls.
-        ;; Curried: ((f x) y) — needed when called from other compiled code
-        ;; Uncurried: (f x y) — needed for ergonomic Clojure usage
-        clj-fn (cond
-                 direct-fn direct-fn
-                 (<= n 1) (eval clj-form)
-                 :else
-                 (let [param-syms (mapv (fn [[p _]] (gensym (str p "_"))) pairs)
-                       curried-call (reduce (fn [f s] (list f s))
-                                            (list clj-form (first param-syms))
-                                            (rest param-syms))]
-                   (eval
-                     ;; Multi-arity: 1-arg returns curried, n-arg calls directly
-                    `(fn
-                       (~[(first param-syms)]
-                         ;; Curried: return a fn that takes the remaining args
-                        ~(if (= n 2)
-                           `(fn [~(second param-syms)] ~curried-call)
-                            ;; 3+ args: nested currying
-                           (reduce (fn [body s] `(fn [~s] ~body))
-                                   curried-call
-                                   (reverse (rest param-syms)))))
-                       (~param-syms ~curried-call)))))]
+        direct-fn (when (pos? n)
+                    (try
+                      (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                            emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
+                            emitted (emit @ansatz-env (str fn-name) body-ansatz
+                                          {:erased (or erased 0) :arity (or arity n)})]
+                        (when emitted
+                          (decl/register! (str fn-name)
+                                          (update emitted :convention assoc :provenance :surface))
+                          (:fn emitted)))
+                      (catch Exception ex
+                        (when (verbose?)
+                          (println "  direct-recursion emitter unavailable ("
+                                   (.getMessage ex) ") — compiling the WF encoding"))
+                        nil)))
+        ;; The runtime fuel encoding is compilable even when direct emission declines;
+        ;; the kernel keeps its independently checked well-founded definition.
+        runtime-body (if (zero? n) body-ansatz final-body)
+        clj-fn (if direct-fn direct-fn
+                   (decl/emit-classic! (str fn-name)
+                                       #(ansatz->clj @ansatz-env runtime-body [])))]
     clj-fn))
-
