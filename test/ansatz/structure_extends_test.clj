@@ -88,9 +88,9 @@
                     (ChildOps.toParentOps (GrandchildOps.toChildOps child)))
                  (rfl))
       ;; The body must synthesize the parent using only a grandchild local instance.
-      (a/defn parent-zero [S :- Type :implicit, parent :- (ParentOps S) :inst] S
-              (@ParentOps.zero S parent))
+      (a/defn parent-zero [S :- Type, parent :- (ParentOps S) :inst] S
+              (ParentOps.zero parent))
       (a/defn inherited-zero [S :- Type :implicit, child :- (GrandchildOps S) :inst] S
-              (parent-zero))
+              (parent-zero S))
       (is (has? "inherited-zero"))
       (finally (reset! a/ansatz-env saved)))))

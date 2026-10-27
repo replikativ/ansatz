@@ -173,6 +173,10 @@
   (let [missing (vec (repeatedly (max 0 (- 2 (count ca))) #(gensym "false_arg_")))
         body (list 'throw (list 'ex-info "Unreachable elimination" {:kind :unreachable}))]
     (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
+(def ^:private decidable-equality
+  ;; Init/Prelude.lean:Nat.decEq/String.decEq; Init/Data/Int/Basic.lean:Int.decEq.
+  ;; Native externs retain Decidable's constructor tag and erase its proof payload.
+  (bi-nary2 (fn [x y] (list 'if (list '= x y) [1 nil] [0 nil]))))
 
 (def ^:private builtin-app
   (merge
@@ -192,6 +196,8 @@
    {"Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
     "Float.pow" (bi-nary2 (fn [x y] (list 'Math/pow x y)))
+    "Nat.decEq" decidable-equality "Int.decEq" decidable-equality
+    "String.decEq" decidable-equality
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
     "HAdd.hAdd" (hop) "HMul.hMul" (hop) "HSub.hSub" (hop)
     "HDiv.hDiv" (hop) "HMod.hMod" (hop) "HPow.hPow" (hop)}

@@ -26,8 +26,9 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
-            [ansatz.kernel.level :as level]
-            [ansatz.codegen.decl :as decl])
+            [ansatz.kernel.level :as lvl]
+            [ansatz.codegen.decl :as decl]
+            [ansatz.codegen.types :as types])
   (:import [ansatz.kernel ConstantInfo]))
 
 (def ^:private runtime-ns (create-ns 'ansatz.storedef.runtime))
@@ -61,11 +62,16 @@
 
 (defn- strip-telescope
   "Split a ∀-telescope type into [[name type info] ...] binders and the conclusion."
-  [t]
-  (loop [t t binders []]
-    (if (e/forall? t)
-      (recur (e/forall-body t) (conj binders [(e/forall-name t) (e/forall-type t) (e/forall-info t)]))
-      [binders t])))
+  [env t]
+  ;; ToLCNF.lean:mkTypeCorrectApp exposes foralls through reducible aliases
+  ;; (e.g. DecidableEq Bool) before compiling applications and eta expansion.
+  (loop [t t binders [] names []]
+    (let [t (types/whnf env t names)]
+      (if (e/forall? t)
+        (recur (e/forall-body t)
+               (conj binders [(e/forall-name t) (e/forall-type t) (e/forall-info t)])
+               (types/bind-type names "_" (e/forall-type t)))
+        [binders t]))))
 
 (defn- parse-equation
   "From an equation theorem type `∀ tele, Eq T (f tele-bvars) rhs` return
@@ -73,7 +79,7 @@
    (conditional equations carry extra hypothesis binders and fail the lhs check)."
   [env fname equation]
   (when-let [ci (env/lookup env equation)]
-    (let [[binders concl] (strip-telescope (.type ^ConstantInfo ci))
+    (let [[binders concl] (strip-telescope env (.type ^ConstantInfo ci))
           [h args] (e/get-app-fn-args concl)
           n (count binders)]
       (when (and (e/const? h) (= "Eq" (name/->string (e/const-name h))) (= 3 (count args)))
@@ -129,22 +135,29 @@
 
 (defn- prop-like? [bt]
   (loop [t bt]
-    (cond (e/sort? t) (level/level-zero? (e/sort-level t))
+    (cond (e/sort? t) (lvl/level-zero? (e/sort-level t))
           (e/forall? t) (recur (e/forall-body t))
           :else false)))
 
 (defn- audit-binders
-  "Runtime shape of a binder telescope: {:erased k :arity n}. Only leading
-   implicit type parameters and proposition parameters erase; implicit data,
-   including class dictionaries, remains in the runtime parameter window.
-   Interleaved types and explicit non-proposition type formers remain unsupported."
-  [binders]
-  ;; Compiler/LCNF/ToLCNF.lean visit/visitAppArg erases by type, not BinderInfo.
-  ;; The expression emitter separately replaces proof values with nil.
-  (let [infos (mapv (fn [[_ bt bi]] [bi bt]) binders)
-        erased (count (take-while (fn [[bi bt]] (and (type-like? bt) (or (not= :default bi) (prop-like? bt)))) infos))
+  "Runtime telescope with a contiguous erased prefix. Explicit type parameters
+   other than predicates retain the store compiler's unsupported-shape guard."
+  [env binders]
+  ;; ToLCNF.lean:visit/visitAppArg erases types and proofs, not computational
+  ;; instance dictionaries merely because their binders are instance-implicit.
+  (let [infos (loop [bs binders names [] infos []]
+                (if-let [[_ bt bi] (first bs)]
+                  (let [explicit-type? (and (= bi :default) (type-like? bt)
+                                            (not (and (e/sort? bt)
+                                                      (lvl/level-zero? (e/sort-level bt)))))]
+                    (recur (next bs) (types/bind-type names "_" bt)
+                           (conj infos {:erased? (types/irrelevant-type? env bt names)
+                                        :unsupported? explicit-type?})))
+                  infos))
+        erased (count (take-while :erased? infos))
         runtime (drop erased infos)]
-    (when (and (not-any? (fn [[_ bt]] (type-like? bt)) runtime)
+    (when (and (not-any? :unsupported? infos)
+               (not-any? :erased? runtime)
                (<= 0 (count runtime) 20))
       {:erased erased :arity (count runtime)})))
 
@@ -325,7 +338,7 @@
             (if (e/lam? t)
               (recur (e/lam-body t) (conj bs [(e/lam-name t) (e/lam-type t) (e/lam-info t)]))
               [bs t])))
-        [type-binders _] (strip-telescope (.type ci))
+        [type-binders _] (strip-telescope env (.type ci))
         ;; Compiler/LCNF/ToLCNF.lean etaIfUnderApplied: expose the remaining
         ;; parameters of an eta-contracted value before fixing its convention.
         missing (- (count type-binders) (count binders))
@@ -335,9 +348,7 @@
         binders (if (pos? missing) (into (vec binders) (drop (count binders) type-binders)) binders)
         refs (const-refs rhs)
         ref (first (sort (filter unexecutable-ref? refs)))
-        unhandled? (requiring-resolve 'ansatz.codegen/unhandled-extern?)
-        extern-ref (first (sort (filter #(unhandled? env %) refs)))
-        audit (audit-binders binders)]
+        audit (audit-binders env binders)]
     ;; ToLCNF's specialized visitors use explicit shape guards before selecting
     ;; a lowering. A store body is only one candidate, so refusal is data here.
     (cond

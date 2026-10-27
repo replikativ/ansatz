@@ -11,7 +11,10 @@
             [ansatz.malli :as am]
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.instance :as instance]
-            [ansatz.deriving :as deriving])
+            [ansatz.deriving :as deriving]
+            [ansatz.test-env :as test-env]
+            [ansatz.export.parser :as parser]
+            [ansatz.export.replay :as replay])
   (:import [ansatz.kernel TypeChecker]))
 
 (use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
@@ -230,26 +233,19 @@
              ((fn [x :- Bool] (= x true)) b)))
     (eval '(ansatz.core/defn nat-equality [x :- Nat, y :- Nat] Bool (= x y)))
     (eval '(ansatz.core/defn int-equality [x :- Int, y :- Int] Bool (= x y)))
-    (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
     (eval '(ansatz.core/inductive EqualityColor [] (red) (blue) :deriving [DecidableEq]))
     (eval '(ansatz.core/defn color-equality [x :- EqualityColor, y :- EqualityColor] Bool (= x y)))
     (eval '(ansatz.core/structure EqualityToken []))
     (swap! a/ansatz-env deriving/derive-decidable-eq! "EqualityToken" [["mk" []]])
     (eval '(ansatz.core/defn token-equality [x :- EqualityToken, y :- EqualityToken] Bool (= x y)))
-    (eval '(ansatz.core/defn list-equality [x :- (List Bool), y :- (List Bool)] Bool (= x y)))
     (doseq [[application expected]
             [['(bool-equality true) true] ['(bool-equality false) false]
              ['(nat-equality 3 3) true] ['(nat-equality 3 4) false]
              ['(int-equality (Int.negSucc 2) (Int.negSucc 2)) true]
              ['(int-equality (Int.negSucc 2) (Int.ofNat 3)) false]
-             ['(string-equality "hello" "hello") true] ['(string-equality "hello" "world") false]
              ['(color-equality (EqualityColor.red) (EqualityColor.red)) true]
              ['(color-equality (EqualityColor.red) (EqualityColor.blue)) false]
-             ['(token-equality (EqualityToken.mk) (EqualityToken.mk)) true]
-             ['(list-equality (List.cons Bool true (List.nil Bool))
-                              (List.cons Bool true (List.nil Bool))) true]
-             ['(list-equality (List.cons Bool true (List.nil Bool))
-                              (List.cons Bool false (List.nil Bool))) false]]]
+             ['(token-equality (EqualityToken.mk) (EqualityToken.mk)) true]]]
       (compare-kernel! application :boolean)
       (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) [])))))))
 
@@ -269,3 +265,39 @@
       (is (re-find #"booleanDecisionDictionary"
                    (e/->string (elab/elaborate (a/env) '(fn [b :- Bool] (= b true))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(def ^:private string-init-env
+  (delay
+    (when (.exists (java.io.File. "test-data/init.ndjson"))
+      (test-env/with-instance-registry
+        (:env (replay/replay (:final-state (parser/parse-ndjson-file-streaming "test-data/init.ndjson" [] conj))
+                            :verify? false))))))
+
+(deftest string-equality-uses-registered-dictionary
+  ;; The bundled medium tier omits the String equality dictionary; full Init has it.
+  (if-let [full @string-init-env]
+    (let [saved (a/env)]
+      (try
+        (reset! a/ansatz-env full)
+        (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+          (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
+          (doseq [[x y expected] [["hello" "hello" true] ["hello" "world" false]
+                                  ["é" "é" true] ["" "a" false]]]
+            (let [application (list 'string-equality x y)]
+              (compare-kernel! application :boolean)
+              (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) [])))))))
+        (finally (reset! a/ansatz-env saved))))
+    (is true "full Init fixture unavailable; String dictionary test skipped")))
+
+(deftest parameterized-equality-elaborates-at-full-carrier
+  (doseq [[rhs expected] [[true true] [false false]]]
+    (let [application (list '(fn [x :- (List Bool), y :- (List Bool)] (= x y))
+                            '(List.cons Bool true (List.nil Bool))
+                            (list 'List.cons 'Bool rhs '(List.nil Bool)))
+          term (elab/elaborate (a/env) application)
+          tc (TypeChecker. (a/env))]
+      (is (= expected (#'am/decode-val #(.whnf (.getReducer tc) %) :boolean term)))
+      ;; The medium export has no direct equation body for List.hasDecEq.
+      ;; Keep this compiler boundary explicit until that artifact is exported.
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"List.hasDecEq.*List.brecOn"
+                            (cg/ansatz->clj (a/env) term []))))))

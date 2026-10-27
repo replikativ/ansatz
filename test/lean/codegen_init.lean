@@ -111,3 +111,5 @@ example : decide ([true] = [false]) = false := rfl
 structure EqualityToken where
   deriving DecidableEq
 example : decide (EqualityToken.mk = EqualityToken.mk) = true := rfl
+example : decide ("é" = "é") = true := rfl
+example : decide ("" = "a") = false := rfl

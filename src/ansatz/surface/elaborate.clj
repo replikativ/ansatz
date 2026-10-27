@@ -982,6 +982,64 @@
         rel (case hs "==" 'Eq ("<" ">") 'lt 'le)]
     (elab-term est (list rel T a b))))
 
+(defn- elab-bool-comparison
+  "Computational comparisons. Equality follows Init/Prelude.lean's decEq/decide
+   through the registered dictionary; order retains the native Nat/Int/Float encoding."
+  [est hs sexpr]
+  (let [[rel a-form b-form] (case hs
+                              "<"  [:lt (nth sexpr 1) (nth sexpr 2)]
+                              "==" [:eq (nth sexpr 1) (nth sexpr 2)]
+                              ("<=" "≤") [:le (nth sexpr 1) (nth sexpr 2)]
+                              (">") [:lt (nth sexpr 2) (nth sexpr 1)]
+                              (">=" "≥") [:le (nth sexpr 2) (nth sexpr 1)])
+        a0 (elab-term est a-form)
+        b0 (elab-term est b-form)
+        tn (or (some (fn [x]
+                       (when-not (e/lit-nat? x)
+                         (let [t (zonk est (infer-with-mvars est x))
+                               [th _] (when t (e/get-app-fn-args t))]
+                           (when (and th (e/const? th))
+                             (name/->string (e/const-name th))))))
+                     [a0 b0])
+               "Nat")
+        coerce (fn [x] (if (e/lit-nat? x)
+                         (case tn
+                           "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
+                           "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
+                           x)
+                         x))
+        a (coerce a0) b (coerce b0)
+        bool-op (fn [op] (e/app* (e/const' (name/from-string op) []) a b))
+        decide (fn [propc decc]
+                 (e/app* (e/const' (name/from-string "Decidable.decide") [])
+                         (e/app* (e/const' (name/from-string propc) []) a b)
+                         (e/app* (e/const' (name/from-string decc) []) a b)))
+        ;; Init/Prelude.lean: decEq and Decidable.decide. Synthesize the
+        ;; dictionary at the full operand type (including type parameters).
+        decide-eq (fn []
+                    (let [T (zonk est (infer-with-mvars est a))
+                          sort (zonk est (infer-with-mvars est T))
+                          u (e/sort-level sort)
+                          inst (inst-mvar! est
+                                 (e/app (e/const' (name/from-string "DecidableEq") [u]) T))]
+                      (e/app* (e/const' (name/from-string "Decidable.decide") [])
+                              (e/app* (e/const' (name/from-string "Eq") [u]) T a b)
+                              (e/app* inst a b))))]
+    (if-let [cmp-handler (get @ingest/comparison-registry tn)]
+      ;; Registered surface encodings own their operand representation.
+      (cmp-handler est rel a0 b0)
+      (if (and (= rel :eq) (not= tn "Float"))
+        (decide-eq)
+        (case tn
+          "Int"   (case rel :lt (decide "Int.lt" "Int.decLt") :le (decide "Int.le" "Int.decLe"))
+          "Float" (case rel :lt (decide "Float.lt" "Float.decLt") :le (decide "Float.le" "Float.decLe") :eq
+                        (let [u (type-sort-level est (infer-with-mvars est a))
+                              T (infer-with-mvars est a)
+                              inst (inst-mvar! est (e/app (e/const' (name/from-string "BEq") [u]) T))]
+                          (e/app* (e/const' (name/from-string "BEq.beq") [u]) T inst a b)))
+          "String" (elab-error! "String comparison: only == is supported" {:rel rel})
+          (bool-op (case rel :lt "Nat.blt" :le "Nat.ble")))))))
+
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
@@ -1210,71 +1268,15 @@
                   (and (= 3 (count sexpr)) (:prop-ctx est))
                   (elab-prop-comparison est hs sexpr)
 
-                  (= 4 (count sexpr))
-                  (let [[_ T a b] sexpr]
-                    (if (= hs "==")
-                      (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
-                      (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
-                            rel (case hs ("<" ">") "lt" "le")]
-                        (elab-term est (list (symbol rel) T a* b*)))))
-                  :else
-                ;; 2-arg Bool comparison, TYPE-DIRECTED on the operands (a non-literal
-                ;; operand's type head picks the ops; literals coerce to that type):
-                ;; Order: Nat.b* or Int/Float's decidable Props. Equality: the
-                ;; registered DecidableEq dictionary (Float uses its BEq dictionary).
-                (let [[rel a-form b-form] (case hs
-                                            "<"  [:lt (nth sexpr 1) (nth sexpr 2)]
-                                            "==" [:eq (nth sexpr 1) (nth sexpr 2)]
-                                            ("<=" "≤") [:le (nth sexpr 1) (nth sexpr 2)]
-                                            (">") [:lt (nth sexpr 2) (nth sexpr 1)]
-                                            (">=" "≥") [:le (nth sexpr 2) (nth sexpr 1)])
-                      a0 (elab-term est a-form)
-                      b0 (elab-term est b-form)
-                      tn (or (some (fn [x]
-                                     (when-not (e/lit-nat? x)
-                                       (let [t (zonk est (infer-with-mvars est x))
-                                             [th _] (when t (e/get-app-fn-args t))]
-                                         (when (and th (e/const? th))
-                                           (name/->string (e/const-name th))))))
-                                   [a0 b0])
-                             "Nat")
-                      coerce (fn [x] (if (e/lit-nat? x)
-                                       (case tn
-                                         "Int"   (e/app (e/const' (name/from-string "Int.ofNat") []) x)
-                                         "Float" (e/app (e/const' (name/from-string "Float.ofNat") []) x)
-                                         x)
-                                       x))
-                      a (coerce a0) b (coerce b0)
-                      bool-op (fn [op] (e/app* (e/const' (name/from-string op) []) a b))
-                      decide (fn [propc decc]
-                               (e/app* (e/const' (name/from-string "Decidable.decide") [])
-                                       (e/app* (e/const' (name/from-string propc) []) a b)
-                                       (e/app* (e/const' (name/from-string decc) []) a b)))
-                      ;; Init/Prelude.lean: decEq and Decidable.decide. Synthesize the
-                      ;; dictionary at the full operand type (including type parameters).
-                      decide-eq (fn []
-                                  (let [T (zonk est (infer-with-mvars est a))
-                                        sort (zonk est (infer-with-mvars est T))
-                                        u (e/sort-level sort)
-                                        inst (inst-mvar! est
-                                               (e/app (e/const' (name/from-string "DecidableEq") [u]) T))]
-                                    (e/app* (e/const' (name/from-string "Decidable.decide") [])
-                                            (e/app* (e/const' (name/from-string "Eq") [u]) T a b)
-                                            (e/app* inst a b))))]
-                  (if-let [cmp-handler (get @ingest/comparison-registry tn)]
-                    ;; Registered surface encodings own their operand representation.
-                    (cmp-handler est rel a0 b0)
-                    (if (and (= rel :eq) (not= tn "Float"))
-                      (decide-eq)
-                      (case tn
-                        "Int"   (case rel :lt (decide "Int.lt" "Int.decLt") :le (decide "Int.le" "Int.decLe"))
-                        "Float" (case rel :lt (decide "Float.lt" "Float.decLt") :le (decide "Float.le" "Float.decLe") :eq
-                                      (let [u (type-sort-level est (infer-with-mvars est a))
-                                            T (infer-with-mvars est a)
-                                            inst (inst-mvar! est (e/app (e/const' (name/from-string "BEq") [u]) T))]
-                                        (e/app* (e/const' (name/from-string "BEq.beq") [u]) T inst a b)))
-                        "String" (elab-error! "String comparison: only == is supported" {:rel rel})
-                        (bool-op (case rel :lt "Nat.blt" :le "Nat.ble"))))))))
+                (= 4 (count sexpr))
+                (let [[_ T a b] sexpr]
+                  (if (= hs "==")
+                    (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
+                    (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
+                          rel (case hs ("<" ">") "lt" "le")]
+                      (elab-term est (list (symbol rel) T a* b*)))))
+                :else
+                (elab-bool-comparison est hs sexpr)))
 
         ;; Dependent if over a Prop condition → dite. The Decidable instance is an
         ;; inst-implicit mvar solved by synthesis (no comparison fallback needed); the

@@ -223,7 +223,10 @@
           ;; Register as instDecidableEq{Type} with abbrev hints
           ;; so decide can evaluate it
           inst-name (name/from-string (str "instDecidableEq" type-name-str))
-          ci (env/mk-def inst-name [] goal-type term :hints :abbrev)]
+          ;; Elab/Deriving/DecEq.lean:mkDecEqInstance uses the class application,
+          ;; so the registry indexes this dictionary under DecidableEq.
+          inst-type (e/app (e/const' (name/from-string "DecidableEq") [eq-level]) type-const)
+          ci (env/mk-def inst-name [] inst-type term :hints :abbrev)]
       (println "✓ deriving DecidableEq" type-name-str)
       ;; Lean's `deriving` ends in `addInstance`: the env's instance table sees it at once
       (-> (env/check-constant env ci)
