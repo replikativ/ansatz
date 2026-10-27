@@ -706,6 +706,15 @@
                     :forall (let [t (go (e/forall-type e) depth) b (go (e/forall-body e) (inc depth))]
                               (if (and (identical? t (e/forall-type e)) (identical? b (e/forall-body e)))
                                 e (e/forall' (e/forall-name e) t b (e/forall-info e))))
+                    ;; Lean Simp/Rewrite.lean tryTheoremCore (55f80e10a3) instantiates the entire
+                    ;; RHS, including lets. Only the body is under the let binder.
+                    :let (let [t (go (e/let-type e) depth)
+                               v (go (e/let-value e) depth)
+                               b (go (e/let-body e) (inc depth))]
+                           (if (and (identical? t (e/let-type e))
+                                    (identical? v (e/let-value e))
+                                    (identical? b (e/let-body e)))
+                             e (e/let' (e/let-name e) t v b)))
                     :proj (let [s (go (e/proj-struct e) depth)]
                             (if (identical? s (e/proj-struct e)) e
                                 (e/proj (e/proj-type-name e) (e/proj-idx e) s)))
