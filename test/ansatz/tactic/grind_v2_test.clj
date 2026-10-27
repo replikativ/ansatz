@@ -17,7 +17,6 @@
             [ansatz.tactic.omega :as omega]
             [ansatz.tactic.omega-proof :as omega-proof]
             [ansatz.tactic.grind.main :as main]
-            [ansatz.tactic.grind.simp :as grind-simp]
             [ansatz.tactic.grind.ctor :as ctor]
             [ansatz.tactic.grind.theorem :as theorem]
             [ansatz.tactic.grind.egraph :as eg]))
@@ -323,11 +322,10 @@
       (finally (reset! a/ansatz-env before)))))
 
 (deftest normalization-depth-is-a-named-limit
-  (binding [grind-simp/*max-rec-depth* 1]
-    (with-redefs [legacy/grind main/grind]
+  (with-redefs [legacy/grind (fn [ps hints] (main/grind ps hints {:max-rec-depth 1}))]
       (is (re-find #"maximum recursion depth exceeded"
                    (cs/attempt '[v2_norm_limit [a :- Nat, b :- Nat]
-                                 (= (+ a b) (+ b a)) [(grind)]] 10000))))))
+                                 (= (+ a b) (+ b a)) [(grind)]] 10000)))))
 
 (deftest equality-true-propagates-to-endpoints
   (check-script '[v2_beq_chain [a :- Nat, b :- Nat, c :- Nat,

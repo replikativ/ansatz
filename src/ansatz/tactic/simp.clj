@@ -50,7 +50,7 @@
             [ansatz.tactic.instance :as inst]
             [ansatz.simp-index :as si]
             [ansatz.config :as config])
-  (:import [ansatz.kernel ConstantInfo]))
+  (:import [ansatz.kernel ConstantInfo ExprMap LeanExprKey]))
 
 ;; ============================================================
 ;; Names
@@ -283,10 +283,12 @@
 
 (def ^:dynamic ^:private *simp-recursion* {:rec-depth 0})
 
+(def ^:dynamic *max-rec-depth* 512)
+
 (defn- check-rec-depth! [depth expr]
-  (when (> depth 512)
-    (tactic-error! "maximum recursion depth exceeded (maxRecDepth = 512)"
-                   {:expr expr :limit :max-rec-depth :max-rec-depth 512})))
+  (when (> depth *max-rec-depth*)
+    (tactic-error! (str "maximum recursion depth exceeded (maxRecDepth = " *max-rec-depth* ")")
+                   {:expr expr :limit :max-rec-depth :max-rec-depth *max-rec-depth*})))
 
 (defmacro ^:private with-inc-rec-depth [frames expr & body]
   ;; Lean/Exception.lean withIncRecDepth; Simp/Main.lean simpImpl/simpLoop
@@ -549,8 +551,8 @@
 
 (defn- lookup-lemmas
   "Look up candidate lemmas from the discrimination tree.
-   Flattens the query expression to keys and walks the trie,
-   exploring both exact matches and star (wildcard) branches.
+   Expands query nodes on demand while walking exact and wildcard branches;
+   a wildcard skips its entire query subtree.
    With st/env: filters instance-implicit args for correct matching.
    With `config`: when the call carries the store's persistent @[simp] index (`:ext-trie`,
    ansatz.simp-index), ALSO returns the inherited @[simp] candidates for `expr`, each lemma
@@ -1185,27 +1187,32 @@
 (def ^:private int-ofnat-name (name/from-string "Int.ofNat"))
 (def ^:private int-negsucc-name (name/from-string "Int.negSucc"))
 
-(defn- whnf-to-nat [st e]
-  (let [w (#'tc/cached-whnf st e)]
-    (when (e/lit-nat? w) (e/lit-nat-val w))))
-
-(defn- whnf-to-int
-  "Try to reduce an expression to an Int literal via WHNF.
-   Int values in Ansatz are represented as Int.ofNat n or Int.negSucc n."
-  [st e]
-  (let [w (#'tc/cached-whnf st e)
-        [head args] (e/get-app-fn-args w)]
+(defn- get-nat-value? [st expr]
+  ;; Meta/LitValues.lean getNatValue?: recognize literals, do not normalize
+  ;; arbitrary operands. Simp visits/simplifies their children separately.
+  (let [expr (loop [e expr] (if (e/mdata? e) (recur (e/mdata-expr e)) e))
+        [head args] (e/get-app-fn-args expr)]
     (cond
-      ;; Nat literal → non-negative Int
-      (e/lit-nat? w) (e/lit-nat-val w)
-      ;; Int.ofNat n
-      (and (e/const? head) (= (e/const-name head) int-ofnat-name) (= 1 (count args)))
-      (whnf-to-nat st (nth args 0))
-      ;; Int.negSucc n → -(n+1)
-      (and (e/const? head) (= (e/const-name head) int-negsucc-name) (= 1 (count args)))
-      (when-let [n (whnf-to-nat st (nth args 0))]
-        (- (inc n)))
-      :else nil)))
+      (e/lit-nat? expr) (e/lit-nat-val expr)
+      (and (e/const? expr) (= "Nat.zero" (name/->string (e/const-name expr)))) 0
+      (and (e/const? head) (= "OfNat.ofNat" (name/->string (e/const-name head)))
+           (= 3 (count args)) (= (first args) (e/const' (name/from-string "Nat") []))
+           (e/lit-nat? (second args))) (e/lit-nat-val (second args)))))
+
+(defn- get-int-value? [st expr]
+  ;; LitValues.getIntValue? with the surface's canonical Int.ofNat/negSucc
+  ;; representation. As for Nat, no eager WHNF of an open arithmetic DAG.
+  (let [expr (loop [e expr] (if (e/mdata? e) (recur (e/mdata-expr e)) e))
+        [head args] (e/get-app-fn-args expr)]
+    (cond
+      (e/lit-nat? expr) (e/lit-nat-val expr)
+      (and (e/const? head) (= 1 (count args)) (= (e/const-name head) int-ofnat-name))
+      (get-nat-value? st (first args))
+      (and (e/const? head) (= 1 (count args)) (= (e/const-name head) int-negsucc-name))
+      (when-let [n (get-nat-value? st (first args))] (- (inc n)))
+      (and (e/const? head) (= "OfNat.ofNat" (name/->string (e/const-name head)))
+           (= 3 (count args)) (= (first args) (e/const' (name/from-string "Int") []))
+           (e/lit-nat? (second args))) (e/lit-nat-val (second args)))))
 
 (defn- int-to-expr
   "Convert a Clojure integer to a Ansatz Int expression."
@@ -1223,12 +1230,14 @@
       (let [hname (e/const-name head) nargs (count args)]
         (cond
           (and (= hname nat-succ-name) (= 1 nargs))
-          (when-let [n (whnf-to-nat st (nth args 0))]
+          (when-let [n (get-nat-value? st (nth args 0))]
             (mk-result (e/lit-nat (inc n))))
 
-          (= 2 nargs)
-          (when-let [a (whnf-to-nat st (nth args 0))]
-            (when-let [b (whnf-to-nat st (nth args 1))]
+          (and (= 2 nargs)
+               (contains? #{nat-add-name nat-mul-name nat-sub-name nat-div-name nat-mod-name
+                            nat-ble-name nat-beq-name} hname))
+          (when-let [a (get-nat-value? st (nth args 0))]
+            (when-let [b (get-nat-value? st (nth args 1))]
               (cond
                 (= hname nat-add-name) (mk-result (e/lit-nat (+ a b)))
                 (= hname nat-mul-name) (mk-result (e/lit-nat (* a b)))
@@ -1253,13 +1262,14 @@
         (cond
           ;; Unary: Int.neg
           (and (= hname int-neg-name) (= 1 nargs))
-          (when-let [n (whnf-to-int st (nth args 0))]
+          (when-let [n (get-int-value? st (nth args 0))]
             (mk-result (int-to-expr (- n))))
 
           ;; Binary: Int.add, Int.mul, Int.sub, Int.div, Int.mod
-          (= 2 nargs)
-          (when-let [a (whnf-to-int st (nth args 0))]
-            (when-let [b (whnf-to-int st (nth args 1))]
+          (and (= 2 nargs)
+               (contains? #{int-add-name int-mul-name int-sub-name int-div-name int-mod-name} hname))
+          (when-let [a (get-int-value? st (nth args 0))]
+            (when-let [b (get-int-value? st (nth args 1))]
               (cond
                 (= hname int-add-name) (mk-result (int-to-expr (+ a b)))
                 (= hname int-mul-name) (mk-result (int-to-expr (* a b)))
@@ -1736,8 +1746,8 @@
   (let [[head args] (e/get-app-fn-args expr)]
     (when (and (e/const? head) (= 6 (count args)))
       (let [hname (e/const-name head)
-            a (whnf-to-nat st (nth args 4))
-            b (whnf-to-nat st (nth args 5))]
+            a (get-nat-value? st (nth args 4))
+            b (get-nat-value? st (nth args 5))]
         (when (and a b)
           (cond
             (= hname hpow-name)
@@ -2658,24 +2668,35 @@
    Each entry: {:expr-before :expr-after :phase :depth :lemma-name}"
   nil)
 
+(defn- cached-result [cache expr]
+  (when-let [result (if (instance? ExprMap cache) (.get ^ExprMap cache expr)
+                       (when cache (get @cache expr)))]
+    ;; Lean's expression cache equates separately allocated equal nodes. Reuse
+    ;; the caller's node when unchanged, preserving sharing through congruence.
+    (if (and (not (identical? expr (:expr result)))
+             (.equals (LeanExprKey. expr) (LeanExprKey. (:expr result))))
+      (assoc result :expr expr) result)))
+
 (defn- simp-expr*
   "Core simplification loop (Lean 4's simpLoop).
    config: {:max-depth :single-pass? :max-steps :cache :to-unfold :discharge-depth}"
   [st env lemma-index expr config]
   ;; Lean Simp/Main.lean simpLoop returns cached results before doing work.
-  (if-let [cached (when-let [cache (:cache config)] (get @cache expr))]
+  (if-let [cached (cached-result (:cache config) expr)]
     cached
     ;; The merged entry accounts for simpImpl and simpLoop's two frames.
     (with-inc-rec-depth 2 expr
-      (when-let [steps (:max-steps config)]
-        (when (> @steps config/*max-simp-steps*)
-          (tactic-error! "maximum number of steps exceeded" {:expr expr :limit :max-simp-steps}))
-        (swap! steps inc))
+      (if-let [on-step (:on-step config)]
+        (on-step)
+        (when-let [steps (:max-steps config)]
+          (when (> @steps config/*max-simp-steps*)
+            (tactic-error! "maximum number of steps exceeded" {:expr expr :limit :max-simp-steps}))
+          (swap! steps inc)))
 
     ;; Lean simpLoop also bounds total rewrite work with maxSteps.
     ;; Check cache
       (let [cache (:cache config)
-            cached (when cache (get @cache expr))]
+            cached (cached-result cache expr)]
         (if cached
           cached
 
@@ -2747,7 +2768,8 @@
                                                   :lhs (subs (str (:lhs-pattern l)) 0 (min 40 (count (str (:lhs-pattern l)))))})
                                                matching)})))
             (when (and cache (:cache result))
-              (swap! cache assoc expr result))
+              (if (instance? ExprMap cache) (.put ^ExprMap cache expr result)
+                  (swap! cache assoc expr result)))
             result))))))
 
 ;; Public wrapper
@@ -2769,10 +2791,14 @@
    rewritten term and its kernel-checkable proof."
   ([st env lemma-index expr] (simp-expr-result st env lemma-index expr 20))
   ([st env lemma-index expr max-depth]
+   (simp-expr-result st env lemma-index expr max-depth {}))
+  ([st env lemma-index expr max-depth state]
+   ;; Grind/Simp.lean simpCore reuses Simp.State across calls. :on-step runs
+   ;; only after the simpLoop cache miss, including recursive/discharger work.
    (simp-expr* st env lemma-index expr
-               {:max-depth max-depth :single-pass? false
-                :max-steps (atom 0) :cache (atom {})
-                :to-unfold #{} :discharge-depth 0})))
+               (merge {:max-depth max-depth :single-pass? false
+                       :max-steps (atom 0) :cache (atom {})
+                       :to-unfold #{} :discharge-depth 0} state))))
 
 ;; ============================================================
 ;; Public API
@@ -3533,11 +3559,11 @@
 
       ;; Nat.add a b
         (and (e/const? head) (= (e/const-name head) nat-add-name) (= 2 (count args)))
-        (let [b-val (whnf-to-nat st (nth args 1))]
+        (let [b-val (get-nat-value? st (nth args 1))]
           (if b-val
             (let [inner (nat-offset-parse st (nth args 0))]
               (update inner :offset + b-val))
-            (let [a-val (whnf-to-nat st (nth args 0))]
+            (let [a-val (get-nat-value? st (nth args 0))]
               (if a-val
                 (let [inner (nat-offset-parse st (nth args 1))]
                   (update inner :offset + a-val))
@@ -3547,11 +3573,11 @@
         (and (e/const? head)
              (= (name/->string (e/const-name head)) "HAdd.hAdd")
              (= 6 (count args)))
-        (let [b-val (whnf-to-nat st (nth args 5))]
+        (let [b-val (get-nat-value? st (nth args 5))]
           (if b-val
             (let [inner (nat-offset-parse st (nth args 4))]
               (update inner :offset + b-val))
-            (let [a-val (whnf-to-nat st (nth args 4))]
+            (let [a-val (get-nat-value? st (nth args 4))]
               (if a-val
                 (let [inner (nat-offset-parse st (nth args 5))]
                   (update inner :offset + a-val))
