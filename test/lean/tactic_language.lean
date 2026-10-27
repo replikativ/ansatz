@@ -199,3 +199,8 @@ example (n : Nat) (h : CountEvidence n) (m : Nat) (hm : m = n) (hh : hm = hm) :
 example (c : Prop) [Decidable c] (p : Nat → Nat → Prop)
     (ht : ∀ n, p n n) (hf : ∀ n, p n 0) : ∀ n, p n (ite c n 0) := by
   split <;> intro n <;> first | apply ht | apply hf
+example (f g k h : Nat → Nat) (p : Nat → Prop) (n : Nat)
+    (first_rule : ∀ x, f x = g (k x)) (second_rule : ∀ y, g y = h y)
+    (third_rule : ∀ z, h z = z) (hp : p (k n)) : p (f n) := by
+  rw [first_rule, second_rule, third_rule]
+  exact hp

@@ -1099,16 +1099,17 @@
                                 (meta/add-level-mvar-decl m lid)))
                             base-mctx
                             (meta/unassigned-level-mvars base-mctx ty)))
-         base (long (+ 50000000 (or (some-> (:next-id st) deref long) 0)))
-         ;; forallMetaTelescopeReducing: peel ∀ to fresh metavars (none if already concrete).
-         [mvars body] (loop [t ty xs [] i 0]
-                        (if (e/forall? t)
-                          (let [id (+ base i)
-                                _ (swap! mctx meta/add-expr-mvar-decl id
-                                         (e/forall-type t) (:lctx goal))]
-                            (recur (e/instantiate1 (e/forall-body t) (e/mvar id))
-                                   (conj xs (e/mvar id)) (inc i)))
-                          [xs t]))
+         ;; Lean Meta/Basic.lean forallMetaTelescopeReducingAux uses
+         ;; mkFreshExprMVar: every rule needs fresh IDs in the shared context,
+         ;; including when an earlier rewrite has already assigned its parameters.
+         [ps mvars body] (loop [ps ps t ty xs []]
+                           (if (e/forall? t)
+                             (let [[ps id] (proof/alloc-id ps)
+                                   _ (swap! mctx meta/add-expr-mvar-decl id
+                                            (e/forall-type t) (:lctx goal))]
+                               (recur ps (e/instantiate1 (e/forall-body t) (e/mvar id))
+                                      (conj xs (e/mvar id))))
+                             [ps xs t]))
          heq (reduce e/app term mvars)
          [head args] (e/get-app-fn-args body)
          hname (when (e/const? head) (name/->string (e/const-name head)))

@@ -340,3 +340,13 @@
             ht :- (forall [n :- Nat] (p n n)), hf :- (forall [n :- Nat] (p n 0))]
           '(forall [n :- Nat] (p n (ite c n 0)))
           '[(split_ifs) (all_goals (intro n) (first (apply ht) (apply hf)))]))
+
+(deftest rewrite-sequence-allocates-fresh-lemma-parameters
+  (proves 'rewrite_sequence_fresh_parameters
+          '[f :- (=> Nat Nat), g :- (=> Nat Nat), k :- (=> Nat Nat),
+            h :- (=> Nat Nat), p :- (=> Nat Prop), n :- Nat,
+            first-rule :- (forall [x :- Nat] (= (f x) (g (k x)))),
+            second-rule :- (forall [y :- Nat] (= (g y) (h y))),
+            third-rule :- (forall [z :- Nat] (= (h z) z)), hp :- (p (k n))]
+          '(p (f n))
+          '[(rw [first-rule second-rule third-rule]) (exact hp)]))
