@@ -14,6 +14,7 @@
   (:require [ansatz.bundle :as bundle]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
+            [ansatz.meta.match.matcher-info :as mi]
             [ansatz.state :as state]
             [clojure.data.json :as json]
             [clojure.java.io :as io]
@@ -46,7 +47,7 @@
   "`env` with an already-filtered {name → info} map (a store's derived `:matchers` blob) in
    its :matcher-info extension."
   [env m]
-  (env/update-extension env :matcher-info {} merge m))
+  (mi/install env m))
 
 (defn install!
   "install into the GLOBAL env."
@@ -75,7 +76,7 @@
      (reduce (fn [[e stats] line]
                (if-let [[nm info] (try (parse-info line) (catch Throwable _ nil))]
                  (if (present? nm)
-                   [(env/update-extension e :matcher-info {} assoc nm info)
+                   [(mi/add-matcher-info e nm info)
                     (update stats :loaded (fnil inc 0))]
                    [e (update stats :skipped (fnil inc 0))])
                  [e stats]))
@@ -103,9 +104,9 @@
 (defn matcher-info
   "Look up the MatcherInfo for matcher `nm` (string) in `env`'s :matcher-info extension, or nil."
   [env nm]
-  (get (env/get-extension env :matcher-info {}) nm))
+  (mi/get-matcher-info-core? env nm))
 
 (defn non-overlapping?
   "True iff the matcher has no overlapping alternatives (splitter = matcher itself)."
   [info]
-  (and info (empty? (:overlaps info)) (every? (comp zero? :num-overlaps) (:alts info))))
+  (mi/non-overlapping? info))

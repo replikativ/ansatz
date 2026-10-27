@@ -9,6 +9,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as level]
+            [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.inductive :as inductive]
             [ansatz.codegen.decl :as decl]
             [ansatz.codegen.types :as types]
@@ -120,6 +121,38 @@
              '(clojure.core/reduce (fn [acc_ x_] ((f_ acc_) x_)) init_ xs_)
              {})))
 
+(def ^:private decidable-comparisons
+  {"Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=
+   "Int.decEq" '== "String.decEq" '= "Bool.decEq" '=})
+
+(clojure.core/defn- decidable-head [env expr]
+  ;; Generated value matchers use synthesized Decidable instances. Unfold
+  ;; their aliases until the existing primitive comparison lowering applies.
+  (loop [expr expr seen #{}]
+    (let [[f args] (e/get-app-fn-args expr)
+          n (when (e/const? f) (name/->string (e/const-name f)))
+          ci (when n (env/lookup env (e/const-name f)))]
+      (if (and ci (.isDef ^ConstantInfo ci) (.value ^ConstantInfo ci) (not (contains? seen n))
+               (not (contains? decidable-comparisons n)))
+        (recur (beta-apply (e/instantiate-level-params
+                            (.value ^ConstantInfo ci)
+                            (zipmap (.levelParams ^ConstantInfo ci) (e/const-levels f))) args) (conj seen n))
+        expr))))
+
+(clojure.core/defn- erase-eq-rec [ca]
+  ;; ToLCNF.visitEqRec eta-expands partial applications before erasing them.
+  (let [missing (vec (repeatedly (max 0 (- 6 (count ca))) #(gensym "eq_arg_")))
+        args (into (vec ca) missing)
+        body (reduce (fn [f a] (list f a)) (nth args 3) (drop 6 args))]
+    (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
+
+(clojure.core/defn- erase-false-rec [ca]
+  ;; ToLCNF.visitFalseRec: eta-expand to arity two, then emit unreachable.
+  ;; False.elim is the standard wrapper around False.rec.
+  (let [missing (vec (repeatedly (max 0 (- 2 (count ca))) #(gensym "false_arg_")))
+        body (list 'throw (list 'ex-info "Unreachable elimination" {:kind :unreachable}))]
+    (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
+
 (def ^:private builtin-app
   (merge
    ;; n-ary arithmetic / comparison saturating to a bare op. Nat add/mul/succ use the
@@ -153,6 +186,12 @@
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
     "Bool.not"      (fn [_ _ _ ca _] (list 'not (nth ca 0)))
     "ite"           (fn [_ _ _ ca _] (list 'if (nth ca 1) (nth ca 3) (nth ca 4)))
+    ;; Lean Compiler/LCNF/ToLCNF.lean: equality eliminators erase to their minor.
+    "Eq.ndrec"      (fn [_ _ _ ca _] (erase-eq-rec ca))
+    "Eq.rec"        (fn [_ _ _ ca _] (erase-eq-rec ca))
+    "False.elim"    (fn [_ _ _ ca _] (erase-false-rec ca))
+    "False.rec"     (fn [_ _ _ ca _] (erase-false-rec ca))
+    "Empty.rec"     (fn [_ _ _ ca _] (erase-false-rec ca))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
     "List.length"   (fn [_ _ _ ca _]              ; arity-tolerant: `List.length A` as a fn VALUE
                       (case (count ca)             ; (eta-reduced, e.g. fused into a comp) lowers to `count`
@@ -203,13 +242,11 @@
             else-body (if (e/lam? else-fn)
                         (ansatz->clj env (e/lam-body else-fn) (types/bind-type names "_h" (e/lam-type else-fn)))
                         (nth ca 4))
-            dec-expr (nth args 2)
+            dec-expr (decidable-head env (nth args 2))
             [dec-head dec-args] (e/get-app-fn-args dec-expr)
             bool-cond (if (and (e/const? dec-head)
-                               (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
-                                (name/->string (e/const-name dec-head))))
-                        (list (case (name/->string (e/const-name dec-head))
-                                "Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=)
+                               (contains? decidable-comparisons (name/->string (e/const-name dec-head))))
+                        (list (get decidable-comparisons (name/->string (e/const-name dec-head)))
                               (ansatz->clj env (nth dec-args 0) names)
                               (ansatz->clj env (nth dec-args 1) names))
                         (nth ca 2))]
@@ -741,6 +778,20 @@
     (with-meta form (assoc (meta form) ::resolved-head head))
     form))
 
+(clojure.core/defn- visit-no-confusion [env args ca names {:keys [arity num-fields]}]
+  ;; ToLCNF.visitNoConfusion / expandNoConfusionMajor (.perCtor): discard
+  ;; equality proofs before visiting the continuation. Erased proof arguments
+  ;; use Unit.unit's nil runtime representation; no kernel term is admitted here.
+  (if (> (count args) arity)
+    (ansatz->clj env
+                 (beta-apply (nth args arity)
+                             (concat (repeat num-fields (e/const' (name/from-string "Unit.unit") []))
+                                     (drop (inc arity) args))) names)
+    (let [missing (vec (repeatedly (- (inc arity) (count ca)) #(gensym "nc_arg_")))
+          major (nth (into (vec ca) missing) arity)
+          body (reduce (fn [f _] (list f nil)) major (range num-fields))]
+      (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing)))))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -774,13 +825,14 @@
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
               cc (when-not (contains? *raw-constants* h) (get @arity-registry h))
-              ;; The native Nat decision is lowered directly by dite's handler;
-              ;; ordinary type, predicate and proof erasure uses visitAppArg below.
+              ;; dite lowers these decision instances directly from their raw
+              ;; operands; aliases must not also enter storedef compilation.
+              ;; Ordinary type/proof erasure uses the shared irrelevant? below.
               native-decision? (when (and (= h "dite") (> (count args) 2))
-                                 (let [[dh _] (e/get-app-fn-args (nth args 2))]
+                                 (let [[dh _] (e/get-app-fn-args (decidable-head env (nth args 2)))]
                                    (and (e/const? dh)
-                                        (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
-                                         (name/->string (e/const-name dh))))))
+                                        (contains? decidable-comparisons
+                                                   (name/->string (e/const-name dh))))))
               ;; This backend's native literal handlers consume the numeral,
               ;; not its dictionary (unlike ordinary Lean dictionary calls).
               erased-type-heads (case h
@@ -811,6 +863,9 @@
                               (let [ci (env/lookup env (e/const-name head))
                                     idx (+ (.numParams ci) (.numMotives ci) (.numMinors ci) (.numIndices ci))]
                                 (reduce (fn [f a] (list f a)) (list (:sym entry) (nth ca idx)) (drop (inc idx) ca)))))
+                          (when-let [info (get (env/get-extension env :no-confusion {}) h)]
+                            (when (= :per-ctor (:kind info))
+                              (fn [env _ args ca names] (visit-no-confusion env args ca names info))))
                           (builtin-app h))]
             (bi env head args ca names)
             ;; Constructor application
@@ -1025,7 +1080,7 @@
                   (or (extern-unhandled-form env h)
             ;; Unfold a match auxiliary / casesOn: beta-apply its definition to args and recurse,
             ;; so it lands on the `.rec` path codegen already compiles (instead of a bare symbol).
-                      (when (match-aux? h)
+                      (when (or (match-aux? h) (matcher-info/is-matcher-core env h))
                         (when-let [ci (env/lookup env (e/const-name head))]
                           (when-let [v (.value ^ConstantInfo ci)]
                             (ansatz->clj env (beta-apply v args) names))))

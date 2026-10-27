@@ -13,6 +13,19 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.proof :as proof]))
 
+(deftest assigned-metavariable-scan-handles-deep-and-shared-expressions
+  (let [mv (e/mvar 7001)
+        f (e/fvar 7002)
+        deep (reduce (fn [x _] (e/app f x)) mv (range 10000))
+        shared (reduce (fn [x _] (e/app x x)) mv (range 50))
+        assigned (meta/assign-expr meta/empty-context 7001 (e/lit-nat 0))
+        delayed (meta/assign-delayed meta/empty-context 7001 [] 7003)]
+    (is (not (meta/has-assigned-mvar? meta/empty-context deep)))
+    (is (meta/has-assigned-mvar? assigned deep))
+    (is (not (meta/has-assigned-mvar? meta/empty-context shared)))
+    (is (meta/has-assigned-mvar? delayed shared))
+    (is (not (meta/has-assigned-mvar? assigned (e/lit-nat 0))))))
+
 (def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-init-medium []
