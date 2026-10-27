@@ -574,3 +574,21 @@
         (is (not= term (:expr result)))
         (is (nil? (:proof? result)) "rfl normalization still counts as progress")
         (is (tc/is-def-eq st term (:expr result)))))))
+
+(deftest simp-rejects-uncertified-goal-change
+  (let [env (require-env)
+        nat (e/const' (name/from-string "Nat") [])
+        eq (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+        original (e/app* eq nat (e/lit-nat 0) (e/lit-nat 1))
+        simplified (e/app* eq nat (e/lit-nat 0) (e/lit-nat 0))
+        [ps _] (proof/start-proof env original)
+        goal (proof/current-goal ps)
+        st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"uncertified simplification"
+                         (#'simp/close-goal-with-proof ps goal st
+                                                      {:expr simplified :proof? nil} [])))
+    (let [truth (e/const' (name/from-string "True") [])
+          h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                    (e/sort' lvl/zero) truth)]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"invalid equality proof"
+                           (#'simp/close-goal-with-proof ps goal st {:expr truth :proof? h} []))))))

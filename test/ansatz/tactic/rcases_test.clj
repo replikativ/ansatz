@@ -17,6 +17,11 @@
                    (mk [fst A] [snd (B fst)]))
       (a/inductive TestSum [A Type B Type]
                    (inl [val A]) (inr [val B]))
+      (binding [*ns* (the-ns 'ansatz.tactic.rcases-test)]
+        (a/structure FrameState [] (x Nat))
+        (a/structure FrameOutcome [] (state FrameState) (accepted Bool))
+        (a/defn frame-step [n :- Nat, s :- FrameState] FrameOutcome
+          (if (Nat.beq n 0) (FrameOutcome.mk s true) (FrameOutcome.mk s false))))
       (f))))
 
 (defn- proves [params target tactics]
@@ -175,3 +180,30 @@
                 h :- (HEq Nat x ((fn [T :- Type] T) Nat) y),
                 P :- (=> Nat Prop), p :- (P y), h2 :- (= h h)] '(P x)
               '[(rcases h rfl) (have keep (= h2 h2) := (Eq.refl _ h2)) (exact p)])))
+
+(deftest cases-equations-under-projections
+  (is (proves '[n :- Nat, s :- FrameState]
+              '(= (:state (frame-step n s)) s)
+              '[(and_then (cases h (Nat.beq n 0)) (simp [frame-step h]))]))
+  (is (proves '[n :- Nat, s :- FrameState]
+              '(= (:x (:state (frame-step n s))) (:x s))
+              '[(and_then (cases h (Nat.beq n 0)) (simp [frame-step h]))]))
+  (is (proves '[s :- FrameOutcome]
+              '(= (:accepted s) (:accepted s))
+              '[(cases h (:accepted s)) (exact (Eq.refl Bool false)) (exact (Eq.refl Bool true))]))
+  (is (proves '[s :- FrameOutcome]
+              '(= (:x (:state s)) (:x (:state s)))
+              '[(generalize x h (:x (:state s))) (intro x) (intro h) (exact (Eq.refl Nat x))])))
+
+(deftest generalization-visits-projection-children
+  (is (proves '[s :- FrameState, b :- Bool]
+              '(= (:accepted (FrameOutcome.mk s (Bool.not b))) (Bool.not b))
+              '[(cases h (Bool.not b)) (exact (Eq.refl Bool false)) (exact (Eq.refl Bool true))]))
+  (is (proves '[n :- Nat, b :- Bool]
+              '(= (:x (:state (FrameOutcome.mk (FrameState.mk (Nat.succ n)) b))) (Nat.succ n))
+              '[(generalize x h (Nat.succ n)) (intro x) (intro h) (exact (Eq.refl Nat x))])))
+
+(deftest generalization-rejects-ill-typed-target
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"generalize: result is not type correct"
+                       (proves '[n :- Nat, x :- (Fin n)] '(= x x)
+                               '[(generalize k h n)]))))
