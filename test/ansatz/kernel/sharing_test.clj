@@ -73,3 +73,47 @@
     (is (= prop (tc/infer-type st (e/fvar 7))))
     (let [other (assoc st :lctx (red/lctx-add-local {} 7 "p" (e/sort' (lvl/succ lvl/zero))))]
       (is (= (e/sort' (lvl/succ lvl/zero)) (tc/infer-type other (e/fvar 7)))))))
+
+(deftest shared-arrow-types-reuse-inference-across-binders
+  (doseq [depth [4 12 40]]
+    (let [term (reduce (fn [t _] (e/arrow t t)) (e/sort' lvl/zero) (range depth))
+          st (tc/mk-tc-state (env/empty-env))
+          infer tc/infer-type
+          calls (atom 0)]
+      (with-redefs [tc/infer-type (fn [st term] (swap! calls inc) (infer st term))]
+        (is (= (e/sort' (lvl/succ lvl/zero)) (tc/infer-type st term))))
+      (is (= (inc (* 2 depth)) @calls) "one domain and codomain call per distinct arrow")
+      (is (= 1 (.size ^java.util.IdentityHashMap (:infer-cache st)))
+          "binder extensions retain one cache")
+      (let [cache (.get ^java.util.IdentityHashMap (:infer-cache st) (:env st))]
+        (is (= (inc depth) (.size ^ansatz.kernel.ExprMap cache))
+            "one cached result per distinct input node")))))
+
+(deftest open-arrow-types-reuse-inference-across-unrelated-binders
+  (let [prop (e/sort' lvl/zero)
+        term (reduce (fn [t _] (e/arrow t t)) (e/fvar 7) (range 40))
+        st (tc/attach-lctx (tc/mk-tc-state (env/empty-env))
+                           (red/lctx-add-local {} 7 "p" prop))
+        infer tc/infer-type
+        calls (atom 0)]
+    (with-redefs [tc/infer-type (fn [st term] (swap! calls inc) (infer st term))]
+      (is (= prop (tc/infer-type st term))))
+    (is (= 81 @calls) "unused binder locals do not invalidate cached open types")))
+
+(deftest inference-cache-validates-transitive-local-dependencies
+  (let [prop (e/sort' lvl/zero)
+        lctx (-> {} (red/lctx-add-local 7 "p" prop)
+                 (red/lctx-add-local 8 "h" (e/fvar 7)))
+        st (tc/attach-lctx (tc/mk-tc-state (env/empty-env)) lctx)
+        h (e/fvar 8)]
+    (tc/infer-type st h)
+    (let [cached (.get ^ansatz.kernel.ExprMap (#'tc/infer-type-cache st) h)]
+      (is (= #{7 8} (set (keys (:dependencies cached))))))
+    ;; Same direct declaration, different type for a dependency: refresh the
+    ;; entry rather than returning one validated under the old context.
+    (let [other (assoc st :lctx (red/lctx-add-local lctx 7 "p" (e/sort' (lvl/succ lvl/zero))))]
+      (tc/infer-type other h)
+      (let [cached (.get ^ansatz.kernel.ExprMap (#'tc/infer-type-cache st) h)]
+        (is (= (get (:lctx other) 7) (get-in cached [:dependencies 7])))))
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown free variable"
+                          (tc/infer-type (assoc st :lctx {}) h)))))

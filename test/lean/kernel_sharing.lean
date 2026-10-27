@@ -21,3 +21,11 @@ run_meta do
         (mkLambda `h BinderInfo.default closed (mkBVar 0))
       unless (← inferType lam) == mkForall `x BinderInfo.default prop proofType do
         throwError "incorrect dependent lambda type"
+
+-- Shared binders must use the same inference cache across local extensions.
+run_meta do
+  let mut term := mkSort Level.zero
+  for _ in [:40] do
+    term := mkForall `x BinderInfo.default term term
+  unless (← inferType term) == mkSort (Level.succ Level.zero) do
+    throwError "incorrect shared arrow universe"

@@ -7,7 +7,8 @@
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.reduce :as red])
+            [ansatz.kernel.reduce :as red]
+            [clojure.set :as set])
   (:import [ansatz.kernel Name ConstantInfo Env TypeChecker ExprMap]))
 
 ;; ============================================================
@@ -30,8 +31,9 @@
    ;; synthInstance cache: failures memoize too, collapsing the repeated
    ;; exploration of the same class goal across candidates.
    :synth-memo (atom {})
-   ;; Env identity -> local-context identity -> Lean ExprMap of inferred types.
-   :infer-cache (java.util.IdentityHashMap.)})
+   ;; One expression cache per environment, shared across binder extensions.
+   :infer-cache (java.util.IdentityHashMap.)
+   :infer-fvars (ExprMap. 64)})
 
 (defn- lctx-max-id
   "Largest fvar id present in an lctx map (-1 if empty)."
@@ -48,8 +50,7 @@
   [st lctx]
   (let [mx (lctx-max-id lctx)]
     (swap! (:next-id st) (fn [v] (if (> (inc mx) v) (inc mx) v)))
-    (cond-> (assoc st :lctx lctx)
-      (not (identical? (:lctx st) lctx)) (assoc :infer-cache (java.util.IdentityHashMap.)))))
+    (assoc st :lctx lctx)))
 
 (defn mk-tc-state-with-locals
   "A tc-state with `lctx-map` (a {fvar-id → {:name :type ...}} map, e.g. core's
@@ -97,31 +98,61 @@
 (declare infer-type is-def-eq is-def-eq* is-def-eq-fallback ensure-sort ensure-pi try-eta)
 
 (defn- infer-type-cache
-  ;; Lean Meta/InferType.lean:checkInferTypeCache assumes globally fresh locals.
-  ;; Surface tactics may reuse fvar IDs in different persistent local contexts,
-  ;; so scope the expression cache to the environment and local-context identities.
+  ;; Lean Meta/InferType.lean:checkInferTypeCache and kernel/type_checker.cpp:
+  ;; infer_type_core share an expression cache across binder extensions.
   ^ExprMap [st]
-  (let [^java.util.IdentityHashMap environments (:infer-cache st)
-        ^java.util.IdentityHashMap contexts
-        (or (.get environments (:env st))
-            (let [contexts (java.util.IdentityHashMap.)]
-              (.put environments (:env st) contexts)
-              contexts))]
-    (or (.get contexts (:lctx st))
+  (let [^java.util.IdentityHashMap environments (:infer-cache st)]
+    (or (.get environments (:env st))
         (let [cache (ExprMap. 64)]
-          (.put contexts (:lctx st) cache)
+          (.put environments (:env st) cache)
           cache))))
+
+(defn- infer-fvars [st expr]
+  ;; Cache the dependency footprint by expression too, retaining DAG sharing.
+  (if-not (e/has-fvar-flag expr)
+    #{}
+    (let [^ExprMap cache (:infer-fvars st)]
+      (or (.get cache expr)
+          (let [children (case (e/tag expr)
+                           :app [(e/app-fn expr) (e/app-arg expr)]
+                           :lam [(e/lam-type expr) (e/lam-body expr)]
+                           :forall [(e/forall-type expr) (e/forall-body expr)]
+                           :let [(e/let-type expr) (e/let-value expr) (e/let-body expr)]
+                           :proj [(e/proj-struct expr)]
+                           :mdata [(e/mdata-expr expr)] [])
+                ids (if (e/fvar? expr) #{(e/fvar-id expr)}
+                        (reduce set/union #{} (map #(infer-fvars st %) children)))]
+            (.put cache expr ids)
+            ids)))))
+
+(defn- infer-dependencies [st expr]
+  ;; Lean's globally fresh locals make this check unnecessary. Surface tactics
+  ;; can rebind IDs: record only mentioned declarations and their transitive
+  ;; type/let-value dependencies, not the entire local context. Closed terms
+  ;; have no dependencies and reuse their cached types in every extension.
+  (loop [todo (seq (infer-fvars st expr)) dependencies {}]
+    (if-let [id (first todo)]
+      (if (contains? dependencies id)
+        (recur (next todo) dependencies)
+        (let [decl (get (:lctx st) id)
+              ids (reduce set/union #{}
+                          (map #(infer-fvars st %) (keep #(get decl %) [:type :value])))]
+          (recur (concat (next todo) ids) (assoc dependencies id decl))))
+      dependencies)))
 
 (defn infer-type
   "Infer the type of expression e in type checker state st.
    Lean Meta/InferType.lean:checkInferTypeCache memoizes by expression/config.
    ExprMap uses Lean expression hash/equality, so separately allocated equal
-   subterms share results too, within the same environment and local context."
+   subterms share results across binder extensions. Open entries are reused only
+   while their referenced declarations (including dependencies) are identical."
   [st e]
   (let [^ExprMap cache (infer-type-cache st)
         cached (.get cache e)]
-    (if (some? cached)
-      cached
+    (if (and cached
+             (every? (fn [[id decl]] (identical? decl (get (:lctx st) id)))
+                     (:dependencies cached)))
+      (:type cached)
       (let [result
             (case (e/tag e)
               :bvar (tc-error! "Loose bound variable in infer-type" {:expr e})
@@ -221,7 +252,7 @@
                       (if decl
                         (:type decl)
                         (tc-error! "Unknown free variable" {:id (e/fvar-id e)}))))]
-        (.put cache e result)
+        (.put cache e {:type result :dependencies (infer-dependencies st e)})
         result))))
 
 (defn ensure-sort
