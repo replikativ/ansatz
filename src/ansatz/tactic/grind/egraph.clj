@@ -13,7 +13,8 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]))
+            [ansatz.kernel.reduce :as red]
+            [ansatz.tactic.grind.action :as action]))
 
 ;; ============================================================
 ;; Names (cached for performance)
@@ -371,7 +372,7 @@
 ;; Following Lean 4 Internalize.lean
 ;; ============================================================
 
-(defn internalize
+(defn- internalize-core
   "Add an expression to the E-graph. Recursively internalizes children.
    Returns updated grind state."
   [gs expr gen]
@@ -408,7 +409,7 @@
         (let [[head args] (e/get-app-fn-args expr)
               ;; Internalize head and all args
               gs (reduce (fn [gs child]
-                           (-> (internalize gs child gen)
+                           (-> (internalize-core gs child gen)
                                (register-parent child expr)))
                          gs (cons head args))
               ;; Add to app-map (indexed by head symbol)
@@ -421,10 +422,16 @@
               gs (add-congr-table gs expr)]
           gs)
         (if (e/proj? expr)
-          (-> gs (internalize (e/proj-struct expr) gen)
+          (-> gs (internalize-core (e/proj-struct expr) gen)
               (register-parent (e/proj-struct expr) expr)
               (add-congr-table expr))
           gs)))))
+
+(defn internalize
+  "Check preprocessing limits before admitting a term to the graph."
+  [gs expr gen]
+  (action/check-expr! expr)
+  (internalize-core gs expr gen))
 
 (defn internalize-binders
   "Like `internalize`, but ALSO descends into the step-λ arguments of applications whose head name

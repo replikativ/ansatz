@@ -197,7 +197,8 @@
         (let [domain (e/forall-type type)
               arg (if (:proof? param) (prove domain) (get-in assignment [:vars (:index param)]))]
           (if arg
-            (do (when-not (tc/is-def-eq st domain (tc/infer-type st arg))
+            (do (action/check-expr! arg)
+                (when-not (tc/is-def-eq st domain (tc/infer-type st arg))
                   (action/fail! "theorem assignment type mismatch" {:origin (:origin thm) :domain domain :argument arg}))
                 (recur (e/instantiate1 (e/forall-body type) arg) (e/app proof arg) (rest params) (conj args arg)))
             (when (every? :proof? params) (fact type proof args))))
