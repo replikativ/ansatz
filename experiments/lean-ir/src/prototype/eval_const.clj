@@ -113,16 +113,20 @@
   (check-function-closure! world registry roots))
 
 (defn boxed-entrypoint!
-  "Resolve an entry only through its admitted unit manifest and exact currently
-   authorized executable closure. Returns the boxed target, never guessed names."
-  [world digest name]
-  (let [unit (get-in world [:eval-const-authorizations :units digest])
-        entry (some #(when (= name (:name %)) %) (get-in unit [:manifest :entryPoints]))
-        target (:boxedTarget entry)]
-    (when-not (and unit target)
-      (m/fail "Name is not an admitted boxed entrypoint" {:name name :unit-digest digest}))
-    (check-function-closure! world (get-in world [:eval-const-authorizations :functions]) [target])
-    target))
+  "Resolve an entry through its CURRENT admitted unit manifest, then assert the
+   selected executable closure. The default always runs the full validator.
+   The optional trusted host assertion may reuse immutable static-code evidence;
+   it grants no file, initialization, kernel or ownership authority."
+  ([world digest name]
+   (boxed-entrypoint! world digest name check-function-closure!))
+  ([world digest name assert-closure!]
+   (let [unit (get-in world [:eval-const-authorizations :units digest])
+         entry (some #(when (= name (:name %)) %) (get-in unit [:manifest :entryPoints]))
+         target (:boxedTarget entry)]
+     (when-not (and unit target)
+       (m/fail "Name is not an admitted boxed entrypoint" {:name name :unit-digest digest}))
+     (assert-closure! world (get-in world [:eval-const-authorizations :functions]) [target])
+     target)))
 
 (defn- source-transition? [world options local r]
   (let [name (:name r) proof (get (::source-transitions options) name)
