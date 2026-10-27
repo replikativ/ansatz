@@ -1003,8 +1003,12 @@
                           (reduce (fn [f a] (list f a)) sym
                                   (subvec ca (min erased (count ca))))
                           (and arity (> arity 1) (>= (count ca) (+ arity erased)))
-                    ;; FAP (full application): flat multi-arg call, skip erased prefix
-                          (apply list (symbol h) (subvec ca erased (+ erased arity)))
+                    ;; Lean Compiler/LCNF/ToLCNF.lean mkOverApplication: call the
+                    ;; declared telescope, then apply surplus args to its result.
+                    ;; Ordinary multi-arg calls retain their flat calling convention.
+                          (reduce (fn [f a] (list f a))
+                                  (apply list (symbol h) (subvec ca erased (+ erased arity)))
+                                  (subvec ca (+ erased arity)))
                           :else
                     ;; Curried (unknown arity, single-arg, or partial application)
                           (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))

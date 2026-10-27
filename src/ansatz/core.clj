@@ -320,16 +320,18 @@
 ;; Dynamic vars for elaboration context threading
 (def ^:dynamic *current-lctx* nil)
 
+;; Lean Compiler/LCNF/Simp/Main.lean inlineApp? separates the declaration's
+;; parameters from over-application arguments. The surface wrapper binds `params` only.
 (clojure.core/defn- compute-arity
-  "Compute the runtime arity of a function type.
+  "Compute runtime arity over the declared parameters, excluding function-valued results.
    Returns {:arity n :erased k} where n = explicit params, k = erased (implicit/inst) prefix."
-  [fn-type]
-  (loop [t fn-type explicit 0 erased 0 in-prefix true]
-    (if (e/forall? t)
+  [fn-type num-params]
+  (loop [t fn-type left num-params explicit 0 erased 0 in-prefix true]
+    (if (and (pos? left) (e/forall? t))
       (let [bi (e/forall-info t)]
         (if (= :default bi)
-          (recur (e/forall-body t) (inc explicit) erased false)
-          (recur (e/forall-body t) explicit (if in-prefix (inc erased) erased) in-prefix)))
+          (recur (e/forall-body t) (dec left) (inc explicit) erased false)
+          (recur (e/forall-body t) (dec left) explicit (if in-prefix (inc erased) erased) in-prefix)))
       {:arity explicit :erased erased})))
 
 (clojure.core/defn context
@@ -1314,7 +1316,7 @@
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
     (swap! ansatz-env env/add-constant ax)
-    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz (count pairs)))
     (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
     ;; codegen the recursive body — body-ansatz already IS the direct-recursion term
     ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
@@ -1362,7 +1364,7 @@
         cname (name/from-string (str fn-name))
         ax (env/mk-axiom cname [] type-ansatz)]
     (swap! ansatz-env env/add-constant ax)
-    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+    (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz (count pairs)))
     (println "⚠ foreign:" fn-name "— trusted Clojure fn asserted at its type, NOT verified")
     :foreign))
 
@@ -1643,7 +1645,7 @@
         ci (env/mk-def cname [] type-ansatz body-ansatz)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz (count pairs)))
         equation-errors (atom [])
         equation-names (atom [])
         equation-auxiliaries (atom [])

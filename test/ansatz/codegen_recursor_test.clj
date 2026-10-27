@@ -109,14 +109,87 @@
                          (when rt (first rt)) rt)]
         (is (= kernel decoded-rt) (str f " " input))))))
 
-(defn- differential-closed! [applications]
-  (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
-        red (.getReducer tc)]
-    (doseq [application applications]
-      (let [term (elab/elaborate (a/env) application)
-            kernel (#'am/decode-val #(.whnf red %) :int term)
-            runtime (eval (cg/ansatz->clj (a/env) term []))]
-        (is (= kernel runtime) (str application))))))
+(defn- differential-closed!
+  ([applications] (differential-closed! applications :int))
+  ([applications schema]
+    (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
+          red (.getReducer tc)]
+      (doseq [application applications]
+        (let [term (elab/elaborate (a/env) application)
+              kernel (#'am/decode-val #(.whnf red %) schema term)
+              runtime (eval (cg/ansatz->clj (a/env) term []))]
+          (is (= kernel runtime) (str application)))))))
+
+(deftest function-valued-definitions-preserve-call-arity
+  (let [saved-env @a/ansatz-env
+        saved-arity @a/arity-registry
+        saved-instances @a/ansatz-instance-index]
+    (try
+      (binding [*ns* (the-ns 'ansatz.codegen-recursor-test) a/*verbose* false]
+        (a/load-init!)
+        (run! eval
+              '[(ansatz.core/defn round-probe [n :- Nat] (=> Nat Bool)
+                  (match n
+                    [zero (fn [x :- Nat] true)]
+                    [(succ k) (fn [x :- Nat] ((round-probe k) x))]))
+                (ansatz.core/defn bad-call-probe [n :- Nat, x :- Nat] Bool
+                  ((round-probe n) x))
+                (ansatz.core/theorem probe-kernel [] (= (bad-call-probe 2 3) true) (rfl))
+                (ansatz.core/defn cg-result-let [n :- Nat, x :- Nat] Bool
+                  (let [f (round-probe n)] (f x)))
+                (ansatz.core/defn cg-result-flat [n :- Nat, x :- Nat, y :- Nat] Nat
+                  (+ n (+ x y)))
+                (ansatz.core/defn cg-result-multi [n :- Nat, x :- Nat] (=> Nat Nat)
+                  (fn [y :- Nat] (+ n (+ x y))))
+                (ansatz.core/defn cg-result-recursive [n :- Nat, x :- Nat] (=> Nat Nat)
+                  (match n
+                    [zero (fn [y :- Nat] (+ x y))]
+                    [(succ k) (fn [y :- Nat] (+ 1 ((cg-result-recursive k x) y)))]))
+                (ansatz.core/defn cg-result-eta [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (cg-result-flat n x 3)))
+                (ansatz.core/defn cg-result-partial [n :- Nat] (=> Nat Nat)
+                  (cg-result-flat n 2))
+                (ansatz.core/defn cg-result-nested [n :- Nat] (=> Nat (=> Nat Nat))
+                  (fn [x :- Nat] (fn [y :- Nat] (+ n (+ x y)))))
+                (ansatz.core/defn cg-result-value [] (=> Nat (=> Nat (=> Nat Nat)))
+                  cg-result-flat)
+                (ansatz.core/defn cg-result-local [n :- Nat, x :- Nat, y :- Nat] Nat
+                  (let [f (cg-result-multi n)] ((f x) y)))
+                (ansatz.core/defn ^:partial cg-result-partial-def [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (+ n x)))
+                (ansatz.core/foreign cg-result-foreign [n :- Nat] (=> Nat Nat)
+                  (fn [n] (fn [x] (+ n x))))])
+        (is (= 1 (:arity (get @a/arity-registry "round-probe"))))
+        (is (= 2 (:arity (get @a/arity-registry "cg-result-multi"))))
+        (is (= 3 (:arity (get @a/arity-registry "cg-result-flat"))))
+        ;; Public runtime calls also exercise the wrappers independently of application lowering.
+        (is (true? ((deref (ns-resolve *ns* 'bad-call-probe)) 2 3)))
+        (let [multi @(ns-resolve *ns* 'cg-result-multi)]
+          (is (= 10 ((multi 2 3) 5)))
+          (is (= 10 (((multi 2) 3) 5))))
+        (doseq [n (range 5)]
+          (differential-closed!
+           [(list 'bad-call-probe n 3) (list 'cg-result-let n 3)
+            (list (list 'round-probe n) 3)] :boolean)
+          (differential-closed!
+           [(list 'cg-result-multi n 3 5)
+            (list (list 'cg-result-multi n 3) 5)
+            (list 'cg-result-eta n 5) (list 'cg-result-partial n 5)
+            (list 'cg-result-nested n 3 5) (list 'cg-result-value n 3 5)
+            (list 'cg-result-local n 3 5) (list 'cg-result-recursive n 3 5)
+            (list 'let '[f cg-result-multi] (list 'f n 3 5))]))
+        (doseq [f '[cg-result-partial-def cg-result-foreign]]
+          (is (= 1 (:arity (get @a/arity-registry (str f)))))
+          (is (= 7 (eval (cg/ansatz->clj (a/env)
+                                        (elab/elaborate (a/env) (list f 2 5)) [])))))
+        ;; Ordinary functions retain the flat call fast path.
+        (is (= '(cg-result-flat 2 3 5)
+               (cg/ansatz->clj (a/env)
+                               (elab/elaborate (a/env) '(cg-result-flat 2 3 5)) []))))
+      (finally
+        (reset! a/ansatz-env saved-env)
+        (reset! a/arity-registry saved-arity)
+        (reset! a/ansatz-instance-index saved-instances)))))
 
 (defn- higher-order-differential! []
   ;; a/inductive currently generates an invalid higher-order recursor type.

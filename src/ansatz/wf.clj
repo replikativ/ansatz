@@ -1241,7 +1241,7 @@
         ci (env/mk-def cname [] type-ansatz chosen-body)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+        _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz n))
         _ (when (verbose?) (println (str "✓ " fn-name " defined (well-founded recursion, "
                                          (case encoding
                                            :wf-fix (if lex? "kernel-enforced lexicographic WellFounded.fix"
