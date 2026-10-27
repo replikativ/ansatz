@@ -3027,7 +3027,9 @@
    - If simplified to True: close with of_eq_true
    - If simplified is an Eq with def-eq sides: close with rfl
    - Otherwise: replace goal type with simplified (via Eq.mpr)"
-  [ps goal st result lemma-names]
+  ([ps goal st result lemma-names]
+   (close-goal-with-proof ps goal st result lemma-names false))
+  ([ps goal st result lemma-names target-core?]
   (let [simplified (:expr result)
         simplified-whnf (#'tc/cached-whnf st simplified)
         ;; For Eq.mpr, goal-type must match the eq-proof's LHS exactly.
@@ -3080,7 +3082,7 @@
                  (tactic-error! "simplified to True but cannot certify" {:goal goal-type}) (throw ex)))))
 
       ;; Simplified to False
-      (and (e/const? simplified-whnf) (= (e/const-name simplified-whnf) false-name))
+      (and (not target-core?) (e/const? simplified-whnf) (= (e/const-name simplified-whnf) false-name))
       (tactic-error! "goal simplified to False" {:goal goal-type})
 
       ;; Try rfl on SIMPLIFIED or ORIGINAL expression
@@ -3108,7 +3110,7 @@
                         (not (:limit (ex-data ex)))
                         (not (:proof-construction (ex-data ex))))
                  (if (= simplified goal-type)
-                   (tactic-error! "simp made no progress" {:goal goal-type})
+                   (if target-core? ps (tactic-error! "simp made no progress" {:goal goal-type}))
                  ;; Lean 4: simp replaces goal with simplified form via Eq.mpr
                  ;; when it can't close. Create a new goal with the simplified type.
                  ;; This follows Lean 4's applySimpResultToTarget (Main.lean:780).
@@ -3134,7 +3136,7 @@
                                                :mpr-level lvl/zero
                                                :goal-type goal-type
                                                :simplified simplified})
-                           (proof/record-tactic :simp lemma-names (:id goal)))))) (throw ex))))))))
+                           (proof/record-tactic :simp lemma-names (:id goal)))))) (throw ex)))))))))
 
 (defn- simp-setup
   "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
@@ -3222,7 +3224,17 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
          result (simp-expr* st env lemma-index (:type goal) config)]
-     (close-goal-with-proof ps goal st result lemma-names))))
+     (close-goal-with-proof ps goal st result lemma-names false))))
+
+(defn simp-target
+  "Lean Meta/Tactic/Simp/Main.lean simpTargetCore, used by Mathlib reduceIfsAt:
+   replace the target even when it becomes False; unchanged targets are allowed."
+  [ps lemma-names opts]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
+        result (simp-expr* st env lemma-index (:type goal) config)]
+    (close-goal-with-proof ps goal st result lemma-names true)))
 
 (defn simp-at
   "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
