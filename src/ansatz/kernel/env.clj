@@ -98,7 +98,7 @@
 
 (defn add-constant
   "Add a constant to the environment. Returns a NEW Env (immutable).
-   Throws if already present (for non-PSS envs)."
+   Throws if already present, including in external stores."
   ^Env [^Env env ^ConstantInfo ci]
   (.addConstant env ci))
 
@@ -108,15 +108,6 @@
    (TypeChecker/checkConstant env ci))
   (^Env [^Env env ^ConstantInfo ci fuel]
    (TypeChecker/checkConstant env ci fuel)))
-
-(defn check-constant-replace
-  "Type-check and add-or-REPLACE a constant — surface redefinition (a/defn / a/theorem in a REPL, matching
-   Clojure `defn` semantics). Identical kernel type-checking to `check-constant`; only the final add
-   replaces an existing same-named constant instead of throwing. Kernel proof / `install!` paths stay strict."
-  (^Env [^Env env ^ConstantInfo ci]
-   (TypeChecker/checkConstantReplace env ci))
-  (^Env [^Env env ^ConstantInfo ci fuel]
-   (TypeChecker/checkConstantReplace env ci fuel)))
 
 (defn verifies?
   "AUTHORITATIVE proof check: true iff `proof` fully kernel-checks as a proof of `goal`

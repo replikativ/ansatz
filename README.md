@@ -401,6 +401,8 @@ No export file or Mathlib setup is required:
 (double 21) ;; => 42
 ```
 
+Redefinition of a verified name in the REPL is rejected (kernel environments are append-only); use a new name.
+
 ## Syntax Reference
 
 ### Types
