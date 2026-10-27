@@ -4,7 +4,8 @@
    constructors and kebab-cased structure fields. LocalDecl uses the kernel
    context's existing :id, :type and :value fields."
   (:require [ansatz.kernel.expr :as e]
-            [ansatz.meta :as meta]))
+            [ansatz.meta :as meta]
+            [ansatz.meta.fvar-subst :as subst]))
 
 (defn inaccessible [expr] {:tag :inaccessible :e expr})
 (defn var-pattern [fvar-id] {:tag :var :fvar-id fvar-id})
@@ -20,25 +21,15 @@
 (defn problem [mvar-id vars alts examples]
   {:mvar-id mvar-id :vars (vec vars) :alts (vec alts) :examples (vec examples)})
 
-(defn- map-expr-fvars
-  "Lean FVarSubst.apply uses a simultaneous replacement, without visiting replacement terms."
-  [f expr]
-  (if-not (e/has-fvar-flag expr)
-    expr
-    (let [go #(map-expr-fvars f %)]
-      (case (e/tag expr)
-        :fvar (f (e/fvar-id expr))
-        :app (e/app (go (e/app-fn expr)) (go (e/app-arg expr)))
-        :lam (e/lam (e/lam-name expr) (go (e/lam-type expr)) (go (e/lam-body expr)) (e/lam-info expr))
-        :forall (e/forall' (e/forall-name expr) (go (e/forall-type expr))
-                            (go (e/forall-body expr)) (e/forall-info expr))
-        :let (e/let' (e/let-name expr) (go (e/let-type expr))
-                      (go (e/let-value expr)) (go (e/let-body expr)))
-        :mdata (e/mdata (e/mdata-data expr) (go (e/mdata-expr expr)))
-        :proj (e/proj (e/proj-type-name expr) (e/proj-idx expr) (go (e/proj-struct expr)))
-        expr))))
+(defn pattern-to-expr [p]
+  (case (:tag p)
+    (:inaccessible :val) (:e p)
+    :var (e/fvar (:fvar-id p))
+    :ctor (reduce e/app (e/const' (:ctor-name p) (:us p))
+                  (concat (:params p) (map pattern-to-expr (:fields p))))
+    :as (pattern-to-expr (:p p))))
 
-(defn- subst-expr [s expr] (map-expr-fvars #(get s % (e/fvar %)) expr))
+(defn- subst-expr [s expr] (subst/apply s expr))
 (defn- map-local-decl [f d]
   (cond-> d (:type d) (update :type f) (:value d) (update :value f)))
 
@@ -68,7 +59,7 @@
 
 (defn- expr-fvars [expr]
   (let [ids (volatile! #{})]
-    (map-expr-fvars (fn [id] (vswap! ids conj id) (e/fvar id)) expr)
+    (subst/map-expr-fvars (fn [id] (vswap! ids conj id) (e/fvar id)) expr)
     @ids))
 
 (defn pattern-collect-fvars [p]
