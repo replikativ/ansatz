@@ -30,13 +30,23 @@
         @(ns-resolve 'ansatz.tactic.omega-proof 'omega-names)))
 
 (defn- inline-names
-  "Constant names spelled inline in omega_proof.clj as (name/from-string \"…\").
-   Read from source: they are just as load-bearing as the table entries, and
-   `Nat.div_mul_cancel` (the Nat divisibility fact) is only referenced that way."
+  "Read literal name/from-string arguments, including conditional name choices."
   []
-  (if-let [src (io/resource "ansatz/tactic/omega_proof.clj")]
-    (into #{} (map second) (re-seq #"name/from-string \"([^\"]+)\"" (slurp src)))
-    #{}))
+  (into #{}
+        (mapcat
+         (fn [path]
+           (when-let [src (io/resource path)]
+             (with-open [r (java.io.PushbackReader. (io/reader src))]
+               (loop [names #{}]
+                 (if-let [form (read {:eof nil} r)]
+                   (recur
+                    (into names
+                          (mapcat (fn [x]
+                                    (when (and (seq? x) (= 'name/from-string (first x)))
+                                      (filter string? (tree-seq coll? seq (rest x))))))
+                          (tree-seq coll? seq form)))
+                   names))))))
+        ["ansatz/tactic/omega/frontend.clj" "ansatz/tactic/omega/core.clj"]))
 
 (defn- referenced-names [] (into (table-names) (inline-names)))
 

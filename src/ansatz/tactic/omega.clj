@@ -1,25 +1,11 @@
-;; Tactic layer — omega: the user-facing entry point of the linear arithmetic
-;; decision procedure.
-;;
-;; This namespace is a FRONT END only. All the arithmetic — reification, the
-;; Fourier-Motzkin solver, and the proof reconstruction — lives in
-;; `ansatz.tactic.omega-proof` (with `ansatz.tactic.omega.problem` and
-;; `ansatz.tactic.omega.fm` underneath it).
-;;
-;; It used to contain a SECOND, complete omega: its own sparse-map linear-combination
-;; layer, its own reify-term/reify-prop/negate-goal/collect-hypotheses, its own
-;; proof-free Fourier-Motzkin, and ~440 lines of hand-rolled proof-shape fallbacks.
-;; Every arithmetic feature had to be built twice and the two copies could disagree —
-;; which is exactly how the symbolic-division bug arose: the proof-free procedure
-;; answered "unprovable" and vetoed the real engine, which could have proved it. There
-;; is now one engine, so a verdict and a proof can no longer come apart.
-
+;; Public adapter for Lean/Elab/Tactic/Omega/Frontend.lean: evalOmega.
+;; One decision procedure lives in omega.frontend / omega.core (checkout 55f80e10).
 (ns ansatz.tactic.omega
   "Linear arithmetic decision procedure (omega tactic) — user-facing entry point.
 
-   Supports (see ansatz.tactic.omega-proof for the implementation):
+   Supported fragment (Int scalar products and Int div/mod are not yet supported):
    - Nat: +, -, *, /, %, min, max, ≤, <, =, ≠ (ground multiplication/division only)
-   - Int: the same, including negative literals
+   - Int: linear relations and negative literals; scalar/div/mod parity remains staged
    - Mixed Nat/Int via coercion, Bool→Prop bridges (Nat.ble/Nat.blt)
    - Systems of linear inequalities, equalities and disjunctions
 
@@ -35,7 +21,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.decide :as decide-tac]
+            [ansatz.tactic.omega.frontend :as frontend]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.omega-proof :as omega-proof]))
 
@@ -75,7 +61,8 @@
   (try
     (let [ps' (basic/assumption ps)]
       (when (proof/solved? ps') ps'))
-    (catch Exception _ nil)))
+    (catch clojure.lang.ExceptionInfo ex
+      (if (= :tactic-error (:kind (ex-data ex))) nil (throw ex)))))
 
 (defn omega
   "Close the current goal using the omega decision procedure.
@@ -91,12 +78,9 @@
    from \"found contradiction but cannot certify\" — that distinction now comes from
    the solver that actually knows, so it is reported verbatim."
   [ps]
-  ;; First try decide directly — it's faster for ground cases
-  (try
-    (decide-tac/decide ps)
-    (catch Exception _
-      (or (try-rfl ps)
-          (try-assumption ps)
-          (let [goal (proof/current-goal ps)]
-            (when-not goal (tactic-error! "No goals" {}))
-            (omega-proof/omega ps))))))
+  (or (frontend/try-decide ps)
+      (try-rfl ps)
+      (try-assumption ps)
+      (let [goal (proof/current-goal ps)]
+        (when-not goal (tactic-error! "No goals" {}))
+        (omega-proof/omega ps))))

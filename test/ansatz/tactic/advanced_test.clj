@@ -2,6 +2,7 @@
   "Tests for advanced tactics: omega, ring, simp.
    Mirrors Lean 4's test cases where possible."
   (:require [clojure.test :refer [deftest testing is]]
+            [ansatz.test-env :as test-env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -958,14 +959,14 @@
 
 (deftest test-omega-proof-int-negation
   (testing "omega-proof with Neg.neg (Int negation): -a + a = 0"
-    (when-let [env (require-mathlib-env)]
+    (let [env @test-env/bundled-init-env]
       (let [int-type (e/const' (name/from-string "Int") [])
             mk-int-add (fn [a b] (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
                                          int-type int-type int-type
                                          (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
                                                  int-type (e/const' (name/from-string "Int.instAdd") []))
                                          a b))
-            mk-int-neg (fn [a] (e/app* (e/const' (name/from-string "Neg.neg") [])
+            mk-int-neg (fn [a] (e/app* (e/const' (name/from-string "Neg.neg") [lvl/zero])
                                        int-type (e/const' (name/from-string "Int.instNegInt") [])
                                        a))
             mk-int-eq (fn [a b] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
@@ -975,6 +976,5 @@
                                  (mk-int-eq (mk-int-add (mk-int-neg (e/bvar 0)) (e/bvar 0))
                                             int-zero)
                                  :default)
-            ps (first (proof/start-proof env goal-type))
-            ps' (omega-proof/omega ps)]
-        (is (proof/solved? ps') "Int negation should be handled")))))
+            term (prove-and-verify env goal-type omega-proof/omega)]
+        (is (some? term) "Int negation certificate must pass the strict kernel checker")))))
