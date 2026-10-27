@@ -452,6 +452,15 @@ Give the type explicitly only when no operand carries it — all numerals, as Le
                              ;;   is Ratio division, which is not what `Nat.div` means)
 ```
 
+Implications and function types are written `=>` (or `→`, or `arrow`), n-ary and
+right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never an arrow:
+
+```clojure
+(=> (= (memq x op) true) (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true))
+;; = memq x op = true → Nat.beq x sc = false → memq x (dropNat sc op) = true
+(=> Nat Nat)                 ;; the function type Nat → Nat
+```
+
 ### Definitions
 
 ```clojure
@@ -547,11 +556,21 @@ Give the type explicitly only when no operand carries it — all numerals, as Le
 |--------|-------------|
 | `(apply lemma_name)` | Apply a lemma, generating subgoals for arguments |
 | `(assumption)` | Close goal from local context |
-| `(simp [lemma1 lemma2])` | Simplify using rewrite lemmas |
+| `(simp [lemma1 lemma2])` | Simplify using rewrite lemmas; a recursive definition's name unfolds it by its equation lemmas |
+| `(simp_all [lemmas])` | Simplify the goal and every hypothesis against each other until nothing changes (Lean's `simp_all`) |
 | `(rfl)` | Close `a = a` goals |
-| `(intro)` / `(intros x y)` | Introduce forall binders |
-| `(induction n)` | Structural induction |
+| `(intro h)` / `(intros h1 h2)` | Introduce forall binders / implication premises under the given names |
+| `(intros)` | Introduce ALL binders; premises of `=>` have no name, so they stay anonymous (unreachable by name — name them with `(intros h1 h2)` when a later tactic must refer to them) |
+| `(induction n)` | Structural induction; hypotheses that depend on `n` are reverted and re-introduced in each case, so the IH covers them (Lean's `induction`). Cases come in constructor order, fields named after the constructor's (`head`, `tail`, IH `ih_tail`) |
+| `(induction n generalizing acc)` | Also generalize `acc` |
 | `(cases h)` | Case analysis |
+| `(cases h e)` | Lean's `cases h : e`: generalize an inductive discriminant and split in constructor order, retaining `h : e = constructor …` |
+| `(rcases h [a b])` | Recursive constructor patterns: vectors for tuples, `(or p q)` for alternatives, nested freely; names bind fields, `_` keeps an anonymous field, `rfl` substitutes an equality. Optional `with` is accepted |
+| `(obtain [a b] := e)` | Destructure a term with an inferred type; `(obtain [a b] :- T := e)` supplies the expected type |
+| `(trivial)` | Try conjunction introduction recursively, `True.intro`, `decide`, contradiction, reflexivity, and assumption |
+| `(simp +arith)` | Recognized configuration; currently reports an unsupported arithmetic normalization error (known gap) |
+| `(decide)` | Close a closed decidable proposition by evaluation |
+| `(grind [defs])` | Automation; bounded by `*grind-splits*` case splits per branch and `*grind-timeout-ms*` |
 | `(omega)` | Linear arithmetic on Nat/Int |
 | `(ring)` | Polynomial identity |
 | `(linarith)` | Linear arithmetic over ordered fields |
@@ -567,6 +586,49 @@ Give the type explicitly only when no operand carries it — all numerals, as Le
 | `(try (tactic))` | Try tactic, ignore failure |
 | `(all_goals (tactic))` | Apply to all open goals |
 | `(first (tac1) (tac2))` | Try tactics in order |
+| `(and_then (tac1) (tac2))` | Lean's `tac1 <;> tac2`: run `tac2` on every goal `tac1` produces; nest for `a <;> b <;> c` |
+
+A Lean script translates line by line. Lean's
+
+```lean
+induction op with
+| nil => simp [memq]
+| cons h t ih =>
+  intro hm hne
+  cases hh : Nat.beq h sc <;> cases hx : Nat.beq x h <;> simp_all [memq, dropNat, Nat.beq_eq]
+```
+
+is
+
+```clojure
+(induction op)
+(simp [memq])                                   ;; nil
+(intro hm) (intro hne)                          ;; cons: fields head, tail, ih_tail
+(and_then (and_then (cases hh (Nat.beq head sc)) (cases hx (Nat.beq x head)))
+          (simp_all [memq drop-nat Nat.beq_eq]))
+```
+
+### Writing proofs that stay stable
+
+The surface syntax is stable, but the terms ansatz elaborates underneath are still moving
+toward Lean's. Two planned changes are a Lean-style match compiler (matcher declarations,
+`f.eq_N` equations, structural recursion via `brecOn`) and compiling `if`/comparisons to
+`ite`/`decide` instead of `Bool.rec`/`Nat.ble`. Proofs written in Lean's style keep working
+across these changes; proofs that depend on today's internals may not. So:
+
+- **Refer to definitions by name.** Write `(simp [f])` or `(grind [f])`, not the generated
+  equation lemmas (`f.eq_2s1`, `f._match_1.eq_2`), whose names and number will change.
+- **Use Lean's lemma names** (`Nat.beq_eq`, `List.foldl_cons`, …), not lemmas that only exist
+  because of the current encoding.
+- **Case-split on Bool terms you wrote yourself:** `(cases h (Nat.beq x y))` where your code
+  calls `Nat.beq`. Do not split on the compiled form of `(< x y)` or `(== x y)` (today
+  `Nat.blt`/`Nat.ble`/`Nat.beq`, later `decide`). For those, state the comparison as a
+  proposition and let `simp`, `omega` or `grind` bridge it.
+- **Never mention compiled forms** (`Bool.rec`, `X.rec` applications, `_match_` auxiliaries) in
+  statements or tactic arguments.
+- **Keep scripts close to the Lean script you would write.** They are the reference these
+  changes are tested against: the conformance suites in `test/lean/*.lean` pair every ansatz
+  proof with the Lean original.
 
 ## Configuration
 
@@ -598,6 +660,8 @@ All limits are configurable via dynamic vars in `ansatz.config`:
 | `*max-simp-steps*` | 100k | Maximum simp rewrite steps |
 | `*verbose*` | true | Print proof/definition results |
 | `*grind-debug*` | false | Log grind tactic exceptions |
+| `*grind-splits*` | 9 | Case splits per grind proof branch (Lean's `splits`) |
+| `*grind-timeout-ms*` | 20000 | Wall-clock budget per `grind` call; nil disables |
 | `*simprocs*` | [] | User-registered simplification procedures |
 
 ## Extending Ansatz
