@@ -1343,23 +1343,32 @@
   "Return true iff `expr` contains an assigned expression/level mvar or a
    delayed-assigned expression mvar."
   [mctx expr]
-  (letfn [(go [expr]
+  ;; Lean Expr.hasMVar short-circuits closed subterms. Use an explicit worklist
+  ;; and identity memo here: this predicate runs before guarded Meta traversals,
+  ;; and must handle deep terms and shared Expr DAGs without consuming the stack.
+  (let [seen (java.util.IdentityHashMap.)]
+    (loop [pending [expr]]
+      (if-let [expr (peek pending)]
+        (let [pending (pop pending)]
+          (if (or (not (.hasMVar ^ansatz.kernel.Expr expr)) (.containsKey seen expr))
+            (recur pending)
+            (do
+              (.put seen expr true)
               (case (e/tag expr)
-                :mvar (or (expr-assigned? mctx (e/mvar-id expr))
-                          (expr-delayed-assigned? mctx (e/mvar-id expr)))
-                :sort (has-assigned-level-mvar? mctx (e/sort-level expr))
-                :const (boolean (some #(has-assigned-level-mvar? mctx %)
-                                      (e/const-levels expr)))
-                :app (or (go (e/app-fn expr)) (go (e/app-arg expr)))
-                :lam (or (go (e/lam-type expr)) (go (e/lam-body expr)))
-                :forall (or (go (e/forall-type expr)) (go (e/forall-body expr)))
-                :let (or (go (e/let-type expr))
-                         (go (e/let-value expr))
-                         (go (e/let-body expr)))
-                :mdata (go (e/mdata-expr expr))
-                :proj (go (e/proj-struct expr))
-                false))]
-    (boolean (go expr))))
+                :mvar (if (or (expr-assigned? mctx (e/mvar-id expr))
+                              (expr-delayed-assigned? mctx (e/mvar-id expr)))
+                        true (recur pending))
+                :sort (if (has-assigned-level-mvar? mctx (e/sort-level expr)) true (recur pending))
+                :const (if (some #(has-assigned-level-mvar? mctx %) (e/const-levels expr))
+                         true (recur pending))
+                :app (recur (conj pending (e/app-arg expr) (e/app-fn expr)))
+                :lam (recur (conj pending (e/lam-body expr) (e/lam-type expr)))
+                :forall (recur (conj pending (e/forall-body expr) (e/forall-type expr)))
+                :let (recur (conj pending (e/let-body expr) (e/let-value expr) (e/let-type expr)))
+                :mdata (recur (conj pending (e/mdata-expr expr)))
+                :proj (recur (conj pending (e/proj-struct expr)))
+                (recur pending)))))
+        false))))
 
 (defn has-assignable-mvar?
   "Return true iff `expr` contains an expression/level mvar assignable at the
