@@ -73,7 +73,8 @@ def validate_root_migration(captured, roots):
             raise ValueError("Invalid root migration action/retirement coverage")
     migrated = [changes.get(name, {}).get("to", name) for name in public
                 if changes.get(name, {}).get("action") != "retire"]
-    if len(set(migrated)) != len(migrated) or sorted(migrated) != sorted(roots["init"]):
+    expected = migrated + receipt.get("added-roots", [])
+    if len(set(expected)) != len(expected) or sorted(expected) != sorted(roots["init"]):
         raise ValueError("Tracked Init roots differ from the explicit migration")
 
 
@@ -113,7 +114,8 @@ def main():
                      for p in sorted((project / folder).rglob("*" + suffix))]
     for relative in [*ROOT_FILES.values(), "scripts/init-store-roots.txt", "scripts/bundle-root-migrations.json",
                      "scripts/lean4export-structural-exprs.patch", *DUMPERS.values(), "scripts/generate-bundle.py",
-                     "scripts/validate-bundle.clj", "scripts/validate_bundle_roots.lean", "deps.edn", *source_inputs]:
+                     "scripts/validate-bundle.clj", "scripts/validate_bundle_roots.lean",
+                     "scripts/export_bundle_equations.lean", "deps.edn", *source_inputs]:
         payload = (project / relative).read_bytes()
         destination = inputs / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -130,7 +132,8 @@ def main():
                                        cwd=inputs, env=env, text=True).strip()
     jars = [Path(path) for path in classpath.split(os.pathsep) if path.endswith(".jar")]
     dependencies = [{"artifact": path.name, "sha256": digest(path.read_bytes())} for path in jars]
-    versions = {tool: subprocess.run([tool, "-version"], env=env, text=True, check=True,
+    versions = {tool: subprocess.run([tool, "-Xmx256m" if tool == "java" else "-J-Xmx256m", "-version"],
+                                     env=env, text=True, check=True,
                                      stdout=subprocess.PIPE, stderr=subprocess.STDOUT).stdout.strip()
                 for tool in ("java", "javac")}
     build_record = json.dumps({"dependencies": sorted(dependencies, key=lambda row: (row["artifact"], row["sha256"])),
@@ -139,7 +142,7 @@ def main():
     input_rows.append({"path": "checker-build.json", "sha256": digest(build_record)})
     classes = inputs / "classes"
     classes.mkdir()
-    run(["javac", "-source", "11", "-target", "11", "-cp", classpath, "-d", classes,
+    run(["javac", "-J-Xmx1g", "-source", "11", "-target", "11", "-cp", classpath, "-d", classes,
          *[inputs / path for path in source_inputs if path.endswith(".java")]], cwd=inputs, env=env)
     for path in sorted(classes.rglob("*.class")):
         input_rows.append({"path": str(path.relative_to(inputs)), "sha256": digest(path.read_bytes())})
@@ -163,6 +166,9 @@ def main():
     # this explicitly patched, captured producer; never modify the source checkout.
     run(["patch", "--batch", "--fuzz=0", "--forward", "--no-backup-if-mismatch", "-p1", "-i",
          inputs / "scripts/lean4export-structural-exprs.patch"], cwd=producer, env=env)
+    # Compile the captured equation-aware entry point against the pinned exporter.
+    # Its name inventory is derived from roots, never maintained by hand.
+    (producer / "Main.lean").write_bytes(captured["scripts/export_bundle_equations.lean"])
     source_rows = [{"path": row["path"], "sha256": digest((producer / row["path"]).read_bytes())}
                    for row in source_rows]
     source_hash = digest(json.dumps(source_rows, sort_keys=True, separators=(",", ":")).encode())
@@ -180,7 +186,7 @@ def main():
     raw.mkdir()
     for role in ("init", "lex", "sizeof"):
         destination = raw / f"{role}.ndjson"
-        run([binary, "Init", "--", *roots[role]], cwd=output, env=env, output=destination)
+        run([binary, *roots[role]], cwd=output, env=env, output=destination)
         with destination.open(encoding="utf-8") as stream:
             header = json.loads(next(stream))
         if header.get("meta", {}).get("lean") != recipe["lean"]:

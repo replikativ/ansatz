@@ -40,19 +40,19 @@
                   :producer/scope :kernel-exports-only :producer producer :resources rows}]
     {:manifest manifest :resources resources}))
 
-(deftest actual-legacy-inventory-is-readable-without-claiming-co-generation
+(deftest actual-generated-bundle-records-pinned-co-generation
   (let [manifest (bundle/verify!)]
-    (is (= :legacy-inventory (:bundle/status manifest)))
-    (is (= :unrecorded (:bundle/co-generation manifest)))
-    (is (= :kernel-exports-only (:producer/scope manifest)))
-    (is (= "4.29.0-rc2" (get-in manifest [:producer :lean :version])))
-    (is (= "83e54b65b65d1d3ce31d99d820a7bd5f3e219295"
+    (is (= :generated (:bundle/status manifest)))
+    (is (= :recorded (:bundle/co-generation manifest)))
+    (is (= :kernel-exports-and-companions (:producer/scope manifest)))
+    (is (= "4.33.1" (get-in manifest [:producer :lean :version])))
+    (is (= "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
            (get-in manifest [:producer :lean :githash])))
     (is (= #{:init :lex :sizeof :attrs :matchers :instances} (set (map :role (:resources manifest)))))
     (is (= bundle/role-resources (into {} (map (juxt :role :resource)) (:resources manifest))))
     (doseq [row (:resources manifest) :when (contains? #{:attrs :matchers :instances} (:role row))]
-      (is (= :unrecorded (:provenance/status row)))
-      (is (not (contains? row :producer))))))
+      (is (= :generated (:provenance/status row)))
+      (is (= "4.33.1" (get-in row [:producer :lean :version]))))))
 
 (deftest requirements-distinguish-legacy-producer-from-frontend-release
   (let [{:keys [manifest resources]} (fixture)
@@ -68,9 +68,10 @@
                             (bundle/verify! (assoc options :requirements requirements)))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown bundled artifact requirement"
                           (bundle/verify! (assoc options :requirements {:verified true})))))
-  (testing "the actual bundled inventory does not match the hosted frontend producer"
-    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"do not match requirements"
-                          (bundle/verify! {:requirements {:producer {:lean {:version "4.33.1"}}}})))))
+  (testing "the shipped bundle matches its recorded Lean producer"
+    (is (= :recorded (:bundle/co-generation
+                     (bundle/verify! {:requirements {:producer {:lean {:version "4.33.1"}}
+                                                    :bundle/co-generation :recorded}}))))))
 
 (deftest checksum-and-missing-resource-fail-before-caller-activation
   (let [{:keys [manifest resources]} (fixture)
@@ -364,8 +365,7 @@
      :resources (assoc resources path payload)}))
 
 (deftest generated-unsupported-metadata-is-staged-but-not-consumed
-  (doseq [row [{:kind "unfold-thms" :name "Fixture.f" :theorems ["Fixture.f.eq_1"]}
-               {:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
+  (doseq [row [{:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
                {:kind "simp" :name "Fixture.pre" :prio 1000 :post false :inv false}]]
     (let [{:keys [manifest resources]} (generated-fixture-with-attrs [row])
           options {:manifest manifest :read-resource resources}]
@@ -382,7 +382,8 @@
         target "Fixture.\\target\""
         rows [{:kind "simp" :name n :prio 47 :post true :inv false}
               {:kind "csimp" :name "Fixture.f" :target target}
-              {:kind "unfold" :name "Fixture.g"}]
+              {:kind "unfold" :name "Fixture.g"}
+              {:kind "unfold-thms" :name "Fixture.h" :theorems ["Fixture.h.eq_1"]}]
         {:keys [manifest resources]} (generated-fixture-with-attrs rows)
         options {:manifest manifest :read-resource resources}]
     (is (= manifest (bundle/assert-consumable! options)))
@@ -391,5 +392,6 @@
       (fn [_]
         (is (= rows (bundle/verified-companion-rows :attrs)))
         (is (= [["simp" n nil 47] ["csimp" "Fixture.f" target nil]
-                ["unfold" "Fixture.g" nil nil]]
+                ["unfold" "Fixture.g" nil nil]
+                ["unfold-thms" "Fixture.h" ["Fixture.h.eq_1"] nil]]
                (attrs/bundled-attrs)))))))

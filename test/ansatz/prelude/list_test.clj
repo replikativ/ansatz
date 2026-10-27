@@ -1,6 +1,6 @@
 (ns ansatz.prelude.list-test
   "The polymorphic `wsum` (fold over a WAddMonoid) authored thinly and kernel-verified over the
-   full Init store — exercises POLYMORPHIC structural recursion (Lean-style fixed prefix {S} + an
+   bundled Init — exercises POLYMORPHIC structural recursion (Lean-style fixed prefix {S} + an
    INSTANCE-implicit monoid `[m : WAddMonoid S]`), which previously failed (type-mismatch /
    WF-misroute, then a syntactic fixed-param check that rejected the instance arg). The function
    now verifies and runs, with `m` synthesized at every call site (Lean-faithful: `wsum (map f xs)`,
@@ -19,13 +19,14 @@
             [ansatz.kernel.name :as name]
             [ansatz.prelude.list :as plist]))
 
-;; Full Init store — wsum's List equation lemmas (List.map_nil/_cons) live here, not in init-medium.
-(def ^:private full test-env/init-full-ndjson-env)
+;; Exercise the shipped List equations without an external store.
+(def ^:private full test-env/checked-bundled-init-env)
+
 (defn- with-env [t]
-  (if-let [e @full]
-    (do (reset! a/ansatz-env e) (plist/install!) (t))
-    (println "  (skipping prelude.list-test — test-data/init.ndjson not present)")))
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
+  (reset! a/ansatz-env @full)
+  (plist/install!)
+  (t))
+(use-fixtures :once with-env)
 
 (defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
 (defn- verifies? [s]

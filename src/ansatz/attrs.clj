@@ -23,7 +23,7 @@
 
 (def ^:private kind->ext
   "Attribute kind (NDJSON \"kind\") → the Env extension key its entries accumulate into."
-  {"simp" :simp-lemmas, "unfold" :simp-unfold, "extern" :extern, "csimp" :csimp, "impl" :implemented-by})
+  {"simp" :simp-lemmas, "unfold" :simp-unfold, "unfold-thms" :simp-unfold-thms, "extern" :extern, "csimp" :csimp, "impl" :implemented-by})
 
 (def default-simp-priority
   "Lean's `eval_prio default` — the priority every @[simp] lemma has unless it says otherwise.
@@ -33,8 +33,12 @@
 
 (def ^:private map-kinds
   "Kinds that carry a \"target\" (the replacement / impl decl) — stored as a {name → target} map.
+   Equation-owner registrations carry a vector of theorem names in that slot.
    The rest are stored as sets of names."
-  #{"csimp" "impl"})
+  ;; Lean 4.33.1 Meta/Tactic/Simp/SimpTheorems.lean registerDeclToUnfoldThms:
+  ;; record owner → equations separately; the corpus also registers each equation
+  ;; as a simp theorem (Attr.lean addDeclToUnfold), with its own phase/priority.
+  #{"csimp" "impl" "unfold-thms"})
 
 (defn parse-attr-lines
   "Strict JSON lines → persisted `[kind name target prio]` tuples. Legacy simp
@@ -42,11 +46,11 @@
    fields and duplicate keys fail before any tuple is installed or name probed."
   [lines]
   (mapv (fn [line]
-          (let [{:keys [kind name target prio] :as row}
+          (let [{:keys [kind name target prio theorems] :as row}
                 (metadata/parse-attribute-row line {:legacy-priority? true})]
             (when (metadata/unsupported-attribute? row)
               (throw (ex-info "Unsupported native attribute semantics" {:kind kind :name name})))
-            [kind name target prio])) lines))
+            [kind name (if (= "unfold-thms" kind) theorems target) prio])) lines))
 
 (defn- attribute-lines [text]
   (if (empty? text) []
@@ -59,7 +63,10 @@
                 valid-name? #(and (string? %) (not (str/blank? %)))]
             (when-not (and (sequential? tuple) (= 4 (count tuple))
                            (contains? kind->ext kind) (valid-name? declaration)
-                           (if (map-kinds kind) (valid-name? target) (nil? target))
+                           (cond
+                             (= "unfold-thms" kind) (and (vector? target) (every? valid-name? target))
+                             (map-kinds kind) (valid-name? target)
+                             :else (nil? target))
                            (if (= "simp" kind)
                              (or (nil? priority) (and (integer? priority) (<= 0 priority metadata/max-priority)))
                              (nil? priority)))
@@ -145,7 +152,8 @@
     (fn [manifest]
       (bundle/assert-consumable!)
       (if (= "ansatz-bundle/2" (:bundle/schema manifest))
-        (mapv (fn [{:keys [kind name target prio]}] [kind name target prio])
+        (mapv (fn [{:keys [kind name target prio theorems]}]
+                [kind name (if (= "unfold-thms" kind) theorems target) prio])
               (bundle/verified-companion-rows :attrs))
         (let [payload (bundle/verified-bytes bundled-attrs-resource)
               text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]

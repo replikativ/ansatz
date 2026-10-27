@@ -26,6 +26,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
+            [ansatz.kernel.level :as level]
             [ansatz.codegen.decl :as decl])
   (:import [ansatz.kernel ConstantInfo]))
 
@@ -119,26 +120,32 @@
 ;; ── binder audit ──────────────────────────────────────────────────────────────
 
 (defn- type-like?
-  "Is this binder domain a Sort / type constructor (∀ … , Sort)? Such an EXPLICIT binder
-   would become a runtime param whose call-site arg lowers to a bare type symbol — bail."
+  "Recognize syntactic Sort / type-former domains for the supported erased prefix."
   [bt]
   (loop [t bt]
     (cond (e/sort? t) true
           (e/forall? t) (recur (e/forall-body t))
           :else false)))
 
+(defn- prop-like? [bt]
+  (loop [t bt]
+    (cond (e/sort? t) (level/level-zero? (e/sort-level t))
+          (e/forall? t) (recur (e/forall-body t))
+          :else false)))
+
 (defn- audit-binders
-  "Runtime shape of a binder telescope: {:erased k :arity n} with the non-default binders
-   required to form a PREFIX (interleaved erased binders have no contiguous runtime
-   parameter window), and no explicit type-like
-   binder. Returns nil when the shape is unsupported."
+  "Runtime shape of a binder telescope: {:erased k :arity n}. Only leading
+   implicit type parameters and proposition parameters erase; implicit data,
+   including class dictionaries, remains in the runtime parameter window.
+   Interleaved types and explicit non-proposition type formers remain unsupported."
   [binders]
+  ;; Compiler/LCNF/ToLCNF.lean visit/visitAppArg erases by type, not BinderInfo.
+  ;; The expression emitter separately replaces proof values with nil.
   (let [infos (mapv (fn [[_ bt bi]] [bi bt]) binders)
-        erased (count (take-while (fn [[bi _]] (not= :default bi)) infos))
+        erased (count (take-while (fn [[bi bt]] (and (type-like? bt) (or (not= :default bi) (prop-like? bt)))) infos))
         runtime (drop erased infos)]
-    (when (and (every? (fn [[bi _]] (= :default bi)) runtime)
-               (not-any? (fn [[_ bt]] (type-like? bt)) runtime)
-               (<= 1 (count runtime) 20))
+    (when (and (not-any? (fn [[_ bt]] (type-like? bt)) runtime)
+               (<= 0 (count runtime) 20))
       {:erased erased :arity (count runtime)})))
 
 ;; ── Clojure-form post-processing ──────────────────────────────────────────────
@@ -278,7 +285,8 @@
    Lean's `f._unsafe_rec` (the kernel keeps the recursor/brecOn encoding as the proven
    artifact; PreDefinition/Basic.lean:282).
 
-   Returns {:fn-form form :fn compiled-fn} or nil when the shape is unsupported (arity
+   Zero runtime parameters use the existing Decl value convention.
+   Returns {:fn-form form :fn compiled-value} or nil when the shape is unsupported (arity
    mismatch on a self-call or an erased binder that turns out runtime-relevant).
    Emission/eval failures propagate. Callers own interning/registration."
   [env ^String cname term {:keys [erased arity]}]
@@ -291,10 +299,12 @@
       (let [rt-params (subvec params erased)
             local-name (gensym "self_")
             body' (rewrite-self body dsym local-name erased total)]
-        (when (and body'
+        ;; nil/false are values too; a failed rewrite of a non-nil body returns nil.
+        (when (and (or (some? body') (nil? body))
                    ;; erased binders must be runtime-irrelevant in the final body
                    (not-any? #(occurs-sym? body' %) (subvec params 0 erased)))
-          (let [emitted (decl/emit-wrapper rt-params body' {:erased erased :local-name local-name})]
+          (let [emitted (decl/emit-wrapper rt-params body' {:erased erased :local-name local-name
+                                                           :value? (zero? arity)})]
             (assoc emitted :fn (eval (:fn-form emitted)))))))))
 
 ;; ── the store-def compiler ────────────────────────────────────────────────────
@@ -325,10 +335,15 @@
         binders (if (pos? missing) (into (vec binders) (drop (count binders) type-binders)) binders)
         refs (const-refs rhs)
         ref (first (sort (filter unexecutable-ref? refs)))
+        unhandled? (requiring-resolve 'ansatz.codegen/unhandled-extern?)
+        extern-ref (first (sort (filter #(unhandled? env %) refs)))
         audit (audit-binders binders)]
     ;; ToLCNF's specialized visitors use explicit shape guards before selecting
     ;; a lowering. A store body is only one candidate, so refusal is data here.
     (cond
+      (not (zero? (.getDefinitionSafety ci)))
+      {:reason "unsafe/partial runtime bodies require an unavailable compiler lowering"}
+      extern-ref {:reason (str "no runtime lowering for extern " extern-ref)}
       ref {:reason (str "kernel recursion encoding " ref
                         "; exported direct equation body (.eq_def) is unavailable")}
       (and (not eqd) (contains? refs cname))
@@ -336,7 +351,7 @@
       (not= (count binders) (count type-binders))
       {:reason "eta-contracted value does not expose the declaration telescope"}
       (nil? audit)
-      {:reason "unsupported runtime binder telescope: requires an erased prefix and 1..20 explicit non-type parameters (arity limit 20)"}
+      {:reason "unsupported runtime binder telescope: requires a type-only erased prefix and 0..20 non-type parameters (arity limit 20)"}
       :else (assoc audit :binders binders :rhs rhs :eqd eqd))))
 
 (defn- compile!*

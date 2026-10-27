@@ -9,7 +9,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]))
 
-(def ^:private full test-env/init-full-ndjson-env)
+(def ^:private full test-env/checked-bundled-init-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full)) (t))
 (clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
 

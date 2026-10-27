@@ -18,7 +18,8 @@
   (reduce (fn [tail x] (list 'List.cons 'Nat x tail)) '(List.nil Nat) (reverse xs)))
 
 (defn- compare-kernel! [application schema]
-  (let [term (elab/elaborate (a/env) application)
+  (let [term (if (instance? ansatz.kernel.Expr application)
+               application (elab/elaborate (a/env) application))
         tc (TypeChecker. (a/env))
         kernel (#'am/decode-val #(.whnf (.getReducer tc) %) schema term)
         runtime (eval (cg/ansatz->clj (a/env) term []))
@@ -28,6 +29,8 @@
     (is (= kernel runtime) (pr-str application))))
 
 (deftest foldl-runtime-agrees-with-kernel
+  (is (= :eq-def (:provenance (sd/compile-store-def! (a/env) "List.foldl")))
+      "foldl compiles its exported direct equation body")
   (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
     (eval '(ansatz.core/defn foldl-runtime-probe [xs :- (List Nat)] Nat
              (List.foldl (fn [n :- Nat, x :- Nat] (+ n x)) 0 xs)))
@@ -60,11 +63,11 @@
       (is (= 5 ((ns-resolve b-ns 'caller-inc) 4)))
       (is (= 14 ((ns-resolve b-ns 'caller-value) 4))))))
 
-;; Each available declaration is compiled on small closed inputs, and either
-;; agrees with kernel WHNF or reports a named compiler limitation. Missing APIs
-;; are explicit inventory entries, since the bundled medium tier is not full Init.
+;; Every bundled runtime API must compile and agree with kernel reduction.
+;; Lean 4.33.1 Init/GetElem.lean uses List.get?Internal behind GetElem?.getElem?;
+;; the older List.get? spelling is no longer a declaration.
 (def ^:private list-api
-  '[foldl foldr map filter filterMap flatMap append reverse length get? head? tail
+  '[foldl foldr map filter filterMap flatMap append reverse length get?Internal head? tail
     zip zipWith take drop any all find? contains elem replicate range sum lookup])
 
 (defn- list-probes [xs]
@@ -77,7 +80,7 @@
    'append (list 'List.append xs xs)
    'reverse (list 'List.reverse xs)
    'length (list 'List.length xs)
-   'get? (list 'List.get? xs 1)
+   'get?Internal (list 'List.get?Internal xs 1)
    'head? (list 'List.head? xs)
    'tail (list 'List.tail xs)
    'zip (list 'List.zip xs xs)
@@ -96,7 +99,7 @@
 
 (def ^:private result-schemas
   {'foldl :int 'foldr :int 'length :int 'sum :int
-   'get? [:maybe :int] 'head? [:maybe :int] 'find? [:maybe :int] 'lookup [:maybe :int]
+   'get?Internal [:maybe :int] 'head? [:maybe :int] 'find? [:maybe :int] 'lookup [:maybe :int]
    'any :boolean 'all :boolean 'contains :boolean 'elem :boolean
    'zip [:sequential [:tuple :int :int]]})
 
@@ -104,20 +107,11 @@
   (doseq [f list-api]
     (let [cname (str "List." f)]
       (testing cname
-        (if-not (env/lookup (a/env) (name/from-string cname))
-          (println "Init runtime unavailable:" cname "— declaration absent from bundled Init")
-          (doseq [xs [[] [1 2 3]]]
-            (try
-              (compare-kernel! (get (list-probes (nat-list xs)) f)
-                               (get result-schemas f [:sequential :int]))
-              (catch clojure.lang.ExceptionInfo ex
-                (if (= :codegen-error (:kind (ex-data ex)))
-                  (do (is (not (#{'foldl 'length 'zipWith} f))
-                          (str cname " must remain executable: " (ex-message ex)))
-                      (is (string? (:declaration (ex-data ex))))
-                      (is (seq (:reason (ex-data ex))))
-                      (println "Init runtime unavailable:" cname "—" (ex-message ex)))
-                  (throw ex)))))))))
+        (is (some? (env/lookup (a/env) (name/from-string cname)))
+            (str cname " must be present in bundled Init"))
+        (doseq [xs [[] [5] [1 2 3] [0 10] [2 2]]]
+          (compare-kernel! (get (list-probes (nat-list xs)) f)
+                           (get result-schemas f [:sequential :int]))))))
   (doseq [[application schema]
           [['(Nat.add 3 4) :int] ['(Nat.sub 3 4) :int] ['(Nat.mul 3 4) :int]
            ['(Nat.div 7 2) :int] ['(Nat.mod 7 2) :int] ['(Nat.pow 2 3) :int]
@@ -126,6 +120,12 @@
            ['(Bool.not false) :boolean]
            ['(Option.getD (Option.some Nat 3) 9) :int]
            ['(Option.getD (Option.none Nat) 9) :int]
+           ['(List.lookup 1 (List.nil (Prod Nat Nat))) [:maybe :int]]
+           ['(List.lookup 2 (List.cons (Prod Nat Nat) (Prod.mk Nat Nat 1 7)
+                                      (List.nil (Prod Nat Nat)))) [:maybe :int]]
+           ['(List.filterMap (fn [x :- Nat]
+                              (if (Nat.beq x 2) (Option.some Nat x) (Option.none Nat)))
+                            (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))) [:sequential :int]]
            ['(Prod.fst (Prod.mk Nat Nat 2 3)) :int]
            ['(Prod.snd (Prod.mk Nat Nat 2 3)) :int]]]
     (compare-kernel! application schema)))
@@ -182,3 +182,43 @@
               tc (TypeChecker. checked)]
           (is (.isDefEq tc body (e/lit-nat 7)))
           (is (= 7 (eval (cg/ansatz->clj checked body [])))))))))
+
+(deftest compiled-list-search-retains-its-equality-instance
+  (let [nat (e/const' (name/from-string "Nat") [])
+        never-equal (e/app* (e/const' (name/from-string "BEq.mk") [level/zero]) nat
+                            (e/lam "x" nat
+                                   (e/lam "y" nat (e/const' (name/from-string "Bool.false") []) :default)
+                                   :default))
+        application (elab/elaborate (a/env) '(List.contains (List.cons Nat 2 (List.nil Nat)) 2))
+        [head args] (e/get-app-fn-args application)
+        application (apply e/app* head (assoc (vec args) 1 never-equal))]
+    ;; The ordinary Nat instance returns true on [2]; this instance returns false.
+    (compare-kernel! application :boolean)))
+
+(deftest native-natural-decisions-agree-with-kernel
+  (doseq [native '[Nat.decEq Nat.decLe Nat.decLt]
+          [x y] [[2 2] [2 3] [3 2]]
+          application [(list native x y) (list 'let ['f native] (list 'f x y))]]
+    (let [decision (elab/elaborate (a/env) application)
+          tc (TypeChecker. (a/env))
+          decision-type (.whnf (.getReducer tc) (.inferType tc decision))
+          proposition (first (second (e/get-app-fn-args decision-type)))
+          term (e/app* (e/const' (name/from-string "Decidable.decide") []) proposition decision)]
+      (compare-kernel! term :boolean))))
+
+(deftest partially-applied-constructors-agree-with-kernel
+  (let [constructor (e/const' (name/from-string "Prod.mk") [level/zero level/zero])
+        nat (e/const' (name/from-string "Nat") [])
+        partial (e/app* constructor nat nat)
+        type (.inferType (TypeChecker. (a/env)) partial)
+        term (e/app (e/lam "f" type (e/app* (e/bvar 0) (e/lit-nat 2) (e/lit-nat 7)) :default)
+                    partial)]
+    (compare-kernel! term [:tuple :int :int]))
+  (compare-kernel! '(List.zip (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))
+                              (List.cons Nat 7 (List.nil Nat))) [:sequential [:tuple :int :int]])
+  (let [constructor (e/const' (name/from-string "Prod.mk") [level/zero level/zero])
+        nat (e/const' (name/from-string "Nat") [])
+        type (.inferType (TypeChecker. (a/env)) constructor)
+        term (e/app (e/lam "f" type (e/app* (e/bvar 0) nat nat (e/lit-nat 2) (e/lit-nat 7)) :default)
+                    constructor)]
+    (compare-kernel! term [:tuple :int :int])))

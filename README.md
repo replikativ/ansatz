@@ -372,14 +372,29 @@ durable store root (see above).
 
 **Using bundled Init for quick testing (no Lean needed)**
 
-The Init closure ships as the classpath resource `ansatz/init-medium.ndjson.gz`.
-No export file or Mathlib setup is required:
+The jar includes a coordinated Lean 4.33.1 Init bundle with List, Option, and Nat
+APIs and recursive equation lemmas. No Lean installation or Mathlib store is
+needed to use it:
 
 ```clojure
 (require '[ansatz.core :as a])
-(a/load-init!)
-(def env (a/env))
+(a/load-init!)  ;; full kernel recheck of the bundled export
 ```
+
+To regenerate, use the pinned toolchain and exporter source specified in
+`scripts/generate-bundle.py`:
+
+```bash
+python3 scripts/generate-bundle.py --exporter-source /path/to/lean4export \
+  --lean-root /path/to/lean-4.33.1 --output target/bundle-candidate
+```
+
+Generation realizes Lean's equation lemmas and closes compiler replacement
+references, then validates all six artifacts in staging. Review `validation.edn`,
+run the runtime/kernel inventory and lazy well-founded prelude activation against
+the candidate resources, and only then copy all six resources and `bundle.edn`
+from the candidate's `resources/ansatz/` into `resources/ansatz/` together. The
+manifest records the captured producer, checker inputs, roots, and checksums.
 
 ### Initialize and Prove
 

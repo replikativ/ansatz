@@ -13,18 +13,18 @@
     (with-redefs-fn {;; setup-env! is explicitly modeled below; give the loader's
                     ;; informational size report an isolated model cell as well.
                      #'a/ansatz-env (atom (Env.))
-                     #'a/bundled-medium-env (fn [] (Env.))
+                     #'a/bundled-medium-env (fn [_] (Env.))
                      #'a/setup-env! (fn [base] (swap! prepared conj base))}
       #(binding [a/*verbose* false]
          (with-out-str
            (a/init!) (a/init! "medium") (a/init! :init-medium) (a/load-init!))))
     (is (= 4 (count @prepared)))
-    (doseq [base @prepared
+    (doseq [[base admission] (map vector @prepared [:trust :trust :trust :checked-export])
             :let [p (env/get-extension base profile/extension-key nil)
                   manifest (env/get-extension base :bundled-artifacts nil)]]
       (is (= profile/schema (:schema p)))
       (is (= (:artifact/cohort manifest) (get-in p [:base :cohort])))
-      (is (= :trust (get-in p [:base :kernel-admission]))))))
+      (is (= admission (get-in p [:base :kernel-admission]))))))
 
 (deftest explicit-and-named-store-modes-preserve-format-one-and-retain-unknown-role-evidence
   (let [manifest {:store/format 1 :branch "mathlib" :provenance {:lean/toolchain "leanprover/lean4:v4.33.1"}}

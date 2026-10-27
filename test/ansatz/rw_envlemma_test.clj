@@ -10,7 +10,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.prelude.algebra :as alg]))
 
-(def ^:private full test-env/init-full-ndjson-env)
+(def ^:private full test-env/checked-bundled-init-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full) (alg/install-classes!)) (t))
 (clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
 (defn- vrf? [s] (let [ci (env/lookup (a/env) (name/from-string s))]

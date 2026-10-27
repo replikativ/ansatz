@@ -244,20 +244,20 @@
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
 
 (clojure.core/defn- bundled-medium-env
-  "Replay the verified bundled bytes in TRUST mode; integrity is not proof checking."
-  []
+  "Replay the captured bundled bytes with the requested kernel admission mode."
+  [verify?]
   (let [payload (bundle/verified-bytes bundled-medium-resource)
         text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                (slurp in))]
     (parser/with-parser-state
       (parser/parse-ndjson-string text)
-      (fn [parsed] (:env (replay/replay (:decls parsed) :verify? false))))))
+      (fn [parsed] (:env (replay/replay (:decls parsed) :verify? verify? :stop-on-error? true))))))
 
 (clojure.core/defn- init!-bundled-medium! []
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (-> (bundled-medium-env)
+      (let [loaded (-> (bundled-medium-env false)
                        (env/with-extension :bundled-artifacts manifest)
                        (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
         (setup-env! loaded)
@@ -269,15 +269,16 @@
 
 (clojure.core/defn load-init!
   "Load the bundled Init export and companion metadata after integrity and
-   consumer preflight. Kernel declarations are replayed in TRUST mode. The
-   manifest's producer and provenance remain visible on the immutable Env."
-  []
+   consumer preflight. Recheck every declaration by default; `:verify? false`
+   explicitly selects TRUST mode. The manifest's producer and the actual replay
+   mode remain visible on the immutable Env."
+  [& {:keys [verify?] :or {verify? true}}]
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (-> (bundled-medium-env)
+      (let [loaded (-> (bundled-medium-env verify?)
                        (env/with-extension :bundled-artifacts manifest)
-                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
+                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest verify?)))]
         (setup-env! loaded)
         (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
         @ansatz-env))))

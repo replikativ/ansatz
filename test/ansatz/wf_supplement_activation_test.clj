@@ -6,6 +6,7 @@
             [ansatz.state :as state]
             [ansatz.wf-supplement :as supplement]
             [ansatz.wf-supplement-test :as fixture]
+            [ansatz.bundle-test :as bundle-fixtures]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]))
 
@@ -27,7 +28,9 @@
     (is (same-state? installed))))
 
 (deftest missing-strict-authority-or-options-never-enters-installation
-  (doseq [options [{} (assoc (fixture/options (fixture/fixture)) :bundle-options {})]]
+  (doseq [options [{} (let [legacy (#'bundle-fixtures/fixture)]
+                        (assoc (fixture/options (fixture/fixture)) :bundle-options
+                               {:manifest (:manifest legacy) :read-resource (:resources legacy)}))]]
     (let [before (session/capture) attempts (atom 0)
           error (with-redefs [session/activate-if-unchanged! (fn [& _] (swap! attempts inc))]
                   (fixture/error #(supplement/activate-strict-role! :lex options)))]

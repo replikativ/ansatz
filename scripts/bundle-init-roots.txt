@@ -2786,3 +2786,66 @@ true_iff
 true_implies
 true_or
 wfParam
+
+# Runtime surface vocabulary.
+List._sizeOf_inst
+List.any
+List.contains
+List.elem
+List.filterMap
+List.head?
+List.lookup
+List.range
+List.replicate
+List.sum
+List.tail
+List.take
+List.zip
+Nat.max
+Nat.min
+Nat.rec
+
+# Complete native SizeOf vocabulary used by the surface elaborator and WF encoder.
+instSizeOfNat
+SizeOf.sizeOf
+List.cons.sizeOf_spec
+List.nil.sizeOf_spec
+Prod._sizeOf_inst
+
+# Public List laws used by the owned prelude.
+List.Perm
+List.append_eq
+List.cons_append
+List.filter_cons
+List.filter_cons_of_neg
+List.filter_cons_of_pos
+List.filter_nil
+List.flatMap_cons
+List.flatMap_nil
+List.flatten_cons
+List.flatten_nil
+List.foldl_cons
+List.foldl_nil
+List.lookup_cons
+List.lookup_cons_self
+List.lookup_nil
+List.map_cons
+List.map_nil
+List.map_reverse
+List.nil_append
+List.reverse_nil
+List.singleton_append
+List.Perm.refl
+
+# Algebra laws referenced by the owned List prelude (Init/Core.lean).
+Std.Associative
+Std.Associative.assoc
+Std.Commutative
+Std.Commutative.comm
+Std.LawfulLeftIdentity
+Std.LawfulLeftIdentity.left_id
+
+# Equality laws explicitly cited by the owned List prelude.
+beq_eq_false_iff_ne
+beq_self_eq_true
+eq_comm

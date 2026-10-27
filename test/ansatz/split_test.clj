@@ -18,7 +18,8 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]))
 
-(def ^:private full test-env/init-full-ndjson-env)
+(def ^:private full test-env/checked-bundled-init-env)
+
 (defn- with-env [t]
   (when @full
     (reset! a/ansatz-env @full)

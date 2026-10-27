@@ -54,7 +54,7 @@
   (a/defn cs-original [n :- Nat] Nat n)
   (a/defn cs-runnable [n :- Nat] Nat (+ n 1))
   (let [term (e/app (e/const' (name/from-string "cs-original") []) (e/lit-nat 5))
-        unsupported (env/update-extension (a/env) :csimp {} assoc "cs-original" "List.foldr")
+        unsupported (env/update-extension (a/env) :csimp {} assoc "cs-original" "Array.foldrMUnsafe")
         supported (env/update-extension (a/env) :csimp {} assoc "cs-original" "cs-runnable")
         implemented (env/update-extension (a/env) :implemented-by {} assoc "cs-original" "cs-runnable")]
     (is (= 5 (eval (cg/ansatz->clj unsupported term []))))

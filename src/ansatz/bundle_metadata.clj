@@ -99,8 +99,7 @@
 (defn unsupported-attribute?
   "Whether the current attribute consumer cannot preserve this native row."
   [row]
-  (or (= "unfold-thms" (:kind row))
-      (and (= "simp" (:kind row)) (or (true? (:inv row)) (false? (:post row))))))
+  (and (= "simp" (:kind row)) (or (true? (:inv row)) (false? (:post row)))))
 
 (defn parse
   "Parse every row, rejecting blank/malformed/unknown fields without defaults.
