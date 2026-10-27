@@ -878,9 +878,9 @@
                   (do-rewrite-one ps reverse? spec nil) ps)))))]
     (loop [ps ps toks toks]
       (if-not (seq toks) ps
-        (let [rev? (boolean (#{'<- '←} (first toks)))
-              spec (if rev? (second toks) (first toks))]
-          (recur (at-rule ps rev? spec) (if rev? (drop 2 toks) (rest toks))))))))
+              (let [rev? (boolean (#{'<- '←} (first toks)))
+                    spec (if rev? (second toks) (first toks))]
+                (recur (at-rule ps rev? spec) (if rev? (drop 2 toks) (rest toks))))))))
 
 (clojure.core/defn- latest-local-id-by-name
   [lctx local-name]
@@ -910,8 +910,8 @@
     (throw (ex-info "Tactic error: too many case variable names" {:kind :tactic-error})))
   (let [lctx (reduce (fn [ctx [fid nm]]
                        (if (= '_ nm) ctx
-                         (-> ctx (assoc-in [fid :name] (str nm))
-                             (assoc-in [fid :inaccessible] false))))
+                           (-> ctx (assoc-in [fid :name] (str nm))
+                               (assoc-in [fid :inaccessible] false))))
                      (proof/mvar-lctx ps gid) (map vector fields names))]
     (update ps :meta-mctx meta/set-expr-mvar-lctx gid lctx)))
 
@@ -922,7 +922,7 @@
   (let [gs (:goals ps)
         gid (get-case-goal ps tag)
         fields (mapv key (filter (comp :inaccessible val)
-                                (sort-by key (proof/mvar-lctx ps gid))))
+                                 (sort-by key (proof/mvar-lctx ps gid))))
         ps (-> (rename-branch-locals ps gid (take-last (count names) fields) names)
                (assoc :goals [gid])
                (proof/set-mvar-user-name gid (name/anonymous)))
@@ -1130,10 +1130,10 @@
    'intro     (fn [ps args] (if (seq args) (intro-names ps args) (intro-inaccessible ps)))
    'intros    (fn [ps args]
                 (if (seq args) (intro-names ps args)
-                  (loop [ps ps]
-                    (let [g (proof/current-goal ps)]
-                      (if (and g (e/forall? (#'basic/whnf-in-goal ps (:lctx g) (:type g))))
-                        (recur (intro-inaccessible ps)) ps)))))
+                    (loop [ps ps]
+                      (let [g (proof/current-goal ps)]
+                        (if (and g (e/forall? (#'basic/whnf-in-goal ps (:lctx g) (:type g))))
+                          (recur (intro-inaccessible ps)) ps)))))
    'apply     (fn [ps args]
                 (let [g (proof/current-goal ps)
                       [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
@@ -1235,18 +1235,18 @@
                       tail (vec (rest (:goals ps)))
                       original-fids (set (keys (:lctx (proof/current-goal ps))))
                       result
-                  (if (seq rest-args)
-                    (let [hname (str (first args))
-                          g (proof/current-goal ps)
-                          cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
-                      (basic/cases-eq ps cond-expr hname))
-                    (let [nm (str (first args))
-                          fid (reduce (fn [best [id d]]
-                                        (if (and (= nm (:name d))
-                                                 (or (nil? best) (> (long id) (long best))))
-                                          id best))
-                                      nil (:lctx (proof/current-goal ps)))]
-                      (basic/cases ps fid)))]
+                      (if (seq rest-args)
+                        (let [hname (str (first args))
+                              g (proof/current-goal ps)
+                              cond-expr (elab/elaborate-in-context (:env ps) (:lctx g) (first rest-args))]
+                          (basic/cases-eq ps cond-expr hname))
+                        (let [nm (str (first args))
+                              fid (reduce (fn [best [id d]]
+                                            (if (and (= nm (:name d))
+                                                     (or (nil? best) (> (long id) (long best))))
+                                              id best))
+                                          nil (:lctx (proof/current-goal ps)))]
+                          (basic/cases ps fid)))]
                   (if (seq alts) (eval-alts result (rest alts) tail original-fids) result)))
    'generalize (fn [ps args]
                  ;; (generalize x h e) — Lean's `generalize h : e = x`: abstract term `e` in the goal
@@ -1280,7 +1280,7 @@
                       ps (if (seq gen-syms)
                            (let [branches (remove (set tail) (:goals ps))
                                  ps (basic/all-goals (assoc ps :goals (vec branches))
-                                      #(basic/intros % (mapv str gen-syms)))]
+                                                     #(basic/intros % (mapv str gen-syms)))]
                              (update ps :goals into tail)) ps)]
                   (if (seq alts) (eval-alts ps (rest alts) tail original-fids) ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))

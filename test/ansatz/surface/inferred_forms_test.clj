@@ -57,9 +57,9 @@
         (Eq (List Bool) xs xs)
         (exact (let [T (List Bool)] (Eq.refl ((fn [ys :- T] ys) xs))))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"let value type mismatch"
-        (a/theorem incompatible-local-proposition-alias [b :- Bool, h :- (Eq Bool b true)]
-          False
-          (exact (let [T False] (let [hp T h] hp)))))))
+                        (a/theorem incompatible-local-proposition-alias [b :- Bool, h :- (Eq Bool b true)]
+                                   False
+                                   (exact (let [T False] (let [hp T h] hp)))))))
 
 (deftest computational-lambda-body-keeps-bool-comparisons
   (a/defn comparison-lambda [n :- Nat] Bool ((fn [x :- Nat] (= x 1)) n))

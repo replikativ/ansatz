@@ -465,7 +465,7 @@
            new-lctx (add-local (:lctx goal) fvar-id binder-name binder-type)
            new-goal-type (e/instantiate1 (e/forall-body goal-type) (e/fvar fvar-id))
            [ps'' child-id] (proof/fresh-mvar ps' new-goal-type new-lctx
-                                                {:user-name (:user-name goal)})]
+                                             {:user-name (:user-name goal)})]
        (-> (proof/assign-mvar ps'' (:id goal)
                               {:kind :intro
                                :fvar-id fvar-id
@@ -1072,7 +1072,7 @@
                       (some #(contains? (collect-fvar-ids %) hyp-id)
                             (cons (:type goal)
                                   (mapcat (fn [[id d]] (when (not= id hyp-id)
-                                                        (remove nil? [(:type d) (:value d)])))
+                                                         (remove nil? [(:type d) (:value d)])))
                                           (:lctx goal)))))
            child-lctx (if hyp-id
                         (-> (if depends?
@@ -1082,18 +1082,18 @@
                             (add-local new-id (:name (get (:lctx goal) hyp-id)) new-goal-type))
                         (:lctx goal))
            [ps'' child-id] (proof/fresh-mvar-replacing ps'
-                              (if hyp-id (:type goal) new-goal-type) child-lctx (:id goal))
+                                                       (if hyp-id (:type goal) new-goal-type) child-lctx (:id goal))
            assignment (if hyp-id
                         {:kind :replace-local-decl :old-id hyp-id :new-id new-id
                          :old-type target-type :new-type new-goal-type
                          :level motive-level
                          :eq-proof (e/app* (e/const' (name/from-string "congrArg")
-                                                       [(first eq-levels) (lvl/succ motive-level)])
-                                          ty (e/sort' motive-level) lhs rhs motive
-                                          (if reverse?
-                                            (e/app* (e/const' (name/from-string "Eq.symm") eq-levels)
-                                                    ty rhs lhs eq-term)
-                                            eq-term))
+                                                     [(first eq-levels) (lvl/succ motive-level)])
+                                           ty (e/sort' motive-level) lhs rhs motive
+                                           (if reverse?
+                                             (e/app* (e/const' (name/from-string "Eq.symm") eq-levels)
+                                                     ty rhs lhs eq-term)
+                                             eq-term))
                          :child child-id}
                         {:kind :rewrite :eq-term eq-term :eq-type ty
                          :lhs lhs :rhs rhs :motive motive :reverse? reverse?
@@ -1542,8 +1542,8 @@
           ;; The re-intro'd fvar IDs must be added to field-fvars so the cases
           ;; extraction abstracts them in the minor lambda.
               (let [ps' (proof/set-mvar-user-name ps' branch-id
-                               (name/mk-str (or (:user-name goal) (name/anonymous))
-                                            (last (clojure.string/split (name/->string ctor-name) #"\."))))
+                                                  (name/mk-str (or (:user-name goal) (name/anonymous))
+                                                               (last (clojure.string/split (name/->string ctor-name) #"\."))))
                     ps' (update ps' :meta-mctx meta/set-expr-mvar-lctx branch-id
                                 (reduce #(assoc-in %1 [%2 :inaccessible] true) new-lctx field-fvars))
                     [ps' branch-id extra-fids]
@@ -1738,7 +1738,7 @@
                                           (e/instantiate1 motive-body fv))
                                 ih-name (str "ih_" fname)
                                 lctx'' (assoc-in (add-local lctx' ih-id ih-name ih-type)
-                                                [ih-id :is-ih] true)]
+                                                 [ih-id :is-ih] true)]
                             [ps'' lctx'' [ih-id]])
                           [ps' lctx' []])]
                     (recur ps''
@@ -1764,8 +1764,8 @@
               new-lctx (reduce #(assoc-in %1 [%2 :inaccessible] true) new-lctx all-fvars)
               [ps' branch-id] (proof/fresh-mvar ps' branch-goal-type new-lctx)
               ps' (proof/set-mvar-user-name ps' branch-id
-                           (name/mk-str (or (:user-name goal) (name/anonymous))
-                             (last (clojure.string/split (name/->string ctor-name) #"\."))))]
+                                            (name/mk-str (or (:user-name goal) (name/anonymous))
+                                                         (last (clojure.string/split (name/->string ctor-name) #"\."))))]
           (recur ps' (inc i)
                  (conj ctor-goals {:ctor-name ctor-name
                                    :field-fvars all-fvars  ;; includes IH fvars for extraction
@@ -2017,7 +2017,7 @@
         ;; Remove hypothesis from lctx
         new-lctx (dissoc (:lctx goal) hyp-fvar-id)
         [ps' new-goal-id] (proof/fresh-mvar ps new-goal-type new-lctx
-                                                 {:user-name (:user-name goal)})
+                                            {:user-name (:user-name goal)})
         ;; Move new goal to front to maintain focus on current branch
         ps' (update ps' :goals (fn [gs]
                                  (let [others (filterv #(not= % new-goal-id) gs)]
@@ -3352,20 +3352,20 @@
    Ansatz's surface if is Bool.rec, so use Bool cases and its equation."
   [ps]
   (letfn [(go [ps done]
-            (let [g (proof/current-goal ps)
-                  discr (or (find-stuck-bool-rec ps (:lctx g) (:type g))
-                            (find-stuck-bool-rec ps (:lctx g)
-                              (whnf-in-goal ps (:lctx g) (:type g))))]
-              (cond
-                (nil? discr) (if (seq done) ps (tactic-error! "split_ifs: no if-then-else conditions to split" {}))
-                (some #{discr} done) ps
-                :else (all-goals (by-cases ps discr)
-                  (fn [ps]
-                    (let [g (proof/current-goal ps)
-                          hid (last (sort (keys (:lctx g))))
-                          ps ((requiring-resolve 'ansatz.tactic.simp/simp-target)
-                              ps [(e/fvar hid)] {:only? true})]
-                      (if (seq (:goals ps)) (go ps (conj done discr)) ps)))))))]
+              (let [g (proof/current-goal ps)
+                    discr (or (find-stuck-bool-rec ps (:lctx g) (:type g))
+                              (find-stuck-bool-rec ps (:lctx g)
+                                                   (whnf-in-goal ps (:lctx g) (:type g))))]
+                (cond
+                  (nil? discr) (if (seq done) ps (tactic-error! "split_ifs: no if-then-else conditions to split" {}))
+                  (some #{discr} done) ps
+                  :else (all-goals (by-cases ps discr)
+                                   (fn [ps]
+                                     (let [g (proof/current-goal ps)
+                                           hid (last (sort (keys (:lctx g))))
+                                           ps ((requiring-resolve 'ansatz.tactic.simp/simp-target)
+                                               ps [(e/fvar hid)] {:only? true})]
+                                       (if (seq (:goals ps)) (go ps (conj done discr)) ps)))))))]
     (when-not (proof/current-goal ps) (tactic-error! "No goals" {}))
     ;; Mathlib Tactic/Core.lean andThenOnSubgoals uses focus: the branch
     ;; equations belong only to descendants of the main goal, never siblings.

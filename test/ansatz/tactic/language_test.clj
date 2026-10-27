@@ -122,7 +122,7 @@
 
 (deftest unnamed-intros-are-inaccessible
   (let [[ps _] (proof/start-proof (env/empty-env)
-                                 (e/forall' "p" (e/sort' lvl/zero) (e/bvar 0) :default))
+                                  (e/forall' "p" (e/sort' lvl/zero) (e/bvar 0) :default))
         ps (a/run-tactic ps '(intro))
         decl (first (vals (:lctx (proof/current-goal ps))))]
     (is (re-find #"✝" (:name decl)))
@@ -146,7 +146,7 @@
 
 (deftest case-requires-complete-body
   (let [[ps _] (proof/start-proof (a/env)
-                                (e/const' (name/from-string "True") []))]
+                                  (e/const' (name/from-string "True") []))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"did not close"
                           (a/run-tactic ps '(next))))))
 
@@ -178,7 +178,7 @@
 
 (deftest underscore-intros-use-inaccessible-names
   (let [[ps _] (proof/start-proof (env/empty-env)
-                                 (e/forall' "p" (e/sort' lvl/zero) (e/bvar 0) :default))
+                                  (e/forall' "p" (e/sort' lvl/zero) (e/bvar 0) :default))
         ps (a/run-tactic ps '(intro _))
         decl (first (vals (:lctx (proof/current-goal ps))))]
     (is (re-find #"✝" (:name decl)))
@@ -235,8 +235,8 @@
   (proves 'nested_partial_induction_names '[p :- Prop, hp :- p, n :- Nat]
           '(=> p (= n n))
           '[(intro) (induction n :with [zero (rfl)]
-                              [(succ k)
-                               (change (= (Nat.succ k) (Nat.succ k))) (rfl)])]))
+                               [(succ k)
+                                (change (= (Nat.succ k) (Nat.succ k))) (rfl)])]))
 
 (deftest partial-alternative-names-put-all-fields-before-ihs
   (a/inductive BranchOrder [] :in Type (leaf) (node [prev BranchOrder] [value Nat]))
