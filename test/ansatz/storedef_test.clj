@@ -142,8 +142,8 @@
         ty (e/forall "x" nat nat :default)
         good (env/mk-def nm [] ty (e/lam "x" nat (e/bvar 0) :default) :hints {:regular 1})
         bad (env/mk-def (name/from-string "RuntimeUnsupported") [] ty
-                       (e/lam "x" nat (e/const' (name/from-string "Nat.brecOn") []) :default)
-                       :hints {:regular 1})
+                        (e/lam "x" nat (e/const' (name/from-string "Nat.brecOn") []) :default)
+                        :hints {:regular 1})
         en (-> (a/env) (env/add-constant good) (env/add-constant bad))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo
                           #"RuntimeUnsupported.*Nat.brecOn.*equation"
@@ -239,8 +239,8 @@
     (is (re-find #"unsupported runtime binder telescope" (:reason (sd/failure-reason "ExplicitNumeralInstance"))))
     (testing "the numeric lowering follows the declined store candidate"
       (is (env/verifies? en
-                        (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat term two)
-                        (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat two)))
+                         (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat term two)
+                         (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat two)))
       (is (= 2 (eval (cg/ansatz->clj en term [])))))
     (testing "without a numeric lowering, the same refusal remains a hard named error"
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ExplicitNumeralInstance.*unsupported runtime binder telescope"
@@ -267,7 +267,7 @@
                            (catch clojure.lang.ExceptionInfo ex ex))))
       (is (identical? failure
                       (try (cg/ansatz->clj en
-                                          (e/app (e/const' (name/from-string "RuntimeHandlerOriginal") [])
-                                                 (e/lit-nat (biginteger 5))) [])
+                                           (e/app (e/const' (name/from-string "RuntimeHandlerOriginal") [])
+                                                  (e/lit-nat (biginteger 5))) [])
                            (catch clojure.lang.ExceptionInfo ex ex))))
       (finally (reset! a/codegen-registry saved)))))

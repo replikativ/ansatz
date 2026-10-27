@@ -32,8 +32,8 @@
     (eval '(ansatz.core/defn foldl-runtime-probe [xs :- (List Nat)] Nat
              (List.foldl (fn [n :- Nat, x :- Nat] (+ n x)) 0 xs)))
     (eval '(ansatz.core/theorem foldl-runtime-kernel []
-             (= (foldl-runtime-probe (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))) 3)
-             (rfl)))
+                                (= (foldl-runtime-probe (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))) 3)
+                                (rfl)))
     (doseq [xs [[] [1] [1 2] [2 0 5 3]]]
       (compare-kernel! (list 'foldl-runtime-probe (nat-list xs)) :int))
     (is (= 100000 ((ns-resolve *ns* 'foldl-runtime-probe) (repeat 100000 1))))
@@ -134,10 +134,10 @@
   (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
     (eval '(ansatz.core/defn prop-runtime-probe [p :- Prop] Prop (And p p)))
     (eval '(ansatz.core/theorem prop-probe-kernel [p :- Prop]
-             (= (prop-runtime-probe p) (And p p)) (rfl)))
+                                (= (prop-runtime-probe p) (And p p)) (rfl)))
     (eval '(ansatz.core/theorem prop-probe-hypothesis
-             [p :- Prop, h :- (prop-runtime-probe p)] p
-             (exact (And.left h))))
+                                [p :- Prop, h :- (prop-runtime-probe p)] p
+                                (exact (And.left h))))
     (eval '(ansatz.core/defn ignore-proposition [p :- Prop, n :- Nat] Nat (+ n 1)))
     (eval '(ansatz.core/defn pass-proposition [n :- Nat] Nat
              (ignore-proposition (prop-runtime-probe True) n)))
@@ -159,7 +159,6 @@
       (compare-kernel! (list 'pass-type n) :int)
       (compare-kernel! (list 'pass-proof n) :int)
       (compare-kernel! (list 'pass-predicate n) :int))))
-
 
 (deftest dependent-let-types-erase-their-applications
   (binding [*ns* (the-ns 'ansatz.codegen-init-test)]

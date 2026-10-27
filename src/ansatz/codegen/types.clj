@@ -56,7 +56,7 @@
         (when (e/forall? t) (e/instantiate1 (e/forall-body t) (e/app-arg expr)))))
     (e/lam? expr)
     (when-let [t (infer-type env (e/lam-body expr)
-                            (bind-type names "_" (e/lam-type expr)))]
+                             (bind-type names "_" (e/lam-type expr)))]
       (e/forall' (e/lam-name expr) (e/lam-type expr) t (e/lam-info expr)))
     (e/let? expr) (infer-type env (e/instantiate1 (e/let-body expr) (e/let-value expr)) names)
     :else
@@ -79,11 +79,11 @@
         ;; mkLetFVars preserves definitions. Inference may drop unused lets;
         ;; zeta-reduce them and reopen only the ordinary parameter binders.
         (whnf env
-         (reduce (fn [type i]
-                  (if (contains? values i) type
-                      (e/instantiate1 (e/forall-body (whnf env type []))
-                                      (e/bvar (- (count names) i 1)))))
-                 type (range (count names))) [])))))
+              (reduce (fn [type i]
+                        (if (contains? values i) type
+                            (e/instantiate1 (e/forall-body (whnf env type []))
+                                            (e/bvar (- (count names) i 1)))))
+                      type (range (count names))) [])))))
 
 (defn irrelevant-type?
   "Lean's visit/visitAppArg: erase proofs and values of Sort or As → Sort.

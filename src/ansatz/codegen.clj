@@ -146,7 +146,7 @@
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
    {"List.foldl"    (fn [_ _ _ ca _]
-                     (decl/apply-args {:arity 3 :erased 2} list-foldl ca))
+                      (decl/apply-args {:arity 3 :erased 2} list-foldl ca))
     "Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
@@ -307,7 +307,7 @@
   ;; Compiler/CSimpAttr.lean replaceConstant? and LCNF/Simp/SimpValue.lean
   ;; applyImplementedBy? both replace the global constant, preserving arguments.
   (when-let [g (or (get (env/get-extension env :csimp {}) h)
-                  (get (env/get-extension env :implemented-by {}) h))]
+                   (get (env/get-extension env :implemented-by {}) h))]
     (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h))
       (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
                 (contains? @arity-registry g)
