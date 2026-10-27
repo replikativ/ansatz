@@ -34,8 +34,8 @@
 
 (deftest replacement-updates-dependent-locals-and-pending-constraints
   (let [alt (assoc (b/alt :source 4 (e/fvar 1)
-                               [{:id 1 :type nat} {:id 2 :type (e/fvar 1) :value (e/fvar 1)}]
-                               [(b/inaccessible (e/fvar 1))])
+                          [{:id 1 :type nat} {:id 2 :type (e/fvar 1) :value (e/fvar 1)}]
+                          [(b/inaccessible (e/fvar 1))])
                    :cnstrs [[(e/fvar 1) (e/fvar 2)]] :not-alt-idxs [0])
         out (b/alt-replace-fvar-id 1 (e/lit-nat 5) alt)]
     (is (= [{:id 2 :type (e/lit-nat 5) :value (e/lit-nat 5)}] (:fvar-decls out)))

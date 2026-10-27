@@ -28,8 +28,8 @@
       (if-let [lhs (first lhss)]
         (do
           (c/set-lctx! ctx (reduce (fn [lctx d] (assoc lctx (:id d) d))
-                                  (reduce (fn [lctx m] (assoc lctx (e/fvar-id m) (u/decl ctx m))) base minors)
-                                  (:fvar-decls lhs)))
+                                   (reduce (fn [lctx m] (assoc lctx (e/fvar-id m) (u/decl ctx m))) base minors)
+                                   (:fvar-decls lhs)))
           (let [xs (mapv (comp e/fvar :id) (:fvar-decls lhs))
                 args (mapv b/pattern-to-expr (:patterns lhs))
                 eqs (with-eqs ctx discrs args discr-infos)
@@ -62,7 +62,7 @@
         (if solution
           (let [[i id v] solution]
             (recur (b/alt-replace-fvar-id id v
-                                        (assoc alt :cnstrs (into (subvec cnstrs 0 i) (subvec cnstrs (inc i)))))))
+                                          (assoc alt :cnstrs (into (subvec cnstrs 0 i) (subvec cnstrs (inc i)))))))
           (let [remaining (filterv (fn [[a b]] (not (or (tc/is-def-eq @ctx a b) (e/fvar? a)))) cnstrs)
                 rhs (c/zonk ctx (:rhs alt))]
             (when (seq remaining)
@@ -167,17 +167,17 @@
         (assoc p :vars (into fields xs) :alts (vec alts)))
       (-> p (assoc :vars xs)
           (update :alts #(mapv (fn [alt]
-                                (let [pat (first-pat alt)]
-                                  (cond-> (update alt :patterns (comp vec rest))
-                                    (not= :inaccessible (:tag pat))
-                                    (update :cnstrs conj [x (b/pattern-to-expr pat)])))) %))))))
+                                 (let [pat (first-pat alt)]
+                                   (cond-> (update alt :patterns (comp vec rest))
+                                     (not= :inaccessible (:tag pat))
+                                     (update :cnstrs conj [x (b/pattern-to-expr pat)])))) %))))))
 
 (defn process-constructor [ctx p]
   (let [x (first (:vars p)) xs (vec (rest (:vars p)))
         subgoals (c/cases ctx (:mvar-id p) (e/fvar-id x))]
     (mapv (fn [{:keys [mvar-id ctor-name fields subst]}]
             (let [alts (filterv (fn [alt] (let [pat (first-pat alt)]
-                                           (or (= :inaccessible (:tag pat)) (= ctor-name (:ctor-name pat))))) (:alts p))
+                                            (or (= :inaccessible (:tag pat)) (= ctor-name (:ctor-name pat))))) (:alts p))
                   alts (mapv #(b/alt-apply-fvar-subst subst %) alts)
                   alts (mapv (fn [alt]
                                (let [pat (first-pat alt)]
@@ -188,7 +188,7 @@
                       :xs (mapv #(if (e/fvar? %) {:tag :var :fvar-id (e/fvar-id %)} {:tag :underscore}) fields)}]
               (assoc p :mvar-id mvar-id :vars (mapv #(subst/apply subst %) (concat fields xs)) :alts alts
                      :examples (mapv #(b/example-apply-fvar-subst subst
-                                                                 (b/example-replace-fvar-id (e/fvar-id x) ex %)) (:examples p)))))
+                                                                  (b/example-replace-fvar-id (e/fvar-id x) ex %)) (:examples p)))))
           subgoals)))
 
 (defn process-value [ctx p]
@@ -204,7 +204,7 @@
                 (assoc p :mvar-id mvar-id :vars (mapv #(subst/apply subst %) xs)
                        :alts (mapv #(update (b/alt-apply-fvar-subst subst %) :patterns (comp vec rest)) alts)
                        :examples (mapv #(b/example-apply-fvar-subst subst
-                                                                   (b/example-replace-fvar-id (e/fvar-id x) {:tag :val :e v} %))
+                                                                    (b/example-replace-fvar-id (e/fvar-id x) {:tag :val :e v} %))
                                        (:examples p))))
               (assoc p :mvar-id mvar-id :alts (filterv #(= :inaccessible (:tag (first-pat %))) (:alts p)))))
           (range) subgoals)))
@@ -251,7 +251,7 @@
     (letfn [(level [l]
               (case (lvl/tag l)
                 :param (let [n (lvl/param-name l)] (when-not (contains? @seen n)
-                                                    (vswap! seen conj n) (vswap! out conj n)))
+                                                     (vswap! seen conj n) (vswap! out conj n)))
                 :succ (level (lvl/succ-pred l))
                 :max (do (level (lvl/max-lhs l)) (level (lvl/max-rhs l)))
                 :imax (do (level (lvl/imax-lhs l)) (level (lvl/imax-rhs l))) nil))
@@ -291,9 +291,9 @@
           needed (reduce into (expr-fvars match-type) (map b/alt-lhs-collect-fvars lhss))
           needed (loop [ids needed]
                    (let [next (into ids (mapcat (fn [id]
-                                                 (let [d (get declarations id)]
-                                                   (concat (when (:type d) (expr-fvars (:type d)))
-                                                           (when (:value d) (expr-fvars (:value d)))))) ids))]
+                                                  (let [d (get declarations id)]
+                                                    (concat (when (:type d) (expr-fvars (:type d)))
+                                                            (when (:value d) (expr-fvars (:value d)))))) ids))]
                      (if (= ids next) ids (recur next))))
           pattern-ids (set (mapcat #(map :id (:fvar-decls %)) lhss))
           base (apply dissoc (select-keys all-lctx needed) pattern-ids)
@@ -338,7 +338,7 @@
               ;; Closure.mkValueTypeClosureAux visits the open type and value
               ;; before processing captured local declarations, in reverse index order.
               lps (vec (distinct (concat (level-params type) (level-params value)
-                                        (mapcat #(level-params (:type (u/decl ctx %))) (reverse params)))))
+                                         (mapcat #(level-params (:type (u/decl ctx %))) (reverse params)))))
               type (u/mk-forall-fvars ctx params type)
               value (u/mk-lambda-fvars ctx params value)
               pos (when-not (lvl/level-zero? gen) (.indexOf lps elim-name))

@@ -786,7 +786,7 @@
                      (into {} (map (fn [[id d]] [id (subst/apply-local-decl s d)])) (:lctx (:tc est)))
                      (:locals row))]
     (assoc est :scope (into {} (map (fn [[k v]] [k (refine-entry v)])) scope)
-               :tc (tc/attach-lctx (tc/mk-tc-state (lean-env est)) lctx))))
+           :tc (tc/attach-lctx (tc/mk-tc-state (lean-env est)) lctx))))
 
 (defn- compile-lean-match [est elab-fn discr-form alt-forms]
   (let [discr-forms (if (vector? discr-form) discr-form [discr-form])
@@ -879,29 +879,29 @@
   [est elab-fn discr-sexpr alt-sexprs]
   (if (:lean-matchers? est)
     (compile-lean-match est elab-fn discr-sexpr alt-sexprs)
-  (let [env (:env est)
-        discr-expr (elab-fn est discr-sexpr)
-        discr-type (est-infer est discr-expr)
-        discr-type-whnf (est-whnf est discr-type)
+    (let [env (:env est)
+          discr-expr (elab-fn est discr-sexpr)
+          discr-type (est-infer est discr-expr)
+          discr-type-whnf (est-whnf est discr-type)
         ;; Qualify bare constructor names against the (inferred) inductive, so e.g.
         ;; `nil`/`(cons h t)` resolve to List.nil/List.cons — lets the a/defn explicit
         ;; match form desugar to plain patterns (one inferring compiler for both).
-        [th _] (e/get-app-fn-args discr-type-whnf)
-        ind-str (when (e/const? th) (name/->string (e/const-name th)))
-        qual (fn [s] (if (and ind-str (symbol? s) (not (.contains (str s) ".")))
-                       (let [q (str ind-str "." s)]
-                         (if (resolve-as-ctor env q) (symbol q) s))
-                       s))
-        nil-sym (symbol "nil")  ;; '(quote nil) reads as the VALUE nil, not a symbol
-        qualify (fn [pat]
-                  (cond
+          [th _] (e/get-app-fn-args discr-type-whnf)
+          ind-str (when (e/const? th) (name/->string (e/const-name th)))
+          qual (fn [s] (if (and ind-str (symbol? s) (not (.contains (str s) ".")))
+                         (let [q (str ind-str "." s)]
+                           (if (resolve-as-ctor env q) (symbol q) s))
+                         s))
+          nil-sym (symbol "nil")  ;; '(quote nil) reads as the VALUE nil, not a symbol
+          qualify (fn [pat]
+                    (cond
                     ;; Clojure reads the List.nil short name as the value nil, not a symbol.
-                    (nil? pat) (qual nil-sym)
-                    (symbol? pat) (qual pat)
-                    (and (sequential? pat) (seq pat)) (cons (qual (or (first pat) nil-sym)) (rest pat))
-                    :else pat))
-        alts (mapv (fn [[pat-sexpr rhs-sexpr]]
-                     {:pattern (parse-pattern env (qualify pat-sexpr))
-                      :rhs-sexpr rhs-sexpr})
-                   alt-sexprs)]
-    (compile-match-term est env elab-fn discr-expr discr-type-whnf alts))))
+                      (nil? pat) (qual nil-sym)
+                      (symbol? pat) (qual pat)
+                      (and (sequential? pat) (seq pat)) (cons (qual (or (first pat) nil-sym)) (rest pat))
+                      :else pat))
+          alts (mapv (fn [[pat-sexpr rhs-sexpr]]
+                       {:pattern (parse-pattern env (qualify pat-sexpr))
+                        :rhs-sexpr rhs-sexpr})
+                     alt-sexprs)]
+      (compile-match-term est env elab-fn discr-expr discr-type-whnf alts))))

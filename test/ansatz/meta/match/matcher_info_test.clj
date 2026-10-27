@@ -23,7 +23,7 @@
   (is (= 1 (mi/get-num-eqs-from-discr-infos [(mi/discr-info) (mi/discr-info "h")])))
   (is (= [2 2] (mi/alt-num-params info)))
   (is (= [1] (mi/alt-num-params (mi/matcher-info 0 1 [(mi/alt-param-info 0 0 true)]
-                                               0 [(mi/discr-info)] [])))))
+                                                 0 [(mi/discr-info)] [])))))
 
 (deftest overlaps-are-directed-idempotent-and-sorted
   (let [o (-> [] (mi/overlaps-insert 3 2) (mi/overlaps-insert 0 2)
@@ -46,7 +46,7 @@
            (env/get-extension (imported/install base {(str n) info}) :matcher-info {})))
     ;; Lookup remains compatible with role/session metadata whose names are not match_N.
     (is (= info (imported/matcher-info (mi/add-matcher-info base "role.matcher" info)
-                                     "role.matcher")))))
+                                       "role.matcher")))))
 
 (deftest matcher-application-recognition-requires-saturation
   (let [n (name/from-string "Local.match_1")

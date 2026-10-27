@@ -1510,57 +1510,57 @@
   ([env pairs ret-type-form body-form]
    (:expr (build-telescope-fvar env pairs ret-type-form body-form nil)))
   ([env pairs ret-type-form body-form opts]
-  (let [n (count pairs)
-        fids (mapv inc (range n))
+   (let [n (count pairs)
+         fids (mapv inc (range n))
         ;; Elaborate param types in an ACCUMULATING context (a dependent telescope), so a later
         ;; binder's type can reference an earlier binder — e.g. `[S :- Type, m :- (WAddMonoid S)]`
         ;; resolves S. (elab-signature already does this for the ∀-type; the body-lambda must match,
         ;; else polymorphic/dependent signatures fail with "Unknown constant: S".)
-        ptypes (loop [i 0 lctx {} acc []]
-                 (if (= i n) acc
-                     (let [p (nth pairs i)
+         ptypes (loop [i 0 lctx {} acc []]
+                  (if (= i n) acc
+                      (let [p (nth pairs i)
                            ;; Lean/Elab/Binders.lean elabBinderViews uses elabType
                            ;; for annotations even while elaborating a computational body.
-                           pt (elab/elaborate-in-context env lctx (second p) nil {:type-position true})]
-                       (recur (inc i)
-                              (assoc lctx (nth fids i) {:name (str (first p)) :type pt :tag :local})
-                              (conj acc pt)))))
+                            pt (elab/elaborate-in-context env lctx (second p) nil {:type-position true})]
+                        (recur (inc i)
+                               (assoc lctx (nth fids i) {:name (str (first p)) :type pt :tag :local})
+                               (conj acc pt)))))
         ;; A Subtype-typed param (e.g. a malli [:int {:min k}] refinement) registers with an
         ;; :as-term coercion: body references elaborate as `Subtype.val T P p`, so refined
         ;; params are used directly as their carrier (the refinement is erased at runtime;
         ;; the .property remains available to proof machinery from the binder type).
-        subtype-val (fn [fid pt]
-                      (let [[h as] (e/get-app-fn-args pt)]
-                        (when (and (e/const? h) (= "Subtype" (name/->string (e/const-name h)))
-                                   (= 2 (count as)))
-                          (e/app* (e/const' (name/from-string "Subtype.val")
-                                            (vec (e/const-levels h)))
-                                  (nth as 0) (nth as 1) (e/fvar fid)))))
-        lctx (into {} (map (fn [fid p pt]
-                             [fid (cond-> {:name (str (first p)) :type pt :tag :local}
-                                    (subtype-val fid pt) (assoc :as-term (subtype-val fid pt)))])
-                           fids pairs ptypes))
-        expected (when (and opts ret-type-form (not= '_ ret-type-form))
-                   (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true}))
-        body-result (if opts
-                      (elab/elaborate-in-context-with-env
-                       env lctx body-form expected
-                       (assoc opts :definition-body body-form :definition-ret expected))
-                      {:env env :expr (elab/elaborate-in-context env lctx body-form)})
-        body-expr (:expr body-result)
+         subtype-val (fn [fid pt]
+                       (let [[h as] (e/get-app-fn-args pt)]
+                         (when (and (e/const? h) (= "Subtype" (name/->string (e/const-name h)))
+                                    (= 2 (count as)))
+                           (e/app* (e/const' (name/from-string "Subtype.val")
+                                             (vec (e/const-levels h)))
+                                   (nth as 0) (nth as 1) (e/fvar fid)))))
+         lctx (into {} (map (fn [fid p pt]
+                              [fid (cond-> {:name (str (first p)) :type pt :tag :local}
+                                     (subtype-val fid pt) (assoc :as-term (subtype-val fid pt)))])
+                            fids pairs ptypes))
+         expected (when (and opts ret-type-form (not= '_ ret-type-form))
+                    (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true}))
+         body-result (if opts
+                       (elab/elaborate-in-context-with-env
+                        env lctx body-form expected
+                        (assoc opts :definition-body body-form :definition-ret expected))
+                       {:env env :expr (elab/elaborate-in-context env lctx body-form)})
+         body-expr (:expr body-result)
         ;; abstract-many maps V[k] → bvar (len-1-k) (last → bvar 0), so pass fids in
         ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
-        body-bvar (e/abstract-many body-expr fids)]
-    {:env (:env body-result)
-     :expr (loop [i (dec n) acc body-bvar]
-      (if (< i 0) acc
-          (let [[pn _ binfo] (nth pairs i)]
+         body-bvar (e/abstract-many body-expr fids)]
+     {:env (:env body-result)
+      :expr (loop [i (dec n) acc body-bvar]
+              (if (< i 0) acc
+                  (let [[pn _ binfo] (nth pairs i)]
             ;; A dependent param type may reference earlier binders' fvars; abstract those
             ;; (fids[0..i-1]) into bvars so the lambda binding type is closed (mirrors
             ;; elab-signature's mkForallFVars), else the type leaks "Unknown free variable".
-            (recur (dec i) (e/lam (str pn)
-                                  (e/abstract-many (nth ptypes i) (subvec fids 0 i))
-                                  acc (or binfo :default))))))})))
+                    (recur (dec i) (e/lam (str pn)
+                                          (e/abstract-many (nth ptypes i) (subvec fids 0 i))
+                                          acc (or binfo :default))))))})))
 
 (clojure.core/defn- mentions-const?
   "Does expr reference the constant named nm anywhere?"
@@ -1748,19 +1748,19 @@
           (let [ft (.inferType (ansatz.kernel.TypeChecker. (:env inferred-body)) (:expr inferred-body))
                 ret (loop [t ft k n] (if (zero? k) t (recur (e/forall-body t) (dec k))))]
             {:ret-ansatz ret :type-ansatz ft})
-        (if (= '_ ret-type-form)
+          (if (= '_ ret-type-form)
           ;; a surface elaborator may SYNTHESIZE constants into the global env mid-flight
           ;; (select-keys' projection record) — the snapshot the elaboration started with
           ;; can't see them, so retry once against the refreshed env (synthesis is idempotent)
-          (let [build (fn [e] (build-telescope-fvar e pairs nil body-form))
-                body-lam (try (build env) (catch Exception _ (build @ansatz-env)))
-                tc0 (doto (ansatz.kernel.TypeChecker. ^ansatz.kernel.Env @ansatz-env)
-                      (.setFuel (long config/*default-fuel*)))
-                ft (.inferType tc0 body-lam)
-                ret (loop [t ft, k n]
-                      (if (zero? k) t (recur (e/forall-body t) (dec k))))]
-            {:ret-ansatz ret :type-ansatz ft})
-          (elab-signature env pairs ret-type-form)))
+            (let [build (fn [e] (build-telescope-fvar e pairs nil body-form))
+                  body-lam (try (build env) (catch Exception _ (build @ansatz-env)))
+                  tc0 (doto (ansatz.kernel.TypeChecker. ^ansatz.kernel.Env @ansatz-env)
+                        (.setFuel (long config/*default-fuel*)))
+                  ft (.inferType tc0 body-lam)
+                  ret (loop [t ft, k n]
+                        (if (zero? k) t (recur (e/forall-body t) (dec k))))]
+              {:ret-ansatz ret :type-ansatz ft})
+            (elab-signature env pairs ret-type-form)))
         ;; the inference pass may have EXTENDED the global env (e.g. select-keys
         ;; synthesizing its projection record) — re-read it for the real elaboration
         env (if (= '_ ret-type-form) @ansatz-env env)
@@ -1783,9 +1783,9 @@
         body-result (when lean-matchers?
                       (or inferred-body (build-telescope-fvar env pairs ret-type-form body-form matcher-opts)))
         body-ansatz (if body-result (:expr body-result)
-                     (binding [surface-match/*self-name* (when top-match? cname)
-                              surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))]
-                      (build-telescope-fvar tmp-env pairs ret-type-form body-form)))
+                        (binding [surface-match/*self-name* (when top-match? cname)
+                                  surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))]
+                          (build-telescope-fvar tmp-env pairs ret-type-form body-form)))
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
         _ (when (mentions-const? body-ansatz cname)

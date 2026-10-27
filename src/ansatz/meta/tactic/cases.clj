@@ -26,7 +26,7 @@
 (defn set-lctx! [ctx lctx]
   (let [{:keys [env next-id meta-mctx]} @ctx]
     (reset! ctx (assoc (tc/attach-lctx (assoc (tc/mk-tc-state env) :next-id next-id) lctx)
-                      :meta-mctx meta-mctx))))
+                       :meta-mctx meta-mctx))))
 (defn mctx [ctx] @(:meta-mctx @ctx))
 (defn zonk [ctx expr] (meta/instantiate-expr-mvars (mctx ctx) expr))
 (defn goal-decl [ctx id] (meta/expr-decl (mctx ctx) id))
@@ -202,7 +202,7 @@
         _ (set-lctx! ctx (apply dissoc (:lctx @ctx) (map e/fvar-id eqs)))
         child (fresh-mvar! ctx child-type)]
     (assign! ctx id (u/app (mk-lambda-fvars ctx (conj new-indices new-x) (e/mvar child))
-                          (concat (conj indices x) refls)))
+                           (concat (conj indices x) refls)))
     {:mvar-id child :indices-fvar-ids (mapv e/fvar-id new-indices)
      :fvar-id (e/fvar-id new-x) :num-eqs (count eqs)}))
 
@@ -241,7 +241,7 @@
     (if (not= (.name ca) (.name cb))
       (u/app (u/const' "False.elim" [v])
              [target (u/app (u/const' "noConfusion_of_Nat" [(u/get-level ctx type)])
-                             [type (u/app (e/const' (name/mk-str ind "ctorIdx") us) ia) a b h])])
+                            [type (u/app (e/const' (name/mk-str ind "ctorIdx") us) ia) a b h])])
       (if (zero? (.numFields ca))
         (let [p (u/local-decl ctx "P" target)] (u/mk-lambda-fvars ctx [p] p))
         (let [_ (ensure-no-confusion! ctx ca)

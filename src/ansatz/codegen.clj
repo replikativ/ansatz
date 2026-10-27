@@ -135,8 +135,8 @@
       (if (and ci (.isDef ^ConstantInfo ci) (.value ^ConstantInfo ci) (not (contains? seen n))
                (not (contains? decidable-comparisons n)))
         (recur (beta-apply (e/instantiate-level-params
-                           (.value ^ConstantInfo ci)
-                           (zipmap (.levelParams ^ConstantInfo ci) (e/const-levels f))) args) (conj seen n))
+                            (.value ^ConstantInfo ci)
+                            (zipmap (.levelParams ^ConstantInfo ci) (e/const-levels f))) args) (conj seen n))
         expr))))
 
 (clojure.core/defn- erase-eq-rec [ca]
@@ -784,9 +784,9 @@
   ;; use Unit.unit's nil runtime representation; no kernel term is admitted here.
   (if (> (count args) arity)
     (ansatz->clj env
-                (beta-apply (nth args arity)
-                            (concat (repeat num-fields (e/const' (name/from-string "Unit.unit") []))
-                                    (drop (inc arity) args))) names)
+                 (beta-apply (nth args arity)
+                             (concat (repeat num-fields (e/const' (name/from-string "Unit.unit") []))
+                                     (drop (inc arity) args))) names)
     (let [missing (vec (repeatedly (- (inc arity) (count ca)) #(gensym "nc_arg_")))
           major (nth (into (vec ca) missing) arity)
           body (reduce (fn [f _] (list f nil)) major (range num-fields))]

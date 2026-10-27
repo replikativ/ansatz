@@ -120,7 +120,7 @@
     ["Nat.mul.match_1" [[_ 0] [a (Nat.succ b)]]]
     ["Nat.pow.match_1" [[0] [(Nat.succ n)]]]
     ["Nat.beq.match_1" [[Nat.zero Nat.zero] [Nat.zero (Nat.succ _)]
-                         [(Nat.succ _) Nat.zero] [(Nat.succ n) (Nat.succ m)]]]
+                        [(Nat.succ _) Nat.zero] [(Nat.succ n) (Nat.succ m)]]]
     ["Nat.decEq.match_1" [[Bool.true] [Bool.false]]]
     ["Nat.ble.match_1" [[Nat.zero _] [(Nat.succ _) Nat.zero] [(Nat.succ n) (Nat.succ m)]]]
     ["Option.getD.match_1" [[(Option.some x)] [Option.none]]]
@@ -193,7 +193,7 @@
             ;; alternatives nor the value are used to construct the matcher.
             [_ rest-type] (u/forall-telescope ctx (.type oracle) (:num-params info))
             match-type (replace-motive-sort (e/forall-type rest-type)
-                                             (if (some? (:u-elim-pos info)) nat (u/const' "True" [])))
+                                            (if (some? (:u-elim-pos info)) nat (u/const' "True" [])))
             lhss (mapv #(lhs-from-source ctx match-type %) rows)
             result (m/mk-matcher ctx {:matcher-name (str "Fresh." n) :match-type match-type
                                       :discr-infos (mapv mi/discr-info (:discrs info)) :lhss lhss})

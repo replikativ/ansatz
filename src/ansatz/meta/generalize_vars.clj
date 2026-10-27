@@ -18,7 +18,7 @@
 
 (defn mk-generalization-forbidden-set [ctx targets forbidden]
   (loop [todo (vec (mapcat #(if (e/fvar? %) [(e/fvar-id %)]
-                               (expr-fvars ctx (u/infer-type ctx %))) targets))
+                                (expr-fvars ctx (u/infer-type ctx %))) targets))
          forbidden forbidden]
     (if-let [id (peek todo)]
       (if (contains? forbidden id)
