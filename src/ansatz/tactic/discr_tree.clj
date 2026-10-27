@@ -19,7 +19,7 @@
      (:arrow), (:proj name idx arity), (:other)
    - Trie: nested map {Key → {:values [...] :children {Key → Trie}}}
    - Insert: flatten LHS to keys, insert value at that path
-   - Lookup: flatten query to keys, walk trie exploring star + exact matches
+   - Lookup: inspect query nodes on demand, exploring star + exact matches
 
    Argument filtering:
    - Instance-implicit args → :star (wildcard)
@@ -458,14 +458,63 @@
            empty-trie
            lemmas)))
 
+(defn- get-match-key-args [st env expr root?]
+  ;; DiscrTree/Main.lean getMatchKeyArgs: expose only the current node. Query
+  ;; subtrees remain expressions so a stored star consumes one without keying it.
+  (loop [expr expr]
+    (let [expr (if (and env (not= expr ::star)) (reduce-dt env expr root?) expr)]
+      (cond
+        (= expr ::star) [star-key []]
+        (e/mdata? expr) (recur (e/mdata-expr expr))
+        (e/let? expr) (recur (e/instantiate1 (e/let-body expr) (e/let-value expr)))
+        (e/app? expr)
+        (let [[head args] (e/get-app-fn-args expr) n (count args)]
+          (cond
+            (and (e/const? head) (= "OfNat.ofNat" (name/->string (e/const-name head)))
+                 (= 3 n) (e/lit-nat? (second args)))
+            [(lit-key (e/lit-nat-val (second args))) []]
+            (e/const? head)
+            (let [infos (when (and st env) (get-param-infos env head))]
+              [(const-key (e/const-name head) n)
+               (mapv (fn [i arg]
+                       (let [info (when infos (get infos i :default))]
+                         (if (and st info (should-ignore-arg? st info arg)) ::star arg)))
+                     (range n) args)])
+            (e/fvar? head) [(fvar-key (e/fvar-id head) n) args]
+            (e/proj? head) [(proj-key (e/proj-type-name head) (e/proj-idx head) (inc n))
+                            (into [(e/proj-struct head)] args)]
+            (e/mvar? head) [star-key []]
+            :else [other-key []]))
+        (e/const? expr) [(const-key (e/const-name expr) 0) []]
+        (e/fvar? expr) [(fvar-key (e/fvar-id expr) 0) []]
+        (e/lit-nat? expr) [(lit-key (e/lit-nat-val expr)) []]
+        (e/lit-str? expr) [(lit-key (e/lit-str-val expr)) []]
+        (e/forall? expr) [arrow-key [(e/forall-type expr)]]
+        (or (e/bvar? expr) (e/mvar? expr)) [star-key []]
+        (e/proj? expr) [(proj-key (e/proj-type-name expr) (e/proj-idx expr) 1) [(e/proj-struct expr)]]
+        :else [other-key []]))))
+
 (defn lookup-simp-tree
-  "Look up candidate lemmas for an expression in the discrimination tree.
-   Returns a sequence of lemmas whose LHS pattern matches the expression.
-   Optional st/env for argument filtering."
+  "DiscrTree/Main.lean getMatchLoop (v4.33.1): inspect query nodes on demand;
+   stored wildcards skip whole expressions, preserving shared query DAGs."
   ([tree expr] (lookup-simp-tree nil nil tree expr))
   ([st env tree expr]
-   (let [keys (expr->keys st env expr)]
-     (trie-match tree keys))))
+   (loop [jobs [[tree [[expr true]]]] result []]
+     (if-let [[trie todo] (peek jobs)]
+       (let [jobs (pop jobs)]
+         (if (empty? todo)
+           (recur jobs (into result (:values trie)))
+           (let [children (:children trie)
+                 [expr root?] (peek todo)
+                 todo (pop todo)
+                 star (get children star-key)
+                 jobs (if (or (empty? children) (= (count children) (if star 1 0))) jobs
+                          (let [[key args] (get-match-key-args st env expr root?)]
+                            (if-let [exact (when (not= key star-key) (get children key))]
+                              (conj jobs [exact (into todo (map #(vector % false) (reverse args)))]) jobs)))
+                 jobs (if star (conj jobs [star todo]) jobs)]
+             (recur jobs result))))
+       result))))
 
 (defn tree-size
   "Count the number of values stored in the tree."

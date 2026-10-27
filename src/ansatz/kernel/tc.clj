@@ -3,12 +3,13 @@
 (ns ansatz.kernel.tc
   "Type checker implementing bidirectional type inference and
    definitional equality for the Calculus of Inductive Constructions.
-   Follows Lean 4's kernel type_checker.cpp."
+   Follows Lean v4.33.1 kernel/type_checker.cpp and Meta/InferType.lean."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel Name ConstantInfo Env TypeChecker]))
+            [ansatz.kernel.reduce :as red]
+            [clojure.set :as set])
+  (:import [ansatz.kernel Name ConstantInfo Env TypeChecker ExprMap]))
 
 ;; ============================================================
 ;; Type checker state
@@ -30,7 +31,9 @@
    ;; synthInstance cache: failures memoize too, collapsing the repeated
    ;; exploration of the same class goal across candidates.
    :synth-memo (atom {})
-   :infer-cache (java.util.IdentityHashMap.)})
+   ;; One expression cache per environment, shared across binder extensions.
+   :infer-cache (java.util.IdentityHashMap.)
+   :infer-fvars (java.util.IdentityHashMap.)})
 
 (defn- lctx-max-id
   "Largest fvar id present in an lctx map (-1 if empty)."
@@ -94,13 +97,78 @@
 
 (declare infer-type is-def-eq is-def-eq* is-def-eq-fallback ensure-sort ensure-pi try-eta)
 
-(defn infer-type
-  "Infer the type of expression e in type checker state st."
+(defn- infer-type-cache
+  ;; Lean Meta/InferType.lean:checkInferTypeCache and kernel/type_checker.cpp:
+  ;; infer_type_core share an expression cache across binder extensions.
+  ^ExprMap [st]
+  (let [^java.util.IdentityHashMap environments (:infer-cache st)]
+    (or (.get environments (:env st))
+        (let [cache (ExprMap. 64)]
+          (.put environments (:env st) cache)
+          cache))))
+
+(defn- infer-fvars [st expr]
+  ;; Stack-safe dependency footprint: visit each shared node once. Reuse
+  ;; previously collected subtrees without recursing on expression depth.
+  (let [^java.util.IdentityHashMap cache (:infer-fvars st)]
+    (or (.get cache expr)
+        (let [seen (java.util.IdentityHashMap.)
+              ids (loop [todo [expr] ids #{}]
+                    (if-let [node (peek todo)]
+                      (let [todo (pop todo)]
+                        (cond
+                          (or (not (e/has-fvar-flag node)) (.put seen node true))
+                          (recur todo ids)
+
+                          (.get cache node)
+                          (recur todo (set/union ids (.get cache node)))
+
+                          (e/fvar? node)
+                          (recur todo (conj ids (e/fvar-id node)))
+
+                          :else
+                          (let [children (case (e/tag node)
+                                           :app [(e/app-fn node) (e/app-arg node)]
+                                           :lam [(e/lam-type node) (e/lam-body node)]
+                                           :forall [(e/forall-type node) (e/forall-body node)]
+                                           :let [(e/let-type node) (e/let-value node) (e/let-body node)]
+                                           :proj [(e/proj-struct node)]
+                                           :mdata [(e/mdata-expr node)] [])]
+                            (recur (into todo children) ids))))
+                      ids))]
+          (.put cache expr ids)
+          ids))))
+
+(defn- infer-dependencies [st expr]
+  ;; Lean's globally fresh locals make this check unnecessary. Surface tactics
+  ;; can rebind IDs: record only mentioned declarations and their transitive
+  ;; type/let-value dependencies, not the entire local context. Closed terms
+  ;; have no dependencies and reuse their cached types in every extension.
+  (loop [todo (vec (infer-fvars st expr)) dependencies {}]
+    (if-let [id (peek todo)]
+      (if (contains? dependencies id)
+        (recur (pop todo) dependencies)
+        (let [decl (get (:lctx st) id)
+              ids (reduce set/union #{}
+                          (map #(infer-fvars st %) (keep #(get decl %) [:type :value])))]
+          (recur (into (pop todo) ids) (assoc dependencies id decl))))
+      dependencies)))
+
+(defn- infer-fvar-type [st expr]
+  ;; Lean Meta/InferType.lean:inferFVarType and kernel/type_checker.cpp:infer_fvar.
+  ;; The declared type is already available; do not scan it or cache the lookup.
+  (if-let [decl (red/lctx-lookup (:lctx st) (e/fvar-id expr))]
+    (:type decl)
+    (tc-error! "Unknown free variable" {:id (e/fvar-id expr)})))
+
+(defn- infer-type-core
   [st e]
-  (let [^java.util.IdentityHashMap cache (:infer-cache st)
+  (let [^ExprMap cache (infer-type-cache st)
         cached (.get cache e)]
-    (if (some? cached)
-      cached
+    (if (and cached
+             (every? (fn [[id decl]] (identical? decl (get (:lctx st) id)))
+                     (:dependencies cached)))
+      (:type cached)
       (let [result
             (case (e/tag e)
               :bvar (tc-error! "Loose bound variable in infer-type" {:expr e})
@@ -164,7 +232,10 @@
 
               :lit-str (e/const' Name/STRING [])
 
-              :mdata (infer-type st (e/mdata-expr e))
+              :mdata (let [body (loop [body (e/mdata-expr e)]
+                                  (if (e/mdata? body) (recur (e/mdata-expr body)) body))]
+                       ;; Metadata is type-transparent (Lean infer_type_core).
+                       (infer-type st body))
 
               :proj (let [struct-type (cached-whnf st (infer-type st (e/proj-struct e)))
                           [head args] (e/get-app-fn-args struct-type)]
@@ -194,14 +265,20 @@
                                      (inc i))
                               (if (e/forall? t)
                                 (e/forall-type t)
-                                (tc-error! "Not enough fields in constructor" {:idx field-idx :type t})))))))
-
-              :fvar (let [decl (red/lctx-lookup (:lctx st) (e/fvar-id e))]
-                      (if decl
-                        (:type decl)
-                        (tc-error! "Unknown free variable" {:id (e/fvar-id e)}))))]
-        (.put cache e result)
+                                (tc-error! "Not enough fields in constructor" {:idx field-idx :type t}))))))))]
+        (.put cache e {:type result :dependencies (infer-dependencies st e)})
         result))))
+
+(defn infer-type
+  "Infer the type of expression e in type checker state st.
+   Lean Meta/InferType.lean:checkInferTypeCache memoizes by expression/config.
+   ExprMap uses Lean expression hash/equality, so separately allocated equal
+   subterms share results across binder extensions. Open entries are reused only
+   while their referenced declarations (including dependencies) are identical."
+  [st e]
+  (if (e/fvar? e)
+    (infer-fvar-type st e)
+    (infer-type-core st e)))
 
 (defn ensure-sort
   "Ensure e is (or reduces to) a Sort. Returns the sort."

@@ -260,3 +260,13 @@
       (is (> (get scored :concrete) (get scored :star))
           "concrete match is more specific (higher non-star count)")
       (is (= :concrete (first ranked)) "most-specific candidate ranked first"))))
+
+(deftest wildcard-lookup-skips-shared-query-subtrees
+  (let [add (e/const' (name/from-string "Nat.add") [])
+        lemma {:lhs-pattern (e/app* add (e/bvar 0) (e/bvar 1)) :name :shared-add}
+        tree (dt/make-simp-tree [lemma])
+        query (reduce (fn [t _] (e/app* add t t)) (e/fvar 7) (range 40))
+        calls (atom 0) get-args e/get-app-fn-args]
+    (with-redefs [e/get-app-fn-args (fn [expr] (swap! calls inc) (get-args expr))]
+      (is (= [lemma] (dt/lookup-simp-tree tree query))))
+    (is (= 1 @calls) "stored wildcard edges consume arguments without flattening them")))

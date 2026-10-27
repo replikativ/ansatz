@@ -450,9 +450,11 @@
   ([ps hints options]
    ;; the Nat.ble/Nat.beq Bool bridges grind activates (normalize/activate-comparison-theorems)
    ;; must exist in the env; derive Nat.ble_eq when the env lacks it, as simp does
-   (let [ensure (requiring-resolve 'ansatz.tactic.simp/ensure-ble-eq)
-         ps (if-let [env' (ensure (:env ps))] (assoc ps :env env') ps)]
-     (reduce (fn [ps gid]
-               (if (proof/mvar-assigned? ps gid) ps
-                   (grind-goal (assoc ps :goals (into [gid] (remove #{gid} (:goals ps)))) hints options)))
-             ps (:goals ps)))))
+   (binding [action/*config* (action/configure options)
+             simp/*state* (simp/mk-state)]
+     (let [ensure (requiring-resolve 'ansatz.tactic.simp/ensure-ble-eq)
+           ps (if-let [env' (ensure (:env ps))] (assoc ps :env env') ps)]
+       (reduce (fn [ps gid]
+                 (if (proof/mvar-assigned? ps gid) ps
+                     (grind-goal (assoc ps :goals (into [gid] (remove #{gid} (:goals ps)))) hints options)))
+               ps (:goals ps))))))

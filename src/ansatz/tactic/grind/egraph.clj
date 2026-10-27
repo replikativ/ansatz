@@ -13,7 +13,8 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]))
+            [ansatz.kernel.reduce :as red]
+            [ansatz.tactic.grind.action :as action]))
 
 ;; ============================================================
 ;; Names (cached for performance)
@@ -371,60 +372,65 @@
 ;; Following Lean 4 Internalize.lean
 ;; ============================================================
 
+(defn- internalize-node [gs expr gen]
+  (let [idx (:next-idx gs)
+        node (mk-enode expr idx gen)
+        ;; Check if it's an interpreted value or constructor
+        node (cond
+               (or (identical? expr (:true-expr gs))
+                   (identical? expr (:false-expr gs))
+                   (e/lit-nat? expr)
+                   (e/lit-str? expr))
+               (assoc node :interp true)
+
+               (and (e/const? expr)
+                    (when-let [ci (env/lookup (:env gs) (e/const-name expr))]
+                      (.isCtor ^ansatz.kernel.ConstantInfo ci)))
+               (assoc node :ctor true)
+
+               (and (e/app? expr)
+                    (let [[h _] (e/get-app-fn-args expr)]
+                      (and (e/const? h)
+                           (when-let [ci (env/lookup (:env gs) (e/const-name h))]
+                             (.isCtor ^ansatz.kernel.ConstantInfo ci)))))
+               (assoc node :ctor true)
+
+               :else node)
+        gs (-> gs
+               (assoc-in [:enodes expr] node)
+               (update :next-idx inc))]
+    gs))
+
 (defn internalize
-  "Add an expression to the E-graph. Recursively internalizes children.
-   Returns updated grind state."
+  "Grind/Internalize.lean internalizeImpl: guard actual recursion, flatten app
+   spines, and leave lambdas opaque. An explicit stack avoids JVM stack limits."
   [gs expr gen]
-  (if (get-enode gs expr)
-    gs  ;; already internalized
-    (let [idx (:next-idx gs)
-          node (mk-enode expr idx gen)
-          ;; Check if it's an interpreted value or constructor
-          node (cond
-                 (or (identical? expr (:true-expr gs))
-                     (identical? expr (:false-expr gs))
-                     (e/lit-nat? expr)
-                     (e/lit-str? expr))
-                 (assoc node :interp true)
-
-                 (and (e/const? expr)
-                      (when-let [ci (env/lookup (:env gs) (e/const-name expr))]
-                        (.isCtor ^ansatz.kernel.ConstantInfo ci)))
-                 (assoc node :ctor true)
-
-                 (and (e/app? expr)
-                      (let [[h _] (e/get-app-fn-args expr)]
-                        (and (e/const? h)
-                             (when-let [ci (env/lookup (:env gs) (e/const-name h))]
-                               (.isCtor ^ansatz.kernel.ConstantInfo ci)))))
-                 (assoc node :ctor true)
-
-                 :else node)
-          gs (-> gs
-                 (assoc-in [:enodes expr] node)
-                 (update :next-idx inc))]
-      ;; Recursively internalize children and register parents
-      (if (e/app? expr)
-        (let [[head args] (e/get-app-fn-args expr)
-              ;; Internalize head and all args
-              gs (reduce (fn [gs child]
-                           (-> (internalize gs child gen)
-                               (register-parent child expr)))
-                         gs (cons head args))
-              ;; Add to app-map (indexed by head symbol)
-              head-key (cond (e/const? head) (e/const-name head)
-                             (e/fvar? head) [:fvar (e/fvar-id head)])
-              gs (if head-key
-                   (update-in gs [:app-map head-key] (fnil conj []) expr)
-                   gs)
-              ;; Add to congruence table
-              gs (add-congr-table gs expr)]
-          gs)
-        (if (e/proj? expr)
-          (-> gs (internalize (e/proj-struct expr) gen)
-              (register-parent (e/proj-struct expr) expr)
-              (add-congr-table expr))
-          gs)))))
+  (loop [gs gs todo [[:enter expr 1 nil]]]
+    (if-let [[op expr depth parent] (peek todo)]
+      (let [todo (pop todo)]
+        (case op
+          :enter
+          (do (action/check-rec-depth! depth)
+              (if (get-enode gs expr)
+                (recur gs todo)
+                (let [gs (internalize-node gs expr gen)
+                      children (cond (e/app? expr) (let [[h args] (e/get-app-fn-args expr)] (into [h] args))
+                                     (e/proj? expr) [(e/proj-struct expr)])
+                      todo (if (seq children)
+                             (reduce (fn [todo child]
+                                       (-> todo (conj [:parent child depth expr])
+                                           (conj [:enter child (inc depth) nil])))
+                                     (conj todo [:finish expr depth nil]) (reverse children)) todo)]
+                  (recur gs todo))))
+          :parent (recur (register-parent gs expr parent) todo)
+          :finish
+          (let [gs (if (e/app? expr)
+                     (let [head (e/get-app-fn expr)
+                           key (cond (e/const? head) (e/const-name head)
+                                     (e/fvar? head) [:fvar (e/fvar-id head)])]
+                       (if key (update-in gs [:app-map key] (fnil conj []) expr) gs)) gs)]
+            (recur (add-congr-table gs expr) todo))))
+      gs)))
 
 (defn internalize-binders
   "Like `internalize`, but ALSO descends into the step-λ arguments of applications whose head name

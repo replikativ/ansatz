@@ -4,6 +4,7 @@
 (ns ansatz.kernel.expr
   "Core expression type for the Calculus of Inductive Constructions.
    Uses compact Java Expr class with packed long metadata.
+   De Bruijn helpers follow Lean v4.33.1 kernel/{instantiate,abstract,replace_fn}.cpp.
 
    Binder info: :default, :implicit, :strict-implicit, :inst-implicit
 
@@ -19,7 +20,7 @@
   (:require [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [clojure.string :as str])
-  (:import [ansatz.kernel Expr]))
+  (:import [ansatz.kernel Expr Reducer]))
 
 ;; ============================================================
 ;; Tag dispatch — keyword lookup for backward compatibility with case
@@ -309,132 +310,32 @@
           (recur (dec i) (arrow lifted-hyp result)))))))
 
 (defn instantiate1
-  "Replace (bvar 0) with val in e, shifting remaining bvars down.
-   This is the fundamental substitution for opening binders. Handles deeply nested apps
-   iteratively. SHARING-AWARE: memoizes the recursion on (sub-expr IDENTITY, depth),
-   mirroring Lean's kernel `replace_fn` cache (instantiate.cpp → replace_fn.cpp) — a shared
-   DAG sub-expression is substituted ONCE, not per occurrence. The cache only speeds up
-   (a miss yields the same result); the closed-term check returns before allocating it."
+  "Open one binder, preserving shared subterms by identity and binder depth.
+   Lean kernel/instantiate.cpp uses replace_fn's (pointer, offset) cache;
+   the existing Reducer helper implements the same traversal."
   [e val]
-  (if (<= (bvar-range e) 0)
-    e
-    (let [^java.util.IdentityHashMap cache (java.util.IdentityHashMap.)]
-      (letfn [(go [e depth]
-                  (if (<= (bvar-range e) depth)
-                    e
-                    (let [^java.util.HashMap m (.get cache e)
-                          hit (when m (.get m (int depth)))]
-                      (if (some? hit)
-                        hit
-                        (let [r (case (tag e)
-                                  :bvar (let [idx (bvar-idx e)]
-                                          (cond
-                                            (= idx depth) (lift val depth 0)
-                                            (> idx depth) (bvar (dec idx))
-                                            :else e))
-                                  :sort e
-                                  :const e
-                                  :app (let [^java.util.ArrayList args (java.util.ArrayList.)]
-                                         (loop [cur e]
-                                           (if (and (app? cur) (> (bvar-range cur) depth))
-                                             (do (.add args (app-arg cur))
-                                                 (recur (app-fn cur)))
-                                             (let [head' (go cur depth)
-                                                   n (.size args)]
-                                               (loop [i (dec n) result head']
-                                                 (if (neg? i)
-                                                   result
-                                                   (recur (dec i) (app result (go (.get args i) depth)))))))))
-                                  :lam (lam (lam-name e) (go (lam-type e) depth) (go (lam-body e) (inc depth)) (lam-info e))
-                                  :forall (forall' (forall-name e) (go (forall-type e) depth) (go (forall-body e) (inc depth)) (forall-info e))
-                                  :let (let' (let-name e) (go (let-type e) depth) (go (let-value e) depth) (go (let-body e) (inc depth)))
-                                  :lit-nat e
-                                  :lit-str e
-                                  :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
-                                  :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
-                                  :fvar e
-                                  :mvar e)
-                              ^java.util.HashMap m2 (if m m (let [nm (java.util.HashMap.)]
-                                                              (.put cache e nm) nm))]
-                          (.put m2 (int depth) r)
-                          r)))))]
-        (go e 0)))))
+  (Reducer/instantiate1 e val))
 
 (defn instantiate
-  "Replace (bvar 0)..(bvar n-1) with vals[0]..vals[n-1]."
+  "Open binders with vals in application order (outermost first).
+   Lean kernel/instantiate.cpp:instantiate_rev substitutes simultaneously,
+   preserving sharing and avoiding substitution into the arguments themselves."
   [e vals]
-  (reduce (fn [body v] (instantiate1 body v)) e (reverse vals)))
+  (let [args (into-array Expr vals)]
+    (Reducer/instantiateRev e (alength args) args 0)))
 
 (defn abstract1
-  "Replace free occurrences of fv (an fvar id) with (bvar depth) in e.
-   Used to close binders after type checking.
-   Handles deeply nested apps iteratively."
+  "Close one free variable, preserving sharing by identity and binder depth.
+   Lean kernel/abstract.cpp:abstract uses replace_fn's (pointer, offset) cache."
   [e fv]
-  (if-not (has-fvar-flag e)
-    e
-    (letfn [(go [e depth]
-                (if-not (has-fvar-flag e)
-                  e
-                  (case (tag e)
-                    :bvar e
-                    :sort e
-                    :const e
-                    :app (let [^java.util.ArrayList args (java.util.ArrayList.)]
-                           (loop [cur e]
-                             (if (and (app? cur) (has-fvar-flag cur))
-                               (do (.add args (app-arg cur))
-                                   (recur (app-fn cur)))
-                               (let [head' (go cur depth)
-                                     n (.size args)]
-                                 (loop [i (dec n) result head']
-                                   (if (neg? i)
-                                     result
-                                     (recur (dec i) (app result (go (.get args i) depth)))))))))
-                    :lam (lam (lam-name e) (go (lam-type e) depth) (go (lam-body e) (inc depth)) (lam-info e))
-                    :forall (forall' (forall-name e) (go (forall-type e) depth) (go (forall-body e) (inc depth)) (forall-info e))
-                    :let (let' (let-name e) (go (let-type e) depth) (go (let-value e) depth) (go (let-body e) (inc depth)))
-                    :lit-nat e
-                    :lit-str e
-                    :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
-                    :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
-                    :fvar (if (= (fvar-id e) fv) (bvar depth) e)
-                    :mvar e  ;; mvars are NOT affected by abstract1
-                    )))]
-      (go e 0))))
+  (Reducer/abstract1 e fv))
 
 (defn abstract-many
-  "Replace free occurrences of fvars in fv-ids with bvars.
-   fv-ids is a vector of fvar IDs, ordered from outermost to innermost.
-   fv-ids[0] → bvar(depth + n-1), fv-ids[n-1] → bvar(depth).
-   This matches Lean 4's Expr.abstract which processes an array of fvars."
+  "Close free variables in outermost-first order using one cached traversal.
+   Lean kernel/abstract.cpp:abstract and kernel/replace_fn.cpp:replace_rec_fn."
   [e fv-ids]
-  (if (or (empty? fv-ids) (not (has-fvar-flag e)))
-    e
-    (let [n (count fv-ids)
-          ;; Build lookup: fvar-id → offset from innermost (0-based)
-          fv-lookup (into {} (map-indexed (fn [i fid] [fid (- n i 1)]) fv-ids))]
-      (letfn [(go [e depth]
-                  (if-not (has-fvar-flag e)
-                    e
-                    (case (tag e)
-                      :bvar e
-                      :sort e
-                      :const e
-                      :app (app (go (app-fn e) depth) (go (app-arg e) depth))
-                      :lam (lam (lam-name e) (go (lam-type e) depth)
-                                (go (lam-body e) (inc depth)) (lam-info e))
-                      :forall (forall' (forall-name e) (go (forall-type e) depth)
-                                       (go (forall-body e) (inc depth)) (forall-info e))
-                      :let (let' (let-name e) (go (let-type e) depth)
-                                 (go (let-value e) depth) (go (let-body e) (inc depth)))
-                      :lit-nat e
-                      :lit-str e
-                      :mdata (mdata (mdata-data e) (go (mdata-expr e) depth))
-                      :proj (proj (proj-type-name e) (proj-idx e) (go (proj-struct e) depth))
-                      :fvar (if-let [offset (get fv-lookup (fvar-id e))]
-                              (bvar (+ depth offset))
-                              e))))]
-        (go e 0)))))
+  (let [ids (long-array fv-ids)]
+    (Reducer/abstractFvars e (alength ids) ids)))
 
 (defn instantiate-level-params
   "Replace universe level params in an expression using a substitution map.
