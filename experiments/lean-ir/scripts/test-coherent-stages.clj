@@ -23,15 +23,15 @@
     (require n))
   (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
   (let [vars (set (filter #(-> % meta :test) (mapcat #(vals (ns-publics %)) '[prototype.coherent-stage-guards-test prototype.coherent-owner-ledger-test])))
-        _ (assert (= 19 (count vars)))
+        _ (assert (= 20 (count vars)))
         counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
                    (t/test-vars (sort-by #(str (:name (meta %))) vars))
                    @t/*report-counters*)]
     (assert (= vars @observed))
     (assert (zero? (+ (:fail counters) (:error counters))))
-    (assert (= 19 (:test counters)))
+    (assert (= 20 (:test counters)))
     (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
-    (println (assoc counters :scope "definitions-and-nineteen-protocol-models-only"))
+    (println (assoc counters :scope "definitions-and-twenty-protocol-models-only"))
     (println "COHERENT_STAGE_MODELS_PASS")
     (shutdown-agents)
     (System/exit 0))
