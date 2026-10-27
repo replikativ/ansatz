@@ -276,3 +276,18 @@
                           (try (#'core/setup-env! (Env.) descriptor nil derived)
                                (catch Throwable error error))))))
       (is (= (values previous) (values (session/capture)))))))
+
+(deftest missing-store-instance-registry-explains-repair
+  (let [descriptor {:store-path "registry-fixture-store" :branch "library"}
+        failure (try
+                  (#'core/prepare-proof-session (Env.) descriptor nil {:attrs [] :matchers {}})
+                  nil
+                  (catch clojure.lang.ExceptionInfo error error))]
+    (is (some? failure))
+    (when failure
+      (is (= (assoc descriptor :kind :tactic-error) (ex-data failure)))
+      (is (re-find #"no instance registry" (ex-message failure)))
+      (is (re-find #"registry-fixture-store" (ex-message failure)))
+      (is (re-find #"Re-import" (ex-message failure)))
+      (is (re-find #"ansatz.import/rebuild-instances!" (ex-message failure)))
+      (is (re-find #":branch \"library\"" (ex-message failure))))))

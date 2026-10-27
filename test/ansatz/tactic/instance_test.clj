@@ -157,7 +157,7 @@
         inst (name/from-string "instNonemptyOfInhabited")
         env' (inst/add-instance env inst)
         entries (inst/get-instances (inst/index-for env') (name/from-string "Nonempty"))]
-    (is (= inst (:name (first entries))) "the newest registration is tried first among equals")
+    (is (= [{:name inst :priority 1000}] entries) "only the explicit registration is added")
     (is (= 1000 (:priority (first entries))) "Lean's default priority")
     (is (nil? (env/get-extension env :instances nil)) "the original env is untouched")
     (is (= [{:name inst :priority 10}]
@@ -165,6 +165,21 @@
                    (inst/get-instances (inst/index-for (inst/add-instance env' inst :priority 10))
                                        (name/from-string "Nonempty"))))
         "re-registering replaces the entry with the requested priority")))
+
+(deftest add-instance-orders-equal-priorities-newest-first
+  (let [cls (name/from-string "Nonempty")
+        older (name/from-string "instNonemptyOfInhabited")
+        newer (name/from-string "instNonemptyOfMonad")
+        base (env/with-extension (require-env) :instances {})
+        registered (-> base
+                       (inst/add-instance older :priority 1000)
+                       (inst/add-instance newer :priority 1000))]
+    (is (= [{:name newer :priority 1000} {:name older :priority 1000}]
+           (inst/get-instances (inst/index-for registered) cls))
+        "Lean tries the most recent registration first among equal priorities")
+    (is (= [{:name older :priority 1000} {:name newer :priority 10}]
+           (inst/get-instances (inst/index-for (inst/add-instance registered newer :priority 10)) cls))
+        "re-registration changes priority without duplicating or dropping candidates")))
 
 ;; ============================================================
 ;; DecidableEq instances with arguments (Lean keys them by the unfolded conclusion)

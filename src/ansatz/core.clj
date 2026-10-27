@@ -168,7 +168,16 @@
                   ((requiring-resolve 'ansatz.tactic.instance/load-bundled-instances) {:present? present?}))
         index (if derived
                 (or (:instances derived)
-                    (throw (ex-info "Tactic error: no instance registry" {:kind :tactic-error})))
+                    (throw (ex-info
+                            (str "Tactic error: no instance registry"
+                                 (when store
+                                   (str " for store " (pr-str (:store-path store))
+                                        " (branch " (pr-str (:branch store)) "). Re-import the store"
+                                        " or rebuild its registry with (ansatz.import/rebuild-instances! "
+                                        (pr-str (:store-path store)) " \"instances.tsv\" :branch "
+                                        (pr-str (:branch store)) ").")))
+                            (merge {:kind :tactic-error}
+                                   (select-keys store [:store-path :branch])))))
                 bundled)
         loaded (env/with-extension loaded :instances index)
         loaded (if (and store (:simp-trie derived))
