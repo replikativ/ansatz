@@ -6,6 +6,7 @@
    Tactic combinators: try-tac, or-else, repeat-tac, all-goals.
    Each tactic is a pure function: (tactic ps ...args) → ps'."
   (:require [clojure.set]
+            [clojure.string]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -24,7 +25,7 @@
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
 ;; Forward declarations for mutually-dependent tactics/helpers
-(declare generalize generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front)
+(declare generalize generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front collect-fvar-ids induction-fvars-to-generalize)
 
 (defn- local-name [nm]
   ;; Lean Meta/Tactic/Intro.lean introNImp stores a Name. Our lctx uses strings.
@@ -463,7 +464,8 @@
            [ps' fvar-id] (proof/alloc-id ps)
            new-lctx (add-local (:lctx goal) fvar-id binder-name binder-type)
            new-goal-type (e/instantiate1 (e/forall-body goal-type) (e/fvar fvar-id))
-           [ps'' child-id] (proof/fresh-mvar ps' new-goal-type new-lctx)]
+           [ps'' child-id] (proof/fresh-mvar ps' new-goal-type new-lctx
+                                                {:user-name (:user-name goal)})]
        (-> (proof/assign-mvar ps'' (:id goal)
                               {:kind :intro
                                :fvar-id fvar-id
@@ -996,9 +998,11 @@
    Replaces occurrences of lhs with rhs in the goal type (left-to-right).
    If reverse? is true, rewrites right-to-left (rhs → lhs)."
   ([ps eq-term] (rewrite ps eq-term false))
-  ([ps eq-term reverse?]
+  ([ps eq-term reverse?] (rewrite ps eq-term reverse? nil))
+  ([ps eq-term reverse? hyp-id]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
+         target-type (if hyp-id (:type (red/lctx-lookup (:lctx goal) hyp-id)) (:type goal))
          st (mk-tc ps (:lctx goal))
          eq-type (tc/infer-type st eq-term)
          eq-type-whnf (whnf-in-goal ps (:lctx goal) eq-type)
@@ -1050,31 +1054,52 @@
                                                                (e/forall-type expr) (e/forall-body expr)
                                                                (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
                                           expr)))]
-                                (replace-in st (:type goal)))
+                                (replace-in st target-type))
            motive-body (e/abstract1 goal-type-replaced motive-fvar-id)
            motive (e/lam "x" ty motive-body :default)
            ;; Compute the motive output sort level
-           goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
+           goal-sort (infer-in-goal ps (:lctx goal) target-type)
            goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
            motive-level (if (e/sort? goal-sort-whnf)
                           (e/sort-level goal-sort-whnf)
                           lvl/zero)
            ;; New goal type: goal-type[lhs := rhs]
            new-goal-type (e/instantiate1 motive-body rhs)
-           ;; Create subgoal for the rewritten goal
-           [ps'' new-goal-id] (proof/fresh-mvar ps' new-goal-type (:lctx goal))]
-       (-> (proof/assign-mvar ps'' (:id goal)
-                              {:kind :rewrite
-                               :eq-term eq-term
-                               :eq-type ty
-                               :lhs lhs
-                               :rhs rhs
-                               :motive motive
-                               :reverse? reverse?
-                               :levels eq-levels
-                               :motive-level motive-level
-                               :child new-goal-id})
-           (proof/record-tactic :rewrite [eq-term reverse?] (:id goal)))))))
+           ;; Lean Meta/Tactic/Replace.lean replaceLocalDeclCore: assert the
+           ;; transported value, clearing the old local only when unused.
+           [ps' new-id] (if hyp-id (proof/alloc-id ps') [ps' nil])
+           depends? (when hyp-id
+                      (some #(contains? (collect-fvar-ids %) hyp-id)
+                            (cons (:type goal)
+                                  (mapcat (fn [[id d]] (when (not= id hyp-id)
+                                                        (remove nil? [(:type d) (:value d)])))
+                                          (:lctx goal)))))
+           child-lctx (if hyp-id
+                        (-> (if depends?
+                              (assoc-in (:lctx goal) [hyp-id :name]
+                                        (str (:name (get (:lctx goal) hyp-id)) "✝"))
+                              (dissoc (:lctx goal) hyp-id))
+                            (add-local new-id (:name (get (:lctx goal) hyp-id)) new-goal-type))
+                        (:lctx goal))
+           [ps'' child-id] (proof/fresh-mvar-replacing ps'
+                              (if hyp-id (:type goal) new-goal-type) child-lctx (:id goal))
+           assignment (if hyp-id
+                        {:kind :replace-local-decl :old-id hyp-id :new-id new-id
+                         :old-type target-type :new-type new-goal-type
+                         :level motive-level
+                         :eq-proof (e/app* (e/const' (name/from-string "congrArg")
+                                                       [(first eq-levels) (lvl/succ motive-level)])
+                                          ty (e/sort' motive-level) lhs rhs motive
+                                          (if reverse?
+                                            (e/app* (e/const' (name/from-string "Eq.symm") eq-levels)
+                                                    ty rhs lhs eq-term)
+                                            eq-term))
+                         :child child-id}
+                        {:kind :rewrite :eq-term eq-term :eq-type ty
+                         :lhs lhs :rhs rhs :motive motive :reverse? reverse?
+                         :levels eq-levels :motive-level motive-level :child child-id})]
+       (-> (proof/assign-mvar ps'' (:id goal) assignment)
+           (proof/record-tactic :rewrite [eq-term reverse? hyp-id] (:id goal)))))))
 
 (defn rewrite-lemma
   "Rewrite the goal with a possibly ∀-QUANTIFIED Eq proof `term` — an env lemma (`rw [add_assoc]`)
@@ -1083,7 +1108,8 @@
    reduction-aware unifier (Lean's `rw`: forallMetaTelescope + kabstract). A concrete Eq proof falls
    straight through to `rewrite`."
   ([ps term] (rewrite-lemma ps term false))
-  ([ps term reverse?]
+  ([ps term reverse?] (rewrite-lemma ps term reverse? nil))
+  ([ps term reverse? hyp-id]
    (let [goal (proof/current-goal ps)
          _ (when-not goal (tactic-error! "No goals" {}))
          st (mk-tc ps (:lctx goal))
@@ -1140,7 +1166,7 @@
                         :let (do (scan (e/let-value e)) (scan (e/let-body e)))
                         :proj (scan (e/proj-struct e))
                         nil))))]
-       (scan (:type goal))
+       (scan (if hyp-id (:type (get (:lctx goal) hyp-id)) (:type goal)))
        (when-not @found
          (tactic-error! "rewrite: no subterm of the goal matches the lemma's LHS" {:lemma-type ty}))
        ;; postprocessAppMVars: a param mvar not pinned by the match (e.g. the TYPE S in
@@ -1172,8 +1198,8 @@
            (rewrite ps (e/app* (e/const' (name/from-string "Eq.symm")
                                          (mapv #(meta/zonk-level @mctx %) eq-lvls))
                                (zonk* eqT) (zonk* lhs0) (zonk* rhs0) eq-proof)
-                    false)
-           (rewrite ps eq-proof false)))))))
+                    false hyp-id)
+           (rewrite ps eq-proof false hyp-id)))))))
 
 ;; ============================================================
 ;; cases (case analysis on an inductive hypothesis)
@@ -1303,30 +1329,8 @@
                 ;; Revert indices + major + dependents (preserveOrder=true)
                 ;; We revert in reverse order (highest-ID first), then the explicitly listed ones
                   all-fids-to-revert
-                  (let [revert-set (set revert-fids)
-                      ;; Dependents: const-headed hypotheses (incl. Eq) that depend on reverted fids.
-                      ;; Lean's `MVarId.revert` reverts the major + ALL forward dependents with no type
-                      ;; filter; we only skip lambda-headed recursor IHs (handled by the motive).
-                        deps (vec (sort (for [[fid d] (:lctx goal)
-                                              :when (and (not (revert-set fid))
-                                                         (= :local (:tag d))
-                                                         (e/has-fvar-flag (:type d))
-                                                         (some (fn [rfid]
-                                                                 (not= (e/abstract1 (:type d) rfid) (:type d)))
-                                                               revert-fids)
-                                                      ;; Lean's `MVarId.revert` reverts the major + ALL
-                                                      ;; forward dependents (no type filter), so a
-                                                      ;; scrutinee-dependent equation like `generalize`'s
-                                                      ;; `h : e = x` IS reverted → substituted in the
-                                                      ;; branch (the RAWREC case). We only keep the
-                                                      ;; const-head guard, which skips the lambda-headed
-                                                      ;; recursor IHs (their motive-app types can't be
-                                                      ;; cleanly reverted here).
-                                                         (let [[h _] (e/get-app-fn-args (:type d))]
-                                                           (e/const? h)))]
-                                          fid)))]
-                  ;; Revert order: dependents (highest first), then hyp, then indices (highest first)
-                    (vec (concat (reverse deps) [hyp-fvar-id] (reverse idx-fvar-ids))))
+                  (vec (concat (reverse (induction-fvars-to-generalize (:lctx goal) revert-fids))
+                               [hyp-fvar-id] (reverse idx-fvar-ids)))
                   nextra (- (count all-fids-to-revert) (count idx-fvar-ids) 1)
                 ;; Perform reverts
                   ps (reduce (fn [ps fid]
@@ -1537,7 +1541,12 @@
           ;; Re-intro reverted dependents in each open branch (Lean 4 line 111)
           ;; The re-intro'd fvar IDs must be added to field-fvars so the cases
           ;; extraction abstracts them in the minor lambda.
-              (let [[ps' branch-id extra-fids]
+              (let [ps' (proof/set-mvar-user-name ps' branch-id
+                               (name/mk-str (or (:user-name goal) (name/anonymous))
+                                            (last (clojure.string/split (name/->string ctor-name) #"\."))))
+                    ps' (update ps' :meta-mctx meta/set-expr-mvar-lctx branch-id
+                                (reduce #(assoc-in %1 [%2 :inaccessible] true) new-lctx field-fvars))
+                    [ps' branch-id extra-fids]
                     (if (and (not impossible?) (pos? nextra))
                       (let [ps-front (update ps' :goals
                                              (fn [gs] (into [branch-id] (remove #{branch-id}) gs)))
@@ -1546,7 +1555,8 @@
                             (loop [ps ps-front n nextra fids []]
                               (if (zero? n)
                                 [ps fids]
-                                (let [ps (intro ps)
+                                (let [g0 (proof/current-goal ps)
+                                      ps (intro ps (e/forall-name (:type g0)))
                                       g (proof/current-goal ps)
                                   ;; The most recently introduced fvar
                                       newest (last (sort (keys (:lctx g))))]
@@ -1727,7 +1737,8 @@
                                                          (conj (vec field-ret-indices) fv))
                                           (e/instantiate1 motive-body fv))
                                 ih-name (str "ih_" fname)
-                                lctx'' (add-local lctx' ih-id ih-name ih-type)]
+                                lctx'' (assoc-in (add-local lctx' ih-id ih-name ih-type)
+                                                [ih-id :is-ih] true)]
                             [ps'' lctx'' [ih-id]])
                           [ps' lctx' []])]
                     (recur ps''
@@ -1750,7 +1761,11 @@
                                  (e/instantiate motive-body
                                                 (conj (vec ctor-ret-indices) ctor-term))
                                  (e/instantiate1 motive-body ctor-term))
-              [ps' branch-id] (proof/fresh-mvar ps' branch-goal-type new-lctx)]
+              new-lctx (reduce #(assoc-in %1 [%2 :inaccessible] true) new-lctx all-fvars)
+              [ps' branch-id] (proof/fresh-mvar ps' branch-goal-type new-lctx)
+              ps' (proof/set-mvar-user-name ps' branch-id
+                           (name/mk-str (or (:user-name goal) (name/anonymous))
+                             (last (clojure.string/split (name/->string ctor-name) #"\."))))]
           (recur ps' (inc i)
                  (conj ctor-goals {:ctor-name ctor-name
                                    :field-fvars all-fvars  ;; includes IH fvars for extraction
@@ -2001,7 +2016,8 @@
                                  :default)
         ;; Remove hypothesis from lctx
         new-lctx (dissoc (:lctx goal) hyp-fvar-id)
-        [ps' new-goal-id] (proof/fresh-mvar ps new-goal-type new-lctx)
+        [ps' new-goal-id] (proof/fresh-mvar ps new-goal-type new-lctx
+                                                 {:user-name (:user-name goal)})
         ;; Move new goal to front to maintain focus on current branch
         ps' (update ps' :goals (fn [gs]
                                  (let [others (filterv #(not= % new-goal-id) gs)]
@@ -2413,8 +2429,13 @@
                            (recur (dec i) (e/forall' "idx" it (e/abstract1 body fid) :default)))))]
           body)
 
-        ;; Build new lctx: remove the original hypothesis
-        new-lctx (dissoc (:lctx goal) hyp-fvar-id)
+        ;; Lean Cases.lean generalizeIndices' creates the auxiliary goal in
+        ;; the original lctx. Retain a used major (e.g. in recursor IH types);
+        ;; clearing it would leave dangling fvars in those declarations.
+        new-lctx (if (or (expr-depends-on-fvar? (:type goal) hyp-fvar-id)
+                         (lctx-dependency-on-fvar (:lctx goal) hyp-fvar-id))
+                   (assoc-in (:lctx goal) [hyp-fvar-id :name] (str (:name hyp-decl) "✝"))
+                   (dissoc (:lctx goal) hyp-fvar-id))
 
         [ps new-goal-id] (proof/fresh-mvar-replacing ps new-goal-type new-lctx (:id goal))
 
@@ -2685,18 +2706,33 @@
              ps))))))
 
 (defn all-goals
-  "Apply a tactic to all open goals.
-   Lean 4: all_goals tac or tac1 <;> tac2."
+  "Lean Elab/Tactic/BuiltinTactic.lean evalAllGoals: focus each original goal;
+   propagate failure and concatenate the resulting goals in order."
   [ps tac-fn]
-  (loop [ps ps goals (:goals ps)]
-    (if (empty? goals) ps
-        (let [gid (first goals)]
-          (if (proof/mvar-assigned? ps gid)
-            (recur ps (rest goals))
-          ;; Focus on this goal by reordering
-            (let [ps' (assoc ps :goals (into [gid] (remove #{gid} (:goals ps))))
-                  ps' (try (tac-fn ps') (catch Exception _ ps'))]
-              (recur ps' (rest goals))))))))
+  (let [[ps goals] (reduce (fn [[ps out] gid]
+                             (if (proof/mvar-assigned? ps gid)
+                               [ps out]
+                               (let [ps (tac-fn (assoc ps :goals [gid]))]
+                                 [ps (into out (:goals ps))])))
+                           [ps []] (:goals ps))]
+    (assoc ps :goals (filterv #(not (proof/mvar-assigned? ps %)) goals))))
+
+(defn any-goals
+  "Lean evalAnyGoals: restore failed goals; fail unless at least one succeeds."
+  [ps tac-fn]
+  (let [[ps goals worked?]
+        (reduce (fn [[ps out worked?] gid]
+                  (if (proof/mvar-assigned? ps gid)
+                    [ps out worked?]
+                    (let [result (try (tac-fn (assoc ps :goals [gid]))
+                                      (catch clojure.lang.ExceptionInfo ex
+                                        (if (= :tactic-error (:kind (ex-data ex))) nil (throw ex))))]
+                      (if result
+                        [result (into out (:goals result)) true]
+                        [ps (conj out gid) worked?]))))
+                [ps [] false] (:goals ps))]
+    (when-not worked? (tactic-error! "any_goals: tactic failed on all goals" {}))
+    (assoc ps :goals (filterv #(not (proof/mvar-assigned? ps %)) goals))))
 
 ;; ============================================================
 ;; solve_by_elim — apply + assumption chain
@@ -3290,11 +3326,13 @@
                       ;; discriminants inside lambda bodies reference bound
                       ;; variables that can't be case-split on.
                       (when-not (e/has-loose-bvars? discr)
-                        (let [dw (try (whnf-in-goal ps goal-lctx discr) (catch Exception _ discr))]
+                        (let [dw (whnf-in-goal ps goal-lctx discr)]
                           (when-not (and (e/const? dw)
                                          (let [n (name/->string (e/const-name dw))]
                                            (or (= n "Bool.true") (= n "Bool.false"))))
-                            (vreset! result discr)))))))
+                            ;; Mathlib findIfToSplit? searches the condition itself first.
+                            (walk discr)
+                            (when-not @result (vreset! result discr))))))))
                 ;; Recurse into subterms
                 (when-not @result
                   (case (e/tag e)
@@ -3309,23 +3347,31 @@
     @result))
 
 (defn split-ifs
-  "Case-split on the first stuck Bool.rec in the goal type.
-   Finds a Bool.rec whose discriminant doesn't reduce to true/false,
-   then applies by_cases on that discriminant.
-   Lean 4: splitIfTarget? from Tactic/SplitIf.lean."
+  "Mathlib Tactic/SplitIfs.lean splitIfsCore: find conditions throughout the
+   target, split, simplify with the branch equation, and repeat in each branch.
+   Ansatz's surface if is Bool.rec, so use Bool cases and its equation."
   [ps]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        ;; Search raw goal type first
-        discr (find-stuck-bool-rec ps (:lctx goal) (:type goal))]
-    (if discr
-      (by-cases ps discr)
-      ;; Try after WHNF reduction
-      (let [goal-whnf (whnf-in-goal ps (:lctx goal) (:type goal))
-            discr (find-stuck-bool-rec ps (:lctx goal) goal-whnf)]
-        (if discr
-          (by-cases ps discr)
-          (tactic-error! "split_ifs: no stuck if-then-else found" {:goal (:type goal)}))))))
+  (letfn [(go [ps done]
+            (let [g (proof/current-goal ps)
+                  discr (or (find-stuck-bool-rec ps (:lctx g) (:type g))
+                            (find-stuck-bool-rec ps (:lctx g)
+                              (whnf-in-goal ps (:lctx g) (:type g))))]
+              (cond
+                (nil? discr) (if (seq done) ps (tactic-error! "split_ifs: no if-then-else conditions to split" {}))
+                (some #{discr} done) ps
+                :else (all-goals (by-cases ps discr)
+                  (fn [ps]
+                    (let [g (proof/current-goal ps)
+                          hid (last (sort (keys (:lctx g))))
+                          ps ((requiring-resolve 'ansatz.tactic.simp/simp-target)
+                              ps [(e/fvar hid)] {:only? true})]
+                      (if (seq (:goals ps)) (go ps (conj done discr)) ps)))))))]
+    (when-not (proof/current-goal ps) (tactic-error! "No goals" {}))
+    ;; Mathlib Tactic/Core.lean andThenOnSubgoals uses focus: the branch
+    ;; equations belong only to descendants of the main goal, never siblings.
+    (let [siblings (vec (rest (:goals ps)))
+          ps (go (assoc ps :goals [(first (:goals ps))]) [])]
+      (update ps :goals into (remove #(proof/mvar-assigned? ps %) siblings)))))
 
 ;; ============================================================
 ;; split — faithful port of Lean 4 Tactic/Split.lean (findSplit? + dispatch)

@@ -45,7 +45,9 @@
    (fresh-mvar-replacing ps type lctx replaced-id {}))
   ([ps type lctx replaced-id opts]
    (let [[ps' id] (alloc-id ps)
-         opts (merge {:kind :syntheticOpaque} opts)
+         opts (merge {:kind :syntheticOpaque
+                      :user-name (or (get-in ps [:meta-mctx :decls replaced-id :user-name])
+                                     (get-in ps [:mctx replaced-id :user-name]))} opts)
          ;; Find position of replaced-id before it gets removed.
          pos (.indexOf ^java.util.List (vec (:goals ps')) replaced-id)
          pos (if (neg? pos) -1 pos)]
@@ -282,6 +284,13 @@
                              (concat params [motive discr] alt-lams))
           refl (e/app* (e/const' (name/from-string "Eq.refl") [eq-lvl]) discr-type discr)]
       (e/app matcher-app refl))
+
+    :replace-local-decl
+    (let [{:keys [old-id new-id old-type new-type eq-proof level child]} assignment
+          value (e/app* (e/const' (name/from-string "Eq.mp") [level])
+                        old-type new-type eq-proof (e/fvar old-id))]
+      (e/app (e/lam "h" new-type (meta/abstract-fvars (e/mvar child) [new-id]) :default)
+             value))
 
     :simp-all-hyps
     (let [{:keys [replacements child]} assignment
