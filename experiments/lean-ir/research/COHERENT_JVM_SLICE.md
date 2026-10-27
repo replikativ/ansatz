@@ -311,3 +311,50 @@ No full Init has been loaded to validate these changes.
 Final source-load verification in that REPL passed 64 fixture-free models (721
 assertions) and 36 focused closure/retirement/controller tests (452 assertions).
 These overlapping suites are controls, not a full-image compatibility result.
+
+## Resident target closure reuse
+
+A separate REPL probe puts synthetic static authority dependencies on the
+application's boxed entrypoint, keeping its identity-program body unchanged.
+This exposes a different graph walk from protected runtime registry validation:
+`boxed-entrypoint!` checked the target's transitive executable closure on every
+public call. The synthetic dependencies are not guest calls or frontend coverage.
+
+Resident calls now reuse the existing semantic-guarded executable closure proof.
+The original three-argument `boxed-entrypoint!` still runs its full checker;
+a trusted host assertion arity lets the resident boundary reuse static facts.
+Every call still resolves its current manifest target and checks the exact
+FileHandle/unit, initialization completion, ABI, codecs, root ownership and
+protected runtime bindings/code. Current target roots, code/authorization maps
+and validation-rule identities guard every proof use.
+
+A private weak Context-keyed table has one replaceable proof slot per wrapper.
+It does not write the exposed owner state Atom or run its watchers. Returned
+children inherit a proof seed; forks copy the parent's latest seed. A wrapper
+can therefore retain at most its inherited seed and one replacement side proof,
+not a history of targets or worlds. Both proofs have only weak code/rule maps
+and bounded frozen roots, and cannot retain a Context, Source or World.
+
+The same 384 MiB REPL measured caller-thread allocations per public call,
+excluding child retirement:
+
+| Synthetic target dependencies | Before, warm | With proof reuse, warm |
+| --- | ---: | ---: |
+| 0 | 37,904 B | 44,368 B |
+| 1,000 | 1,586,528 B | 44,392 B |
+| 10,000 | 15,529,600 B | 44,368 B |
+
+The guards add a small fixed cost for tiny closures while removing proportional
+repeated work for large closures. Timing varies with REPL compilation and host
+load; allocation scaling is the stronger evidence. Cold validation remains
+proportional and the recorded cold samples also include compilation/cache setup.
+See `resident-target-probe.clj` (load `resident-cost-probe.clj` first) and
+`tiny-resident-target-costs.json` for separate cold/warm measurements.
+
+Six boundary tests (57 assertions) cover same-parent/child/fork reuse across all
+three backends, no owner Atom writes, changed current manifest targets,
+pending/partial initialization, ABI, roots, protected and application code,
+authorization registry identity, semantic-rule changes and weak table values.
+The 74-test resident/eval regression run passed 1,026 assertions before the final
+two application-code assertions were added; the final focused six tests passed
+all 57. No full Init or full-image experiment has been run.

@@ -72,6 +72,17 @@
   [context]
   (:prepared (context-data context)))
 
+;; One replaceable side-table proof per wrapper (plus its inherited data seed). Weak Context keys use Object
+;; identity, and proof values contain only weak images/rules plus bounded Names.
+;; Never mutate the publicly exposed owner state Atom just to warm a cache.
+(def ^:private ^WeakHashMap target-proofs (WeakHashMap.))
+(defn- target-proof [context data]
+  (or (locking target-proofs (.get target-proofs context)) (::target-closure-proof data)))
+(defn- remember-target-proof! [context proof]
+  (locking target-proofs
+    (if proof (.put target-proofs context proof) (.remove target-proofs context)))
+  nil)
+
 (defn- guest-encoder-roots [configuration]
   ;; hosted/run-file supplies these defaults, while frontend/compile-file passes
   ;; encoder-options unchanged to BOTH encoders. Any selected default encoder
@@ -194,7 +205,9 @@
   "Fork guest state with inherited code authority and shared optimization caches.
    Artifact resources stay borrowed from the caller; external effects are shared."
   [context]
-  (locking context (make-context (context-data context))))
+  (locking context
+    (let [data (context-data context)]
+      (make-context (assoc data ::target-closure-proof (target-proof context data))))))
 
 (defn close!
   "Consume this context's Environment/Options owners once. Does not close a shared
@@ -331,24 +344,29 @@
                                    {:checkpoint-session (or (:checkpoint-session cause-data) @active)
                                     :resident-input context :resident-operation :initialize}) cause))))))))
 
-(defn- target! [prepared file name]
-  (let [[digest _] (file-unit! prepared file)]
-    (eval/assert-unit-ready! (:world prepared) digest)
-    (let [target (eval/boxed-entrypoint! (:world prepared) digest (structured-name name))
-          function (get-in prepared [:world :functions target])
-          row (get-in prepared [:world :eval-const-authorizations :declarations target])
-          decl (get-in row [:ir :fdecl])
-          signature (or (when decl {:params (mapv #(select-keys % [:ty :borrow]) (:xs decl)) :return-type (:type decl)})
-                        (when-let [ext (:raw-extern function)]
-                          {:params (mapv #(select-keys % [:ty :borrow]) (get-in ext [:signature :params]))
-                           :return-type (get-in ext [:signature :return-type])}))]
-      (when-not (and signature (= (count (:params signature)) (count (:params function)))
-                     (every? #(and (boolean? (:borrow %))
-                                   (contains? #{"object" "tobject" "tagged" "erased" "void"} (:ty %)))
-                             (:params signature))
-                     (contains? #{"object" "tobject" "tagged"} (:return-type signature)))
-        (fail "Resident calls require an admitted boxed entrypoint ABI" {:target target}))
-      [target function signature])))
+(defn- target!
+  ([prepared file name] (target! prepared file name nil))
+  ([prepared file name proof]
+    (let [[digest _] (file-unit! prepared file)]
+      (eval/assert-unit-ready! (:world prepared) digest)
+      (let [next-proof (volatile! nil)
+            target (eval/boxed-entrypoint! (:world prepared) digest (structured-name name)
+                     (fn [world registry roots]
+                       (vreset! next-proof (closure-proof/validate! world registry roots proof))))
+            function (get-in prepared [:world :functions target])
+            row (get-in prepared [:world :eval-const-authorizations :declarations target])
+            decl (get-in row [:ir :fdecl])
+            signature (or (when decl {:params (mapv #(select-keys % [:ty :borrow]) (:xs decl)) :return-type (:type decl)})
+                          (when-let [ext (:raw-extern function)]
+                            {:params (mapv #(select-keys % [:ty :borrow]) (get-in ext [:signature :params]))
+                             :return-type (get-in ext [:signature :return-type])}))]
+        (when-not (and signature (= (count (:params signature)) (count (:params function)))
+                       (every? #(and (boolean? (:borrow %))
+                                     (contains? #{"object" "tobject" "tagged" "erased" "void"} (:ty %)))
+                               (:params signature))
+                       (contains? #{"object" "tobject" "tagged"} (:return-type signature)))
+          (fail "Resident calls require an admitted boxed entrypoint ABI" {:target target}))
+        [target function signature @next-proof]))))
 
 (defn call
   "Call an admitted boxed entrypoint with explicit :arguments vector/:result codec.
@@ -359,7 +377,8 @@
   (locking context
     (let [{:keys [prepared] :as data} (context-data context)
           _ (valid-context! data)
-          [target function abi] (target! prepared file name)
+          [target function abi proof] (target! prepared file name (target-proof context data))
+          data (assoc data ::target-closure-proof proof)
           _ (when-not (and (vector? arguments) (vector? values)
                            (= (count arguments) (count values) (count (:params function)))
                            (contains? signature :result))
@@ -371,6 +390,7 @@
               (when (and (contains? #{"void" "erased"} (:ty param)) (not= :erased descriptor))
                 (fail "Erased ABI parameter requires an explicit erased codec" {})))
           _ (codec/validate-descriptor! result :decode)
+          _ (remember-target-proof! context proof)
           progress (volatile! (:world prepared))
           owned (volatile! [])
           completed (volatile! nil)]
