@@ -1,9 +1,9 @@
 # Finite mutable frontend and JVM application slice
 
-Status: source implementation and bounded component models. No genuine hosted
-file, checkpoint/Init restoration, fresh checking or assembled-cohort run has
-passed for this new profile. Native A/B exports and numeric JIT measurements are
-separate prerequisite evidence. Loading a real file efficiently remains unproven.
+Status: the finite genuine gate passed on main `01016b2`, including restoration,
+fresh checking, hosted A/B files, selected JVM execution, a Clojure callback and
+managed disposal. Exact evidence and measured limits are recorded below. Broad
+Lean compatibility and efficient loading remain separate, unproven goals.
 
 The profile is `ansatz-producer50f-coherent-jvm-application-consumer/1`; its contract
 schema is `ansatz-coherent-jvm-application-contract/1`. Original producer recipe,
@@ -86,7 +86,61 @@ error boundary must print only bounded class/message data, never giant ex-data.
 
 The component [validation record](../measurements/coherent-jvm-slice-components.json)
 separates new models, historical source-pin checks and native/data prerequisites.
-A final source/class/dependency capture, fresh24-source Java compilation, resource
-preflight and genuine A/B load/selected-call/callback/disposal run are still
-required. General Project dependency reload, Mcmc sampling, broader non-tail JIT,
+A fresh source/class/dependency capture, 24-source Java compilation, resource
+preflight and genuine A/B load/selected-call/callback/disposal gate subsequently
+passed, as recorded below. General Project dependency reload, Mcmc sampling, broader non-tail JIT,
 Java facade composition and production deployment are separate gates.
+
+
+## Current-main genuine acceptance, 2026-10-27
+
+The exact current-main cohort at `01016b20c425b059331b1649abbd5e72170178f7`
+passed the full seventeen-stage gate in one fresh JVM. Source-level `entry` and
+`identity64` names resolved through admitted manifest boxed targets. Actual hosted
+A/B elaboration, the selected worker, String-to-Nat Clojure callback, A/B/A
+isolation, shared-cache reuse, wrong-image rejection before encoding, and managed
+Context/prefix/Source disposal all passed. This is finite fixture coverage,
+not complete Lean/Mathlib compatibility or packaged Java-facade acceptance.
+
+[The receipt](../measurements/genuine-hosted-jvm-main01016.json) and
+[verbatim output](../measurements/genuine-hosted-jvm-main01016.stdout) preserve the
+exact cohort, launch, limits, phase events and terminal result. Detailed private
+corpus results were not printed; value/route/cache statements are supported by
+the authenticated controller's mandatory assertions, not reconstructed raw keys.
+
+| Operation | Inclusive wall time |
+| --- | ---: |
+| Restore checkpoint | 292.15 s |
+| Bootstrap support plus fresh strict Init checking/projection/association | 655.81 s |
+| Prepare Init prefix | 17.05 s |
+| Load A | 50.54 s |
+| Select A compiler facts/context | 1.08 s |
+| A calls: three selected plus one generic fallback | 2.86 s |
+| One Clojure callback | 0.47 s |
+| Load B from pristine baseline | 43.94 s |
+| Select B | 0.71 s |
+| B/A calls plus version/cache controls | 2.87 s |
+| Managed disposal | 2.95 s |
+
+The complete guarded process took 1110.34 s, peaked at 3,637,760,000 bytes group
+RSS, and kept at least 1,734,909,952 bytes host memory available. Its heap cap was
+3 GiB and group RSS cap 4 GiB. G1 used two parallel and one concurrent worker;
+no full collection occurred. A preceding Serial attempt restored successfully
+but was deliberately stopped with strict checking incomplete after sustained
+full-GC pressure. This supports investigating generation layout; it is not a
+controlled collector throughput comparison or proof of the minimum heap.
+
+Phase CPU/allocation counters measure the caller thread. Restore delegates work,
+so its reported 6 ms CPU/102 KB excludes the restore worker and must not be
+interpreted as total restore work. Shared helper preparation spans overlap and
+must be counted once. Call phases include validation, codecs, Context retirement
+and version controls; they are not primitive-worker throughput benchmarks.
+
+Loading and public-call latency still need substantial improvement. Profile
+those boundaries and reuse validated immutable-image facts before attributing
+the cost to interpretation. A direct resident load is different from Project
+publication/graph loading. Next compatibility gates should expand to unchanged
+programs and imports, keeping proof-only/noncomputable modules separate from
+executable roots. The unchanged rbmap/Mcmc constructor runtime corpus is prior
+native-exported IR evidence; this new hosted-source gate does not turn that
+whole corpus into hosted-file acceptance.
