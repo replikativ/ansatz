@@ -713,6 +713,111 @@
     :host-call (do (aset ^objects (ctl s 1) (int (:dest (ctl s 6))) x) (put! s 6 nil) (put! s 4 :running))
     (m/fail "State is not resumable" {:status (ctl s 4)})) s)
 
+;; Private storage may cross an unchanged host boundary only while its original
+;; readers/layout semantics remain valid. No Machine is exposed to a handler.
+(declare boundary-storage-token)
+(defn- boundary-arrays-fit? [s snapshot]
+  (when-let [program-width (slots/cached-program-slots (:functions snapshot))]
+    (let [fallback (:slots s)
+          required-global (max program-width (slots/local-slots (:locals snapshot)))
+          seen (java.util.IdentityHashMap.)
+          fits? (fn [array body extra]
+                  (when-not (.containsKey seen array)
+                    (.put seen array true)
+                    (when-let [width (continuation-layout/proven-width body fallback continuation-layout-generation)]
+                      (<= (max width (ids-slots extra)) (alength ^objects array)))))
+          joins-fit? (fn [joins]
+                       (every? (fn [^objects join]
+                                 (fits? (aget join 2) (aget join 1) (aget join 0)))
+                               (.values ^HashMap joins)))
+          dest (get-in snapshot [:host-request :dest])]
+      (and (= fallback required-global)
+           (integer? dest) (<= 0 dest) (< dest (alength ^objects (ctl s 1)))
+           (fits? (ctl s 1) (ctl s 0) [dest])
+           (joins-fit? (ctl s 2))
+           (every? (fn [^objects frame]
+                     (and (fits? (aget frame 2) (aget frame 0) [(aget frame 1)])
+                          (joins-fit? (aget frame 3)))) (:frames s))))))
+
+(defn clean-host-storage?
+  "Internal cheap candidate test; never retain dirty private heap copies through
+   a handler when unchanged-boundary reuse is already impossible."
+  [s snapshot token]
+  (and (some? token) (identical? token (boundary-storage-token))
+       (= :host-call (ctl s 4)) (= :host-call (:status snapshot))
+       (identical? (:functions s) (:functions snapshot))
+       (instance? java.util.HashSet (:heap-dirty s))
+       (.isEmpty ^java.util.HashSet (:heap-dirty s))
+       (identical? (:heap-base s) (:heap snapshot))
+       (instance? java.util.IdentityHashMap (:function-slot-cache s))))
+
+(defn resume-unchanged-host!
+  "Internal optional resume over private storage after an IDENTICAL host World
+   return. TOKEN must have been captured before the stock Machine was restored.
+   This never replaces the caller's ordinary immutable resumed checkpoint.
+   Missing proof/capacity or any changed storage/layout rule returns nil without
+   mutation or speculative code walks. Successful reuse resets interval caches."
+  [s snapshot value token]
+  (when (and (clean-host-storage? s snapshot token)
+             (boundary-arrays-fit? s snapshot)
+             (identical? token (boundary-storage-token)))
+    (.clear ^java.util.IdentityHashMap (:function-slot-cache s))
+    ;; These are per-backend-entry caches, not semantic state or World fields.
+    (let [s (dissoc s :leaf-plans :register-layouts :prototype.typed-tail-execution/context)]
+      (put! s 5 nil)
+      (resume! s value))))
+
+(def ^:private boundary-storage-generation (Object.))
+(def ^:private boundary-program-layout (WeakReference. (slots/program-layout-token)))
+(def ^:private boundary-storage-roots
+  (mapv #(WeakReference. %) [thaw freeze resume! run! step! restored-registers frame-in joins-in frame-out joins-out bindings registers slot-count function-slots callee-slots freeze-heap freeze-node freeze-globals thaw-heap thaw-node ctl put! boundary-arrays-fit? resume-unchanged-host! slots/program-slots slots/local-slots slots/cached-program-slots continuation-layout/proven-width measure-continuation-slots expression-slots operands-slots operand-slots ids-slots overlay/overlay heap-snapshot/proof heap-snapshot/remember! heap-snapshot/storage-node? clean-host-storage? continuation-layout/width slots/program-layout-token]))
+(defn boundary-storage-token
+  "Internal generation only while stock restore/freeze/layout rules are intact."
+  []
+  (when (and (identical? (.get ^WeakReference (nth boundary-storage-roots 0)) thaw)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 1)) freeze)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 2)) resume!)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 3)) run!)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 4)) step!)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 5)) restored-registers)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 6)) frame-in)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 7)) joins-in)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 8)) frame-out)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 9)) joins-out)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 10)) bindings)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 11)) registers)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 12)) slot-count)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 13)) function-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 14)) callee-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 15)) freeze-heap)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 16)) freeze-node)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 17)) freeze-globals)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 18)) thaw-heap)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 19)) thaw-node)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 20)) ctl)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 21)) put!)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 22)) boundary-arrays-fit?)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 23)) resume-unchanged-host!)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 24)) slots/program-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 25)) slots/local-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 26)) slots/cached-program-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 27)) continuation-layout/proven-width)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 28)) measure-continuation-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 29)) expression-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 30)) operands-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 31)) operand-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 32)) ids-slots)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 33)) overlay/overlay)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 34)) heap-snapshot/proof)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 35)) heap-snapshot/remember!)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 36)) heap-snapshot/storage-node?)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 37)) clean-host-storage?)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 38)) continuation-layout/width)
+             (identical? (.get ^WeakReference (nth boundary-storage-roots 39)) slots/program-layout-token)
+             (some? (.get ^WeakReference boundary-program-layout))
+             (identical? (.get ^WeakReference boundary-program-layout) (slots/program-layout-token)))
+    boundary-storage-generation))
+
 ;; Selected pure-wrapper guards compose definition-owner baselines, including
 ;; reference classification that runtime-value! otherwise reads at call entry.
 (def ^:private scalar-wrapper-generation (Object.))

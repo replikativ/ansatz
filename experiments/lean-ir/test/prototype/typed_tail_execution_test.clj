@@ -13,6 +13,7 @@
             [prototype.runtime-prim :as runtime]
             [prototype.scalar :as scalar]
             [prototype.slot-count :as slots]
+            [prototype.raw-interop :as raw]
             [prototype.walk :as walk]))
 
 (defn config [input]
@@ -298,3 +299,20 @@
         (is (= (m/run initial 5000) (:state actual)))
         (is (= reason (:fallback @(:factory ctx))))
         (is (identical? @(:factory ctx) @(:factory ctx)))))))
+
+(deftest unchanged-host-resume-enters-selected-typed-tail-code-faithfully
+  (let [input (fixture/bundle "scalar-wrapper-programs.jsonl") root (fixture/target (:typed input) "sum64")
+        fs (assoc (:runtime input) "host-entry"
+                  {:params [1] :body [:host "typed-host-ping" [[:var 1]] 2
+                                      [:tail [:direct root] [[:var 2] [:imm 0]]]]})
+        bindings {"typed-host-ping" {:signature {:params [{:ty "uint64" :borrow false}] :return-type "uint64"}
+                                     :handler (fn [_ world [x]] [world x])}}
+        session (raw/open-functions fs bindings {:backend :jvm :compile-threshold 1 :compiler-options (options input)})
+        reference (raw/open-functions fs bindings {:backend :reference})
+        expected (raw/call reference (m/world fs) "host-entry" [42])
+        counters (long-array 4)
+        actual (with-bindings {#'raw/*boundary-counts* counters}
+                 (raw/call session (m/world fs) "host-entry" [42]))]
+    (is (= (:state expected) (:state actual)))
+    (is (= (:value expected) (:value actual)))
+    (is (= [1 1 2 0] (vec counters)))))

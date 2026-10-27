@@ -18,7 +18,7 @@
             [prototype.mutable :as u]
             [prototype.lazy-runtime :as lazy]
             [prototype.session-compiler-options :as compiler])
-  (:import [java.util WeakHashMap]))
+  (:import [java.util WeakHashMap] [java.lang.ref WeakReference]))
 
 (defn- fail [message data] (throw (ex-info message data)))
 (defn- signature! [shape]
@@ -103,11 +103,33 @@
 (defn- resolve-target [session target]
   (if (contains? (:functions session) target) target
     (fail "Unlinked raw guest helper" {:target target})))
-(defn- run-boundary [session world fuel]
+;; Optional scalar-only profiling counters: restores, private reuses, freezes,
+;; reference runs. No Machine/World is exposed and no guest stats are changed.
+(def ^:dynamic ^:private *boundary-counts* nil)
+(defn- note-boundary! [index]
+  (when-some [^longs counts *boundary-counts*]
+    (aset-long counts index (inc (aget counts index)))))
+(defn- run-boundary* [session world fuel candidate capture]
   (case (:backend session)
-    :reference (m/run world fuel)
-    :mutable (u/freeze (u/run! (u/thaw world) fuel))
-    :jvm (u/freeze (lazy/run! (:program session) (u/thaw world) fuel))))
+    :reference (let [world (m/run world fuel)] (note-boundary! 3) world)
+    (:mutable :jvm)
+    (let [token (u/boundary-storage-token)
+          reused (when candidate
+                   (u/resume-unchanged-host! (:machine candidate) (:snapshot candidate)
+                                             (:value candidate) (:token candidate)))
+          machine (or reused (u/thaw world))
+          _ (note-boundary! (if reused 1 0))
+          finished (case (:backend session)
+                     :mutable (u/run! machine fuel)
+                     :jvm (lazy/run! (:program session) machine fuel))
+          snapshot (u/freeze finished)]
+      (note-boundary! 2)
+      (when (and capture (u/clean-host-storage? finished snapshot token))
+        (vreset! capture {:machine finished :snapshot snapshot :token token}))
+      snapshot)))
+(defn- run-boundary
+  ([session world fuel] (run-boundary* session world fuel nil nil))
+  ([session world fuel candidate capture] (run-boundary* session world fuel candidate capture)))
 
 (declare drive)
 (defn- active-session [context] @(:active-session context))
@@ -144,7 +166,7 @@
                                  :failed-helper (:helper boundary)
                                  :host-boundaries (into [boundary] (:host-boundaries (ex-data cause)))) cause)))))))
 
-(defn- dispatch-host [context current]
+(defn- dispatch-host* [context current capture]
         (let [host-session (active-session context)
               {:keys [symbol arguments]} (:host-request current)
               binding (binding! symbol (get-in (active-session context) [:bindings symbol]))
@@ -245,16 +267,43 @@
               ;; still cannot claim exact accounting or publish a success.
               (fail "Completion helper budget is poisoned by a failed backend run"
                     {:unresumed-host-result result :unresumed-host-signature signature}))
-            (m/resume state (raw-value! state (:return-type signature) result)))))
+            (let [value (raw-value! state (:return-type signature) result)
+                  resumed (m/resume state value)]
+              (when capture (vreset! capture {:returned state :resumed resumed :value value}))
+              resumed))))
+
+(defn- dispatch-host
+  ([context current] (dispatch-host* context current nil))
+  ([context current capture] (dispatch-host* context current capture)))
+
+(def ^:private host-storage-generation (Object.))
+(def ^:private host-storage-roots
+  (mapv #(WeakReference. %) [run-boundary run-boundary* dispatch-host dispatch-host*
+                            lazy/run! m/resume u/boundary-storage-token control-keys]))
+(defn- host-storage-token []
+  (when (and (identical? (.get ^WeakReference (nth host-storage-roots 0)) run-boundary)
+             (identical? (.get ^WeakReference (nth host-storage-roots 1)) run-boundary*)
+             (identical? (.get ^WeakReference (nth host-storage-roots 2)) dispatch-host)
+             (identical? (.get ^WeakReference (nth host-storage-roots 3)) dispatch-host*)
+             (identical? (.get ^WeakReference (nth host-storage-roots 4)) lazy/run!)
+             (identical? (.get ^WeakReference (nth host-storage-roots 5)) m/resume)
+             (identical? (.get ^WeakReference (nth host-storage-roots 6)) u/boundary-storage-token)
+             (identical? (.get ^WeakReference (nth host-storage-roots 7)) control-keys))
+    host-storage-generation))
 
 (defn- drive [context world]
-  (loop [world world]
+  (loop [world world candidate nil]
     (reset! (:checkpoint context) world)
     (let [remaining (if-let [budget (:helper-fuel-left context)]
                       @budget
                       (max 0 (- (:step-limit context) (get-in world [:stats :steps]))))
+          session (active-session context) runner run-boundary
+          stamp (host-storage-token) capture (when stamp (volatile! nil))
           current (try
-                    (run-boundary (active-session context) world remaining)
+                    ;; Custom three-arity boundary adapters retain their original
+                    ;; path. Candidate storage is private to this drive invocation.
+                    (if stamp (runner session world remaining candidate capture)
+                              (runner session world remaining))
                     (catch Throwable cause
                       ;; A throwing backend need not expose its exact consumed
                       ;; steps. Only the opt-in completion budget is poisoned:
@@ -271,8 +320,24 @@
       (reset! (:checkpoint context) current)
       (case (:status current)
         :done current
-        :host-call (if (:yield-host? context) current
-                     (recur (dispatch-host context current)))
+        :host-call
+        (if (:yield-host? context) current
+          (let [dispatcher dispatch-host
+                info (when (and stamp (identical? stamp (host-storage-token))) (volatile! nil))
+                resumed (if info (dispatcher context current info) (dispatcher context current))
+                storage (some-> capture deref)
+                response (some-> info deref)
+                next-candidate
+                (when (and storage response
+                           (identical? stamp (host-storage-token))
+                           (identical? session (active-session context))
+                           (identical? current (:snapshot storage))
+                           (identical? current (:returned response))
+                           (identical? resumed (:resumed response)))
+                  (assoc storage :value (:value response)))]
+            ;; The NEXT loop publishes the ordinary immutable resumed World
+            ;; before optional private resume or any further guest execution.
+            (recur resumed next-candidate)))
         :paused (if (:pause-on-fuel? context) current
                   (fail "Raw runtime instruction budget exhausted" {:steps (get-in current [:stats :steps])}))
         (fail "Unexpected raw runtime boundary" {:status (:status current)})))))

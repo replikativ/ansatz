@@ -122,6 +122,17 @@
                                (remove #(let [p (.get ^WeakReference (:program %))]
                                           (or (nil? p) (identical? p functions))) @program-cache))))))
 
+(defn cached-program-slots
+  "Borrow an already measured immutable program width, without scanning code or
+   changing the cache/LRU. Nil means no current evidence; callers must fall back.
+   This is a storage hint, never executable or kernel authority."
+  [functions]
+  (when (some? functions)
+    (locking program-cache
+      (some (fn [entry]
+              (when (identical? functions (.get ^WeakReference (:program entry))) (:slots entry)))
+            @program-cache))))
+
 (defn program-slots
   "Exact register width. Global cache retains up to16 weak program identities;
    independently equal programs never inherit a proof. Explicit CACHE preserves
@@ -174,3 +185,25 @@
     (and (walk/builtin-tail-walk?) (identical? f function-slots) (identical? p program-slots) (identical? l local-slots)
          (identical? c cached-function-proof) (identical? measure measure-function) (identical? standard standard-map?)
          (identical? mutable mutable-collection?) (identical? classes standard-collection-classes))))
+
+(def ^:private program-layout-generation (Object.))
+(def ^:private program-layout-roots
+  (mapv #(WeakReference. %) [function-slots program-slots local-slots cached-program-slots cached-function-proof measure-function measure-program remembered-width remember-program! standard-map? mutable-collection? standard-collection-classes walk/builtin-tail-walk?]))
+(defn program-layout-token
+  "Internal storage-analysis generation, only while built-in sizing rules hold."
+  []
+  (when (and (identical? (.get ^WeakReference (nth program-layout-roots 0)) function-slots)
+             (identical? (.get ^WeakReference (nth program-layout-roots 1)) program-slots)
+             (identical? (.get ^WeakReference (nth program-layout-roots 2)) local-slots)
+             (identical? (.get ^WeakReference (nth program-layout-roots 3)) cached-program-slots)
+             (identical? (.get ^WeakReference (nth program-layout-roots 4)) cached-function-proof)
+             (identical? (.get ^WeakReference (nth program-layout-roots 5)) measure-function)
+             (identical? (.get ^WeakReference (nth program-layout-roots 6)) measure-program)
+             (identical? (.get ^WeakReference (nth program-layout-roots 7)) remembered-width)
+             (identical? (.get ^WeakReference (nth program-layout-roots 8)) remember-program!)
+             (identical? (.get ^WeakReference (nth program-layout-roots 9)) standard-map?)
+             (identical? (.get ^WeakReference (nth program-layout-roots 10)) mutable-collection?)
+             (identical? (.get ^WeakReference (nth program-layout-roots 11)) standard-collection-classes)
+             (identical? (.get ^WeakReference (nth program-layout-roots 12)) walk/builtin-tail-walk?)
+             (walk/builtin-tail-walk?))
+    program-layout-generation))
