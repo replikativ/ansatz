@@ -23,7 +23,16 @@
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
 ;; Forward declarations for mutually-dependent tactics/helpers
-(declare generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear)
+(declare generalize generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front)
+
+(defn- local-name [nm]
+  ;; Lean Meta/Tactic/Intro.lean introNImp stores a Name. Our lctx uses strings.
+  (let [nm (str (or nm "x"))]
+    (assert (string? nm))
+    nm))
+
+(defn- add-local [lctx id nm type]
+  (red/lctx-add-local lctx id (local-name nm) type))
 
 (defn- mk-tc
   "Create a TC state from the proof state and a goal's local context."
@@ -447,11 +456,11 @@
          goal-type (whnf-in-goal ps (:lctx goal) (:type goal))]
      (when-not (e/forall? goal-type)
        (tactic-error! "Goal is not a forall/Pi type" {:type (:type goal)}))
-     (let [binder-name (or binding-name (e/forall-name goal-type))
+     (let [binder-name (local-name (or binding-name (e/forall-name goal-type)))
            binder-type (e/forall-type goal-type)
            binder-info (e/forall-info goal-type)
            [ps' fvar-id] (proof/alloc-id ps)
-           new-lctx (red/lctx-add-local (:lctx goal) fvar-id binder-name binder-type)
+           new-lctx (add-local (:lctx goal) fvar-id binder-name binder-type)
            new-goal-type (e/instantiate1 (e/forall-body goal-type) (e/fvar fvar-id))
            [ps'' child-id] (proof/fresh-mvar ps' new-goal-type new-lctx)]
        (-> (proof/assign-mvar ps'' (:id goal)
@@ -499,7 +508,7 @@
             u (funext-sort-lvl st alpha)
             ;; β's codomain level: open the binder so a DEPENDENT B infers correctly
             [_ xid] (proof/alloc-id ps)
-            st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) (red/lctx-add-local (:lctx goal) xid nm alpha))
+            st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) (add-local (:lctx goal) xid nm alpha))
             v (funext-sort-lvl st' (e/instantiate1 B (e/fvar xid)))
             partial (e/app* (e/const' (name/from-string "funext") [u v]) alpha beta f g)]
         (apply-tac ps partial)))))
@@ -1019,7 +1028,7 @@
                                     (fn [replace-in st nm dom body mk]
                                       (let [d (replace-in st dom)
                                             fid (swap! (:next-id st) inc)
-                                            st' (update st :lctx red/lctx-add-local fid nm dom)
+                                            st' (update st :lctx add-local fid nm dom)
                                             b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
                                         (mk d (e/abstract1 b fid))))
                                     replace-in
@@ -1421,7 +1430,7 @@
                             ;; so the common no-collision case keeps the readable ctor-field names.
                             existing (into #{} (keep :name) (vals lctx))
                             fname (if (contains? existing fname0) (str fname0 "_" fid) fname0)
-                            lctx' (red/lctx-add-local lctx fid fname ft)]
+                            lctx' (add-local lctx fid fname ft)]
                         (recur ps' (conj field-fvars fid)
                                lctx' (e/instantiate1 (e/forall-body t) fv)))
                       [ps field-fvars lctx t]))
@@ -1467,7 +1476,7 @@
                                 rec-indices (subvec (vec rec-args) (min num-params (count rec-args)))
                             ;; IH type: motive(indices..., field-fvar)
                                 ih-type (reduce e/app motive (concat rec-indices [(e/fvar rec-fid)]))
-                                lctx' (red/lctx-add-local lctx-acc ih-fid
+                                lctx' (add-local lctx-acc ih-fid
                                                           (str "ih_" (or (:name rec-decl) rec-fid)) ih-type)]
                             (recur ps-acc' (conj ih-fvars ih-fid) lctx' (next rfs)))))))
               ;; Build ctor applied to params and field fvars
@@ -1577,10 +1586,13 @@
                             (proof/record-tactic :cases [hyp-fvar-id] (:id goal)))]
             ;; Move open branch goals to front (skip impossible branches)
                 (let [open-ids (filterv #(not (proof/mvar-assigned? ps' %)) branch-ids)]
-                  (update ps' :goals (fn [gs]
+                  ;; Preserve constructor fields for recursive patterns (Lean CasesSubgoal.fields).
+                  (with-meta
+                    (update ps' :goals (fn [gs]
                                        (let [branch-set (set open-ids)
                                              others (filterv #(not (branch-set %)) gs)]
-                                         (into (vec open-ids) others)))))))))))))
+                                         (into (vec open-ids) others))))
+                    (assoc (meta ps') ::case-branches ctor-goals)))))))))))
 
 ;; ============================================================
 ;; induction (structural induction on a hypothesis)
@@ -1588,14 +1600,9 @@
 ;; Lean 4: induction produces subgoals with induction hypotheses.
 ;; Like cases but each recursive field gets an IH hypothesis.
 
-(defn induction
-  "Perform structural induction on a hypothesis of inductive type.
-   Like cases but adds induction hypotheses for recursive fields.
-   Following Lean 4's Induction tactic.
-
-   Creates one subgoal per constructor. For each constructor field
-   that has the same type as the inductive being eliminated,
-   adds an induction hypothesis to the local context."
+(defn- induction-core
+  "Structural induction on `hyp-fvar-id` WITHOUT generalization: the motive abstracts the target
+   (and its fvar indices) from the goal only. `induction` reverts the dependent hypotheses first."
   [ps hyp-fvar-id]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -1692,7 +1699,7 @@
                                 (nil? fname-raw) (str "h" fid)
                                 (string? fname-raw) fname-raw
                                 :else (name/->string fname-raw))
-                        lctx' (red/lctx-add-local lctx fid fname ft)
+                        lctx' (add-local lctx fid fname ft)
                         ft-whnf (whnf-in-goal ps lctx ft)
                         [ft-head ft-args] (e/get-app-fn-args ft-whnf)
                         ;; A field is RECURSIVE only if its type IS the inductive being eliminated —
@@ -1719,7 +1726,7 @@
                                                          (conj (vec field-ret-indices) fv))
                                           (e/instantiate1 motive-body fv))
                                 ih-name (str "ih_" fname)
-                                lctx'' (red/lctx-add-local lctx' ih-id ih-name ih-type)]
+                                lctx'' (add-local lctx' ih-id ih-name ih-type)]
                             [ps'' lctx'' [ih-id]])
                           [ps' lctx' []])]
                     (recur ps''
@@ -1774,6 +1781,77 @@
                                        others (filterv #(not (branch-set %)) gs)]
                                    (into (vec branch-ids) others))))))))))
 
+;; Lean's `generalizeVars` (Elab/Tactic/Induction.lean) over Meta/GeneralizeVars.lean: the
+;; target, its fvar indices and everything their types depend on are FORBIDDEN; every other local
+;; that depends (transitively, in context order) on a target is reverted before the motive is built
+;; and re-introduced in each alternative (`introNP generalized.size`). Without this a hypothesis
+;; `h : P os` keeps naming the consumed target and the IH speaks about the original `os`.
+(defn- induction-fvars-to-generalize
+  [lctx target-ids]
+  (let [forbidden (loop [todo (vec target-ids) seen #{}]
+                    (if-let [id (peek todo)]
+                      (let [todo (pop todo)]
+                        (if (contains? seen id)
+                          (recur todo seen)
+                          (let [d (red/lctx-lookup lctx id)
+                                deps (when d (into (collect-fvar-ids (:type d))
+                                                   (some-> (:value d) collect-fvar-ids)))]
+                            (recur (into todo (filter #(contains? lctx %)) deps) (conj seen id)))))
+                      seen))]
+    ;; fvar ids are allocated monotonically, so id order IS context (declaration) order
+    (loop [decls (sort-by key (seq lctx)) s (set target-ids) r []]
+      (if-let [[id d] (first decls)]
+        (if (and (not (contains? forbidden id))
+                 (= :local (:tag d))
+                 (some s (into (collect-fvar-ids (:type d))
+                               (some-> (:value d) collect-fvar-ids))))
+          (recur (rest decls) (conj s id) (conj r id))
+          (recur (rest decls) s r))
+        r))))
+
+(defn induction
+  "Perform structural induction on a hypothesis of inductive type.
+   Like cases but adds induction hypotheses for recursive fields.
+   Following Lean 4's Induction tactic: hypotheses depending on the target are reverted first
+   (so the motive, hence every IH, quantifies over them) and re-introduced in each case.
+
+   Creates one subgoal per constructor. For each constructor field
+   that has the same type as the inductive being eliminated,
+   adds an induction hypothesis to the local context."
+  [ps hyp-fvar-id]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        lctx (:lctx goal)
+        hyp-decl (red/lctx-lookup lctx hyp-fvar-id)
+        _ (when-not hyp-decl
+            (tactic-error! "induction: hypothesis not in context" {:id hyp-fvar-id}))
+        [type-head type-args] (e/get-app-fn-args (whnf-in-goal ps lctx (:type hyp-decl)))
+        ;; the targets are the major premise and its INDEX fvars — never the parameters (`S` of
+        ;; `List S`): a local mentioning only a parameter is not generalized
+        num-params (or (when (e/const? type-head)
+                         (when-let [^ConstantInfo ci (env/lookup (:env ps) (e/const-name type-head))]
+                           (when (.isInduct ci) (.numParams ci))))
+                       (count type-args))
+        index-ids (keep (fn [a] (when (and (e/fvar? a) (contains? lctx (e/fvar-id a))) (e/fvar-id a)))
+                        (drop num-params type-args))
+        generalized (induction-fvars-to-generalize lctx (cons hyp-fvar-id index-ids))]
+    (if (empty? generalized)
+      (induction-core ps hyp-fvar-id)
+      (let [names (mapv #(:name (red/lctx-lookup lctx %)) generalized)
+            ;; revert innermost first, so no remaining local mentions a reverted one
+            ps (reduce revert ps (rseq generalized))
+            n-before (count (:goals ps))
+            ps (induction-core ps hyp-fvar-id)
+            n-alts (inc (- (count (:goals ps)) n-before))
+            alt-ids (vec (take n-alts (:goals ps)))]
+        (let [[ps children]
+              (reduce (fn [[ps children] alt-id]
+                        (let [ps (move-goals-to-front ps [alt-id])
+                              ps (reduce intro ps names)]
+                          [ps (conj children (first (:goals ps)))]))
+                      [ps []] alt-ids)]
+          (move-goals-to-front ps children))))))
+
 ;; ============================================================
 ;; have (introduce intermediate lemma)
 ;; ============================================================
@@ -1783,13 +1861,14 @@
    Lean 4: have h : T := proof; ...
    Creates two subgoals: (1) prove T, (2) prove original goal with h : T in context."
   [ps hyp-name hyp-type]
-  (let [goal (proof/current-goal ps)
+  (let [hyp-name (local-name hyp-name)
+        goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         ;; Subgoal 1: prove hyp-type
         [ps' sub1-id] (proof/fresh-mvar ps hyp-type (:lctx goal))
         ;; Subgoal 2: prove goal with h : hyp-type added
         [ps'' fvar-id] (proof/alloc-id ps')
-        new-lctx (red/lctx-add-local (:lctx goal) fvar-id hyp-name hyp-type)
+        new-lctx (add-local (:lctx goal) fvar-id hyp-name hyp-type)
         [ps''' sub2-id] (proof/fresh-mvar ps'' (:type goal) new-lctx)]
     (let [ps' (-> (proof/assign-mvar ps''' (:id goal)
                                      {:kind :have
@@ -2009,117 +2088,99 @@
 ;; ============================================================
 
 (defn subst
-  "Given h : x = t (where x is an fvar), substitute t for x everywhere.
-   Lean 4 substCore builds the motive from the GOAL TYPE, which after revert
-   includes all dependent hypothesis types. We achieve the same by directly
-   building the motive from the goal type (which contains the foralls from
-   unresolved equalities), without revert+intro (which creates fvar mismatches)."
-  [ps hyp-fvar-id]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        hyp-decl (red/lctx-lookup (:lctx goal) hyp-fvar-id)
-        _ (when-not hyp-decl (tactic-error! "subst: hypothesis not in context" {:id hyp-fvar-id}))
-        hyp-type (whnf-in-goal ps (:lctx goal) (:type hyp-decl))
-        [head args] (e/get-app-fn-args hyp-type)
-        _ (when-not (and (e/const? head)
-                         (= (e/const-name head) (name/from-string "Eq"))
-                         (= 3 (count args)))
-            (tactic-error! "subst: hypothesis is not an Eq" {:type hyp-type}))
-        lhs (nth args 1)
-        rhs (nth args 2)
-        ;; Determine which side is an fvar (the variable to substitute)
-        [var-id replacement reverse?]
-        (cond
-          (e/fvar? lhs) [(e/fvar-id lhs) rhs false]
-          (e/fvar? rhs) [(e/fvar-id rhs) lhs true]
-          :else (tactic-error! "subst: neither side of Eq is a free variable"
-                               {:lhs lhs :rhs rhs}))
-        ;; new-goal-type and new-lctx computed AFTER dependent-fids (see below)
-        placeholder-for-goal-type nil
-        placeholder-for-new-lctx nil
-        ;; Build the Eq.ndrec term at tactic time (Lean 4 substCore pattern).
-        eq-type (nth args 0)
-        eq-level (first (e/const-levels head))
-        goal-sort (try (infer-in-goal ps (:lctx goal) (:type goal)) (catch Exception _ nil))
-        goal-sort-whnf (when goal-sort (whnf-in-goal ps (:lctx goal) goal-sort))
-        motive-level (if (and goal-sort-whnf (e/sort? goal-sort-whnf))
-                       (e/sort-level goal-sort-whnf)
-                       lvl/zero)
-        var-decl (red/lctx-lookup (:lctx goal) var-id)
-        var-type (or (:type var-decl) eq-type)
-        ;; Find SIMPLE dependent hypotheses (following Lean 4 substCore revert pattern).
-        ;; Only include hypotheses whose type directly references var-id AND whose head
-        ;; is a constant (like ValidRB), not a lambda application (like IH motive apps).
-        ;; This avoids picking up complex IH types from the recursor minor.
-        dependent-fids
-        (vec (sort (for [[fid d] (:lctx goal)
-                         :when (and (not= fid var-id) (not= fid hyp-fvar-id)
-                                    (= :local (:tag d))
-                                    (e/has-fvar-flag (:type d))
-                                    (not= (e/abstract1 (:type d) var-id) (:type d))
-                                    ;; Include hypotheses that depend on the variable
-                                    ;; (Lean 4 substCore reverts ALL dependents)
-                                    true)]
-                     fid)))
-        ;; Build enlarged goal type that includes dependent hypotheses
-        enlarged-type
-        (if (empty? dependent-fids)
-          (:type goal)
-          (reduce (fn [body fid]
-                    (let [d (red/lctx-lookup (:lctx goal) fid)]
-                      (e/forall' (or (:name d) "x") (:type d) (e/abstract1 body fid) :default)))
-                  (:type goal)
-                  (reverse dependent-fids)))
-        ;; Compute goal type and lctx, incorporating dependents
-        simple-goal-type (e/instantiate1 (e/abstract1 (:type goal) var-id) replacement)
-        remove-set (into #{var-id hyp-fvar-id} dependent-fids)
-        new-lctx (reduce (fn [lctx [fid decl]]
-                           (if (remove-set fid)
-                             lctx
-                             (assoc lctx fid
-                                    (update decl :type
-                                            (fn [t] (e/instantiate1 (e/abstract1 t var-id) replacement))))))
-                         {} (:lctx goal))
-        ;; Child goal type: includes dependents as foralls (with substituted types)
-        new-goal-type
-        (if (empty? dependent-fids)
-          simple-goal-type
-          (reduce (fn [body fid]
-                    (let [d (red/lctx-lookup (:lctx goal) fid)
-                          dep-type (e/instantiate1 (e/abstract1 (:type d) var-id) replacement)]
-                      (e/forall' (or (:name d) "x") dep-type (e/abstract1 body fid) :default)))
-                  simple-goal-type
-                  (reverse dependent-fids)))
-        [ps' new-goal-id] (proof/fresh-mvar-replacing ps new-goal-type new-lctx (:id goal))
-        ;; Motive: λ z => enlarged-type[z/var-id]
-        ;; When there are dependents, the motive captures var-id in hypothesis types too.
-        motive (e/lam "z" var-type (e/abstract1 enlarged-type var-id) :default)
-        eq-ndrec-name (name/from-string "Eq.ndrec")
-        eq-symm-name (name/from-string "Eq.symm")
-        v-level (or motive-level lvl/zero)
-        u-level (or eq-level (lvl/succ lvl/zero))
-        minor (e/mvar new-goal-id)  ;; mvar placeholder — NOT affected by abstract1!
-        ;; When there are dependents, the child goal includes ∀ deps, so minor
-        ;; already has the right type. No wrapping needed.
-        major (if reverse?
-                (e/fvar hyp-fvar-id)
-                (e/app* (e/const' eq-symm-name [u-level])
-                        eq-type (e/fvar var-id) replacement (e/fvar hyp-fvar-id)))
-        ndrec-term (e/app* (e/const' eq-ndrec-name [v-level u-level])
-                           eq-type replacement motive minor (e/fvar var-id) major)
-        ;; Apply the Eq.ndrec result to the actual dependent fvars
-        full-term (reduce (fn [t fid] (e/app t (e/fvar fid))) ndrec-term dependent-fids)]
-    (let [ps (-> (proof/assign-mvar ps' (:id goal)
-                                    {:kind :subst
-                                     :full-term full-term
-                                     :child-mvar-id new-goal-id
-                                     :child new-goal-id})
-                 (proof/record-tactic :subst [hyp-fvar-id] (:id goal)))
-          ;; Re-intro dependent hypotheses (like Lean 4 substCore line 80)
-          ;; The child goal has ∀ deps, Goal; intro each dep to restore them to the lctx
-          ps (reduce (fn [ps _] (intro ps)) ps (range (count dependent-fids)))]
-      ps)))
+  "Eliminate a variable equality, reverting all forward dependents.
+   The rcases arity follows Lean Meta/Tactic/Subst.lean substEq's WHNF/RHS
+   preference; both arities use substCore's dependent Eq.rec elimination."
+  ([ps hyp-fvar-id] (subst ps hyp-fvar-id false))
+  ([ps hyp-fvar-id prefer-rhs?]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         lctx (:lctx goal)
+         hyp-decl (red/lctx-lookup lctx hyp-fvar-id)
+         _ (when-not hyp-decl
+             (tactic-error! "subst: hypothesis not in context" {:id hyp-fvar-id}))
+         hyp-type (whnf-in-goal ps lctx (:type hyp-decl))
+         [head args] (e/get-app-fn-args hyp-type)
+         _ (when-not (and (e/const? head)
+                          (= (e/const-name head) (name/from-string "Eq"))
+                          (= 3 (count args)))
+             (tactic-error! "subst: hypothesis is not an Eq" {:type hyp-type}))
+         lhs (nth args 1)
+         rhs (nth args 2)
+         ;; substEq normalizes the selected side before substCore. Definitional
+         ;; equality lets the original proof inhabit the reduced equation type.
+         rhs' (if prefer-rhs? (whnf-in-goal ps lctx rhs) rhs)
+         lhs' (if (and prefer-rhs? (not (e/fvar? rhs')))
+                (whnf-in-goal ps lctx lhs) lhs)
+         [var-id replacement reverse?]
+         (cond
+           (and prefer-rhs? (e/fvar? rhs')) [(e/fvar-id rhs') lhs true]
+           (e/fvar? lhs') [(e/fvar-id lhs') rhs false]
+           (e/fvar? rhs') [(e/fvar-id rhs') lhs true]
+           :else (tactic-error! "subst: neither side of Eq is a free variable"
+                                {:lhs lhs :rhs rhs}))
+         depends? (fn [t fid] (not= t (e/abstract1 t fid)))
+         _ (when (depends? replacement var-id)
+             (tactic-error! "subst: variable occurs in replacement" {:id var-id :replacement replacement}))
+         eq-type (nth args 0)
+         u-level (first (e/const-levels head))
+         ;; substCore reverts the variable, the equality, and their entire
+         ;; forward dependency closure, including dependence on the proof itself.
+         removed (loop [ids #{var-id hyp-fvar-id}]
+                   (let [ids' (reduce (fn [ids [fid d]]
+                                        (if (some #(or (depends? (:type d) %)
+                                                       (when-let [v (:value d)] (depends? v %))) ids)
+                                          (conj ids fid) ids))
+                                      ids (sort-by key lctx))]
+                     (if (= ids ids') ids (recur ids'))))
+         dependent-fids (vec (sort (disj removed var-id hyp-fvar-id)))
+         enlarged-type (reduce (fn [body fid]
+                                 (let [d (red/lctx-lookup lctx fid)]
+                                   (e/forall' (:name d) (:type d) (e/abstract1 body fid) :default)))
+                               (:type goal) (reverse dependent-fids))
+         dep-elim? (depends? enlarged-type hyp-fvar-id)
+         refl (e/app* (e/const' (name/from-string "Eq.refl") [u-level]) eq-type replacement)
+         replace-local (fn [t fid val] (e/instantiate1 (e/abstract1 t fid) val))
+         new-goal-type (-> enlarged-type
+                           (replace-local var-id replacement)
+                           (replace-local hyp-fvar-id refl))
+         new-lctx (apply dissoc lctx removed)
+         [ps aux-id] (proof/alloc-id ps)
+         aux (e/fvar aux-id)
+         eq-symm (fn [a b h]
+                   (e/app* (e/const' (name/from-string "Eq.symm") [u-level]) eq-type a b h))
+         major (if reverse? (e/fvar hyp-fvar-id)
+                   (eq-symm (e/fvar var-id) replacement (e/fvar hyp-fvar-id)))
+         ;; substCore depElim: abstract a proof of replacement = z as well
+         ;; as z. For forward substitution, replace h by that proof's symmetry.
+         motive (if dep-elim?
+                  (let [aux-type (e/app* (e/const' (name/from-string "Eq") [u-level])
+                                         eq-type replacement (e/fvar var-id))
+                        body (replace-local enlarged-type hyp-fvar-id
+                                            (if reverse? aux (eq-symm replacement (e/fvar var-id) aux)))
+                        inner (e/lam "heq" aux-type (e/abstract1 body aux-id) :default)]
+                    (e/lam "z" eq-type (e/abstract1 inner var-id) :default))
+                  (e/lam "z" eq-type (e/abstract1 enlarged-type var-id) :default))
+         ;; AppBuilder.lean mkEqNDRec/mkEqRec infer the level from the
+         ;; completed motive: reverted Type-valued locals can raise its sort.
+         motive-sort (loop [ty (infer-in-goal ps lctx motive)
+                            n (if dep-elim? 2 1)]
+                       (if (zero? n)
+                         ty
+                         (if (e/forall? ty)
+                           (recur (e/forall-body ty) (dec n))
+                           (tactic-error! "subst: invalid motive type" {:type ty}))))
+         _ (when-not (e/sort? motive-sort)
+             (tactic-error! "subst: motive codomain is not a sort" {:type motive-sort}))
+         v-level (e/sort-level motive-sort)
+         [ps child] (proof/fresh-mvar-replacing ps new-goal-type new-lctx (:id goal))
+         rec-term (e/app* (e/const' (name/from-string (if dep-elim? "Eq.rec" "Eq.ndrec"))
+                                  [v-level u-level])
+                          eq-type replacement motive (e/mvar child) (e/fvar var-id) major)
+         full-term (reduce e/app rec-term (map e/fvar dependent-fids))
+         ps (-> (proof/assign-mvar ps (:id goal) {:kind :subst :full-term full-term :child child})
+                (proof/record-tactic :subst [hyp-fvar-id] (:id goal)))]
+     (reduce (fn [ps _] (intro ps)) ps dependent-fids))))
 
 (defn subst-vars
   "Lean 4 `subst_vars`: repeatedly substitute every hypothesis that is a *variable*
@@ -3016,10 +3077,10 @@
                                   bool-type cond-expr val))
         ;; Create goals with hypothesis
         [ps' h-false-id] (proof/alloc-id ps)
-        lctx-false (red/lctx-add-local (:lctx goal) h-false-id "hc" (eq-type bool-false))
+        lctx-false (add-local (:lctx goal) h-false-id "hc" (eq-type bool-false))
         [ps' false-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-false (:id goal))
         [ps' h-true-id] (proof/alloc-id ps')
-        lctx-true (red/lctx-add-local (:lctx goal) h-true-id "hc" (eq-type bool-true))
+        lctx-true (add-local (:lctx goal) h-true-id "hc" (eq-type bool-true))
         [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))
         ;; Build the proof term directly:
         ;; @Bool.rec (λ b, Eq Bool cond b → Goal) (λ h, false_proof) (λ h, true_proof) cond (Eq.refl Bool cond)
@@ -3048,94 +3109,14 @@
         (proof/record-tactic :by-cases [cond-expr] (:id goal)))))
 
 (defn cases-eq
-  "Faithful `cases h : e` for a Bool discriminant — Lean's substituting case split.
-
-   Unlike `by-cases` (which leaves the goal verbatim and only adds `h : e = b`),
-   this GENERALIZES the discriminant `e` out of the goal (kabstract, under binders),
-   so each branch carries the LITERAL `true`/`false` in `e`'s positions. Stuck
-   `ite`/`cond`/`Bool.rec` on `e` then iota-reduce in that branch. Matches Lean's
-   `Meta.Tactic.Generalize` + `cases` pipeline (the `cases hp : q y <;> simp [hp]` idiom).
-
-   Produces:
-     Goal 1: h : Eq Bool e true  ⊢ Goal[e := true]
-     Goal 2: h : Eq Bool e false ⊢ Goal[e := false]"
-  [ps cond-expr hname]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        st (mk-tc ps (:lctx goal))
-        cond-type (tc/infer-type st cond-expr)
-        cond-type-whnf (whnf-in-goal ps (:lctx goal) cond-type)
-        _ (when-not (and (e/const? cond-type-whnf)
-                         (= (name/->string (e/const-name cond-type-whnf)) "Bool"))
-            (tactic-error! "cases-eq: expression is not Bool"
-                           {:type cond-type :expr cond-expr}))
-        bool-type (e/const' (name/from-string "Bool") [])
-        bool-true (e/const' (name/from-string "Bool.true") [])
-        bool-false (e/const' (name/from-string "Bool.false") [])
-        eq-type (fn [val] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                  bool-type cond-expr val))
-        ;; --- kabstract: replace occurrences of cond-expr in the goal with a fresh fvar,
-        ;; descending under binders (mirrors the rewrite tactic, basic.clj ~719). ---
-        [ps' abs-fvar-id] (proof/alloc-id ps)
-        abs-fvar (e/fvar abs-fvar-id)
-        goal-replaced (let [_ (swap! (:next-id st) (fn [v] (max v (inc abs-fvar-id))))
-                            open-binder
-                            (fn [replace-in st nm dom body mk]
-                              (let [d (replace-in st dom)
-                                    fid (swap! (:next-id st) inc)
-                                    st' (update st :lctx red/lctx-add-local fid nm dom)
-                                    b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
-                                (mk d (e/abstract1 b fid))))
-                            replace-in
-                            (fn replace-in [st expr]
-                              (if (try (tc/is-def-eq st expr cond-expr) (catch Exception _ false))
-                                abs-fvar
-                                (case (e/tag expr)
-                                  :app (let [f (replace-in st (e/app-fn expr))
-                                             a (replace-in st (e/app-arg expr))]
-                                         (if (and (identical? f (e/app-fn expr))
-                                                  (identical? a (e/app-arg expr)))
-                                           expr
-                                           (e/app f a)))
-                                  :lam (open-binder replace-in st (e/lam-name expr)
-                                                    (e/lam-type expr) (e/lam-body expr)
-                                                    (fn [d b] (e/lam (e/lam-name expr) d b (e/lam-info expr))))
-                                  :forall (open-binder replace-in st (e/forall-name expr)
-                                                       (e/forall-type expr) (e/forall-body expr)
-                                                       (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
-                                  expr)))]
-                        (replace-in st (:type goal)))
-        ;; Goal[e := val] by re-substituting the abstracted fvar
-        subst (fn [val] (e/instantiate1 (e/abstract1 goal-replaced abs-fvar-id) val))
-        goal-true (subst bool-true)
-        goal-false (subst bool-false)
-        ;; Substituted branch goals + the named equality hypothesis
-        [ps' h-false-id] (proof/alloc-id ps')
-        lctx-false (red/lctx-add-local (:lctx goal) h-false-id hname (eq-type bool-false))
-        [ps' false-goal-id] (proof/fresh-mvar-replacing ps' goal-false lctx-false (:id goal))
-        [ps' h-true-id] (proof/alloc-id ps')
-        lctx-true (red/lctx-add-local (:lctx goal) h-true-id hname (eq-type bool-true))
-        [ps' true-goal-id] (proof/fresh-mvar-replacing ps' goal-true lctx-true (:id goal))
-        goal-sort (infer-in-goal ps (:lctx goal) (:type goal))
-        goal-sort-whnf (whnf-in-goal ps (:lctx goal) goal-sort)
-        motive-level (if (e/sort? goal-sort-whnf) (e/sort-level goal-sort-whnf) lvl/zero)
-        ;; motive: λ (b : Bool), Eq Bool e b → Goal[e := b]  (abstracted over the fvar)
-        motive (e/lam "b" bool-type
-                      (e/abstract1 (e/arrow (eq-type abs-fvar) goal-replaced) abs-fvar-id)
-                      :default)
-        rfl-proof (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                          bool-type cond-expr)]
-    (-> (proof/assign-mvar ps' (:id goal)
-                           {:kind :by-cases
-                            :cond cond-expr
-                            :motive motive
-                            :motive-level motive-level
-                            :rfl-proof rfl-proof
-                            :h-false-id h-false-id
-                            :h-true-id h-true-id
-                            :false-goal false-goal-id
-                            :true-goal true-goal-id})
-        (proof/record-tactic :cases-eq [cond-expr] (:id goal)))))
+  "Lean `cases h : e`: generalize the discriminant with an equation, then cases."
+  [ps discr hname]
+  ;; Lean/Elab/Tactic/Induction.lean: elabElimTargets, evalCases.
+  (let [ps (generalize ps discr "_discriminant" hname)
+        ps (intro ps "_discriminant")
+        fid (last (sort (keys (:lctx (proof/current-goal ps)))))
+        ps (intro ps hname)]
+    (cases ps fid)))
 
 (defn generalize
   "Lean `generalize h : e = x`: abstract every occurrence of the term `e` in the goal as a fresh
@@ -3159,12 +3140,12 @@
                             (fn [replace-in st nm dom body mk]
                               (let [d (replace-in st dom)
                                     fid (swap! (:next-id st) inc)
-                                    st' (update st :lctx red/lctx-add-local fid nm dom)
+                                    st' (update st :lctx add-local fid nm dom)
                                     b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
                                 (mk d (e/abstract1 b fid))))
                             replace-in
                             (fn replace-in [st expr]
-                              (if (try (tc/is-def-eq st expr e-expr) (catch Exception _ false))
+                              (if (tc/is-def-eq st expr e-expr)
                                 abs-fvar
                                 (case (e/tag expr)
                                   :app (let [f (replace-in st (e/app-fn expr))
@@ -3177,8 +3158,6 @@
                                                        (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
                                   expr)))]
                         (replace-in st (:type goal)))
-        _ (when (identical? goal-replaced (:type goal))
-            (tactic-error! "generalize: term does not occur in the goal" {:expr e-expr}))
         ;; N = ∀ (x : T), Eq T e x → G[e := x]
         [ps' xfv-id] (proof/alloc-id ps')
         xfv (e/fvar xfv-id)
@@ -3193,6 +3172,117 @@
         rfl (e/app* (e/const' (name/from-string "Eq.refl") [Tlvl]) T e-expr)]
     (-> (proof/assign-mvar ps' (:id goal) {:kind :generalize :child n-id :e e-expr :rfl rfl})
         (proof/record-tactic :generalize [e-expr] (:id goal)))))
+
+(defn- rcases-local-id [ps nm]
+  (or (last (sort (for [[fid d] (:lctx (proof/current-goal ps))
+                        :when (= (str nm) (:name d))] fid)))
+      (tactic-error! "rcases: local variable not found" {:name nm})))
+
+(defn- rename-rcases-local [ps fid nm]
+  (let [g (proof/current-goal ps)]
+    (update ps :meta-mctx meta/set-expr-mvar-lctx (:id g)
+            (assoc-in (:lctx g) [fid :name] (str nm)))))
+
+(defn- rcases-map-goals [ps f]
+  ;; Process just these goals, in order, retaining all descendants of each.
+  (let [goals (:goals ps)]
+    (loop [ps ps todo goals out []]
+      (if-let [gid (first todo)]
+        (if (proof/mvar-assigned? ps gid)
+          (recur ps (rest todo) out)
+          (let [ps (f (assoc ps :goals [gid]))]
+            (recur ps (rest todo) (into out (:goals ps)))))
+        (assoc ps :goals out)))))
+
+(declare rcases-pattern)
+
+(defn- rcases-fields [ps fields patterns]
+  ;; Lean RCases.lean processConstructor: surplus tuple patterns nest in the
+  ;; final explicit field; missing patterns are anonymous, not clear operations.
+  (if-let [nm (first fields)]
+    (let [pat (if (and (= 1 (count fields)) (> (count patterns) 1))
+                (vec patterns) (first patterns))
+          ps (rcases-pattern ps (rcases-local-id ps nm) (or pat '_))]
+      (rcases-map-goals ps #(rcases-fields % (rest fields) (rest patterns))))
+    ps))
+
+(defn- rcases-subst-eq
+  "Lean Subst.lean substEq first calls heqToEq for homogeneous HEq proofs."
+  [ps fid]
+  (let [g (proof/current-goal ps)
+        decl (red/lctx-lookup (:lctx g) fid)
+        ty (whnf-in-goal ps (:lctx g) (:type decl))
+        [head args] (e/get-app-fn-args ty)
+        st (mk-tc ps (:lctx g))]
+    (if (and (e/const? head) (= (e/const-name head) (name/from-string "HEq"))
+             (= 4 (count args)) (tc/is-def-eq st (nth args 0) (nth args 2)))
+      (let [[alpha a _ b] args
+            u (e/sort-level (whnf-in-goal ps (:lctx g) (infer-in-goal ps (:lctx g) alpha)))
+            eq-type (e/app* (e/const' (name/from-string "Eq") [u]) alpha a b)
+            pr (e/app* (e/const' (name/from-string "eq_of_heq") [u]) alpha a b (e/fvar fid))
+            ps (assert-hyp ps (:name decl) eq-type pr)
+            new-fid (last (sort (keys (:lctx (proof/current-goal ps)))))
+            ;; heqToEq tries to clear the old proof, retaining it if depended on.
+            ps (try (clear ps fid)
+                    (catch clojure.lang.ExceptionInfo ex
+                      (if (= :tactic-error (:kind (ex-data ex))) ps (throw ex))))]
+        (subst ps new-fid true))
+      (subst ps fid true))))
+
+(defn rcases-pattern
+  "Match a local against a recursive constructor pattern (Lean RCases.rcasesCore)."
+  [ps fid pat]
+  (cond
+    (= pat 'rfl) (rcases-subst-eq ps fid)
+    (and (seq? pat) (= 'or (first pat)) (= 2 (count pat)))
+    (rcases-pattern ps fid (second pat))
+    (= pat '_) ps
+    (symbol? pat) (rename-rcases-local ps fid pat)
+    (or (vector? pat) (and (seq? pat) (= 'or (first pat))))
+    (let [alts (if (vector? pat) [pat] (vec (rest pat)))
+          ps (cases (vary-meta ps dissoc ::case-branches) fid)
+          branches (::case-branches (meta ps))]
+      (when-not branches
+        (tactic-error! "rcases: indexed case pattern metadata unavailable" {:pattern pat}))
+      (loop [ps ps branches branches idx 0 out []]
+        (if-let [{:keys [goal-id ctor-name field-fvars]} (first branches)]
+          (let [ps (assoc ps :goals [goal-id])
+                ^ConstantInfo ci (env/lookup! (:env ps) ctor-name)
+                ;; Skip implicit fields as Lean's processConstructor does.
+                infos (loop [ty (.type ci) i 0 out []]
+                        (if (e/forall? ty)
+                          (recur (e/forall-body ty) (inc i)
+                                 (if (>= i (.numParams ci))
+                                   (conj out (e/forall-info ty)) out)) out))
+                fields (keep-indexed (fn [i fid]
+                                       (when (= :default (nth infos i)) fid))
+                                     (take (.numFields ci) field-fvars))
+                names (mapv #(str "_rcases_" %) fields)
+                ps (reduce (fn [ps [fid nm]] (rename-rcases-local ps fid nm))
+                           ps (map vector fields names))
+                p (if (and (= 1 (count branches)) (< (inc idx) (count alts)))
+                    (cons 'or (drop idx alts)) (nth alts idx '_))
+                pats (if (vector? p) p [p])
+                ps (rcases-fields ps names pats)]
+            (recur ps (rest branches) (inc idx) (into out (:goals ps))))
+          (assoc ps :goals out))))
+    :else (tactic-error! "rcases: invalid pattern" {:pattern pat})))
+
+(defn rcases-term
+  "Generalize nonlocals, then recursively destruct (Lean RCases.rcases)."
+  [ps term pat]
+  (let [outer (vec (rest (:goals ps)))
+        ps (assoc ps :goals [(first (:goals ps))])
+        [ps fid] (if (e/fvar? term)
+                   [ps (e/fvar-id term)]
+                   (let [ps (generalize ps term "_rcases" "_rcases_eq")
+                         ps (intro ps "_rcases")
+                         fid (last (sort (keys (:lctx (proof/current-goal ps)))))
+                         ps (intro ps "_rcases_eq")
+                         ps (clear ps (last (sort (keys (:lctx (proof/current-goal ps))))))]
+                     [ps fid]))
+        ps (rcases-pattern ps fid pat)]
+    (update ps :goals into outer)))
 
 ;; ============================================================
 ;; split_ifs — automatic case split on stuck Bool.rec
@@ -3330,10 +3420,10 @@
         dec-c (e/app* (e/const' (name/from-string "Decidable") []) c)
         motive (e/lam "d" dec-c (:type goal) :default)
         [ps' h-false-id] (proof/alloc-id ps)
-        lctx-false (red/lctx-add-local (:lctx goal) h-false-id "h" not-c)
+        lctx-false (add-local (:lctx goal) h-false-id "h" not-c)
         [ps' false-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-false (:id goal))
         [ps' h-true-id] (proof/alloc-id ps')
-        lctx-true (red/lctx-add-local (:lctx goal) h-true-id "h" c)
+        lctx-true (add-local (:lctx goal) h-true-id "h" c)
         [ps' true-goal-id] (proof/fresh-mvar-replacing ps' (:type goal) lctx-true (:id goal))]
     (-> (proof/assign-mvar ps' (:id goal)
                            {:kind :by-cases-dec
@@ -3353,7 +3443,7 @@
 (defn split-tac
   "Lean 4 `split` (Tactic/Split.lean:328-346): find a splittable discriminant in
    the goal (ite/dite/cond/Bool.rec/matcher) and case-split on it.
-     - cond/Bool.rec  → by-cases on the Bool (hc : c = true / c = false)
+     - cond/Bool.rec  → substituting cases-eq on the Bool (hc : c = true / c = false)
      - ite/dite       → by-cases-dec on the Decidable (h : c / h : ¬c)
      - matcher        → matcher splitter (one subgoal per alternative, +discr eqs)
    On a matcher whose splitter application fails, retry skipping it (badCases)."
@@ -3369,7 +3459,9 @@
         (if (nil? tgt)
           (tactic-error! "split: no if/match/cond discriminant found" {:goal (:type goal)})
           (case (:kind tgt)
-            :bool (by-cases ps (:discr tgt))
+            ;; Lean SplitIf.lean splitIfTarget?/simpIfTarget reduces the conditional
+            ;; in each branch. Our Bool.rec encoding uses substituting cases-eq.
+            :bool (cases-eq ps (:discr tgt) "hc")
             :dec  (by-cases-dec ps (:cond tgt) (:inst tgt))
             :matcher (let [res (try {:ok (split-matcher ps tgt)}
                                     (catch clojure.lang.ExceptionInfo ex

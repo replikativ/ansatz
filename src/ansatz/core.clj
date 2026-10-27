@@ -16,6 +16,7 @@
             [clojure.string]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
+            [ansatz.eqns :as eqns]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
@@ -732,6 +733,8 @@
   [_name f]
   (swap! simproc-registry conj f))
 
+(declare latest-local-id-by-name)
+
 (clojure.core/defn- simp-lemma-args
   "Resolve a surface `(simp …)` argument list into simp's lemma vector. A bare symbol stays a
    symbol (env name resolution / @[simp]-set merge). A COMPOUND form — `(WSemiring.mul_zero m)`,
@@ -745,12 +748,26 @@
         ;; (mis)elaborated as a term, throwing (and under all_goals that throw is swallowed → the
         ;; tactic silently no-ops).
         args (if (and (= 1 (count args)) (vector? (first args))) (first args) args)
-        g (proof/current-goal ps)]
-    (mapv (fn [a]
+        g (proof/current-goal ps)
+        lctx (:lctx g)
+        ;; Lean's `simp [*]`: every Prop hypothesis of the goal is a rewrite rule
+        prop-hyps (fn []
+                    (let [st (tc/attach-lctx (tc/mk-tc-state (:env ps)) lctx)]
+                      (keep (fn [[id d]]
+                              (when (and (= :local (:tag d))
+                                         (try (let [s (#'tc/cached-whnf st (tc/infer-type st (:type d)))]
+                                                (and (e/sort? s) (= lvl/zero (e/sort-level s))))
+                                              (catch clojure.lang.ExceptionInfo _ false)))
+                                (e/fvar id)))
+                            (sort-by key lctx))))]
+    (into []
+          (mapcat (fn [a]
             (cond
-              ;; A bare symbol is a lemma/def NAME (resolved by simp). This is the ONE canonical
-              ;; way to name things in the tactic DSL.
-              (symbol? a) a
+              (= '* a) (prop-hyps)
+              ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
+              ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
+              ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
+              (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)] [(e/fvar fid)] [a])
               ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
               ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
               ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
@@ -761,8 +778,8 @@
                                    "(simp [" a "]) not (simp [" (pr-str a) "]).")
                               {:kind :tactic-error :arg a}))
               ;; Anything else (a compound form) elaborates to a proof term in the goal context.
-              :else (elab/elaborate-in-context (:env ps) (:lctx g) a)))
-          args)))
+              :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
+          args))))
 
 (clojure.core/defn- apply-hole-symbol?
   [x]
@@ -993,9 +1010,26 @@
    ;; Lean 4 `simp only [...]` / `simp_all only [...]`: a leading `only` token strips the default
    ;; @[simp] corpus, using ONLY the given lemmas (+ reflexive-closer builtins). See simp/simp opts.
    'simp      (fn [ps args]
+                ;; Lean SimpArith.lean adds +arith to simp's simproc config.
+                ;; Omega reconstructs closed proofs, not normalization equalities;
+                ;; keep this known gap explicit until arithmetic simprocs exist.
+                (when (some #{'+arith} args)
+                  (throw (ex-info "Tactic error: simp +arith: arithmetic normalization simprocs are not implemented"
+                                  {:kind :tactic-error :config '+arith})))
                 (let [only? (= 'only (first args))
-                      args  (if only? (rest args) args)]
+                      args  (if only? (rest args) args)
+                      ;; Lean's `simp [...] at h₁ h₂`: simplify those hypotheses, not the goal
+                      [args locs] (split-with #(not= 'at %) args)
+                      locs (rest locs)]
                   (cond
+                    (seq locs)
+                    (reduce (fn [ps loc]
+                              (let [fid (latest-local-id-by-name (:lctx (proof/current-goal ps)) loc)]
+                                (when-not fid
+                                  (throw (ex-info (str "simp at: no hypothesis named " loc)
+                                                  {:kind :tactic-error :name loc})))
+                                (simp/simp-at ps fid (simp-lemma-args ps args) {:only? only?})))
+                            ps locs)
                     only?      (simp/simp ps (simp-lemma-args ps args) {:only? true})
                     (seq args) (simp/simp ps (simp-lemma-args ps args))
                     :else      (simp/simp ps))))
@@ -1036,10 +1070,72 @@
                 ;; close MORE refl goals, never reject.)
                 (let [ps' (do-rewrite ps args)]
                   (try (basic/rfl ps') (catch Throwable _ ps'))))
+   'rcases    (fn [ps args]
+                (let [[term & pats] args
+                      pat (if (= 'with (first pats)) (second pats) (first pats))
+                      g (proof/current-goal ps)
+                      expr (elab/elaborate-in-context (:env ps) (:lctx g) term)]
+                  (basic/rcases-term ps expr pat)))
+   'obtain    (fn [ps args]
+                ;; Lean RCases.lean evalObtain: type ascription supplies the
+                ;; expected type before destructing the supplied value.
+                (let [[pat & args] args
+                      typed? (= :- (first args))
+                      ty (when typed? (second args))
+                      args (if typed? (drop 2 args) args)]
+                  (when-not (and (= := (first args)) (= 2 (count args)))
+                    (throw (ex-info "Tactic error: obtain: expected pattern [:- type] := term"
+                                    {:kind :tactic-error :args args})))
+                  ;; RCases.lean evalObtain/generalizeExceptFVar: keep a local
+                  ;; target itself, so cases substitutes its constructor in the goal.
+                  (let [g (proof/current-goal ps)
+                        ty (when typed?
+                             (elab/elaborate-in-context (:env ps) (:lctx g) ty nil {:type-position true}))
+                        term (elab/elaborate-in-context (:env ps) (:lctx g) (second args) ty)]
+                    (basic/rcases-term ps term pat))))
+   'trivial   (fn trivial [ps _]
+                ;; Init/Tactics.lean trivial macro alternatives (last rule first).
+                (let [attempt (fn [f]
+                                (try (f ps)
+                                     (catch clojure.lang.ExceptionInfo ex
+                                       (if (= :tactic-error (:kind (ex-data ex))) nil
+                                           (throw ex)))))
+                      apply-name (fn [ps nm]
+                                   (basic/apply-tac ps (e/const' (name/from-string nm) [])))]
+                  (or (attempt #(let [ps (apply-name % "And.intro")
+                                     outer (vec (rest (:goals %)))
+                                     gs (remove (set outer) (:goals ps))
+                                     ps (reduce (fn [ps gid]
+                                                  (trivial (assoc ps :goals [gid]) nil)) ps gs)]
+                                 (assoc ps :goals outer)))
+                      (attempt #(apply-name % "True.intro"))
+                      (attempt #(let [g (proof/current-goal %)
+                                      env (:env %)
+                                      st (tc/attach-lctx (tc/mk-tc-state env) (:lctx g))
+                                      prop (:type g)
+                                      dec (e/app (e/const' (name/from-string "Decidable") []) prop)
+                                      inst (instance/synthesize* st env (instance/index-for env) dec 0)
+                                      bt (e/const' (name/from-string "Bool.true") [])]
+                                  ;; Decide in the local context (decide/decide
+                                  ;; currently synthesizes in an empty context).
+                                  (when-not (and inst
+                                                 (tc/is-def-eq st
+                                                   (e/app* (e/const' (name/from-string "Decidable.decide") []) prop inst)
+                                                   bt))
+                                    (throw (ex-info "Tactic error: trivial: decide failed"
+                                                    {:kind :tactic-error})))
+                                  (basic/exact %
+                                    (e/app* (e/const' (name/from-string "of_decide_eq_true") []) prop inst
+                                      (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                        (e/const' (name/from-string "Bool") []) bt)))))
+                      (attempt basic/contradiction)
+                      (attempt basic/rfl)
+                      (attempt basic/assumption)
+                      (throw (ex-info "Tactic error: trivial failed" {:kind :tactic-error})))))
    'cases     (fn [ps args]
                 ;; (cases h)      — case-split on hypothesis `h` (by name)
-                ;; (cases hp e)   — faithful `cases hp : e`: substitute Bool discriminant `e`,
-                ;;                  adding `hp : e = true/false` per branch (Lean's idiom)
+                ;; (cases hp e)   — faithful `cases hp : e`: substitute inductive discriminant `e`,
+                ;;                  adding `hp : e = ctor …` per branch (Lean's idiom)
                 (let [rest-args (rest args)]
                   (if (seq rest-args)
                     (let [hname (str (first args))
@@ -1120,8 +1216,11 @@
    'gcongr    (fn [ps _args]
                 (let [f (requiring-resolve 'ansatz.tactic.gcongr/gcongr)] (f ps)))
    'grind     (fn [ps args]
-                (let [f (requiring-resolve 'ansatz.tactic.grind/grind)]
-                  (f ps (vec (map str args)))))
+                (let [f (requiring-resolve 'ansatz.tactic.grind/grind)
+                      ;; Lean Elab/Tactic/Grind/Param.lean: elaborate each hint separately.
+                      hints (if (and (= 1 (count args)) (vector? (first args)))
+                              (first args) args)]
+                  (f ps (mapv str hints))))
    'solve_by_elim (fn [ps args]
                     ;; Lean 4 `solve_by_elim [lemmas]`: backtracking apply over the hypotheses PLUS
                     ;; the given lemma set. We resolve each lemma arg to a TERM the way `apply` does
@@ -1391,7 +1490,8 @@
   "Define a verified function. Auto-detects structural recursion; if the recursion is not
    structural, tries lean4's GuessLex (single Nat measure, then lexicographic pairs) and
    redirects to well-founded recursion when a decreasing measure is found. General loop/recur
-   forms are hoisted into synthesized WF helper functions first. Returns the compiled Clojure fn."
+   forms are hoisted into synthesized WF helper functions first. Returns the compiled Clojure fn;
+   the structural path records equation-generation exceptions at metadata :equation-generation/:errors."
   [fn-name params ret-type-form body-form]
   (let [body-form (hoist-loops! fn-name (mapv first (parse-params params)) body-form)]
     (try
@@ -1400,6 +1500,79 @@
         (if (= ::redirect-wf (:kind (ex-data e)))
           (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
           (throw e))))))
+
+(clojure.core/defn- recursor-app-info [env head args]
+  ;; Lean Meta/Match/MatcherInfo.lean isMatcherAppCore? accepts >= arity;
+  ;; Eqns.lean findMatchToSplit? reads discriminants at their recorded positions.
+  (when (and (e/const? head)
+             (.endsWith ^String (name/->string (e/const-name head)) ".rec"))
+    (when-let [^ConstantInfo ci (env/lookup env (e/const-name head))]
+      (when (= :recursor (env/ci-tag ci))
+        (let [major-pos (+ (.numParams ci) (.numMotives ci) (.numMinors ci) (.numIndices ci))
+              arity (inc major-pos)]
+          (when (>= (count args) arity)
+            {:major-pos major-pos :major (nth args major-pos) :arity arity}))))))
+
+(clojure.core/defn- recursive-implementation-app? [env head]
+  ;; Eqns.lean findMatchToSplit? does not descend into recursive implementations.
+  ;; Surface matches use .rec instead of named MatcherInfo declarations: only
+  ;; eliminations without recursive fields may play that matcher role here.
+  (when (e/const? head)
+    (let [nm (name/->string (e/const-name head))
+          ^ConstantInfo ci (env/lookup env (e/const-name head))]
+      (or (= nm "WellFounded.fix")
+          (.endsWith ^String nm ".brecOn")
+          (and ci (= :recursor (env/ci-tag ci))
+               (some (fn [rule]
+                       (let [^ConstantInfo ctor (env/lookup! env (.ctor ^ansatz.kernel.ConstantInfo$RecursorRule rule))
+                             ^ConstantInfo ind (env/lookup! env (.inductName ctor))]
+                         (.isRec ind)))
+                     (.rules ci)))))))
+
+(clojure.core/defn- equation-whnf [env lctx expr allowed]
+  ;; Lean Eqns.lean findMatchToSplit? avoids unfolding nested recursive calls.
+  (let [tc (ansatz.kernel.TypeChecker. env)]
+    (.setFuel tc (int config/*default-fuel*))
+    (.setTransparency tc 0)
+    (.setDeltaAllowSet tc (java.util.HashSet. ^java.util.Collection allowed))
+    (doseq [[fid decl] lctx]
+      (.addLocal tc (long fid) (str (:name decl)) (:type decl)))
+    (.whnf (.getReducer tc) expr)))
+
+(clojure.core/defn- install-unfold-equation! [fn-name body]
+  ;; Lean Elab/PreDefinition/Eqns.lean unfoldThmType opens the VALUE's lambdaTelescope;
+  ;; its result may itself be a function represented by a recursor application.
+  (let [[binders rhs]
+        (loop [rhs body binders []]
+          (if (e/lam? rhs)
+            (let [fid (+ 8300000 (count binders)) fv (e/fvar fid)]
+              (recur (e/instantiate1 (e/lam-body rhs) fv)
+                     (conj binders [fid (e/lam-name rhs) (e/lam-type rhs) (e/lam-info rhs)])))
+            [binders rhs]))
+        st (reduce (fn [st [fid nm ty]] (update st :lctx red/lctx-add-local fid (str nm) ty))
+                   (tc/mk-tc-state @ansatz-env) binders)
+        ret (tc/infer-type st rhs)
+        sort (tc/infer-type st ret)
+        u (e/sort-level (red/whnf @ansatz-env sort (:lctx st)))
+        lhs (reduce e/app (e/const' (name/from-string (str fn-name)) [])
+                    (map (comp e/fvar first) binders))
+        close (fn [mk expr]
+                (reduce (fn [expr [fid nm ty info]]
+                          (mk nm ty (e/abstract1 expr fid) info))
+                        expr (reverse binders)))
+        eq-type (close e/forall' (e/app* (e/const' (name/from-string "Eq") [u]) ret lhs rhs))
+        eq-proof (close e/lam (e/app* (e/const' (name/from-string "Eq.refl") [u]) ret lhs))]
+    (let [eqn-name (name/from-string (str fn-name ".eq_1"))]
+      (swap! ansatz-env env/check-constant (env/mk-thm eqn-name [] eq-type eq-proof))
+      eqn-name)))
+
+(clojure.core/defn- report-equation-error! [errors lemma cause]
+  ;; Lean Elab/PreDefinition/Eqns.lean mkEqnProof reports generation errors.
+  ;; Keep the verified definition available, but always report failed equations.
+  (let [error (ex-info (str "Equation generation failed for " lemma ": " (.getMessage cause))
+                       {:kind :equation-generation-error :lemma (str lemma)} cause)]
+    (swap! errors conj error)
+    (binding [*out* *err*] (println "WARNING:" (.getMessage error)))))
 
 (clojure.core/defn- define-verified-impl
   "Structural-recursion path. Throws {:kind ::redirect-wf :measure m} when recursion is
@@ -1471,6 +1644,9 @@
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
         _ (swap! arity-registry assoc (str fn-name) (compute-arity type-ansatz))
+        equation-errors (atom [])
+        equation-names (atom [])
+        equation-auxiliaries (atom [])
         ;; Generate equation theorems for simp (Lean 4's getEqnsFor? pattern).
         ;; Uses fvar-based open/close: create fvars for params+fields,
         ;; WHNF-reduce with fvars, then abstract-many to get correct bvars.
@@ -1481,9 +1657,17 @@
                            (if (and (< i n) (e/lam? e))
                              (recur (e/lam-body e) (inc i))
                              e))
-                  [rec-head _] (e/get-app-fn-args peeled)]
-              (when (and (e/const? rec-head)
-                         (.endsWith ^String (name/->string (e/const-name rec-head)) ".rec"))
+                  [rec-head rec-args] (e/get-app-fn-args peeled)
+                  rec-info (recursor-app-info env' rec-head rec-args)
+                  major (:major rec-info)
+                  ;; Overapplication keeps the trailing arguments in a checked unfold equation.
+                  ;; Constructor equations below require a major premise among the user binders.
+                  ctor-eq? (and rec-info (= (count rec-args) (:arity rec-info))
+                                (e/bvar? major) (< (e/bvar-idx major) n))
+                  _ (when-not ctor-eq?
+                      (let [eqn (install-unfold-equation! fn-name body-ansatz)]
+                        (swap! equation-names conj [cname eqn])))]
+              (when ctor-eq?
                 (let [^ConstantInfo rci (env/lookup env' (e/const-name rec-head))
                       np (.numParams rci)
                       ind-name-str (subs (name/->string (e/const-name rec-head)) 0
@@ -1491,13 +1675,8 @@
                       ^ConstantInfo ind-ci (env/lookup env' (name/from-string ind-name-str))
                       ctor-names (.ctors ind-ci)
                       ;; Determine discriminant position from recursor major premise.
-                      ;; The major premise is the last rec arg and is a bvar.
                       ;; bvar(k) in the peeled body = param at position (n - 1 - k).
-                      rec-args-raw (vec (e/get-app-args peeled))
-                      major-arg (peek rec-args-raw)
-                      discr-pos (if (e/bvar? major-arg)
-                                  (- n 1 (e/bvar-idx major-arg))
-                                  (dec n))  ;; fallback: last param
+                      discr-pos (- n 1 (e/bvar-idx major))
                       n-non-discr (dec n)
                       ;; positions of the non-discriminant params (the fixed prefix + any
                       ;; trailing carried params), in order — used to map a loose param-bvar
@@ -1629,16 +1808,17 @@
                             rec-args (vec (e/get-app-args peeled))
                             ;; The rec value = full recursor applied to the tail fvar.
                             ;; It's the same as the function body but with tail fvar as scrutinee.
-                            ;; Identify which field is the recursive one (type matches the inductive)
-                            rec-field-idx (first (keep-indexed
+                            ;; Replace every recursive field, including both subtrees of a tree.
+                            rec-field-indices (keep-indexed
                                                   (fn [j ft]
                                                     (let [[fh _] (e/get-app-fn-args ft)]
                                                       (when (and (e/const? fh)
                                                                  (= (name/->string (e/const-name fh)) ind-name-str))
                                                         j)))
-                                                  field-types))
+                                                  field-types)
                             rhs-clean
-                            (if rec-field-idx
+                            (reduce
+                             (fn [rhs rec-field-idx]
                               (try
                               ;; Build the rec-value by instantiating the body with the
                               ;; ACTUAL constructor args (including l=ctor-app), then
@@ -1685,9 +1865,11 @@
                                                                 expr (e/lam (e/lam-name expr) (e/lam-type expr)
                                                                             nb (e/lam-info expr))))
                                                        expr)))]
-                                  (replace-fn rhs-raw))
-                                (catch Exception _ rhs-raw))
-                              rhs-raw)
+                                  (replace-fn rhs))
+                                (catch Exception ex
+                                  (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " recursive calls") ex)
+                                  rhs)))
+                             rhs-raw rec-field-indices)
                             ;; Create auxiliary matcher definitions for stuck inner recursors
                             ;; (Lean 4: each match expression becomes a named matcher).
                             ;; Replace stuck recursors in the RHS with calls to auxiliaries.
@@ -1695,14 +1877,15 @@
                             rhs-with-aux
                             (try
                               (let [aux-counter (atom 0)
-                                    create-aux (fn create-aux [rhs depth]
-                                                 (if (> depth 3) rhs
-                                                     (let [[h as] (e/get-app-fn-args rhs)]
-                                                       (if (and (e/const? h)
-                                                                (.endsWith ^String (name/->string (e/const-name h)) ".rec")
-                                                                (seq as) (e/fvar? (last as)))
+                                    create-aux (fn create-aux [st rhs]
+                                                 (let [[h as] (e/get-app-fn-args rhs)
+                                                       blocked? (recursive-implementation-app? @ansatz-env h)
+                                                       rec-info (when-not blocked? (recursor-app-info @ansatz-env h as))]
+                                                   (if blocked?
+                                                     rhs
+                                                       (if (and rec-info (e/fvar? (:major rec-info)))
                                             ;; Found a stuck recursor — create auxiliary definition
-                                                         (let [scrut-fvar-id (e/fvar-id (last as))
+                                                         (let [scrut-fvar-id (e/fvar-id (:major rec-info))
                                                   ;; Collect all fvars actually used in this stuck expression.
                                                   ;; This ensures deeper recursive calls capture the right context.
                                                                expr-fvars (let [acc (atom #{})]
@@ -1726,26 +1909,29 @@
                                                   ;; Build aux body: abstract fvars from rhs, wrap in lambdas
                                                                aux-body-abs (e/abstract-many rhs aux-fvids)
                                                                aux-fvar-types (mapv (fn [fid]
-                                                                                      (let [d (get-in st' [:lctx fid])]
+                                                                                      (let [d (get-in st [:lctx fid])]
                                                                                         (or (:type d) (e/sort' lvl/zero))))
                                                                                     aux-fvids)
                                                                aux-body (loop [j (dec (count aux-fvids)) body aux-body-abs]
                                                                           (if (< j 0) body
                                                                               (let [fid (nth aux-fvids j)
                                                                                     ft (nth aux-fvar-types j)
-                                                                                    nm (or (:name (get-in st' [:lctx fid])) (str "x" j))]
-                                                                                (recur (dec j) (e/lam nm ft body :default)))))
+                                                                                    nm (or (:name (get-in st [:lctx fid])) (str "x" j))]
+                                                                                (recur (dec j) (e/lam nm (e/abstract-many ft (subvec aux-fvids 0 j)) body :default)))))
                                                   ;; Infer aux type from body
                                                                aux-type (try
                                                                           (let [tc-aux (ansatz.kernel.TypeChecker. @ansatz-env)]
                                                                             (.setFuel tc-aux (int config/*default-fuel*))
                                                                             (.inferType tc-aux aux-body))
-                                                                          (catch Exception _ nil))]
+                                                                          (catch Exception ex
+                                                                            (report-equation-error! equation-errors aux-name-str ex)
+                                                                            nil))]
                                                            (if-not aux-type
                                                              rhs  ;; fallback: return original stuck expr
                                                              (do ;; Register the auxiliary definition
                                                                (swap! ansatz-env env/check-constant
                                                                       (env/mk-def aux-cname [] aux-type aux-body))
+                                                               (swap! equation-auxiliaries conj aux-cname)
                                                 ;; Generate equation theorems for the auxiliary
                                                 ;; (Use a simple approach: the aux matches on its last param)
                                                                (try
@@ -1788,56 +1974,59 @@
                                                               ;; Use CURRENT env (includes aux def) for TC state.
                                                                              st-cf (reduce (fn [s [fid nm tp]]
                                                                                              (update s :lctx red/lctx-add-local fid nm tp))
-                                                                                           (assoc (tc/mk-tc-state @ansatz-env) :lctx (:lctx st'))
+                                                                                           (assoc (tc/mk-tc-state @ansatz-env) :lctx (:lctx st))
                                                                                            (map vector cf-fvids
                                                                                                 (map #(str "cf" %) (range inf)) cf-types))
-                                                                             aux-rhs-raw (#'tc/cached-whnf st-cf aux-lhs)
+                                                                             aux-rhs-raw (equation-whnf @ansatz-env (:lctx st-cf) aux-lhs [aux-cname])
                                                               ;; Recursively replace stuck recursors in the aux RHS
-                                                                             aux-rhs (create-aux aux-rhs-raw (inc depth))
+                                                                             aux-rhs (create-aux st-cf aux-rhs-raw)
                                                               ;; Build equation: ∀ params fields, aux(params, ctor) = rhs
-                                                                             eq-body (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                                                                                             ret-ansatz aux-lhs aux-rhs)
-                                                                             abs-eq (e/abstract-many eq-body (vec (concat param-fvids field-fvids all-fv-ids cf-fvids)))
-                                                              ;; Wait — this is getting complex. Let me simplify.
-                                                              ;; Just register the equation with Eq.refl proof.
+                                                                             ;; MatchEqs.lean getEquationsForImpl builds mkEq in
+                                                                             ;; the alternative telescope, using this auxiliary's result.
+                                                                             aux-ret (tc/infer-type st-cf aux-lhs)
+                                                                             aux-sort (red/whnf @ansatz-env (tc/infer-type st-cf aux-ret) (:lctx st-cf))
+                                                                             aux-level (e/sort-level aux-sort)
+                                                                             eq-body (e/app* (e/const' (name/from-string "Eq") [aux-level])
+                                                                                             aux-ret aux-lhs aux-rhs)
                                                                              all-eq-fvids (vec (distinct (concat all-fv-ids cf-fvids)))
                                                                              all-eq-types (vec (concat (mapv (fn [fid] (or (:type (get-in st-cf [:lctx fid])) (e/sort' lvl/zero))) all-fv-ids)
                                                                                                        cf-types))
                                                                              abs-eq2 (e/abstract-many eq-body all-eq-fvids)
                                                                              full-eq-type (loop [j (dec (count all-eq-fvids)) body abs-eq2]
                                                                                             (if (< j 0) body
-                                                                                                (recur (dec j) (e/forall' (str "p" j) (nth all-eq-types j) body :default))))
-                                                                             rfl-pf (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                                                                            ret-ansatz aux-lhs)
+                                                                                                (recur (dec j) (e/forall' (str "p" j) (e/abstract-many (nth all-eq-types j) (subvec all-eq-fvids 0 j)) body :default))))
+                                                                             rfl-pf (e/app* (e/const' (name/from-string "Eq.refl") [aux-level])
+                                                                                            aux-ret aux-lhs)
                                                                              abs-pf (e/abstract-many rfl-pf all-eq-fvids)
                                                                              full-pf (loop [j (dec (count all-eq-fvids)) body abs-pf]
                                                                                        (if (< j 0) body
-                                                                                           (recur (dec j) (e/lam (str "p" j) (nth all-eq-types j) body :default))))
+                                                                                           (recur (dec j) (e/lam (str "p" j) (e/abstract-many (nth all-eq-types j) (subvec all-eq-fvids 0 j)) body :default))))
                                                                              eqn-nm (name/from-string (str aux-name-str ".eq_" (inc ci-idx)))]
                                                           ;; Verify and register
                                                                          (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
                                                                            (.setFuel tc-v (int config/*default-fuel*))
                                                                            (.inferType tc-v full-pf)
                                                                            (swap! ansatz-env env/check-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
+                                                                           (swap! equation-names conj [aux-cname eqn-nm])
                                                                            (when *verbose* (println (str "  ✓ " aux-name-str ".eq_" (inc ci-idx))))))
                                                                        (catch Exception ex
-                                                                         (when *verbose*
-                                                                           (when *verbose*
-                                                                             (println (str "  ⚠ " aux-name-str ".eq_" (inc ci-idx) " skipped: " (.getMessage ex)))))))))
+                                                                         (report-equation-error! equation-errors
+                                                                                                 (str aux-name-str ".eq_" (inc ci-idx)) ex)))))
                                                                  (catch Exception ex
-                                                                   (when *verbose*
-                                                                     (println "  aux gen for" aux-name-str "FAILED:" (.getMessage ex)))))
+                                                                   (report-equation-error! equation-errors (str aux-name-str ".eq_*") ex)))
                                                 ;; Return call to the auxiliary instead of the stuck recursor
                                                                (reduce e/app (e/const' aux-cname []) (mapv e/fvar aux-fvids)))))
                                             ;; No stuck recursor at top — recurse into sub-expressions
                                                          (if (e/app? rhs)
-                                                           (let [f (create-aux (e/app-fn rhs) depth)
-                                                                 a (create-aux (e/app-arg rhs) depth)]
+                                                           (let [f (create-aux st (e/app-fn rhs))
+                                                                 a (create-aux st (e/app-arg rhs))]
                                                              (if (and (identical? f (e/app-fn rhs)) (identical? a (e/app-arg rhs)))
                                                                rhs (e/app f a)))
                                                            rhs)))))]
-                                (create-aux rhs-clean 0))
-                              (catch Exception _ rhs-clean))
+                                (create-aux st' rhs-clean))
+                              (catch Exception ex
+                                (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " auxiliaries") ex)
+                                rhs-clean))
                             ;; Split inner stuck recursors (Lean 4: mkEqnTypes splitMatch?).
                             ;; KEEP the general equation (matches opaque args via star-key)
                             ;; AND add split variants (match concrete constructors).
@@ -1845,18 +2034,17 @@
                             (try
                               (let [split-counter (atom 0)]
                                 (letfn [(find-stuck [expr]
-                                          (let [[h as] (e/get-app-fn-args expr)]
+                                          (let [[h as] (e/get-app-fn-args expr)
+                                                rec-info (recursor-app-info env' h as)]
                                             (cond
-                                              (and (e/const? h)
-                                                   (.endsWith ^String (name/->string (e/const-name h)) ".rec")
-                                                   (seq as) (e/fvar? (last as)))
-                                              {:rec-head h :rec-args (vec as) :scrut-fvar (e/fvar-id (last as))}
+                                              (recursive-implementation-app? env' h) nil
+                                              (and rec-info (e/fvar? (:major rec-info)))
+                                              {:rec-head h :rec-args (vec as) :scrut-fvar (e/fvar-id (:major rec-info))}
                                               (e/app? expr)
                                               (or (find-stuck (e/app-fn expr)) (find-stuck (e/app-arg expr)))
                                               :else nil)))
                                         (split-rec [st rhs the-lhs xfvids xtypes sfx depth]
-                                          (if (> depth 2) nil
-                                              (when-let [{:keys [rec-head rec-args scrut-fvar]} (find-stuck rhs)]
+                                          (when-let [{:keys [rec-head rec-args scrut-fvar]} (find-stuck rhs)]
                                                 (let [irci (env/lookup env' (e/const-name rec-head))
                                                       iind-str (let [s (name/->string (e/const-name rec-head))]
                                                                  (subs s 0 (- (count s) 4)))
@@ -1894,7 +2082,7 @@
                                                                                 (update s :lctx red/lctx-add-local fid nm tp))
                                                                               st (map vector iffids
                                                                                       (map #(str "g" %) (range inf)) iftypes))
-                                                                  rhs-r (#'tc/cached-whnf st' rhs')]
+                                                                  rhs-r (equation-whnf env' (:lctx st') rhs' [])]
                                                            ;; Recurse for deeper splits
                                                               (or (split-rec st' rhs-r lhs' (vec (concat xfvids iffids))
                                                                              (vec (concat xtypes iftypes))
@@ -1904,10 +2092,14 @@
                                                                     [{:rhs rhs-r :lhs lhs' :extra-fvids (vec (concat xfvids iffids))
                                                                       :extra-types (vec (concat xtypes iftypes))
                                                                       :suffix (str "s" n)}])))
-                                                            (catch Exception _ nil)))
-                                                        (range (count ictors))))))))]
+                                                            (catch Exception ex
+                                                              (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " split " (inc ci-idx)) ex)
+                                                              nil)))
+                                                        (range (count ictors)))))))]
                                   (split-rec st' rhs-clean lhs [] [] 0 0)))
-                              (catch Exception _ nil))
+                              (catch Exception ex
+                                (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " splits") ex)
+                                nil))
                             ;; Following Lean 4 (mkEqnTypes/splitMatch?): when leaf-level
                             ;; split equations exist, use ONLY them — each has a concrete
                             ;; constructor pattern. Falls back to general equation only
@@ -1989,13 +2181,26 @@
                                 (.setFuel tc-v (int config/*default-fuel*))
                                 (.inferType tc-v full-proof)
                                 (swap! ansatz-env env/check-constant (env/mk-thm eqn-name [] full-type full-proof))
+                                (swap! equation-names conj [cname eqn-name])
                                 (when *verbose* (println (str "  ✓ " fn-name ".eq_" (inc i) (or suffix "")))))
                               (catch Exception e
-                                (when *verbose* (println "  eq_" (str (inc i) (or suffix "")) "skipped:" (.getMessage e))))))))
+                                (report-equation-error! equation-errors eqn-name e))))))
                       (catch Exception e
-                        (when *verbose* (println "  eq" (inc i) "gen failed:" (.getMessage e)))))))))
+                        (report-equation-error! equation-errors (str fn-name ".eq_" (inc i)) e)))))))
             (catch Exception ex
-              (when *verbose* (println "  eq-gen outer:" (.getMessage ex)))))
+              (report-equation-error! equation-errors (str fn-name ".eq_1") ex)))
+        ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
+        ;; installation, including matcher equations, never reconstruct them by suffix.
+        ;; Preserve the parent's equation order before its auxiliary equations; retain
+        ;; failures so consumers cannot mistake a partial inventory for a complete one.
+        _ (swap! ansatz-env
+                 (fn [env]
+                   (let [own (fn [owner] (mapv second (filter #(= owner (first %)) @equation-names)))
+                         all (into (own cname) (mapcat own @equation-auxiliaries))
+                         env (eqns/register-eqn-thms env cname all @equation-errors)]
+                     (reduce (fn [env aux]
+                               (eqns/register-eqn-thms env aux (own aux) @equation-errors))
+                             env @equation-auxiliaries))))
         ;; Unified direct-recursion emitter: for a TOP-LEVEL match that actually recurses,
         ;; re-elaborate the SAME surface body against the just-verified env so self-calls
         ;; stay applications of the constant (the runtime analogue of Lean compiling
@@ -2050,7 +2255,12 @@
                                    (reverse (rest param-syms)))))
                        (~param-syms ~curried-call)))))]
     (when (and *verbose* (not direct-fn)) (println "✓" fn-name ":" (pr-str clj-form)))
-    clj-fn))
+    ;; a nullary definition compiles to a plain value (Long, Boolean, …) that cannot carry
+    ;; metadata; its equation-generation errors were already printed as warnings
+    (if (instance? clojure.lang.IObj clj-fn)
+      (with-meta clj-fn (assoc (meta clj-fn) :equation-generation
+                               {:errors @equation-errors}))
+      clj-fn)))
 
 (clojure.core/defn prove-theorem
   "Prove a theorem. Returns nil (side-effect: adds to env).
