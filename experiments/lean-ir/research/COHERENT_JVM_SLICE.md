@@ -415,9 +415,9 @@ in `tiny-continuation-layout-costs.json`. No Init, Source or genuine frontend is
 loaded. The earlier compact-record prototype saved only about 2 KB per snapshot
 round trip and was not included.
 
-Validation passed: 20 layout tests/886 assertions; 78 mutable/compiler/interop/
-snapshot/scalar regressions/4,402 assertions; 72 fixture-free infrastructure and
-sizing controls/1,059 assertions; optional package inventory 67 sources with
+Validation passed: 21 layout tests/891 assertions; 78 mutable/compiler/interop/
+snapshot/scalar regressions/4,402 assertions; 73 fixture-free infrastructure and
+sizing controls/1,064 assertions; optional package inventory 67 sources with
 3 audit tests/20 assertions. Independent source review found and verified fixes
 for guard ordering and cache-helper invalidation, then reported no blockers.
 The full-image experiment remains parked.

@@ -174,3 +174,18 @@
       (is (= 1 (width [:return [:imm 0]] 1 generation)))
       (is (not-any? #(identical? reference (first %))
                     (.get ^HashMap (:buckets @#'layout/cache) hash))))))
+
+(deftest cleared-reference-can-never-supply-a-width-for-a-missing-root
+  (let [generation (Object.) calls (atom 0)]
+    (is (= 1 (width [:return [:imm 0]] 1 generation)))
+    (let [reference (WeakReference. (Object.)) bucket (ArrayList.)]
+      (.clear reference)
+      ;; Deterministically model a cleared identity-hash-zero collision before
+      ;; enqueueing; do not depend on VM hash generation or GC scheduling.
+      (.add bucket [reference 1 999999])
+      (.put ^HashMap (:buckets @#'layout/cache) (Integer/valueOf (int 0)) bucket)
+      (is (identical? bucket (.get ^HashMap (:buckets @#'layout/cache) (System/identityHashCode nil))))
+      (is (nil? (entry nil)))
+      (is (= 1 (layout/width nil 1 (fn [body fallback] (swap! calls inc) (legacy body fallback))
+                             (constantly true) generation)))
+      (is (= 1 @calls)))))

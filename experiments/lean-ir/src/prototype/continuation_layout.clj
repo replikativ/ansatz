@@ -93,9 +93,12 @@
             (when (.isEmpty bucket) (.remove buckets key))))
         (recur)))))
 (defn- cached-entry [body]
-  (let [^ArrayList bucket (.get ^HashMap (:buckets cache) (System/identityHashCode body))]
-    (when bucket
-      (some #(when (identical? body (.get ^WeakReference (first %))) %) bucket))))
+  ;; A cleared referent is never evidence for a missing root, even in an
+  ;; identity-hash collision bucket before queue cleanup has run.
+  (when (some? body)
+    (let [^ArrayList bucket (.get ^HashMap (:buckets cache) (System/identityHashCode body))]
+      (when bucket
+        (some #(when (identical? body (.get ^WeakReference (first %))) %) bucket)))))
 (defn- cached-width [body fallback]
   (let [entry (cached-entry body)] (when (= fallback (second entry)) (nth entry 2))))
 (defn- remember! [body fallback width]
