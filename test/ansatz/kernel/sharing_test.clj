@@ -3,6 +3,7 @@
   (:require [clojure.test :refer [deftest is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]))
@@ -105,7 +106,7 @@
         lctx (-> {} (red/lctx-add-local 7 "p" prop)
                  (red/lctx-add-local 8 "h" (e/fvar 7)))
         st (tc/attach-lctx (tc/mk-tc-state (env/empty-env)) lctx)
-        h (e/fvar 8)]
+        h (e/mdata {} (e/fvar 8))]
     (tc/infer-type st h)
     (let [cached (.get ^ansatz.kernel.ExprMap (#'tc/infer-type-cache st) h)]
       (is (= #{7 8} (set (keys (:dependencies cached))))))
@@ -117,3 +118,38 @@
         (is (= (get (:lctx other) 7) (get-in cached [:dependencies 7])))))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Unknown free variable"
                           (tc/infer-type (assoc st :lctx {}) h)))))
+
+(defn- deep-local-proof [depth]
+  (let [nat (e/const' (name/from-string "Nat") [])
+        succ (e/const' (name/from-string "Nat.succ") [])
+        term (reduce (fn [t _] (e/app succ t)) (e/fvar 7) (range depth))
+        type (e/app (e/fvar 8) term)
+        st (tc/attach-lctx (tc/mk-tc-state (env/empty-env))
+                           (-> {} (red/lctx-add-local 7 "x" nat)
+                               (red/lctx-add-local 8 "P" (e/arrow nat (e/sort' lvl/zero)))
+                               (red/lctx-add-local 9 "h" type)))]
+    [st type (e/fvar 9)]))
+
+(deftest fvar-inference-does-not-scan-declared-types
+  (let [[st type h] (deep-local-proof 2000)]
+    (with-redefs [tc/infer-dependencies (fn [& _] (throw (ex-info "unexpected dependency scan" {})))]
+      (is (identical? type (tc/infer-type st h))))
+    (is (zero? (.size ^java.util.IdentityHashMap (:infer-cache st))))
+    (is (zero? (.size ^java.util.IdentityHashMap (:infer-fvars st))))))
+
+(deftest deep-open-expression-dependencies-are-stack-safe
+  (let [[st type h] (deep-local-proof 3000)
+        ;; Both the cached expression and its referenced declaration have
+        ;; depth 3000. Metadata is transparent, so infer its body iteratively.
+        term (reduce (fn [t _] (e/mdata {} t)) h (range 3000))]
+    (is (identical? type (tc/infer-type st term)))
+    (let [cache (#'tc/infer-type-cache st)
+          entry (.get ^ansatz.kernel.ExprMap cache term)]
+      (is (= #{7 8 9} (set (keys (:dependencies entry)))))
+      (is (identical? type (:type entry)))
+      (with-redefs [tc/infer-dependencies (fn [& _] (throw (ex-info "unexpected cache miss" {})))]
+        (is (identical? type (tc/infer-type st term)))))
+    ;; Recollect a separately allocated equal deep type without invoking
+    ;; recursive structural equality in the dependency-footprint memo.
+    (let [[other other-type _] (deep-local-proof 3000)]
+      (is (identical? other-type (tc/infer-type (assoc st :lctx (:lctx other)) term))))))

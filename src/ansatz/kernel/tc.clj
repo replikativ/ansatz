@@ -33,7 +33,7 @@
    :synth-memo (atom {})
    ;; One expression cache per environment, shared across binder extensions.
    :infer-cache (java.util.IdentityHashMap.)
-   :infer-fvars (ExprMap. 64)})
+   :infer-fvars (java.util.IdentityHashMap.)})
 
 (defn- lctx-max-id
   "Largest fvar id present in an lctx map (-1 if empty)."
@@ -108,44 +108,60 @@
           cache))))
 
 (defn- infer-fvars [st expr]
-  ;; Cache the dependency footprint by expression too, retaining DAG sharing.
-  (if-not (e/has-fvar-flag expr)
-    #{}
-    (let [^ExprMap cache (:infer-fvars st)]
-      (or (.get cache expr)
-          (let [children (case (e/tag expr)
-                           :app [(e/app-fn expr) (e/app-arg expr)]
-                           :lam [(e/lam-type expr) (e/lam-body expr)]
-                           :forall [(e/forall-type expr) (e/forall-body expr)]
-                           :let [(e/let-type expr) (e/let-value expr) (e/let-body expr)]
-                           :proj [(e/proj-struct expr)]
-                           :mdata [(e/mdata-expr expr)] [])
-                ids (if (e/fvar? expr) #{(e/fvar-id expr)}
-                        (reduce set/union #{} (map #(infer-fvars st %) children)))]
-            (.put cache expr ids)
-            ids)))))
+  ;; Stack-safe dependency footprint: visit each shared node once. Reuse
+  ;; previously collected subtrees without recursing on expression depth.
+  (let [^java.util.IdentityHashMap cache (:infer-fvars st)]
+    (or (.get cache expr)
+        (let [seen (java.util.IdentityHashMap.)
+              ids (loop [todo [expr] ids #{}]
+                    (if-let [node (peek todo)]
+                      (let [todo (pop todo)]
+                        (cond
+                          (or (not (e/has-fvar-flag node)) (.put seen node true))
+                          (recur todo ids)
+
+                          (.get cache node)
+                          (recur todo (set/union ids (.get cache node)))
+
+                          (e/fvar? node)
+                          (recur todo (conj ids (e/fvar-id node)))
+
+                          :else
+                          (let [children (case (e/tag node)
+                                           :app [(e/app-fn node) (e/app-arg node)]
+                                           :lam [(e/lam-type node) (e/lam-body node)]
+                                           :forall [(e/forall-type node) (e/forall-body node)]
+                                           :let [(e/let-type node) (e/let-value node) (e/let-body node)]
+                                           :proj [(e/proj-struct node)]
+                                           :mdata [(e/mdata-expr node)] [])]
+                            (recur (into todo children) ids))))
+                      ids))]
+          (.put cache expr ids)
+          ids))))
 
 (defn- infer-dependencies [st expr]
   ;; Lean's globally fresh locals make this check unnecessary. Surface tactics
   ;; can rebind IDs: record only mentioned declarations and their transitive
   ;; type/let-value dependencies, not the entire local context. Closed terms
   ;; have no dependencies and reuse their cached types in every extension.
-  (loop [todo (seq (infer-fvars st expr)) dependencies {}]
-    (if-let [id (first todo)]
+  (loop [todo (vec (infer-fvars st expr)) dependencies {}]
+    (if-let [id (peek todo)]
       (if (contains? dependencies id)
-        (recur (next todo) dependencies)
+        (recur (pop todo) dependencies)
         (let [decl (get (:lctx st) id)
               ids (reduce set/union #{}
                           (map #(infer-fvars st %) (keep #(get decl %) [:type :value])))]
-          (recur (concat (next todo) ids) (assoc dependencies id decl))))
+          (recur (into (pop todo) ids) (assoc dependencies id decl))))
       dependencies)))
 
-(defn infer-type
-  "Infer the type of expression e in type checker state st.
-   Lean Meta/InferType.lean:checkInferTypeCache memoizes by expression/config.
-   ExprMap uses Lean expression hash/equality, so separately allocated equal
-   subterms share results across binder extensions. Open entries are reused only
-   while their referenced declarations (including dependencies) are identical."
+(defn- infer-fvar-type [st expr]
+  ;; Lean Meta/InferType.lean:inferFVarType and kernel/type_checker.cpp:infer_fvar.
+  ;; The declared type is already available; do not scan it or cache the lookup.
+  (if-let [decl (red/lctx-lookup (:lctx st) (e/fvar-id expr))]
+    (:type decl)
+    (tc-error! "Unknown free variable" {:id (e/fvar-id expr)})))
+
+(defn- infer-type-core
   [st e]
   (let [^ExprMap cache (infer-type-cache st)
         cached (.get cache e)]
@@ -216,7 +232,10 @@
 
               :lit-str (e/const' Name/STRING [])
 
-              :mdata (infer-type st (e/mdata-expr e))
+              :mdata (let [body (loop [body (e/mdata-expr e)]
+                                  (if (e/mdata? body) (recur (e/mdata-expr body)) body))]
+                       ;; Metadata is type-transparent (Lean infer_type_core).
+                       (infer-type st body))
 
               :proj (let [struct-type (cached-whnf st (infer-type st (e/proj-struct e)))
                           [head args] (e/get-app-fn-args struct-type)]
@@ -246,14 +265,20 @@
                                      (inc i))
                               (if (e/forall? t)
                                 (e/forall-type t)
-                                (tc-error! "Not enough fields in constructor" {:idx field-idx :type t})))))))
-
-              :fvar (let [decl (red/lctx-lookup (:lctx st) (e/fvar-id e))]
-                      (if decl
-                        (:type decl)
-                        (tc-error! "Unknown free variable" {:id (e/fvar-id e)}))))]
+                                (tc-error! "Not enough fields in constructor" {:idx field-idx :type t}))))))))]
         (.put cache e {:type result :dependencies (infer-dependencies st e)})
         result))))
+
+(defn infer-type
+  "Infer the type of expression e in type checker state st.
+   Lean Meta/InferType.lean:checkInferTypeCache memoizes by expression/config.
+   ExprMap uses Lean expression hash/equality, so separately allocated equal
+   subterms share results across binder extensions. Open entries are reused only
+   while their referenced declarations (including dependencies) are identical."
+  [st e]
+  (if (e/fvar? e)
+    (infer-fvar-type st e)
+    (infer-type-core st e)))
 
 (defn ensure-sort
   "Ensure e is (or reduces to) a Sort. Returns the sort."
