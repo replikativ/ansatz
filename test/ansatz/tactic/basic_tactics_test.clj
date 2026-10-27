@@ -1,7 +1,8 @@
 (ns ansatz.tactic.basic-tactics-test
   "Tests for new core tactics: induction, have, revert, exfalso, subst, clear,
    and tactic combinators."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -18,7 +19,7 @@
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
               result (replay/replay (:decls st))]
-          (:env result))))))
+          (test-env/with-instance-registry (:env result)))))))
 
 (defn- require-env []
   (or @init-medium-env
@@ -40,7 +41,7 @@
 
 (deftest test-exact-form-closes-goal
   (testing "exact elaborates a surface term against the current target"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
                                :default)
@@ -57,7 +58,7 @@
     (let [goal (e/forall' (name/from-string "p") prop
                           (e/forall' (name/from-string "h") (e/bvar 0) (e/bvar 1) :default)
                           :default)
-          [ps _] (proof/start-proof (env/empty-env) goal)
+          [ps _] (proof/start-proof (env/with-extension (env/empty-env) :instances {}) goal)
           ps (basic/intro ps)
           ps (basic/intro ps override)
           names (mapv :name (vals (:lctx (proof/current-goal ps))))]
@@ -69,7 +70,7 @@
 
 (deftest test-exact-form-rejects-holes
   (testing "exact rejects fresh unassigned holes instead of creating goals"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop (e/bvar 0) :default)
           [ps _] (proof/start-proof env goal-type)
           ps (basic/intro ps "p")]
@@ -173,7 +174,7 @@
 
 (deftest test-change-solves-natural-holes
   (testing "change solves natural placeholders by defeq against the current target"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
                                :default)
@@ -189,7 +190,7 @@
 
 (deftest test-change-rejects-non-defeq-target
   (testing "change rejects a replacement target that is not definitionally equal"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop (e/bvar 0) :default)
           [ps _] (proof/start-proof env goal-type)
           ps (basic/intro ps "p")]
@@ -202,7 +203,7 @@
 
 (deftest test-show-current-goal
   (testing "show changes the current matching goal"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
                                :default)
@@ -218,7 +219,7 @@
 
 (deftest test-show-finds-later-goal
   (testing "show focuses the first later goal whose target matches"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
                                :default)
@@ -260,7 +261,7 @@
 
 (deftest test-clear-rejects-dependent-hypothesis
   (testing "clear rejects hypotheses used by later declarations or the target"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "h" (e/bvar 0) (e/bvar 1) :default)
                                :default)
@@ -278,7 +279,7 @@
 
 (deftest test-specialize-local-hypothesis
   (testing "specialize replaces a quantified local hypothesis with an applied one"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "q" prop
                                           (e/forall' "h" (e/forall' "hp" (e/bvar 1) (e/bvar 1) :default)
@@ -299,7 +300,7 @@
 
 (deftest test-specialize-promotes-argument-holes
   (testing "specialize puts elaboration holes before the body goal"
-    (let [env (env/empty-env)
+    (let [env (env/with-extension (env/empty-env) :instances {})
           goal-type (e/forall' "p" prop
                                (e/forall' "q" prop
                                           (e/forall' "h" (e/forall' "hp" (e/bvar 1) (e/bvar 1) :default)

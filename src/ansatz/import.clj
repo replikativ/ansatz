@@ -127,10 +127,10 @@
                                        (map second))
                              attr-tuples)
             _ (when attr-tuples (storage/write-derived! kstore branch :attrs attr-tuples))
-            ;; 3. instances: the TSV registry, else name-based discovery over the env
+            ;; 3. instances: Lean's TSV registry, else the bundled Init registry
             inst-index (if (and instances (.exists (io/file instances)))
                          (instance/load-instance-tsv instances)
-                         (instance/build-instance-index (storage/load-env sm branch :value-policy :defs-only)))
+                         (instance/load-bundled-instances {:present? present?}))
             _ (storage/write-derived! kstore branch :instances inst-index)
             _ (log! lw "  instances:" (count inst-index) "classes")
             ;; 4. matchers: the bundled Init corpus, intersected

@@ -1,6 +1,7 @@
 (ns ansatz.tactic.tactic-test
   "Tests for the tactic layer: proof states, tactics, extraction, verification."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -26,7 +27,7 @@
 (defn- minimal-env
   "Create an environment with just Prop available (empty env suffices)."
   []
-  (env/empty-env))
+  (env/with-extension (env/empty-env) :instances {}))
 
 (def ^:private init-medium-env
   "Lazily loaded init-medium environment."
@@ -35,7 +36,7 @@
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
               result (replay/replay (:decls st))]
-          (:env result))))))
+          (test-env/with-instance-registry (:env result)))))))
 
 (defn- require-init-medium []
   (let [env @init-medium-env]

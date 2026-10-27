@@ -2,7 +2,8 @@
   "Tests for tactic error handling, edge cases, and error message quality.
    Verifies that wrong tactics, unsolvable goals, and type errors
    produce actionable error messages."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -18,7 +19,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
 

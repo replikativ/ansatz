@@ -3,7 +3,8 @@
    parameters, e.g. `node : List RoseT → RoseT`). The kernel transforms
    nested→mutual and generates the recursor WITH the nested induction hypothesis,
    faithfully to Lean's add_inductive (kernel/inductive.cpp)."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
             [ansatz.kernel.env :as env]
@@ -17,7 +18,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- with-init-env [f]
   (when-let [env @init-env]

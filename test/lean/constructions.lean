@@ -21,6 +21,31 @@ inductive Assoc (S : Type) where
 inductive Disj (p q : Prop) : Prop where
   | left (h : p)
   | right (h : q)
+inductive Spin where
+  | pure (v : Nat)
+  | await (id : Nat) (k : Nat → Spin)
+  | yield (v : Nat) (k : Spin)
+inductive Branch (A : Type) : Nat → Type where
+  | leaf (n : Nat) : Branch A n
+  | node (n : Nat) (k : ∀ (m : Nat), Fin (m + 1) → Branch A m) : Branch A n
+
+def Spin.bind (s : Spin) (f : Nat → Spin) : Spin :=
+  match s with
+  | .pure v => f v
+  | .await id k => .await id (fun x => (k x).bind f)
+  | .yield v k => .yield v (k.bind f)
+
+def Spin.run (fuel : Nat) (s : Spin) : Nat :=
+  match fuel with
+  | 0 => 0
+  | fuel + 1 => match s with
+    | .pure v => v
+    | .await id k => (k id).run fuel
+    | .yield _ k => k.run fuel
+
+example (v : Nat) (f : Nat → Spin) : (Spin.pure v).bind f = f v := rfl
+example : Spin.run 4 ((Spin.await 3 (fun x => .yield 9 (.pure x))).bind (fun x => .pure (x + 2))) = 5 := rfl
+
 inductive Inf where
   | node (children : Nat → Inf)
 mutual

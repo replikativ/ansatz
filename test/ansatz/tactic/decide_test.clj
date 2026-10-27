@@ -1,6 +1,7 @@
 (ns ansatz.tactic.decide-test
   "Tests for instance resolution and the decide tactic."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -26,7 +27,7 @@
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
               result (replay/replay (:decls st))]
-          (:env result))))))
+          (test-env/with-instance-registry (:env result)))))))
 
 (defn- require-env []
   (or @init-medium-env
@@ -209,22 +210,21 @@
         (is (some? term))))))
 
 ;; ============================================================
-;; General instance resolution (env-scanning)
+;; General instance resolution (registered instances)
 ;; ============================================================
 
 (deftest test-instance-index
   (testing "Instance index finds Decidable candidates"
     (let [env (require-env)
-          idx (instance/build-instance-index env)
+          idx (instance/index-for env)
           decidable-name (name/from-string "Decidable")
           candidates (instance/get-instances idx decidable-name)]
-      ;; PSS-aware index uses name patterns, may find fewer than full scan
-      (is (>= (count candidates) 0)))))
+      (is (seq candidates)))))
 
 (deftest test-general-synthesis-eq-nat
   (testing "General synthesis finds Nat.decEq for Decidable (Eq Nat 0 0)"
     (let [env (require-env)
-          idx (instance/build-instance-index env)
+          idx (instance/index-for env)
           u1 (lvl/succ lvl/zero)
           nat (e/const' (name/from-string "Nat") [])
           prop (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 0) (e/lit-nat 0))
@@ -239,7 +239,7 @@
 (deftest test-general-synthesis-bool-eq
   (testing "General synthesis finds Bool.decEq"
     (let [env (require-env)
-          idx (instance/build-instance-index env)
+          idx (instance/index-for env)
           u1 (lvl/succ lvl/zero)
           bool (e/const' (name/from-string "Bool") [])
           prop (e/app* (e/const' (name/from-string "Eq") [u1]) bool
@@ -253,7 +253,7 @@
 (deftest test-general-synthesis-nested-and-or
   (testing "General synthesis handles nested And/Or/Not"
     (let [env (require-env)
-          idx (instance/build-instance-index env)
+          idx (instance/index-for env)
           u1 (lvl/succ lvl/zero)
           nat (e/const' (name/from-string "Nat") [])
           eq00 (e/app* (e/const' (name/from-string "Eq") [u1]) nat (e/lit-nat 0) (e/lit-nat 0))

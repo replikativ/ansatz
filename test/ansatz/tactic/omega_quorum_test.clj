@@ -32,8 +32,7 @@
   (let [base @test-env/bundled-init-env
         saved-env @a/ansatz-env
         saved-idx @a/ansatz-instance-index
-        idx (or saved-idx
-                ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) base))]
+        idx (env/get-extension base :instances nil)]
     (try
       (reset! a/ansatz-env (env/fork base))
       (reset! a/ansatz-instance-index idx)

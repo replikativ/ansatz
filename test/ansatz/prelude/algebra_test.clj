@@ -1,10 +1,14 @@
 (ns ansatz.prelude.algebra-test
   "Phase 1 of the wandler reimpl: the owned algebraic spine verifies end-to-end."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.tc :as tc]
+            [ansatz.tactic.instance :as instance]
             [ansatz.codegen :as cg]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
@@ -14,7 +18,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- with-env [t]
   (when-let [e @init-medium-env] (reset! a/ansatz-env e))
@@ -22,6 +26,25 @@
 (use-fixtures :once with-env)
 (defn- ready? [] (some? @init-medium-env))
 (defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
+
+(deftest semiring-parent-instance-synthesizes
+  (let [saved @a/ansatz-env]
+    (try
+      (reset! a/ansatz-env @test-env/bundled-init-env)
+      (binding [a/*verbose* false] (alg/install-classes!))
+      (let [c #(e/const' (name/from-string %) [])
+            s (e/fvar 900)
+            m (e/fvar 901)
+            out (a/env)
+            goal (e/app (c "WAddMonoid") s)
+            st (tc/mk-tc-state-with-locals
+                out {900 {:name "S" :type (e/sort' (lvl/succ lvl/zero))}
+                     901 {:name "m" :type (e/app (c "WSemiring") s)}})
+            result (instance/synthesize* st out (instance/index-for out) goal 0)]
+        (is (= (e/app* (c "WSemiring.toWAddMonoid") s m) result))
+        (when result
+          (is (tc/is-def-eq st (tc/infer-type st result) goal))))
+      (finally (reset! a/ansatz-env saved)))))
 
 (deftest classes-install
   (when (ready?)

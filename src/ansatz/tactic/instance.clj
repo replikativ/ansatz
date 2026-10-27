@@ -1,11 +1,8 @@
-;; Tactic layer — general typeclass instance resolution.
+;; Follows Lean 4 (../lean4), Meta/Instances.lean:instanceExtension/addInstance and
+;; Meta/SynthInstance.lean:getInstances. Candidates come only from registered instances.
 
 (ns ansatz.tactic.instance
   "Typeclass instance resolution following Lean 4's synthesis algorithm.
-
-   Two instance discovery strategies:
-   1. Pre-built index (from scanning all constants at import time)
-   2. On-demand name-based discovery (for PSS environments)
 
    Resolution uses structural matching with isDefEq fallback,
    recursive synthesis for inst-implicit args, and depth limiting."
@@ -35,83 +32,19 @@
         (when (e/const? head)
           [(e/const-name head) arity])))))
 
-(defn build-instance-index
-  "Build an instance index: class-name → [{:name Name :arity Nat} ...].
-   Two modes:
-   - With all-constants available: scan everything (used at import time)
-   - With PSS env: use name-based discovery for common classes (fast, ~200ms)"
-  ([^Env env] (build-instance-index env nil))
-  ([^Env env types]
-   (let [idx (atom {})
-         all-consts (env/all-constants env)]
-     (if (seq all-consts)
-       ;; Full scan mode (import time, non-PSS env)
-       (do
-         (doseq [^ConstantInfo ci all-consts]
-           (when (or (.isDef ci) (.isThm ci))
-             (when-let [[head-name arity] (return-type-head (.type ci))]
-               (let [s (name/->string (.name ci))]
-                 ;; Include potential instances: inst*, *.inst*, *.to*, *.dec*
-                 (when (or (.contains s "inst") (.contains s "Inst")
-                           (.contains s ".to") (.contains s ".dec")
-                           (.contains s "Dec"))
-                   (swap! idx update head-name
-                          (fnil conj []) {:name (.name ci) :arity arity}))))))
-         ;; Sort candidates: more specific (higher arity) first
-         (into {} (map (fn [[k vs]]
-                         [k (sort-by (fn [v]
-                                       (let [s (str (:name v))]
-                                         (if (.startsWith s "Classical.")
-                                           [1 (- (:arity v))]
-                                           [0 (- (:arity v))])))
-                                     vs)])
-                       @idx)))
-       ;; PSS mode: name-based discovery for common classes + types
-       (let [common-classes ["Add" "Mul" "Sub" "Div" "Neg" "SMul" "Zero" "One"
-                             "AddZeroClass" "MulZeroClass" "MulOneClass"
-                             "AddMonoid" "Monoid" "AddGroup" "Group"
-                             "AddCommMonoid" "CommMonoid" "AddCommGroup" "CommGroup"
-                             "AddSemigroup" "Semigroup" "AddCommMagma" "CommMagma"
-                             "Field" "DivisionRing" "Ring" "CommRing"
-                             "NormedAddCommGroup" "NormedRing" "NormedField" "NormedSpace"
-                             "InnerProductSpace" "RCLike" "NormedAlgebra"
-                             "MulZeroOneClass" "MonoidWithZero" "SubtractionMonoid"
-                             "NonUnitalNormedRing" "SeminormedAddCommGroup"
-                             "Module" "Algebra" "NormedCommRing"
-                             "HSMul" "HAdd" "HMul" "HSub" "HDiv" "HPow"
-                             "Decidable" "DecidableEq" "BEq" "Repr" "ToString"]
-             known-types (or types ["Nat" "Int" "Real" "Complex" "Float"])]
-         (doseq [cls common-classes]
-           (let [cls-name (name/from-string cls)
-                 candidates (atom [])]
-             ;; Try naming patterns for each type
-             (doseq [typ known-types]
-               (doseq [pattern [(str "inst" cls typ)
-                                (str typ ".inst" cls)]]
-                 (when-let [ci (env/lookup env (name/from-string pattern))]
-                   (swap! candidates conj {:name (.name ci) :arity 0}))))
-             ;; Try bare instCls pattern
-             (when-let [ci (env/lookup env (name/from-string (str "inst" cls)))]
-               (swap! candidates conj {:name (.name ci) :arity 0}))
-             ;; Store if found
-             (when (seq @candidates)
-               (swap! idx assoc cls-name (distinct @candidates)))))
-         @idx)))))
-
 (defn add-instance
   "Lean's `addInstance`: a NEW env whose instance table (the `:instances` extension) also
    holds the constant `inst-name`, keyed by the class its type concludes in, at `priority`
    (Lean's default 1000). Among equal priorities the newest registration is tried FIRST, as
    in Lean's DiscrTree insertion order; a higher priority still goes ahead of it. An env with
-   no registry yet is seeded by discovery, so the new instance never shadows what discovery
-   would have found."
+   no registry starts with the empty table, as Lean's instanceExtension does."
   [^Env env inst-name & {:keys [priority] :or {priority 1000}}]
   (let [ci (or (env/lookup env inst-name)
                (throw (ex-info "add-instance: no such constant" {:name (name/->string inst-name)})))
         [cls _] (or (return-type-head (.type ci))
                     (throw (ex-info "add-instance: the type does not conclude in a class"
                                     {:name (name/->string inst-name)})))
-        idx (or (env/get-extension env :instances nil) (build-instance-index env))
+        idx (or (env/get-extension env :instances nil) {})
         entry {:name inst-name :priority priority}
         same? (fn [v] (= (:name v) inst-name))]
     (env/with-extension env :instances
@@ -175,18 +108,12 @@
       (parse-instance-tsv lines present?))))
 
 (defn index-for
-  "The instance index to synthesize against for `env`: the registry carried ON the env (the
-   `:instances` extension `setup-env!` attaches — a store's derived `:instances` blob, or the
-   bundled Init registry; both are Lean's own @[instance] table), else name-based discovery
-   over `env` — never a process-global registry that may belong to another env. Every
-   synthesis entry point goes through this — an index built by discovery alone (39 hand-listed
-   classes) never sees most of Mathlib. The env carries it because Lean's instance table is part of the environment:
-   `decide` on an env must see THAT env's instances, and a process-global alone let a test's
-   leftover registry for another env answer for it (the full suite failed nondeterministically
-   in whichever namespace ran `decide` next)."
+  "The environment's registered instances (Lean Meta/Instances.lean:getGlobalInstancesIndex).
+   An empty registry is valid; a missing registry is an environment setup error."
   [env]
-  (let [on-env (env/get-extension env :instances nil)]
-    (if (seq on-env) on-env (build-instance-index env))))
+  (or (env/get-extension env :instances nil)
+      (throw (ex-info "Tactic error: no instance registry"
+                      {:kind :tactic-error}))))
 
 ;; ── Candidate selection — Lean's DiscrTree key, one level deep ─────────────────────────────
 ;; Lean's `getInstances` looks candidates up in a discrimination tree keyed by the instance
@@ -565,69 +492,6 @@
                                    (e/const' (:name candidate) inst-levels)
                                    filled-args)))))))
 
-(def ^:private parent-class-sources
-  "Curated superclass → subclasses whose structure-`extends` parent projection `{Sub}.to{Super}`
-   yields an instance of the superclass (Lean auto-registers these as instances). Needed for PSS
-   envs, where `build-instance-index` can't scan the lazy store to find the `.to` projections (the
-   full-scan path only sees the locally-added constants). Same curated style as `common-classes`;
-   extend as new class hierarchies are exercised. The synthesizer fills the projection's structure
-   argument by recursive synthesis (see try-candidate's projection-arg handling)."
-  {"ReflBEq"    ["LawfulBEq" "EquivBEq"]
-   "EquivBEq"   ["LawfulBEq"]
-   ;; WSemiring extends WAddMonoid — its `WSemiring.toWAddMonoid` projection is the registered
-   ;; instance that fills a `WAddMonoid S` goal from a local `WSemiring S` instance (the
-   ;; instance-implicit `wsum` over WSemiring-parameterized laws relies on this resolution).
-   "WAddMonoid" ["WSemiring"]})
-
-(defn- discover-candidates
-  "On-demand candidate discovery for PSS environments.
-   Tries naming conventions to find instances without scanning all constants.
-   Returns a seq of {:name Name :arity Nat} candidates."
-  [env class-name goal-type]
-  (let [class-str (name/->string class-name)
-        [_ goal-args] (e/get-app-fn-args goal-type)
-        ;; Extract type names from goal args for name pattern search
-        type-names (keep (fn [arg]
-                           (let [[h _] (e/get-app-fn-args arg)]
-                             (when (e/const? h) (name/->string (e/const-name h)))))
-                         goal-args)
-        ;; Generate candidate names to try
-        ;; Also extract head names from NESTED expressions (e.g., And in And (Eq ...) True)
-        nested-heads (keep (fn [arg]
-                             (let [[h _] (e/get-app-fn-args arg)]
-                               (when (e/const? h) (name/->string (e/const-name h)))))
-                           (mapcat (fn [arg]
-                                     (let [[_ args] (e/get-app-fn-args arg)]
-                                       (cons arg args)))
-                                   goal-args))
-        all-names (distinct (concat type-names nested-heads))
-        candidate-names
-        (distinct
-         (concat
-            ;; inst{Class}{Type} patterns
-          (for [tn all-names]
-            (str "inst" class-str tn))
-            ;; {Type}.inst{Class} patterns
-          (for [tn all-names]
-            (str tn ".inst" class-str))
-            ;; inst{Class} (bare, for classes with parameters handled by forall args)
-          [(str "inst" class-str)]
-            ;; DecidableEq pattern: when goal is Decidable (Eq T a b),
-            ;; also try instDecidableEq{T} which returns DecidableEq T
-          (when (= class-str "Decidable")
-            (for [tn all-names]
-              (str "instDecidableEq" tn)))
-            ;; Structure-`extends` parent projections {Sub}.to{Class} — an instance of Class via a
-            ;; subclass instance (e.g. ReflBEq via LawfulBEq.toReflBEq). try-candidate synthesizes the
-            ;; projection's structure argument; the goal class is the projection's RETURN type.
-          (for [sub (get parent-class-sources class-str)]
-            (str sub ".to" class-str))))]
-    (keep (fn [n]
-            (let [nm (name/from-string n)]
-              (when (env/lookup env nm)
-                {:name nm :arity 0})))
-          candidate-names)))
-
 (defn- at-least-two-instance
   "`Nat.AtLeastTwo n` for a numeral n >= 2. This is the side condition of Mathlib's
    `instOfNatAtLeastTwo`, i.e. of EVERY numeric literal >= 2 at a non-`Nat` type (`(2 : R)`).
@@ -680,9 +544,10 @@
    (`:synth-memo`, Lean's synthInstance cache — failures memoize too, which is
    what collapses the repeated exploration of an unsatisfiable class goal
    across hundreds of candidate chains).
-   Uses the pre-built index when available, falls back to on-demand
-   candidate discovery for PSS environments."
+   Candidates come from the explicitly supplied registry. The environment
+   must carry its instance extension even when that registry is empty."
   [st env index goal-type depth]
+  (index-for env)
   (if (nil? *depth-hits*)
     ;; every top-level search tracks its own depth cuts, so no caller can memoize a cut path;
     ;; a search that fails after a cut is exhausted, not negative (Lean checkSystem names its
@@ -750,12 +615,7 @@
                                    (tc/is-def-eq st (:type decl) goal-type))
                           (e/fvar fid)))))
                   (:lctx st))
-              ;; Try pre-built index first, then on-demand discovery
-            candidates (let [idx-cands (get-instances index head-info)]
-                         (if (seq idx-cands)
-                           idx-cands
-                           (discover-candidates env head-info goal-type)))
-            ;; Try candidates from index/discovery
+            candidates (get-instances index head-info)
             ;; Lean Meta/SynthInstance.lean:getInstances/generate tries all keyed matches;
             ;; a candidate count must never change a successful search into a miss.
             from-candidates (when-not local-inst
@@ -772,32 +632,7 @@
               ;; `Decidable (@Eq T a b)` from a `DecidableEq T` instance. Lean keys DecidableEq
               ;; instances under their unfolded conclusion `Decidable (Eq _ _ _)`, so they answer
               ;; such goals directly; the registry here lists them under `DecidableEq`. Type-checked.
-            (decidable-eq-instance st env index goal-type head-info depth)
-            ;; Fallback: name-based resolution with derivation chains (from ansatz.core).
-            ;; TYPE-CHECKED before it is returned: that resolver builds terms from naming
-            ;; conventions alone and its H-class rule assumes a HOMOGENEOUS operator, so on a
-            ;; genuinely heterogeneous goal (`HPow Real Nat Real`) it produced an ill-typed
-            ;; `instHPow Real Real.instPow` that silently poisoned the elaborated term. Every
-            ;; This legacy fallback still tolerates a head/argument prefix when callers leave
-            ;; the goal's universe at zero; unlike candidate-application it is not full-result
-            ;; unification. Remove it with the core resolver migration (see design doc).
-            (let [resolve-fn (requiring-resolve 'ansatz.core/resolve-basic-instance)
-                  [_ goal-args] (e/get-app-fn-args goal-type)
-                  type-arg (first goal-args)
-                  [th _] (when type-arg (e/get-app-fn-args type-arg))
-                  class-str (name/->string head-info)
-                  type-str (when (and th (e/const? th)) (name/->string (e/const-name th)))]
-              (when-let [term (when type-str (resolve-fn env class-str type-str type-arg))]
-                (let [inferred (tc/infer-type st term)
-                      [ih ia] (e/get-app-fn-args inferred)]
-                  (when (or (tc/is-def-eq st inferred goal-type)
-                            (and (e/const? ih)
-                                 (= (e/const-name ih) head-info)
-                                 (>= (count ia) (count goal-args))
-                                 (every? true?
-                                         (map (fn [i g] (tc/is-def-eq st i g))
-                                              (take (count goal-args) ia) goal-args))))
-                    term)))))))))
+            (decidable-eq-instance st env index goal-type head-info depth))))))
 
 ;; ============================================================
 ;; Public API
@@ -845,6 +680,7 @@
    like AddRightMono Real that recursive synthesize* can't handle.
    Does NOT modify synthesize or synthesize*."
   [st env index goal-type]
+  (index-for env)
   (let [max-steps 200
         result (atom nil)
         gen-stack (atom [])

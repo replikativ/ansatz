@@ -28,18 +28,29 @@
    to have lying around, which is how the omega suite spent a release asserting
    against a stale 2997-declaration slice."
   (:require [ansatz.export.parser :as parser]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name]
+            [ansatz.tactic.instance :as instance]
             [ansatz.export.replay :as replay]
             [ansatz.export.storage :as storage]
             [clojure.java.io :as io]))
 
+(defn with-instance-registry
+  "Attach Lean's bundled Init registry to a replayed Init test environment."
+  [base]
+  (env/with-extension base :instances
+    (instance/load-bundled-instances
+     {:present? #(some? (env/lookup base (name/from-string %)))})))
+
 (defn- store-env [store-dir branch]
   (when (.exists (java.io.File. store-dir))
-    (try (storage/load-env (storage/open-store store-dir) branch)
-         (catch Throwable _ nil))))
+    (some-> (try (storage/load-env (storage/open-store store-dir) branch)
+                 (catch Throwable _ nil))
+            with-instance-registry)))
 
 (defn- ndjson-env [f]
   (when (.exists (java.io.File. f))
-    (:env (replay/replay (:decls (parser/parse-ndjson-file f)) :verify? false))))
+    (with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)) :verify? false)))))
 
 (def init-full-env
   "Full Lean `Init` library. Prefers the PSS store, falls back to NDJSON. nil if
@@ -67,4 +78,4 @@
                         {:resource "ansatz/init-medium.ndjson.gz"})))
       (let [ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
                      (slurp in))]
-        (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false))))))
+        (with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false)))))))

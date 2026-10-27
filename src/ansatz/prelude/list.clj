@@ -44,17 +44,15 @@
   ;; `(induction xs) <;> simp_all [wsum.eq_1 wsum.eq_2 …]` — riding wsum's auto-generated constructor
   ;; equations and the bundled WSemiring axioms applied to the instance (`(WSemiring.mul_add m)`).
   (when-not (has? "wsum_map_mul_left")
-    (try
-      (eval '(ansatz.core/theorem wsum_map_mul_left
-                                  [X :- Type, S :- Type :implicit, m :- (WSemiring S) :inst, b :- S, f :- (=> X S), xs :- (List X)]
-                                  (= S
-                                     (wsum
-                                      (List.map X S (fn [x :- X] (WSemiring.mul m b (f x))) xs))
-                                     (WSemiring.mul m b (wsum (List.map X S f xs))))
-                                  (induction xs)
-                                  (all_goals (simp_all [wsum.eq_1 wsum.eq_2 List.map_nil List.map_cons
-                                                        (WSemiring.mul_zero m) (WSemiring.mul_add m)]))))
-      (catch Throwable _ nil)))
+    (eval '(ansatz.core/theorem wsum_map_mul_left
+                                [X :- Type, S :- Type :implicit, m :- (WSemiring S) :inst, b :- S, f :- (=> X S), xs :- (List X)]
+                                (= S
+                                   (wsum
+                                    (List.map X S (fn [x :- X] (WSemiring.mul m b (f x))) xs))
+                                   (WSemiring.mul m b (wsum (List.map X S f xs))))
+                                (induction xs)
+                                (all_goals (simp_all [wsum.eq_1 wsum.eq_2 List.map_nil List.map_cons
+                                                      (WSemiring.mul_zero m) (WSemiring.mul_add m)])))))
   ;; Additivity of the big-operator: ∑ (f x + g x) = ∑ f x + ∑ g x, over a commutative monoid.
   ;; Mirrors Lean core's own style for List.sum lemmas — `List.sum_append` takes `Std.Associative` /
   ;; `Std.LawfulLeftIdentity` as instance args; here the commutative variant takes a `Std.Commutative

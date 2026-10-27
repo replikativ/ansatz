@@ -1,6 +1,7 @@
 (ns ansatz.tactic.instance-test
   "Tests for typeclass instance synthesis."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.tactic.instance :as inst]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -22,12 +23,12 @@
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)]
-          (:env (replay/replay (:decls st))))))))
+          (test-env/with-instance-registry (:env (replay/replay (:decls st)))))))))
 
 (defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
 
 (def ^:private test-index
-  (delay (inst/build-instance-index (require-env))))
+  (delay (inst/index-for (require-env))))
 
 ;; ============================================================
 ;; Basic instance lookup
@@ -64,7 +65,7 @@
     (let [env (require-env)
           st (tc/mk-tc-state env)
           nat (e/const' (name/from-string "Nat") [])
-          goal (e/app (e/const' (name/from-string "DecidableEq") [lvl/zero]) nat)
+          goal (e/app (e/const' (name/from-string "DecidableEq") [(lvl/succ lvl/zero)]) nat)
           result (inst/synthesize* st env @test-index goal 0)]
       (is (some? result) "Should find DecidableEq Nat instance"))))
 
@@ -146,23 +147,39 @@
       (reset! state/ansatz-instance-index registry)
       (is (not (identical? registry (inst/index-for env)))
           "a process-global registry never answers for an env that does not carry it")
-      (is (seq (inst/get-instances (inst/index-for env) (name/from-string "Add")))
-          "an env without a registry gets name-based discovery")
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no instance registry"
+                            (inst/index-for (env/with-extension env :instances nil))))
+      (is (= {} (inst/index-for (env/with-extension env :instances {}))))
       (finally (reset! state/ansatz-instance-index saved)))))
 
 (deftest test-add-instance-registers-on-the-env
-  (let [env (require-env)
+  (let [env (env/with-extension (require-env) :instances nil)
         inst (name/from-string "instNonemptyOfInhabited")
         env' (inst/add-instance env inst)
         entries (inst/get-instances (inst/index-for env') (name/from-string "Nonempty"))]
-    (is (= inst (:name (first entries))) "the newest registration is tried first among equals")
+    (is (= [{:name inst :priority 1000}] entries) "only the explicit registration is added")
     (is (= 1000 (:priority (first entries))) "Lean's default priority")
     (is (nil? (env/get-extension env :instances nil)) "the original env is untouched")
     (is (= [{:name inst :priority 10}]
            (filter #(= inst (:name %))
                    (inst/get-instances (inst/index-for (inst/add-instance env' inst :priority 10))
                                        (name/from-string "Nonempty"))))
-        "re-registering replaces the entry, and a lower priority sorts it behind the defaults")))
+        "re-registering replaces the entry with the requested priority")))
+
+(deftest add-instance-orders-equal-priorities-newest-first
+  (let [cls (name/from-string "Nonempty")
+        older (name/from-string "instNonemptyOfInhabited")
+        newer (name/from-string "instNonemptyOfMonad")
+        base (env/with-extension (require-env) :instances {})
+        registered (-> base
+                       (inst/add-instance older :priority 1000)
+                       (inst/add-instance newer :priority 1000))]
+    (is (= [{:name newer :priority 1000} {:name older :priority 1000}]
+           (inst/get-instances (inst/index-for registered) cls))
+        "Lean tries the most recent registration first among equal priorities")
+    (is (= [{:name older :priority 1000} {:name newer :priority 10}]
+           (inst/get-instances (inst/index-for (inst/add-instance registered newer :priority 10)) cls))
+        "re-registration changes priority without duplicating or dropping candidates")))
 
 ;; ============================================================
 ;; DecidableEq instances with arguments (Lean keys them by the unfolded conclusion)
@@ -257,6 +274,7 @@
         u (nm "u")
         add-ax (fn [en s ty] (env/check-constant en (env/mk-axiom (nm s) [] ty)))
         env (-> (env/empty-env)
+                (env/with-extension :instances {})
                 (env/check-constant
                  (env/mk-axiom (nm "RegrU") [u]
                                (e/forall' "A" (e/sort' (lvl/param u)) prop :default)))
@@ -304,3 +322,20 @@
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exhausted the search depth bound"
                             (inst/synthesize* (tc/mk-tc-state env) env idx goal 0))))
     (is (some? (inst/synthesize* (tc/mk-tc-state env) env idx goal 0)))))
+
+(deftest registered-instances-only
+  (let [base (require-env)
+        nat (e/const' (name/from-string "Nat") [])
+        goal (e/app (e/const' (name/from-string "Add") [lvl/zero]) nat)
+        empty-env (env/with-extension base :instances {})
+        raw-env (env/with-extension base :instances nil)]
+    (testing "declarations with instance-like names do not populate an empty registry"
+      (is (some? (env/lookup base (name/from-string "instAddNat"))))
+      (is (some? (inst/synthesize* (tc/mk-tc-state base) base (inst/index-for base) goal 0)))
+      (is (nil? (inst/synthesize* (tc/mk-tc-state empty-env) empty-env {} goal 0))))
+    (testing "synthesis without an environment registry fails loudly"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"no instance registry"
+                            (inst/synthesize* (tc/mk-tc-state raw-env) raw-env @test-index goal 0))))
+    (testing "scoped Classical instances are absent from the bundled global registry"
+      (is (not-any? #(= "Classical.propDecidable" (str (:name %)))
+                    (mapcat val (inst/index-for base)))))))

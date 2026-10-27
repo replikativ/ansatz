@@ -1,5 +1,6 @@
 (ns ansatz.tactic.level1-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -14,7 +15,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- env [] (or @test-env (throw (ex-info "no env" {}))))
 (def ^:private nat (e/const' (name/from-string "Nat") []))

@@ -1,5 +1,6 @@
 (ns ansatz.meta-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest is testing]]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
@@ -20,7 +21,7 @@
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
               result (replay/replay (:decls st))]
-          (:env result))))))
+          (test-env/with-instance-registry (:env result)))))))
 
 (defn- require-init-medium []
   (or @init-medium-env

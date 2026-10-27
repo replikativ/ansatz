@@ -1,6 +1,7 @@
 (ns ansatz.indexed-inductive-test
   "Tests for indexed inductive families (Vec, Fin, etc.)."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
             [ansatz.kernel.env :as env]
@@ -19,7 +20,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- ensure-tvec []
   (when-not (env/lookup (a/env) (name/from-string "TVec"))
