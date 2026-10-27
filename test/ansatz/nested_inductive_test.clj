@@ -10,22 +10,16 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.expr :as e]
-            [ansatz.kernel.level :as lvl]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.level :as lvl]))
 
-(def ^:private init-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private init-env test-env/checked-bundled-init-env)
 
 (defn- with-init-env [f]
   (when-let [env @init-env]
     (reset! a/ansatz-env env)
     (binding [a/*verbose* false] (f))))
 
-(use-fixtures :once with-init-env)
+(clojure.test/use-fixtures :once with-init-env)
 
 (defn- ensure-rose []
   (when-not (env/lookup (a/env) (name/from-string "RoseT"))

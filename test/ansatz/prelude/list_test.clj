@@ -11,7 +11,8 @@
    wsum.eq_2 …]` proofs ride the auto-generated constructor equations, and a law over a `WSemiring S`
    instance feeds `wsum` its `WAddMonoid` via the `WSemiring.toWAddMonoid` projection (synthesized
    from the local instance). This test pins those proofs as the authoritative check."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
@@ -30,7 +31,7 @@
   (if-let [e @full]
     (do (reset! a/ansatz-env e) (plist/install!) (t))
     (println "  (skipping prelude.list-test — test-data/init.ndjson not present)")))
-(use-fixtures :once with-env)
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
 
 (defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
 (defn- verifies? [s]

@@ -1,24 +1,19 @@
 (ns ansatz.kernel.edge-cases-test
   "Tests for kernel edge cases: proof irrelevance, eta reduction,
    deep WHNF, K-recursors, universe levels."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.kernel.reduce :as red]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.kernel.reduce :as red])
   (:import [ansatz.kernel ConstantInfo TypeChecker Env]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
-(defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
+(defn- require-env [] (or @test-env (throw (ex-info "bundled Init unavailable" {}))))
 
 ;; ============================================================
 ;; Proof irrelevance

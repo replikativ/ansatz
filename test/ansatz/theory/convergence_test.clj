@@ -31,7 +31,8 @@
 (defmacro ^:private when-mathlib [& body]
   `(if @mathlib-available?
      (binding [a/*verbose* false] ~@body)
-     (is true "skipped: Mathlib store not available")))
+     (do (println "SKIP: Mathlib store not available")
+         (is true "skipped: Mathlib store not available"))))
 
 ;; ============================================================
 ;; Contraction factor bounds

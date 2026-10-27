@@ -12,9 +12,7 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.search :as search]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.search :as search])
   (:import [ansatz.kernel Env TypeChecker ConstantInfo Name]))
 
 ;; ============================================================
@@ -29,19 +27,12 @@
   []
   (env/with-extension (env/empty-env) :instances {}))
 
-(def ^:private init-medium-env
-  "Lazily loaded init-medium environment."
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-init-medium []
   (let [env @init-medium-env]
     (when-not env
-      (throw (ex-info "init-medium.ndjson not found" {})))
+      (throw (ex-info "bundled Init unavailable" {})))
     env))
 
 ;; ============================================================

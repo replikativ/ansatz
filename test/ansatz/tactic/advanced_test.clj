@@ -16,27 +16,19 @@
             [ansatz.tactic.omega-proof :as omega-proof]
             [ansatz.tactic.ring :as ring]
             [ansatz.tactic.simp :as simp]
-            [ansatz.tactic.decide :as decide]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.decide :as decide])
   (:import [ansatz.kernel TypeChecker]))
 
 ;; ============================================================
 ;; Test environment
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-env []
   (let [env @init-medium-env]
     (when-not env
-      (throw (ex-info "init-medium.ndjson not found" {})))
+      (throw (ex-info "bundled Init unavailable" {})))
     env))
 
 ;; ============================================================

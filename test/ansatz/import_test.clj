@@ -2,12 +2,15 @@
   "The single importer (ansatz.import) and store format 1: an export in, a COMPLETE store out —
    manifest last, derived state as blobs, content-addressed roots — and `init!` on it, with
    simp served lazily from the store's index and recall from its keys."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [ansatz.test-env :as test-env]
+            [ansatz.export.parser :as parser]
+            [clojure.test :refer [deftest is testing]]
             [clojure.java.io :as io]
             [ansatz.core :as a]
             [ansatz.import :as imp]
             [ansatz.store :as store]
             [ansatz.state :as state]
+            [ansatz.simp-index :as si]
             [ansatz.recall :as recall]
             [ansatz.export.storage :as storage]
             [ansatz.kernel.env :as env]
@@ -15,7 +18,12 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]))
 
-(def ^:private ndjson "test-data/init-medium.ndjson")
+(def ^:dynamic *ndjson* nil)
+(def ^:private declaration-count
+  (delay
+    (parser/with-parser-state
+      (parser/parse-ndjson-string @test-env/bundled-init-text)
+      #(count (:decls %)))))
 (def ^:private attrs "resources/ansatz/init-attrs.ndjson.gz")
 
 (defn- tmp-store [tag]
@@ -23,7 +31,7 @@
     (.delete f) (.deleteOnExit f) (.getPath f)))
 
 (defn- import-medium! [dir & {:as opts}]
-  (imp/import! dir (merge {:ndjson ndjson :attrs attrs :branch "init"
+  (imp/import! dir (merge {:ndjson *ndjson* :attrs attrs :branch "init"
                            :provenance {:lean/toolchain "test" :library/rev "init-medium"}
                            :verbose? false :parallelism 2}
                           opts)))
@@ -32,6 +40,15 @@
 (defn- nle [x y]
   (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) nat
           (e/const' (name/from-string "instLENat") []) x y))
+
+(clojure.test/use-fixtures :once
+  (fn [f]
+    ;; The importer accepts a file path; materialize the shipped closure for it.
+    (let [file (java.io.File/createTempFile "ansatz-bundled-init-" ".ndjson")]
+      (try
+        (spit file @test-env/bundled-init-text)
+        (binding [*ndjson* (.getPath file)] (f))
+        (finally (.delete file))))))
 
 (deftest an-import-is-a-complete-store
   (let [dir (tmp-store "full")
@@ -42,8 +59,8 @@
       (is (= "init" (:branch m)))
       (is (= "test" (get-in m [:provenance :lean/toolchain])))
       (let [arts (:artifacts m)]
-        (is (= 2997 (:declarations arts)))
-        (is (= 2997 (:facts arts)) "one facts record per declaration")
+        (is (= @declaration-count (:declarations arts)))
+        (is (= @declaration-count (:facts arts)) "one facts record per declaration")
         (is (> (:attrs arts) 100) "the inherited Init corpus, intersected")
         (is (pos? (:recall-keys arts)))
         (is (pos? (:simp-keys arts)))
@@ -63,13 +80,14 @@
       (is (pos? (count @a/ansatz-instance-index)))
       (is (some? (:store-path ((requiring-resolve 'ansatz.simp-index/index-source) (a/env))))
           "the env carries its simp-index source"))
-    (testing "simp serves the inherited set LAZILY from the store's trie blob"
-      (is (nil? @state/ansatz-simp-trie) "nothing loaded before the first simp")
+    (testing "simp resolves inherited rules LAZILY from the captured store trie"
+      (is (nil? (si/capture-caches)) "no inherited rules resolved before the first simp")
       (binding [a/*verbose* false]
         (a/prove-theorem 'imp-opt-inj '[a :- Nat, b :- Nat]
                          '(= Prop (= (Option Nat) (Option.some a) (Option.some b)) (= Nat a b)) '[(simp)]))
       (is (some? (env/lookup (a/env) (name/from-string "imp-opt-inj"))))
-      (is (some? (:trie @state/ansatz-simp-trie)) "the trie blob was loaded on demand"))
+      (is (seq (get-in (si/capture-caches) [:rules "Option.some.injEq"]))
+          "the inherited injection rule was resolved on demand"))
     (testing "the facts blobs carry the statement's and the value's vocabulary"
       (let [sm (:store-map @state/ansatz-store)
             kstore (:store sm)
@@ -78,7 +96,7 @@
             by-name (into {} (map (juxt :name identity)) facts)
             f (by-name "Nat.add_comm")]
         (is (pos? n) "facts are chunked")
-        (is (= 2997 (count facts)))
+        (is (= @declaration-count (count facts)))
         (is (= :thm (:kind f)))
         (is (= "Eq" (:concl-head f)))
         (is (= 2 (:num-binders f)))

@@ -1,32 +1,7 @@
 (ns ansatz.test-env
-  "Shared, lazily-loaded kernel environments for tests.
-
-   Loading Init is expensive and several namespaces need it, so each source is
-   loaded at most ONCE per test run via these delays. Two fast paths, in order
-   of preference:
-
-   1. A prebuilt PSS store (test-data/init-store) — opened lazily with on-demand
-      declaration loading; ~40ms to a usable env. Build it once with:
-
-        clj -J-Xmx10g -M -e '(require (quote [ansatz.export.storage :as s]))
-          (let [sm (s/open-store \"test-data/init-store\")]
-            (s/import-ndjson-streaming! sm \"test-data/init.ndjson\" \"init\"))'
-
-      The store is gitignored (large, not shipped yet).
-
-   2. Fallback: replay the NDJSON in TRUST mode (`:verify? false`) — tests use
-      Init, they don't validate the export, so admit without re-typechecking
-      (~125× faster than verifying). Used when the store is absent (e.g. CI).
-
-   The returned Env is immutable, so tests freely build on it; nil if neither the
-   store nor the NDJSON is present, so integration tests skip.
-
-   `bundled-init-env` is different in kind and is what most tests should use: it is
-   the store ansatz SHIPS (resources/ansatz/init-medium.ndjson.gz, on the classpath),
-   so it is always available — no test-data fixture, and identical in CI and on a
-   developer box. The `test-data/*` fixtures above are whatever that machine happens
-   to have lying around, which is how the omega suite spent a release asserting
-   against a stale 2997-declaration slice."
+  "Shared immutable Init environments. Bundled Init is always available through
+   the classpath resource API, with separate checked and TRUST replay delays.
+   Full Init remains optional: prefer its local PSS store, then its NDJSON export."
   (:require [ansatz.export.parser :as parser]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -58,24 +33,31 @@
   (delay (or (store-env "test-data/init-store" "init")
              (ndjson-env "test-data/init.ndjson"))))
 
-(def init-medium-env
-  "Medium Init slice from `test-data/`. nil if that fixture is absent — which it is on
-   CI and on a fresh clone. Prefer `bundled-init-env`."
-  (delay (or (store-env "test-data/init-medium-store" "init")
-             (ndjson-env "test-data/init-medium.ndjson"))))
-
-(def bundled-init-env
-  "The Init tier ansatz ships in the jar: `resources/ansatz/init-medium.ndjson.gz`,
-   the transitive dependency closure of `scripts/init-store-roots.txt`, replayed in
-   TRUST mode. This is exactly the environment `ansatz.core/load-init!` gives a
-   library user, so a tactic that works here works out of the box.
-
-   Never nil: the resource is on the classpath by construction. Loaded once."
+(def bundled-init-text
+  "Read the shipped Init closure through the classpath, independently of export size."
   (delay
     (let [res (io/resource "ansatz/init-medium.ndjson.gz")]
       (when-not res
         (throw (ex-info "bundled Init export missing from the classpath"
                         {:resource "ansatz/init-medium.ndjson.gz"})))
-      (let [ndjson (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
-                     (slurp in))]
-        (with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-string ndjson)) :verify? false)))))))
+      (with-open [in (java.util.zip.GZIPInputStream. (.openStream res))]
+        (slurp in)))))
+
+(defn- replay-bundled-init [verify?]
+  (parser/with-parser-state
+    (parser/parse-ndjson-string @bundled-init-text)
+    (fn [parsed]
+      (with-instance-registry
+        (:env (replay/replay (:decls parsed) :verify? verify? :stop-on-error? true))))))
+
+(def bundled-init-env
+  "Shared bundled Init in TRUST mode, as used by core/load-init!. Never nil."
+  (delay (replay-bundled-init false)))
+
+(def checked-bundled-init-env
+  "Shared bundled Init with checked replay. Admission failures propagate; never skips."
+  (delay (replay-bundled-init true)))
+
+(def init-medium-env
+  "Compatibility name for the TRUST-mode bundled Init environment."
+  bundled-init-env)

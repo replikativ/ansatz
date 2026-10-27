@@ -10,18 +10,12 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.instance :as instance]
             [ansatz.codegen :as cg]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.prelude.algebra :as alg]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- with-env [t]
-  (when-let [e @init-medium-env] (reset! a/ansatz-env e))
+  (reset! a/ansatz-env @init-medium-env)
   (t))
 (use-fixtures :once with-env)
 (defn- ready? [] (some? @init-medium-env))

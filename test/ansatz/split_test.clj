@@ -3,7 +3,8 @@
    ite/dite/cond/Bool.rec discriminant in the goal. Goals are built at the kernel
    level because the surface `cond`/`ite` keywords intercept a/theorem elaboration.
    Each proof is checked with the AUTHORITATIVE check-constant (env/verifies?)."
-  (:require [ansatz.test-env :as test-env]
+  (:require [ansatz.fixtures :as fixtures]
+            [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
@@ -30,7 +31,7 @@
     (attrs/load-bundled-attrs!)
     (matchers/load-bundled-matchers!))
   (t))
-(use-fixtures :once with-env)
+(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
 
 (def ^:private L1 (lvl/succ lvl/zero))
 (defn- nat [] (e/const' (name/from-string "Nat") []))

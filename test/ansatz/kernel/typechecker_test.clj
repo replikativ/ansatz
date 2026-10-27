@@ -1,12 +1,13 @@
 (ns ansatz.kernel.typechecker-test
   "Unit tests for TypeChecker: type inference, definitional equality, fuel stats."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.test-env :as test-env]
+            [ansatz.fixtures :as fixtures]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
-            [ansatz.export.parser :refer [parse-ndjson-file]]
-            [ansatz.export.replay :as replay])
+            [ansatz.export.parser :refer [parse-ndjson-file]])
   (:import [ansatz.kernel TypeChecker Reducer LeanExprKey Expr Env ConstantInfo
             ConstantInfo$RecursorRule Name Level]
            [java.io StringWriter]))
@@ -355,7 +356,7 @@
 (deftest replay-with-stats-test
   (testing "Replay Nat.add_succ with checkConstantFuelStats"
     (let [f "test-data/Nat.add_succ.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (letfn [(same-name-array? [^objects xs ^objects ys]
                   (and xs ys
                        (= (alength xs) (alength ys))
@@ -441,16 +442,13 @@
 
 (deftest reject-ill-typed-definition-test
   (testing "checkConstant rejects definitions whose body only typechecks in infer-only mode"
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parse-ndjson-file f)
-              env (:env (replay/replay (:decls st)))
-              nat (e/const' (name/from-string "Nat") [])
-              body (e/app (e/const' (name/from-string "Nat.succ") [])
-                          (e/const' (name/from-string "True.intro") []))
-              ci (env/mk-def (name/from-string "bad") [] nat body)]
-          (is (thrown? Exception
-                       (TypeChecker/checkConstant env ci 1000000))))))))
+    (let [env @test-env/checked-bundled-init-env
+          nat (e/const' (name/from-string "Nat") [])
+          body (e/app (e/const' (name/from-string "Nat.succ") [])
+                      (e/const' (name/from-string "True.intro") []))
+          ci (env/mk-def (name/from-string "bad") [] nat body)]
+      (is (thrown? Exception
+                   (TypeChecker/checkConstant env ci 1000000))))))
 
 (deftest reject-safe-use-of-unsafe-test
   (testing "safe declarations cannot depend on unsafe constants"
@@ -508,57 +506,53 @@
   (testing "the being-defined inductive must occur strictly-positively INSIDE a
    nesting inductive's parameters — a negative occurrence there is unsound and
    Lean rejects it, even though the direct-occurrence check would miss it"
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [E (:env (replay/replay (:decls (parse-ndjson-file f))))
-              n #(name/from-string %)
-              c #(e/const' (n %) [])
-              list0 (fn [x] (e/app (e/const' (n "List") [lvl/zero]) x))
-              check (fn [nm ctor-ty]
-                      (let [ind (env/mk-induct (n nm) [] type0 :num-params 0 :num-indices 0
-                                               :all [(n nm)] :ctors [(n (str nm ".mk"))])
-                            ct (env/mk-ctor (n (str nm ".mk")) [] ctor-ty (n nm) 0 0 1)]
-                        (TypeChecker/checkInductiveBundle
-                         E (env/mk-inductive-bundle [] 0 false [ind] [ct] []) 5000000)))]
-          ;; NEGATIVE occurrence nested inside List — must be rejected
-          (is (thrown-with-msg?
-               Exception #"non-positive occurrence"
-               (let [b (c "BadN")]
-                 (check "BadN" (e/forall' "xs" (list0 (e/forall' "_" b b :default)) b :default)))))
-          ;; POSITIVE recursive occurrence nested inside List — must be accepted
-          (is (some? (let [tt (c "TreeN")]
-                       (check "TreeN" (e/forall' "kids" (list0 tt) tt :default)))))
-          ;; DOUBLY nested positive (List (List Rose)) — accepted
-          (is (some? (let [r (c "RoseN")]
-                       (check "RoseN" (e/forall' "kids" (list0 (list0 r)) r :default))))))))))
+    (let [E @test-env/checked-bundled-init-env
+          n #(name/from-string %)
+          c #(e/const' (n %) [])
+          list0 (fn [x] (e/app (e/const' (n "List") [lvl/zero]) x))
+          check (fn [nm ctor-ty]
+                  (let [ind (env/mk-induct (n nm) [] type0 :num-params 0 :num-indices 0
+                                           :all [(n nm)] :ctors [(n (str nm ".mk"))])
+                        ct (env/mk-ctor (n (str nm ".mk")) [] ctor-ty (n nm) 0 0 1)]
+                    (TypeChecker/checkInductiveBundle
+                     E (env/mk-inductive-bundle [] 0 false [ind] [ct] []) 5000000)))]
+      ;; NEGATIVE occurrence nested inside List — must be rejected
+      (is (thrown-with-msg?
+           Exception #"non-positive occurrence"
+           (let [b (c "BadN")]
+             (check "BadN" (e/forall' "xs" (list0 (e/forall' "_" b b :default)) b :default)))))
+      ;; POSITIVE recursive occurrence nested inside List — must be accepted
+      (is (some? (let [tt (c "TreeN")]
+                   (check "TreeN" (e/forall' "kids" (list0 tt) tt :default)))))
+      ;; DOUBLY nested positive (List (List Rose)) — accepted
+      (is (some? (let [r (c "RoseN")]
+                   (check "RoseN" (e/forall' "kids" (list0 (list0 r)) r :default))))))))
 
 (deftest reject-non-canonical-quotient-declaration-test
   (testing "quotient-kind constants are admitted only as the canonical Quot/Quot.mk/
    Quot.lift/Quot.ind primitives with their expected types — a raw quot-kind decl must
    not inject an unchecked axiom (Lean generates these internally via add_quot)"
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [E (:env (replay/replay (:decls (parse-ndjson-file f))))
-              False* (e/const' (name/from-string "False") [])]
-          ;; A bogus name is rejected — this is the concrete `BogusQuot : False` exploit.
-          (is (thrown-with-msg?
-               Exception #"not a canonical quotient primitive"
-               (TypeChecker/checkConstant E (env/mk-quot (name/from-string "BogusQuot") [] False* :ind) 5000000)))
-          ;; A canonical name with a bogus type is rejected too.
-          (is (thrown-with-msg?
-               Exception #"canonical quotient primitive|does not match the kernel-expected"
-               (TypeChecker/checkConstant E (env/mk-quot (name/from-string "Quot.mk") [] False* :ctor) 5000000)))
-          ;; The real primitives (already in init-medium) pass validation — checked by
-          ;; re-admitting via checkConstantReplace (same validateQuotDeclaration path).
-          (doseq [nm ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"]]
-            (let [ci (env/lookup E (name/from-string nm))]
-              (is (some? (TypeChecker/checkConstantReplace E ci 5000000))
-                  (str nm " should pass quotient validation")))))))))
+    (let [E @test-env/checked-bundled-init-env
+          False* (e/const' (name/from-string "False") [])]
+      ;; A bogus name is rejected — this is the concrete `BogusQuot : False` exploit.
+      (is (thrown-with-msg?
+           Exception #"not a canonical quotient primitive"
+           (TypeChecker/checkConstant E (env/mk-quot (name/from-string "BogusQuot") [] False* :ind) 5000000)))
+      ;; A canonical name with a bogus type is rejected too.
+      (is (thrown-with-msg?
+           Exception #"canonical quotient primitive|does not match the kernel-expected"
+           (TypeChecker/checkConstant E (env/mk-quot (name/from-string "Quot.mk") [] False* :ctor) 5000000)))
+      ;; The real primitives (already in init-medium) pass validation — checked by
+      ;; re-admitting via checkConstantReplace (same validateQuotDeclaration path).
+      (doseq [nm ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"]]
+        (let [ci (env/lookup E (name/from-string nm))]
+          (is (some? (TypeChecker/checkConstantReplace E ci 5000000))
+              (str nm " should pass quotient validation")))))))
 
 (deftest reject-corrupt-imported-recursor-rule-test
   (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"
     (let [f "test-data/Nat.add_succ.ndjson"]
-      (when (.exists (java.io.File. f))
+      (when (fixtures/available? [f])
         (let [members (vec (take 4 (:decls (parse-ndjson-file f))))
               inductives (filterv #(.isInduct ^ConstantInfo %) members)
               ctors (filterv #(.isCtor ^ConstantInfo %) members)

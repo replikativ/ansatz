@@ -13,18 +13,12 @@
             [ansatz.simp-index :as si]
             [ansatz.tactic.instance :as inst]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.basic :as basic]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.basic :as basic])
   (:import [ansatz.kernel ConstantInfo]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
-(defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
+(defn- require-env [] (or @test-env (throw (ex-info "bundled Init unavailable" {}))))
 
 ;; ============================================================
 ;; isPerm detection

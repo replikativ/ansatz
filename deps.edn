@@ -64,7 +64,8 @@
 
   ;; CI alias (same as test, for workflow clarity)
   :ci {:extra-paths ["test"]
-       :extra-deps {io.github.cognitect-labs/test-runner
+       :extra-deps {metosin/malli {:mvn/version "0.16.4"}
+                    io.github.cognitect-labs/test-runner
                     {:git/tag "v0.5.1"
                      :git/sha "dfb30dd"}}
        :jvm-opts ["--enable-native-access=ALL-UNNAMED"]

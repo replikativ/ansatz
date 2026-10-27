@@ -7,18 +7,12 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.tc :as tc]
-            [ansatz.meta :as meta]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.meta :as meta]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-env []
-  (or @init-medium-env (throw (ex-info "init-medium.ndjson not found" {}))))
+  (or @init-medium-env (throw (ex-info "bundled Init unavailable" {}))))
 
 (defn- c [s] (e/const' (name/from-string s) []))
 (defn- nadd [a b] (e/app* (c "Nat.add") a b))

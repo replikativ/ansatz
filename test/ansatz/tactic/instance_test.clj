@@ -8,8 +8,6 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.config :as config]
             [ansatz.state :as state])
   (:import [ansatz.kernel ConstantInfo]))
@@ -18,14 +16,9 @@
 ;; Environment setup
 ;; ============================================================
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)]
-          (test-env/with-instance-registry (:env (replay/replay (:decls st)))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
-(defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
+(defn- require-env [] (or @test-env (throw (ex-info "bundled Init unavailable" {}))))
 
 (def ^:private test-index
   (delay (inst/index-for (require-env))))

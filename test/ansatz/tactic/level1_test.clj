@@ -7,15 +7,9 @@
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.grind :as grind]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.grind :as grind]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
 (defn- env [] (or @test-env (throw (ex-info "no env" {}))))
 (def ^:private nat (e/const' (name/from-string "Nat") []))

@@ -4,8 +4,6 @@
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.deriving :as deriving]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]))
 
@@ -13,17 +11,11 @@
 ;; Environment setup (same pattern as core_test)
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              env (test-env/with-instance-registry (:env (replay/replay (:decls st))))]
-          env)))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-env []
   (or @init-medium-env
-      (throw (ex-info "test-data/init-medium.ndjson not found" {}))))
+      (throw (ex-info "bundled Init unavailable" {}))))
 
 (defn- with-env [f]
   (let [env (require-env)]
@@ -35,7 +27,7 @@
     (binding [a/*verbose* false]
       (f))))
 
-(use-fixtures :once with-env)
+(clojure.test/use-fixtures :once with-env)
 
 ;; ============================================================
 ;; Direct API tests — derive-decidable-eq!

@@ -12,26 +12,18 @@
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.instance :as instance]
             [ansatz.tactic.decide :as decide]
-            [ansatz.surface.elaborate :as elab]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.surface.elaborate :as elab])
   (:import [ansatz.kernel TypeChecker]))
 
 ;; ============================================================
 ;; Environment helpers
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-env []
   (or @init-medium-env
-      (throw (ex-info "init-medium.ndjson not found" {}))))
+      (throw (ex-info "bundled Init unavailable" {}))))
 
 ;; ============================================================
 ;; Instance resolution tests
