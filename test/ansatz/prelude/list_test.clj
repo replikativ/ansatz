@@ -11,8 +11,7 @@
    wsum.eq_2 …]` proofs ride the auto-generated constructor equations, and a law over a `WSemiring S`
    instance feeds `wsum` its `WAddMonoid` via the `WSemiring.toWAddMonoid` projection (synthesized
    from the local instance). This test pins those proofs as the authoritative check."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]

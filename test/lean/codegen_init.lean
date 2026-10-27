@@ -113,3 +113,7 @@ structure EqualityToken where
 example : decide (EqualityToken.mk = EqualityToken.mk) = true := rfl
 example : decide ("é" = "é") = true := rfl
 example : decide ("" = "a") = false := rfl
+
+example : ([] : List Nat).length = 0 := rfl
+example : ([1, 2, 3] : List Nat).length = 3 := rfl
+example : List.append ([1, 2] : List Nat) [3] = [1, 2, 3] := rfl

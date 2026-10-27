@@ -102,7 +102,10 @@
         (is (= "Eq" (:concl-head f)))
         (is (= 2 (:num-binders f)))
         (is (contains? (set (:mentions f)) "HAdd.hAdd") "the STATEMENT's constants")
-        (is (contains? (set (:depends-on f)) "Nat.succ_add") "the VALUE's constants")
+        ;; Init/Data/Nat/Basic.lean add_comm elaborates through kernel recursion
+        ;; and an auxiliary in the pinned Lean 4.33.1 export.
+        (is (contains? (set (:depends-on f)) "Nat.brecOn") "the VALUE's constants")
+        (is (not (contains? (set (:mentions f)) "Nat.brecOn")) "the dependency is value-only")
         (is (not-any? :depends-on (filter #(= :axiom (:kind %)) facts))
             "an axiom has no value, so no dependencies")))
     (testing "recall answers from the store's keys"

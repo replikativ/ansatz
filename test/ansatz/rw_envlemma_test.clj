@@ -2,8 +2,7 @@
   "#145: the `rewrite` tactic accepts ENV lemmas (∀-quantified, instantiated by matching) + `<-`
    reverse — Lean's `rw [lemma]`. Validated over the bundled WAddMonoid.add_assoc (no HAdd spelling
    issue) including the Lean-idiom controlled-rw proof of foldl_assoc."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
@@ -12,7 +11,7 @@
 
 (def ^:private full test-env/checked-bundled-init-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full) (alg/install-classes!)) (t))
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
+(clojure.test/use-fixtures :once with-env)
 (defn- vrf? [s] (let [ci (env/lookup (a/env) (name/from-string s))]
                   (and ci (env/verifies? (a/env) (.type ci) (.value ci)))))
 
