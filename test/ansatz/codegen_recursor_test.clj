@@ -3,6 +3,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [ansatz.core :as a]
             [ansatz.codegen :as cg]
+            [ansatz.codegen.storedef :as sd]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.kernel.env :as env]
@@ -109,14 +110,352 @@
                          (when rt (first rt)) rt)]
         (is (= kernel decoded-rt) (str f " " input))))))
 
-(defn- differential-closed! [applications]
-  (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
-        red (.getReducer tc)]
-    (doseq [application applications]
-      (let [term (elab/elaborate (a/env) application)
-            kernel (#'am/decode-val #(.whnf red %) :int term)
-            runtime (eval (cg/ansatz->clj (a/env) term []))]
-        (is (= kernel runtime) (str application))))))
+(defn- differential-closed!
+  ([applications] (differential-closed! applications :int))
+  ([applications schema] (differential-closed! applications schema identity))
+  ([applications schema kernel-form]
+   (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
+         red (.getReducer tc)]
+     (doseq [application applications]
+       (let [term (elab/elaborate (a/env) application)
+             kernel (#'am/decode-val #(.whnf red %) schema
+                                     (elab/elaborate (a/env) (kernel-form application)))
+             runtime (eval (cg/ansatz->clj (a/env) term []))]
+         (is (= kernel runtime) (str application)))))))
+
+(deftest function-valued-definitions-preserve-call-arity
+  (let [saved-env @a/ansatz-env
+        saved-arity @a/arity-registry
+        saved-instances @a/ansatz-instance-index]
+    (try
+      (binding [*ns* (the-ns 'ansatz.codegen-recursor-test) a/*verbose* false]
+        (a/load-init!)
+        (run! eval
+              '[(ansatz.core/defn round-probe [n :- Nat] (=> Nat Bool)
+                  (match n
+                    [zero (fn [x :- Nat] true)]
+                    [(succ k) (fn [x :- Nat] ((round-probe k) x))]))
+                (ansatz.core/defn bad-call-probe [n :- Nat, x :- Nat] Bool
+                  ((round-probe n) x))
+                (ansatz.core/theorem probe-kernel [] (= (bad-call-probe 2 3) true) (rfl))
+                (ansatz.core/defn cg-result-let [n :- Nat, x :- Nat] Bool
+                  (let [f (round-probe n)] (f x)))
+                (ansatz.core/defn cg-result-flat [n :- Nat, x :- Nat, y :- Nat] Nat
+                  (+ n (+ x y)))
+                (ansatz.core/defn cg-result-multi [n :- Nat, x :- Nat] (=> Nat Nat)
+                  (fn [y :- Nat] (+ n (+ x y))))
+                (ansatz.core/defn cg-result-recursive [n :- Nat, x :- Nat] (=> Nat Nat)
+                  (match n
+                    [zero (fn [y :- Nat] (+ x y))]
+                    [(succ k) (fn [y :- Nat] (+ 1 ((cg-result-recursive k x) y)))]))
+                (ansatz.core/defn cg-result-eta [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (cg-result-flat n x 3)))
+                (ansatz.core/defn cg-result-partial [n :- Nat] (=> Nat Nat)
+                  (cg-result-flat n 2))
+                (ansatz.core/defn cg-result-nested [n :- Nat] (=> Nat (=> Nat Nat))
+                  (fn [x :- Nat] (fn [y :- Nat] (+ n (+ x y)))))
+                (ansatz.core/defn cg-result-value [] (=> Nat (=> Nat (=> Nat Nat)))
+                  cg-result-flat)
+                (ansatz.core/defn cg-result-local [n :- Nat, x :- Nat, y :- Nat] Nat
+                  (let [f (cg-result-multi n)] ((f x) y)))
+                (ansatz.core/defn ^:partial cg-result-partial-def [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (+ n x)))
+                (ansatz.core/foreign cg-result-foreign [n :- Nat] (=> Nat Nat)
+                                     (fn [n] (fn [x] (+ n x))))])
+        (is (= 1 (:arity (get @a/arity-registry "round-probe"))))
+        (is (= 2 (:arity (get @a/arity-registry "cg-result-multi"))))
+        (is (= 3 (:arity (get @a/arity-registry "cg-result-flat"))))
+        ;; Public runtime calls also exercise the wrappers independently of application lowering.
+        (is (true? ((deref (ns-resolve *ns* 'bad-call-probe)) 2 3)))
+        (let [multi @(ns-resolve *ns* 'cg-result-multi)]
+          (is (= 10 ((multi 2 3) 5)))
+          (is (= 10 (((multi 2) 3) 5))))
+        (doseq [n (range 5)]
+          (differential-closed!
+           [(list 'bad-call-probe n 3) (list 'cg-result-let n 3)
+            (list (list 'round-probe n) 3)] :boolean)
+          (differential-closed!
+           [(list 'cg-result-multi n 3 5)
+            (list (list 'cg-result-multi n 3) 5)
+            (list 'cg-result-eta n 5) (list 'cg-result-partial n 5)
+            (list 'cg-result-nested n 3 5) (list 'cg-result-value n 3 5)
+            (list 'cg-result-local n 3 5) (list 'cg-result-recursive n 3 5)
+            (list 'let '[f cg-result-multi] (list 'f n 3 5))]))
+        (doseq [f '[cg-result-partial-def cg-result-foreign]]
+          (is (= 1 (:arity (get @a/arity-registry (str f)))))
+          (is (= 7 (eval (cg/ansatz->clj (a/env)
+                                         (elab/elaborate (a/env) (list f 2 5)) [])))))
+        ;; Ordinary functions retain the flat call fast path.
+        (is (= '(cg-result-flat 2 3 5)
+               (cg/ansatz->clj (a/env)
+                               (elab/elaborate (a/env) '(cg-result-flat 2 3 5)) []))))
+      (finally
+        (reset! a/ansatz-env saved-env)
+        (reset! a/arity-registry saved-arity)
+        (reset! a/ansatz-instance-index saved-instances)))))
+
+(deftest function-results-agree-across-definition-modes
+  (let [saved-env @a/ansatz-env
+        saved-arity @a/arity-registry
+        saved-instances @a/ansatz-instance-index]
+    (try
+      (binding [*ns* (the-ns 'ansatz.codegen-recursor-test) a/*verbose* false]
+        (a/load-init!)
+        (run! eval
+              '[(ansatz.core/defn cg-result-oracle [n :- Nat, b :- Nat] (=> Nat Nat)
+                  (match n
+                    [zero (fn [x :- Nat] (+ b x))]
+                    [(succ k) (fn [x :- Nat] (+ 1 ((cg-result-oracle k b) x)))]))
+                (ansatz.core/defn cg-result-oracle-value [] (=> Nat Nat)
+                  (fn [x :- Nat] (+ x 1)))])
+        (doseq [mode [:verified :partial :wf]
+                arity (range 3)]
+          (let [f (symbol (str "cg-result-" (name mode) "-" arity))
+                fn-name (cond-> f (= mode :partial) (with-meta {:partial true}))
+                params (case arity 0 [] 1 '[n :- Nat] 2 '[n :- Nat, b :- Nat])
+                body (case arity
+                       0 '(fn [x :- Nat] (+ x 1))
+                       1 '(fn [x :- Nat] (+ n x))
+                       2 '(fn [x :- Nat] (+ n (+ b x))))]
+            (eval (apply list 'ansatz.core/defn fn-name params '(=> Nat Nat)
+                         (concat (when (= mode :wf) [:termination-by (if (zero? arity) 0 'n)])
+                                 [body])))
+            (is (= arity (:arity (get @a/arity-registry (str f)))))
+            (doseq [x (range 5)]
+              (let [args (case arity 0 [x] 1 [3 x] 2 [3 2 x])
+                    application (apply list f args)
+                    ;; Partial declarations are opaque axioms. Their total twins,
+                    ;; rather than those axioms, provide the checked kernel oracle.
+                    oracle (case arity
+                             0 (list 'cg-result-oracle-value x)
+                             1 (list 'cg-result-oracle 0 3 x)
+                             2 (list 'cg-result-oracle 3 2 x))]
+                (differential-closed!
+                 [application (list 'let ['f (if (zero? arity) f (apply list f (butlast args)))]
+                                    (list 'f (last args)))] :int
+                 (if (= mode :partial) (constantly oracle) identity))))))
+        ;; Recursive self-calls under returned lambdas, including over-application.
+        (doseq [mode [:partial :wf]
+                arity (range 3)]
+          (let [f (symbol (str "cg-result-rec-" (name mode) "-" arity))
+                fn-name (cond-> f (= mode :partial) (with-meta {:partial true}))
+                params (case arity 0 [] 1 '[n :- Nat] 2 '[n :- Nat, b :- Nat])
+                ;; A nullary WF value has no recursion domain: call a checked
+                ;; recursive function from its returned lambda instead.
+                body (if (zero? arity)
+                       (if (= mode :partial)
+                         (list 'fn '[x :- Nat]
+                               (list 'if '(<= x 0) 1 (list '+ 1 (list f '(- x 1)))))
+                         '(fn [x :- Nat] (cg-result-oracle x 1 0)))
+                       (list 'if '(<= n 0)
+                             (if (= arity 1) '(fn [x :- Nat] x) '(fn [x :- Nat] (+ b x)))
+                             (list 'fn '[x :- Nat]
+                                   (list (apply list f (cond-> ['(- n 1)] (= arity 2) (conj 'b)))
+                                         '(+ x 1)))))]
+            (eval (apply list 'ansatz.core/defn fn-name params '(=> Nat Nat)
+                         (concat (when (= mode :wf) [:termination-by (if (zero? arity) 0 'n)])
+                                 [body])))
+            (when (pos? arity)
+              (is (= :surface (:provenance (get @a/arity-registry (str f))))))
+            (when (and (= mode :wf) (pos? arity))
+              (is (#'a/mentions-const?
+                   (.getValue (env/lookup (a/env) (name/from-string (str f))))
+                   (name/from-string "WellFounded.Nat.fix"))))
+            (doseq [n (range 5)]
+              (let [args (case arity 0 [n] 1 [n 4] 2 [n 2 4])
+                    application (apply list f args)
+                    oracle (case arity
+                             0 (list 'cg-result-oracle n 1 0)
+                             1 (list 'cg-result-oracle n 0 4)
+                             2 (list 'cg-result-oracle n 2 4))]
+                (differential-closed! [application] :int
+                                      (if (= mode :partial) (constantly oracle) identity))))))
+        (eval '(ansatz.core/defn cg-result-wf-fuel [n :- Nat] (=> Nat Nat)
+                 :termination-by n
+                 (if (<= n 0) (fn [x :- Nat] x)
+                     (fn [x :- Nat]
+                       (let [y (+ x 1)] (cg-result-wf-fuel (- n 1) y))))))
+        ;; A let in the returned lambda takes the existing fuel fallback, whose
+        ;; default must itself have the function result type.
+        (is (#'a/mentions-const?
+             (.getValue (env/lookup (a/env) (name/from-string "cg-result-wf-fuel")))
+             (name/from-string "Nat.rec")))
+        (differential-closed! '[(cg-result-wf-fuel 0 5) (cg-result-wf-fuel 4 5)])
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo #"not provably decreasing"
+             (a/define-verified-wf 'cg-result-nondecreasing '[n :- Nat] '(=> Nat Nat)
+               '(fn [x :- Nat] ((cg-result-nondecreasing n) x)) 'n))))
+      (finally
+        (reset! a/ansatz-env saved-env)
+        (reset! a/arity-registry saved-arity)
+        (reset! a/ansatz-instance-index saved-instances)))))
+
+(deftest emitted-parameter-conventions-match-runtime-arities
+  (let [saved-env @a/ansatz-env
+        saved-arity @a/arity-registry
+        saved-instances @a/ansatz-instance-index]
+    (try
+      (binding [*ns* (the-ns 'ansatz.codegen-recursor-test) a/*verbose* false]
+        (a/load-init!)
+        (eval '(ansatz.core/defn cc-oracle [n :- Nat] (=> Nat Nat)
+                 (match n [zero (fn [x :- Nat] x)]
+                        [(succ k) (fn [x :- Nat] (+ 1 ((cc-oracle k) x)))])))
+        (doseq [kind [:verified :partial :wf :foreign]
+                shape [:explicit :implicit :instance :nullary]
+                function? [false true]
+                recursive? [false true]
+                fallback? [false true]]
+          (let [f (symbol (str "cc-" (name kind) "-" (name shape) "-"
+                               function? "-" recursive? "-" fallback?))
+                params (case shape
+                         :explicit '[n :- Nat]
+                         :implicit '[S :- Type :implicit, n :- Nat]
+                         :instance '[inst :- (Inhabited Nat) :inst, n :- Nat]
+                         :nullary [])
+                nullary? (= shape :nullary)
+                result (if function? '(=> Nat Nat) 'Nat)
+                rec-args (case shape :implicit ['S '(- n 1)]
+                               :instance ['inst '(- n 1)]
+                               ['(- n 1)])
+                self (apply list (if (#{:implicit :instance} shape)
+                                   (symbol (str "@" f)) f) rec-args)
+                body (cond
+                       nullary?
+                       (if function?
+                         (if (and recursive? (= kind :partial))
+                           (list 'fn '[x :- Nat]
+                                 (list 'if '(<= x 0) 4 (list '+ 1 (list f '(- x 1)))))
+                           (if recursive? '(fn [x :- Nat] (cc-oracle 4 x))
+                               '(fn [x :- Nat] (+ 4 x))))
+                         (if recursive? '(cc-oracle 4 0) 4))
+                       recursive?
+                       (list 'if '(<= n 0)
+                             (if function? '(fn [x :- Nat] x) 0)
+                             (if function?
+                               (list 'fn '[x :- Nat] (list '+ 1 (list self 'x)))
+                               (list '+ 1 self)))
+                       function? '(fn [x :- Nat] (+ n x))
+                       :else 'n)
+                body (if (and (= kind :verified) recursive? (not nullary?))
+                       (let [call (apply list (if (#{:implicit :instance} shape)
+                                                (symbol (str "@" f)) f)
+                                         (case shape :implicit ['S 'k] :instance ['inst 'k] ['k]))]
+                         (list 'match 'n
+                               ['zero (if function? '(fn [x :- Nat] x) 0)]
+                               ['(succ k) (if function?
+                                            (list 'fn '[x :- Nat] (list '+ 1 (list call 'x)))
+                                            (list '+ 1 call))]))
+                       body)
+                impl (if nullary?
+                       (if function?
+                         (if recursive? '(fn self [x] (if (<= x 0) 4 (+ 1 (self (- x 1)))))
+                             '(fn [x] (+ 4 x))) 4)
+                       (if recursive?
+                         (if function?
+                           '(fn self [n] (if (<= n 0) (fn [x] x)
+                                             (fn [x] (+ 1 ((self (- n 1)) x)))))
+                           '(fn self [n] (if (<= n 0) 0 (+ 1 (self (- n 1))))))
+                         (if function? '(fn [n] (fn [x] (+ n x))) '(fn [n] n))))
+                form (if (= kind :foreign)
+                       (list 'ansatz.core/foreign f params result impl)
+                       (apply list 'ansatz.core/defn
+                              (cond-> f (= kind :partial) (with-meta {:partial true}))
+                              params result
+                              (concat (when (= kind :wf)
+                                        [:termination-by (if nullary? 0 'n)]) [body])))
+                install #(eval form)]
+            (testing (str [kind shape function? recursive? fallback?])
+              (if fallback?
+                (with-redefs [sd/emit-direct-recursion (fn [& _] nil)] (install))
+                (install))
+              (let [cc (get @a/arity-registry (str f))
+                    runtime @(ns-resolve *ns* f)
+                    arities (when (ifn? runtime)
+                              (set (for [m (.getDeclaredMethods (class runtime))
+                                         :when (= "invoke" (.getName m))]
+                                     (.getParameterCount m))))
+                    kernel-prefix (case shape :implicit ['Nat 4]
+                                        :instance ['(Inhabited.mk Nat 0) 4]
+                                        :explicit [4] :nullary [])
+                    application (apply list (if (#{:implicit :instance} shape)
+                                              (symbol (str "@" f)) f)
+                                       (cond-> kernel-prefix function? (conj 3)))
+                    oracle (if function? '(cc-oracle 4 3) '(cc-oracle 4 0))]
+                (is (= (:arity cc) (count (:params cc))))
+                (is (= nullary? (:value? cc)))
+                (if nullary?
+                  (is (not (contains? arities 0)))
+                  (do
+                      ;; Invoke exactly the recorded runtime window, independently
+                      ;; of application lowering and its erased kernel prefix.
+                    (is (= (if function? 7 4)
+                           (let [inputs (mapv #(eval (cg/ansatz->clj (a/env)
+                                                                     (elab/elaborate (a/env) %) []))
+                                              (drop (:erased cc) kernel-prefix))
+                                 v (apply runtime inputs)]
+                             (is (= (:arity cc) (count inputs)))
+                             (if function? (v 3) v))))))
+                (let [kernel-form (if (#{:partial :foreign} kind) oracle application)]
+                  (differential-closed! [application] :int (constantly kernel-form))
+                  ;; Construct the fully explicit kernel let directly: the surface
+                  ;; @ syntax currently resolves constants, not local aliases.
+                  (let [term (elab/elaborate (a/env) application)
+                        [head args] (e/get-app-fn-args term)
+                        tc (TypeChecker. (a/env))
+                        alias (e/let' "alias" (.inferType tc head) head
+                                      (reduce e/app (e/bvar 0) args))
+                        kernel (#'am/decode-val #(.whnf (.getReducer tc) %) :int
+                                                (elab/elaborate (a/env) kernel-form))]
+                    (is (= kernel (eval (cg/ansatz->clj (a/env) alias []))))))))))
+
+        (run! eval
+              '[(ansatz.core/defn original-flat [n :- Nat, x :- Nat] Nat (+ n x))
+                (ansatz.core/defn replacement-result [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (+ n x)))
+                (ansatz.core/csimp replace-original [n :- Nat, x :- Nat]
+                                   (= Nat (original-flat n x) (replacement-result n x)) (rfl))
+                (ansatz.core/defn original-result [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (+ n x)))
+                (ansatz.core/defn replacement-flat [n :- Nat, x :- Nat] Nat (+ n x))
+                (ansatz.core/csimp replace-result [n :- Nat, x :- Nat]
+                                   (= Nat (original-result n x) (replacement-flat n x)) (rfl))])
+        (doseq [f '[original-flat original-result], n (range 3)]
+          (differential-closed!
+           [(list f n 3)
+            (list 'let ['f f] (list 'f n 3))
+            (list 'let ['f f 'g 'f] (list 'g n 3))
+            (list 'let ['f (list f n)] '(f 3))]))
+        ;; Check both the shorter and longer replacement parameter windows.
+        (doseq [[form expected]
+                [['(let [f original-flat] (f 2 3))
+                  '(let [f replacement-result] ((f 2) 3))]
+                 ['(let [f original-result] (f 2 3))
+                  '(let [f replacement-flat] (f 2 3))]]]
+          (is (= expected (cg/ansatz->clj (a/env) (elab/elaborate (a/env) form) []))))
+        ;; A runtime-used instance prefix must be retained by the classic wrapper.
+        (eval '(ansatz.core/defn cc-used-instance [inst :- Nat :inst, n :- Nat] Nat (+ inst n)))
+        (let [cc (get @a/arity-registry "cc-used-instance")
+              runtime @(ns-resolve *ns* 'cc-used-instance)]
+          (is (= 0 (:erased cc)))
+          (is (= 2 (:arity cc)))
+          (is (= 11 (runtime 7 4)))
+          (differential-closed! [(list (symbol "@cc-used-instance") 7 4)]))
+        ;; The dependent implicit-prefix probe has one runtime parameter plus a
+        ;; function-valued result, and must never emit the erased Nat type.
+        (eval '(ansatz.core/defn ^:partial poly-result [S :- Type :implicit, n :- S]
+                 (=> Nat S) (fn [x :- Nat] n)))
+        (with-redefs [sd/emit-direct-recursion (fn [& _] nil)]
+          (eval '(ansatz.core/defn ^:partial poly-result-classic [S :- Type :implicit, n :- S]
+                   (=> Nat S) (fn [x :- Nat] n))))
+        (differential-closed! '[(poly-result 7 3) (poly-result-classic 7 3)
+                                (let [f poly-result] (f 7 3))
+                                (let [f poly-result-classic] (f 7 3))]
+                              :int (constantly 7))
+        (is (= 7 (((deref (ns-resolve *ns* 'poly-result)) 7) 3))))
+      (finally
+        (reset! a/ansatz-env saved-env)
+        (reset! a/arity-registry saved-arity)
+        (reset! a/ansatz-instance-index saved-instances)))))
 
 (defn- higher-order-differential! []
   ;; a/inductive currently generates an invalid higher-order recursor type.

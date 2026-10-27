@@ -1,7 +1,8 @@
 (ns ansatz.tactic.grind.action
-  "Stage 2 action results and limits (Lean Grind/Action.lean and Init/Grind/Config.lean).")
+  "Stage 2 action results and limits (Lean Grind/Action.lean, Grind/Simp.lean,
+   Simp/Main.lean and Init/MetaTypes.lean, v4.33.1).")
 
-(def defaults {:splits 9 :ematch 5 :gen 8 :instances 1000 :iterations 10000
+(def defaults {:splits 9 :ematch 5 :gen 8 :instances 1000 :iterations 10000 :max-steps 100000 :max-rec-depth 512
                :split-imp false :split-ind-pred false})
 
 (defn fail! [message data]
@@ -28,3 +29,13 @@
                      (boolean? v) (and (integer? v) (not (neg? v)))))
       (fail! "unsupported configuration" {:option k :value v})))
   (merge defaults options))
+
+(def ^:dynamic *config* defaults)
+
+(defn check-rec-depth!
+  "Lean withIncRecDepth: bound actual internalizer/transform recursion."
+  [depth]
+  (let [limit (:max-rec-depth *config*)]
+    (when (> depth limit)
+      (fail! (str "maximum recursion depth exceeded (maxRecDepth = " limit ")")
+             {:limit :maxRecDepth :value limit :used depth}))))

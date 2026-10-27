@@ -10,6 +10,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as level]
             [ansatz.inductive :as inductive]
+            [ansatz.codegen.decl :as decl]
             [ansatz.surface.ingest :as ingest :refer [structure-registry codegen-registry arity-registry]])
   (:import [ansatz.kernel ConstantInfo TypeChecker]))
 
@@ -685,6 +686,21 @@
                            (drop (inc major-idx) args))]
         (if eta? (list 'fn [t] result) result)))))
 
+(def ^:dynamic *raw-constants*
+  "Direct-recursion lowering rewrites these kernel applications to local calls
+   before emitting the declaration's runtime parameter list."
+  #{})
+
+(def ^:dynamic *local-conventions*
+  "Compiled declaration conventions carried by let-bound function aliases."
+  {})
+
+(clojure.core/defn- record-value-head [head form]
+  ;; Lean ToLCNF.visitLet binds the lowered value, including its csimp replacement.
+  (if (instance? clojure.lang.IObj form)
+    (with-meta form (assoc (meta form) ::resolved-head head))
+    form))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -715,7 +731,11 @@
               g (csimp-target env h0)
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
-              ca (mapv #(ansatz->clj env % names) args)]
+              cc (when-not (contains? *raw-constants* h) (get @arity-registry h))
+              ;; Erased parameters never reach expression lowering or runtime calls.
+              ca (mapv (fn [i arg]
+                         (when-not (< i (or (:erased cc) 0))
+                           (ansatz->clj env arg names))) (range) args)]
           (if-let [bi (or (when-let [entry
                                      (some (fn [{:keys [prefix depth] :as entry}]
                                              (when (and (>= (count names) depth)
@@ -988,28 +1008,15 @@
                           (ansatz->clj env expr names)))
             ;; User-defined function: arity-aware compilation (Lean 4 FAP/PAP).
             ;; Check the arity registry to determine call style.
-                      (let [{:keys [arity erased sym]} (get @arity-registry h)]
-                        (cond
-                    ;; storedef entry (qualified var, flat multi-arity incl. 1): flat call
-                    ;; over the runtime window; over-application re-applies the extras.
-                          (and arity sym (>= (count ca) (+ arity erased)))
-                          (reduce (fn [f a] (list f a))
-                                  (apply list sym (subvec ca erased (+ erased arity)))
-                                  (subvec ca (+ erased arity)))
-                    ;; storedef entry, partial application: drop the erased prefix (or the
-                    ;; whole given prefix when even that is partial) and curry the runtime
-                    ;; args — the var's partial-arity methods return closures.
-                          (and arity sym)
-                          (reduce (fn [f a] (list f a)) sym
-                                  (subvec ca (min erased (count ca))))
-                          (and arity (> arity 1) (>= (count ca) (+ arity erased)))
-                    ;; FAP (full application): flat multi-arg call, skip erased prefix
-                          (apply list (symbol h) (subvec ca erased (+ erased arity)))
-                          :else
-                    ;; Curried (unknown arity, single-arg, or partial application)
-                          (reduce (fn [f a] (list f a)) (symbol h) ca)))))))))
-        (let [compiled (mapv #(ansatz->clj env % names) (cons head args))]
-          (reduce (fn [f a] (list f a)) compiled))))
+                      (if-let [cc (when-not (contains? *raw-constants* h) (get @arity-registry h))]
+                        (decl/apply-args cc (or (:sym cc) (symbol h)) ca)
+                        (reduce (fn [f a] (list f a)) (symbol h) ca))))))))
+
+        (let [compiled (mapv #(ansatz->clj env % names) (cons head args))
+              cc (when (e/bvar? head)
+                   (get *local-conventions* (- (count names) (inc (e/bvar-idx head)))))]
+          (if cc (decl/apply-args cc (first compiled) (vec (rest compiled)))
+              (reduce (fn [f a] (list f a)) compiled)))))
     (e/const? expr) (let [cn0 (name/->string (e/const-name expr))
                           ;; @[csimp] also redirects an op in VALUE position to its verified replacement.
                           g (csimp-target env cn0)
@@ -1018,44 +1025,45 @@
                       ;; ops in VALUE position (a fold step, a passed comparator) lower to the
                       ;; runnable Clojure op, not a bare (unresolvable) symbol — `find` so a
                       ;; false/0 lowering isn't mistaken for "absent".
-                      (cond
-                        (contains? builtin-value cn) (get builtin-value cn)
-                        (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
-                        :else
+                      (record-value-head cn
+                                         (cond
+                                           (contains? builtin-value cn) (get builtin-value cn)
+                                           (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
+                                           :else
                         ;; Check if it's a constructor
-                        (if-let [ci (env/lookup env (e/const-name expr))]
-                          (if (.isCtor ^ConstantInfo ci)
+                                           (if-let [ci (env/lookup env (e/const-name expr))]
+                                             (if (.isCtor ^ConstantInfo ci)
                             ;; A 0-field ctor of a TAGGED inductive (e.g. Value.vnil) is
                             ;; [cidx], NOT the enum nil/index rep — must match the recursor's
                             ;; (nth t 0) dispatch and the edn->value encoding. (A bare
                             ;; MULTI-field tagged ctor is still a function → symbol.)
-                            (let [ind-nm (let [s cn, di (.lastIndexOf ^String s ".")]
-                                           (when (pos? di) (subs s 0 di)))]
-                              (cond
-                                (and (zero? (.numFields ci)) ind-nm (tagged-inductive? env ind-nm))
-                                [(.cidx ci)]
-                                (zero? (.numFields ci))
+                                               (let [ind-nm (let [s cn, di (.lastIndexOf ^String s ".")]
+                                                              (when (pos? di) (subs s 0 di)))]
+                                                 (cond
+                                                   (and (zero? (.numFields ci)) ind-nm (tagged-inductive? env ind-nm))
+                                                   [(.cidx ci)]
+                                                   (zero? (.numFields ci))
                                 ;; 0-field ctor: use index for enum dispatch.
-                                (let [cidx (.cidx ci)]
-                                  (if (zero? cidx) nil cidx))
-                                :else (symbol cn)))
-                            (if-let [cg (get @codegen-registry cn)]
-                              (cg env expr names)
+                                                   (let [cidx (.cidx ci)]
+                                                     (if (zero? cidx) nil cidx))
+                                                   :else (symbol cn)))
+                                               (if-let [cg (get @codegen-registry cn)]
+                                                 (cg env expr names)
                               ;; VALUE position (fold step, comparator): a storedef-compiled
                               ;; var supports curried application via its partial-arity
                               ;; methods — emit the qualified symbol. @[extern] primitives
                               ;; keep their explanatory throw BEFORE any compile attempt
                               ;; (native reps — String — may not match the Lean reference
                               ;; body), mirroring the app-position ordering.
-                              (or (:sym (get @arity-registry cn))
-                                  (extern-unhandled-form env cn)
-                                  (when *compile-store-defs*
-                                    (:sym (storedef-compile! env cn)))
-                                  (symbol cn))))
-                          (if-let [cg (get @codegen-registry cn)]
-                            (cg env expr names)
-                            (or (:sym (get @arity-registry cn))
-                                (extern-unhandled-form env cn) (symbol cn))))))
+                                                 (or (:sym (get @arity-registry cn))
+                                                     (extern-unhandled-form env cn)
+                                                     (when *compile-store-defs*
+                                                       (:sym (storedef-compile! env cn)))
+                                                     (symbol cn))))
+                                             (if-let [cg (get @codegen-registry cn)]
+                                               (cg env expr names)
+                                               (or (:sym (get @arity-registry cn))
+                                                   (extern-unhandled-form env cn) (symbol cn)))))))
     ;; Projection: Expr.proj type-name idx struct
     ;; For structures with defrecord: keyword access (:field-name struct)
     ;; For others: (nth struct idx)
@@ -1069,8 +1077,15 @@
         (list (keyword (nth (:fields struct-info) idx)) struct-expr)
         ;; Fallback: nth on vector
         (list 'nth struct-expr idx)))
-    (e/let? expr) (let [n (or (e/let-name expr) "x")]
-                    (list 'let [(symbol n) (ansatz->clj env (e/let-value expr) names)]
-                          (ansatz->clj env (e/let-body expr) (conj names n))))
+    (e/let? expr) (let [n (or (e/let-name expr) "x")
+                        value (e/let-value expr)
+                        compiled (ansatz->clj env value names)
+                        cc (cond
+                             (e/const? value) (get @arity-registry (::resolved-head (meta compiled)))
+                             (e/bvar? value) (get *local-conventions*
+                                                  (- (count names) (inc (e/bvar-idx value)))))]
+                    (list 'let [(symbol n) compiled]
+                          (binding [*local-conventions* (assoc *local-conventions* (count names) cc)]
+                            (ansatz->clj env (e/let-body expr) (conj names n)))))
     :else expr))
 

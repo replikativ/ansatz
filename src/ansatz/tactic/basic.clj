@@ -13,6 +13,7 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
+            [ansatz.meta.kabstract :as ka]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.instance :as inst]
@@ -3123,7 +3124,7 @@
    variable `x`, leaving ONE new goal `x : T, h : e = x ⊢ G[e := x]`. This lets you `cases`/`induction`
    on `x` (now a plain variable) when the scrutinee is a NESTED term — the RAWREC case the bare `cases`
    can't reach. Reconstructs the original goal as `?n e (Eq.refl e)` where `?n : ∀ x, e = x → G[e:=x]`
-   (no new extract kind needed — a plain `:exact` referencing the new goal mvar)."
+   (the `:generalize` extraction node applies the child proof to the term and reflexivity)."
   [ps e-expr xname hname]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -3131,40 +3132,23 @@
         T (tc/infer-type st e-expr)
         T-sort (whnf-in-goal ps (:lctx goal) (tc/infer-type st T))
         Tlvl (if (e/sort? T-sort) (e/sort-level T-sort) lvl/zero)
-        ;; kabstract: replace occurrences of e-expr in the goal with a fresh fvar, under binders
-        ;; (mirrors cases-eq / the rewrite tactic).
-        [ps' abs-id] (proof/alloc-id ps)
-        abs-fvar (e/fvar abs-id)
-        goal-replaced (let [_ (swap! (:next-id st) (fn [v] (max v (inc abs-id))))
-                            open-binder
-                            (fn [replace-in st nm dom body mk]
-                              (let [d (replace-in st dom)
-                                    fid (swap! (:next-id st) inc)
-                                    st' (update st :lctx add-local fid nm dom)
-                                    b (replace-in st' (e/instantiate1 body (e/fvar fid)))]
-                                (mk d (e/abstract1 b fid))))
-                            replace-in
-                            (fn replace-in [st expr]
-                              (if (tc/is-def-eq st expr e-expr)
-                                abs-fvar
-                                (case (e/tag expr)
-                                  :app (let [f (replace-in st (e/app-fn expr))
-                                             a (replace-in st (e/app-arg expr))]
-                                         (if (and (identical? f (e/app-fn expr)) (identical? a (e/app-arg expr)))
-                                           expr (e/app f a)))
-                                  :lam (open-binder replace-in st (e/lam-name expr) (e/lam-type expr) (e/lam-body expr)
-                                                    (fn [d b] (e/lam (e/lam-name expr) d b (e/lam-info expr))))
-                                  :forall (open-binder replace-in st (e/forall-name expr) (e/forall-type expr) (e/forall-body expr)
-                                                       (fn [d b] (e/forall' (e/forall-name expr) d b (e/forall-info expr))))
-                                  expr)))]
-                        (replace-in st (:type goal)))
+        ;; Lean Meta/Tactic/Generalize.lean generalizeCore uses kabstract over the
+        ;; entire target, then checks that the generalized target is type correct.
+        goal-abstracted (ka/kabstract st (:type goal) e-expr)
         ;; N = ∀ (x : T), Eq T e x → G[e := x]
-        [ps' xfv-id] (proof/alloc-id ps')
+        [ps' xfv-id] (proof/alloc-id ps)
         xfv (e/fvar xfv-id)
-        g-x (e/instantiate1 (e/abstract1 goal-replaced abs-id) xfv)   ;; G[e := xfv]
+        g-x (e/instantiate1 goal-abstracted xfv)   ;; G[e := xfv]
         eq-e-x (e/app* (e/const' (name/from-string "Eq") [Tlvl]) T e-expr xfv)
         inner (e/forall' hname eq-e-x g-x :default)                   ;; (e = x) → G[e:=x]  (h unused)
         n-type (e/forall' xname T (e/abstract1 inner xfv-id) :default)
+        _ (try
+            (when-not (e/sort? (whnf-in-goal ps (:lctx goal) (tc/infer-type st n-type)))
+              (tactic-error! "generalize: result is not type correct" {:type n-type}))
+            (catch clojure.lang.ExceptionInfo ex
+              (if (= :type-error (:kind (ex-data ex)))
+                (tactic-error! "generalize: result is not type correct" {:type n-type :cause (ex-data ex)})
+                (throw ex))))
         [ps' n-id] (proof/fresh-mvar-replacing ps' n-type (:lctx goal) (:id goal))
         ;; original goal := ?n e (Eq.refl e). Record a dedicated `:generalize` kind so extraction
         ;; splices in the SUBGOAL's proof (`?n`): `(extract n-id) e rfl`. (A plain `:exact` term
