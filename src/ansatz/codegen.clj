@@ -695,6 +695,12 @@
   "Compiled declaration conventions carried by let-bound function aliases."
   {})
 
+(clojure.core/defn- record-value-head [head form]
+  ;; Lean ToLCNF.visitLet binds the lowered value, including its csimp replacement.
+  (if (instance? clojure.lang.IObj form)
+    (with-meta form (assoc (meta form) ::resolved-head head))
+    form))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -1019,7 +1025,8 @@
                       ;; ops in VALUE position (a fold step, a passed comparator) lower to the
                       ;; runnable Clojure op, not a bare (unresolvable) symbol — `find` so a
                       ;; false/0 lowering isn't mistaken for "absent".
-                      (cond
+                      (record-value-head cn
+                       (cond
                         (contains? builtin-value cn) (get builtin-value cn)
                         (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
                         :else
@@ -1056,7 +1063,7 @@
                           (if-let [cg (get @codegen-registry cn)]
                             (cg env expr names)
                             (or (:sym (get @arity-registry cn))
-                                (extern-unhandled-form env cn) (symbol cn))))))
+                                (extern-unhandled-form env cn) (symbol cn)))))))
     ;; Projection: Expr.proj type-name idx struct
     ;; For structures with defrecord: keyword access (:field-name struct)
     ;; For others: (nth struct idx)
@@ -1074,7 +1081,7 @@
                         value (e/let-value expr)
                         compiled (ansatz->clj env value names)
                         cc (cond
-                             (e/const? value) (get @arity-registry (name/->string (e/const-name value)))
+                             (e/const? value) (get @arity-registry (::resolved-head (meta compiled)))
                              (e/bvar? value) (get *local-conventions*
                                                  (- (count names) (inc (e/bvar-idx value)))))]
                     (list 'let [(symbol n) compiled]

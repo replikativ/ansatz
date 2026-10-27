@@ -408,6 +408,30 @@
                                                 (elab/elaborate (a/env) kernel-form))]
                     (is (= kernel (eval (cg/ansatz->clj (a/env) alias []))))))))))
 
+        (run! eval
+              '[(ansatz.core/defn original-flat [n :- Nat, x :- Nat] Nat (+ n x))
+                (ansatz.core/defn replacement-result [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (+ n x)))
+                (ansatz.core/csimp replace-original [n :- Nat, x :- Nat]
+                  (= Nat (original-flat n x) (replacement-result n x)) (rfl))
+                (ansatz.core/defn original-result [n :- Nat] (=> Nat Nat)
+                  (fn [x :- Nat] (+ n x)))
+                (ansatz.core/defn replacement-flat [n :- Nat, x :- Nat] Nat (+ n x))
+                (ansatz.core/csimp replace-result [n :- Nat, x :- Nat]
+                  (= Nat (original-result n x) (replacement-flat n x)) (rfl))])
+        (doseq [f '[original-flat original-result], n (range 3)]
+          (differential-closed!
+           [(list f n 3)
+            (list 'let ['f f] (list 'f n 3))
+            (list 'let ['f f 'g 'f] (list 'g n 3))
+            (list 'let ['f (list f n)] '(f 3))]))
+        ;; Check both the shorter and longer replacement parameter windows.
+        (doseq [[form expected]
+                [['(let [f original-flat] (f 2 3))
+                  '(let [f replacement-result] ((f 2) 3))]
+                 ['(let [f original-result] (f 2 3))
+                  '(let [f replacement-flat] (f 2 3))]]]
+          (is (= expected (cg/ansatz->clj (a/env) (elab/elaborate (a/env) form) []))))
         ;; A runtime-used instance prefix must be retained by the classic wrapper.
         (eval '(ansatz.core/defn cc-used-instance [inst :- Nat :inst, n :- Nat] Nat (+ inst n)))
         (let [cc (get @a/arity-registry "cc-used-instance")

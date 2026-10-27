@@ -98,3 +98,16 @@ decreasing_by omega
 #eval polyResult 7 3 == 7 && @implicitResult Nat 4 3 == 7 &&
       @instanceResult ⟨0⟩ 4 3 == 7 && @implicitWf Nat 4 3 == 7 &&
       @instanceWf ⟨0⟩ 4 3 == 7 && fallbackScalar 4 == 4
+
+-- Csimp replacements may use a different declared parameter telescope.
+def originalFlat (n x : Nat) : Nat := n + x
+def replacementResult (n : Nat) : Nat → Nat := fun x => n + x
+@[csimp] theorem replaceOriginal : originalFlat = replacementResult := rfl
+def originalResult (n : Nat) : Nat → Nat := fun x => n + x
+def replacementFlat (n x : Nat) : Nat := n + x
+@[csimp] theorem replaceResult : originalResult = replacementFlat := rfl
+example : (let f := originalFlat; f 2 3) = 5 := rfl
+example : (let f := originalResult; f 2 3) = 5 := rfl
+/-- info: true -/
+#guard_msgs in
+#eval (let f := originalFlat; f 2 3) == 5 && (let f := originalResult; f 2 3) == 5
