@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Fixture-free coherent infrastructure checks, never restore or guest execution.
 
-Build all 24 Java sources into one fresh class directory. Run the 64 host models
+Build all 24 Java sources into one fresh class directory. Run the 72 host/sizing models
 and six namespace definitions, eleven Python metadata tests, then a separate JVM
 whose copied source tree physically excludes coherent namespaces/AOT outputs.
 This is component CI, not a closed runtime/bootstrap attestation.

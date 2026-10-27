@@ -29,6 +29,7 @@
   "prototype/module_import.clj"
   "prototype/module_store.clj"
   "prototype/mutable.clj"
+  "prototype/continuation_layout.clj"
   "prototype/native_heap.cljc"
   "prototype/native_scalar.cljc"
   "prototype/program_install.clj"

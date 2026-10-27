@@ -6,6 +6,7 @@
             [prototype.heap-overlay :as overlay]
             [prototype.heap-snapshot :as heap-snapshot]
             [prototype.slot-count :as slots]
+            [prototype.continuation-layout :as continuation-layout]
             [prototype.scalar :as scalar]
             [prototype.native-scalar :as native]
             [prototype.entropy :as entropy]
@@ -13,7 +14,8 @@
             [prototype.runtime-task :as task]
             [prototype.leaf-compile :as leaf])
   (:import [ansatz.runtime GlobalsOverlay]
-           [java.util HashMap Map ArrayDeque Arrays]))
+           [java.util HashMap Map ArrayDeque Arrays]
+           [java.lang.ref WeakReference]))
 
 (def ^:private unbound (Object.))
 (defrecord Machine [functions slots control heap frames events counters])
@@ -83,10 +85,21 @@
           :host (recur (conj pending d) (max n (operands-slots b) (ids-slots [c])))
           ;; Preserve the legacy global allocation bound for unknown forms.
           (recur pending (max n fallback)))))))
+(def ^:private continuation-layout-generation (Object.))
+(def ^:private continuation-layout-rules
+  (mapv #(WeakReference. %) [measure-continuation-slots expression-slots operands-slots operand-slots ids-slots]))
+(defn- builtin-continuation-layout? []
+  (and (identical? (.get ^WeakReference (nth continuation-layout-rules 0)) measure-continuation-slots)
+       (identical? (.get ^WeakReference (nth continuation-layout-rules 1)) expression-slots)
+       (identical? (.get ^WeakReference (nth continuation-layout-rules 2)) operands-slots)
+       (identical? (.get ^WeakReference (nth continuation-layout-rules 3)) operand-slots)
+       (identical? (.get ^WeakReference (nth continuation-layout-rules 4)) ids-slots)))
+
 (defn- restored-registers [cache fallback body locals extra-ids]
   (let [^java.util.IdentityHashMap cache cache
         body-width (or (.get cache body)
-                       (let [n (measure-continuation-slots body fallback)]
+                       (let [n (continuation-layout/width body fallback measure-continuation-slots
+                                                          builtin-continuation-layout? continuation-layout-generation)]
                          (.put cache body n) n))
         n (max body-width (slots/local-slots locals) (ids-slots extra-ids))]
     (when (> n 1000000) (m/fail "Register limit" {:slots n}))
