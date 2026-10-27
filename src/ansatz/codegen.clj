@@ -1026,44 +1026,44 @@
                       ;; runnable Clojure op, not a bare (unresolvable) symbol — `find` so a
                       ;; false/0 lowering isn't mistaken for "absent".
                       (record-value-head cn
-                       (cond
-                        (contains? builtin-value cn) (get builtin-value cn)
-                        (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
-                        :else
+                                         (cond
+                                           (contains? builtin-value cn) (get builtin-value cn)
+                                           (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
+                                           :else
                         ;; Check if it's a constructor
-                        (if-let [ci (env/lookup env (e/const-name expr))]
-                          (if (.isCtor ^ConstantInfo ci)
+                                           (if-let [ci (env/lookup env (e/const-name expr))]
+                                             (if (.isCtor ^ConstantInfo ci)
                             ;; A 0-field ctor of a TAGGED inductive (e.g. Value.vnil) is
                             ;; [cidx], NOT the enum nil/index rep — must match the recursor's
                             ;; (nth t 0) dispatch and the edn->value encoding. (A bare
                             ;; MULTI-field tagged ctor is still a function → symbol.)
-                            (let [ind-nm (let [s cn, di (.lastIndexOf ^String s ".")]
-                                           (when (pos? di) (subs s 0 di)))]
-                              (cond
-                                (and (zero? (.numFields ci)) ind-nm (tagged-inductive? env ind-nm))
-                                [(.cidx ci)]
-                                (zero? (.numFields ci))
+                                               (let [ind-nm (let [s cn, di (.lastIndexOf ^String s ".")]
+                                                              (when (pos? di) (subs s 0 di)))]
+                                                 (cond
+                                                   (and (zero? (.numFields ci)) ind-nm (tagged-inductive? env ind-nm))
+                                                   [(.cidx ci)]
+                                                   (zero? (.numFields ci))
                                 ;; 0-field ctor: use index for enum dispatch.
-                                (let [cidx (.cidx ci)]
-                                  (if (zero? cidx) nil cidx))
-                                :else (symbol cn)))
-                            (if-let [cg (get @codegen-registry cn)]
-                              (cg env expr names)
+                                                   (let [cidx (.cidx ci)]
+                                                     (if (zero? cidx) nil cidx))
+                                                   :else (symbol cn)))
+                                               (if-let [cg (get @codegen-registry cn)]
+                                                 (cg env expr names)
                               ;; VALUE position (fold step, comparator): a storedef-compiled
                               ;; var supports curried application via its partial-arity
                               ;; methods — emit the qualified symbol. @[extern] primitives
                               ;; keep their explanatory throw BEFORE any compile attempt
                               ;; (native reps — String — may not match the Lean reference
                               ;; body), mirroring the app-position ordering.
-                              (or (:sym (get @arity-registry cn))
-                                  (extern-unhandled-form env cn)
-                                  (when *compile-store-defs*
-                                    (:sym (storedef-compile! env cn)))
-                                  (symbol cn))))
-                          (if-let [cg (get @codegen-registry cn)]
-                            (cg env expr names)
-                            (or (:sym (get @arity-registry cn))
-                                (extern-unhandled-form env cn) (symbol cn)))))))
+                                                 (or (:sym (get @arity-registry cn))
+                                                     (extern-unhandled-form env cn)
+                                                     (when *compile-store-defs*
+                                                       (:sym (storedef-compile! env cn)))
+                                                     (symbol cn))))
+                                             (if-let [cg (get @codegen-registry cn)]
+                                               (cg env expr names)
+                                               (or (:sym (get @arity-registry cn))
+                                                   (extern-unhandled-form env cn) (symbol cn)))))))
     ;; Projection: Expr.proj type-name idx struct
     ;; For structures with defrecord: keyword access (:field-name struct)
     ;; For others: (nth struct idx)
@@ -1083,7 +1083,7 @@
                         cc (cond
                              (e/const? value) (get @arity-registry (::resolved-head (meta compiled)))
                              (e/bvar? value) (get *local-conventions*
-                                                 (- (count names) (inc (e/bvar-idx value)))))]
+                                                  (- (count names) (inc (e/bvar-idx value)))))]
                     (list 'let [(symbol n) compiled]
                           (binding [*local-conventions* (assoc *local-conventions* (count names) cc)]
                             (ansatz->clj env (e/let-body expr) (conj names n)))))

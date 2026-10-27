@@ -48,6 +48,6 @@
                     :lam (e/lam (e/lam-name expr) (visit (e/lam-type expr) offset)
                                 (visit (e/lam-body expr) (inc offset)) (e/lam-info expr))
                     :forall (e/forall' (e/forall-name expr) (visit (e/forall-type expr) offset)
-                                      (visit (e/forall-body expr) (inc offset)) (e/forall-info expr))
+                                       (visit (e/forall-body expr) (inc offset)) (e/forall-info expr))
                     expr)))]
         (visit expr 0)))))

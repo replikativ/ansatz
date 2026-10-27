@@ -1318,7 +1318,7 @@
                                             {:erased (or erased 0) :arity (or arity n)})]
                           (when emitted
                             (decl/register! (str fn-name)
-                                          (update emitted :convention assoc :provenance :surface))
+                                            (update emitted :convention assoc :provenance :surface))
                             (:fn emitted)))
                         (catch Exception _ nil)))
           clj-fn (if direct-fn direct-fn
@@ -2203,7 +2203,7 @@
                                               {:erased (or erased 0) :arity (or arity n)})]
                             (when emitted
                               (decl/register! (str fn-name)
-                                          (update emitted :convention assoc :provenance :surface))
+                                              (update emitted :convention assoc :provenance :surface))
                               (when *verbose* (println "✓" fn-name ":" (pr-str (:fn-form emitted))))
                               (:fn emitted)))))
                       (catch Exception ex

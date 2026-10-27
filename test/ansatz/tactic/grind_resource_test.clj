@@ -28,17 +28,17 @@
   (a/structure CovEntity [] (id Nat) (tokens (List Nat)))
   (a/defn covmem [x :- Nat, xs :- (List Nat)] Bool
     (match xs [nil false]
-      [(cons h t) (if (Nat.beq x h) true (covmem x t))]))
+           [(cons h t) (if (Nat.beq x h) true (covmem x t))]))
   (a/defn covone [h :- CovHandle, e :- CovEntity] Bool
     (if (Nat.beq (:spin h) (:id e))
-        (Bool.and
-          (if (:dropped h) (Bool.not (covmem (:id h) (:tokens e))) true)
-          (if (Bool.and (:reachable h) (Bool.and (:touched h) (Bool.not (:dropped h))))
-              (covmem (:id h) (:tokens e)) true))
-        true))
+      (Bool.and
+       (if (:dropped h) (Bool.not (covmem (:id h) (:tokens e))) true)
+       (if (Bool.and (:reachable h) (Bool.and (:touched h) (Bool.not (:dropped h))))
+         (covmem (:id h) (:tokens e)) true))
+      true))
   (a/defn covall [h :- CovHandle, es :- (List CovEntity)] Bool
     (match es [nil true]
-      [(cons e t) (Bool.and (covone h e) (covall h t))]))
+           [(cons e t) (Bool.and (covone h e) (covall h t))]))
   (a/deftheorem cov-one-loss [h :- CovHandle, e :- CovEntity]
     (=> (= (covone h e) true)
         (= (covone (CovHandle.mk (:id h) (:spin h) false (:touched h) (:dropped h)) e) true))
@@ -70,7 +70,7 @@
         (let [graph (assoc (eg/internalize (eg/mk-grind-state (a/env)) term 0)
                            :simp-context (gs/mk-context st))
               result (with-redefs [gs/unfold-reducible-step
-                                  (fn [expr] (swap! visits inc) (post expr))]
+                                   (fn [expr] (swap! visits inc) (post expr))]
                        (gs/preprocess graph st))]
           (is (contains? (:simp-done result) term) "the real preprocessing path completed")
           (is (= (+ 2 (* 2 depth)) @(:num-steps state)) "one uncached simp visit per shared app node")

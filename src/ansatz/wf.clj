@@ -1073,35 +1073,35 @@
         ;; Use type-appropriate default value
         default-val ((fn default-value [ty]
                        (let [[rh ra] (e/get-app-fn-args ty)]
-                        (cond
+                         (cond
                           ;; Init/Prelude.lean Pi.instInhabited: default functions
                           ;; return a default at the codomain, without forcing an argument.
-                          (e/forall? ty)
-                          (e/lam (e/forall-name ty) (e/forall-type ty)
-                                 (default-value (e/forall-body ty)) (e/forall-info ty))
+                           (e/forall? ty)
+                           (e/lam (e/forall-name ty) (e/forall-type ty)
+                                  (default-value (e/forall-body ty)) (e/forall-info ty))
                           ;; Nat → 0
-                          (and (e/const? ty)
-                               (= "Nat" (name/->string (e/const-name ty))))
-                          (e/lit-nat 0)
+                           (and (e/const? ty)
+                                (= "Nat" (name/->string (e/const-name ty))))
+                           (e/lit-nat 0)
                           ;; List α → List.nil α
-                          (and (e/const? rh)
-                               (= "List" (name/->string (e/const-name rh))))
-                          (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
-                                 (first ra))
+                           (and (e/const? rh)
+                                (= "List" (name/->string (e/const-name rh))))
+                           (e/app (e/const' (name/from-string "List.nil") [lvl/zero])
+                                  (first ra))
                           ;; Bool → false
-                          (and (e/const? ty)
-                               (= "Bool" (name/->string (e/const-name ty))))
-                          (e/const' (name/from-string "Bool.false") [])
+                           (and (e/const? ty)
+                                (= "Bool" (name/->string (e/const-name ty))))
+                           (e/const' (name/from-string "Bool.false") [])
                           ;; Fallback: try Inhabited.default
-                          :else
-                          (let [inh-inst (try-synthesize-instance
-                                          env (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)])
-                                                     ty))]
-                            (if inh-inst
-                              (e/app* (e/const' (name/from-string "Inhabited.default") [(lvl/succ lvl/zero)])
-                                      ty inh-inst)
+                           :else
+                           (let [inh-inst (try-synthesize-instance
+                                           env (e/app (e/const' (name/from-string "Inhabited") [(lvl/succ lvl/zero)])
+                                                      ty))]
+                             (if inh-inst
+                               (e/app* (e/const' (name/from-string "Inhabited.default") [(lvl/succ lvl/zero)])
+                                       ty inh-inst)
                               ;; Last resort: use lit-nat 0 (may cause type error if reached)
-                              (e/lit-nat 0))))))
+                               (e/lit-nat 0))))))
                      ret-ansatz)
         base-nr (loop [i (dec n) body default-val]
                   (if (< i 0) body

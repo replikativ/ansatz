@@ -205,5 +205,5 @@
 
 (deftest generalization-rejects-ill-typed-target
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"generalize: result is not type correct"
-                       (proves '[n :- Nat, x :- (Fin n)] '(= x x)
-                               '[(generalize k h n)]))))
+                        (proves '[n :- Nat, x :- (Fin n)] '(= x x)
+                                '[(generalize k h n)]))))

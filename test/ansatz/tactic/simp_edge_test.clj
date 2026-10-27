@@ -585,10 +585,10 @@
         goal (proof/current-goal ps)
         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"uncertified simplification"
-                         (#'simp/close-goal-with-proof ps goal st
-                                                      {:expr simplified :proof? nil} [])))
+                          (#'simp/close-goal-with-proof ps goal st
+                                                        {:expr simplified :proof? nil} [])))
     (let [truth (e/const' (name/from-string "True") [])
           h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
                     (e/sort' lvl/zero) truth)]
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"invalid equality proof"
-                           (#'simp/close-goal-with-proof ps goal st {:expr truth :proof? h} []))))))
+                            (#'simp/close-goal-with-proof ps goal st {:expr truth :proof? h} []))))))

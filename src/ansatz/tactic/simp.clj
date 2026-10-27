@@ -2457,14 +2457,14 @@
       (let [v (get-sort-level st' field-type)
             motive (e/lam "s" struct-type
                           (e/abstract1 (e/app* (e/const' eq-name [v])
-                                              field-type expr projected) fid) :default)
+                                               field-type expr projected) fid) :default)
             _ (tc/infer-type st motive)
             r (simp-expr* st env lemma-index struct (update config :max-depth dec))
             result (e/proj (e/proj-type-name expr) (e/proj-idx expr) (:expr r))]
         (if-let [h (:proof? r)]
           (mk-result result
                      (e/app* (e/const' (name/from-string "Eq.ndrec")
-                                      [lvl/zero (get-sort-level st struct-type)])
+                                       [lvl/zero (get-sort-level st struct-type)])
                              struct-type struct motive
                              (e/app* (e/const' eq-refl-name [v]) field-type expr)
                              (:expr r) h))
@@ -2704,7 +2704,7 @@
 
 (defn- cached-result [cache expr]
   (when-let [result (if (instance? ExprMap cache) (.get ^ExprMap cache expr)
-                       (when cache (get @cache expr)))]
+                        (when cache (get @cache expr)))]
     ;; Lean's expression cache equates separately allocated equal nodes. Reuse
     ;; the caller's node when unchanged, preserving sharing through congruence.
     (if (and (not (identical? expr (:expr result)))

@@ -67,8 +67,8 @@
                           (let [ps (vec (repeatedly n #(gensym "p")))]
                             [ps (reduce (fn [f a] (list f a)) raw ps)]))
         erased' (count (take-while (fn [i] (or (= :type (nth erasure-kinds i nil))
-                                              (not (occurs? (nth params i) body))))
-                                  (range erased)))
+                                               (not (occurs? (nth params i) body))))
+                                   (range erased)))
         _ (when (not= erased erased')
             (swap! arity-registry assoc cname
                    (convention (subvec params erased') erased' value?)))

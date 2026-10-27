@@ -323,9 +323,9 @@
 
 (deftest normalization-depth-is-a-named-limit
   (with-redefs [legacy/grind (fn [ps hints] (main/grind ps hints {:max-rec-depth 1}))]
-      (is (re-find #"maximum recursion depth exceeded"
-                   (cs/attempt '[v2_norm_limit [a :- Nat, b :- Nat]
-                                 (= (+ a b) (+ b a)) [(grind)]] 10000)))))
+    (is (re-find #"maximum recursion depth exceeded"
+                 (cs/attempt '[v2_norm_limit [a :- Nat, b :- Nat]
+                               (= (+ a b) (+ b a)) [(grind)]] 10000)))))
 
 (deftest equality-true-propagates-to-endpoints
   (check-script '[v2_beq_chain [a :- Nat, b :- Nat, c :- Nat,

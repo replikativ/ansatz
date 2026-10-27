@@ -27,18 +27,18 @@
     (ansatz.core/defn frame-step [s :- FrameState, id :- Nat] FrameState
       (FrameState.mk (:local s) (:kept s) false))
     (ansatz.core/theorem local-frame [s :- FrameState, id :- Nat]
-      (= (:local (frame-step s id)) (:local s)) (rfl))
+                         (= (:local (frame-step s id)) (:local s)) (rfl))
     (ansatz.core/theorem kept-preserved [s :- FrameState, id :- Nat]
-      (=> (= (:kept s) true) (= (:kept (frame-step s id)) true))
-      (intro h) (exact h))
+                         (=> (= (:kept s) true) (= (:kept (frame-step s id)) true))
+                         (intro h) (exact h))
     (ansatz.core/defn flat-inv [s :- FrameState] Bool
       (Bool.and (nested-predicate (:local s))
-        (Bool.and (nested-predicate (:local s))
-          (Bool.and (nested-predicate (:local s))
-            (Bool.and (nested-predicate (:local s))
-              (Bool.and (nested-predicate (:local s))
                 (Bool.and (nested-predicate (:local s))
-                  (Bool.and (nested-predicate (:local s)) (:kept s)))))))))])
+                          (Bool.and (nested-predicate (:local s))
+                                    (Bool.and (nested-predicate (:local s))
+                                              (Bool.and (nested-predicate (:local s))
+                                                        (Bool.and (nested-predicate (:local s))
+                                                                  (Bool.and (nested-predicate (:local s)) (:kept s)))))))))])
 
 (deftest simp-all-preserves-flat-invariant-with-nested-lets
   (let [saved-env @a/ansatz-env

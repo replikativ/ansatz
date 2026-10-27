@@ -114,14 +114,14 @@
   ([applications] (differential-closed! applications :int))
   ([applications schema] (differential-closed! applications schema identity))
   ([applications schema kernel-form]
-    (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
-          red (.getReducer tc)]
-      (doseq [application applications]
-        (let [term (elab/elaborate (a/env) application)
-              kernel (#'am/decode-val #(.whnf red %) schema
-                                      (elab/elaborate (a/env) (kernel-form application)))
-              runtime (eval (cg/ansatz->clj (a/env) term []))]
-          (is (= kernel runtime) (str application)))))))
+   (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
+         red (.getReducer tc)]
+     (doseq [application applications]
+       (let [term (elab/elaborate (a/env) application)
+             kernel (#'am/decode-val #(.whnf red %) schema
+                                     (elab/elaborate (a/env) (kernel-form application)))
+             runtime (eval (cg/ansatz->clj (a/env) term []))]
+         (is (= kernel runtime) (str application)))))))
 
 (deftest function-valued-definitions-preserve-call-arity
   (let [saved-env @a/ansatz-env
@@ -161,7 +161,7 @@
                 (ansatz.core/defn ^:partial cg-result-partial-def [n :- Nat] (=> Nat Nat)
                   (fn [x :- Nat] (+ n x)))
                 (ansatz.core/foreign cg-result-foreign [n :- Nat] (=> Nat Nat)
-                  (fn [n] (fn [x] (+ n x))))])
+                                     (fn [n] (fn [x] (+ n x))))])
         (is (= 1 (:arity (get @a/arity-registry "round-probe"))))
         (is (= 2 (:arity (get @a/arity-registry "cg-result-multi"))))
         (is (= 3 (:arity (get @a/arity-registry "cg-result-flat"))))
@@ -184,7 +184,7 @@
         (doseq [f '[cg-result-partial-def cg-result-foreign]]
           (is (= 1 (:arity (get @a/arity-registry (str f)))))
           (is (= 7 (eval (cg/ansatz->clj (a/env)
-                                        (elab/elaborate (a/env) (list f 2 5)) [])))))
+                                         (elab/elaborate (a/env) (list f 2 5)) [])))))
         ;; Ordinary functions retain the flat call fast path.
         (is (= '(cg-result-flat 2 3 5)
                (cg/ansatz->clj (a/env)
@@ -269,12 +269,12 @@
                              1 (list 'cg-result-oracle n 0 4)
                              2 (list 'cg-result-oracle n 2 4))]
                 (differential-closed! [application] :int
-                                     (if (= mode :partial) (constantly oracle) identity))))))
+                                      (if (= mode :partial) (constantly oracle) identity))))))
         (eval '(ansatz.core/defn cg-result-wf-fuel [n :- Nat] (=> Nat Nat)
                  :termination-by n
                  (if (<= n 0) (fn [x :- Nat] x)
-                   (fn [x :- Nat]
-                     (let [y (+ x 1)] (cg-result-wf-fuel (- n 1) y))))))
+                     (fn [x :- Nat]
+                       (let [y (+ x 1)] (cg-result-wf-fuel (- n 1) y))))))
         ;; A let in the returned lambda takes the existing fuel fallback, whose
         ;; default must itself have the function result type.
         (is (#'a/mentions-const?
@@ -284,7 +284,7 @@
         (is (thrown-with-msg?
              clojure.lang.ExceptionInfo #"not provably decreasing"
              (a/define-verified-wf 'cg-result-nondecreasing '[n :- Nat] '(=> Nat Nat)
-                                   '(fn [x :- Nat] ((cg-result-nondecreasing n) x)) 'n))))
+               '(fn [x :- Nat] ((cg-result-nondecreasing n) x)) 'n))))
       (finally
         (reset! a/ansatz-env saved-env)
         (reset! a/arity-registry saved-arity)
@@ -315,10 +315,10 @@
                 nullary? (= shape :nullary)
                 result (if function? '(=> Nat Nat) 'Nat)
                 rec-args (case shape :implicit ['S '(- n 1)]
-                                    :instance ['inst '(- n 1)]
-                                    ['(- n 1)])
+                               :instance ['inst '(- n 1)]
+                               ['(- n 1)])
                 self (apply list (if (#{:implicit :instance} shape)
-                                  (symbol (str "@" f)) f) rec-args)
+                                   (symbol (str "@" f)) f) rec-args)
                 body (cond
                        nullary?
                        (if function?
@@ -353,7 +353,7 @@
                        (if recursive?
                          (if function?
                            '(fn self [n] (if (<= n 0) (fn [x] x)
-                                            (fn [x] (+ 1 ((self (- n 1)) x)))))
+                                             (fn [x] (+ 1 ((self (- n 1)) x)))))
                            '(fn self [n] (if (<= n 0) 0 (+ 1 (self (- n 1))))))
                          (if function? '(fn [n] (fn [x] (+ n x))) '(fn [n] n))))
                 form (if (= kind :foreign)
@@ -375,8 +375,8 @@
                                          :when (= "invoke" (.getName m))]
                                      (.getParameterCount m))))
                     kernel-prefix (case shape :implicit ['Nat 4]
-                                              :instance ['(Inhabited.mk Nat 0) 4]
-                                              :explicit [4] :nullary [])
+                                        :instance ['(Inhabited.mk Nat 0) 4]
+                                        :explicit [4] :nullary [])
                     application (apply list (if (#{:implicit :instance} shape)
                                               (symbol (str "@" f)) f)
                                        (cond-> kernel-prefix function? (conj 3)))
@@ -388,13 +388,13 @@
                   (do
                       ;; Invoke exactly the recorded runtime window, independently
                       ;; of application lowering and its erased kernel prefix.
-                      (is (= (if function? 7 4)
-                             (let [inputs (mapv #(eval (cg/ansatz->clj (a/env)
-                                                                    (elab/elaborate (a/env) %) []))
-                                                (drop (:erased cc) kernel-prefix))
-                                   v (apply runtime inputs)]
-                               (is (= (:arity cc) (count inputs)))
-                               (if function? (v 3) v))))))
+                    (is (= (if function? 7 4)
+                           (let [inputs (mapv #(eval (cg/ansatz->clj (a/env)
+                                                                     (elab/elaborate (a/env) %) []))
+                                              (drop (:erased cc) kernel-prefix))
+                                 v (apply runtime inputs)]
+                             (is (= (:arity cc) (count inputs)))
+                             (if function? (v 3) v))))))
                 (let [kernel-form (if (#{:partial :foreign} kind) oracle application)]
                   (differential-closed! [application] :int (constantly kernel-form))
                   ;; Construct the fully explicit kernel let directly: the surface
@@ -413,12 +413,12 @@
                 (ansatz.core/defn replacement-result [n :- Nat] (=> Nat Nat)
                   (fn [x :- Nat] (+ n x)))
                 (ansatz.core/csimp replace-original [n :- Nat, x :- Nat]
-                  (= Nat (original-flat n x) (replacement-result n x)) (rfl))
+                                   (= Nat (original-flat n x) (replacement-result n x)) (rfl))
                 (ansatz.core/defn original-result [n :- Nat] (=> Nat Nat)
                   (fn [x :- Nat] (+ n x)))
                 (ansatz.core/defn replacement-flat [n :- Nat, x :- Nat] Nat (+ n x))
                 (ansatz.core/csimp replace-result [n :- Nat, x :- Nat]
-                  (= Nat (original-result n x) (replacement-flat n x)) (rfl))])
+                                   (= Nat (original-result n x) (replacement-flat n x)) (rfl))])
         (doseq [f '[original-flat original-result], n (range 3)]
           (differential-closed!
            [(list f n 3)

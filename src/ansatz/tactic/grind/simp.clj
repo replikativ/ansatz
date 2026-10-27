@@ -85,8 +85,8 @@
   ;; No local hypothesis rewrites or contextual discharger. Normalize the public
   ;; lemma entries before indexing, retaining their original checked proof names.
   (let [lemmas (simp/make-simp-lemmas (:env st)
-                                       ["Nat.add_zero" "Nat.zero_add" "Nat.add_succ" "Nat.succ_add"
-                                        "Nat.zero_le" "Nat.le_refl"])
+                                      ["Nat.add_zero" "Nat.zero_add" "Nat.add_succ" "Nat.succ_add"
+                                       "Nat.zero_le" "Nat.le_refl"])
         lemmas (mapv (fn [lemma]
                        (let [lhs (unfold-reducible (:lhs-pattern lemma))
                              [head args] (e/get-app-fn-args lhs)]
@@ -100,9 +100,9 @@
   (let [expr (unfold-reducible expr) [head args] (e/get-app-fn-args expr)]
     (if (and (e/const? head) (= "Nat.add" (name/->string (e/const-name head))) (= 2 (count args)))
       (let [changed (mapv (fn [arg]
-                                (if (and (e/lit-nat? arg) (pos? (e/lit-nat-val arg)))
-                                  (e/app (e/const' (name/from-string "Nat.succ") [])
-                                         (e/lit-nat (dec (e/lit-nat-val arg)))) arg)) args)]
+                            (if (and (e/lit-nat? arg) (pos? (e/lit-nat-val arg)))
+                              (e/app (e/const' (name/from-string "Nat.succ") [])
+                                     (e/lit-nat (dec (e/lit-nat-val arg)))) arg)) args)]
         (if (every? true? (map identical? args changed)) expr (reduce e/app head changed))) expr)))
 
 (defn- numeral-view [expr state]
@@ -166,31 +166,31 @@
         state (or *state* (mk-state))
         config (simp-state state st)]
     (binding [*state* state simp/*max-rec-depth* (:max-rec-depth action/*config*)]
-     (reduce
-     (fn [gs [expr node]]
-       (if (or (nat-candidate? expr)
-               (and (e/app? expr) (not (e/has-fvar-flag expr))
-                    (not (e/has-loose-bvars? expr))))
+      (reduce
+       (fn [gs [expr node]]
+         (if (or (nat-candidate? expr)
+                 (and (e/app? expr) (not (e/has-fvar-flag expr))
+                      (not (e/has-loose-bvars? expr))))
          ;; Grind.Simp.simpCore/preprocessImpl simplify the whole well-typed
          ;; term. Independent root substitution breaks dependent arguments.
-         (let [key expr]
-           (if (contains? (:simp-done gs) key) gs
-               (let [candidate expr
-                     result (simp/simp-expr-result st (:env st) index (numeral-view candidate state)
-                                                   (:max-rec-depth action/*config*) config)
+           (let [key expr]
+             (if (contains? (:simp-done gs) key) gs
+                 (let [candidate expr
+                       result (simp/simp-expr-result st (:env st) index (numeral-view candidate state)
+                                                     (:max-rec-depth action/*config*) config)
                    ;; Reuse simp's literal simprocs first. Ground evaluation
                    ;; supplies the Init-only decision path and definitions that
                    ;; have no equation theorem registered with simp.
-                     result (if (.equals (LeanExprKey. candidate) (LeanExprKey. (:expr result)))
-                              (assoc result :expr candidate) result)
-                     result (if (identical? candidate (:expr result))
-                              (or (ground-result st candidate) result) result)
-                     gs (-> gs (update :simp-done (fnil conj #{}) key)
-                            (eg/internalize candidate (:gen node))
-                            (eg/internalize (:expr result) (:gen node)))]
-                 (eg/assert-eq gs candidate (:expr result)
-                               (or (:proof? result) (proof/mk-eq-refl st (:expr result))))))) gs))
-     gs (:enodes gs)))))
+                       result (if (.equals (LeanExprKey. candidate) (LeanExprKey. (:expr result)))
+                                (assoc result :expr candidate) result)
+                       result (if (identical? candidate (:expr result))
+                                (or (ground-result st candidate) result) result)
+                       gs (-> gs (update :simp-done (fnil conj #{}) key)
+                              (eg/internalize candidate (:gen node))
+                              (eg/internalize (:expr result) (:gen node)))]
+                   (eg/assert-eq gs candidate (:expr result)
+                                 (or (:proof? result) (proof/mk-eq-refl st (:expr result))))))) gs))
+       gs (:enodes gs)))))
 
 (defn normalization-theorems [st]
   ;; The stage-2 Nat length normalization requirement uses checked Init lemmas,
