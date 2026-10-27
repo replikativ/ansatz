@@ -358,3 +358,66 @@ authorization registry identity, semantic-rule changes and weak table values.
 The 74-test resident/eval regression run passed 1,026 assertions before the final
 two application-code assertions were added; the final focused six tests passed
 all 57. No full Init or full-image experiment has been run.
+
+## Bottom-up continuation register sizing
+
+Repeated host resumes exposed another source of allocation: restoration sized
+register arrays by walking each remaining continuation independently. A sequence
+of N host calls therefore rescanned overlapping suffixes quadratically, even
+though the code was unchanged. The per-restoration identity memo only helped
+multiple frames sharing the exact same body within one thaw.
+
+`continuation-layout` now computes widths iteratively, bottom-up, for every
+reachable eligible continuation in a cold traversal. Shared branches are measured
+once by identity. Future restores reuse child widths immediately; this improves
+first execution as well as repeated runs. Expected analysis work is linear in
+visited body nodes, edges and inspected operand/parameter/branch fields. Local
+analysis storage and retained weak scalar entries are proportional to those nodes.
+
+Eligibility follows the original scanner's read surface. Exact immutable vector
+control/operand/branch/parameter structures and stable IDs permit reuse; arbitrary
+runtime payloads in `:imm`/`:literal`, callee and module names, layouts, labels and
+metadata are ignored. Unsupported control structures take the unchanged scanner,
+including its exceptions; partially eligible graphs publish no partial proofs.
+Unknown instructions keep the original program-width fallback. A changed fallback
+replaces one scalar entry per body rather than retaining a fallback history.
+
+The cache uses identity-hash buckets, weak body references and queue cleanup,
+never structural vector hashing/equality. Values contain only numeric fallback
+and width. Rule baselines and the owning module generation are weak too. Partial
+scanner, analysis or cache-helper redefinitions disable global reuse and discard
+stored facts; full owner reload changes the generation. Checks occur before
+eligibility and before/after publication. Fresh locals, host/resume destinations,
+saved frame destinations and captured join parameters still widen arrays on every
+restoration. No layout evidence is accepted from snapshot metadata or serialized.
+
+In the same 384 MiB REPL, sizing successive suffixes measured:
+
+| Continuations | Original repeated scanning | Bottom-up, cold | Bottom-up, warm |
+| --- | ---: | ---: | ---: |
+| 11 | 55,976 B | 30,784 B | 6,608 B |
+| 101 | 4,655,096 B | 289,304 B | 56,768 B |
+| 301 | 41,323,336 B | 853,208 B | 168,208 B |
+
+Each cold sample resets the generation before the whole suffix sequence. For
+100 synthetic scalar host calls through the JVM driver, allocation fell from
+6,811,536 B to 2,213,208 B; the thaw/freeze count stays 101. The latter probe checks
+exact World equality with the reference interpreter after each measured run.
+The remaining snapshot/handler cost is substantial and is separate work. Small
+cold sizing cases can be slower because eligibility and proof construction add
+fixed work; timings vary with REPL/JIT state and host load. Allocation scaling is
+the stronger evidence here. These counters measure allocations, not retained heap.
+
+Reproduce with `continuation-layout-probe.clj` after loading
+`resident-cost-probe.clj`: `run-size` separates cold/warm sizing; `run-case` and
+`run-legacy-case` compare complete small driver workloads. Counters are recorded
+in `tiny-continuation-layout-costs.json`. No Init, Source or genuine frontend is
+loaded. The earlier compact-record prototype saved only about 2 KB per snapshot
+round trip and was not included.
+
+Validation passed: 21 layout tests/891 assertions; 78 mutable/compiler/interop/
+snapshot/scalar regressions/4,402 assertions; 73 fixture-free infrastructure and
+sizing controls/1,064 assertions; optional package inventory 67 sources with
+3 audit tests/20 assertions. Independent source review found and verified fixes
+for guard ordering and cache-helper invalidation, then reported no blockers.
+The full-image experiment remains parked.
