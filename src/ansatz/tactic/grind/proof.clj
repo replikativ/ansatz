@@ -36,9 +36,7 @@
 (defn- get-sort-level
   "Get the universe level of a type."
   [st ty]
-  (let [sort (try (let [s (tc/infer-type st ty)]
-                    (#'tc/cached-whnf st s))
-                  (catch Exception _ nil))]
+  (let [sort (#'tc/cached-whnf st (tc/infer-type st ty))]
     (if (and sort (e/sort? sort))
       (e/sort-level sort)
       lvl/zero)))
@@ -77,7 +75,7 @@
    (from h : @Eq (α → β) f g)"
   [st alpha beta f g h a]
   (let [u (get-sort-level st alpha)
-        v (get-sort-level st beta)]
+        v (get-sort-level st (e/app beta a))]
     (e/app* (e/const' congr-fun-name [u v])
             alpha beta f g h a)))
 
@@ -229,6 +227,36 @@
   (let [[lhs-head lhs-args] (e/get-app-fn-args lhs)
         [rhs-head rhs-args] (e/get-app-fn-args rhs)]
     (cond
+      ;; Proj.lean propagateProjEq: primitive projections commute with equality.
+      (and (e/proj? lhs) (e/proj? rhs))
+      (let [a (e/proj-struct lhs) b (e/proj-struct rhs)
+            alpha (infer-type st a) beta (infer-type st lhs)
+            f (e/lam "x" alpha (e/proj (e/proj-type-name lhs) (e/proj-idx lhs) (e/bvar 0)) :default)]
+        (mk-congr-arg st alpha beta a b f (mk-eq-proof gs st a b)))
+
+      ;; Lean Proof.lean mkEqProofImpl / Internalize.lean eqCongrSymmPlaceholderProof.
+      ;; Equality propositions with reversed endpoints need symmetry, not app congruence.
+      (and (e/const? lhs-head) (= eq-name (e/const-name lhs-head))
+           (e/const? rhs-head) (= eq-name (e/const-name rhs-head))
+           (= 3 (count lhs-args)) (= 3 (count rhs-args))
+           (eg/is-eqv gs (nth lhs-args 1) (nth rhs-args 2))
+           (eg/is-eqv gs (nth lhs-args 2) (nth rhs-args 1))
+           (not (and (eg/is-eqv gs (nth lhs-args 1) (nth rhs-args 1))
+                     (eg/is-eqv gs (nth lhs-args 2) (nth rhs-args 2)))))
+      (let [[alpha a b] lhs-args
+            [_ c d] rhs-args
+            direction (fn [source x y u v]
+                        (let [h (e/fvar -100)
+                              rev (mk-eq-symm st alpha x y h)
+                              left (mk-eq-proof gs st u y)
+                              right (mk-eq-proof gs st x v)
+                              mid (mk-eq-trans st alpha u y x left rev)
+                              result (mk-eq-trans st alpha u x v mid right)]
+                          (e/lam "h" source (e/abstract1 result -100) :default)))
+            iff (e/app* (e/const' (name/from-string "Iff.intro") []) lhs rhs
+                        (direction lhs a b c d) (direction rhs c d a b))]
+        (e/app* (e/const' (name/from-string "propext") []) lhs rhs iff))
+
       ;; Both are applications with same arity
       (and (= (count lhs-args) (count rhs-args)) (pos? (count lhs-args)))
       (let [n (count lhs-args)
@@ -244,16 +272,19 @@
             (or fn-proof (mk-eq-refl st lhs))  ;; all args identical → refl
             (let [a (nth lhs-args i)
                   b (nth rhs-args i)
-                  ;; Check if we need to continue peeling
-                  remaining-lhs (reduce e/app lhs-fn (take (inc i) lhs-args))
-                  remaining-rhs (reduce e/app rhs-fn (take (inc i) rhs-args))]
+                  ;; Lean canon identifies reducible arguments before congruence.
+                  ;; Eq's carrier slot has forward dependencies, so a beta-equal
+                  ;; motive application must not become a homogeneous congrArg.
+                  same-arg? (tc/is-def-eq st a b)]
               (if (= i (dec n))
                 ;; Last argument — build the final proof
-                (if (.equals a b)
+                (if same-arg?
                   (if fn-proof
                     ;; f ≠ g but last arg same: congrFun fn-proof a
                     (let [alpha (infer-type st a)
-                          beta-expr (infer-type st (e/app lhs-fn a))]
+                          fn-type (#'tc/cached-whnf st (infer-type st lhs-fn))
+                          beta-expr (e/lam (e/forall-name fn-type) (e/forall-type fn-type)
+                                           (e/forall-body fn-type) :default)]
                       (mk-congr-fun st alpha beta-expr lhs-fn rhs-fn fn-proof a))
                     ;; Everything identical → refl
                     (mk-eq-refl st lhs))
@@ -267,9 +298,16 @@
                       ;; Only arg differs: congrArg
                       (mk-congr-arg st alpha beta a b lhs-fn arg-proof))))
                 ;; Not last argument — accumulate function proof
-                (if (.equals a b)
-                  (recur (inc i) fn-proof
-                         (e/app lhs-fn a) (e/app rhs-fn b))
+                (if same-arg?
+                  ;; Proof.lean mkCongrHomoProof: even a common argument must
+                  ;; advance an existing function equality with congrFun.
+                  (let [fn-proof (when fn-proof
+                                   (let [alpha (infer-type st a)
+                                         fn-type (#'tc/cached-whnf st (infer-type st lhs-fn))
+                                         beta-expr (e/lam (e/forall-name fn-type) (e/forall-type fn-type)
+                                                          (e/forall-body fn-type) :default)]
+                                     (mk-congr-fun st alpha beta-expr lhs-fn rhs-fn fn-proof a)))]
+                    (recur (inc i) fn-proof (e/app lhs-fn a) (e/app rhs-fn b)))
                   ;; Arg differs — build partial proof and continue
                   (let [arg-proof (mk-eq-proof gs st a b)
                         alpha (infer-type st a)
@@ -307,7 +345,7 @@
         nm-str (if (string? name) name (str name))
         st' (update st :lctx assoc fv {:name nm-str :type alpha})
         body-fv (e/instantiate1 (e/lam-body old-lam) (e/fvar fv))
-        beta-body (try (infer-type st' body-fv) (catch Throwable _ nil))
+        beta-body (infer-type st' body-fv)
         v (if beta-body (get-sort-level st' beta-body) lvl/zero)
         beta (e/lam name alpha (e/abstract1 (or beta-body (e/sort' v)) fv) :default)
         proof-lam (e/lam name alpha (e/abstract1 body-proof fv) :default)]

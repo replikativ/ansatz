@@ -58,8 +58,8 @@
 (deftest test-grind-assumption
   (testing "grind solves a = b from h : a = b via assumption"
     (let [env (require-env)
-          h-type (mk-eq (e/bvar 2) (e/bvar 1))
-          concl (mk-eq (e/bvar 3) (e/bvar 2))
+          h-type (mk-eq (e/bvar 1) (e/bvar 0))
+          concl (mk-eq (e/bvar 2) (e/bvar 1))
           goal (e/forall' "a" nat
                           (e/forall' "b" nat
                                      (e/forall' "h" h-type concl :default) :default) :default)

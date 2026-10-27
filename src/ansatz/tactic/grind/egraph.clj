@@ -155,21 +155,19 @@
           (recur next results))))))
 
 (defn collect-eqc
-  "Collect all expressions in an equivalence class.
-   Safety: stops after 10000 elements to prevent infinite loops."
+  "Collect an equivalence class, rejecting broken or cyclic membership lists."
   [gs expr]
-  (when-let [start-node (get-enode gs expr)]
-    (loop [curr expr results [] fuel 10000]
-      (if (<= fuel 0)
-        results  ;; safety cutoff
-        (let [node (get-enode gs curr)]
-          (if (nil? node)
+  (when (get-enode gs expr)
+    (loop [curr expr results [] seen #{}]
+      (when (contains? seen curr)
+        (throw (ex-info "E-graph: broken equivalence-class cycle" {:expr expr :at curr})))
+      (let [node (get-enode gs curr)]
+        (when-not (and node (:next node))
+          (throw (ex-info "E-graph: broken equivalence-class member" {:expr expr :at curr})))
+        (let [results (conj results curr)]
+          (if (= (:next node) expr)
             results
-            (let [results (conj results curr)
-                  next (:next node)]
-              (if (or (identical? next expr) (nil? next))
-                results
-                (recur next results (dec fuel))))))))))
+            (recur (:next node) results (conj seen curr))))))))
 
 (defn extract-min-cost
   "Among the MATERIALIZED members of `expr`'s equivalence class, return the one
@@ -260,27 +258,31 @@
    For Eq: symmetric (treats a=b same as b=a)."
   [gs expr]
   (cond
-    ;; Application: hash roots of function and argument
+    ;; Lean Internalize.addCongrTable uses canonical node IDs, not identity hashes.
     (e/app? expr)
     (let [[head args] (e/get-app-fn-args expr)]
       (if (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
         ;; Eq is symmetric: use sorted hash of args 1 and 2
-        (let [r1 (System/identityHashCode (get-root gs (nth args 1)))
-              r2 (System/identityHashCode (get-root gs (nth args 2)))
-              type-hash (System/identityHashCode (get-root gs (nth args 0)))]
+        (let [r1 (:idx (get-root-node gs (nth args 1)))
+              r2 (:idx (get-root-node gs (nth args 2)))
+              type-hash (:idx (get-root-node gs (nth args 0)))]
           [:eq type-hash (min r1 r2) (max r1 r2)])
         ;; Normal application: hash roots of all args
-        (let [root-hashes (mapv #(System/identityHashCode (get-root gs %)) args)
-              head-hash (System/identityHashCode (get-root gs head))]
+        (let [root-hashes (mapv #(:idx (get-root-node gs %)) args)
+              head-hash (:idx (get-root-node gs head))]
           [:app head-hash root-hashes])))
 
     ;; Forall: hash roots of domain and body
     (e/forall? expr)
-    [:forall (System/identityHashCode (get-root gs (e/forall-type expr)))
-     (System/identityHashCode (get-root gs (e/forall-body expr)))]
+    [:forall (get-root gs (e/forall-type expr))
+     (get-root gs (e/forall-body expr))]
+
+    (e/proj? expr)
+    [:proj (e/proj-type-name expr) (e/proj-idx expr)
+     (:idx (get-root-node gs (e/proj-struct expr)))]
 
     ;; Everything else: unique key (no congruence)
-    :else [:other (System/identityHashCode expr)]))
+    :else [:other expr]))
 
 (defn- congruent?
   "Check if two expressions are congruent (same structure with equivalent args)."
@@ -309,6 +311,11 @@
     (and (is-eqv gs (e/forall-type e1) (e/forall-type e2))
          (is-eqv gs (e/forall-body e1) (e/forall-body e2)))
 
+    (and (e/proj? e1) (e/proj? e2))
+    (and (= (e/proj-type-name e1) (e/proj-type-name e2))
+         (= (e/proj-idx e1) (e/proj-idx e2))
+         (is-eqv gs (e/proj-struct e1) (e/proj-struct e2)))
+
     :else false))
 
 ;; ============================================================
@@ -319,10 +326,11 @@
   "Add an expression to the congruence table. If a congruent expression already
    exists, push a new equality fact. Returns updated gs."
   [gs expr]
-  (if (or (e/app? expr) (e/forall? expr))
+  (if (or (e/app? expr) (e/forall? expr) (e/proj? expr))
     (let [key (congr-key gs expr)
           existing (get (:congr-table gs) key)]
       (if (and existing (not (identical? existing expr))
+               (congruent? gs existing expr)
                (not (is-eqv gs existing expr)))
         ;; Found congruent partner — push new equality
         (-> gs
@@ -336,7 +344,7 @@
 (defn- remove-congr-table
   "Remove an expression from the congruence table."
   [gs expr]
-  (if (or (e/app? expr) (e/forall? expr))
+  (if (or (e/app? expr) (e/forall? expr) (e/proj? expr))
     (let [key (congr-key gs expr)]
       (if (identical? (get (:congr-table gs) key) expr)
         (update gs :congr-table dissoc key)
@@ -404,15 +412,19 @@
                                (register-parent child expr)))
                          gs (cons head args))
               ;; Add to app-map (indexed by head symbol)
-              head-key (when (e/const? head) (e/const-name head))
+              head-key (cond (e/const? head) (e/const-name head)
+                             (e/fvar? head) [:fvar (e/fvar-id head)])
               gs (if head-key
                    (update-in gs [:app-map head-key] (fnil conj []) expr)
                    gs)
               ;; Add to congruence table
               gs (add-congr-table gs expr)]
           gs)
-        ;; Non-application: just return
-        gs))))
+        (if (e/proj? expr)
+          (-> gs (internalize (e/proj-struct expr) gen)
+              (register-parent (e/proj-struct expr) expr)
+              (add-congr-table expr))
+          gs)))))
 
 (defn internalize-binders
   "Like `internalize`, but ALSO descends into the step-λ arguments of applications whose head name
@@ -485,15 +497,8 @@
 (defn- update-roots
   "Walk the equivalence class of expr and set all roots to new-root."
   [gs expr new-root]
-  (loop [gs gs curr expr fuel 10000]
-    (if (<= fuel 0) gs
-        (let [node (get-enode gs curr)]
-          (if (nil? node) gs
-              (let [gs (set-enode gs curr (assoc node :root new-root))
-                    next (:next node)]
-                (if (or (identical? next expr) (nil? next))
-                  gs
-                  (recur gs next (dec fuel)))))))))
+  (reduce (fn [gs member] (assoc-in gs [:enodes member :root] new-root))
+          gs (collect-eqc gs expr)))
 
 ;; ============================================================
 ;; Remove and reinsert parents for congruence closure
@@ -505,7 +510,7 @@
   [gs root-expr]
   (let [parents (get-parents gs root-expr)]
     [(reduce (fn [gs parent]
-               (if (or (e/app? parent) (e/forall? parent))
+               (if (or (e/app? parent) (e/forall? parent) (e/proj? parent))
                  (remove-congr-table gs parent)
                  gs))
              gs parents)
@@ -515,7 +520,7 @@
   "Re-add parents to congruence table, detecting new congruences."
   [gs parents]
   (reduce (fn [gs parent]
-            (if (or (e/app? parent) (e/forall? parent))
+            (if (or (e/app? parent) (e/forall? parent) (e/proj? parent))
               (add-congr-table gs parent)
               gs))
           gs parents))
@@ -619,8 +624,18 @@
                         (or (identical? lhs-root (:false-expr gs))
                             (identical? rhs-root (:false-expr gs))))
                  (assoc gs :inconsistent true)
-                 gs)]
-        (if (:inconsistent gs)
+                 gs)
+            ;; Core.addEqStep valueInconsistency: retain the original values
+            ;; and the equality edge so a proof-producing client can decide the
+            ;; literal equality and reconstruct False. Literal tags fix the type.
+            gs (if (and (:interp lhs-root-node) (:interp rhs-root-node)
+                        (= (e/tag lhs-root) (e/tag rhs-root))
+                        (contains? #{:lit-nat :lit-str} (e/tag lhs-root))
+                        (not= lhs-root rhs-root))
+                 (assoc gs :inconsistent true :value-conflict [lhs-root rhs-root]) gs)]
+        ;; Proof-producing clients need the True=False edge before closing (Core.lean,
+        ;; closeGoalWithTrueEqFalse). Legacy propagation remains opt-out for optimizers.
+        (if (and (:inconsistent gs) (not (:proof-producing? gs)))
           gs
           ;; Step 3: Choose merge direction
           ;; Keep interpreted/ctor/larger class as root
@@ -670,15 +685,16 @@
                   gs (update gs :gmt inc)
                   ;; Step 13: Propagate up on all parents
                   all-parents (into (get-parents gs parent-root) child-parents)
-                  gs (reduce (fn [gs parent] (propagate-up gs parent))
-                             gs all-parents)
+                  gs (if (:proof-producing? gs) gs
+                       (reduce (fn [gs parent] (propagate-up gs parent)) gs all-parents))
                   ;; Step 14: Propagate down on merged class members
                   merged-members (collect-eqc gs child)
-                  gs (reduce (fn [gs member] (propagate-down gs member))
-                             gs (or merged-members []))
+                  gs (if (:proof-producing? gs) gs
+                       (reduce (fn [gs member] (propagate-down gs member))
+                               gs (or merged-members [])))
                   ;; Step 15: Constructor theory (Lean 4 Ctor.lean)
                   ;; If both roots were constructors, propagate injection or discrimination
-                  gs (if (and (not (:inconsistent gs))
+                  gs (if (and (not (:proof-producing? gs)) (not (:inconsistent gs))
                               (:ctor (get-enode gs child-root))
                               (:ctor (get-enode gs parent-root)))
                        (propagate-ctor gs child-root parent-root)
@@ -699,9 +715,12 @@
    Loops until queue is empty, inconsistent, or fuel exhausted."
   [gs]
   (loop [gs gs fuel *max-facts-fuel*]
-    (if (or (:inconsistent gs) (empty? (:new-facts gs)) (<= fuel 0))
+    (if (or (:inconsistent gs) (empty? (:new-facts gs)))
       gs
-      (let [fact (first (:new-facts gs))
+      (let [_ (when (<= fuel 0)
+                (throw (ex-info (str "Tactic error: grind fact budget exhausted (" *max-facts-fuel* ")")
+                                {:kind :tactic-error :limit :facts :value *max-facts-fuel*})))
+            fact (first (:new-facts gs))
             gs (update gs :new-facts subvec 1)
             gs (add-eq gs (:lhs fact) (:rhs fact) (:proof fact)
                        :heq (or (:heq fact) false))]
