@@ -82,7 +82,7 @@
   ;; Store writes use atomic replacement; an open channel retains its inode.
   (let [path (.toPath (io/file (:base (:backing store)) store-key))]
     (with-open [blob (java.nio.channels.FileChannel/open
-                     path (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/READ]))]
+                      path (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/READ]))]
       (defaults/read-blob*
        blob (:read-handlers store) (:serializers store)
        (merge (select-keys store [:config :version :buffer-size :compressor :encryptor])
@@ -863,7 +863,7 @@
         ;; Ignore its staging/backup/lock artifacts; decode each committed blob's
         ;; metadata through the same read-only opener as ordinary store reads.
         key-metas (with-open [files (java.nio.file.Files/newDirectoryStream
-                                    (.toPath (io/file (:base (:backing store)))) "*.ksv")]
+                                     (.toPath (io/file (:base (:backing store)))) "*.ksv")]
                     (mapv (fn [^java.nio.file.Path file]
                             (let [meta (read-store-blob store (str (.getFileName file)) :read-meta)]
                               (when-not (and (map? meta) (contains? meta :key))

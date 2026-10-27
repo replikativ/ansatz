@@ -146,7 +146,7 @@
                                       [f (java.nio.file.Files/getPosixFilePermissions
                                           (.toPath f) (make-array java.nio.file.LinkOption 0))])) files)
           snapshot (fn [] (into {} (for [^java.io.File f (file-seq (io/file dir))]
-                                    [(.getPath f) [(.length f) (.lastModified f)]])))
+                                     [(.getPath f) [(.length f) (.lastModified f)]])))
           before (snapshot)
           writes #{java.nio.file.attribute.PosixFilePermission/OWNER_WRITE
                    java.nio.file.attribute.PosixFilePermission/GROUP_WRITE
