@@ -3070,13 +3070,13 @@
        ;; Keep even True and reflexive targets available to the branch tactics.
        (not may-close-goal?)
        (if (= simplified raw-goal-type) ps
-         (let [goal-sort (#'tc/cached-whnf st (tc/infer-type st goal-type))
-               [ps child] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-           (-> (proof/assign-mvar ps (:id goal)
-                                  {:kind :simp-reduce :eq-proof (:proof? result)
-                                   :child child :mpr-level (e/sort-level goal-sort)
-                                   :goal-type goal-type :simplified simplified})
-               (proof/record-tactic :simp lemma-names (:id goal)))))
+           (let [goal-sort (#'tc/cached-whnf st (tc/infer-type st goal-type))
+                 [ps child] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+             (-> (proof/assign-mvar ps (:id goal)
+                                    {:kind :simp-reduce :eq-proof (:proof? result)
+                                     :child child :mpr-level (e/sort-level goal-sort)
+                                     :goal-type goal-type :simplified simplified})
+                 (proof/record-tactic :simp lemma-names (:id goal)))))
 
       ;; Simplified to True
       ;; Lean 4: if r.expr.isTrue → close with of_eq_true

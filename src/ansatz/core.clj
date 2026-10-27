@@ -1130,8 +1130,8 @@
                                             (conj seen (:name d))])
                                          [[] #{}] (reverse (sort-by key (:lctx g))))]
                   (if (every? #{'_} names) ps
-                    (rename-branch-locals ps (:id g)
-                                          (reverse (take (count names) fields)) names))))
+                      (rename-branch-locals ps (:id g)
+                                            (reverse (take (count names) fields)) names))))
    'apply     (fn [ps args]
                 (let [g (proof/current-goal ps)
                       [ps' term] (elab-apply-arg ps (:lctx g) (first args))]

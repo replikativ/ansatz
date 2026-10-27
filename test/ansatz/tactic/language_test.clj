@@ -315,13 +315,13 @@
   (let [target (elab/elaborate
                 (a/env)
                 '(forall [i :- Nat j :- Nat x :- Nat y :- Nat]
-                   (And (= (if (== i j) x y) (if (== i j) x y)) True)))
+                         (And (= (if (== i j) x y) (if (== i j) x y)) True)))
         [ps _] (proof/start-proof (a/env) target)
         ps (basic/intros ps ["i" "j" "x" "y"])
         lctx (:lctx (proof/current-goal ps))
         local (fn [nm] (e/fvar (some (fn [[id d]] (when (= nm (:name d)) id)) lctx)))
         eq-self (fn [x] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                               (e/const' (name/from-string "Nat") []) x x))
+                                (e/const' (name/from-string "Nat") []) x x))
         ps (basic/split-tac (basic/constructor ps))]
     ;; Check the targets before reflexivity can close an unreduced conditional.
     (is (= [(eq-self (local "y")) (eq-self (local "x"))
@@ -336,9 +336,9 @@
           '[p :- Prop, q :- Prop, h :- (And p q)] 'q
           '[(cases h) (rename_i hq) (exact hq)])
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"too many"
-                       (binding [a/*verbose* false]
-                         (a/prove-theorem 'rename_too_many '[p :- Prop] '(=> p p)
-                                          '[(intro) (rename_i x y) (exact y)])))))
+                        (binding [a/*verbose* false]
+                          (a/prove-theorem 'rename_too_many '[p :- Prop] '(=> p p)
+                                           '[(intro) (rename_i x y) (exact y)])))))
 
 (deftest induction-on-indexed-proof-generalizes-later-locals
   (a/inductive CountEvidence [] :in Prop :indices [n Nat]
