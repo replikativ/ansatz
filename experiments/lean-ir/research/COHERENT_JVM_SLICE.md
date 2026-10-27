@@ -421,3 +421,73 @@ sizing controls/1,064 assertions; optional package inventory 67 sources with
 3 audit tests/20 assertions. Independent source review found and verified fixes
 for guard ordering and cache-helper invalidation, then reported no blockers.
 The full-image experiment remains parked.
+
+## Private storage across unchanged host returns
+
+The next optimization preserves every immutable boundary snapshot and removes
+reconstruction only when a handler returns the identical World. A backend still
+freezes before arbitrary host code. Dispatch still validates the response and
+runs ordinary immutable `m/resume`. The next driver loop publishes that resumed
+World as its checkpoint before optionally resuming private Machine storage.
+Backend errors therefore keep the same immutable checkpoint; handler effects
+and nested helpers are neither skipped nor replayed.
+
+Candidates are local to one driver invocation, including nested helpers. They
+never enter Worlds, handler capabilities, public results or exception data.
+Reuse requires an unchanged active session, unchanged stock storage/layout rules,
+a clean heap delta and exact frozen heap-base identity. Dirty private heap copies
+are not retained through handlers. Current program-width and continuation facts
+must already exist; readonly queries do not analyze unfamiliar code or update
+LRU state. Missing facts, changed bounds or insufficient register capacity take
+the ordinary restore path. Active, saved and captured arrays must have sufficient
+independent storage: shared physical arrays also decline to normal restoration.
+Interval function-slot caches and backend plans are reset before reuse.
+
+Weak definition baselines and owner generations conservatively invalidate this
+optimization after relevant REPL edits. A custom three-argument boundary adapter
+retains its previous path. Cooperative yield/completion remains immutable;
+ordinary and aggregate helper budgets retain their existing accounting. There
+is no new purity declaration or restriction on existing handlers. These tokens
+are internal storage/version hints, not Lean checking or ownership authority.
+
+The same 384 MiB REPL measured complete synthetic scalar identity callbacks,
+asserting exact reference World equality outside measurement:
+
+| Backend | Host calls | Original allocation | With private reuse | Restores before/after | Freezes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Mutable | 1 | 38,864 B | 31,800 B | 2 / 1 | 2 |
+| Mutable | 10 | 230,208 B | 160,808 B | 11 / 1 | 11 |
+| Mutable | 100 | 2,144,952 B | 1,450,272 B | 101 / 1 | 101 |
+| JVM | 1 | 40,640 B | 33,432 B | 2 / 1 | 2 |
+| JVM | 10 | 237,632 B | 167,912 B | 11 / 1 | 11 |
+| JVM | 100 | 2,201,896 B | 1,512,096 B | 101 / 1 | 101 |
+
+Allocation drops about 31% for the large JVM control. Timings remain sensitive to
+REPL/JIT/host load, so this is not a general speedup claim. Snapshot creation and
+handler-scope construction remain, and changed-world handlers intentionally do
+not get this reuse. Private register/global storage can stay live through an
+eligible synchronous handler rather than being reconstructed afterward; there
+is no retained history beyond the invocation. The performance REPL retains the
+earlier Java cohort (including unused removed replacement APIs); final CI builds
+fresh classes from the combined source. No full-image performance is inferred.
+
+Load `resident-cost-probe.clj` then `unchanged-host-probe.clj`; `run-size` compares
+ordinary three-argument boundary execution with reuse on the same program/session.
+`tiny-unchanged-host-costs.json` separates allocations and actual restore/reuse/
+freeze counters. Counters are scalar-only, outside guest state and measurement.
+
+Validation: 14 new tests/211 assertions cover retained snapshots, frames/joins,
+changed worlds/sessions, dirty heaps, nested host callbacks and fork choices,
+handler-time rule changes, explicit checkpoints after caught helper failure,
+backend failure after confirmed reuse, fuel, cooperative paths, real cache misses,
+capacity/alias fallback and custom compact-register adapters. Another focused
+case enters selected Pattern typed-tail code after private resume. Broader runs
+passed 70 callback/layout/compiler tests/3,512 assertions, 22 typed-tail/selection
+tests/8,168 assertions and 73 infrastructure/sizing controls/1,064 assertions.
+The package audit still passes with 67 sources (3 tests/20 assertions).
+
+Component CI now has two explicit scopes in the same fresh-class JVM: the
+existing 73 host/sizing models and 14 small runtime tests. The latter execute
+explicit guest IR without Init, a Source, bootstrap restore or genuine frontend.
+Independent review verified the checkpoint ordering and fixed an extra inspection
+accessor read, then found no remaining blocker. The full-image run stays parked.

@@ -1,4 +1,5 @@
-;; Fixture-free coherent definitions/contract/protocol gate. Run from experiments/lean-ir with src, test,
+;; Fixture-free coherent models plus an explicit small host-storage runtime gate.
+;; Run from experiments/lean-ir with src, test,
 ;; main-library sources, coherent Java classes and dependencies on the classpath.
 (require '[clojure.test :as t] '[clojure.java.io :as io])
 (when-let [expected (System/getProperty "ansatz.coherent.test.class-root")]
@@ -40,6 +41,22 @@
     (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
     (println (assoc counters :scope "definitions-contract-and-protocol-models-only"))
     (println "COHERENT_INFRASTRUCTURE_73_PASS")
+    ;; Distinct scope: these explicit small programs execute guest instructions,
+    ;; but never load Init, a Source, bootstrap or the genuine frontend.
+    (require 'prototype.unchanged-host-resume-test)
+    (reset! observed #{})
+    (let [runtime-vars (set (filter #(-> % meta :test)
+                                   (vals (ns-publics 'prototype.unchanged-host-resume-test))))
+          _ (assert (= 14 (count runtime-vars)))
+          runtime-counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
+                             (t/test-vars (sort-by #(str (:name (meta %))) runtime-vars))
+                             @t/*report-counters*)]
+      (assert (= runtime-vars @observed))
+      (assert (= 14 (:test runtime-counters)))
+      (assert (zero? (+ (:fail runtime-counters) (:error runtime-counters))))
+      (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
+      (println (assoc runtime-counters :scope "small-explicit-host-storage-runtime-programs"))
+      (println "HOST_STORAGE_RUNTIME_14_PASS"))
     (shutdown-agents)
     (System/exit 0))
   (catch Throwable failure

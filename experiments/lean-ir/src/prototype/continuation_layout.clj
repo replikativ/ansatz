@@ -164,6 +164,18 @@
        (identical? (.get ^WeakReference (nth rule-baseline 14)) cached-width)
        (identical? (.get ^WeakReference (nth rule-baseline 15)) remember!)))
 
+(defn proven-width
+  "Borrow a current scalar width without analyzing or invoking a legacy reader.
+   Nil means missing/stale evidence. The owning generation and built-in rules
+   must match; unsupported graphs never acquire evidence through this query."
+  [body fallback generation]
+  (when (and (some? generation) (builtin-analysis?))
+    (locking cache
+      (let [^WeakReference owner @(:owner cache)]
+        (when (and owner (identical? generation (.get owner)))
+          (let [width (cached-width body fallback)]
+            (when (builtin-analysis?) width)))))))
+
 (defn width
   "Return a continuation width, computing all eligible child widths bottom-up.
    OWNER-BUILTIN? must assert that LEGACY and its sizing helpers retain their
