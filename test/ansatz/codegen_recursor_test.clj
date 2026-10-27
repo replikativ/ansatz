@@ -111,12 +111,14 @@
 
 (defn- differential-closed!
   ([applications] (differential-closed! applications :int))
-  ([applications schema]
+  ([applications schema] (differential-closed! applications schema identity))
+  ([applications schema kernel-form]
     (let [tc (doto (TypeChecker. (a/env)) (.setFuel 200000000))
           red (.getReducer tc)]
       (doseq [application applications]
         (let [term (elab/elaborate (a/env) application)
-              kernel (#'am/decode-val #(.whnf red %) schema term)
+              kernel (#'am/decode-val #(.whnf red %) schema
+                                      (elab/elaborate (a/env) (kernel-form application)))
               runtime (eval (cg/ansatz->clj (a/env) term []))]
           (is (= kernel runtime) (str application)))))))
 
@@ -186,6 +188,102 @@
         (is (= '(cg-result-flat 2 3 5)
                (cg/ansatz->clj (a/env)
                                (elab/elaborate (a/env) '(cg-result-flat 2 3 5)) []))))
+      (finally
+        (reset! a/ansatz-env saved-env)
+        (reset! a/arity-registry saved-arity)
+        (reset! a/ansatz-instance-index saved-instances)))))
+
+(deftest function-results-agree-across-definition-modes
+  (let [saved-env @a/ansatz-env
+        saved-arity @a/arity-registry
+        saved-instances @a/ansatz-instance-index]
+    (try
+      (binding [*ns* (the-ns 'ansatz.codegen-recursor-test) a/*verbose* false]
+        (a/load-init!)
+        (run! eval
+              '[(ansatz.core/defn cg-result-oracle [n :- Nat, b :- Nat] (=> Nat Nat)
+                  (match n
+                    [zero (fn [x :- Nat] (+ b x))]
+                    [(succ k) (fn [x :- Nat] (+ 1 ((cg-result-oracle k b) x)))]))
+                (ansatz.core/defn cg-result-oracle-value [] (=> Nat Nat)
+                  (fn [x :- Nat] (+ x 1)))])
+        (doseq [mode [:verified :partial :wf]
+                arity (range 3)]
+          (let [f (symbol (str "cg-result-" (name mode) "-" arity))
+                fn-name (cond-> f (= mode :partial) (with-meta {:partial true}))
+                params (case arity 0 [] 1 '[n :- Nat] 2 '[n :- Nat, b :- Nat])
+                body (case arity
+                       0 '(fn [x :- Nat] (+ x 1))
+                       1 '(fn [x :- Nat] (+ n x))
+                       2 '(fn [x :- Nat] (+ n (+ b x))))]
+            (eval (apply list 'ansatz.core/defn fn-name params '(=> Nat Nat)
+                         (concat (when (= mode :wf) [:termination-by (if (zero? arity) 0 'n)])
+                                 [body])))
+            (is (= arity (:arity (get @a/arity-registry (str f)))))
+            (doseq [x (range 5)]
+              (let [args (case arity 0 [x] 1 [3 x] 2 [3 2 x])
+                    application (apply list f args)
+                    ;; Partial declarations are opaque axioms. Their total twins,
+                    ;; rather than those axioms, provide the checked kernel oracle.
+                    oracle (case arity
+                             0 (list 'cg-result-oracle-value x)
+                             1 (list 'cg-result-oracle 0 3 x)
+                             2 (list 'cg-result-oracle 3 2 x))]
+                (differential-closed!
+                 [application (list 'let ['f (if (zero? arity) f (apply list f (butlast args)))]
+                                    (list 'f (last args)))] :int
+                 (if (= mode :partial) (constantly oracle) identity))))))
+        ;; Recursive self-calls under returned lambdas, including over-application.
+        (doseq [mode [:partial :wf]
+                arity (range 3)]
+          (let [f (symbol (str "cg-result-rec-" (name mode) "-" arity))
+                fn-name (cond-> f (= mode :partial) (with-meta {:partial true}))
+                params (case arity 0 [] 1 '[n :- Nat] 2 '[n :- Nat, b :- Nat])
+                ;; A nullary WF value has no recursion domain: call a checked
+                ;; recursive function from its returned lambda instead.
+                body (if (zero? arity)
+                       (if (= mode :partial)
+                         (list 'fn '[x :- Nat]
+                               (list 'if '(<= x 0) 1 (list '+ 1 (list f '(- x 1)))))
+                         '(fn [x :- Nat] (cg-result-oracle x 1 0)))
+                       (list 'if '(<= n 0)
+                             (if (= arity 1) '(fn [x :- Nat] x) '(fn [x :- Nat] (+ b x)))
+                             (list 'fn '[x :- Nat]
+                                   (list (apply list f (cond-> ['(- n 1)] (= arity 2) (conj 'b)))
+                                         '(+ x 1)))))]
+            (eval (apply list 'ansatz.core/defn fn-name params '(=> Nat Nat)
+                         (concat (when (= mode :wf) [:termination-by (if (zero? arity) 0 'n)])
+                                 [body])))
+            (when (pos? arity)
+              (is (= :surface (:provenance (get @a/arity-registry (str f))))))
+            (when (and (= mode :wf) (pos? arity))
+              (is (#'a/mentions-const?
+                   (.getValue (env/lookup (a/env) (name/from-string (str f))))
+                   (name/from-string "WellFounded.Nat.fix"))))
+            (doseq [n (range 5)]
+              (let [args (case arity 0 [n] 1 [n 4] 2 [n 2 4])
+                    application (apply list f args)
+                    oracle (case arity
+                             0 (list 'cg-result-oracle n 1 0)
+                             1 (list 'cg-result-oracle n 0 4)
+                             2 (list 'cg-result-oracle n 2 4))]
+                (differential-closed! [application] :int
+                                     (if (= mode :partial) (constantly oracle) identity))))))
+        (eval '(ansatz.core/defn cg-result-wf-fuel [n :- Nat] (=> Nat Nat)
+                 :termination-by n
+                 (if (<= n 0) (fn [x :- Nat] x)
+                   (fn [x :- Nat]
+                     (let [y (+ x 1)] (cg-result-wf-fuel (- n 1) y))))))
+        ;; A let in the returned lambda takes the existing fuel fallback, whose
+        ;; default must itself have the function result type.
+        (is (#'a/mentions-const?
+             (.getValue (env/lookup (a/env) (name/from-string "cg-result-wf-fuel")))
+             (name/from-string "Nat.rec")))
+        (differential-closed! '[(cg-result-wf-fuel 0 5) (cg-result-wf-fuel 4 5)])
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo #"not provably decreasing"
+             (a/define-verified-wf 'cg-result-nondecreasing '[n :- Nat] '(=> Nat Nat)
+                                   '(fn [x :- Nat] ((cg-result-nondecreasing n) x)) 'n))))
       (finally
         (reset! a/ansatz-env saved-env)
         (reset! a/arity-registry saved-arity)

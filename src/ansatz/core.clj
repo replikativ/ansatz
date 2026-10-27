@@ -1322,15 +1322,17 @@
     ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
     ;; `recur` at tail self-calls, named self-call otherwise, flat + curried methods.
     ;; Fallback: the classic curried-wrapper path (self-calls resolve via the var).
-    (let [direct-fn (try
-                      (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
-                            emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
-                            emitted (emit @ansatz-env (str fn-name) body-ansatz
-                                          {:erased (or erased 0) :arity (or arity n)})]
-                        (when emitted
-                          (swap! arity-registry update (str fn-name) assoc :provenance :surface)
-                          (:fn emitted)))
-                      (catch Exception _ nil))
+    ;; Nullary surface definitions are values, not zero-argument thunks.
+    (let [direct-fn (when (pos? n)
+                      (try
+                        (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                              emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
+                              emitted (emit @ansatz-env (str fn-name) body-ansatz
+                                            {:erased (or erased 0) :arity (or arity n)})]
+                          (when emitted
+                            (swap! arity-registry update (str fn-name) assoc :provenance :surface)
+                            (:fn emitted)))
+                        (catch Exception _ nil)))
           clj-form (when-not direct-fn (ansatz->clj @ansatz-env body-ansatz []))
           clj-fn (cond
                    direct-fn direct-fn

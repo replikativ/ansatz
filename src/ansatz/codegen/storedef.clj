@@ -195,7 +195,7 @@
   "Rewrite flat self-calls: strip their erased arg prefix, then emit `(recur …)` in tail
    position (w.r.t. the named fn we build) and `local-name` calls elsewhere (inside nested
    fn/letfn/loop boundaries recur would silently target the WRONG recursion point, so those
-   always take the named call). Returns nil if a self-call has the wrong arity."
+   always take the named call). Returns nil if a self-call is under-applied."
   [form dsym local-name erased total]
   (let [fail (volatile! false)
         self-call?
@@ -204,12 +204,15 @@
              (cond
                (self-call? f)
                (let [args (rest f)]
-                 (if (not= total (count args))
+                 (if (< (count args) total)
                    (do (vreset! fail true) f)
-                   (let [rt-args (map #(rw % false boundary?) (drop erased args))]
-                     (if (and tail? (not boundary?))
+                   ;; Lean WF/Fix.lean replaceRecApps.processRec preserves arguments
+                   ;; applied to the returned function after the recursion telescope.
+                   (let [rt-args (map #(rw % false boundary?) (take (- total erased) (drop erased args)))
+                         extras (map #(rw % false boundary?) (drop total args))]
+                     (if (and tail? (not boundary?) (empty? extras))
                        (apply list 'recur rt-args)
-                       (apply list local-name rt-args)))))
+                       (reduce (fn [f a] (list f a)) (apply list local-name rt-args) extras)))))
                (seq? f)
                (let [[h & r] f]
                  (case h
