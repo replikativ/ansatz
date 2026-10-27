@@ -87,7 +87,7 @@
   [x y]
   (let [nat (e/const' (name/from-string "Nat") [])
         inst (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
-                      nat (e/const' (name/from-string "instAddNat") []))]
+                     nat (e/const' (name/from-string "instAddNat") []))]
     (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
             nat nat nat inst x y)))
 

@@ -235,7 +235,7 @@
     (testing "the synthPending hook propagates bugs"
       (with-redefs [inst/synthesize* (fn [& _] (throw failure))]
         (is (thrown-with-msg? NullPointerException #"injected synthesis bug"
-                             (inst/synth-pending-instance nil (tc/mk-tc-state env) goal)))))
+                              (inst/synth-pending-instance nil (tc/mk-tc-state env) goal)))))
     (testing "depth exhaustion fails only that path, is recorded, and is named when the search fails"
       (binding [config/*max-synth-depth* 0
                 inst/*depth-hits* (atom [])]

@@ -50,16 +50,16 @@
   (loop [pending [x] seen #{} acc init]
     (if-let [x (peek pending)]
       (if (contains? seen x) (recur (pop pending) seen acc)
-        (let [pending (pop pending) seen (conj seen x)]
-          (case (e/tag x)
-            :const (recur pending seen (f acc (e/const-name x)))
-            :app (recur (conj pending (e/app-fn x) (e/app-arg x)) seen acc)
-            :lam (recur (conj pending (e/lam-type x) (e/lam-body x)) seen acc)
-            :forall (recur (conj pending (e/forall-type x) (e/forall-body x)) seen acc)
-            :let (recur (conj pending (e/let-type x) (e/let-value x) (e/let-body x)) seen acc)
-            :proj (recur (conj pending (e/proj-struct x)) seen acc)
-            :mdata (recur (conj pending (e/mdata-expr x)) seen acc)
-            (recur pending seen acc)))) acc)))
+          (let [pending (pop pending) seen (conj seen x)]
+            (case (e/tag x)
+              :const (recur pending seen (f acc (e/const-name x)))
+              :app (recur (conj pending (e/app-fn x) (e/app-arg x)) seen acc)
+              :lam (recur (conj pending (e/lam-type x) (e/lam-body x)) seen acc)
+              :forall (recur (conj pending (e/forall-type x) (e/forall-body x)) seen acc)
+              :let (recur (conj pending (e/let-type x) (e/let-value x) (e/let-body x)) seen acc)
+              :proj (recur (conj pending (e/proj-struct x)) seen acc)
+              :mdata (recur (conj pending (e/mdata-expr x)) seen acc)
+              (recur pending seen acc)))) acc)))
 
 (defn has-unsafe? [env x]
   (fold-constants (fn [found n]

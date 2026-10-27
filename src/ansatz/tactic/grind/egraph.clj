@@ -686,12 +686,12 @@
                   ;; Step 13: Propagate up on all parents
                   all-parents (into (get-parents gs parent-root) child-parents)
                   gs (if (:proof-producing? gs) gs
-                       (reduce (fn [gs parent] (propagate-up gs parent)) gs all-parents))
+                         (reduce (fn [gs parent] (propagate-up gs parent)) gs all-parents))
                   ;; Step 14: Propagate down on merged class members
                   merged-members (collect-eqc gs child)
                   gs (if (:proof-producing? gs) gs
-                       (reduce (fn [gs member] (propagate-down gs member))
-                               gs (or merged-members [])))
+                         (reduce (fn [gs member] (propagate-down gs member))
+                                 gs (or merged-members [])))
                   ;; Step 15: Constructor theory (Lean 4 Ctor.lean)
                   ;; If both roots were constructors, propagate injection or discrimination
                   gs (if (and (not (:proof-producing? gs)) (not (:inconsistent gs))

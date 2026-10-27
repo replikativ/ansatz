@@ -53,9 +53,9 @@
   ;; No local hypothesis rewrites or contextual discharger. Normalize the public
   ;; lemma entries before indexing, retaining their original checked proof names.
   (let [lemmas (simp/make-simp-lemmas (:env st)
-                                       ["Nat.add_zero" "Nat.zero_add" "Nat.add_succ" "Nat.succ_add"
-                                        "Nat.add_assoc" "Nat.add_comm" "Nat.add_left_comm"
-                                        "Nat.zero_le" "Nat.le_refl"])
+                                      ["Nat.add_zero" "Nat.zero_add" "Nat.add_succ" "Nat.succ_add"
+                                       "Nat.add_assoc" "Nat.add_comm" "Nat.add_left_comm"
+                                       "Nat.zero_le" "Nat.le_refl"])
         lemmas (mapv (fn [lemma]
                        (let [lhs (unfold-reducible (:lhs-pattern lemma))
                              [head args] (e/get-app-fn-args lhs)]
@@ -69,9 +69,9 @@
   (let [expr (unfold-reducible expr) [head args] (e/get-app-fn-args expr)]
     (if (and (e/const? head) (= "Nat.add" (name/->string (e/const-name head))) (= 2 (count args)))
       (reduce e/app head (map (fn [arg]
-                               (if (and (e/lit-nat? arg) (pos? (e/lit-nat-val arg)))
-                                 (e/app (e/const' (name/from-string "Nat.succ") [])
-                                        (e/lit-nat (dec (e/lit-nat-val arg)))) arg)) args)) expr)))
+                                (if (and (e/lit-nat? arg) (pos? (e/lit-nat-val arg)))
+                                  (e/app (e/const' (name/from-string "Nat.succ") [])
+                                         (e/lit-nat (dec (e/lit-nat-val arg)))) arg)) args)) expr)))
 
 (defn- nat-candidate? [expr]
   (let [[head args] (e/get-app-fn-args expr)
@@ -90,7 +90,7 @@
     (let [type (tc/infer-type st expr)]
       (if (= type (e/sort' lvl/zero))
         (when-let [inst (instance/synthesize* st (:env st) (instance/index-for (:env st))
-                                             (e/app (c "Decidable") expr) 0)]
+                                              (e/app (c "Decidable") expr) 0)]
           (let [value (#'tc/cached-whnf st (e/app* (c "Decidable.decide") expr inst))
                 yes? (= value (c "Bool.true"))
                 no? (= value (c "Bool.false"))]
@@ -105,7 +105,7 @@
                                         (e/app* (e/const' (name/from-string "False.elim") [lvl/zero])
                                                 expr (e/bvar 0))) :default)]
                 {:expr result :proof? (e/app* (c "propext") expr result
-                                             (e/app* (c "Iff.intro") expr result forward backward))}))))
+                                              (e/app* (c "Iff.intro") expr result forward backward))}))))
         ;; WHNF evaluates closed applications of computable definitions, including
         ;; surface definitions without registered equation theorems.
         (when (contains? #{(c "Nat") (c "Int") (c "Bool")} type)
@@ -122,22 +122,21 @@
          ;; term. Independent root substitution breaks dependent arguments.
          (let [key expr]
            (if (contains? (:simp-done gs) key) gs
-             (let [candidate expr
-                   _ (check-rec-depth! candidate)
-                   result (simp/simp-expr-result st (:env st) index (numeral-view candidate) (inc *max-rec-depth*))
+               (let [candidate expr
+                     _ (check-rec-depth! candidate)
+                     result (simp/simp-expr-result st (:env st) index (numeral-view candidate) (inc *max-rec-depth*))
                    ;; Reuse simp's literal simprocs first. Ground evaluation
                    ;; supplies the Init-only decision path and definitions that
                    ;; have no equation theorem registered with simp.
-                   result (if (= candidate (:expr result))
-                            (or (ground-result st candidate) result) result)
-                   _ (check-rec-depth! (:expr result))
-                   gs (-> gs (update :simp-done (fnil conj #{}) key)
-                          (eg/internalize candidate (:gen node))
-                          (eg/internalize (:expr result) (:gen node)))]
-               (eg/assert-eq gs candidate (:expr result)
-                             (or (:proof? result) (proof/mk-eq-refl st (:expr result))))))) gs))
+                     result (if (= candidate (:expr result))
+                              (or (ground-result st candidate) result) result)
+                     _ (check-rec-depth! (:expr result))
+                     gs (-> gs (update :simp-done (fnil conj #{}) key)
+                            (eg/internalize candidate (:gen node))
+                            (eg/internalize (:expr result) (:gen node)))]
+                 (eg/assert-eq gs candidate (:expr result)
+                               (or (:proof? result) (proof/mk-eq-refl st (:expr result))))))) gs))
      gs (:enodes gs))))
-
 
 (defn normalization-theorems [st]
   ;; The stage-2 Nat length normalization requirement uses checked Init lemmas,
@@ -145,15 +144,15 @@
   ;; activate these only when their Nat.le index occurs. Match conclusions to
   ;; avoid inventing an unbounded chain of successor upper bounds.
   (into (mapv (fn [n]
-          (let [nm (name/from-string n)
-                ci (env/lookup (:env st) nm)
-                body (loop [t (.type ci)]
-                       (if (e/forall? t) (recur (e/forall-body t)) t))]
-            (assoc (theorem/compile-theorem st nm
-                                             (e/const' nm (mapv lvl/param (.levelParams ci)))
-                                             (.type ci) (vec (.levelParams ci)) [(unfold-reducible body)])
-                   :kind :bwd)))
-        ["Nat.succ_le_succ" "Nat.le_succ_of_le"])
+                (let [nm (name/from-string n)
+                      ci (env/lookup (:env st) nm)
+                      body (loop [t (.type ci)]
+                             (if (e/forall? t) (recur (e/forall-body t)) t))]
+                  (assoc (theorem/compile-theorem st nm
+                                                  (e/const' nm (mapv lvl/param (.levelParams ci)))
+                                                  (.type ci) (vec (.levelParams ci)) [(unfold-reducible body)])
+                         :kind :bwd)))
+              ["Nat.succ_le_succ" "Nat.le_succ_of_le"])
         ;; The surface compiles ordered conditionals to Nat.ble. Its false
         ;; branch needs the checked total-order complement, as Lean's Nat
         ;; normalization/order integration provides. This remains an E-match

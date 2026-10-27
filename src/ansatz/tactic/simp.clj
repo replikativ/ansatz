@@ -296,7 +296,6 @@
      (binding [*simp-recursion* context#]
        ~@body)))
 
-
 ;; ============================================================
 ;; Perm detection — Lean 4's isPerm (SimpTheorems.lean:261-273)
 ;; ============================================================
@@ -594,92 +593,92 @@
         ok (atom true)
         env (:env st)]
     (letfn [(go [p t depth]
-              (with-inc-rec-depth 1 p
-                (when @ok
+                (with-inc-rec-depth 1 p
+                  (when @ok
                   ;; Lean tryTheoremCore matches with reducible isDefEq. Normalize
                   ;; both heads with the same reduction used by the index first.
-                  (let [p (dt/reduce-dt env p false)
-                        t (dt/reduce-dt env t false)]
-                  (cond
-                    (and (e/bvar? p) (>= (e/bvar-idx p) depth))
-                    (let [param-idx (- (e/bvar-idx p) depth)]
+                    (let [p (dt/reduce-dt env p false)
+                          t (dt/reduce-dt env t false)]
+                      (cond
+                        (and (e/bvar? p) (>= (e/bvar-idx p) depth))
+                        (let [param-idx (- (e/bvar-idx p) depth)]
                       ;; Lean's scoped metavariables cannot capture a binder
                       ;; introduced while matching. Extracted pattern bvars are
                       ;; telescope parameters, so their values must be closed.
-                      (if (e/has-loose-bvars? t)
-                        (reset! ok false)
-                        (if-let [existing (get @subst param-idx)]
-                          (when-not (tc/is-def-eq st existing t)
-                            (reset! ok false))
-                          (swap! subst assoc param-idx t))))
+                          (if (e/has-loose-bvars? t)
+                            (reset! ok false)
+                            (if-let [existing (get @subst param-idx)]
+                              (when-not (tc/is-def-eq st existing t)
+                                (reset! ok false))
+                              (swap! subst assoc param-idx t))))
 
                   ;; OfNat.ofNat pattern vs literal target
-                    (and (e/app? p) (e/lit-nat? t))
-                    (if-let [pv (extract-ofnat-value p)]
-                      (when-not (= pv (e/lit-nat-val t))
-                        (reset! ok false))
-                      (reset! ok false))
+                        (and (e/app? p) (e/lit-nat? t))
+                        (if-let [pv (extract-ofnat-value p)]
+                          (when-not (= pv (e/lit-nat-val t))
+                            (reset! ok false))
+                          (reset! ok false))
 
                   ;; Literal pattern vs OfNat.ofNat target
-                    (and (e/lit-nat? p) (e/app? t))
-                    (if-let [tv (extract-ofnat-value t)]
-                      (when-not (= (e/lit-nat-val p) tv)
-                        (reset! ok false))
-                      (reset! ok false))
+                        (and (e/lit-nat? p) (e/app? t))
+                        (if-let [tv (extract-ofnat-value t)]
+                          (when-not (= (e/lit-nat-val p) tv)
+                            (reset! ok false))
+                          (reset! ok false))
 
-                    (= (e/tag p) (e/tag t))
-                    (case (e/tag p)
-                      :bvar (when-not (= (e/bvar-idx p) (e/bvar-idx t)) (reset! ok false))
-                      :sort nil
-                      :const (when-not (= (e/const-name p) (e/const-name t)) (reset! ok false))
-                      :app (let [;; Check if this arg is instance-implicit by looking at head function
-                                 [p-head p-args] (e/get-app-fn-args p)
-                                 [t-head t-args] (e/get-app-fn-args t)
-                                 p-infos (when (and env (e/const? p-head))
-                                           (dt/get-param-infos env p-head))
+                        (= (e/tag p) (e/tag t))
+                        (case (e/tag p)
+                          :bvar (when-not (= (e/bvar-idx p) (e/bvar-idx t)) (reset! ok false))
+                          :sort nil
+                          :const (when-not (= (e/const-name p) (e/const-name t)) (reset! ok false))
+                          :app (let [;; Check if this arg is instance-implicit by looking at head function
+                                     [p-head p-args] (e/get-app-fn-args p)
+                                     [t-head t-args] (e/get-app-fn-args t)
+                                     p-infos (when (and env (e/const? p-head))
+                                               (dt/get-param-infos env p-head))
                                ;; If the last arg is inst-implicit, skip matching its sub-tree
-                                 last-idx (dec (count p-args))
-                                 skip-last (and p-infos (< last-idx (count p-infos))
-                                                (= :inst-implicit (nth p-infos last-idx)))]
-                             (go (e/app-fn p) (e/app-fn t) depth)
-                             (if skip-last
+                                     last-idx (dec (count p-args))
+                                     skip-last (and p-infos (< last-idx (count p-infos))
+                                                    (= :inst-implicit (nth p-infos last-idx)))]
+                                 (go (e/app-fn p) (e/app-fn t) depth)
+                                 (if skip-last
                                ;; Bind parameters inside instance arguments while
                                ;; tolerating definitionally equal instance spellings.
-                               (let [pa (e/app-arg p)]
+                                   (let [pa (e/app-arg p)]
                                  ;; Lean Rewrite.lean tryTheoremCore unifies the
                                  ;; entire instance argument. Parameters can occur
                                  ;; INSIDE it: instBEqOfDecidableEq α dec is the only
                                  ;; occurrence of `dec` in lookup_filter_ne's LHS.
                                  ;; Preserve the defeq-instance fallback if the
                                  ;; structural spelling does not expose parameters.
-                                 (when (and @ok (e/has-loose-bvars? pa))
-                                   (let [saved @subst]
-                                     (go pa (e/app-arg t) depth)
-                                     (when-not @ok
-                                       (reset! subst saved)
-                                       (reset! ok true)))))
-                               (go (e/app-arg p) (e/app-arg t) depth)))
-                      :lam (do (go (e/lam-type p) (e/lam-type t) depth)
-                               (go (e/lam-body p) (e/lam-body t) (inc depth)))
-                      :forall (do (go (e/forall-type p) (e/forall-type t) depth)
-                                  (go (e/forall-body p) (e/forall-body t) (inc depth)))
-                      :fvar (when-not (= (e/fvar-id p) (e/fvar-id t)) (reset! ok false))
-                      (:lit-nat :lit-str) (when-not (= p t) (reset! ok false))
-                      :proj (do (when-not (and (= (e/proj-type-name p) (e/proj-type-name t))
-                                               (= (e/proj-idx p) (e/proj-idx t)))
-                                  (reset! ok false))
-                                (go (e/proj-struct p) (e/proj-struct t) depth))
-                      (reset! ok false))
+                                     (when (and @ok (e/has-loose-bvars? pa))
+                                       (let [saved @subst]
+                                         (go pa (e/app-arg t) depth)
+                                         (when-not @ok
+                                           (reset! subst saved)
+                                           (reset! ok true)))))
+                                   (go (e/app-arg p) (e/app-arg t) depth)))
+                          :lam (do (go (e/lam-type p) (e/lam-type t) depth)
+                                   (go (e/lam-body p) (e/lam-body t) (inc depth)))
+                          :forall (do (go (e/forall-type p) (e/forall-type t) depth)
+                                      (go (e/forall-body p) (e/forall-body t) (inc depth)))
+                          :fvar (when-not (= (e/fvar-id p) (e/fvar-id t)) (reset! ok false))
+                          (:lit-nat :lit-str) (when-not (= p t) (reset! ok false))
+                          :proj (do (when-not (and (= (e/proj-type-name p) (e/proj-type-name t))
+                                                   (= (e/proj-idx p) (e/proj-idx t)))
+                                      (reset! ok false))
+                                    (go (e/proj-struct p) (e/proj-struct t) depth))
+                          (reset! ok false))
 
                   ;; Tags don't match structurally — try def-eq as fallback
                   ;; This handles instance-implicit args where the pattern has
                   ;; AddCommMagma.toAdd but the target has Real.instAdd (def-eq via chain)
                     ;; Extracted patterns contain loose parameter bvars; they are
                     ;; placeholders, not terms the kernel can compare (Lean uses mvars).
-                    :else (when-not (and (not (e/has-loose-bvars? p))
-                                         (not (e/has-loose-bvars? t))
-                                         (tc/is-def-eq st p t))
-                            (reset! ok false)))))))]
+                        :else (when-not (and (not (e/has-loose-bvars? p))
+                                             (not (e/has-loose-bvars? t))
+                                             (tc/is-def-eq st p t))
+                                (reset! ok false)))))))]
       (go pattern target 0))
     (when @ok @subst)))
 
@@ -689,29 +688,29 @@
   (if (empty? subst)
     expr
     (letfn [(go [e depth]
-              (with-inc-rec-depth 1 e
-                (case (e/tag e)
-                  :bvar (let [idx (e/bvar-idx e)]
-                          (if (>= idx depth)
-                            (let [param-idx (- idx depth)]
-                              (if-let [val (get subst param-idx)]
-                                (if (zero? depth) val (e/lift val depth 0))
-                                e))
-                            e))
-                  :app (let [f (go (e/app-fn e) depth) a (go (e/app-arg e) depth)]
-                         (if (and (identical? f (e/app-fn e)) (identical? a (e/app-arg e)))
-                           e (e/app f a)))
-                  :lam (let [t (go (e/lam-type e) depth) b (go (e/lam-body e) (inc depth))]
-                         (if (and (identical? t (e/lam-type e)) (identical? b (e/lam-body e)))
-                           e (e/lam (e/lam-name e) t b (e/lam-info e))))
-                  :forall (let [t (go (e/forall-type e) depth) b (go (e/forall-body e) (inc depth))]
-                            (if (and (identical? t (e/forall-type e)) (identical? b (e/forall-body e)))
-                              e (e/forall' (e/forall-name e) t b (e/forall-info e))))
-                  :proj (let [s (go (e/proj-struct e) depth)]
-                          (if (identical? s (e/proj-struct e)) e
-                              (e/proj (e/proj-type-name e) (e/proj-idx e) s)))
-                  :mdata (go (e/mdata-expr e) depth)
-                  e)))]
+                (with-inc-rec-depth 1 e
+                  (case (e/tag e)
+                    :bvar (let [idx (e/bvar-idx e)]
+                            (if (>= idx depth)
+                              (let [param-idx (- idx depth)]
+                                (if-let [val (get subst param-idx)]
+                                  (if (zero? depth) val (e/lift val depth 0))
+                                  e))
+                              e))
+                    :app (let [f (go (e/app-fn e) depth) a (go (e/app-arg e) depth)]
+                           (if (and (identical? f (e/app-fn e)) (identical? a (e/app-arg e)))
+                             e (e/app f a)))
+                    :lam (let [t (go (e/lam-type e) depth) b (go (e/lam-body e) (inc depth))]
+                           (if (and (identical? t (e/lam-type e)) (identical? b (e/lam-body e)))
+                             e (e/lam (e/lam-name e) t b (e/lam-info e))))
+                    :forall (let [t (go (e/forall-type e) depth) b (go (e/forall-body e) (inc depth))]
+                              (if (and (identical? t (e/forall-type e)) (identical? b (e/forall-body e)))
+                                e (e/forall' (e/forall-name e) t b (e/forall-info e))))
+                    :proj (let [s (go (e/proj-struct e) depth)]
+                            (if (identical? s (e/proj-struct e)) e
+                                (e/proj (e/proj-type-name e) (e/proj-idx e) s)))
+                    :mdata (go (e/mdata-expr e) depth)
+                    e)))]
       (go expr 0))))
 
 ;; ============================================================
@@ -3072,11 +3071,11 @@
   [ps goal lemma-names opts]
   (let [env (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) lemma-names)
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
-         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
+        ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
          ;; fresh binder fvars during inference don't collide with context fvars (which
          ;; corrupts abstraction — e.g. a fold step λacc x:K losing its K). See tc/attach-lctx.
-         st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
+        st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
          ;; Lean 4: user lemma names are ADDED to the default @[simp] set. The default set is the
          ;; hand-curated core PLUS any @[simp] lemmas inherited from Lean into the env's :simp-lemmas
          ;; extension (ansatz.attrs) — empty unless attributes were imported, so this is a no-op for
@@ -3084,8 +3083,8 @@
          ;; Lean's `simp [h]` accepts any proof TERM, not just a lemma name. Split the user list:
          ;; Expr entries are proof terms (e.g. a projected typeclass axiom `WSemiring.mul_zero S inst`,
          ;; or a hypothesis fvar); everything else is a name to resolve against the env.
-         term-args (filter #(instance? ansatz.kernel.Expr %) lemma-names)
-         name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
+        term-args (filter #(instance? ansatz.kernel.Expr %) lemma-names)
+        name-args (remove #(instance? ansatz.kernel.Expr %) lemma-names)
          ;; Lean 4 `simp only`: start from `simpOnlyBuiltins` (reflexive closers) + the user
          ;; lemmas ONLY — the default @[simp] corpus and @[simp]-extension are excluded.
          ;; Otherwise the inherited @[simp] extension is part of the default set. When the store
@@ -3093,54 +3092,53 @@
          ;; served LAZILY from `lookup-lemmas` and is NOT put through the eager per-call work below
          ;; (resolve+extract+key, equation-theorem probe, unfold probe — ~91k hydrations per call
          ;; on Mathlib). Without one (the bundled Init tiers) it stays eager.
-         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
-         all-names (if (:only? opts)
-                     (distinct (concat simp-only-builtins name-args))
-                     (distinct (concat default-simp-lemmas
-                                       (si/eager-lemma-names env ext-trie)
-                                       name-args)))
-         lemmas (make-simp-lemmas env all-names)
+        ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
+        all-names (if (:only? opts)
+                    (distinct (concat simp-only-builtins name-args))
+                    (distinct (concat default-simp-lemmas
+                                      (si/eager-lemma-names env ext-trie)
+                                      name-args)))
+        lemmas (make-simp-lemmas env all-names)
          ;; Proof-term lemmas: infer each term's type and extract its rewrite rule.
-         term-lemmas (vec (mapcat (fn [t]
-                                    (extract-simp-lemma-term env (tc/infer-type st t) 1000 t))
-                                  term-args))
+        term-lemmas (vec (mapcat (fn [t]
+                                   (extract-simp-lemma-term env (tc/infer-type st t) 1000 t))
+                                 term-args))
          ;; Contextual: add hypotheses as lemmas
          ;; Lean 4: SimpTheorems.lean preprocess — handles Eq, Iff, And (split),
          ;; implications (conditional rewrites), and general props (→ True).
          ;; Safe now: hasFwdDeps guard in simp-subterms prevents type annotation corruption.
-         hyp-lemmas (when (:contextual? opts)
-                      (make-hyp-lemmas st (:lctx goal)))
+        hyp-lemmas (when (:contextual? opts)
+                     (make-hyp-lemmas st (:lctx goal)))
          ;; For user definitions with equation theorems, add those as rewrite lemmas
-         eqn-lemmas (vec (mapcat (fn [n]
-                                   (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
-                                     (when-let [eqns (find-eqn-theorems env cn)]
-                                       (mapcat (fn [eqn-name]
-                                                 (when-let [ci (env/lookup env eqn-name)]
-                                                   (extract-simp-lemma env ci 50)))
-                                               eqns))))
-                                 all-names))
-         all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
-         lemma-index (build-lemma-index st env all-lemmas)
-         to-unfold (into #{} (keep (fn [n]
-                                     (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
-                                           ci (env/lookup env cn)]
-                                       (when (and ci
-                                                  (not (seq (extract-simp-lemma env ci 0)))
-                                                  (not (find-eqn-theorems env cn)))
-                                         (str n)))))
-                         all-names)
-         config {:max-depth (or (:max-depth opts) 20)
-                 :single-pass? (:single-pass? opts)
-                 :contextual? (:contextual? opts)
-                 :decide? (get opts :decide? true)
-                 :max-steps (atom 0)
-                 :cache (atom {})
-                 :to-unfold to-unfold
-                 :discharge-depth 0
-                 :ext-trie ext-trie
+        eqn-lemmas (vec (mapcat (fn [n]
+                                  (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
+                                    (when-let [eqns (find-eqn-theorems env cn)]
+                                      (mapcat (fn [eqn-name]
+                                                (when-let [ci (env/lookup env eqn-name)]
+                                                  (extract-simp-lemma env ci 50)))
+                                              eqns))))
+                                all-names))
+        all-lemmas (concat lemmas term-lemmas hyp-lemmas eqn-lemmas)
+        lemma-index (build-lemma-index st env all-lemmas)
+        to-unfold (into #{} (keep (fn [n]
+                                    (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
+                                          ci (env/lookup env cn)]
+                                      (when (and ci
+                                                 (not (seq (extract-simp-lemma env ci 0)))
+                                                 (not (find-eqn-theorems env cn)))
+                                        (str n)))))
+                        all-names)
+        config {:max-depth (or (:max-depth opts) 20)
+                :single-pass? (:single-pass? opts)
+                :contextual? (:contextual? opts)
+                :decide? (get opts :decide? true)
+                :max-steps (atom 0)
+                :cache (atom {})
+                :to-unfold to-unfold
+                :discharge-depth 0
+                :ext-trie ext-trie
                  ;; Lazy instance index for TC synthesis in discharge
-                 :inst-index (delay (inst/index-for env))}
-         ]
+                :inst-index (delay (inst/index-for env))}]
     [ps st env lemma-index config]))
 
 (defn simp
@@ -3499,17 +3497,17 @@
   ([ps lemma-names] (simp-all ps lemma-names {}))
   ([ps lemma-names opts]
    (binding [*simp-all-superseded* (atom #{})]
-    (loop [ps ps round 0]
-     (let [g (proof/current-goal ps)
-           n (count (:goals ps))
-           ps' (simp-all-pass ps lemma-names opts)
-           g' (proof/current-goal ps')]
-       (if (or (< (count (:goals ps')) n)            ; focused goal closed
-               (nil? g')
-               (= (:id g) (:id g'))                   ; no change this round
-               (>= (inc round) simp-all-max-rounds))
-         ps'
-         (recur ps' (inc round))))))))
+     (loop [ps ps round 0]
+       (let [g (proof/current-goal ps)
+             n (count (:goals ps))
+             ps' (simp-all-pass ps lemma-names opts)
+             g' (proof/current-goal ps')]
+         (if (or (< (count (:goals ps')) n)            ; focused goal closed
+                 (nil? g')
+                 (= (:id g) (:id g'))                   ; no change this round
+                 (>= (inc round) simp-all-max-rounds))
+           ps'
+           (recur ps' (inc round))))))))
 
 ;; ============================================================
 ;; Nat offset decomposition — Lean 4's NatOffset (Simprocs/Nat.lean)

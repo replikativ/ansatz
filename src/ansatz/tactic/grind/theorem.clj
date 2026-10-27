@@ -52,9 +52,9 @@
                    param {:index (- n i 1) :proof? (prop? st domain)
                           ;; Lift the raw domain to the full telescope's bvar coordinates.
                           :pattern-domain (e/lift (loop [raw type j i]
-                                                   (if (zero? j) (e/forall-type raw)
-                                                       (recur (e/forall-body raw) (dec j))))
-                                                 (- n i) 0)}]
+                                                    (if (zero? j) (e/forall-type raw)
+                                                        (recur (e/forall-body raw) (dec j))))
+                                                  (- n i) 0)}]
                (recur (e/instantiate1 (e/forall-body t) (e/fvar id))
                       (update st :lctx red/lctx-add-local id "x" domain)
                       (inc i) (conj params param)))
@@ -77,10 +77,10 @@
                              {:kind :grind-metadata-error :origin origin :patterns explicit-patterns})))
          covered (reduce set/union #{} (map variables patterns))]
      (when-not (prop? (loop [st st i 0 t type]
-                       (if (e/forall? t)
-                         (let [id (+ 800000000 i) d (e/forall-type t)]
-                           (recur (update st :lctx red/lctx-add-local id "x" d)
-                                  (inc i) (e/instantiate1 (e/forall-body t) (e/fvar id)))) st)) body)
+                        (if (e/forall? t)
+                          (let [id (+ 800000000 i) d (e/forall-type t)]
+                            (recur (update st :lctx red/lctx-add-local id "x" d)
+                                   (inc i) (e/instantiate1 (e/forall-body t) (e/fvar id)))) st)) body)
        (action/fail! "hint is not a proposition" {:origin origin}))
      (when (and (some? explicit-patterns)
                 (or (not (set/subset? data-vars covered))
@@ -100,7 +100,7 @@
   (let [ci (env/lookup (:env st) nm)
         body (loop [t (.type ci)] (if (e/forall? t) (recur (e/forall-body t)) t))]
     (when-let [thm (compile-theorem st nm (e/const' nm (mapv lvl/param (.levelParams ci)))
-                                  (.type ci) (vec (.levelParams ci)))]
+                                    (.type ci) (vec (.levelParams ci)))]
       (if (and (e/app? body)
                (set/subset? (set (map :index (remove :proof? (:params thm)))) (variables body)))
         (assoc thm :patterns [body] :symbols [(head-index body)] :kind :bwd) thm))))

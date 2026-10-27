@@ -107,7 +107,7 @@
   (doseq [[nm ret branch] [['eqNat 'Nat 'x] ['eqBool 'Bool true]]]
     (let [result (binding [a/*verbose* false]
                    (a/define-verified nm '[x :- Nat, y :- Nat] ret
-                                      (list 'if '(Nat.ble x y) branch branch)))]
+                     (list 'if '(Nat.ble x y) branch branch)))]
       (is (= {:errors []} (:equation-generation (meta result))))
       (is (some? (env/lookup (a/env) (name/from-string (str nm ".eq_1")))))
       (is (nil? (env/lookup (a/env) (name/from-string (str nm ".eq_2"))))))))
@@ -118,7 +118,7 @@
           [['warnPeak '[xs :- (List Nat)] '(match xs [nil 0] [(cons h t) h]) ".eq_2"]
            ['warnApply '[b :- Bool, x :- Nat]
             '((match b [false (fn [z :- Nat] z)]
-                       [true (fn [z :- Nat] (+ z 1))]) x) ".eq_1"]]]
+                     [true (fn [z :- Nat] (+ z 1))]) x) ".eq_1"]]]
     (let [check env/check-constant
           lemma (str nm suffix)
           result (atom nil)
@@ -152,7 +152,7 @@
   (a/load-init!)
   (let [result (binding [a/*verbose* false]
                  (a/define-verified 'regrFn '[x :- Nat, y :- Nat] '(=> Nat Nat)
-                                    '(if (Nat.ble x y) (fn [z :- Nat] x) (fn [z :- Nat] y))))
+                   '(if (Nat.ble x y) (fn [z :- Nat] x) (fn [z :- Nat] y))))
         equality (checked-equation "regrFn.eq_1")]
     (is (= {:errors []} (:equation-generation (meta result))))
     (when equality
@@ -163,8 +163,8 @@
   (a/load-init!)
   (let [result (binding [a/*verbose* false]
                  (a/define-verified 'regrNested '[b :- Bool, xs :- (List Nat)] 'Nat
-                                    '(match xs [nil 0]
-                                       [(cons h t) (if (if b true false) h (regrNested b t))])))]
+                   '(match xs [nil 0]
+                           [(cons h t) (if (if b true false) h (regrNested b t))])))]
     (is (= {:errors []} (:equation-generation (meta result))))
     (doseq [lemma ["regrNested._match_1.eq_1" "regrNested._match_1.eq_2"]]
       (when-let [equality (checked-equation lemma)]
@@ -176,8 +176,8 @@
   (a/load-init!)
   (let [result (binding [a/*verbose* false]
                  (a/define-verified 'regrApply '[b :- Bool, x :- Nat] 'Nat
-                                    '((match b [false (fn [z :- Nat] z)]
-                                               [true (fn [z :- Nat] (+ z 1))]) x)))
+                   '((match b [false (fn [z :- Nat] z)]
+                            [true (fn [z :- Nat] (+ z 1))]) x)))
         equality (checked-equation "regrApply.eq_1")]
     (is (= {:errors []} (:equation-generation (meta result))))
     (when equality
@@ -188,15 +188,15 @@
   (doseq [[nm params body]
           [['regrRec '[xs :- (List Nat), n :- Nat]
             '(match xs [nil 0]
-               [(cons h t)
-                (Nat.rec (fn [k :- Nat] Nat) 0
-                         (fn [k :- Nat, ih :- Nat] (+ ih 1)) n)])]
+                    [(cons h t)
+                     (Nat.rec (fn [k :- Nat] Nat) 0
+                              (fn [k :- Nat, ih :- Nat] (+ ih 1)) n)])]
            ['regrListRec '[xs :- (List Nat), ys :- (List Nat), b :- Bool]
             '(match xs [nil 0]
-               [(cons h t)
-                (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
-                          (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
-                          (if b ys t))])]]]
+                    [(cons h t)
+                     (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
+                               (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
+                               (if b ys t))])]]]
     (let [result (binding [a/*verbose* false] (a/define-verified nm params 'Nat body))]
       (is (= {:errors []} (:equation-generation (meta result))))
       (checked-equation (str nm ".eq_1"))

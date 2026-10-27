@@ -68,58 +68,58 @@
 (deftest t1-closed-instance
   (testing "control: rfl proves the closed instance (works today)"
     (is (accepted? 30000
-          (a/theorem conc-rfl [] (= (inv (close 2 (St.mk (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))
-                                                         (List.cons Own (Own.mk 7 1) (List.cons Own (Own.mk 8 2) (List.nil Own))))))
-                                    true)
-            (rfl)))))
+                   (a/theorem conc-rfl [] (= (inv (close 2 (St.mk (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))
+                                                                  (List.cons Own (Own.mk 7 1) (List.cons Own (Own.mk 8 2) (List.nil Own))))))
+                                             true)
+                              (rfl)))))
   (testing "decide must prove the same closed, decidable proposition (Lean: by decide)"
     (is (accepted? 30000
-          (a/theorem conc-decide [] (= (inv (close 2 (St.mk (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))
-                                                            (List.cons Own (Own.mk 7 1) (List.cons Own (Own.mk 8 2) (List.nil Own))))))
-                                       true)
-            (decide))))))
+                   (a/theorem conc-decide [] (= (inv (close 2 (St.mk (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))
+                                                                     (List.cons Own (Own.mk 7 1) (List.cons Own (Own.mk 8 2) (List.nil Own))))))
+                                                true)
+                              (decide))))))
 
 (deftest t3-intros-arrow
   (testing "intros introduces both antecedents of a nested arrow"
     (is (accepted? 30000
-          (a/theorem intro-arrow [p :- Bool, q :- Bool]
-            (arrow (= p true) (arrow (= q true) (= p true)))
-            (intros) (assumption))))))
+                   (a/theorem intro-arrow [p :- Bool, q :- Bool]
+                              (arrow (= p true) (arrow (= q true) (= p true)))
+                              (intros) (assumption))))))
 
 (deftest t4-unfolding
   (testing "control: the nil case closes by rfl"
     (is (accepted? 30000
-          (a/theorem nil-rfl [sc :- Nat, op :- (List Nat)]
-            (= (owners-open (drop-owned sc (List.nil Own)) (drop-nat sc op)) true)
-            (rfl)))))
+                   (a/theorem nil-rfl [sc :- Nat, op :- (List Nat)]
+                              (= (owners-open (drop-owned sc (List.nil Own)) (drop-nat sc op)) true)
+                              (rfl)))))
   (testing "grind must close it by unfolding the hinted definitions"
     (is (accepted? 60000
-          (a/theorem nil-grind [sc :- Nat, op :- (List Nat)]
-            (= (owners-open (drop-owned sc (List.nil Own)) (drop-nat sc op)) true)
-            (grind "owners-open" "drop-owned"))))))
+                   (a/theorem nil-grind [sc :- Nat, op :- (List Nat)]
+                              (= (owners-open (drop-owned sc (List.nil Own)) (drop-nat sc op)) true)
+                              (grind "owners-open" "drop-owned"))))))
 
 ;; T5–T7 build on each other (memq-drop is a hint to the later ones), so one test proves them
 ;; in order.
 (deftest t5-t7-grind
   (testing "T5, the 3-line lemma (Lean: induction op <;> grind [memq, dropNat, Nat.beq_eq])"
     (is (accepted? 60000
-          (a/theorem memq-drop [x :- Nat, sc :- Nat, op :- (List Nat)]
-            (arrow (= (memq x op) true) (arrow (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true)))
-            (induction op) (all_goals (intros)) (all_goals (grind "memq" "drop-nat"))))))
+                   (a/theorem memq-drop [x :- Nat, sc :- Nat, op :- (List Nat)]
+                              (arrow (= (memq x op) true) (arrow (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true)))
+                              (induction op) (all_goals (intros)) (all_goals (grind "memq" "drop-nat"))))))
   (testing "T6, preservation, implication form (Lean: induction os <;> grind [...])"
     (is (accepted? 60000
-          (a/theorem close-pres [sc :- Nat, op :- (List Nat), os :- (List Own)]
-            (arrow (= (owners-open os op) true)
-                   (= (owners-open (drop-owned sc os) (drop-nat sc op)) true))
-            (induction os) (all_goals (intros))
-            (all_goals (grind "owners-open" "drop-owned" "drop-nat" "memq" "memq-drop"))))))
+                   (a/theorem close-pres [sc :- Nat, op :- (List Nat), os :- (List Own)]
+                              (arrow (= (owners-open os op) true)
+                                     (= (owners-open (drop-owned sc os) (drop-nat sc op)) true))
+                              (induction os) (all_goals (intros))
+                              (all_goals (grind "owners-open" "drop-owned" "drop-nat" "memq" "memq-drop"))))))
   (testing "T7, h depends on os: induction must revert/re-introduce it so the IH is usable"
     (is (accepted? 60000
-          (a/theorem close-pres-hyp [sc :- Nat, op :- (List Nat), os :- (List Own),
-                                     h :- (= (owners-open os op) true)]
-            (= (owners-open (drop-owned sc os) (drop-nat sc op)) true)
-            (induction os)
-            (all_goals (grind "owners-open" "drop-owned" "drop-nat" "memq" "memq-drop")))))))
+                   (a/theorem close-pres-hyp [sc :- Nat, op :- (List Nat), os :- (List Own),
+                                              h :- (= (owners-open os op) true)]
+                              (= (owners-open (drop-owned sc os) (drop-nat sc op)) true)
+                              (induction os)
+                              (all_goals (grind "owners-open" "drop-owned" "drop-nat" "memq" "memq-drop")))))))
 
 ;; ── The same theorems with Lean's MANUAL scripts (reference.lean `memq_drop`/`close_pres`):
 ;; `induction … with` alternatives run in constructor order (nil first), `cases h : e` is
@@ -127,34 +127,34 @@
 (deftest t5-t8-manual
   (testing "T5. Lean: induction op; nil => simp [memq]; cons => intro hm hne; cases … <;> cases … <;> simp_all [...]"
     (is (accepted? 60000
-          (a/theorem memq-drop-m [x :- Nat, sc :- Nat, op :- (List Nat)]
-            (=> (= (memq x op) true) (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true))
-            (induction op)
-            (simp [memq])
-            (intro hm) (intro hne)
-            (and_then (and_then (cases hh (Nat.beq head sc)) (cases hx (Nat.beq x head)))
-                      (simp_all [memq drop-nat Nat.beq_eq]))))))
+                   (a/theorem memq-drop-m [x :- Nat, sc :- Nat, op :- (List Nat)]
+                              (=> (= (memq x op) true) (= (Nat.beq x sc) false) (= (memq x (drop-nat sc op)) true))
+                              (induction op)
+                              (simp [memq])
+                              (intro hm) (intro hne)
+                              (and_then (and_then (cases hh (Nat.beq head sc)) (cases hx (Nat.beq x head)))
+                                        (simp_all [memq drop-nat Nat.beq_eq]))))))
   (testing "T6. Lean: induction os; nil => intro _; simp [...]; cons => intro h; cases … <;> cases … <;> simp_all [...]"
     (is (accepted? 60000
-          (a/theorem close-pres-m [sc :- Nat, op :- (List Nat), os :- (List Own)]
-            (=> (= (owners-open os op) true)
-                (= (owners-open (drop-owned sc os) (drop-nat sc op)) true))
-            (induction os)
-            (intro h0) (simp [drop-owned owners-open])
-            (intro h)
-            (and_then (and_then (cases hm (memq (:scope head) op)) (cases hs (Nat.beq (:scope head) sc)))
-                      (simp_all [owners-open drop-owned memq-drop-m]))))))
+                   (a/theorem close-pres-m [sc :- Nat, op :- (List Nat), os :- (List Own)]
+                              (=> (= (owners-open os op) true)
+                                  (= (owners-open (drop-owned sc os) (drop-nat sc op)) true))
+                              (induction os)
+                              (intro h0) (simp [drop-owned owners-open])
+                              (intro h)
+                              (and_then (and_then (cases hm (memq (:scope head) op)) (cases hs (Nat.beq (:scope head) sc)))
+                                        (simp_all [owners-open drop-owned memq-drop-m]))))))
   (testing "T7. h is a binder before induction: induction reverts and re-introduces it per case"
     (is (accepted? 60000
-          (a/theorem close-pres-hyp-m [sc :- Nat, op :- (List Nat), os :- (List Own),
-                                       h :- (= (owners-open os op) true)]
-            (= (owners-open (drop-owned sc os) (drop-nat sc op)) true)
-            (induction os)
-            (simp [drop-owned owners-open])
-            (and_then (and_then (cases hm (memq (:scope head) op)) (cases hs (Nat.beq (:scope head) sc)))
-                      (simp_all [owners-open drop-owned memq-drop-m]))))))
+                   (a/theorem close-pres-hyp-m [sc :- Nat, op :- (List Nat), os :- (List Own),
+                                                h :- (= (owners-open os op) true)]
+                              (= (owners-open (drop-owned sc os) (drop-nat sc op)) true)
+                              (induction os)
+                              (simp [drop-owned owners-open])
+                              (and_then (and_then (cases hm (memq (:scope head) op)) (cases hs (Nat.beq (:scope head) sc)))
+                                        (simp_all [owners-open drop-owned memq-drop-m]))))))
   (testing "T8. Lean: inv_close := close_pres sc s.open_ s.owns (term proof via exact)"
     (is (accepted? 60000
-          (a/theorem inv-close [sc :- Nat, s :- St]
-            (=> (= (inv s) true) (= (inv (close sc s)) true))
-            (exact (close-pres-m sc (:open s) (:owns s))))))))
+                   (a/theorem inv-close [sc :- Nat, s :- St]
+                              (=> (= (inv s) true) (= (inv (close sc s)) true))
+                              (exact (close-pres-m sc (:open s) (:owns s))))))))

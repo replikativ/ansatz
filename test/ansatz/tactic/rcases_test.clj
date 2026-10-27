@@ -14,9 +14,9 @@
     ;; constructor shapes here, including Sigma's dependent second field.
     (binding [a/*verbose* false]
       (a/inductive TestSigma [A Type B (=> A Type)]
-        (mk [fst A] [snd (B fst)]))
+                   (mk [fst A] [snd (B fst)]))
       (a/inductive TestSum [A Type B Type]
-        (inl [val A]) (inr [val B]))
+                   (inl [val A]) (inr [val B]))
       (f))))
 
 (defn- proves [params target tactics]
@@ -40,7 +40,7 @@
               '(Exists A (fn [x :- A] (Exists (B x) (fn [y :- (B x)] (= y y)))))
               '[(rcases p [a b])
                 (exact (Exists.intro A (fn [x :- A] (Exists (B x) (fn [y :- (B x)] (= y y)))) a
-                         (Exists.intro (B a) (fn [y :- (B a)] (= y y)) b (Eq.refl (B a) b))))])))
+                                     (Exists.intro (B a) (fn [y :- (B a)] (= y y)) b (Eq.refl (B a) b))))])))
 
 (deftest alternative-patterns
   (is (proves '[h :- True] 'True '[(rcases h (or a)) (exact a)]))
@@ -96,10 +96,10 @@
 (deftest anonymous-and-failure-patterns
   (is (proves '[h :- True] 'True '[(rcases h _) (assumption)]))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"invalid pattern"
-                       (proves '[h :- True] 'True '[(rcases h :invalid)])))
+                        (proves '[h :- True] 'True '[(rcases h :invalid)])))
   (is (thrown-with-msg? NullPointerException #"injected defect"
-                       (with-redefs [basic/apply-tac (fn [& _] (throw (NullPointerException. "injected defect")))]
-                         (proves '[] 'True '[(trivial)])))))
+                        (with-redefs [basic/apply-tac (fn [& _] (throw (NullPointerException. "injected defect")))]
+                          (proves '[] 'True '[(trivial)])))))
 
 (deftest regression-obtain-local-scrutinee
   (doseq [tac '[(obtain [a b] := p) (obtain [a b] :- (Prod Nat Nat) := p)]]
@@ -143,7 +143,7 @@
   ;; An ambient simp implementation must never be invoked by built-in trivial.
   (with-redefs [simp/simp (fn [& _] (throw (AssertionError. "trivial invoked simp")))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Tactic error: trivial failed"
-                         (proves '[] 'False '[(trivial)])))))
+                          (proves '[] 'False '[(trivial)])))))
 
 (defn- defines [params target tactics]
   ;; Type-valued goals are definitions in Lean, not theorem declarations.
@@ -161,8 +161,8 @@
     (is (defines params '(P x) '[(rcases h rfl) (exact p)]))
     ;; Eq.rec also infers its universe from the completed dependent motive.
     (is (defines (into params '[h2 :- (= h h)]) '(P x)
-                '[(rcases h rfl)
-                  (have keep (= (Eq.refl Nat x) (Eq.refl Nat x)) := h2) (exact p)]))))
+          '[(rcases h rfl)
+            (have keep (= (Eq.refl Nat x) (Eq.refl Nat x)) := h2) (exact p)]))))
 
 (deftest rereview-rfl-heq-conversion
   (is (proves '[x :- Nat, y :- Nat, h :- (HEq Nat x Nat y)] '(= x x)

@@ -70,5 +70,5 @@
                             (lambda st (apply-predicate predicate x)
                                     (fn [hp]
                                       (e/app hn (e/app* (e/const' (name/from-string "Exists.intro") [u])
-                                                       alpha predicate x hp))))))]
+                                                        alpha predicate x hp))))))]
         {:prop result :proof proof :gen gen}))))

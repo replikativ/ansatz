@@ -28,15 +28,15 @@
 (defn- lookup [env n] (env/lookup env (name/from-string n)))
 (defn- rename-expr [x rename]
   (letfn [(go [x]
-            (case (e/tag x)
-              :const (e/const' (name/from-string (rename (str (e/const-name x)))) (e/const-levels x))
-              :app (e/app (go (e/app-fn x)) (go (e/app-arg x)))
-              :lam (e/lam (e/lam-name x) (go (e/lam-type x)) (go (e/lam-body x)) (e/lam-info x))
-              :forall (e/forall' (e/forall-name x) (go (e/forall-type x)) (go (e/forall-body x)) (e/forall-info x))
-              :let (e/let' (e/let-name x) (go (e/let-type x)) (go (e/let-value x)) (go (e/let-body x)))
-              :proj (e/proj (name/from-string (rename (str (e/proj-type-name x)))) (e/proj-idx x) (go (e/proj-struct x)))
-              :mdata (go (e/mdata-expr x))
-              x))]
+              (case (e/tag x)
+                :const (e/const' (name/from-string (rename (str (e/const-name x)))) (e/const-levels x))
+                :app (e/app (go (e/app-fn x)) (go (e/app-arg x)))
+                :lam (e/lam (e/lam-name x) (go (e/lam-type x)) (go (e/lam-body x)) (e/lam-info x))
+                :forall (e/forall' (e/forall-name x) (go (e/forall-type x)) (go (e/forall-body x)) (e/forall-info x))
+                :let (e/let' (e/let-name x) (go (e/let-type x)) (go (e/let-value x)) (go (e/let-body x)))
+                :proj (e/proj (name/from-string (rename (str (e/proj-type-name x)))) (e/proj-idx x) (go (e/proj-struct x)))
+                :mdata (go (e/mdata-expr x))
+                x))]
     (go x)))
 
 (defn- compare-decl [out actual expected rename]
@@ -55,7 +55,7 @@
 
 (deftest init-and-nested-recursor-auxiliaries-match-lean
   (doseq [n ["Nat" "List" "Option" "Prod" "Bool" "Fin" "Or" "Eq" "T10Reference.Vec" "T10Reference.Rose"
-            "T10Reference.Inf" "T10Reference.Tree" "T10Reference.Forest"]]
+             "T10Reference.Inf" "T10Reference.Tree" "T10Reference.Forest"]]
     (testing n
       (doseq [[suffix f] [["casesOn" cases/mk-cases-on] ["recOn" rec/mk-rec-on]]]
         (let [target (str "T10Fresh." n "." suffix)
@@ -64,7 +64,7 @@
 
 (deftest below-and-brec-on-match-lean
   (doseq [n ["Nat" "List" "T10Reference.Rec" "T10Reference.Vec" "T10Reference.Rose"
-            "T10Reference.Inf" "T10Reference.Tree" "T10Reference.Forest"]]
+             "T10Reference.Inf" "T10Reference.Tree" "T10Reference.Forest"]]
     (let [info (lookup @oracle n)
           recs (cons [n (str n ".rec") (str n ".below") (str n ".brecOn")]
                      (when (= (str (first (.all info))) n)

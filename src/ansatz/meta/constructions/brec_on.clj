@@ -34,16 +34,16 @@
 (defn build-below-minor-premise [ctx rlvl motives minor-type]
   (let [[args _] (u/forall-telescope ctx minor-type)]
     (letfn [(go [prods args]
-              (if-let [arg (first args)]
-                (let [arg-type (u/infer-type ctx arg)
-                      [ys t] (u/forall-telescope ctx arg-type)]
-                  (if (some #{(e/get-app-fn t)} motives)
-                    (let [arg' (u/local-decl ctx (:name (u/decl ctx arg))
-                                 (u/mk-forall-fvars ctx ys (e/sort' rlvl)))
-                          p (u/mk-forall-fvars ctx ys (mk-pprod ctx t (u/app arg' ys)))]
-                      (u/mk-lambda-fvars ctx [arg'] (go (conj prods p) (rest args))))
-                    (u/mk-lambda-fvars ctx [arg] (go prods (rest args)))))
-                (pack ctx rlvl prods false)))]
+                (if-let [arg (first args)]
+                  (let [arg-type (u/infer-type ctx arg)
+                        [ys t] (u/forall-telescope ctx arg-type)]
+                    (if (some #{(e/get-app-fn t)} motives)
+                      (let [arg' (u/local-decl ctx (:name (u/decl ctx arg))
+                                               (u/mk-forall-fvars ctx ys (e/sort' rlvl)))
+                            p (u/mk-forall-fvars ctx ys (mk-pprod ctx t (u/app arg' ys)))]
+                        (u/mk-lambda-fvars ctx [arg'] (go (conj prods p) (rest args))))
+                      (u/mk-lambda-fvars ctx [arg] (go prods (rest args)))))
+                  (pack ctx rlvl prods false)))]
       (go [] args))))
 
 (defn- rec-telescope [ctx rec np]
@@ -62,29 +62,29 @@
         {:keys [params motives minors ism ls rlvl]} (rec-telescope ctx rec np)
         val (u/app (u/const' rec-name (assoc ls 0 (lvl/succ rlvl)))
                    (concat params
-                     (map (fn [m]
-                            (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))]
-                              (u/mk-lambda-fvars ctx ys (e/sort' rlvl)))) motives)
-                     (map #(build-below-minor-premise ctx rlvl motives (u/infer-type ctx %)) minors)
-                     ism))]
+                           (map (fn [m]
+                                  (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))]
+                                    (u/mk-lambda-fvars ctx ys (e/sort' rlvl)))) motives)
+                           (map #(build-below-minor-premise ctx rlvl motives (u/infer-type ctx %)) minors)
+                           ism))]
     (u/add-definition env ctx below-name (vec (.levelParams rec))
                       (vec (concat params motives ism)) (e/sort' rlvl) val)))
 
 (defn build-brec-on-minor-premise [ctx rlvl motives belows fs minor-type]
   (let [[args t] (u/forall-telescope ctx minor-type)]
     (letfn [(go [prods args]
-              (if-let [arg (first args)]
-                (let [[ys at] (u/forall-telescope ctx (u/infer-type ctx arg))
-                      idx (.indexOf motives (e/get-app-fn at))]
-                  (if (neg? idx)
-                    (u/mk-lambda-fvars ctx [arg] (go prods (rest args)))
-                    (let [arg' (u/local-decl ctx (:name (u/decl ctx arg))
-                                 (u/mk-forall-fvars ctx ys
-                                   (mk-pprod ctx at (u/app (nth belows idx) (e/get-app-args at)))))]
-                      (u/mk-lambda-fvars ctx [arg'] (go (conj prods arg') (rest args))))))
-                (let [idx (.indexOf motives (e/get-app-fn t))
-                      b (pack ctx rlvl prods true)]
-                  (mk-pprod-mk ctx (u/app (nth fs idx) (conj (e/get-app-args t) b)) b))))]
+                (if-let [arg (first args)]
+                  (let [[ys at] (u/forall-telescope ctx (u/infer-type ctx arg))
+                        idx (.indexOf motives (e/get-app-fn at))]
+                    (if (neg? idx)
+                      (u/mk-lambda-fvars ctx [arg] (go prods (rest args)))
+                      (let [arg' (u/local-decl ctx (:name (u/decl ctx arg))
+                                               (u/mk-forall-fvars ctx ys
+                                                                  (mk-pprod ctx at (u/app (nth belows idx) (e/get-app-args at)))))]
+                        (u/mk-lambda-fvars ctx [arg'] (go (conj prods arg') (rest args))))))
+                  (let [idx (.indexOf motives (e/get-app-fn t))
+                        b (pack ctx rlvl prods true)]
+                    (mk-pprod-mk ctx (u/app (nth fs idx) (conj (e/get-app-args t) b)) b))))]
       (go [] args))))
 
 (defn mk-brec-on-from-rec [env rec-name np all brec-name]
@@ -93,21 +93,21 @@
         idx (.indexOf motives (e/get-app-fn body))
         belows (mapv (fn [i]
                        (u/app (u/const' (if (< i (count all)) (str (nth all i) ".below")
-                                          (str (first all) ".below_" (inc (- i (count all))))) ls)
+                                            (str (first all) ".below_" (inc (- i (count all))))) ls)
                               (concat params motives))) (range (count motives)))
         fs (mapv (fn [i m b]
                    (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))
                          f (u/local-decl ctx "f" (u/app b ys))]
                      (u/local-decl ctx (str "F_" (inc i))
-                       (u/mk-forall-fvars ctx (conj ys f) (u/app m ys)))))
+                                   (u/mk-forall-fvars ctx (conj ys f) (u/app m ys)))))
                  (range) motives belows)
         go-val (u/app (u/const' rec-name (assoc ls 0 rlvl))
                       (concat params
-                        (map (fn [m b]
-                               (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))]
-                                 (u/mk-lambda-fvars ctx ys (mk-pprod ctx (u/app m ys) (u/app b ys))))) motives belows)
-                        (map #(build-brec-on-minor-premise ctx rlvl motives belows fs (u/infer-type ctx %)) minors)
-                        ism))
+                              (map (fn [m b]
+                                     (let [[ys _] (u/forall-telescope ctx (u/infer-type ctx m))]
+                                       (u/mk-lambda-fvars ctx ys (mk-pprod ctx (u/app m ys) (u/app b ys))))) motives belows)
+                              (map #(build-brec-on-minor-premise ctx rlvl motives belows fs (u/infer-type ctx %)) minors)
+                              ism))
         vs (vec (concat params motives ism fs))
         ma (u/app (nth motives idx) ism) ba (u/app (nth belows idx) ism)
         go-name (str brec-name ".go")
@@ -138,21 +138,21 @@
                        (u/mk-lambda-fvars ctx ys (u/mk-eq-refl ctx (nth eq-args 1))))) alts)
         proof (u/mk-lambda-fvars ctx vs (u/app case-app alts))]
     (env/check-constant env
-      (u/mk-thm-or-unsafe-def env (str brec-name ".eq") (vec (.levelParams rec))
-                   (u/mk-forall-fvars ctx vs eq) proof))))
+                        (u/mk-thm-or-unsafe-def env (str brec-name ".eq") (vec (.levelParams rec))
+                                                (u/mk-forall-fvars ctx vs eq) proof))))
 
 (defn- for-recursors [env n f suffix]
   (let [ind (env/lookup! env (name/from-string (str n))) ctx (u/context env)]
     (if (or (not (.isRec ind)) (u/prop-former? ctx (.type ind))) env
-      (let [env (f env (str n ".rec") (.numParams ind) (str n suffix))]
-        (if (= (first (vec (.all ind))) (name/from-string (str n)))
-          (reduce (fn [env i]
-                    (f env (str n ".rec_" (inc i)) (.numParams ind) (str n suffix "_" (inc i))))
-                  env (range (.numNested ind))) env)))))
+        (let [env (f env (str n ".rec") (.numParams ind) (str n suffix))]
+          (if (= (first (vec (.all ind))) (name/from-string (str n)))
+            (reduce (fn [env i]
+                      (f env (str n ".rec_" (inc i)) (.numParams ind) (str n suffix "_" (inc i))))
+                    env (range (.numNested ind))) env)))))
 
 (defn mk-below [env n]
   (for-recursors env n mk-below-from-rec ".below"))
 (defn mk-brec-on [env n]
   (let [ind (env/lookup! env (name/from-string (str n)))]
     (for-recursors env n (fn [env rec np target]
-                          (mk-brec-on-from-rec env rec np (vec (.all ind)) target)) ".brecOn")))
+                           (mk-brec-on-from-rec env rec np (vec (.all ind)) target)) ".brecOn")))

@@ -395,13 +395,13 @@
             int-expr (if nat? (nat-to-int expr) expr)
             int-inst (e/const' ((if min? :int-inst-min :int-inst-max) omega-names) [])
             int-minmax (e/app* (e/const' (if min? (:min-name omega-names) (:max-name omega-names)) [lvl/zero])
-                              int-type int-inst a' b')
+                               int-type int-inst a' b')
             def-proof (e/app* (e/const' ((if min? :int-min-def :int-max-def) omega-names) []) a' b')
             le (e/const' (:int-inst-le omega-names) [])
             dec (e/const' (name/from-string "Int.decLe") [])
             prop (e/app* (e/const' (:le-name omega-names) [lvl/zero]) int-type le a' b')
             ite (e/app* (e/const' (name/from-string "ite") [u1]) int-type prop
-                       (e/app* dec a' b') (if min? a' b') (if min? b' a'))
+                        (e/app* dec a' b') (if min? a' b') (if min? b' a'))
             rewrite (if nat?
                       (mk-eq-trans int-expr int-minmax ite
                                    (e/app* (e/const' ((if min? :ofnat-min :ofnat-max) omega-names) []) a b)
@@ -2000,35 +2000,35 @@
   (letfn
    [(add-mod-one [[table problem] [_idx {:keys [a b]}]]
       (let [nat-type (e/const' (:nat-name omega-names) [])
-              hbin (fn [op inst x y]
-                     (e/app* (e/const' (op omega-names) [lvl/zero lvl/zero lvl/zero])
-                             nat-type nat-type nat-type
-                             (e/app* (e/const' (name/from-string inst) [lvl/zero])
-                                     nat-type (e/const' (name/from-string
-                                                         (case inst
-                                                           "instHMod" "Nat.instMod"
-                                                           "instHMul" "instMulNat"
-                                                           "instHAdd" "instAddNat")) []))
-                             x y))
-              mod-expr (hbin :hmod "instHMod" a b)
-              div-expr (mk-hdiv-expr st nat-type nat-type nat-type a b)
-              k-whnf (#'tc/cached-whnf st b)
-              zero-divisor? (and (e/lit-nat? k-whnf) (zero? (e/lit-nat-val k-whnf)))
+            hbin (fn [op inst x y]
+                   (e/app* (e/const' (op omega-names) [lvl/zero lvl/zero lvl/zero])
+                           nat-type nat-type nat-type
+                           (e/app* (e/const' (name/from-string inst) [lvl/zero])
+                                   nat-type (e/const' (name/from-string
+                                                       (case inst
+                                                         "instHMod" "Nat.instMod"
+                                                         "instHMul" "instMulNat"
+                                                         "instHAdd" "instAddNat")) []))
+                           x y))
+            mod-expr (hbin :hmod "instHMod" a b)
+            div-expr (mk-hdiv-expr st nat-type nat-type nat-type a b)
+            k-whnf (#'tc/cached-whnf st b)
+            zero-divisor? (and (e/lit-nat? k-whnf) (zero? (e/lit-nat-val k-whnf)))
               ;; k = 0 : Nat.mod_zero a  : a % 0 = a
               ;;         (Nat.mod_add_div would state `a % 0 + 0 * (a / 0) = a`, whose
               ;;          `0 * (a / 0)` is STUCK — Nat.mul recurses on its second argument —
               ;;          so its eval proof cannot be bridged.)
               ;; k > 0 : Nat.mod_add_div a k : a % k + k * (a / k) = a
-              eq-type (e/app* (e/const' (:eq-name omega-names) [u1])
-                              nat-type
-                              (if zero-divisor?
-                                mod-expr
-                                (hbin :hadd "instHAdd" mod-expr (hbin :hmul "instHMul" b div-expr)))
-                              a)
-              eq-proof (if zero-divisor?
-                         (e/app (e/const' (:nat-mod-zero omega-names) []) a)
-                         (e/app* (e/const' (:nat-mod-add-div omega-names) []) a b))]
-          (enqueue-fact st table problem eq-type eq-proof)))
+            eq-type (e/app* (e/const' (:eq-name omega-names) [u1])
+                            nat-type
+                            (if zero-divisor?
+                              mod-expr
+                              (hbin :hadd "instHAdd" mod-expr (hbin :hmul "instHMul" b div-expr)))
+                            a)
+            eq-proof (if zero-divisor?
+                       (e/app (e/const' (:nat-mod-zero omega-names) []) a)
+                       (e/app* (e/const' (:nat-mod-add-div omega-names) []) a b))]
+        (enqueue-fact st table problem eq-type eq-proof)))
     (add-one [[table problem] [idx {:keys [a b type-name expr]}]]
       ;; Mark FIRST: reifying the bounds can itself intern atoms, and a re-entrant
       ;; visit of the same index would duplicate the constraints.
@@ -2041,7 +2041,7 @@
                      (#{(:nat-name omega-names) (:int-name omega-names)} (e/const-name carrier))
                      k (pos? k))
           [table problem]
-        (let [nat-type (e/const' (:nat-name omega-names) [])]
+          (let [nat-type (e/const' (:nat-name omega-names) [])]
             (if (= type-name (:nat-name omega-names))
            ;; Nat: Nat.div_mul_le_self m n : m / n * n ≤ m
            ;; This is LE.le Nat instLENat (HMul ... (HDiv ... a b) b) a
@@ -2217,11 +2217,11 @@
                            st' (tc/attach-lctx st (red/lctx-add-local (:lctx st) id "h" type))
                            [table' problem' n] (add-fact st' table parent {:type type :proof h})
                            [table' problem'] (if nat-sub-info
-                                              (let [[t p] (add-nat-sub-equality st' table' (reifier-problem problem')
-                                                                               nat-sub-info side h)]
-                                                [t (assoc problem' :problem (dissoc p :disjunctions)
-                                                          :disjunctions (:disjunctions p))])
-                                              [table' problem'])]
+                                               (let [[t p] (add-nat-sub-equality st' table' (reifier-problem problem')
+                                                                                 nat-sub-info side h)]
+                                                 [t (assoc problem' :problem (dissoc p :disjunctions)
+                                                           :disjunctions (:disjunctions p))])
+                                               [table' problem'])]
                        {:st st' :table table' :problem problem'
                         :new-facts (+ n (if nat-sub-info 1 0))}))
             left (branch left-id left-type :left)]
@@ -2284,24 +2284,24 @@
   [env result atoms-expr]
   (if (:direct-false result)
     (:direct-false result)
-  (if-let [disj-proofs (seq (:disjunctions-proof result))]
+    (if-let [disj-proofs (seq (:disjunctions-proof result))]
     ;; Has disjunction proofs — build Or.elim chain
-    (let [{:keys [left-result right-result left-type right-type
-                  left-fvar-id right-fvar-id or-proof]} (first disj-proofs)
-          false-type (e/const' (:false-name omega-names) [])
-          left-false (build-false-proof-from-result env left-result
-                                                     (build-atoms-expr (:atom-table left-result)))
-          right-false (build-false-proof-from-result env right-result
-                                                      (build-atoms-expr (:atom-table right-result)))
-          left-lam (e/lam "h_left" left-type
-                          (e/abstract1 left-false left-fvar-id) :default)
-          right-lam (e/lam "h_right" right-type
-                           (e/abstract1 right-false right-fvar-id) :default)]
-      (e/app* (e/const' (:or-elim omega-names) [])
-              left-type right-type false-type
-              or-proof left-lam right-lam))
+      (let [{:keys [left-result right-result left-type right-type
+                    left-fvar-id right-fvar-id or-proof]} (first disj-proofs)
+            false-type (e/const' (:false-name omega-names) [])
+            left-false (build-false-proof-from-result env left-result
+                                                      (build-atoms-expr (:atom-table left-result)))
+            right-false (build-false-proof-from-result env right-result
+                                                       (build-atoms-expr (:atom-table right-result)))
+            left-lam (e/lam "h_left" left-type
+                            (e/abstract1 left-false left-fvar-id) :default)
+            right-lam (e/lam "h_right" right-type
+                             (e/abstract1 right-false right-fvar-id) :default)]
+        (e/app* (e/const' (:or-elim omega-names) [])
+                left-type right-type false-type
+                or-proof left-lam right-lam))
     ;; No disjunctions — direct proof from justification
-    (prove-false-from-justification env result atoms-expr))))
+      (prove-false-from-justification env result atoms-expr))))
 
 (defn- strip-forall-binders
   "Strip leading forall binders from goal type, introducing fresh fvars.
@@ -2478,29 +2478,28 @@
                                {:goal goal-type})
                 ;; Found contradiction. Try to construct proof term.
                 (let [false-proof
-                        (if (:direct-false result)
+                      (if (:direct-false result)
                           ;; Direct False hypothesis — already have proof of False
-                          (:direct-false result)
+                        (:direct-false result)
                           ;; Build proof (handles simple and disjunction cases via omega-impl)
-                          (let [atom-table (:atom-table result)
-                                atoms-expr (if atom-table
-                                             (build-atoms-expr atom-table)
-                                             (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) int-type))]
-                            (build-false-proof-from-result env result atoms-expr)))
-                        inner-proof (if is-false-goal
-                                      false-proof
-                                      (let [lam-body (e/abstract1 false-proof neg-hyp-fvar-id)
-                                            lam-term (e/lam "h_neg" neg-type lam-body :default)]
-                                        (e/app* (e/const' (:decidable-by-contra omega-names) [])
-                                                inner-goal
-                                                (e/app (e/const' (:classical-prop-dec omega-names) [])
-                                                       inner-goal)
-                                                lam-term)))
+                        (let [atom-table (:atom-table result)
+                              atoms-expr (if atom-table
+                                           (build-atoms-expr atom-table)
+                                           (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) int-type))]
+                          (build-false-proof-from-result env result atoms-expr)))
+                      inner-proof (if is-false-goal
+                                    false-proof
+                                    (let [lam-body (e/abstract1 false-proof neg-hyp-fvar-id)
+                                          lam-term (e/lam "h_neg" neg-type lam-body :default)]
+                                      (e/app* (e/const' (:decidable-by-contra omega-names) [])
+                                              inner-goal
+                                              (e/app (e/const' (:classical-prop-dec omega-names) [])
+                                                     inner-goal)
+                                              lam-term)))
                         ;; Wrap in lambdas for the intro'd forall binders
-                        proof-term (wrap-proof-in-lambdas inner-proof fvar-infos)]
-                    (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
-                        (proof/record-tactic :omega [] (:id goal))))
-)))))))
+                      proof-term (wrap-proof-in-lambdas inner-proof fvar-infos)]
+                  (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
+                      (proof/record-tactic :omega [] (:id goal)))))))))))
 
 ;; ============================================================
 ;; Interactive cross-level API
@@ -2691,7 +2690,6 @@
         proof-term (wrap-proof-in-lambdas inner-proof fvar-infos)]
     (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
         (proof/record-tactic :omega-interactive [] (:id goal)))))
-
 
 ;; Every recursive entry shares the host heartbeat; wrappers also cover delayed
 ;; certificate descent invoked after search. No exception is converted to stuck.

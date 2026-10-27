@@ -59,7 +59,7 @@
 (deftest only-tactic-errors-are-not-applicable
   (is (nil? (action/attempt #(action/fail! "not applicable" {}))))
   (is (thrown-with-msg? clojure.lang.ExceptionInfo #"metadata"
-                       (action/attempt #(throw (ex-info "metadata" {:kind :bad-metadata})))))
+                        (action/attempt #(throw (ex-info "metadata" {:kind :bad-metadata})))))
   (is (thrown? NullPointerException (action/attempt #(throw (NullPointerException. "bug")))))
   (let [[ps _] (proof/start-proof (a/env) (e/const' (name/from-string "False") []))]
     (with-redefs [ctor/propagate (fn [& _] (throw (NullPointerException. "engine bug")))]
@@ -80,8 +80,7 @@
       (is (not (eg/get-enode graph (e/app q a))) "fork did not modify the original graph"))
     (let [generated (eg/internalize graph (e/app q a) 8)]
       (is (empty? (theorem/matches generated thm config)) "generation gate is strict")
-      (is (= 8 (:gen (first (theorem/matches generated thm (assoc config :gen 9)))))))
-    ))
+      (is (= 8 (:gen (first (theorem/matches generated thm (assoc config :gen 9)))))))))
 
 (deftest named-budgets
   (doseq [budget [:splits :instances :ematch :iterations]]
@@ -156,10 +155,10 @@
         st (tc/mk-tc-state (a/env))]
     (is (nil? (theorem/compile-theorem st [:local 900] (e/fvar 900) type [])))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"malformed theorem patterns"
-                         (theorem/compile-theorem st [:local 900] (e/fvar 900) type [] [(e/bvar 0)])))
+                          (theorem/compile-theorem st [:local 900] (e/fvar 900) type [] [(e/bvar 0)])))
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"not a proposition"
-                         (theorem/compile-theorem st [:local 900] (e/fvar 900)
-                                                  (e/forall' "x" nat nat :default) [])))))
+                          (theorem/compile-theorem st [:local 900] (e/fvar 900)
+                                                   (e/forall' "x" nat nat :default) [])))))
 
 (deftest actual-alternatives-have-isolated-search-state
   ;; Neither disjunct is known. Each alternative activates its own forall and
@@ -170,12 +169,12 @@
         split-next @#'main/split-next solve main/solve instantiate @#'main/instantiate]
     (with-redefs-fn
       {#'main/split-next (fn [branch candidate]
-                          (swap! splits conj {:parent branch :candidate candidate})
-                          (split-next branch candidate))
+                           (swap! splits conj {:parent branch :candidate candidate})
+                           (split-next branch candidate))
        #'main/solve (fn [branch]
-                     (when (some #(e/forall? (:prop %)) (:raw-facts branch))
-                       (swap! entries conj branch))
-                     (solve branch))
+                      (when (some #(e/forall? (:prop %)) (:raw-facts branch))
+                        (swap! entries conj branch))
+                      (solve branch))
        #'main/instantiate (fn [branch]
                             (let [result (instantiate branch)]
                               (when (> (:num-instances result) (:num-instances branch))
@@ -216,7 +215,7 @@
 (deftest structure-projection-from-constructor-class
   (eval '(ansatz.core/structure V2Pair [] (x Nat) (y Nat)))
   (check-script '[v2_projection [p :- V2Pair, x :- Nat, y :- Nat, h :- (= p (V2Pair.mk x y))]
-                 (= (:x p) x) [(grind)]]))
+                  (= (:x p) x) [(grind)]]))
 
 (deftest symmetric-equality-proposition-proof
   ;; Nested surface `=` is executable Bool equality; use the raw Prop statement.
@@ -230,7 +229,7 @@
         term (extract/extract solved)]
     (is (proof/solved? solved))
     (is (some? (env/check-constant (a/env)
-                                 (env/mk-thm (name/from-string "v2_raw_symmetry") [] goal term))))))
+                                   (env/mk-thm (name/from-string "v2_raw_symmetry") [] goal term))))))
 
 (deftest stage2-required-conformance
   (with-redefs [legacy/grind main/grind]
@@ -243,7 +242,6 @@
 
 (deftest bool-discriminant-split-proof
   (check-script '[v2_unknown_if [b :- Bool, x :- Nat] (= (if b x x) x) [(grind)]]))
-
 
 (deftest refuted-quantifier-propagation
   (doseq [script
@@ -265,9 +263,9 @@
   (let [before (a/env)]
     (try
       (a/define-verified 'iv-app '[xs :- (List Nat), ys :- (List Nat)] '(List Nat)
-                         '(match xs [nil ys] [(cons h t) (List.cons Nat h (iv-app t ys))]))
+        '(match xs [nil ys] [(cons h t) (List.cons Nat h (iv-app t ys))]))
       (a/define-verified 'iv-choose '[xs :- (List Nat), b :- Bool] 'Nat
-                         '(match xs [nil 0] [(cons h t) (if b h 0)]))
+        '(match xs [nil 0] [(cons h t) (if b h 0)]))
       (a/define-verified 'iv-id '[x :- Nat] 'Nat 'x)
       (is (nil? (eqns/eqns-for before "iv-app")) "the inventory is persistent")
       (is (= ["iv-app.eq_1" "iv-app.eq_2"] (mapv name/->string (eqns/eqns-for (a/env) 'iv-app))))
@@ -283,15 +281,14 @@
           (let [ci (env/lookup (a/env) nm)]
             (is (= :thm (env/ci-tag ci)))
             (is (some? (env/check-constant (a/env)
-                                          (env/mk-thm (name/from-string (str "iv-check-" (name/->string nm)))
-                                                      (vec (.levelParams ci)) (.type ci) (.value ci)))))
-            )))
+                                           (env/mk-thm (name/from-string (str "iv-check-" (name/->string nm)))
+                                                       (vec (.levelParams ci)) (.type ci) (.value ci))))))))
       (let [st (tc/mk-tc-state (a/env))]
         (is (= (eqns/eqns-for (a/env) "iv-app")
                (mapv :origin (theorem/for-hint st "iv-app")))))
       (check-script '[iv_equation [h :- Nat, t :- (List Nat), ys :- (List Nat)]
-                     (= (iv-app (List.cons Nat h t) ys) (List.cons Nat h (iv-app t ys)))
-                     [(grind [iv-app])]])
+                      (= (iv-app (List.cons Nat h t) ys) (List.cons Nat h (iv-app t ys)))
+                      [(grind [iv-app])]])
       (check-script '[iv_simple [x :- Nat] (= (iv-id x) x) [(grind [iv-id])]])
       (finally (reset! a/ansatz-env before)))))
 
@@ -304,26 +301,25 @@
                         (throw (ex-info "injected equation admission failure" {:kind :test-failure}))
                         (check environment ci)))]
         (a/define-verified 'iv-failed '[xs :- (List Nat)] 'Nat
-                           '(match xs [nil 0] [(cons h t) h])))
+          '(match xs [nil 0] [(cons h t) h])))
       (is (= ["iv-failed.eq_1"] (mapv name/->string (eqns/eqns-for (a/env) "iv-failed"))))
       (is (= "iv-failed.eq_2" (:lemma (first (eqns/errors-for (a/env) "iv-failed")))))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
-                           (theorem/for-hint (tc/mk-tc-state (a/env)) "iv-failed")))
+                            (theorem/for-hint (tc/mk-tc-state (a/env)) "iv-failed")))
       (finally (reset! a/ansatz-env before)))))
-
 
 (deftest elementary-nat-normalization
   (check-script '[v2_nat_add [a :- Nat, b :- Nat]
-                 (= (+ (+ a b) 1) (+ (+ a 1) b)) [(grind)]]))
+                  (= (+ (+ a b) 1) (+ (+ a 1) b)) [(grind)]]))
 
 (deftest bool-branch-keeps-the-recursive-call-node
   (let [before (a/env)]
     (try
       (a/define-verified 'iv-branch-app '[xs :- (List Nat), ys :- (List Nat)] '(List Nat)
-                         '(match xs [nil ys] [(cons h t) (List.cons Nat h (iv-branch-app t ys))]))
+        '(match xs [nil ys] [(cons h t) (List.cons Nat h (iv-branch-app t ys))]))
       (check-script '[v2_recursive_branch [xs :- (List Nat), b :- Bool,
-                                          h :- (= (iv-branch-app xs (List.nil Nat)) xs)]
-                     (= (if b (iv-branch-app xs (List.nil Nat)) xs) xs) [(grind)]])
+                                           h :- (= (iv-branch-app xs (List.nil Nat)) xs)]
+                      (= (if b (iv-branch-app xs (List.nil Nat)) xs) xs) [(grind)]])
       (finally (reset! a/ansatz-env before)))))
 
 (deftest normalization-depth-is-a-named-limit
@@ -333,25 +329,23 @@
                    (cs/attempt '[v2_norm_limit [a :- Nat, b :- Nat]
                                  (= (+ a b) (+ b a)) [(grind)]] 10000))))))
 
-
 (deftest equality-true-propagates-to-endpoints
   (check-script '[v2_beq_chain [a :- Nat, b :- Nat, c :- Nat,
                                 h1 :- (= (Nat.beq a b) true), h2 :- (= (Nat.beq b c) true)]
-                 (= a c) [(grind)]]))
-
+                  (= a c) [(grind)]]))
 
 (deftest boolean-order-bridge-is-automatic
   (check-script '[v2_ble_bridge [a :- Nat, b :- Nat, h :- (= (Nat.ble a b) true)]
-                 (<= a b) [(grind)]])
+                  (<= a b) [(grind)]])
   (check-script '[regr_nat_order_complement [a :- Nat, b :- Nat, h :- (Not (<= a b))]
-                 (<= b a) [(grind)]]))
+                  (<= b a) [(grind)]]))
 
 (deftest round3-implication-and-value-regressions
   (doseq [script
           '[[regr_imp_cases [p :- Prop, q :- Prop, h1 :- (=> p q), h2 :- (=> (Not p) q)]
              q [(grind)]]
             [regr_contraposition [p :- Prop, q :- Prop, r :- Prop,
-                                   h1 :- (=> p q), h2 :- (=> (Not p) r), hn :- (Not q)]
+                                  h1 :- (=> p q), h2 :- (=> (Not p) r), hn :- (Not q)]
              r [(grind)]]
             [regr_nat_conflict [a :- Nat, h0 :- (= a 0), h1 :- (= a 1)]
              False [(grind)]]]]
@@ -369,19 +363,19 @@
   (let [before (a/env)]
     (try
       (eval '(ansatz.core/inductive RegrTag [] :in Prop :indices [l (List Nat)]
-                                   (empty :where [(nil)])
-                                   (single [x Nat] :where [(cons x nil)])))
+                                    (empty :where [(nil)])
+                                    (single [x Nat] :where [(cons x nil)])))
       (check-script '[regr_pred_goal [x :- Nat] (RegrTag (List.cons Nat x (List.nil Nat))) [(grind)]])
       (check-script '[regr_pred_hyp [l :- (List Nat), h :- (RegrTag l),
-                                      hn :- (Not (= l (List.nil Nat))),
-                                      hs :- (forall [x :- Nat] (Not (= l (List.cons Nat x (List.nil Nat)))))]
-                     False [(grind)]])
+                                     hn :- (Not (= l (List.nil Nat))),
+                                     hs :- (forall [x :- Nat] (Not (= l (List.cons Nat x (List.nil Nat)))))]
+                      False [(grind)]])
       (finally (reset! a/ansatz-env before)))))
 
 (deftest congruence-retains-shared-intermediate-arguments
   (check-script '[regr_partial_congr [f :- (=> Nat Nat Nat Nat), g :- (=> Nat Nat Nat Nat),
-                                        x :- Nat, y :- Nat, z :- Nat, h :- (= f g)]
-                 (= (f x y z) (g x y z)) [(grind)]]))
+                                      x :- Nat, y :- Nat, z :- Nat, h :- (= f g)]
+                  (= (f x y z) (g x y z)) [(grind)]]))
 
 (deftest implication-split-option-executes-the-path
   (let [splits (atom 0) split-next @#'main/split-next]
@@ -391,8 +385,8 @@
                                     (split-next branch candidate))]
       (is (= :ok (cs/attempt
                   '[regr_imp_split [p :- Prop, q :- Prop,
-                                      h1 :- (=> p q), h2 :- (=> p (Not q)),
-                                      h3 :- (=> (Not p) q), h4 :- (=> (Not p) (Not q))]
+                                    h1 :- (=> p q), h2 :- (=> p (Not q)),
+                                    h3 :- (=> (Not p) q), h4 :- (=> (Not p) (Not q))]
                     False [(grind)]] 10000)))
       (is (pos? @splits) "the proof executes the implication split path"))))
 
@@ -402,7 +396,6 @@
                  (cs/attempt '[regr_arith_cases_default
                                [a :- Nat, b :- Nat, h :- (<= a b)] False [(grind)]] 10000))
         "a satisfiable arithmetic fact must not start inductive cases or spend the split budget")))
-
 
 (deftest ground-preprocessing-without-solvers
   ;; Paired in test/lean/grind_solvers.lean. With solvers disabled, these proofs
@@ -423,7 +416,7 @@
   ;; Disjunctive bounds are part of the asserted branch state.
   (check-script
    '[v2_arith_branches [a :- Nat, b :- Nat,
-                       h :- (Or (< a b) (< b a))]
+                        h :- (Or (< a b) (< b a))]
      (Not (= a b)) [(grind)]])
   ;; Omega does not instantiate universal hypotheses. The arithmetic fact must
   ;; come from grind's E-matcher and be passed with its derived proof.
@@ -475,8 +468,8 @@
 (deftest regression-applied-conditional-split
   (let [splits (atom 0) split-next @#'main/split-next]
     (with-redefs [main/split-next (fn [branch candidate]
-                                   (when (= :imp (:kind candidate)) (swap! splits inc))
-                                   (split-next branch candidate))]
+                                    (when (= :imp (:kind candidate)) (swap! splits inc))
+                                    (split-next branch candidate))]
       (check-script
        '[regr_ite_apply_split
          [p :- Prop, d :- (Decidable p), f :- (=> Nat Nat), g :- (=> Nat Nat), x :- Nat]

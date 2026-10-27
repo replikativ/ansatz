@@ -95,13 +95,12 @@
                  ;; disconnecting the equation/IH terms from their graph nodes.
                  result (nth args (if (= value (e/const' (name/from-string "Bool.false") [])) 1 2))
                  gs (-> gs (eg/internalize reduced-app (:gen node))
-                           (eg/internalize result (:gen node)))]
+                        (eg/internalize result (:gen node)))]
              ;; Congruence connects expr to reduced-app using cond=value; the
              ;; iota step is definitional and its equality is checked by the kernel.
              (eg/assert-eq gs reduced-app result (gp/mk-eq-refl st result))) gs))
        :else gs))
    gs (:enodes gs)))
-
 
 (defn activate-comparison-theorems [branch]
   ;; Propagate.lean propagateBEqUp/Down normalize lawful Boolean comparisons.
@@ -113,7 +112,6 @@
               (-> branch (update :comparison-theorems-active (fnil conj #{}) symbol)
                   (update :theorems into (theorem/for-hint (:tc branch) lemma))) branch))
           branch [["Nat.beq" "Nat.beq_eq"] ["Nat.ble" "Nat.ble_eq"] ["Nat.blt" "Nat.blt_eq"]]))
-
 
 (defn- apply-congr-fun [st lhs rhs proof args]
   ;; Grind/Propagate.lean applyCongrFun: carry the conditional equality through
@@ -148,5 +146,5 @@
                    prefix (reduce e/app h (take 5 args))
                    [_ result proof] (apply-congr-fun (:tc branch) prefix result proof (drop 5 args))]
                (update branch :graph #(-> % (eg/internalize result (:gen node))
-                                           (eg/assert-eq expr result proof)))) branch)) branch)))
+                                          (eg/assert-eq expr result proof)))) branch)) branch)))
    branch (get-in branch [:graph :enodes])))

@@ -1477,7 +1477,7 @@
                             ;; IH type: motive(indices..., field-fvar)
                                 ih-type (reduce e/app motive (concat rec-indices [(e/fvar rec-fid)]))
                                 lctx' (add-local lctx-acc ih-fid
-                                                          (str "ih_" (or (:name rec-decl) rec-fid)) ih-type)]
+                                                 (str "ih_" (or (:name rec-decl) rec-fid)) ih-type)]
                             (recur ps-acc' (conj ih-fvars ih-fid) lctx' (next rfs)))))))
               ;; Build ctor applied to params and field fvars
                   ctor-term (reduce e/app
@@ -1589,9 +1589,9 @@
                   ;; Preserve constructor fields for recursive patterns (Lean CasesSubgoal.fields).
                   (with-meta
                     (update ps' :goals (fn [gs]
-                                       (let [branch-set (set open-ids)
-                                             others (filterv #(not (branch-set %)) gs)]
-                                         (into (vec open-ids) others))))
+                                         (let [branch-set (set open-ids)
+                                               others (filterv #(not (branch-set %)) gs)]
+                                           (into (vec open-ids) others))))
                     (assoc (meta ps') ::case-branches ctor-goals)))))))))))
 
 ;; ============================================================
@@ -2175,7 +2175,7 @@
          v-level (e/sort-level motive-sort)
          [ps child] (proof/fresh-mvar-replacing ps new-goal-type new-lctx (:id goal))
          rec-term (e/app* (e/const' (name/from-string (if dep-elim? "Eq.rec" "Eq.ndrec"))
-                                  [v-level u-level])
+                                    [v-level u-level])
                           eq-type replacement motive (e/mvar child) (e/fvar var-id) major)
          full-term (reduce e/app rec-term (map e/fvar dependent-fids))
          ps (-> (proof/assign-mvar ps (:id goal) {:kind :subst :full-term full-term :child child})

@@ -116,43 +116,43 @@
     (if-let [fact (or (forall-prop/propagate-forall-prop-down (:tc branch) p hn gen)
                       (forall-prop/propagate-exists-down (:tc branch) p hn gen))]
       (enqueue branch (:prop fact) (:proof fact) (:gen fact))
-    (case head
-      "Not" (enqueue branch a
-                     (app "Decidable.byContradiction" a (app "Classical.propDecidable" a) hn) gen)
-      "And" (let [result (app "Or" (neg a) (neg b))
-                  hp (by-cases a result
-                               (fn [ha] (app "Or.inr" (neg a) (neg b)
-                                             (lambda b #(e/app hn (app "And.intro" a b ha %)))))
-                               (fn [hna] (app "Or.inl" (neg a) (neg b) hna)))]
-              (enqueue branch result hp gen))
-      "Or" (-> branch
-               (enqueue (neg a) (lambda a #(e/app hn (app "Or.inl" a b %))) gen)
-               (enqueue (neg b) (lambda b #(e/app hn (app "Or.inr" a b %))) gen))
-      "Iff" (let [left (app "And" a (neg b)) right (app "And" (neg a) b)
-                  result (app "Or" left right)
-                  hp (by-cases a result
-                               (fn [ha]
-                                 (by-cases b result
-                                           (fn [hb] (false-elim result
-                                                               (e/app hn (app "Iff.intro" a b
-                                                                              (lambda a (fn [_] hb))
-                                                                              (lambda b (fn [_] ha))))))
-                                           (fn [hnb] (app "Or.inl" left right (app "And.intro" a (neg b) ha hnb)))))
-                               (fn [hna]
-                                 (by-cases b result
-                                           (fn [hb] (app "Or.inr" left right (app "And.intro" (neg a) b hna hb)))
-                                           (fn [hnb] (false-elim result
-                                                                (e/app hn (app "Iff.intro" a b
-                                                                               (lambda a #(false-elim b (e/app hna %)))
-                                                                               (lambda b #(false-elim a (e/app hnb %))))))))))]
-              (enqueue branch result hp gen))
-      (if (and (e/forall? p) (zero? (e/bvar-range (e/forall-body p)))
-               (theorem/prop? (:tc branch) (e/forall-type p)))
-        (let [a (e/forall-type p) b (e/forall-body p)
-              hp (app "Decidable.byContradiction" a (app "Classical.propDecidable" a)
-                      (lambda (neg a) (fn [hna] (e/app hn (lambda a #(false-elim b (e/app hna %)))))))
-              hnq (lambda b (fn [hb] (e/app hn (lambda a (fn [_] hb)))))]
-          (-> branch (enqueue a hp gen) (enqueue (neg b) hnq gen))) branch)))))
+      (case head
+        "Not" (enqueue branch a
+                       (app "Decidable.byContradiction" a (app "Classical.propDecidable" a) hn) gen)
+        "And" (let [result (app "Or" (neg a) (neg b))
+                    hp (by-cases a result
+                                 (fn [ha] (app "Or.inr" (neg a) (neg b)
+                                               (lambda b #(e/app hn (app "And.intro" a b ha %)))))
+                                 (fn [hna] (app "Or.inl" (neg a) (neg b) hna)))]
+                (enqueue branch result hp gen))
+        "Or" (-> branch
+                 (enqueue (neg a) (lambda a #(e/app hn (app "Or.inl" a b %))) gen)
+                 (enqueue (neg b) (lambda b #(e/app hn (app "Or.inr" a b %))) gen))
+        "Iff" (let [left (app "And" a (neg b)) right (app "And" (neg a) b)
+                    result (app "Or" left right)
+                    hp (by-cases a result
+                                 (fn [ha]
+                                   (by-cases b result
+                                             (fn [hb] (false-elim result
+                                                                  (e/app hn (app "Iff.intro" a b
+                                                                                 (lambda a (fn [_] hb))
+                                                                                 (lambda b (fn [_] ha))))))
+                                             (fn [hnb] (app "Or.inl" left right (app "And.intro" a (neg b) ha hnb)))))
+                                 (fn [hna]
+                                   (by-cases b result
+                                             (fn [hb] (app "Or.inr" left right (app "And.intro" (neg a) b hna hb)))
+                                             (fn [hnb] (false-elim result
+                                                                   (e/app hn (app "Iff.intro" a b
+                                                                                  (lambda a #(false-elim b (e/app hna %)))
+                                                                                  (lambda b #(false-elim a (e/app hnb %))))))))))]
+                (enqueue branch result hp gen))
+        (if (and (e/forall? p) (zero? (e/bvar-range (e/forall-body p)))
+                 (theorem/prop? (:tc branch) (e/forall-type p)))
+          (let [a (e/forall-type p) b (e/forall-body p)
+                hp (app "Decidable.byContradiction" a (app "Classical.propDecidable" a)
+                        (lambda (neg a) (fn [hna] (e/app hn (lambda a #(false-elim b (e/app hna %)))))))
+                hnq (lambda b (fn [hb] (e/app hn (lambda a (fn [_] hb)))))]
+            (-> branch (enqueue a hp gen) (enqueue (neg b) hnq gen))) branch)))))
 
 (defn- internalize-proposition [gs prop gen]
   ;; Internalize.lean internalizeImpl (.forallE): expose the domain and a closed
@@ -166,50 +166,50 @@
 
 (defn- assert-fact [branch {:keys [prop proof gen]}]
   (if (get-in branch [:facts prop]) branch
-    (let [gs (internalize-proposition (:graph branch) prop gen)
-          branch (-> branch (assoc :graph gs) (assoc-in [:facts prop] {:proof proof :gen gen}))
-          [h args] (e/get-app-fn-args prop)
-          head (when (e/const? h) (name/->string (e/const-name h)))
-          branch (assoc branch :graph (eg/assert-eq gs prop true-expr (eq-true prop proof)))
+      (let [gs (internalize-proposition (:graph branch) prop gen)
+            branch (-> branch (assoc :graph gs) (assoc-in [:facts prop] {:proof proof :gen gen}))
+            [h args] (e/get-app-fn-args prop)
+            head (when (e/const? h) (name/->string (e/const-name h)))
+            branch (assoc branch :graph (eg/assert-eq gs prop true-expr (eq-true prop proof)))
           ;; ForallProp.propagateForallPropDown/addLocalEMatchTheorems: activate
           ;; whenever a quantified fact becomes true, including cases and derived
           ;; facts. Pattern unavailability leaves the fact intact; no catch hides
           ;; malformed metadata. The persistent branch owns theorem activation.
-          branch (if (e/forall? prop)
-                   (if-let [thm (theorem/compile-theorem (:tc branch)
-                                                       (if (e/fvar? proof) [:local (e/fvar-id proof)]
-                                                           [:local-fact prop])
-                                                       proof prop [])]
-                     (update branch :theorems conj (assoc thm :gen gen)) branch)
-                   branch)]
-      (case head
-        "Eq" (let [[_ a b] args]
-               (update branch :graph #(-> % (eg/internalize a gen) (eg/internalize b gen)
-                                          (eg/assert-eq a b proof))))
-        "Not" (let [p (first args)]
-                (-> branch
-                    (update :graph #(-> % (eg/internalize p gen)
-                                        (eg/assert-eq p false-expr (eq-false p proof))))
-                    (propagate-negation p proof gen)))
-        "And" (let [[p q] args]
-                (-> branch (enqueue p (app "And.left" p q proof) gen)
-                    (enqueue q (app "And.right" p q proof) gen)))
-        "Iff" (let [[p q] args]
-                (-> branch (enqueue (e/arrow p q) (app "Iff.mp" p q proof) gen)
-                    (enqueue (e/arrow q p) (app "Iff.mpr" p q proof) gen)))
-        branch))))
+            branch (if (e/forall? prop)
+                     (if-let [thm (theorem/compile-theorem (:tc branch)
+                                                           (if (e/fvar? proof) [:local (e/fvar-id proof)]
+                                                               [:local-fact prop])
+                                                           proof prop [])]
+                       (update branch :theorems conj (assoc thm :gen gen)) branch)
+                     branch)]
+        (case head
+          "Eq" (let [[_ a b] args]
+                 (update branch :graph #(-> % (eg/internalize a gen) (eg/internalize b gen)
+                                            (eg/assert-eq a b proof))))
+          "Not" (let [p (first args)]
+                  (-> branch
+                      (update :graph #(-> % (eg/internalize p gen)
+                                          (eg/assert-eq p false-expr (eq-false p proof))))
+                      (propagate-negation p proof gen)))
+          "And" (let [[p q] args]
+                  (-> branch (enqueue p (app "And.left" p q proof) gen)
+                      (enqueue q (app "And.right" p q proof) gen)))
+          "Iff" (let [[p q] args]
+                  (-> branch (enqueue (e/arrow p q) (app "Iff.mp" p q proof) gen)
+                      (enqueue (e/arrow q p) (app "Iff.mpr" p q proof) gen)))
+          branch))))
 
 (defn- drain [branch]
   ;; Intro.assertAll / Core.processNewFactsImpl: every new fact goes through one queue.
   (loop [branch branch]
     (if (or (get-in branch [:graph :inconsistent]) (empty? (:raw-facts branch))) branch
-      (let [fact (first (:raw-facts branch))
-            branch (update branch :raw-facts subvec 1)]
-        (recur (assert-fact branch fact))))))
+        (let [fact (first (:raw-facts branch))
+              branch (update branch :raw-facts subvec 1)]
+          (recur (assert-fact branch fact))))))
 
 (defn- propagate [branch]
   (let [branch (-> branch (update :graph normalize/propagate (:tc branch))
-                         (update :graph simp/preprocess (:tc branch)))
+                   (update :graph simp/preprocess (:tc branch)))
         branch (normalize/propagate-ite branch truth)
         branch (normalize/activate-comparison-theorems branch)
         branch (split/activate-intro-theorems branch)
@@ -221,53 +221,53 @@
         branch (-> branch (assoc :ctor-seen (:seen constructors))
                    (update :raw-facts into (:facts constructors)))
         branch (reduce
-   (fn [branch [p {:keys [proof gen]}]]
-     (let [[h args] (e/get-app-fn-args p)
-           head (when (e/const? h) (name/->string (e/const-name h)))]
-       (cond
-         (and (e/forall? p) (zero? (e/bvar-range (e/forall-body p))))
-         (if-let [hp (:yes (truth branch (e/forall-type p)))]
-           (enqueue branch (e/forall-body p) (e/app proof hp) gen)
-           (if-let [hnb (:no (truth branch (e/forall-body p)))]
-             (if-let [fact (forall-prop/eq-false-of-imp-eq-true (:tc branch) p proof hnb gen)]
-               (enqueue branch (:prop fact) (:proof fact) (:gen fact)) branch) branch))
-         (= head "Or")
-         (let [[a b] args ta (truth branch a) tb (truth branch b)]
-           (cond
-             (:no ta) (enqueue branch b
-                               (app "Or.elim" a b b proof
-                                    (lambda a #(false-elim b (e/app (:no ta) %)))
-                                    (lambda b identity)) gen)
-             (:no tb) (enqueue branch a
-                               (app "Or.elim" a b a proof (lambda a identity)
-                                    (lambda b #(false-elim a (e/app (:no tb) %)))) gen)
-             :else branch))
-         :else branch))) branch (:facts branch))]
+                (fn [branch [p {:keys [proof gen]}]]
+                  (let [[h args] (e/get-app-fn-args p)
+                        head (when (e/const? h) (name/->string (e/const-name h)))]
+                    (cond
+                      (and (e/forall? p) (zero? (e/bvar-range (e/forall-body p))))
+                      (if-let [hp (:yes (truth branch (e/forall-type p)))]
+                        (enqueue branch (e/forall-body p) (e/app proof hp) gen)
+                        (if-let [hnb (:no (truth branch (e/forall-body p)))]
+                          (if-let [fact (forall-prop/eq-false-of-imp-eq-true (:tc branch) p proof hnb gen)]
+                            (enqueue branch (:prop fact) (:proof fact) (:gen fact)) branch) branch))
+                      (= head "Or")
+                      (let [[a b] args ta (truth branch a) tb (truth branch b)]
+                        (cond
+                          (:no ta) (enqueue branch b
+                                            (app "Or.elim" a b b proof
+                                                 (lambda a #(false-elim b (e/app (:no ta) %)))
+                                                 (lambda b identity)) gen)
+                          (:no tb) (enqueue branch a
+                                            (app "Or.elim" a b a proof (lambda a identity)
+                                                 (lambda b #(false-elim a (e/app (:no tb) %)))) gen)
+                          :else branch))
+                      :else branch))) branch (:facts branch))]
     ;; Recompute each parent's logical value from its children. Hiding only the
     ;; parent avoids using its asserted truth to justify that same truth.
     (reduce (fn [b [p node]]
               ;; Core.lean stops propagating as soon as the graph is inconsistent;
               ;; the driver reconstructs False before processing further facts.
               (if (get-in b [:graph :inconsistent]) (reduced b)
-              (let [view (-> b (update :facts dissoc p) (update-in [:graph :enodes] dissoc p))
-                    value (truth view p)
-                    gs (:graph b)]
-                (cond
-                  (and (eg/is-eq-false gs p)
-                       (or (e/forall? p)
-                           (let [[h _] (e/get-app-fn-args p)]
-                             (and (e/const? h) (= "Exists" (name/->string (e/const-name h)))))))
-                  (propagate-negation b p (:no (known b p)) (:gen node))
+                  (let [view (-> b (update :facts dissoc p) (update-in [:graph :enodes] dissoc p))
+                        value (truth view p)
+                        gs (:graph b)]
+                    (cond
+                      (and (eg/is-eq-false gs p)
+                           (or (e/forall? p)
+                               (let [[h _] (e/get-app-fn-args p)]
+                                 (and (e/const? h) (= "Exists" (name/->string (e/const-name h)))))))
+                      (propagate-negation b p (:no (known b p)) (:gen node))
                   ;; Propagate.lean propagateEqDown (and other down propagators):
                   ;; a proposition that joins True needs assertion too. In particular
                   ;; Nat.beq_eq can make a=b true before its endpoints are merged.
-                  (and (eg/is-eq-true gs p) (not (get-in b [:facts p])))
-                  (enqueue b p (:yes (known b p)) (:gen node))
-                  (and (:yes value) (not (eg/is-eq-true gs p)))
-                  (enqueue b p (:yes value) (:gen node))
-                  (and (:no value) (not (eg/is-eq-false gs p)))
-                  (update b :graph eg/assert-eq p false-expr (eq-false p (:no value)))
-                  :else b)))) branch (:enodes (:graph branch)))))
+                      (and (eg/is-eq-true gs p) (not (get-in b [:facts p])))
+                      (enqueue b p (:yes (known b p)) (:gen node))
+                      (and (:yes value) (not (eg/is-eq-true gs p)))
+                      (enqueue b p (:yes value) (:gen node))
+                      (and (:no value) (not (eg/is-eq-false gs p)))
+                      (update b :graph eg/assert-eq p false-expr (eq-false p (:no value)))
+                      :else b)))) branch (:enodes (:graph branch)))))
 
 (defn- contradiction [branch]
   (or (get-in branch [:facts false-expr :proof])
@@ -311,11 +311,11 @@
 (defn- split-candidate [branch]
   ;; Split.checkDisjunctStatus: an asserted disjunction is ready until a disjunct holds.
   (or (some (fn [[p {:keys [proof gen]}]]
-          (let [[h args] (e/get-app-fn-args p)]
-            (when (and (e/const? h) (= "Or" (name/->string (e/const-name h)))
-                       (not (contains? (:resolved branch) p))
-                       (not-any? #(:yes (truth branch %)) args))
-              {:kind :or :expr p :args args :proof proof :gen gen}))) (:facts branch))
+              (let [[h args] (e/get-app-fn-args p)]
+                (when (and (e/const? h) (= "Or" (name/->string (e/const-name h)))
+                           (not (contains? (:resolved branch) p))
+                           (not-any? #(:yes (truth branch %)) args))
+                  {:kind :or :expr p :args args :proof proof :gen gen}))) (:facts branch))
       ;; Init/Grind/Config.lean splitImp defaults to false. Downward implication
       ;; propagation remains unconditional; arbitrary implication splitting is
       ;; opt-in, avoiding speculative splits on every residual E-match premise.
@@ -353,32 +353,32 @@
   ;; Split.splitCore: first nonrecursive alternative is free; subsequent ones count.
   ;; Every fork retains the persistent graph and uses distinct local proof contexts.
   (if (= :inductive (:kind candidate)) (split/split-core branch candidate solve)
-  (let [{:keys [expr args proof gen]} candidate
-        [a b] args config (:config branch)
-        _ (action/budget! config :splits (:num-splits branch))
-        solve-alt (fn [p extra]
-                    (let [[ps id] (proof/alloc-id (:ps branch))
-                          fv (e/fvar id)
-                          st (tc/attach-lctx (tc/mk-tc-state (:env ps))
-                                             (red/lctx-add-local (:lctx (:tc branch)) id "h" p))
-                          branch (-> branch (assoc :ps ps :tc st :rounds 0)
-                                     (update :resolved conj expr)
-                                     (update :num-splits + extra)
-                                     (enqueue p fv (inc gen)))
-                          hfalse (solve branch)]
-                      (e/lam "h" p (e/abstract1 hfalse id) :default)))]
-    (case (:kind candidate)
-      :or (app "Or.elim" a b false-expr proof (solve-alt a 0) (solve-alt b 1))
-      :imp (app "Classical.byCases" a false-expr (solve-alt a 0) (solve-alt (neg a) 1))
-      (let [bool-type (c "Bool")
-            eq-bool (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-            false-case (e/app* eq-bool bool-type expr (c "Bool.false"))
-            true-case (e/app* eq-bool bool-type expr (c "Bool.true"))
-            motive (e/lam "b" bool-type
-                          (e/arrow (e/app* eq-bool bool-type expr (e/bvar 0)) false-expr) :default)
-            refl (gp/mk-eq-refl (:tc branch) expr)]
-        (e/app* (e/const' (name/from-string "Bool.rec") [lvl/zero]) motive
-                (solve-alt false-case 0) (solve-alt true-case 1) expr refl))))))
+      (let [{:keys [expr args proof gen]} candidate
+            [a b] args config (:config branch)
+            _ (action/budget! config :splits (:num-splits branch))
+            solve-alt (fn [p extra]
+                        (let [[ps id] (proof/alloc-id (:ps branch))
+                              fv (e/fvar id)
+                              st (tc/attach-lctx (tc/mk-tc-state (:env ps))
+                                                 (red/lctx-add-local (:lctx (:tc branch)) id "h" p))
+                              branch (-> branch (assoc :ps ps :tc st :rounds 0)
+                                         (update :resolved conj expr)
+                                         (update :num-splits + extra)
+                                         (enqueue p fv (inc gen)))
+                              hfalse (solve branch)]
+                          (e/lam "h" p (e/abstract1 hfalse id) :default)))]
+        (case (:kind candidate)
+          :or (app "Or.elim" a b false-expr proof (solve-alt a 0) (solve-alt b 1))
+          :imp (app "Classical.byCases" a false-expr (solve-alt a 0) (solve-alt (neg a) 1))
+          (let [bool-type (c "Bool")
+                eq-bool (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                false-case (e/app* eq-bool bool-type expr (c "Bool.false"))
+                true-case (e/app* eq-bool bool-type expr (c "Bool.true"))
+                motive (e/lam "b" bool-type
+                              (e/arrow (e/app* eq-bool bool-type expr (e/bvar 0)) false-expr) :default)
+                refl (gp/mk-eq-refl (:tc branch) expr)]
+            (e/app* (e/const' (name/from-string "Bool.rec") [lvl/zero]) motive
+                    (solve-alt false-case 0) (solve-alt true-case 1) expr refl))))))
 
 (defn solve [branch]
   ;; Finish.mkFinish: fixed-point propagation, solvers <|> instantiate <|> splitNext.
@@ -387,22 +387,22 @@
     (action/budget! (:config branch) :iterations iteration)
     (let [branch (drain branch)]
       (if-let [hfalse (contradiction branch)] hfalse
-        (if-let [existential (intro/candidate branch)]
-          (intro/eliminate branch existential solve)
-        (let [next (drain (propagate branch))]
-          (if (or (not= (:facts branch) (:facts next))
-                  (not= (:theorems branch) (:theorems next))
-                  (not= (get-in branch [:graph :gmt]) (get-in next [:graph :gmt])))
-            (recur next (inc iteration))
-            (if-let [hfalse (solvers/check branch)] hfalse
-              (let [next (instantiate branch)]
-                (if (seq (:raw-facts next))
-                  (recur next (inc iteration))
-                  (if-let [candidate (split-candidate branch)]
-                    (split-next branch candidate)
-                    (do (check-exhausted! branch)
-                        (action/fail! "stuck" {:facts (vec (keys (:facts branch)))
-                                             :rounds (:rounds branch) :instances (:num-instances branch)})))))))))))))
+              (if-let [existential (intro/candidate branch)]
+                (intro/eliminate branch existential solve)
+                (let [next (drain (propagate branch))]
+                  (if (or (not= (:facts branch) (:facts next))
+                          (not= (:theorems branch) (:theorems next))
+                          (not= (get-in branch [:graph :gmt]) (get-in next [:graph :gmt])))
+                    (recur next (inc iteration))
+                    (if-let [hfalse (solvers/check branch)] hfalse
+                            (let [next (instantiate branch)]
+                              (if (seq (:raw-facts next))
+                                (recur next (inc iteration))
+                                (if-let [candidate (split-candidate branch)]
+                                  (split-next branch candidate)
+                                  (do (check-exhausted! branch)
+                                      (action/fail! "stuck" {:facts (vec (keys (:facts branch)))
+                                                             :rounds (:rounds branch) :instances (:num-instances branch)})))))))))))))
 
 (defn- introduce [ps]
   (loop [ps ps]
@@ -428,7 +428,7 @@
          theorems (into [] (mapcat #(theorem/for-hint st %)) hints)
          gs (assoc (eg/mk-grind-state (:env ps)) :proof-producing? true :simp-context (simp/mk-context st))
          gs (reduce #(eg/internalize %1 %2 0) gs [(c "Bool.true") (c "Bool.false")
-                                                (e/lit-nat 0) (c "Ordering.eq") target])
+                                                  (e/lit-nat 0) (c "Ordering.eq") target])
          branch {:ps ps :tc st :graph gs :config config :facts {} :raw-facts []
                  :theorems theorems :seen #{} :rounds 0 :num-instances 0 :num-splits 0 :resolved #{} :ctor-seen #{} :exists-seen #{}}
          branch (reduce (fn [b [fid decl]]
@@ -452,7 +452,7 @@
    ;; must exist in the env; derive Nat.ble_eq when the env lacks it, as simp does
    (let [ensure (requiring-resolve 'ansatz.tactic.simp/ensure-ble-eq)
          ps (if-let [env' (ensure (:env ps))] (assoc ps :env env') ps)]
-   (reduce (fn [ps gid]
-             (if (proof/mvar-assigned? ps gid) ps
-                 (grind-goal (assoc ps :goals (into [gid] (remove #{gid} (:goals ps)))) hints options)))
-           ps (:goals ps)))))
+     (reduce (fn [ps gid]
+               (if (proof/mvar-assigned? ps gid) ps
+                   (grind-goal (assoc ps :goals (into [gid] (remove #{gid} (:goals ps)))) hints options)))
+             ps (:goals ps)))))

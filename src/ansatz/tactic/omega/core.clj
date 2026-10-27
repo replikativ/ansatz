@@ -343,7 +343,6 @@
         fact (mk-fact x s j)]
     (add-constraint problem (tidy-fact fact))))
 
-
 (defn select-equality
   "Find the best equality to solve. Prefers ±1 coefficients."
   [problem]
@@ -393,10 +392,10 @@
                                            (range (max (count (:coeffs fact))
                                                        (count (:coeffs other-fact))))))
                           new-s (constraint-combo k (:constraint fact)
-                                                    1 (:constraint other-fact))
+                                                  1 (:constraint other-fact))
                           new-j (justification-combo k (:justification fact)
-                                                       1 (:justification other-fact)
-                                                       new-s new-coeffs)
+                                                     1 (:justification other-fact)
+                                                     new-s new-coeffs)
                           combined (mk-fact new-coeffs new-s new-j)]
                       (add-constraint p (tidy-fact combined)))))))
             problem
@@ -455,7 +454,7 @@
         (if (= 1 min-abs)
           (recur table (solve-easy-equality problem key))
           (let [[table' problem'] (deal-with-hard-equality table problem key
-                                                       build-bmod-expr-fn build-atoms-expr-fn)]
+                                                           build-bmod-expr-fn build-atoms-expr-fn)]
             (recur table' problem')))
         [table problem]))))
 
@@ -542,10 +541,10 @@
                                                    (range (max (count (:coeffs lb-fact))
                                                                (count (:coeffs ub-fact))))))
                                   new-s (constraint-combo a (:constraint lb-fact)
-                                                            nb (:constraint ub-fact))
+                                                          nb (:constraint ub-fact))
                                   new-j (justification-combo a (:justification lb-fact)
-                                                               nb (:justification ub-fact)
-                                                               new-s new-coeffs)
+                                                             nb (:justification ub-fact)
+                                                             new-s new-coeffs)
                                   combined (mk-fact new-coeffs new-s new-j)]
                               (add-constraint p (tidy-fact combined))))
                           p upperBounds))
@@ -803,7 +802,6 @@
   [nat-expr]
   (e/app (e/const' (:int-ofnat omega-names) []) nat-expr))
 
-
 (declare to-lean-linear-combo)
 
 (defn mk-eq-refl-int
@@ -921,10 +919,10 @@
   "Build an eval proof by reflexivity (for ground expressions where lc.eval reduces to expr)."
   [lc]
   (om/guarded (fn [atoms-expr]
-    (let [eval-expr (mk-lc-eval-expr lc atoms-expr)]
-      {:proof (mk-eq-refl-int eval-expr)
-       :lhs eval-expr
-       :rhs eval-expr}))))
+                (let [eval-expr (mk-lc-eval-expr lc atoms-expr)]
+                  {:proof (mk-eq-refl-int eval-expr)
+                   :lhs eval-expr
+                   :rhs eval-expr}))))
 
 (defn mk-coordinate-eval-proof
   "Build eval proof for a coordinate (atom):
@@ -932,14 +930,14 @@
    Coeffs.get v i is definitionally equal to atoms[i]."
   [idx]
   (om/guarded (fn [atoms-expr]
-    (let [lc (lc-coordinate idx)
-          lhs (mk-lc-eval-expr lc atoms-expr)
-          rhs (e/app* (e/const' (name/from-string "Lean.Omega.Coeffs.get") [])
-                      atoms-expr (e/lit-nat idx))]
-      {:proof (e/app* (e/const' (:coordinate-eval omega-names) [])
-                      (e/lit-nat idx) atoms-expr)
-       :lhs lhs
-       :rhs rhs}))))
+                (let [lc (lc-coordinate idx)
+                      lhs (mk-lc-eval-expr lc atoms-expr)
+                      rhs (e/app* (e/const' (name/from-string "Lean.Omega.Coeffs.get") [])
+                                  atoms-expr (e/lit-nat idx))]
+                  {:proof (e/app* (e/const' (:coordinate-eval omega-names) [])
+                                  (e/lit-nat idx) atoms-expr)
+                   :lhs lhs
+                   :rhs rhs}))))
 
 (defn mk-add-eval-proof
   "Build eval proof for addition.
@@ -948,26 +946,26 @@
    Chain: Eq.trans (add_eval) (congr prf1 prf2)"
   [lc1 lc2 proof-fn1 proof-fn2]
   (om/guarded (fn [atoms-expr]
-    (let [lc1-expr (to-lean-linear-combo lc1)
-          lc2-expr (to-lean-linear-combo lc2)
-          result-lc (lc-add lc1 lc2)
-          result-lhs (mk-lc-eval-expr result-lc atoms-expr)
+                (let [lc1-expr (to-lean-linear-combo lc1)
+                      lc2-expr (to-lean-linear-combo lc2)
+                      result-lc (lc-add lc1 lc2)
+                      result-lhs (mk-lc-eval-expr result-lc atoms-expr)
           ;; add_eval l1 l2 v : (l1 + l2).eval v = l1.eval v + l2.eval v
-          eval1 (mk-lc-eval-expr lc1 atoms-expr)
-          eval2 (mk-lc-eval-expr lc2 atoms-expr)
-          mid-expr (mk-int-add eval1 eval2)
-          add-eval-prf (e/app* (e/const' (:add-eval omega-names) []) lc1-expr lc2-expr atoms-expr)
+                      eval1 (mk-lc-eval-expr lc1 atoms-expr)
+                      eval2 (mk-lc-eval-expr lc2 atoms-expr)
+                      mid-expr (mk-int-add eval1 eval2)
+                      add-eval-prf (e/app* (e/const' (:add-eval omega-names) []) lc1-expr lc2-expr atoms-expr)
           ;; Get proofs and values from sub-proofs
-          p1 (if (fn? proof-fn1) (proof-fn1 atoms-expr) proof-fn1)
-          p2 (if (fn? proof-fn2) (proof-fn2 atoms-expr) proof-fn2)
-          rhs1 (:rhs p1) rhs2 (:rhs p2)
-          result-rhs (mk-int-add rhs1 rhs2)
+                      p1 (if (fn? proof-fn1) (proof-fn1 atoms-expr) proof-fn1)
+                      p2 (if (fn? proof-fn2) (proof-fn2 atoms-expr) proof-fn2)
+                      rhs1 (:rhs p1) rhs2 (:rhs p2)
+                      result-rhs (mk-int-add rhs1 rhs2)
           ;; congr proof: l1.eval + l2.eval = rhs1 + rhs2
-          congr-prf (mk-int-add-congr eval1 rhs1 eval2 rhs2 (:proof p1) (:proof p2))]
+                      congr-prf (mk-int-add-congr eval1 rhs1 eval2 rhs2 (:proof p1) (:proof p2))]
       ;; Chain: (l1+l2).eval = l1.eval + l2.eval = rhs1 + rhs2
-      {:proof (mk-eq-trans result-lhs mid-expr result-rhs add-eval-prf congr-prf)
-       :lhs result-lhs
-       :rhs result-rhs}))))
+                  {:proof (mk-eq-trans result-lhs mid-expr result-rhs add-eval-prf congr-prf)
+                   :lhs result-lhs
+                   :rhs result-rhs}))))
 
 (defn mk-sub-eval-proof
   "Build eval proof for subtraction.
@@ -975,22 +973,22 @@
    produce: (l1 - l2).eval atoms = e1 - e2."
   [lc1 lc2 proof-fn1 proof-fn2]
   (om/guarded (fn [atoms-expr]
-    (let [lc1-expr (to-lean-linear-combo lc1)
-          lc2-expr (to-lean-linear-combo lc2)
-          result-lc (lc-sub lc1 lc2)
-          result-lhs (mk-lc-eval-expr result-lc atoms-expr)
-          eval1 (mk-lc-eval-expr lc1 atoms-expr)
-          eval2 (mk-lc-eval-expr lc2 atoms-expr)
-          mid-expr (mk-int-sub eval1 eval2)
-          sub-eval-prf (e/app* (e/const' (:sub-eval omega-names) []) lc1-expr lc2-expr atoms-expr)
-          p1 (if (fn? proof-fn1) (proof-fn1 atoms-expr) proof-fn1)
-          p2 (if (fn? proof-fn2) (proof-fn2 atoms-expr) proof-fn2)
-          rhs1 (:rhs p1) rhs2 (:rhs p2)
-          result-rhs (mk-int-sub rhs1 rhs2)
-          congr-prf (mk-int-sub-congr eval1 rhs1 eval2 rhs2 (:proof p1) (:proof p2))]
-      {:proof (mk-eq-trans result-lhs mid-expr result-rhs sub-eval-prf congr-prf)
-       :lhs result-lhs
-       :rhs result-rhs}))))
+                (let [lc1-expr (to-lean-linear-combo lc1)
+                      lc2-expr (to-lean-linear-combo lc2)
+                      result-lc (lc-sub lc1 lc2)
+                      result-lhs (mk-lc-eval-expr result-lc atoms-expr)
+                      eval1 (mk-lc-eval-expr lc1 atoms-expr)
+                      eval2 (mk-lc-eval-expr lc2 atoms-expr)
+                      mid-expr (mk-int-sub eval1 eval2)
+                      sub-eval-prf (e/app* (e/const' (:sub-eval omega-names) []) lc1-expr lc2-expr atoms-expr)
+                      p1 (if (fn? proof-fn1) (proof-fn1 atoms-expr) proof-fn1)
+                      p2 (if (fn? proof-fn2) (proof-fn2 atoms-expr) proof-fn2)
+                      rhs1 (:rhs p1) rhs2 (:rhs p2)
+                      result-rhs (mk-int-sub rhs1 rhs2)
+                      congr-prf (mk-int-sub-congr eval1 rhs1 eval2 rhs2 (:proof p1) (:proof p2))]
+                  {:proof (mk-eq-trans result-lhs mid-expr result-rhs sub-eval-prf congr-prf)
+                   :lhs result-lhs
+                   :rhs result-rhs}))))
 
 (defn mk-int-neg
   "Build the Ansatz expression for Int negation: @Neg.neg Int Int.instNegInt c"
@@ -1007,28 +1005,28 @@
    Given prf-fn : l.eval atoms = e, produce: (-l).eval atoms = -e."
   [lc proof-fn]
   (om/guarded (fn [atoms-expr]
-    (let [result-lc (lc-negate lc)
-          result-lhs (mk-lc-eval-expr result-lc atoms-expr)
-          eval1 (mk-lc-eval-expr lc atoms-expr)
-          lc-expr (to-lean-linear-combo lc)
-          neg-eval-prf (e/app* (e/const' (:neg-eval omega-names) []) lc-expr atoms-expr)
-          p1 (if (fn? proof-fn) (proof-fn atoms-expr) proof-fn)
-          rhs1 (:rhs p1)
+                (let [result-lc (lc-negate lc)
+                      result-lhs (mk-lc-eval-expr result-lc atoms-expr)
+                      eval1 (mk-lc-eval-expr lc atoms-expr)
+                      lc-expr (to-lean-linear-combo lc)
+                      neg-eval-prf (e/app* (e/const' (:neg-eval omega-names) []) lc-expr atoms-expr)
+                      p1 (if (fn? proof-fn) (proof-fn atoms-expr) proof-fn)
+                      rhs1 (:rhs p1)
           ;; neg-eval: (-lc).eval atoms = -(lc.eval atoms)
           ;; p1.proof: lc.eval atoms = rhs1
           ;; We need: (-lc).eval atoms = -rhs1
           ;; congrArg (Neg.neg Int instNegInt) p1.proof : -(lc.eval atoms) = -(rhs1)
-          neg-rhs (mk-int-neg rhs1)
-          neg-eval1 (mk-int-neg eval1)
-          neg-fn (e/lam "_" int-type
-                        (mk-int-neg (e/bvar 0))
-                        :default)
-          congr-prf (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
-                            int-type int-type eval1 rhs1 neg-fn (:proof p1))
-          result-rhs neg-rhs]
-      {:proof (mk-eq-trans result-lhs neg-eval1 result-rhs neg-eval-prf congr-prf)
-       :lhs result-lhs
-       :rhs result-rhs}))))
+                      neg-rhs (mk-int-neg rhs1)
+                      neg-eval1 (mk-int-neg eval1)
+                      neg-fn (e/lam "_" int-type
+                                    (mk-int-neg (e/bvar 0))
+                                    :default)
+                      congr-prf (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
+                                        int-type int-type eval1 rhs1 neg-fn (:proof p1))
+                      result-rhs neg-rhs]
+                  {:proof (mk-eq-trans result-lhs neg-eval1 result-rhs neg-eval-prf congr-prf)
+                   :lhs result-lhs
+                   :rhs result-rhs}))))
 
 (defn mk-nat-hadd
   "Build HAdd.hAdd Nat Nat Nat instHAddNat a b."
@@ -1199,28 +1197,28 @@
         (let [original-int (nat-to-int original-nat-expr)
               nat-add-expr (mk-nat-add-chain var-nat-expr k)]
           (om/guarded (fn [atoms-expr]
-            (let [p-add (if (fn? add-prf) (add-prf atoms-expr) add-prf)
-                  add-rhs (:rhs p-add)
-                  add-lhs (:lhs p-add)
+                        (let [p-add (if (fn? add-prf) (add-prf atoms-expr) add-prf)
+                              add-rhs (:rhs p-add)
+                              add-lhs (:lhs p-add)
                   ;; nat-bridge : mul_expr = a+a+... (Nat level)
                   ;; congrArg Int.ofNat nat-bridge : Int.ofNat(mul_expr) = Int.ofNat(a+a+...)
-                  congr-proof (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
-                                      (e/const' (:nat-name omega-names) [])
-                                      int-type
-                                      original-nat-expr  ;; a1 = mul_expr
-                                      nat-add-expr        ;; a2 = a+a+...
-                                      (e/const' (:int-ofnat omega-names) [])
-                                      nat-bridge)
+                              congr-proof (e/app* (e/const' (:congr-arg omega-names) [u1 u1])
+                                                  (e/const' (:nat-name omega-names) [])
+                                                  int-type
+                                                  original-nat-expr  ;; a1 = mul_expr
+                                                  nat-add-expr        ;; a2 = a+a+...
+                                                  (e/const' (:int-ofnat omega-names) [])
+                                                  nat-bridge)
                   ;; Eq.symm : Int.ofNat(a+a+...) = Int.ofNat(mul_expr)
-                  bridge-proof (mk-eq-symm (nat-to-int original-nat-expr)
-                                           (nat-to-int nat-add-expr)
-                                           congr-proof)
+                              bridge-proof (mk-eq-symm (nat-to-int original-nat-expr)
+                                                       (nat-to-int nat-add-expr)
+                                                       congr-proof)
                   ;; Final: Eq.trans p-add.proof bridge-proof
-                  final-proof (mk-eq-trans add-lhs add-rhs original-int
-                                           (:proof p-add) bridge-proof)]
-              {:proof final-proof
-               :lhs add-lhs
-               :rhs original-int}))))))))
+                              final-proof (mk-eq-trans add-lhs add-rhs original-int
+                                                       (:proof p-add) bridge-proof)]
+                          {:proof final-proof
+                           :lhs add-lhs
+                           :rhs original-int}))))))))
 
 ;; ============================================================
 ;; Reification: Ansatz expr → LinearCombo + eval proof
@@ -1228,7 +1226,6 @@
 ;;
 ;; reify-term returns [atom-table linear-combo eval-proof-fn]
 ;; where eval-proof-fn : atoms-expr → proof of (lc.eval atoms = int-version-of-expr)
-
 
 (defn to-lean-int
   "Build a Ansatz expression for an Int literal."
@@ -1286,20 +1283,20 @@
    unpadded coefficients. Padding happens via Coeffs.combo's zipWithAll at combo time."
   [const coeffs proof-fn]
   (om/guarded (fn [atoms-expr _num-vars]
-    (let [c-ansatz (to-lean-int const)
-          x-ansatz (to-lean-coeffs coeffs)
-          neg-c (mk-int-neg c-ansatz)
+                (let [c-ansatz (to-lean-int const)
+                      x-ansatz (to-lean-coeffs coeffs)
+                      neg-c (mk-int-neg c-ansatz)
           ;; Constraint as it appears in addInequality_sat's result type
-          s-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Constraint.mk") [])
-                           (e/app* (e/const' (name/from-string "Option.some") [lvl/zero])
-                                   int-type neg-c)
-                           (e/app (e/const' (name/from-string "Option.none") [lvl/zero])
-                                  int-type))]
-      {:proof (e/app* (e/const' (:add-inequality-sat omega-names) [])
-                      c-ansatz x-ansatz atoms-expr
-                      (if (fn? proof-fn) (proof-fn atoms-expr) proof-fn))
-       :constraint-ansatz s-ansatz
-       :coeffs-ansatz x-ansatz}))))
+                      s-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Constraint.mk") [])
+                                       (e/app* (e/const' (name/from-string "Option.some") [lvl/zero])
+                                               int-type neg-c)
+                                       (e/app (e/const' (name/from-string "Option.none") [lvl/zero])
+                                              int-type))]
+                  {:proof (e/app* (e/const' (:add-inequality-sat omega-names) [])
+                                  c-ansatz x-ansatz atoms-expr
+                                  (if (fn? proof-fn) (proof-fn atoms-expr) proof-fn))
+                   :constraint-ansatz s-ansatz
+                   :coeffs-ansatz x-ansatz}))))
 
 (defn mk-add-equality-proof
   "Build a delayed proof fn for an equality assumption.
@@ -1310,19 +1307,18 @@
    Note: coefficients are NOT padded here."
   [const coeffs proof-fn]
   (om/guarded (fn [atoms-expr _num-vars]
-    (let [c-ansatz (to-lean-int const)
-          x-ansatz (to-lean-coeffs coeffs)
-          neg-c (mk-int-neg c-ansatz)
-          some-neg-c (e/app* (e/const' (name/from-string "Option.some") [lvl/zero])
-                             int-type neg-c)
-          s-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Constraint.mk") [])
-                           some-neg-c some-neg-c)]
-      {:proof (e/app* (e/const' (:add-equality-sat omega-names) [])
-                      c-ansatz x-ansatz atoms-expr
-                      (if (fn? proof-fn) (proof-fn atoms-expr) proof-fn))
-       :constraint-ansatz s-ansatz
-       :coeffs-ansatz x-ansatz}))))
-
+                (let [c-ansatz (to-lean-int const)
+                      x-ansatz (to-lean-coeffs coeffs)
+                      neg-c (mk-int-neg c-ansatz)
+                      some-neg-c (e/app* (e/const' (name/from-string "Option.some") [lvl/zero])
+                                         int-type neg-c)
+                      s-ansatz (e/app* (e/const' (name/from-string "Lean.Omega.Constraint.mk") [])
+                                       some-neg-c some-neg-c)]
+                  {:proof (e/app* (e/const' (:add-equality-sat omega-names) [])
+                                  c-ansatz x-ansatz atoms-expr
+                                  (if (fn? proof-fn) (proof-fn atoms-expr) proof-fn))
+                   :constraint-ansatz s-ansatz
+                   :coeffs-ansatz x-ansatz}))))
 
 (declare build-atoms-expr)
 
@@ -1595,7 +1591,6 @@
 ;; ============================================================
 ;; Public API
 ;; ============================================================
-
 
 (doseq [v [#'extract-proof #'mk-scale-eval-proof #'mk-right-mul-expand #'mk-nat-add-chain
            #'mk-nat-mul-expand-proof]]

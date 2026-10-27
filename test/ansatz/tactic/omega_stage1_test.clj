@@ -187,8 +187,8 @@
         original @v
         theorem (first (filter #(= 'stage1_branches (first %)) examples))]
     (with-redefs-fn {v (fn [table problem]
-                        (swap! tables conj table)
-                        (original table problem))}
+                         (swap! tables conj table)
+                         (original table problem))}
       #(is (= :ok (cs/attempt theorem 60000))))
     (is (some (fn [[left right]]
                 (some (fn [[i atom]]
@@ -202,7 +202,7 @@
 (deftest invalid-generated-facts-fail-at-analysis
   (let [st (tc/mk-tc-state @te/bundled-init-env)
         ex (try (#'f/enqueue-fact st (m/mk-state) (c/mk-problem)
-                                 (const-expr "False") (const-expr "True.intro"))
+                                  (const-expr "False") (const-expr "True.intro"))
                 (catch clojure.lang.ExceptionInfo ex ex))]
     (is (= :omega-implementation-error (:kind (ex-data ex))))
     (is (= :analyze-atom (:operation (ex-data ex))))))
@@ -220,8 +220,8 @@
         build c/mk-add-eval-proof
         ex (binding [m/*work* work m/*work-limit* 24 m/*depth-limit* 128]
              (with-redefs [c/mk-add-eval-proof (fn [& args]
-                                                (swap! additions inc)
-                                                (apply build args))]
+                                                 (swap! additions inc)
+                                                 (apply build args))]
                (try (#'f/reify-term st (m/mk-state) expr)
                     (catch clojure.lang.ExceptionInfo ex ex))))]
     (is (= {:kind :tactic-error :tactic :omega :limit :work :value 24} (ex-data ex)))
@@ -257,7 +257,7 @@
             (let [coeffs [1 i]
                   bounds (c/mk-constraint -100 100)]
               (c/add-constraint p (c/mk-fact coeffs bounds
-                                           (c/justification-assumption i bounds coeffs)))))
+                                             (c/justification-assumption i bounds coeffs)))))
           (c/mk-problem) (range 1 51)))
 
 (deftest wide-fm-combinations-consume-work
@@ -269,8 +269,8 @@
         build c/justification-combo
         ex (binding [m/*work* work m/*work-limit* 120]
              (with-redefs [c/justification-combo (fn [& args]
-                                                  (swap! combinations inc)
-                                                  (apply build args))]
+                                                   (swap! combinations inc)
+                                                   (apply build args))]
                (try (c/run-omega (m/mk-state) p no-proof no-proof)
                     (catch clojure.lang.ExceptionInfo ex ex))))]
     (is (= {:kind :tactic-error :tactic :omega :limit :work :value 120} (ex-data ex)))
@@ -285,8 +285,8 @@
         scale c/constraint-scale
         ex (binding [m/*work* work m/*work-limit* 5]
              (with-redefs [c/constraint-scale (fn [& args]
-                                               (swap! classified inc)
-                                               (apply scale args))]
+                                                (swap! classified inc)
+                                                (apply scale args))]
                (try (c/fourier-motzkin-data p)
                     (catch clojure.lang.ExceptionInfo ex ex))))]
     (is (= {:kind :tactic-error :tactic :omega :limit :work :value 5} (ex-data ex)))
@@ -313,7 +313,7 @@
                           [table' m' n :as result] (add-fact st table m fact)]
                       (cond
                         bool-eq? (swap! events conj {:tag :unsupported :n n
-                                                    :unchanged? (and (= table table') (= m m'))})
+                                                     :unchanged? (and (= table table') (= m m'))})
                         (= local-name "k") (swap! events conj {:tag :useful :n n}))
                       result))]
       (is (= :ok (cs/attempt theorem 60000))
@@ -334,7 +334,7 @@
         delayed (c/mk-neg-eval-proof (c/lc-coordinate 0) (c/mk-coordinate-eval-proof 0))
         result (delayed atoms)
         expected (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                        int (:lhs result) (:rhs result))]
+                         int (:lhs result) (:rhs result))]
     (is (= [lvl/zero] (e/const-levels (e/get-app-fn neg))))
     (is (tc/is-def-eq st int (tc/infer-type st neg)))
     (is (tc/is-def-eq st expected (tc/infer-type st (:proof result))))))
@@ -353,8 +353,8 @@
           combo c/justification-combo
           ex (binding [m/*work* work m/*work-limit* 12]
                (with-redefs [c/add-constraint (fn [& args]
-                                               (swap! inserted inc)
-                                               (apply insert args))
+                                                (swap! inserted inc)
+                                                (apply insert args))
                              c/justification-combo (fn [& args]
                                                      (swap! combinations inc)
                                                      (apply combo args))]
@@ -372,13 +372,13 @@
         neg-x (e/app* (e/const' (name/from-string "Neg.neg") [lvl/zero])
                       int (const-expr "Int.instNegInt") x)
         body (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
-                      int (c/mk-int-add neg-x x) (e/app (const-expr "Int.ofNat") (e/lit-nat 0)))
+                     int (c/mk-int-add neg-x x) (e/app (const-expr "Int.ofNat") (e/lit-nat 0)))
         goal (e/forall' "x" int body :default)
         calls (atom 0)]
     (doseq [run [omega/omega f/omega]]
       (let [[ps _] (proof/start-proof @te/bundled-init-env goal)]
         (with-redefs [decide/decide (fn [_]
-                                    (swap! calls inc)
-                                    (throw (IllegalStateException. "quantified decide was attempted")))]
+                                      (swap! calls inc)
+                                      (throw (IllegalStateException. "quantified decide was attempted")))]
           (is (some? (extract/verify (run ps)))))))
     (is (zero? @calls))))

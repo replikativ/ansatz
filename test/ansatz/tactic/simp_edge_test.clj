@@ -150,10 +150,10 @@
                    #(#'simp/mk-congr-fun st {:expr nat :proof? nat} nat)
                    #(#'simp/mk-congr-arg st nat {:expr nat :proof? nat})
                    #(#'simp/mk-congr st {:expr nat :proof? nat}
-                                   {:expr nat :proof? nat} nat nat)
+                                     {:expr nat :proof? nat} nat nat)
                    #(simp/simp-expr-result st env {} nat)]]
         (is (identical? failure (try (run) nil
-                                    (catch clojure.lang.ExceptionInfo ex ex))))))))
+                                     (catch clojure.lang.ExceptionInfo ex ex))))))))
 
 (deftest test-simp-deep-finite-term
   (let [env (require-env)
@@ -183,7 +183,7 @@
                        #(simp/simp-at ps hid [] {:only? true})
                        #(simp/simp-all ps [] {:only? true})]]
             (is (identical? failure (try (run) nil
-                                        (catch Throwable ex ex))))))))))
+                                         (catch Throwable ex ex))))))))))
 
 (deftest test-legacy-ble-eq-is-kernel-checked
   (let [original (require-env)
@@ -195,7 +195,7 @@
                      (e/app* (e/const' (name/from-string "Nat.ble") []) (e/bvar 1) (e/bvar 0))
                      (e/const' (name/from-string "Bool.true") []))
         le (e/app* (e/const' (name/from-string "LE.le") [lvl/zero]) nat
-                    (e/const' (name/from-string "instLENat") []) (e/bvar 1) (e/bvar 0))
+                   (e/const' (name/from-string "instLENat") []) (e/bvar 1) (e/bvar 0))
         expected-type (e/forall' "x" nat
                                  (e/forall' "y" nat (eq (e/sort' lvl/zero) ble-true le) :default)
                                  :default)
@@ -270,7 +270,7 @@
     (is (nil? (:proof? result)))
     ;; Rejecting the first candidate must still allow a later applicable rule.
     (let [index (simp/build-lemma-index st env
-                                     (concat lemmas (simp/make-simp-lemmas env ["SimpEdge.ab"])))
+                                        (concat lemmas (simp/make-simp-lemmas env ["SimpEdge.ab"])))
           result (simp/simp-expr-result st env index a)]
       (is (= (e/const' (name/from-string "SimpEdge.b") []) (:expr result)))
       (is (some? (:proof? result))))))
@@ -374,9 +374,9 @@
         env (-> (conditional-rule-env)
                 (env/check-constant (env/mk-axiom (name/from-string "SimpEdge.Q") [] (e/arrow nat prop)))
                 (env/check-constant (env/mk-axiom (name/from-string "SimpEdge.predRule") []
-                                                 (e/forall' "n" nat
-                                                            (eq (e/app p (e/bvar 0))
-                                                                (e/app q (e/bvar 0))) :default))))
+                                                  (e/forall' "n" nat
+                                                             (eq (e/app p (e/bvar 0))
+                                                                 (e/app q (e/bvar 0))) :default))))
         st (tc/mk-tc-state env)
         old (e/forall' "n" nat (e/app p (e/bvar 0)) :default)
         new (e/forall' "n" nat (e/app q (e/bvar 0)) :default)
@@ -450,13 +450,13 @@
         eq (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
                    nat (add (e/bvar 1) (e/bvar 0)) (add (e/bvar 0) (e/bvar 1)))]
     (checked-simp (e/forall' "a" nat (e/forall' "b" nat eq :default) :default)
-                      ["Nat.add_comm"])))
+                  ["Nat.add_comm"])))
 
 (deftest test-simp-lt-add-one-raw-add-index
   (let [nat (e/const' (name/from-string "Nat") [])
         add (e/app* (e/const' (name/from-string "Nat.add") []) (e/bvar 0) (e/lit-nat 1))
         lt (e/app* (e/const' (name/from-string "LT.lt") [lvl/zero])
-                    nat (e/const' (name/from-string "instLTNat") []) (e/bvar 0) add)]
+                   nat (e/const' (name/from-string "instLTNat") []) (e/bvar 0) add)]
     (checked-simp (e/forall' "n" nat lt :default) ["Nat.lt_add_one"])))
 
 (deftest test-simp-equal-bool-rec-branches-carry-proof
@@ -475,7 +475,7 @@
     (is (= x (:expr result)))
     (is (some? (:proof? result)))
     (is (env/verifies? env (e/forall' "b" bool (e/forall' "x" nat (e/abstract-many eq [992001 992002]) :default) :default)
-                      (close (:proof? result))))))
+                       (close (:proof? result))))))
 
 (deftest test-simp-simp-all-normalizes-conditional-hypothesis
   (let [env (require-env)
@@ -483,11 +483,11 @@
         eq (fn [a b] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat a b))
         ;; n m : Nat, p : Prop, h : n = m, ih : p → n = 0 ⊢ p → m = 0
         ty (e/forall' "n" nat
-             (e/forall' "m" nat
-               (e/forall' "p" (e/sort' lvl/zero)
-                 (e/forall' "h" (eq (e/bvar 2) (e/bvar 1))
-                   (e/forall' "ih" (e/arrow (e/bvar 1) (eq (e/bvar 4) (e/lit-nat 0)))
-                     (e/arrow (e/bvar 2) (eq (e/bvar 4) (e/lit-nat 0))) :default) :default) :default) :default) :default)
+                      (e/forall' "m" nat
+                                 (e/forall' "p" (e/sort' lvl/zero)
+                                            (e/forall' "h" (eq (e/bvar 2) (e/bvar 1))
+                                                       (e/forall' "ih" (e/arrow (e/bvar 1) (eq (e/bvar 4) (e/lit-nat 0)))
+                                                                  (e/arrow (e/bvar 2) (eq (e/bvar 4) (e/lit-nat 0))) :default) :default) :default) :default) :default)
         [ps _] (proof/start-proof env ty)
         ps (basic/intros ps ["n" "m" "p" "h" "ih"])
         ps (simp/simp-all ps [] {:only? true})]
@@ -552,7 +552,7 @@
         ;; independent of the full export's beq_eq_false_iff_ne theorem.
         rule (close-binders e/forall' binders (e/arrow nexy conclusion))
         ty (close-binders e/forall' (conj binders [993004 "hne" (e/app (c "Not") eqxy)]
-                                                  [993005 "rule" rule]) conclusion)
+                                          [993005 "rule" rule]) conclusion)
         [ps _] (proof/start-proof env ty)
         ps (basic/intros ps ["K" "dec" "x" "y" "hne" "rule"])
         lctx (:lctx (proof/current-goal ps))
@@ -565,9 +565,9 @@
   (let [env (#'simp/ensure-nat-packing (require-env) ["Nat.add_eq" "Nat.le_eq"])
         nat (e/const' (name/from-string "Nat") [])
         st (tc/mk-tc-state-with-locals env {993010 {:name "x" :type nat}
-                                         993011 {:name "y" :type nat}})]
+                                            993011 {:name "y" :type nat}})]
     (doseq [[raw lemma packed] [["Nat.add" "Nat.add_eq" "HAdd.hAdd"]
-                               ["Nat.le" "Nat.le_eq" "LE.le"]]]
+                                ["Nat.le" "Nat.le_eq" "LE.le"]]]
       (let [term (e/app* (e/const' (name/from-string raw) []) (e/fvar 993010) (e/fvar 993011))
             result (simp/simp-expr-result st env (simp/build-lemma-index st env (simp/make-simp-lemmas env [lemma])) term)]
         (is (= packed (name/->string (e/const-name (e/get-app-fn (:expr result))))))

@@ -119,8 +119,8 @@
                      (e/mk-arrows equations (c "False")))
         ;; Temporary motive locals have been abstracted; discard their context.
         branch (assoc branch :tc (tc/attach-lctx (tc/mk-tc-state env)
-                                                (apply dissoc (:lctx (:tc branch))
-                                                       (conj (mapv first index-decls) major-id))))
+                                                 (apply dissoc (:lctx (:tc branch))
+                                                        (conj (mapv first index-decls) major-id))))
         branch (-> branch (update :resolved conj expr) (assoc :rounds 0))
         rec (reduce e/app rec (concat params [motive]))
         ;; casesOn orders indices/major before minors; rec orders minors first.
@@ -154,7 +154,7 @@
                          [b t ds]))
                      ctor-proof (reduce e/app (e/const' ctor (e/const-levels head)) (concat params fields))
                      b (update b :raw-facts conj {:prop (tc/infer-type (:tc b) ctor-proof)
-                                                 :proof ctor-proof :gen gen-new})
+                                                  :proof ctor-proof :gen gen-new})
                      ;; Generalized index equations become ordinary branch facts.
                      [b decls]
                      (loop [b b t (whnf (:tc b) t) ds decls]

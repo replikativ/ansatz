@@ -156,24 +156,24 @@
       (eval (list 'ansatz.core/defn f params 'Nat
                   (apply list (symbol (str "@" rec)) (concat prefix minors tail))))))
   (eval '(ansatz.core/theorem higher-rec-kernel []
-           (= Nat (higher-rec (ReviewHigher.node (fn [_ :- Nat] (ReviewHigher.leaf 7)))) 7)
-           (rfl)))
+                              (= Nat (higher-rec (ReviewHigher.node (fn [_ :- Nat] (ReviewHigher.leaf 7)))) 7)
+                              (rfl)))
   (is (= 7 ((deref (ns-resolve *ns* 'higher-rec)) [0 7])))
   (is (= 7 ((deref (ns-resolve *ns* 'higher-rec)) [1 (fn [_] [0 7])])))
   (doseq [n (range 9)]
     (let [higher-tree (nth (iterate #(list 'ReviewHigher.node (list 'fn '[_ :- Nat] %))
-                                   (list 'ReviewHigher.leaf n)) 4)
+                                    (list 'ReviewHigher.leaf n)) 4)
           leaf-tree (nth (iterate #(list 'CGHigherLeaf.node (list 'fn '[_ :- Nat] %))
-                                 'CGHigherLeaf.leaf) 4)
+                                  'CGHigherLeaf.leaf) 4)
           tagged-tree (list 'CGHigherTagged.node
                             (list 'fn '[x :- Nat] (list 'fn '[y :- Nat]
-                                                       (list 'CGHigherTagged.leaf (list '+ n '(+ x y))))))
+                                                        (list 'CGHigherTagged.leaf (list '+ n '(+ x y))))))
           ix-tree (nth (iterate #(list 'CGHigherIx.node n (list 'fn '[_ :- Nat] %))
-                               (list 'CGHigherIx.leaf n (+ n 3))) 4)]
+                                (list 'CGHigherIx.leaf n (+ n 3))) 4)]
       (differential-closed!
        [(list 'higher-rec (list 'ReviewHigher.leaf n))
         (list 'higher-rec (list 'ReviewHigher.node
-                                   (list 'fn '[x :- Nat] (list 'ReviewHigher.leaf (list '+ n 'x)))))
+                                (list 'fn '[x :- Nat] (list 'ReviewHigher.leaf (list '+ n 'x)))))
         (list 'higher-rec higher-tree)
         (list 'cg-higher-leaf 'CGHigherLeaf.leaf)
         (list 'cg-higher-leaf leaf-tree)
@@ -230,29 +230,29 @@
            (fn [_ expr _]
              (let [[_ args] (e/get-app-fn-args expr)]
                (keyword (str ctor (if (and (seq args) (e/const? (first args))
-                                          (= "Nat" (name/->string (e/const-name (first args)))))
-                                   "-nat" "-other")))))))
+                                           (= "Nat" (name/->string (e/const-name (first args)))))
+                                    "-nat" "-other")))))))
   (eval (list 'ansatz.core/defn 'cg-param-enum '[x :- (CGParamEnum Nat)] 'Nat
               (list (symbol "CGParamEnum.rec.{1}") 'Nat
                     '(fn [x :- (CGParamEnum Nat)] Nat) 11 22 'x)))
   (differential-closed! '[(cg-param-enum (CGParamEnum.left Nat))
-                         (cg-param-enum (CGParamEnum.right Nat))]))
+                          (cg-param-enum (CGParamEnum.right Nat))]))
 
 (defn- indexed-differential! []
   (run! eval
         '[(ansatz.core/inductive IndexedPair [] :indices [n Nat]
-            (mk [k Nat] [payload Nat] :where [k]))
+                                 (mk [k Nat] [payload Nat] :where [k]))
           (ansatz.core/inductive CGIxList [] :indices [n Nat]
-            (nil :where [0])
-            (cons [k Nat] [h Nat] [t (CGIxList k)] :where [(Nat.succ k)]))
+                                 (nil :where [0])
+                                 (cons [k Nat] [h Nat] [t (CGIxList k)] :where [(Nat.succ k)]))
           (ansatz.core/inductive CGIxTagged [] :indices [n Nat]
-            (leaf [k Nat] [payload Nat] :where [k])
-            (node [k Nat] [l (CGIxTagged k)] [r (CGIxTagged k)] :where [k])
-            (end [k Nat] :where [k]))
+                                 (leaf [k Nat] [payload Nat] :where [k])
+                                 (node [k Nat] [l (CGIxTagged k)] [r (CGIxTagged k)] :where [k])
+                                 (end [k Nat] :where [k]))
           (ansatz.core/inductive CGIxPair [α Type] :indices [n Nat, m Nat]
-            (mk [k Nat] [j Nat] [payload α] :where [k j]))
+                                 (mk [k Nat] [j Nat] [payload α] :where [k j]))
           (ansatz.core/inductive CGIxEnum [] :indices [n Nat]
-            (a :where [0]) (b :where [1]) (c :where [2]))])
+                                 (a :where [0]) (b :where [1]) (c :where [2]))])
   (doseq [[f params rec motive minors tail]
           [['indexed-get '[n :- Nat, p :- (IndexedPair n)] "IndexedPair.rec.{1}"
             '(fn [n :- Nat, p :- (IndexedPair n)] Nat)
@@ -279,7 +279,7 @@
                     '(fn [n :- Nat, p :- (IndexedPair n)] (=> Nat Nat))
                     '(fn [k :- Nat, payload :- Nat] (fn [x :- Nat] (+ payload x))) 'n 'p 'x)))
   (eval '(ansatz.core/theorem indexed-get-kernel []
-           (= Nat (indexed-get 3 (IndexedPair.mk 3 17)) 17) (rfl)))
+                              (= Nat (indexed-get 3 (IndexedPair.mk 3 17)) 17) (rfl)))
   (is (= 17 ((deref (ns-resolve *ns* 'indexed-get)) 3 [3 17])))
   (doseq [n (range 9)]
     (let [partial-form (list (symbol "@IndexedPair.rec.{1}")
@@ -303,7 +303,7 @@
         (list 'cg-ix-tagged n (list 'CGIxTagged.end n))
         (list 'cg-ix-pair n (+ n 1) (list 'CGIxPair.mk 'Nat n (+ n 1) (+ n 7)))])))
   (differential-closed! '[(cg-ix-enum 0 CGIxEnum.a) (cg-ix-enum 1 CGIxEnum.b)
-                         (cg-ix-enum 2 CGIxEnum.c)]))
+                          (cg-ix-enum 2 CGIxEnum.c)]))
 
 (defn- definition-error-kind [form]
   (try (eval form) nil
@@ -334,11 +334,11 @@
         ;; this lowering supports partial application only when the major is missing.
         (is (= :codegen-error
                (definition-error-kind
-                (list 'ansatz.core/defn 'cg-missing-index '[dummy :- Nat]
-                      '(forall [n Nat, p (IndexedPair n)] Nat)
-                      (list (symbol "@IndexedPair.rec.{1}")
-                            '(fn [n :- Nat, p :- (IndexedPair n)] Nat)
-                            '(fn [k :- Nat, payload :- Nat] payload))))))
+                 (list 'ansatz.core/defn 'cg-missing-index '[dummy :- Nat]
+                       '(forall [n Nat, p (IndexedPair n)] Nat)
+                       (list (symbol "@IndexedPair.rec.{1}")
+                             '(fn [n :- Nat, p :- (IndexedPair n)] Nat)
+                             '(fn [k :- Nat, payload :- Nat] payload))))))
         (differential! 'cg-enum '[CGEnum.red CGEnum.green CGEnum.blue] :int)
         (doseq [n (range 9)]
           (let [peano (nth (iterate #(list 'CGPeano.s %) 'CGPeano.z) n)
@@ -404,34 +404,34 @@
                 type-name (name/->string (e/const-name t))]
             (is (= [:a :b :c]
                    (mapv #(cg/ansatz->clj (a/env)
-                                         (e/const' (name/from-string (str type-name ".c" %)) []) [])
+                                          (e/const' (name/from-string (str type-name ".c" %)) []) [])
                          (range 3)))))
           (let [original @a/codegen-registry]
             (try
               (swap! a/codegen-registry assoc "Pt.mk" (fn [_ _ _] :opaque-pair))
               (is (= :codegen-error
                      (definition-error-kind
-                      '(ansatz.core/defn cg-unsupported-pair [p :- Pt] Nat
-                         (match p [(mk x y) (+ x y)])))))
+                       '(ansatz.core/defn cg-unsupported-pair [p :- Pt] Nat
+                          (match p [(mk x y) (+ x y)])))))
               (swap! a/codegen-registry assoc "IndexedPair.mk" (fn [_ _ _] :opaque-indexed))
               (is (= :codegen-error
                      (definition-error-kind
-                      (list 'ansatz.core/defn 'cg-unsupported-indexed
-                            '[n :- Nat, p :- (IndexedPair n)] 'Nat
-                            (list (symbol "@IndexedPair.rec.{1}")
-                                  '(fn [n :- Nat, p :- (IndexedPair n)] Nat)
-                                  '(fn [k :- Nat, payload :- Nat] payload) 'n 'p)))))
+                       (list 'ansatz.core/defn 'cg-unsupported-indexed
+                             '[n :- Nat, p :- (IndexedPair n)] 'Nat
+                             (list (symbol "@IndexedPair.rec.{1}")
+                                   '(fn [n :- Nat, p :- (IndexedPair n)] Nat)
+                                   '(fn [k :- Nat, payload :- Nat] payload) 'n 'p)))))
               (swap! a/codegen-registry assoc "Bt.bl" (fn [_ _ _] :opaque-leaf))
               (is (= :codegen-error
                      (definition-error-kind
-                      '(ansatz.core/defn cg-unsupported-leaf [p :- Bt] Nat
-                         (match p [bl 1] [(bn l r) 2] [bz 0])))))
+                       '(ansatz.core/defn cg-unsupported-leaf [p :- Bt] Nat
+                          (match p [bl 1] [(bn l r) 2] [bz 0])))))
               (swap! a/codegen-registry assoc "CGEnum.red" (fn [_ _ _] :same)
                      "CGEnum.green" (fn [_ _ _] :same))
               (is (= :codegen-error
                      (definition-error-kind
-                      '(ansatz.core/defn cg-ambiguous-enum [x :- CGEnum] Nat
-                         (match x [red 1] [green 2] [blue 3])))))
+                       '(ansatz.core/defn cg-ambiguous-enum [x :- CGEnum] Nat
+                          (match x [red 1] [green 2] [blue 3])))))
               (finally (reset! a/codegen-registry original))))
           (doseq [[ctor v] [["CGEnum.red" :red] ["CGEnum.green" false] ["CGEnum.blue" nil]]]
             (swap! a/codegen-registry assoc ctor (fn [_ _ _] v))
@@ -439,7 +439,7 @@
           (eval '(ansatz.core/defn cg-mixed-enum [x :- CGEnum] Nat
                    (match x [red 1] [green 2] [blue 3])))
           (differential-closed! '[(cg-mixed-enum CGEnum.red) (cg-mixed-enum CGEnum.green)
-                                 (cg-mixed-enum CGEnum.blue)])))
+                                  (cg-mixed-enum CGEnum.blue)])))
       (finally
         (reset! a/ansatz-env saved-env)
         (reset! a/arity-registry saved-arity)
@@ -450,7 +450,7 @@
 (deftest unsupported-recursor-fails-during-codegen
   (let [nm (name/from-string "Unsupported.rec")
         en (env/add-constant (env/empty-env)
-                            (env/mk-recursor nm [] (e/sort' level/zero)
-                                             :num-motives 2 :num-minors 0))]
+                             (env/mk-recursor nm [] (e/sort' level/zero)
+                                              :num-motives 2 :num-minors 0))]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"unsupported recursor shape"
-                         (cg/ansatz->clj en (e/app (e/const' nm []) (e/lit-nat (biginteger 0))) [])))))
+                          (cg/ansatz->clj en (e/app (e/const' nm []) (e/lit-nat (biginteger 0))) [])))))

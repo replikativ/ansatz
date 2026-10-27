@@ -762,24 +762,24 @@
                             (sort-by key lctx))))]
     (into []
           (mapcat (fn [a]
-            (cond
-              (= '* a) (prop-hyps)
+                    (cond
+                      (= '* a) (prop-hyps)
               ;; A symbol naming a local hypothesis (newest wins, as Lean's name lookup) is that
               ;; hypothesis — `simp [h]` rewrites with `h`. Otherwise it is a lemma/def NAME
               ;; (resolved by simp). This is the ONE canonical way to name things in the tactic DSL.
-              (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)] [(e/fvar fid)] [a])
+                      (symbol? a) (if-let [fid (latest-local-id-by-name lctx a)] [(e/fvar fid)] [a])
               ;; A string is NOT a name — the surface elaborator turns it into a `String` literal
               ;; (a value), which is useless as a simp lemma and silently makes simp a no-op. This
               ;; is a footgun (esp. for programmatically-built tactics that stringify const names):
               ;; reject it loudly so the mistake fails fast. Write the name as a symbol.
-              (string? a)
-              (throw (ex-info (str "simp: lemma argument must be a name (symbol) or a proof term, "
-                                   "got the string " (pr-str a) " — write it as a symbol, e.g. "
-                                   "(simp [" a "]) not (simp [" (pr-str a) "]).")
-                              {:kind :tactic-error :arg a}))
+                      (string? a)
+                      (throw (ex-info (str "simp: lemma argument must be a name (symbol) or a proof term, "
+                                           "got the string " (pr-str a) " — write it as a symbol, e.g. "
+                                           "(simp [" a "]) not (simp [" (pr-str a) "]).")
+                                      {:kind :tactic-error :arg a}))
               ;; Anything else (a compound form) elaborates to a proof term in the goal context.
-              :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
-          args))))
+                      :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
+                  args))))
 
 (clojure.core/defn- apply-hole-symbol?
   [x]
@@ -1103,11 +1103,11 @@
                       apply-name (fn [ps nm]
                                    (basic/apply-tac ps (e/const' (name/from-string nm) [])))]
                   (or (attempt #(let [ps (apply-name % "And.intro")
-                                     outer (vec (rest (:goals %)))
-                                     gs (remove (set outer) (:goals ps))
-                                     ps (reduce (fn [ps gid]
-                                                  (trivial (assoc ps :goals [gid]) nil)) ps gs)]
-                                 (assoc ps :goals outer)))
+                                      outer (vec (rest (:goals %)))
+                                      gs (remove (set outer) (:goals ps))
+                                      ps (reduce (fn [ps gid]
+                                                   (trivial (assoc ps :goals [gid]) nil)) ps gs)]
+                                  (assoc ps :goals outer)))
                       (attempt #(apply-name % "True.intro"))
                       (attempt #(let [g (proof/current-goal %)
                                       env (:env %)
@@ -1120,14 +1120,14 @@
                                   ;; currently synthesizes in an empty context).
                                   (when-not (and inst
                                                  (tc/is-def-eq st
-                                                   (e/app* (e/const' (name/from-string "Decidable.decide") []) prop inst)
-                                                   bt))
+                                                               (e/app* (e/const' (name/from-string "Decidable.decide") []) prop inst)
+                                                               bt))
                                     (throw (ex-info "Tactic error: trivial: decide failed"
                                                     {:kind :tactic-error})))
                                   (basic/exact %
-                                    (e/app* (e/const' (name/from-string "of_decide_eq_true") []) prop inst
-                                      (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
-                                        (e/const' (name/from-string "Bool") []) bt)))))
+                                               (e/app* (e/const' (name/from-string "of_decide_eq_true") []) prop inst
+                                                       (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                                               (e/const' (name/from-string "Bool") []) bt)))))
                       (attempt basic/contradiction)
                       (attempt basic/rfl)
                       (attempt basic/assumption)
@@ -1810,65 +1810,65 @@
                             ;; It's the same as the function body but with tail fvar as scrutinee.
                             ;; Replace every recursive field, including both subtrees of a tree.
                             rec-field-indices (keep-indexed
-                                                  (fn [j ft]
-                                                    (let [[fh _] (e/get-app-fn-args ft)]
-                                                      (when (and (e/const? fh)
-                                                                 (= (name/->string (e/const-name fh)) ind-name-str))
-                                                        j)))
-                                                  field-types)
+                                               (fn [j ft]
+                                                 (let [[fh _] (e/get-app-fn-args ft)]
+                                                   (when (and (e/const? fh)
+                                                              (= (name/->string (e/const-name fh)) ind-name-str))
+                                                     j)))
+                                               field-types)
                             rhs-clean
                             (reduce
                              (fn [rhs rec-field-idx]
-                              (try
+                               (try
                               ;; Build the rec-value by instantiating the body with the
                               ;; ACTUAL constructor args (including l=ctor-app), then
                               ;; replacing the major premise with tail-fvar.
                               ;; Lean 4: replaceRecApps finds .brecOn/.below references.
                               ;; Our approach: the rec-value has l=ctor-app baked in
                               ;; (from the outer beta reduction), matching the RHS.
-                                (let [tail-fvar (nth field-fvars rec-field-idx)
+                                 (let [tail-fvar (nth field-fvars rec-field-idx)
                                     ;; Instantiate body with params + ctor-app for the discriminant
-                                      ^ConstantInfo fn-ci (env/lookup env' cname)
-                                      fn-body (.value fn-ci)
+                                       ^ConstantInfo fn-ci (env/lookup env' cname)
+                                       fn-body (.value fn-ci)
                                     ;; Instantiate outer lambdas with param fvars and ctor-app
                                     ;; Args in original parameter order: insert ctor-app at discr-pos
-                                      inst-args (let [pv (vec param-fvars)]
-                                                  (into (into (subvec pv 0 discr-pos) [ctor-app])
-                                                        (subvec pv discr-pos)))
-                                      inst-body (loop [b fn-body fvs inst-args]
-                                                  (if (empty? fvs) b
-                                                      (recur (e/instantiate1 (e/lam-body b) (first fvs))
-                                                             (rest fvs))))
+                                       inst-args (let [pv (vec param-fvars)]
+                                                   (into (into (subvec pv 0 discr-pos) [ctor-app])
+                                                         (subvec pv discr-pos)))
+                                       inst-body (loop [b fn-body fvs inst-args]
+                                                   (if (empty? fvs) b
+                                                       (recur (e/instantiate1 (e/lam-body b) (first fvs))
+                                                              (rest fvs))))
                                     ;; inst-body is the rec application with all params substituted
                                     ;; Replace major premise (last arg) with tail-fvar
-                                      [inst-head inst-args] (e/get-app-fn-args inst-body)
-                                      rec-val (reduce e/app inst-head
-                                                      (conj (vec (butlast inst-args)) tail-fvar))
+                                       [inst-head inst-args] (e/get-app-fn-args inst-body)
+                                       rec-val (reduce e/app inst-head
+                                                       (conj (vec (butlast inst-args)) tail-fvar))
                                     ;; The function call to replace with
                                     ;; Place tail-fvar at discriminant position
-                                      f-call-args (let [pv (vec param-fvars)]
-                                                    (into (into (subvec pv 0 discr-pos) [tail-fvar])
-                                                          (subvec pv discr-pos)))
-                                      f-call (reduce e/app (e/const' cname []) f-call-args)
+                                       f-call-args (let [pv (vec param-fvars)]
+                                                     (into (into (subvec pv 0 discr-pos) [tail-fvar])
+                                                           (subvec pv discr-pos)))
+                                       f-call (reduce e/app (e/const' cname []) f-call-args)
                                     ;; Find and replace rec-val with f-call in the RHS
-                                      replace-fn (fn replace-rv [expr]
-                                                   (if (= expr rec-val)
-                                                     f-call
-                                                     (case (e/tag expr)
-                                                       :app (let [nf (replace-rv (e/app-fn expr))
-                                                                  na (replace-rv (e/app-arg expr))]
-                                                              (if (and (identical? nf (e/app-fn expr))
-                                                                       (identical? na (e/app-arg expr)))
-                                                                expr (e/app nf na)))
-                                                       :lam (let [nb (replace-rv (e/lam-body expr))]
-                                                              (if (identical? nb (e/lam-body expr))
-                                                                expr (e/lam (e/lam-name expr) (e/lam-type expr)
-                                                                            nb (e/lam-info expr))))
-                                                       expr)))]
-                                  (replace-fn rhs))
-                                (catch Exception ex
-                                  (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " recursive calls") ex)
-                                  rhs)))
+                                       replace-fn (fn replace-rv [expr]
+                                                    (if (= expr rec-val)
+                                                      f-call
+                                                      (case (e/tag expr)
+                                                        :app (let [nf (replace-rv (e/app-fn expr))
+                                                                   na (replace-rv (e/app-arg expr))]
+                                                               (if (and (identical? nf (e/app-fn expr))
+                                                                        (identical? na (e/app-arg expr)))
+                                                                 expr (e/app nf na)))
+                                                        :lam (let [nb (replace-rv (e/lam-body expr))]
+                                                               (if (identical? nb (e/lam-body expr))
+                                                                 expr (e/lam (e/lam-name expr) (e/lam-type expr)
+                                                                             nb (e/lam-info expr))))
+                                                        expr)))]
+                                   (replace-fn rhs))
+                                 (catch Exception ex
+                                   (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " recursive calls") ex)
+                                   rhs)))
                              rhs-raw rec-field-indices)
                             ;; Create auxiliary matcher definitions for stuck inner recursors
                             ;; (Lean 4: each match expression becomes a named matcher).
@@ -1883,146 +1883,146 @@
                                                        rec-info (when-not blocked? (recursor-app-info @ansatz-env h as))]
                                                    (if blocked?
                                                      rhs
-                                                       (if (and rec-info (e/fvar? (:major rec-info)))
+                                                     (if (and rec-info (e/fvar? (:major rec-info)))
                                             ;; Found a stuck recursor — create auxiliary definition
-                                                         (let [scrut-fvar-id (e/fvar-id (:major rec-info))
+                                                       (let [scrut-fvar-id (e/fvar-id (:major rec-info))
                                                   ;; Collect all fvars actually used in this stuck expression.
                                                   ;; This ensures deeper recursive calls capture the right context.
-                                                               expr-fvars (let [acc (atom #{})]
-                                                                            (letfn [(walk [e]
-                                                                                      (when (e/has-fvar-flag e)
-                                                                                        (case (e/tag e)
-                                                                                          :fvar (swap! acc conj (e/fvar-id e))
-                                                                                          :app (do (walk (e/app-fn e)) (walk (e/app-arg e)))
-                                                                                          :lam (do (walk (e/lam-type e)) (walk (e/lam-body e)))
-                                                                                          :forall (do (walk (e/forall-type e)) (walk (e/forall-body e)))
-                                                                                          nil)))]
-                                                                              (walk rhs))
-                                                                            @acc)
-                                                               all-fv-ids (vec (remove #{scrut-fvar-id}
-                                                                                       (sort (disj expr-fvars scrut-fvar-id))))
+                                                             expr-fvars (let [acc (atom #{})]
+                                                                          (letfn [(walk [e]
+                                                                                    (when (e/has-fvar-flag e)
+                                                                                      (case (e/tag e)
+                                                                                        :fvar (swap! acc conj (e/fvar-id e))
+                                                                                        :app (do (walk (e/app-fn e)) (walk (e/app-arg e)))
+                                                                                        :lam (do (walk (e/lam-type e)) (walk (e/lam-body e)))
+                                                                                        :forall (do (walk (e/forall-type e)) (walk (e/forall-body e)))
+                                                                                        nil)))]
+                                                                            (walk rhs))
+                                                                          @acc)
+                                                             all-fv-ids (vec (remove #{scrut-fvar-id}
+                                                                                     (sort (disj expr-fvars scrut-fvar-id))))
                                                   ;; The auxiliary takes: all free vars + the scrutinee as last param
-                                                               aux-fvids (conj all-fv-ids scrut-fvar-id)
-                                                               aux-n (swap! aux-counter inc)
-                                                               aux-name-str (str fn-name "._match_" aux-n)
-                                                               aux-cname (name/from-string aux-name-str)
+                                                             aux-fvids (conj all-fv-ids scrut-fvar-id)
+                                                             aux-n (swap! aux-counter inc)
+                                                             aux-name-str (str fn-name "._match_" aux-n)
+                                                             aux-cname (name/from-string aux-name-str)
                                                   ;; Build aux body: abstract fvars from rhs, wrap in lambdas
-                                                               aux-body-abs (e/abstract-many rhs aux-fvids)
-                                                               aux-fvar-types (mapv (fn [fid]
-                                                                                      (let [d (get-in st [:lctx fid])]
-                                                                                        (or (:type d) (e/sort' lvl/zero))))
-                                                                                    aux-fvids)
-                                                               aux-body (loop [j (dec (count aux-fvids)) body aux-body-abs]
-                                                                          (if (< j 0) body
-                                                                              (let [fid (nth aux-fvids j)
-                                                                                    ft (nth aux-fvar-types j)
-                                                                                    nm (or (:name (get-in st [:lctx fid])) (str "x" j))]
-                                                                                (recur (dec j) (e/lam nm (e/abstract-many ft (subvec aux-fvids 0 j)) body :default)))))
+                                                             aux-body-abs (e/abstract-many rhs aux-fvids)
+                                                             aux-fvar-types (mapv (fn [fid]
+                                                                                    (let [d (get-in st [:lctx fid])]
+                                                                                      (or (:type d) (e/sort' lvl/zero))))
+                                                                                  aux-fvids)
+                                                             aux-body (loop [j (dec (count aux-fvids)) body aux-body-abs]
+                                                                        (if (< j 0) body
+                                                                            (let [fid (nth aux-fvids j)
+                                                                                  ft (nth aux-fvar-types j)
+                                                                                  nm (or (:name (get-in st [:lctx fid])) (str "x" j))]
+                                                                              (recur (dec j) (e/lam nm (e/abstract-many ft (subvec aux-fvids 0 j)) body :default)))))
                                                   ;; Infer aux type from body
-                                                               aux-type (try
-                                                                          (let [tc-aux (ansatz.kernel.TypeChecker. @ansatz-env)]
-                                                                            (.setFuel tc-aux (int config/*default-fuel*))
-                                                                            (.inferType tc-aux aux-body))
-                                                                          (catch Exception ex
-                                                                            (report-equation-error! equation-errors aux-name-str ex)
-                                                                            nil))]
-                                                           (if-not aux-type
-                                                             rhs  ;; fallback: return original stuck expr
-                                                             (do ;; Register the auxiliary definition
-                                                               (swap! ansatz-env env/check-constant
-                                                                      (env/mk-def aux-cname [] aux-type aux-body))
-                                                               (swap! equation-auxiliaries conj aux-cname)
+                                                             aux-type (try
+                                                                        (let [tc-aux (ansatz.kernel.TypeChecker. @ansatz-env)]
+                                                                          (.setFuel tc-aux (int config/*default-fuel*))
+                                                                          (.inferType tc-aux aux-body))
+                                                                        (catch Exception ex
+                                                                          (report-equation-error! equation-errors aux-name-str ex)
+                                                                          nil))]
+                                                         (if-not aux-type
+                                                           rhs  ;; fallback: return original stuck expr
+                                                           (do ;; Register the auxiliary definition
+                                                             (swap! ansatz-env env/check-constant
+                                                                    (env/mk-def aux-cname [] aux-type aux-body))
+                                                             (swap! equation-auxiliaries conj aux-cname)
                                                 ;; Generate equation theorems for the auxiliary
                                                 ;; (Use a simple approach: the aux matches on its last param)
-                                                               (try
-                                                                 (let [irci (env/lookup @ansatz-env (e/const-name h))
-                                                                       iind-str (let [s (name/->string (e/const-name h))]
-                                                                                  (subs s 0 (- (count s) 4)))
-                                                                       iind-ci (env/lookup @ansatz-env (name/from-string iind-str))
-                                                                       ictors (.ctors iind-ci) inp (.numParams irci)
-                                                                       iparams (vec (take inp as))
-                                                                       ilevels (e/const-levels h)
-                                                                       n-aux (count aux-fvids)]
-                                                                   (doseq [ci-idx (range (count ictors))]
-                                                                     (try
-                                                                       (let [icn (nth ictors ci-idx)
-                                                                             ^ConstantInfo icci (env/lookup @ansatz-env icn)
-                                                                             inf (.numFields icci) icnp (.numParams icci)
+                                                             (try
+                                                               (let [irci (env/lookup @ansatz-env (e/const-name h))
+                                                                     iind-str (let [s (name/->string (e/const-name h))]
+                                                                                (subs s 0 (- (count s) 4)))
+                                                                     iind-ci (env/lookup @ansatz-env (name/from-string iind-str))
+                                                                     ictors (.ctors iind-ci) inp (.numParams irci)
+                                                                     iparams (vec (take inp as))
+                                                                     ilevels (e/const-levels h)
+                                                                     n-aux (count aux-fvids)]
+                                                                 (doseq [ci-idx (range (count ictors))]
+                                                                   (try
+                                                                     (let [icn (nth ictors ci-idx)
+                                                                           ^ConstantInfo icci (env/lookup @ansatz-env icn)
+                                                                           inf (.numFields icci) icnp (.numParams icci)
                                                               ;; Create fvars for ctor fields
-                                                                             cf-base (+ fv-base 5000000 (* aux-n 10000) (* ci-idx 100))
-                                                                             cf-fvids (mapv #(+ cf-base %) (range inf))
-                                                                             cf-fvars (mapv e/fvar cf-fvids)
+                                                                           cf-base (+ fv-base 5000000 (* aux-n 10000) (* ci-idx 100))
+                                                                           cf-fvids (mapv #(+ cf-base %) (range inf))
+                                                                           cf-fvars (mapv e/fvar cf-fvids)
                                                               ;; Ctor field types
-                                                                             ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
-                                                                             ict-inst (if (seq ict-sub) (e/instantiate-level-params (.type icci) ict-sub) (.type icci))
-                                                                             cf-types (loop [t ict-inst sk icnp j 0 acc []]
-                                                                                        (if (or (not (e/forall? t)) (>= j inf)) acc
-                                                                                            (if (pos? sk)
-                                                                                              (recur (e/instantiate1 (e/forall-body t)
-                                                                                                                     (if (< (- icnp sk) (count iparams))
-                                                                                                                       (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
-                                                                                                     (dec sk) j acc)
-                                                                                              (recur (e/instantiate1 (e/forall-body t) (nth cf-fvars j))
-                                                                                                     0 (inc j) (conj acc (e/forall-type t))))))
+                                                                           ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
+                                                                           ict-inst (if (seq ict-sub) (e/instantiate-level-params (.type icci) ict-sub) (.type icci))
+                                                                           cf-types (loop [t ict-inst sk icnp j 0 acc []]
+                                                                                      (if (or (not (e/forall? t)) (>= j inf)) acc
+                                                                                          (if (pos? sk)
+                                                                                            (recur (e/instantiate1 (e/forall-body t)
+                                                                                                                   (if (< (- icnp sk) (count iparams))
+                                                                                                                     (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
+                                                                                                   (dec sk) j acc)
+                                                                                            (recur (e/instantiate1 (e/forall-body t) (nth cf-fvars j))
+                                                                                                   0 (inc j) (conj acc (e/forall-type t))))))
                                                               ;; Build ctor application
-                                                                             ica (reduce e/app (e/const' icn (vec (rest ilevels)))
-                                                                                         (concat iparams cf-fvars))
+                                                                           ica (reduce e/app (e/const' icn (vec (rest ilevels)))
+                                                                                       (concat iparams cf-fvars))
                                                               ;; LHS: aux(params..., ctor-app)
-                                                                             aux-lhs (reduce e/app (e/const' aux-cname [])
-                                                                                             (concat (mapv e/fvar all-fv-ids) [ica]))
+                                                                           aux-lhs (reduce e/app (e/const' aux-cname [])
+                                                                                           (concat (mapv e/fvar all-fv-ids) [ica]))
                                                               ;; RHS: WHNF of aux applied to concrete ctor.
                                                               ;; Use CURRENT env (includes aux def) for TC state.
-                                                                             st-cf (reduce (fn [s [fid nm tp]]
-                                                                                             (update s :lctx red/lctx-add-local fid nm tp))
-                                                                                           (assoc (tc/mk-tc-state @ansatz-env) :lctx (:lctx st))
-                                                                                           (map vector cf-fvids
-                                                                                                (map #(str "cf" %) (range inf)) cf-types))
-                                                                             aux-rhs-raw (equation-whnf @ansatz-env (:lctx st-cf) aux-lhs [aux-cname])
+                                                                           st-cf (reduce (fn [s [fid nm tp]]
+                                                                                           (update s :lctx red/lctx-add-local fid nm tp))
+                                                                                         (assoc (tc/mk-tc-state @ansatz-env) :lctx (:lctx st))
+                                                                                         (map vector cf-fvids
+                                                                                              (map #(str "cf" %) (range inf)) cf-types))
+                                                                           aux-rhs-raw (equation-whnf @ansatz-env (:lctx st-cf) aux-lhs [aux-cname])
                                                               ;; Recursively replace stuck recursors in the aux RHS
-                                                                             aux-rhs (create-aux st-cf aux-rhs-raw)
+                                                                           aux-rhs (create-aux st-cf aux-rhs-raw)
                                                               ;; Build equation: ∀ params fields, aux(params, ctor) = rhs
                                                                              ;; MatchEqs.lean getEquationsForImpl builds mkEq in
                                                                              ;; the alternative telescope, using this auxiliary's result.
-                                                                             aux-ret (tc/infer-type st-cf aux-lhs)
-                                                                             aux-sort (red/whnf @ansatz-env (tc/infer-type st-cf aux-ret) (:lctx st-cf))
-                                                                             aux-level (e/sort-level aux-sort)
-                                                                             eq-body (e/app* (e/const' (name/from-string "Eq") [aux-level])
-                                                                                             aux-ret aux-lhs aux-rhs)
-                                                                             all-eq-fvids (vec (distinct (concat all-fv-ids cf-fvids)))
-                                                                             all-eq-types (vec (concat (mapv (fn [fid] (or (:type (get-in st-cf [:lctx fid])) (e/sort' lvl/zero))) all-fv-ids)
-                                                                                                       cf-types))
-                                                                             abs-eq2 (e/abstract-many eq-body all-eq-fvids)
-                                                                             full-eq-type (loop [j (dec (count all-eq-fvids)) body abs-eq2]
-                                                                                            (if (< j 0) body
-                                                                                                (recur (dec j) (e/forall' (str "p" j) (e/abstract-many (nth all-eq-types j) (subvec all-eq-fvids 0 j)) body :default))))
-                                                                             rfl-pf (e/app* (e/const' (name/from-string "Eq.refl") [aux-level])
-                                                                                            aux-ret aux-lhs)
-                                                                             abs-pf (e/abstract-many rfl-pf all-eq-fvids)
-                                                                             full-pf (loop [j (dec (count all-eq-fvids)) body abs-pf]
-                                                                                       (if (< j 0) body
-                                                                                           (recur (dec j) (e/lam (str "p" j) (e/abstract-many (nth all-eq-types j) (subvec all-eq-fvids 0 j)) body :default))))
-                                                                             eqn-nm (name/from-string (str aux-name-str ".eq_" (inc ci-idx)))]
+                                                                           aux-ret (tc/infer-type st-cf aux-lhs)
+                                                                           aux-sort (red/whnf @ansatz-env (tc/infer-type st-cf aux-ret) (:lctx st-cf))
+                                                                           aux-level (e/sort-level aux-sort)
+                                                                           eq-body (e/app* (e/const' (name/from-string "Eq") [aux-level])
+                                                                                           aux-ret aux-lhs aux-rhs)
+                                                                           all-eq-fvids (vec (distinct (concat all-fv-ids cf-fvids)))
+                                                                           all-eq-types (vec (concat (mapv (fn [fid] (or (:type (get-in st-cf [:lctx fid])) (e/sort' lvl/zero))) all-fv-ids)
+                                                                                                     cf-types))
+                                                                           abs-eq2 (e/abstract-many eq-body all-eq-fvids)
+                                                                           full-eq-type (loop [j (dec (count all-eq-fvids)) body abs-eq2]
+                                                                                          (if (< j 0) body
+                                                                                              (recur (dec j) (e/forall' (str "p" j) (e/abstract-many (nth all-eq-types j) (subvec all-eq-fvids 0 j)) body :default))))
+                                                                           rfl-pf (e/app* (e/const' (name/from-string "Eq.refl") [aux-level])
+                                                                                          aux-ret aux-lhs)
+                                                                           abs-pf (e/abstract-many rfl-pf all-eq-fvids)
+                                                                           full-pf (loop [j (dec (count all-eq-fvids)) body abs-pf]
+                                                                                     (if (< j 0) body
+                                                                                         (recur (dec j) (e/lam (str "p" j) (e/abstract-many (nth all-eq-types j) (subvec all-eq-fvids 0 j)) body :default))))
+                                                                           eqn-nm (name/from-string (str aux-name-str ".eq_" (inc ci-idx)))]
                                                           ;; Verify and register
-                                                                         (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
-                                                                           (.setFuel tc-v (int config/*default-fuel*))
-                                                                           (.inferType tc-v full-pf)
-                                                                           (swap! ansatz-env env/check-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
-                                                                           (swap! equation-names conj [aux-cname eqn-nm])
-                                                                           (when *verbose* (println (str "  ✓ " aux-name-str ".eq_" (inc ci-idx))))))
-                                                                       (catch Exception ex
-                                                                         (report-equation-error! equation-errors
-                                                                                                 (str aux-name-str ".eq_" (inc ci-idx)) ex)))))
-                                                                 (catch Exception ex
-                                                                   (report-equation-error! equation-errors (str aux-name-str ".eq_*") ex)))
+                                                                       (let [tc-v (ansatz.kernel.TypeChecker. @ansatz-env)]
+                                                                         (.setFuel tc-v (int config/*default-fuel*))
+                                                                         (.inferType tc-v full-pf)
+                                                                         (swap! ansatz-env env/check-constant (env/mk-thm eqn-nm [] full-eq-type full-pf))
+                                                                         (swap! equation-names conj [aux-cname eqn-nm])
+                                                                         (when *verbose* (println (str "  ✓ " aux-name-str ".eq_" (inc ci-idx))))))
+                                                                     (catch Exception ex
+                                                                       (report-equation-error! equation-errors
+                                                                                               (str aux-name-str ".eq_" (inc ci-idx)) ex)))))
+                                                               (catch Exception ex
+                                                                 (report-equation-error! equation-errors (str aux-name-str ".eq_*") ex)))
                                                 ;; Return call to the auxiliary instead of the stuck recursor
-                                                               (reduce e/app (e/const' aux-cname []) (mapv e/fvar aux-fvids)))))
+                                                             (reduce e/app (e/const' aux-cname []) (mapv e/fvar aux-fvids)))))
                                             ;; No stuck recursor at top — recurse into sub-expressions
-                                                         (if (e/app? rhs)
-                                                           (let [f (create-aux st (e/app-fn rhs))
-                                                                 a (create-aux st (e/app-arg rhs))]
-                                                             (if (and (identical? f (e/app-fn rhs)) (identical? a (e/app-arg rhs)))
-                                                               rhs (e/app f a)))
-                                                           rhs)))))]
+                                                       (if (e/app? rhs)
+                                                         (let [f (create-aux st (e/app-fn rhs))
+                                                               a (create-aux st (e/app-arg rhs))]
+                                                           (if (and (identical? f (e/app-fn rhs)) (identical? a (e/app-arg rhs)))
+                                                             rhs (e/app f a)))
+                                                         rhs)))))]
                                 (create-aux st' rhs-clean))
                               (catch Exception ex
                                 (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " auxiliaries") ex)
@@ -2045,57 +2045,57 @@
                                               :else nil)))
                                         (split-rec [st rhs the-lhs xfvids xtypes sfx depth]
                                           (when-let [{:keys [rec-head rec-args scrut-fvar]} (find-stuck rhs)]
-                                                (let [irci (env/lookup env' (e/const-name rec-head))
-                                                      iind-str (let [s (name/->string (e/const-name rec-head))]
-                                                                 (subs s 0 (- (count s) 4)))
-                                                      iind-ci (env/lookup env' (name/from-string iind-str))
-                                                      ictors (.ctors iind-ci) inp (.numParams irci)
-                                                      iparams (vec (take inp rec-args))
-                                                      ilevels (e/const-levels rec-head)]
-                                                  (vec (mapcat
-                                                        (fn [ci-idx]
-                                                          (try
-                                                            (let [icn (nth ictors ci-idx)
-                                                                  ^ConstantInfo icci (env/lookup env' icn)
-                                                                  inf (.numFields icci) icnp (.numParams icci)
-                                                                  base (+ fv-base n-non-discr nf (count xfvids)
-                                                                          (* ci-idx 100) (* depth 1000))
-                                                                  iffids (mapv #(+ base %) (range inf))
-                                                                  iffvars (mapv e/fvar iffids)
-                                                                  ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
-                                                                  ict-inst (let [raw (.type icci)]
-                                                                             (if (seq ict-sub) (e/instantiate-level-params raw ict-sub) raw))
-                                                                  iftypes (loop [t ict-inst sk icnp j 0 acc []]
-                                                                            (if (or (not (e/forall? t)) (>= j inf)) acc
-                                                                                (if (pos? sk)
-                                                                                  (recur (e/instantiate1 (e/forall-body t)
-                                                                                                         (if (< (- icnp sk) (count iparams))
-                                                                                                           (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
-                                                                                         (dec sk) j acc)
-                                                                                  (recur (e/instantiate1 (e/forall-body t) (nth iffvars j))
-                                                                                         0 (inc j) (conj acc (e/forall-type t))))))
-                                                                  ica (reduce e/app (e/const' icn (vec (rest ilevels)))
-                                                                              (concat iparams iffvars))
-                                                                  rhs' (e/instantiate1 (e/abstract1 rhs scrut-fvar) ica)
-                                                                  lhs' (e/instantiate1 (e/abstract1 the-lhs scrut-fvar) ica)
-                                                                  st' (reduce (fn [s [fid nm tp]]
-                                                                                (update s :lctx red/lctx-add-local fid nm tp))
-                                                                              st (map vector iffids
-                                                                                      (map #(str "g" %) (range inf)) iftypes))
-                                                                  rhs-r (equation-whnf env' (:lctx st') rhs' [])]
+                                            (let [irci (env/lookup env' (e/const-name rec-head))
+                                                  iind-str (let [s (name/->string (e/const-name rec-head))]
+                                                             (subs s 0 (- (count s) 4)))
+                                                  iind-ci (env/lookup env' (name/from-string iind-str))
+                                                  ictors (.ctors iind-ci) inp (.numParams irci)
+                                                  iparams (vec (take inp rec-args))
+                                                  ilevels (e/const-levels rec-head)]
+                                              (vec (mapcat
+                                                    (fn [ci-idx]
+                                                      (try
+                                                        (let [icn (nth ictors ci-idx)
+                                                              ^ConstantInfo icci (env/lookup env' icn)
+                                                              inf (.numFields icci) icnp (.numParams icci)
+                                                              base (+ fv-base n-non-discr nf (count xfvids)
+                                                                      (* ci-idx 100) (* depth 1000))
+                                                              iffids (mapv #(+ base %) (range inf))
+                                                              iffvars (mapv e/fvar iffids)
+                                                              ict-sub (zipmap (vec (.levelParams icci)) (vec (rest ilevels)))
+                                                              ict-inst (let [raw (.type icci)]
+                                                                         (if (seq ict-sub) (e/instantiate-level-params raw ict-sub) raw))
+                                                              iftypes (loop [t ict-inst sk icnp j 0 acc []]
+                                                                        (if (or (not (e/forall? t)) (>= j inf)) acc
+                                                                            (if (pos? sk)
+                                                                              (recur (e/instantiate1 (e/forall-body t)
+                                                                                                     (if (< (- icnp sk) (count iparams))
+                                                                                                       (nth iparams (- icnp sk)) (e/sort' lvl/zero)))
+                                                                                     (dec sk) j acc)
+                                                                              (recur (e/instantiate1 (e/forall-body t) (nth iffvars j))
+                                                                                     0 (inc j) (conj acc (e/forall-type t))))))
+                                                              ica (reduce e/app (e/const' icn (vec (rest ilevels)))
+                                                                          (concat iparams iffvars))
+                                                              rhs' (e/instantiate1 (e/abstract1 rhs scrut-fvar) ica)
+                                                              lhs' (e/instantiate1 (e/abstract1 the-lhs scrut-fvar) ica)
+                                                              st' (reduce (fn [s [fid nm tp]]
+                                                                            (update s :lctx red/lctx-add-local fid nm tp))
+                                                                          st (map vector iffids
+                                                                                  (map #(str "g" %) (range inf)) iftypes))
+                                                              rhs-r (equation-whnf env' (:lctx st') rhs' [])]
                                                            ;; Recurse for deeper splits
-                                                              (or (split-rec st' rhs-r lhs' (vec (concat xfvids iffids))
-                                                                             (vec (concat xtypes iftypes))
-                                                                             (+ (* sfx 10) (inc ci-idx)) (inc depth))
+                                                          (or (split-rec st' rhs-r lhs' (vec (concat xfvids iffids))
+                                                                         (vec (concat xtypes iftypes))
+                                                                         (+ (* sfx 10) (inc ci-idx)) (inc depth))
                                                                ;; Leaf: use flat sequential numbering (Lean 4 style)
-                                                                  (let [n (swap! split-counter inc)]
-                                                                    [{:rhs rhs-r :lhs lhs' :extra-fvids (vec (concat xfvids iffids))
-                                                                      :extra-types (vec (concat xtypes iftypes))
-                                                                      :suffix (str "s" n)}])))
-                                                            (catch Exception ex
-                                                              (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " split " (inc ci-idx)) ex)
-                                                              nil)))
-                                                        (range (count ictors)))))))]
+                                                              (let [n (swap! split-counter inc)]
+                                                                [{:rhs rhs-r :lhs lhs' :extra-fvids (vec (concat xfvids iffids))
+                                                                  :extra-types (vec (concat xtypes iftypes))
+                                                                  :suffix (str "s" n)}])))
+                                                        (catch Exception ex
+                                                          (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " split " (inc ci-idx)) ex)
+                                                          nil)))
+                                                    (range (count ictors)))))))]
                                   (split-rec st' rhs-clean lhs [] [] 0 0)))
                               (catch Exception ex
                                 (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " splits") ex)

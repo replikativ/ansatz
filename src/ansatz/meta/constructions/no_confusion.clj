@@ -17,8 +17,8 @@
         [fs2 _] (u/forall-telescope ctx t2)
         t (reduce (fn [t [f1 f2]]
                     (if (lvl/level-zero? (u/get-level ctx (u/infer-type ctx f1))) t
-                      (u/mk-forall-fvars ctx
-                        [(u/local-decl ctx (str (:name (u/decl ctx f1)) "_eq") (u/mk-eq-heq ctx f1 f2))] t)))
+                        (u/mk-forall-fvars ctx
+                                           [(u/local-decl ctx (str (:name (u/decl ctx f1)) "_eq") (u/mk-eq-heq ctx f1 f2))] t)))
                   p (reverse (map vector fs1 fs2)))]
     (u/mk-lambda-fvars ctx (vec (concat xs1 fs1 xs2 fs2)) t)))
 
@@ -31,48 +31,48 @@
 (defn with-needed-eq-telescope [ctx xs ys k]
   (loop [i 0 vs [] eqs []]
     (if (= i (count xs)) (k vs eqs)
-      (let [x (nth xs i) y (nth ys i)]
-        (if (and (< (inc i) (count xs)) (tc/is-def-eq @ctx x y))
-          (recur (inc i) vs (conj eqs (u/mk-eq-refl ctx x)))
-          (let [v (u/local-decl ctx (if (> (count xs) 1) (str "eq_" (inc i)) "eq") (u/mk-eq-heq ctx x y))]
-            (recur (inc i) (conj vs v) (conj eqs v))))))))
+        (let [x (nth xs i) y (nth ys i)]
+          (if (and (< (inc i) (count xs)) (tc/is-def-eq @ctx x y))
+            (recur (inc i) vs (conj eqs (u/mk-eq-refl ctx x)))
+            (let [v (u/local-decl ctx (if (> (count xs) 1) (str "eq_" (inc i)) "eq") (u/mk-eq-heq ctx x y))]
+              (recur (inc i) (conj vs v) (conj eqs v))))))))
 
 (defn mk-eq-ndrec-telescope [ctx motive val xs ys]
   (with-eq-telescope ctx xs ys
     (fn [eqs]
       (letfn [(go [xs ys eqs target]
-                (if (empty? ys) val
-                  (let [x (first xs) y (first ys) eq (first eqs)
-                        rest-ys (vec (rest ys)) rest-eqs (vec (rest eqs))
+                  (if (empty? ys) val
+                      (let [x (first xs) y (first ys) eq (first eqs)
+                            rest-ys (vec (rest ys)) rest-eqs (vec (rest eqs))
                         ;; Subst.substCore reverts only the transitive dependents.
                         ;; Generalizing independent parameters changes the Eq.ndrec
                         ;; motive and fails definitional equality with Lean's output.
-                        generalized
-                        (first
-                          (reduce (fn [[vs deps] v]
-                                    (if (some #(not= (:type (u/decl ctx v))
-                                                     (e/abstract1 (:type (u/decl ctx v)) (e/fvar-id %))) deps)
-                                      [(conj vs v) (conj deps v)] [vs deps]))
-                                  [[] [y]] (concat rest-ys rest-eqs)))
-                        motive (u/mk-lambda-fvars ctx [y] (u/mk-forall-fvars ctx generalized target))
+                            generalized
+                            (first
+                             (reduce (fn [[vs deps] v]
+                                       (if (some #(not= (:type (u/decl ctx v))
+                                                        (e/abstract1 (:type (u/decl ctx v)) (e/fvar-id %))) deps)
+                                         [(conj vs v) (conj deps v)] [vs deps]))
+                                     [[] [y]] (concat rest-ys rest-eqs)))
+                            motive (u/mk-lambda-fvars ctx [y] (u/mk-forall-fvars ctx generalized target))
                         ;; Revert the dependent telescope, substitute y := x, and reintroduce it.
-                        [new-locals subst]
-                        (reduce (fn [[vs subst] v]
-                                  (let [d (u/decl ctx v)
-                                        v' (u/local-decl ctx (:name d) (u/replace-fvars (:type d) subst) (:info d))]
-                                    [(conj vs v') (conj subst [v v'])]))
-                                [[] [[y x]]] generalized)
-                        next-ys (mapv #(u/replace-fvars % subst) rest-ys)
-                        next-eqs (mapv #(u/replace-fvars % subst) rest-eqs)
-                        base (go (vec (rest xs)) next-ys next-eqs (u/replace-fvars target subst))
-                        base (u/mk-lambda-fvars ctx new-locals base)
-                        eq-type (u/whnf ctx (u/infer-type ctx eq))
-                        eq (if (= (e/const-name (e/get-app-fn eq-type)) (name/from-string "HEq"))
-                             (u/app (u/const' "eq_of_heq" [(u/get-level ctx (u/infer-type ctx x))])
-                                    [(u/infer-type ctx x) x y eq]) eq)]
-                    (if (and (empty? generalized) (= target (e/abstract1 target (e/fvar-id y))))
-                      base
-                      (u/app (u/mk-eq-ndrec ctx (u/infer-type ctx x) x motive base y eq) generalized)))))]
+                            [new-locals subst]
+                            (reduce (fn [[vs subst] v]
+                                      (let [d (u/decl ctx v)
+                                            v' (u/local-decl ctx (:name d) (u/replace-fvars (:type d) subst) (:info d))]
+                                        [(conj vs v') (conj subst [v v'])]))
+                                    [[] [[y x]]] generalized)
+                            next-ys (mapv #(u/replace-fvars % subst) rest-ys)
+                            next-eqs (mapv #(u/replace-fvars % subst) rest-eqs)
+                            base (go (vec (rest xs)) next-ys next-eqs (u/replace-fvars target subst))
+                            base (u/mk-lambda-fvars ctx new-locals base)
+                            eq-type (u/whnf ctx (u/infer-type ctx eq))
+                            eq (if (= (e/const-name (e/get-app-fn eq-type)) (name/from-string "HEq"))
+                                 (u/app (u/const' "eq_of_heq" [(u/get-level ctx (u/infer-type ctx x))])
+                                        [(u/infer-type ctx x) x y eq]) eq)]
+                        (if (and (empty? generalized) (= target (e/abstract1 target (e/fvar-id y))))
+                          base
+                          (u/app (u/mk-eq-ndrec ctx (u/infer-type ctx x) x motive base y eq) generalized)))))]
         (u/mk-lambda-fvars ctx eqs (go xs ys eqs (u/beta motive ys)))))))
 
 (defn- cases-data [env n]
@@ -112,25 +112,25 @@
                             ctor (nth (vec (.ctors info)) i)
                             same (fn [zs2]
                                    (u/mk-arrow ctx
-                                     (u/beta (mk-no-confusion-ctor-arg ctx ctor p)
-                                             (vec (concat xs1 zs1 xs2 zs2))) p))
+                                               (u/beta (mk-no-confusion-ctor-arg ctx ctor p)
+                                                       (vec (concat xs1 zs1 xs2 zs2))) p))
                             body
                             (if linear?
                               (mk-if-nat-eq ctx ptype
-                                (u/app (u/const' (str n ".ctorIdx") us) (concat xs2 ys2)) (e/lit-nat i)
-                                (fn [h]
-                                  (let [el (u/app (u/const' (str ctor ".elim") (into [(lvl/succ v)] us))
-                                                  (concat xs2 [m2] ys2 [h]))
-                                        [zs2 _] (u/forall-telescope ctx (e/forall-type (u/whnf ctx (u/infer-type ctx el))))]
-                                    (e/app el (u/mk-lambda-fvars ctx zs2 (same zs2)))))
-                                (fn [_] p))
+                                            (u/app (u/const' (str n ".ctorIdx") us) (concat xs2 ys2)) (e/lit-nat i)
+                                            (fn [h]
+                                              (let [el (u/app (u/const' (str ctor ".elim") (into [(lvl/succ v)] us))
+                                                              (concat xs2 [m2] ys2 [h]))
+                                                    [zs2 _] (u/forall-telescope ctx (e/forall-type (u/whnf ctx (u/infer-type ctx el))))]
+                                                (e/app el (u/mk-lambda-fvars ctx zs2 (same zs2)))))
+                                            (fn [_] p))
                               (let [inner (u/app cs (concat xs2 [m2] ys2))
                                     [alts2 _] (u/forall-telescope ctx (u/infer-type ctx inner) nc)]
                                 (u/app inner
-                                  (mapv (fn [j a]
-                                          (let [[zs2 _] (u/forall-telescope ctx (u/infer-type ctx a))]
-                                            (u/mk-lambda-fvars ctx zs2 (if (= i j) (same zs2) p))))
-                                        (range) alts2))))]
+                                       (mapv (fn [j a]
+                                               (let [[zs2 _] (u/forall-telescope ctx (u/infer-type ctx a))]
+                                                 (u/mk-lambda-fvars ctx zs2 (if (= i j) (same zs2) p))))
+                                             (range) alts2))))]
                         (u/mk-lambda-fvars ctx zs1 body))) (range) alts)
          val (u/app cs (concat xs1 [m1] ys1 alts))]
      (u/add-definition env ctx target (vec (.levelParams cases))
@@ -155,13 +155,13 @@
                             k (u/local-decl ctx "k" kt)
                             [eqs _] (u/forall-telescope ctx kt)
                             val (u/app k
-                                  (map (fn [eq]
-                                         (let [t (u/whnf ctx (u/infer-type ctx eq))
-                                               args (e/get-app-args t) x (nth args 1)]
-                                           (if (= (e/const-name (e/get-app-fn t)) (name/from-string "HEq"))
-                                             (u/app (u/const' "HEq.refl" [(u/get-level ctx (u/infer-type ctx x))])
-                                                    [(u/infer-type ctx x) x])
-                                             (u/mk-eq-refl ctx x)))) eqs))]
+                                       (map (fn [eq]
+                                              (let [t (u/whnf ctx (u/infer-type ctx eq))
+                                                    args (e/get-app-args t) x (nth args 1)]
+                                                (if (= (e/const-name (e/get-app-fn t)) (name/from-string "HEq"))
+                                                  (u/app (u/const' "HEq.refl" [(u/get-level ctx (u/infer-type ctx x))])
+                                                         [(u/infer-type ctx x) x])
+                                                  (u/mk-eq-refl ctx x)))) eqs))]
                         (u/mk-lambda-fvars ctx (conj fs k) val))) (.ctors info))
          val (u/app (u/const' (str n ".casesOn") ls) (concat ps1 [motive1] ys1 alts))
          target2 (u/app nct (concat [p] xs1 xs2))
@@ -172,42 +172,42 @@
 (defn mk-no-confusion-ctors [env n]
   (let [{:keys [info cases ls v us]} (cases-data env n)]
     (reduce
-      (fn [env ctor]
-        (let [ci (env/lookup! env ctor) ctx (u/context env)]
-          (if (zero? (.numFields ci)) env
-            (let [[xs t] (u/forall-telescope ctx (.type ci) (.numParams ci))
-                  p (u/local-decl ctx "P" (e/sort' v))
-                  [fs1 _] (u/forall-telescope ctx t (.numFields ci))
-                  [fs2 _] (u/forall-telescope ctx t (.numFields ci))
-                  _ (u/implicit! ctx (concat xs [p] fs1 fs2))
-                  c1 (u/app (u/const' ctor us) (concat xs fs1))
-                  c2 (u/app (u/const' ctor us) (concat xs fs2))
-                  is1 (subvec (e/get-app-args (u/whnf ctx (u/infer-type ctx c1))) (.numParams info))
-                  is2 (subvec (e/get-app-args (u/whnf ctx (u/infer-type ctx c2))) (.numParams info))]
-              (with-needed-eq-telescope ctx (conj is1 c1) (conj is2 c2)
-                (fn [eqvs eqs]
-                  (let [kt (u/beta (mk-no-confusion-ctor-arg ctx ctor p) (vec (concat xs fs1 xs fs2)))
-                        k (u/local-decl ctx "k" kt)
-                        start (u/app (u/const' (str n ".noConfusion") ls)
-                                     (concat [p] xs is1 [c1] xs is2 [c2]))
+     (fn [env ctor]
+       (let [ci (env/lookup! env ctor) ctx (u/context env)]
+         (if (zero? (.numFields ci)) env
+             (let [[xs t] (u/forall-telescope ctx (.type ci) (.numParams ci))
+                   p (u/local-decl ctx "P" (e/sort' v))
+                   [fs1 _] (u/forall-telescope ctx t (.numFields ci))
+                   [fs2 _] (u/forall-telescope ctx t (.numFields ci))
+                   _ (u/implicit! ctx (concat xs [p] fs1 fs2))
+                   c1 (u/app (u/const' ctor us) (concat xs fs1))
+                   c2 (u/app (u/const' ctor us) (concat xs fs2))
+                   is1 (subvec (e/get-app-args (u/whnf ctx (u/infer-type ctx c1))) (.numParams info))
+                   is2 (subvec (e/get-app-args (u/whnf ctx (u/infer-type ctx c2))) (.numParams info))]
+               (with-needed-eq-telescope ctx (conj is1 c1) (conj is2 c2)
+                 (fn [eqvs eqs]
+                   (let [kt (u/beta (mk-no-confusion-ctor-arg ctx ctor p) (vec (concat xs fs1 xs fs2)))
+                         k (u/local-decl ctx "k" kt)
+                         start (u/app (u/const' (str n ".noConfusion") ls)
+                                      (concat [p] xs is1 [c1] xs is2 [c2]))
                         ;; Main noConfusion quantifies parameter equalities too.
-                        start (reduce (fn [e x]
-                                        (let [et (e/forall-type (u/whnf ctx (u/infer-type ctx e)))
-                                              heq? (= (e/const-name (e/get-app-fn et)) (name/from-string "HEq"))]
-                                          (e/app e (if heq?
-                                                     (u/app (u/const' "HEq.refl" [(u/get-level ctx (u/infer-type ctx x))]) [(u/infer-type ctx x) x])
-                                                     (u/mk-eq-refl ctx x))))) start xs)
-                        val (reduce (fn [e eq]
-                                      (let [et (e/forall-type (u/whnf ctx (u/infer-type ctx e)))
-                                            qt (u/whnf ctx (u/infer-type ctx eq))
-                                            heq? (= (e/const-name (e/get-app-fn et)) (name/from-string "HEq"))
-                                            eq? (= (e/const-name (e/get-app-fn qt)) (name/from-string "Eq"))]
-                                        (e/app e (if (and heq? eq?)
-                                                   (u/app (u/const' "heq_of_eq" (e/const-levels (e/get-app-fn qt)))
-                                                          (conj (e/get-app-args qt) eq)) eq)))) start eqs)
-                        val (e/app val k)]
-                    (u/add-definition env ctx (str ctor ".noConfusion") (vec (.levelParams cases))
-                                      (vec (concat xs [p] fs1 fs2 eqvs [k])) p val)))))))) env (.ctors info))))
+                         start (reduce (fn [e x]
+                                         (let [et (e/forall-type (u/whnf ctx (u/infer-type ctx e)))
+                                               heq? (= (e/const-name (e/get-app-fn et)) (name/from-string "HEq"))]
+                                           (e/app e (if heq?
+                                                      (u/app (u/const' "HEq.refl" [(u/get-level ctx (u/infer-type ctx x))]) [(u/infer-type ctx x) x])
+                                                      (u/mk-eq-refl ctx x))))) start xs)
+                         val (reduce (fn [e eq]
+                                       (let [et (e/forall-type (u/whnf ctx (u/infer-type ctx e)))
+                                             qt (u/whnf ctx (u/infer-type ctx eq))
+                                             heq? (= (e/const-name (e/get-app-fn et)) (name/from-string "HEq"))
+                                             eq? (= (e/const-name (e/get-app-fn qt)) (name/from-string "Eq"))]
+                                         (e/app e (if (and heq? eq?)
+                                                    (u/app (u/const' "heq_of_eq" (e/const-levels (e/get-app-fn qt)))
+                                                           (conj (e/get-app-args qt) eq)) eq)))) start eqs)
+                         val (e/app val k)]
+                     (u/add-definition env ctx (str ctor ".noConfusion") (vec (.levelParams cases))
+                                       (vec (concat xs [p] fs1 fs2 eqvs [k])) p val)))))))) env (.ctors info))))
 
 (defn mk-no-confusion-enum [env n]
   (let [info (env/lookup! env (name/from-string (str n))) ctx (u/context env)
@@ -223,13 +223,13 @@
         single? (= 1 (count (.ctors info)))
         prefix [t (u/const' "Nat" []) (u/const' "instDecidableEqNat" []) ctor]
         val (if single? (u/mk-arrow ctx p p)
-              (u/app (u/const' "noConfusionTypeEnum" [(u/get-level ctx t) (lvl/succ lvl/zero) v]) (concat prefix [p x y])))
+                (u/app (u/const' "noConfusionTypeEnum" [(u/get-level ctx t) (lvl/succ lvl/zero) v]) (concat prefix [p x y])))
         env (u/add-definition env ctx (str n ".noConfusionType") lps [p x y] (e/sort' v) val)
         _ (u/set-env! ctx env)
         _ (u/implicit! ctx [p x y])
         h (u/local-decl ctx "h" (u/mk-eq ctx x y))
         val (if single? (let [q (u/local-decl ctx "p" p)] (u/mk-lambda-fvars ctx [q] q))
-              (u/app (u/const' "noConfusionEnum" [(u/get-level ctx t) (lvl/succ lvl/zero) v]) (concat prefix [p x y h])))]
+                (u/app (u/const' "noConfusionEnum" [(u/get-level ctx t) (lvl/succ lvl/zero) v]) (concat prefix [p x y h])))]
     (u/add-definition env ctx (str n ".noConfusion") lps [p x y h]
                       (u/app (u/const' (str n ".noConfusionType") ls) [p x y]) val)))
 
@@ -238,7 +238,7 @@
         rec (env/lookup! env (name/from-string (str n ".rec")))]
     (if (or (u/prop-former? (u/context env) (.type info))
             (<= (count (.levelParams rec)) (count (.levelParams info)))) env
-      (-> env (mk-no-confusion-type n) (mk-no-confusion-core-imp n) (mk-no-confusion-ctors n)))))
+        (-> env (mk-no-confusion-type n) (mk-no-confusion-core-imp n) (mk-no-confusion-ctors n)))))
 
 (defn mk-no-confusion [env n]
   (let [info (env/lookup! env (name/from-string (str n)))]

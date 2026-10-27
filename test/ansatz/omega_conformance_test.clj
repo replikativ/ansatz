@@ -13,8 +13,7 @@
       (match xs [nil 0] [(cons h t) (+ (omegaLen t) 1)]))])
 
 (def ^:private theorems
-  '[
-    [o01_nonneg [x :- Nat]
+  '[[o01_nonneg [x :- Nat]
      (<= Nat 0 x)
      [(omega)]]
     [o02_add_bound [x :- Nat, y :- Nat]

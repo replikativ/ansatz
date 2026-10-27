@@ -9,17 +9,17 @@
 ;; evalInductionCore/evalCasesCore, evalSimp, evalDecideCore.
 (def ^:private defs
   '[(ansatz.core/inductive Mem [x Nat] :in Prop :indices [xs (List Nat)]
-      (head [t (List Nat)] :where [(cons x t)])
-      (tail [y Nat] [t (List Nat)] [h (Mem x t)] :where [(cons y t)]))
+                           (head [t (List Nat)] :where [(cons x t)])
+                           (tail [y Nat] [t (List Nat)] [h (Mem x t)] :where [(cons y t)]))
     (ansatz.core/inductive All [p (=> Nat Prop)] :in Prop :indices [xs (List Nat)]
-      (nil :where [(nil)])
-      (cons [x Nat] [xs (List Nat)] [hx (p x)] [ht (All p xs)] :where [(cons x xs)]))
+                           (nil :where [(nil)])
+                           (cons [x Nat] [xs (List Nat)] [hx (p x)] [ht (All p xs)] :where [(cons x xs)]))
     (ansatz.core/inductive Sorted [] :in Prop :indices [n Nat xs (List Nat)]
-      (nil [n Nat] :where [n (nil)])
-      (cons [n Nat] [x Nat] [xs (List Nat)] [hx (le n x)] [ht (Sorted x xs)] :where [n (cons x xs)]))
+                           (nil [n Nat] :where [n (nil)])
+                           (cons [n Nat] [x Nat] [xs (List Nat)] [hx (le n x)] [ht (Sorted x xs)] :where [n (cons x xs)]))
     (ansatz.core/inductive Reach [r (=> Nat Nat Prop)] :in Prop :indices [x Nat z Nat]
-      (refl [x Nat] :where [x x])
-      (step [x Nat] [y Nat] [z Nat] [hxy (r x y)] [hyz (Reach r y z)] :where [x z]))])
+                           (refl [x Nat] :where [x x])
+                           (step [x Nat] [y Nat] [z Nat] [hxy (r x y)] [hyz (Reach r y z)] :where [x z]))])
 
 (def ^:private theorems
   '[[p01_mem_head [x :- Nat, xs :- (List Nat)]

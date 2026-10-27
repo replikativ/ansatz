@@ -31,8 +31,8 @@
          star (u/const' "PUnit.unit" [elim])
          motive-args (mapv #(if (= % motive) % (mk-fun-unit ctx (u/infer-type ctx %) unit)) motives)
          minor-main (vec (mapcat (fn [j]
-                                  (repeat (count (.ctors (env/lookup! env (nth all j)))) (= j main)))
-                                (range (count all))))
+                                   (repeat (count (.ctors (env/lookup! env (nth all j)))) (= j main)))
+                                 (range (count all))))
          processed
          (mapv (fn [i minor]
                  (let [[args t] (u/forall-telescope ctx (u/infer-type ctx minor))
@@ -45,8 +45,8 @@
                                             {:arg arg :ih? ih?
                                              :param (if (and ih? (not= h motive))
                                                       (u/local-decl ctx (:name (u/decl ctx arg))
-                                                        (u/mk-forall-fvars ctx ys unit)
-                                                        (:info (u/decl ctx arg))) arg)})) args)
+                                                                    (u/mk-forall-fvars ctx ys unit)
+                                                                    (:info (u/decl ctx arg))) arg)})) args)
                        non-rec (mapv :arg (remove :ih? classified))
                        new-c (when is-main
                                (u/local-decl ctx (:name info) (u/mk-forall-fvars ctx non-rec t) (:info info)))

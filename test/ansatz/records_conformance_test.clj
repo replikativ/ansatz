@@ -14,17 +14,17 @@
       (match xs [nil 0] [(cons r t) (if (Nat.beq k (:key r)) (:value r) (lookup k t))]))
     (ansatz.core/defn update [k :- Nat, v :- Nat, xs :- (List Row)] (List Row)
       (match xs [nil (List.nil Row)]
-        [(cons r t) (if (Nat.beq k (:key r))
-                      (List.cons Row (Row.mk (:key r) (:owner r) (:active r) v) (update k v t))
-                      (List.cons Row r (update k v t)))]))
+             [(cons r t) (if (Nat.beq k (:key r))
+                           (List.cons Row (Row.mk (:key r) (:owner r) (:active r) v) (update k v t))
+                           (List.cons Row r (update k v t)))]))
     (ansatz.core/defn remove [k :- Nat, xs :- (List Row)] (List Row)
       (match xs [nil (List.nil Row)]
-        [(cons r t) (if (Nat.beq k (:key r)) (remove k t) (List.cons Row r (remove k t)))]))
+             [(cons r t) (if (Nat.beq k (:key r)) (remove k t) (List.cons Row r (remove k t)))]))
     (ansatz.core/defn pushRow [r :- Row, s :- State] State
       (State.mk (List.cons Row r (:rows s)) (:owners s)))
     (ansatz.core/defn enabled [xs :- (List Row)] (List Row)
       (match xs [nil (List.nil Row)]
-        [(cons r t) (if (:active r) (List.cons Row r (enabled t)) (enabled t))]))
+             [(cons r t) (if (:active r) (List.cons Row r (enabled t)) (enabled t))]))
     (ansatz.core/defn values [xs :- (List Row)] (List Nat)
       (match xs [nil (List.nil Nat)] [(cons r t) (List.cons Nat (:value r) (values t))]))
     (ansatz.core/defn countRows [xs :- (List Row)] Nat
@@ -43,7 +43,7 @@
     ;; recursion parameters (core/define-verified-impl requires those to stay unchanged).
     (ansatz.core/defn sortedFrom [xs :- (List Row)] (=> Nat Bool)
       (match xs [nil (fn [lo :- Nat] true)]
-        [(cons r t) (fn [lo :- Nat] (Bool.and (Nat.ble lo (:key r)) (sortedFrom t (:key r))))]))])
+             [(cons r t) (fn [lo :- Nat] (Bool.and (Nat.ble lo (:key r)) (sortedFrom t (:key r))))]))])
 
 (def ^:private theorems
   '[[r01_projection [k :- Nat, o :- Nat, v :- Nat, b :- Bool]
@@ -112,9 +112,9 @@
      [(decide)]]
     [r25_closed_invariants []
      (= (Bool.and
-          (Bool.and (distinct (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row))))
-                    (ownersPresent (List.cons Nat 0 (List.nil Nat)) (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row)))))
-          (sortedFrom (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row))) 0)) true)
+         (Bool.and (distinct (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row))))
+                   (ownersPresent (List.cons Nat 0 (List.nil Nat)) (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row)))))
+         (sortedFrom (List.cons Row (Row.mk 1 0 true 3) (List.cons Row (Row.mk 2 0 false 4) (List.nil Row))) 0)) true)
      [(decide)]]])
 
 (def ^:private known-gaps {})

@@ -43,9 +43,9 @@
                            (let [alpha (first aa)
                                  hrefl (gp/mk-eq-refl st alpha)
                                  hheq (e/app* (e/const' (name/from-string "heq_of_eq") [(sort-level st type)])
-                                               type a b hp)]
+                                              type a b hp)]
                              [false-expr alpha a (first ab) b hrefl hheq])
-                           (action/fail! "indexed noConfusion telescope unsupported" {:lemma nm :arity arity}))) ]
+                           (action/fail! "indexed noConfusion telescope unsupported" {:lemma nm :arity arity})))]
               (reduce e/app (e/const' nm (into [lvl/zero] levels)) args))))]
     (when proof
       {:prop (#'tc/cached-whnf st (tc/infer-type st proof)) :proof proof
@@ -56,8 +56,8 @@
    (fn [{:keys [seen] :as result} [a b]]
      (let [key #{a b}]
        (if (contains? seen key) result
-         (let [fact (consequence gs st a b)]
-           (cond-> (update result :seen conj key) fact (update :facts conj fact))))))
+           (let [fact (consequence gs st a b)]
+             (cond-> (update result :seen conj key) fact (update :facts conj fact))))))
    {:seen seen :facts []}
    (for [[expr node] (:enodes gs)
          :when (and (= expr (:root node)) (> (:size node) 1))

@@ -23,11 +23,11 @@
   (when (empty? es) (throw (ex-info "Tactic error: mkNatLookupTable: empty table" {:kind :tactic-error})))
   (let [u (u/get-level ctx type)]
     (letfn [(go [start stop]
-              (if (= (inc start) stop) (nth es start)
-                (let [mid (quot (+ start stop) 2)]
-                  (u/app (u/const' "cond" [u])
-                    [type (u/app (u/const' "Nat.ble" []) [i (e/lit-nat (dec mid))])
-                     (go start mid) (go mid stop)]))))]
+                (if (= (inc start) stop) (nth es start)
+                    (let [mid (quot (+ start stop) 2)]
+                      (u/app (u/const' "cond" [u])
+                             [type (u/app (u/const' "Nat.ble" []) [i (e/lit-nat (dec mid))])
+                              (go start mid) (go mid stop)]))))]
       (go 0 (count es)))))
 (defn mk-nat-lookup-table-lifting [ctx n es]
   (let [u (max-levels ctx es)
@@ -71,18 +71,18 @@
 
 (defn mk-constructor-elim [env n]
   (reduce
-    (fn [env i]
-      (let [{:keys [info cases ctx params motive ism alts ls us]} (cases-data env n)
-            ctor (nth (vec (.ctors info)) i) alt (nth alts i)
-            ctor-app (u/app (u/const' (str n ".ctorIdx") us) (concat params ism))
-            h (u/local-decl ctx "h" (u/mk-eq ctx ctor-app (e/lit-nat i)))
-            symm (u/app (u/const' "Eq.symm" [(lvl/succ lvl/zero)]) [(u/const' "Nat" []) ctor-app (e/lit-nat i) h])
-            kt (u/app (u/const' (str n ".ctorElimType") ls) (concat params [motive (e/lit-nat i)]))
-            val (u/app (u/const' (str n ".ctorElim") ls)
-                       (concat params [motive (e/lit-nat i)] ism [symm (with-mk-pulift-up ctx kt (fn [_] alt))]))]
-        (u/add-definition env ctx (str ctor ".elim") (vec (.levelParams cases))
-                          (vec (concat params [motive] ism [h alt])) nil val)))
-    env (range (count (.ctors (env/lookup! env (name/from-string (str n))))))))
+   (fn [env i]
+     (let [{:keys [info cases ctx params motive ism alts ls us]} (cases-data env n)
+           ctor (nth (vec (.ctors info)) i) alt (nth alts i)
+           ctor-app (u/app (u/const' (str n ".ctorIdx") us) (concat params ism))
+           h (u/local-decl ctx "h" (u/mk-eq ctx ctor-app (e/lit-nat i)))
+           symm (u/app (u/const' "Eq.symm" [(lvl/succ lvl/zero)]) [(u/const' "Nat" []) ctor-app (e/lit-nat i) h])
+           kt (u/app (u/const' (str n ".ctorElimType") ls) (concat params [motive (e/lit-nat i)]))
+           val (u/app (u/const' (str n ".ctorElim") ls)
+                      (concat params [motive (e/lit-nat i)] ism [symm (with-mk-pulift-up ctx kt (fn [_] alt))]))]
+       (u/add-definition env ctx (str ctor ".elim") (vec (.levelParams cases))
+                         (vec (concat params [motive] ism [h alt])) nil val)))
+   env (range (count (.ctors (env/lookup! env (name/from-string (str n))))))))
 
 (defn mk-ctor-elim [env n]
   (let [ind (env/lookup! env (name/from-string (str n)))
@@ -90,4 +90,4 @@
     (if (or (nil? (env/lookup env (name/from-string (str n ".ctorIdx"))))
             (<= (count (.ctors ind)) 1) (u/prop-former? (u/context env) (.type ind))
             (<= (count (.levelParams rec)) (count (.levelParams ind)))) env
-      (-> env (mk-ctor-elim-type n) (mk-ind-ctor-elim n) (mk-constructor-elim n)))))
+        (-> env (mk-ctor-elim-type n) (mk-ind-ctor-elim n) (mk-constructor-elim n)))))
