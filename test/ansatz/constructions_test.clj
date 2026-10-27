@@ -3,6 +3,7 @@
    Oracle: test/lean/constructions.lean; regenerate the oracle with test/lean/export_constructions.sh."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
+            [clojure.walk :as walk]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
             [ansatz.export.parser :as parser]
@@ -94,6 +95,12 @@
    ["Enum" [] [['a []] ['b []] ['c []]] []]
    ["Rec" [] [['z []] ['s '[n T10Generated.Rec]]] []]
    ["Vec" '[a Type] [['nil [] [0]] ['cons '[n Nat x a xs (T10Generated.Vec a n)] ['(Nat.succ n)]]] [:indices '[n Nat]]]
+   ["Spin" [] [['pure '[v Nat]] ['await '[id Nat k (=> Nat T10Generated.Spin)]]
+               ['yield '[v Nat k T10Generated.Spin]]] []]
+   ["Branch" '[A Type] [['leaf '[n Nat] ['n]]
+                         ['node '[n Nat k (forall [m Nat j (Fin (Nat.succ m))] (T10Generated.Branch A m))] ['n]]]
+    [:indices '[n Nat]]]
+   ["Inf" [] [['node '[children (=> Nat T10Generated.Inf)]]] []]
    ["Rose" [] [['node '[children (List T10Generated.Rose)]]] []]
    ["Assoc" '[S Type] [['mk '[add (=> S S S) assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c))))]]] []]
    ["Disj" '[p Prop q Prop] [['left '[h p]] ['right '[h q]]] [:in 'Prop]]])
@@ -109,7 +116,58 @@
               auxiliaries (filter #(and (str/starts-with? (str (.name %)) (str ref "."))
                                         (or (.isDef %) (.isThm %))) (env/all-constants @oracle))]
           (is (seq auxiliaries) ref)
+          (let [actual (lookup out (str n ".rec"))
+                expected (lookup @oracle (str ref ".rec"))
+                levels (zipmap (.levelParams actual) (map lvl/param (.levelParams expected)))
+                type (rename-expr (e/instantiate-level-params (.type actual) levels)
+                                  #(str/replace % "T10Generated." "T10Reference."))]
+            (is (tc/is-def-eq (tc/mk-tc-state @oracle) type (.type expected))
+                (str ref " recursor type")))
           (doseq [ci auxiliaries]
             (let [expected (str (.name ci)) actual (str/replace expected "T10Reference." "T10Generated.")]
               (compare-decl out actual expected #(str/replace % "T10Generated." "T10Reference."))))))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest functional-recursive-fields-compute-in-kernel-and-runtime
+  (let [saved @a/ansatz-env]
+    (try
+      (reset! a/ansatz-env @oracle)
+      (binding [*ns* (the-ns 'ansatz.constructions-test) a/*verbose* false]
+        (run! #(eval (walk/postwalk-replace {'spin-rec (symbol "@Spin.rec.{1}")
+                                                'nat-rec (symbol "@Nat.rec.{1}")
+                                                'spin-cases (symbol "@Spin.casesOn.{1}")} %))
+              '[(a/inductive Spin []
+                  (pure [v Nat]) (await [id Nat] [k (=> Nat Spin)]) (yield [v Nat] [k Spin]))
+                (a/defn spin-bind [s :- Spin, f :- (=> Nat Spin)] Spin
+                  (spin-rec (fn [_ :- Spin] Spin) f
+                    (fn [id :- Nat, k :- (=> Nat Spin), ih :- (=> Nat Spin)]
+                      (Spin.await id (fn [x :- Nat] (ih x))))
+                    (fn [v :- Nat, k :- Spin, ih :- Spin] (Spin.yield v ih)) s))
+                (a/defn spin-run [fuel :- Nat, s :- Spin] Nat
+                  (nat-rec (fn [_ :- Nat] (=> Spin Nat))
+                    (fn [_ :- Spin] 0)
+                    (fn [n :- Nat, ih :- (=> Spin Nat)]
+                      (fn [s :- Spin]
+                        (spin-cases (fn [_ :- Spin] Nat) s
+                          (fn [v :- Nat] v)
+                          (fn [id :- Nat, k :- (=> Nat Spin)] (ih (k id)))
+                          (fn [v :- Nat, k :- Spin] (ih k))))) fuel s))
+                (a/theorem spin-bind-pure [v :- Nat, f :- (=> Nat Spin)]
+                  (= Spin (spin-bind (Spin.pure v) f) (f v)) (rfl))
+                (a/defn spin-program [n :- Nat] Nat
+                  (spin-run 4
+                    (spin-bind (Spin.await n (fn [x :- Nat] (Spin.yield 9 (Spin.pure x))))
+                               (fn [x :- Nat] (Spin.pure (+ x 2))))))
+                (a/theorem spin-program-kernel [n :- Nat]
+                  (= Nat (spin-program n) (+ n 2)) (rfl))
+                (a/defn spin-fuel-program [fuel :- Nat] Nat
+                  (spin-run fuel (Spin.await 3 (fn [x :- Nat] (Spin.yield 9 (Spin.pure (+ x 2)))))))
+                (a/theorem spin-fuel-exhausted [] (= Nat (spin-fuel-program 2) 0) (rfl))
+                (a/theorem spin-fuel-sufficient [] (= Nat (spin-fuel-program 3) 5) (rfl))])
+        (doseq [suffix ["casesOn" "recOn" "below" "brecOn" "noConfusion"]]
+          (is (some? (lookup (a/env) (str "Spin." suffix)))))
+        (doseq [n (range 8)]
+          (is (= (+ n 2) ((deref (ns-resolve *ns* 'spin-program)) n))))
+        (is (= [0 0 0 5 5]
+               (mapv (deref (ns-resolve *ns* 'spin-fuel-program)) (range 5)))))
       (finally (reset! a/ansatz-env saved)))))

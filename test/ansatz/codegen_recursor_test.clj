@@ -458,8 +458,8 @@
         (reset! a/ansatz-instance-index saved-instances)))))
 
 (defn- higher-order-differential! []
-  ;; a/inductive currently generates an invalid higher-order recursor type.
-  ;; Import the small Lean fixture and verify every new declaration instead.
+  ;; Independently exercise higher-order recursors exported by Lean, verifying
+  ;; every imported declaration before comparing kernel and runtime results.
   (let [decls (:decls (parser/parse-ndjson-file "test/fixtures/codegen_higher.ndjson"))
         new-decls (filterv #(nil? (env/lookup (a/env) (.name ^ansatz.kernel.ConstantInfo %))) decls)
         result (replay/replay-from-env (a/env) new-decls)]

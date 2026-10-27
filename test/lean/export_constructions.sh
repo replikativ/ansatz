@@ -9,7 +9,7 @@ trap 'rm -rf "$constructions_tmp"' EXIT
 "$constructions_bin/lean" -R test/lean -o "$constructions_tmp/constructions.olean" test/lean/constructions.lean
 names=(Nat List Option Prod Bool Fin Or Eq
        T10Reference.Empty T10Reference.Unit T10Reference.Enum T10Reference.Rec T10Reference.Vec T10Reference.Rose
-       T10Reference.Assoc T10Reference.Disj T10Reference.Inf T10Reference.Tree T10Reference.Forest)
+       T10Reference.Spin T10Reference.Branch T10Reference.Assoc T10Reference.Disj T10Reference.Inf T10Reference.Tree T10Reference.Forest)
 suffixes=('' recOn casesOn ctorIdx ctorElimType ctorElim noConfusionType noConfusion below brecOn.go brecOn brecOn.eq)
 decls=()
 for n in "${names[@]}"; do

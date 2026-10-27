@@ -1,5 +1,7 @@
 ;; Inductive type definitions compatible with Lean 4's kernel.
 ;;
+;; Reference: Lean src/kernel/inductive.cpp (55f80e10a3), mk_rec_infos / mk_rec_rules.
+;;
 ;; Generates: inductive type, constructors, recursor, casesOn, recOn,
 ;; noConfusionType, noConfusion — matching Lean 4's exact declaration format.
 ;;
@@ -356,6 +358,28 @@
 ;; Recursor construction
 ;; ============================================================
 
+(defn- recursive-field-telescope
+  "Peel a recursive argument's Pi telescope in its destination context."
+  [field field-depth target-depth field-ref n-params n-indices]
+  ;; Lean src/kernel/inductive.cpp, inductive::mk_rec_infos and
+  ;; inductive::mk_rec_rules: peel xs, then use the indices of the codomain.
+  (loop [type (e/lift (:type field) (- target-depth field-depth) 0)
+         binders []]
+    (if (e/forall? type)
+      (recur (e/forall-body type) (conj binders type))
+      (let [[_ args] (e/get-app-fn-args type)
+            n (count binders)]
+        {:binders binders
+         :indices (subvec (vec args) n-params (+ n-params n-indices))
+         :major (reduce e/app (e/lift field-ref n 0)
+                        (map e/bvar (reverse (range n))))}))))
+
+(defn- wrap-recursive-telescope [binders body lambda?]
+  (reduce (fn [body binder]
+            ((if lambda? e/lam e/forall')
+             (e/forall-name binder) (e/forall-type binder) body (e/forall-info binder)))
+          body (reverse binders)))
+
 (defn- build-minor-type
   "Build the type of a minor premise for one constructor.
    At depth = base-depth (after params, motive already bound).
@@ -416,22 +440,14 @@
                  (if (< ih-idx 0) body
                      (let [field-idx (nth rec-field-indices ih-idx)
                            ih-depth (+ base-depth n-fields ih-idx)
-                           motive-ref-ih (sref base-scope ih-depth 'motive)
                            field-ref-ih (e/bvar (- ih-depth (+ base-depth field-idx) 1))
-                         ;; For indexed families, IH type is motive(field-type-indices..., field)
-                         ;; Extract indices from the recursive field's type
-                           rec-field-type (:type (nth fields field-idx))
-                           rec-field-idx-exprs (when (pos? n-indices)
-                                                 (let [[_ rargs] (e/get-app-fn-args rec-field-type)
-                                                       ;; Indices were compiled at field depth
-                                                       ;; (base-depth + field-idx). Lift to ih-depth.
-                                                       lift-amount (- ih-depth (+ base-depth field-idx))]
-                                                   (when (>= (count rargs) (+ n-params n-indices))
-                                                     (mapv (fn [idx] (e/lift idx lift-amount 0))
-                                                           (subvec (vec rargs) n-params (+ n-params n-indices))))))
-                           ih-type (reduce (fn [acc idx] (e/app acc idx))
-                                           motive-ref-ih (or rec-field-idx-exprs []))
-                           ih-type (e/app ih-type field-ref-ih)]
+                           {:keys [binders indices major]}
+                           (recursive-field-telescope (nth fields field-idx)
+                                                      (+ base-depth field-idx) ih-depth
+                                                      field-ref-ih n-params n-indices)
+                           motive-ref-ih (sref base-scope (+ ih-depth (count binders)) 'motive)
+                           ih-type (e/app (reduce e/app motive-ref-ih indices) major)
+                           ih-type (wrap-recursive-telescope binders ih-type false)]
                        (recur (dec ih-idx) (e/forall' (str "ih_" (:name (nth fields field-idx)))
                                                       ih-type body :default)))))]
       ;; Wrap field binders (from right to left)
@@ -491,35 +507,17 @@
         ;; Apply minor to IH (recursive calls)
         body (reduce (fn [acc ih-idx]
                        (let [field-idx (nth rec-field-indices ih-idx)
-                             ;; Recursive call: rec params motive minors field
+                             {:keys [binders indices major]}
+                             (recursive-field-telescope (nth fields field-idx)
+                                                        (+ pre-fields field-idx) body-depth
+                                                        (e/bvar (- body-depth (+ pre-fields field-idx) 1))
+                                                        n-params n-indices)
+                             call-depth (+ body-depth (count binders))
                              rec-const (e/const' rec-name rec-level-levels)
-                             ;; Apply params
-                             rc (reduce (fn [t i]
-                                          (e/app t (e/bvar (- body-depth i 1))))
-                                        rec-const (range n-params))
-                             ;; Apply motive
-                             rc (e/app rc (e/bvar (- body-depth n-params 1)))
-                             ;; Apply minors
-                             rc (reduce (fn [t i]
-                                          (e/app t (e/bvar (- body-depth (+ n-params 1 i) 1))))
-                                        rc (range n-minors))
-                             ;; For indexed families: apply the recursive field's type indices
-                             ;; The field has type I params idx1...idxk, extract idx exprs
-                             rc (if (zero? n-indices)
-                                  rc
-                                  (let [rec-field-type (:type (nth fields field-idx))
-                                        [_ rargs] (e/get-app-fn-args rec-field-type)
-                                        field-depth (+ pre-fields field-idx)
-                                        lift-amount (- body-depth field-depth)
-                                        idx-exprs (when (>= (count rargs) (+ n-params n-indices))
-                                                    (mapv (fn [idx]
-                                                            (if (pos? lift-amount)
-                                                              (e/lift idx lift-amount 0)
-                                                              idx))
-                                                          (subvec (vec rargs) n-params (+ n-params n-indices))))]
-                                    (reduce (fn [t idx] (e/app t idx)) rc (or idx-exprs []))))
-                             ;; Apply the recursive field
-                             rc (e/app rc (e/bvar (- body-depth (+ pre-fields field-idx) 1)))]
+                             rc (reduce (fn [t i] (e/app t (e/bvar (- call-depth i 1))))
+                                        rec-const (range pre-fields))
+                             rc (e/app (reduce e/app rc indices) major)
+                             rc (wrap-recursive-telescope binders rc true)]
                          (e/app acc rc)))
                      body (range n-ih))]
     ;; Wrap in lambdas from right to left
