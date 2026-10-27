@@ -35,11 +35,21 @@
 ;; Elaboration state
 ;; ============================================================
 
+(defn- elab-env [est]
+  (if-let [r (:env-ref est)] @r (:env est)))
+
+(defn- refresh-env [est]
+  (let [environment (elab-env est)]
+    (if (identical? environment (:env est)) est
+        (assoc est :env environment :tc (tc/attach-lctx (tc/mk-tc-state environment)
+                                                      (:lctx (:tc est)))))))
+
 (defn- mk-elab-state
   "Create elaboration state with metavar tracking."
   ([^Env env]
    (mk-elab-state env {}))
   ([^Env env {:keys [next-id-start initial-meta-mctx collect-from-index holes-as-synthetic-opaque?]
+              :as opts
               :or {next-id-start 1000000
                    initial-meta-mctx meta/empty-context
                    holes-as-synthetic-opaque? false}}]
@@ -53,7 +63,13 @@
     :initial-level-mvar-ids (set (keys (:level-depth initial-meta-mctx)))
     :holes-as-synthetic-opaque? holes-as-synthetic-opaque?
     :scope {}                ;; symbol → {:fvar-id long :type Expr}
-    :depth 0}))
+    :depth 0
+    :env-ref (:env-ref opts)
+    :lean-matchers? (:lean-matchers? opts)
+    :matcher-prefix (:matcher-prefix opts)
+    :matcher-counter (or (:matcher-counter opts) (atom 0))
+    :definition-body (:definition-body opts)
+    :definition-ret (:definition-ret opts)}))
 
 (defn- fresh-id! [est]
   (let [id (swap! (:next-id est) inc)]
@@ -325,7 +341,7 @@
         b (zonk est b)
         ;; Lean's elabLetDeclAux checks in a live metavariable context. The
         ;; kernel defeq fallback must also see instantiated local let values.
-        st (tc/attach-lctx (tc/mk-tc-state (:env est))
+        st (tc/attach-lctx (tc/mk-tc-state (elab-env est))
                            (surface-lctx->meta est (:lctx (:tc est))))]
     (when-let [mctx (meta/is-def-eq @(:meta-mctx est) st a b)]
       (reset! (:meta-mctx est) mctx)
@@ -342,7 +358,7 @@
   [est expr]
   (sync-meta-decls! est)
   (let [expr (zonk est expr)
-        st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))
+        st (tc/attach-lctx (tc/mk-tc-state (elab-env est)) (:lctx (:tc est)))
         inferred (meta/infer-type @(:meta-mctx est) st expr)]
     (zonk est inferred)))
 
@@ -351,7 +367,7 @@
   [est expr]
   (sync-meta-decls! est)
   (let [expr (zonk est expr)
-        st (tc/attach-lctx (tc/mk-tc-state (:env est)) (:lctx (:tc est)))
+        st (tc/attach-lctx (tc/mk-tc-state (elab-env est)) (:lctx (:tc est)))
         reduced (meta/whnf @(:meta-mctx est) st expr)]
     (zonk est reduced)))
 
@@ -377,7 +393,7 @@
   "Resolve a constant name, creating level metavars if levels not provided."
   [est base-name explicit-levels]
   (let [cname (name/from-string base-name)
-        ci (env/lookup (:env est) cname)]
+        ci (env/lookup (elab-env est) cname)]
     (when-not ci
       (elab-error! (str "Unknown constant: " base-name) {:name base-name}))
     (let [level-params (env/ci-level-params ci)
@@ -482,7 +498,7 @@
    arithmetic forms must never shadow a name that actually resolves."
   [est sym]
   (boolean (or (contains? (:scope est) sym)
-               (env/lookup (:env est) (name/from-string (str sym))))))
+               (env/lookup (elab-env est) (name/from-string (str sym))))))
 
 (defn- type-sort-level
   "The level `u` of a type `T : Sort (u+1)`, or a fresh level mvar when T's sort isn't
@@ -969,6 +985,7 @@
 (defn- elab-term
   "Recursively elaborate an s-expression into a Ansatz Expr."
   [est sexpr]
+  (let [est (refresh-env est)]
   (cond
     ;; an already-elaborated kernel Expr passes through — term elaborators (elab_rules)
     ;; splice Exprs into surface forms they hand back to elab (quotation with term holes)
@@ -1077,11 +1094,13 @@
         ;; The explicit form is desugared (drop type+ret, which are a bvar-era workaround
         ;; and dead code respectively; ctor qualification is done inside compile-match).
             "match"  (let [args (vec (rest sexpr))
-                           est* (assoc est
+                           est* (cond-> (assoc est
                                        :infer-fn infer-with-mvars
                                        :whnf-fn whnf-with-mvars
                                        :unify-fn unify!
-                                       :zonk-fn zonk)]
+                                       :zonk-fn zonk)
+                                  (and (:definition-ret est) (= sexpr (:definition-body est)))
+                                  (assoc :declared-ret-type (:definition-ret est)))]
                        (if (vector? (get args 1))
                          (match/compile-match est* elab-term (first args) (mapv vec (rest args)))
                      ;; explicit form: (match scrut type ret (ctor [fields] body) …). Keep the
@@ -1327,7 +1346,7 @@
             "sizeOf"
             (let [x* (elab-term est (nth sexpr 1))
                   ty (zonk est (infer-with-mvars est x*))
-                  inst (sizeof-inst (:env est) ty)]
+                  inst (sizeof-inst (elab-env est) ty)]
               (when-not inst
                 (elab-error! (str "sizeOf: no SizeOf instance for type " (e/->string ty)) {:form sexpr}))
               (e/app* (e/const' (name/from-string "SizeOf.sizeOf") [(lvl/succ lvl/zero)]) ty inst x*))
@@ -1384,7 +1403,7 @@
                            (cond
                              ;; No Bool.or/Bool.and in this env (a minimal test env): fall back
                              ;; to Clojure's expansion rather than failing to elaborate at all.
-                             (nil? (env/lookup (:env est) op))
+                             (nil? (env/lookup (elab-env est) op))
                              (elab-term est (macroexpand-1 sexpr))
 
                              (empty? args)
@@ -1495,7 +1514,7 @@
     (elab-term est (reduce (fn [acc x] (list 'cons x acc)) nil (rseq sexpr)))
 
     :else
-    (elab-error! (str "Unsupported form: " (pr-str sexpr)) {:form sexpr})))
+    (elab-error! (str "Unsupported form: " (pr-str sexpr)) {:form sexpr}))))
 
 ;; ============================================================
 ;; Instance synthesis for unsolved inst-implicit metavariables
@@ -1529,7 +1548,7 @@
   (let [synth* (requiring-resolve 'ansatz.tactic.instance/synthesize*)
         ;; the session's registry (Lean's @[instance] table from the store or the bundled Init
         ;; tier), NOT an index built by name-guessing over the env — that one never saw `OfNat`
-        index ((requiring-resolve 'ansatz.tactic.instance/index-for) (:env est))]
+        index ((requiring-resolve 'ansatz.tactic.instance/index-for) (elab-env est))]
     (loop []
       (let [mctx @(:meta-mctx est)
             pending (->> (:decls mctx)
@@ -1544,7 +1563,7 @@
             ;; Only synthesize once the goal is fully determined (no unsolved mvars),
             ;; else we'd resolve against an under-specified class.
             (when-not (has-unsolved-mvar? est goal)
-              (when-let [sol (try (synth* (:tc est) (:env est) index goal 0)
+              (when-let [sol (try (synth* (:tc est) (elab-env est) index goal 0)
                                   (catch Throwable _ nil))]
                 (solve-mvar! est id sol)
                 ;; Unify the instance's concrete type with the goal so universe
@@ -1643,7 +1662,8 @@
                (assoc :prop-ctx true))
          expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))]
      (check-expected! est expr expected)
-     (finalize-elaboration mode est expr))))
+     (let [result (finalize-elaboration mode (refresh-env est) expr)]
+       (if (:return-env? opts) {:env (elab-env est) :expr result} result)))))
 
 (defn elaborate
   "Elaborate an s-expression into a fully explicit Ansatz Expr.
@@ -1702,6 +1722,13 @@
    (elaborate* :strict env lctx sexpr expected))
   ([env lctx sexpr expected opts]
    (elaborate* :strict env lctx sexpr expected opts)))
+
+(defn elaborate-in-context-with-env
+  "Elaborate with a local auxiliary-declaration environment, returning {:env :expr}.
+   Lean's CoreM environment is carried only by the opted-in definition path."
+  [environment lctx sexpr expected opts]
+  (elaborate* :strict environment lctx sexpr expected
+              (assoc opts :env-ref (or (:env-ref opts) (atom environment)) :return-env? true)))
 
 (defn elaborate-in-context-collecting
   "Contextual variant of `elaborate-collecting`."

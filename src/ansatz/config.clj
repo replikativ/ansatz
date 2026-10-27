@@ -7,6 +7,11 @@
    candidate limits used throughout the Ansatz tactic and kernel layers.
    All values are dynamic vars that can be overridden via `binding`.")
 
+(def ^:dynamic *lean-matchers*
+  "Compile matches in non-recursive verified definitions through generated,
+   kernel-checked matcher declarations. Recursive definitions retain their current path."
+  false)
+
 ;; -- Kernel fuel --
 (def ^:dynamic *default-fuel*
   "Default fuel for interactive Java TypeChecker operations (20M steps).
