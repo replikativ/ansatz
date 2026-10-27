@@ -113,16 +113,16 @@
 
 (defn lemma-keys
   "The simp entries `[name key-str]` — one per rule — for every @[simp] lemma in `names`,
-   resolved via `resolve-fn : name-str → ConstantInfo|nil` (a nil or a failing keying is
-   skipped, as is a key longer than `max-key-len`). The one-time, type-forcing keying pass
+   resolved via `resolve-fn : name-str → ConstantInfo|nil` (a nil declaration is
+   skipped, as is a key longer than `max-key-len`; keying errors propagate). The one-time, type-forcing keying pass
    the importer runs. Lemmas' rfl-flags come from their PROOFS, so the resolver must keep
    theorem values for these names (:keep-value?)."
   [names env resolve-fn & {:keys [max-key-len] :or {max-key-len 120}}]
   (let [st (tc/mk-tc-state env)]
     (into []
           (mapcat (fn [nam]
-                    (let [ci (try (resolve-fn nam) (catch Throwable _ nil))
-                          ks (when ci (try (lemma-lhs-keys st env ci) (catch Throwable _ nil)))]
+                    (let [ci (resolve-fn nam)
+                          ks (when ci (lemma-lhs-keys st env ci))]
                       (keep (fn [k] (when (< (count k) max-key-len) [nam (pr-str k)])) ks))))
           names)))
 
@@ -171,16 +171,15 @@
 (defn rules-for
   "The extracted simp rule(s) for lemma `name-str`, at its inherited @[simp] priority
    (ansatz.attrs' :simp-priorities extension, Lean's default otherwise), memoized per immutable Env identity.
-   A name that fails to resolve or extract memoizes as [] so it is tried once."
+   A missing declaration or an inapplicable lemma memoizes as []; errors propagate."
   [env name-str]
   (let [p env
         cache (let [c @rule-cache] (if (identical? (:path c) p) c (reset! rule-cache {:path p :rules {}})))]
     (if-let [hit (find (:rules cache) name-str)]
       (val hit)
       (let [prio (get (env/get-extension env :simp-priorities {}) name-str @default-simp-priority)
-            rules (or (try (when-let [ci (env/lookup env (nm/from-string name-str))]
-                             (@extract-simp-lemma env ci prio))
-                           (catch Throwable _ nil))
+            rules (or (when-let [ci (env/lookup env (nm/from-string name-str))]
+                        (@extract-simp-lemma env ci prio))
                       [])
             rules (vec rules)]
         (swap! rule-cache (fn [c] (if (identical? (:path c) p) (assoc-in c [:rules name-str] rules) c)))

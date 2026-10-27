@@ -60,6 +60,9 @@
 (def ^:private iff-name (name/from-string "Iff"))
 (def ^:private true-name (name/from-string "True"))
 (def ^:private false-name (name/from-string "False"))
+
+(defn- true-const? [t] (and (e/const? t) (= "True" (name/->string (e/const-name t)))))
+(defn- false-const? [t] (and (e/const? t) (= (e/const-name t) false-name)))
 (def ^:private eq-refl-name (name/from-string "Eq.refl"))
 (def ^:private eq-trans-name (name/from-string "Eq.trans"))
 (def ^:private true-intro-name (name/from-string "True.intro"))
@@ -100,6 +103,8 @@
   ([expr] {:expr expr :proof? nil :cache true})
   ([expr proof] {:expr expr :proof? proof :cache true}))
 
+(declare tactic-error!)
+
 (defn- mk-eq-trans
   "Compose two simp results via Eq.trans.
    r1 proves a = b, r2 proves b = c, returns a = c."
@@ -108,14 +113,14 @@
     (nil? (:proof? r1)) r2
     (nil? (:proof? r2)) (assoc r1 :expr (:expr r2))
     :else
-    (let [ty (try (tc/infer-type st (:proof? r1)) (catch Exception _ nil))
+    (let [ty (tc/infer-type st (:proof? r1))
           ty-whnf (when ty (#'tc/cached-whnf st ty))
           [head args] (when ty-whnf (e/get-app-fn-args ty-whnf))
           alpha (when (and head (e/const? head) (= (e/const-name head) eq-name)
                            (= 3 (count args)))
                   (nth args 0))
           u (when alpha
-              (let [s (try (tc/infer-type st alpha) (catch Exception _ nil))
+              (let [s (tc/infer-type st alpha)
                     sw (when s (#'tc/cached-whnf st s))]
                 (when (and sw (e/sort? sw)) (e/sort-level sw))))]
       (if (and alpha u)
@@ -124,33 +129,18 @@
                          alpha (nth args 1) (nth args 2) (:expr r2)
                          (:proof? r1) (:proof? r2))
          :cache (and (:cache r1) (:cache r2))}
-        ;; Composition failed — keep r1's proof (which is valid) with r2's expr
-        ;; The kernel will accept this since r1's RHS and r2's expr should be def-eq
-        (assoc r1 :expr (:expr r2))))))
+        ;; Lean Simp/Types.lean Result.mkEqTrans requires both equality proofs.
+        (tactic-error! "cannot compose equality proofs" {:proof-construction true :result r1})))))
 
 ;; ============================================================
 ;; Congruence proof builders — following Lean 4's Types.lean
 ;; ============================================================
 
 (defn- safe-infer [st e]
-  (try (tc/infer-type st e)
-       (catch Exception _
-      ;; Fallback: try Java TypeChecker with more fuel for complex proof terms
-         (try
-           (let [tc (ansatz.kernel.TypeChecker. (:env st))]
-             (.setFuel tc config/*high-fuel*)
-             (.inferType tc e))
-           (catch Exception _ nil)))))
+  (tc/infer-type st e))
 
 (defn- safe-whnf [st e]
-  (try (#'tc/cached-whnf st e)
-       (catch Exception _
-      ;; Fallback: try Java TypeChecker's whnf for deep chains
-         (try
-           (let [tc (ansatz.kernel.TypeChecker. (:env st))]
-             (.setFuel tc config/*default-fuel*)
-             (.whnf tc e))
-           (catch Exception _ nil)))))
+  (#'tc/cached-whnf st e))
 
 (defn- get-sort-level [st e]
   (let [ty (safe-infer st e)
@@ -164,35 +154,33 @@
   ([st f-result a orig-f1 orig-f2]
    (if (nil? (:proof? f-result))
      (mk-result (e/app (:expr f-result) a))
-     (try
-       (let [h (:proof? f-result)
-             h-type (safe-infer st h)
-             h-whnf (when h-type (safe-whnf st h-type))
-             [head args] (when h-whnf (e/get-app-fn-args h-whnf))
+     (let [h (:proof? f-result)
+           h-type (safe-infer st h)
+           h-whnf (when h-type (safe-whnf st h-type))
+           [head args] (when h-whnf (e/get-app-fn-args h-whnf))
             ;; Fallback: infer fn-type from f1 directly
-             [fn-type f1 f2]
-             (if (and head (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
-               [(nth args 0) (nth args 1) (nth args 2)]
+           [fn-type f1 f2]
+           (if (and head (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+             [(nth args 0) (nth args 1) (nth args 2)]
               ;; Fallback: use orig-f1/orig-f2 if available, infer type from f1
-               (let [f1 (or orig-f1 (:expr f-result))
-                     f2 (or orig-f2 (:expr f-result))
-                     ft (safe-infer st f1)]
-                 (when ft [ft f1 f2])))]
-         (if fn-type
-           (let [fn-type-whnf (or (safe-whnf st fn-type) fn-type)
-                 alpha (if (e/forall? fn-type-whnf) (e/forall-type fn-type-whnf) fn-type-whnf)
-                 beta-body (if (e/forall? fn-type-whnf) (e/forall-body fn-type-whnf) fn-type-whnf)
-                 beta (e/lam "a" alpha beta-body :default)
-                 u (get-sort-level st alpha)
-                 result-type (safe-infer st (e/app f1 a))
-                 v (if result-type (get-sort-level st result-type) lvl/zero)]
-             {:expr (e/app (:expr f-result) a)
+             (let [f1 (or orig-f1 (:expr f-result))
+                   f2 (or orig-f2 (:expr f-result))
+                   ft (safe-infer st f1)]
+               (when ft [ft f1 f2])))]
+       (if fn-type
+         (let [fn-type-whnf (or (safe-whnf st fn-type) fn-type)
+               alpha (if (e/forall? fn-type-whnf) (e/forall-type fn-type-whnf) fn-type-whnf)
+               beta-body (if (e/forall? fn-type-whnf) (e/forall-body fn-type-whnf) fn-type-whnf)
+               beta (e/lam "a" alpha beta-body :default)
+               u (get-sort-level st alpha)
+               result-type (safe-infer st (e/app f1 a))
+               v (if result-type (get-sort-level st result-type) lvl/zero)]
+           {:expr (e/app (:expr f-result) a)
              ;; congrFun.{u,v} {α} {β} {f₁} {f₂} h a
-              :proof? (e/app* (e/const' congr-fun-name [u v])
-                              alpha beta f1 f2 h a)
-              :cache true})
-           (mk-result (e/app (:expr f-result) a))))
-       (catch Exception _ (mk-result (e/app (:expr f-result) a)))))))
+            :proof? (e/app* (e/const' congr-fun-name [u v])
+                            alpha beta f1 f2 h a)
+            :cache true})
+         (tactic-error! "cannot build congrFun proof" {:proof-construction true}))))))
 
 (defn- mk-congr-arg
   "congrArg f h : f a₁ = f a₂, given h : a₁ = a₂.
@@ -202,31 +190,29 @@
   ([st f a-result orig-a1 orig-a2]
    (if (nil? (:proof? a-result))
      (mk-result (e/app f (:expr a-result)))
-     (try
-       (let [h (:proof? a-result)
+     (let [h (:proof? a-result)
              ;; Try to get alpha, a1, a2 from proof type
-             h-type (safe-infer st h)
-             h-whnf (when h-type (safe-whnf st h-type))
-             [head args] (when h-whnf (e/get-app-fn-args h-whnf))
+           h-type (safe-infer st h)
+           h-whnf (when h-type (safe-whnf st h-type))
+           [head args] (when h-whnf (e/get-app-fn-args h-whnf))
              ;; Fall back to inferring alpha from orig-a1 if proof type unavailable
-             [alpha a1 a2]
-             (if (and head (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
-               [(nth args 0) (nth args 1) (nth args 2)]
+           [alpha a1 a2]
+           (if (and head (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+             [(nth args 0) (nth args 1) (nth args 2)]
                ;; Fallback: use orig-a1/orig-a2 and infer alpha from the argument type
-               (let [a1 (or orig-a1 (:orig a-result))
-                     a2 (or orig-a2 (:expr a-result))
-                     alpha (when a1 (safe-infer st a1))]
-                 (when (and alpha a1 a2) [alpha a1 a2])))]
-         (if (and alpha a1 a2)
-           (let [u (get-sort-level st alpha)
-                 beta (safe-infer st (e/app f a1))
-                 v (if beta (get-sort-level st beta) lvl/zero)]
-             {:expr (e/app f (:expr a-result))
-              :proof? (e/app* (e/const' congr-arg-name [u v])
-                              alpha beta a1 a2 f h)
-              :cache true})
-           (mk-result (e/app f (:expr a-result)))))
-       (catch Exception _ (mk-result (e/app f (:expr a-result))))))))
+             (let [a1 (or orig-a1 (:orig a-result))
+                   a2 (or orig-a2 (:expr a-result))
+                   alpha (when a1 (safe-infer st a1))]
+               (when (and alpha a1 a2) [alpha a1 a2])))]
+       (if (and alpha a1 a2)
+         (let [u (get-sort-level st alpha)
+               beta (safe-infer st (e/app f a1))
+               v (if beta (get-sort-level st beta) lvl/zero)]
+           {:expr (e/app f (:expr a-result))
+            :proof? (e/app* (e/const' congr-arg-name [u v])
+                            alpha beta a1 a2 f h)
+            :cache true})
+         (tactic-error! "cannot build congrArg proof" {:proof-construction true}))))))
 
 (defn- mk-congr
   "congr hf ha : f₁ a₁ = f₂ a₂. Optimizes reflexivity cases."
@@ -242,27 +228,24 @@
     (mk-congr-arg st (:expr f-result) a-result orig-a (:expr a-result))
 
     :else
-    (try
-      (let [ha (:proof? a-result)
-            ha-type (safe-infer st ha)
-            ha-whnf (when ha-type (safe-whnf st ha-type))
-            [head args] (when ha-whnf (e/get-app-fn-args ha-whnf))]
-        (if (and head (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
-          (let [alpha (nth args 0)       ;; α (arg type)
-                u (get-sort-level st alpha)
-                beta (safe-infer st (e/app orig-f orig-a))  ;; β (result type)
-                v (if beta (get-sort-level st beta) lvl/zero)]
-            {:expr (e/app (:expr f-result) (:expr a-result))
+    (let [ha (:proof? a-result)
+          ha-type (safe-infer st ha)
+          ha-whnf (when ha-type (safe-whnf st ha-type))
+          [head args] (when ha-whnf (e/get-app-fn-args ha-whnf))]
+      (if (and head (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+        (let [alpha (nth args 0)       ;; α (arg type)
+              u (get-sort-level st alpha)
+              beta (safe-infer st (e/app orig-f orig-a))  ;; β (result type)
+              v (if beta (get-sort-level st beta) lvl/zero)]
+          {:expr (e/app (:expr f-result) (:expr a-result))
              ;; congr.{u,v} {α} {β} {f₁} {f₂} {a₁} {a₂} hf ha
-             :proof? (e/app* (e/const' congr-name [u v])
-                             alpha beta
-                             orig-f (:expr f-result)
-                             orig-a (:expr a-result)
-                             (:proof? f-result) (:proof? a-result))
-             :cache true})
-          (mk-result (e/app (:expr f-result) (:expr a-result)))))
-      (catch Exception _
-        (mk-result (e/app (:expr f-result) (:expr a-result)))))))
+           :proof? (e/app* (e/const' congr-name [u v])
+                           alpha beta
+                           orig-f (:expr f-result)
+                           orig-a (:expr a-result)
+                           (:proof? f-result) (:proof? a-result))
+           :cache true})
+        (tactic-error! "cannot build congr proof" {:proof-construction true})))))
 
 (defn- mk-implies-congr
   "implies_congr hp hq : (p₁ → q₁) = (p₂ → q₂).
@@ -273,32 +256,46 @@
     (mk-result (e/arrow (:expr p-result) (:expr q-result)))
 
     :else
-    (try
+
       ;; implies_congr.{u,v} (a₁ a₂ : Sort u) (b₁ b₂ : Sort v) (ha)(hb) : (a₁→b₁)=(a₂→b₂)
       ;; u,v are the sorts of the antecedent p and consequent q (Lean's mkImpCongr).
       ;; ha : Eq.{u+1} (Sort u) p₁ p₂, so refl fallback is Eq.refl.{u+1} (Sort u) p.
-      (let [u (get-sort-level st orig-p)
-            v (get-sort-level st orig-q)
-            hp (or (:proof? p-result)
-                   (e/app* (e/const' eq-refl-name [(lvl/succ u)])
-                           (e/sort' u) orig-p))
-            hq (or (:proof? q-result)
-                   (e/app* (e/const' eq-refl-name [(lvl/succ v)])
-                           (e/sort' v) orig-q))]
-        {:expr (e/arrow (:expr p-result) (:expr q-result))
-         :proof? (e/app* (e/const' implies-congr-name [u v])
-                         orig-p (:expr p-result)
-                         orig-q (:expr q-result) hp hq)
-         :cache true})
-      (catch Exception _
-        (mk-result (e/arrow (:expr p-result) (:expr q-result)))))))
+    (let [u (get-sort-level st orig-p)
+          v (get-sort-level st orig-q)
+          hp (or (:proof? p-result)
+                 (e/app* (e/const' eq-refl-name [(lvl/succ u)])
+                         (e/sort' u) orig-p))
+          hq (or (:proof? q-result)
+                 (e/app* (e/const' eq-refl-name [(lvl/succ v)])
+                         (e/sort' v) orig-q))]
+      {:expr (e/arrow (:expr p-result) (:expr q-result))
+       :proof? (e/app* (e/const' implies-congr-name [u v])
+                       orig-p (:expr p-result)
+                       orig-q (:expr q-result) hp hq)
+       :cache true})))
 
 ;; ============================================================
 ;; Error helpers
 ;; ============================================================
 
 (defn- tactic-error! [msg data]
-  (throw (ex-info (str "simp: " msg) (merge {:kind :tactic-error} data))))
+  (throw (ex-info (str "Tactic error: simp: " msg) (merge {:kind :tactic-error} data))))
+
+(def ^:dynamic ^:private *simp-recursion* {:rec-depth 0})
+
+(defn- check-rec-depth! [depth expr]
+  (when (> depth 512)
+    (tactic-error! "maximum recursion depth exceeded (maxRecDepth = 512)"
+                   {:expr expr :limit :max-rec-depth :max-rec-depth 512})))
+
+(defmacro ^:private with-inc-rec-depth [frames expr & body]
+  ;; Lean/Exception.lean withIncRecDepth; Simp/Main.lean simpImpl/simpLoop
+  ;; and Meta/Transform.lean transformWithCache share one recursion context.
+  `(let [context# (update *simp-recursion* :rec-depth + ~frames)]
+     (check-rec-depth! (:rec-depth context#) ~expr)
+     (binding [*simp-recursion* context#]
+       ~@body)))
+
 
 ;; ============================================================
 ;; Perm detection — Lean 4's isPerm (SimpTheorems.lean:261-273)
@@ -317,36 +314,37 @@
    modulo permutation of bound variables (bvars).
    Returns true if a and b differ only in which bvar appears where."
   [a b]
-  (cond
+  (with-inc-rec-depth 1 a
+    (cond
     ;; Both apps — recurse on fn and arg (Lean 4: .app f₁ a₁, .app f₂ a₂)
-    (and (e/app? a) (e/app? b))
-    (and (is-perm? (e/app-fn a) (e/app-fn b))
-         (is-perm? (e/app-arg a) (e/app-arg b)))
+      (and (e/app? a) (e/app? b))
+      (and (is-perm? (e/app-fn a) (e/app-fn b))
+           (is-perm? (e/app-arg a) (e/app-arg b)))
 
     ;; Both bvars — permutable (Lean 4: .mvar, .mvar => isDefEq)
-    (and (e/bvar? a) (e/bvar? b)) true
+      (and (e/bvar? a) (e/bvar? b)) true
 
     ;; Both foralls — recurse on domain and body
-    (and (e/forall? a) (e/forall? b))
-    (and (is-perm? (e/forall-type a) (e/forall-type b))
-         (is-perm? (e/forall-body a) (e/forall-body b)))
+      (and (e/forall? a) (e/forall? b))
+      (and (is-perm? (e/forall-type a) (e/forall-type b))
+           (is-perm? (e/forall-body a) (e/forall-body b)))
 
     ;; Both lambdas — recurse on domain and body
-    (and (e/lam? a) (e/lam? b))
-    (and (is-perm? (e/lam-type a) (e/lam-type b))
-         (is-perm? (e/lam-body a) (e/lam-body b)))
+      (and (e/lam? a) (e/lam? b))
+      (and (is-perm? (e/lam-type a) (e/lam-type b))
+           (is-perm? (e/lam-body a) (e/lam-body b)))
 
     ;; Both projs — same index, recurse on struct
-    (and (e/proj? a) (e/proj? b))
-    (and (= (e/proj-idx a) (e/proj-idx b))
-         (is-perm? (e/proj-struct a) (e/proj-struct b)))
+      (and (e/proj? a) (e/proj? b))
+      (and (= (e/proj-idx a) (e/proj-idx b))
+           (is-perm? (e/proj-struct a) (e/proj-struct b)))
 
     ;; Strip mdata
-    (e/mdata? a) (is-perm? (e/mdata-expr a) b)
-    (e/mdata? b) (is-perm? a (e/mdata-expr b))
+      (e/mdata? a) (is-perm? (e/mdata-expr a) b)
+      (e/mdata? b) (is-perm? a (e/mdata-expr b))
 
     ;; Default — strict structural equality (Lean 4: s == t)
-    :else (= a b)))
+      :else (= a b))))
 
 ;; ============================================================
 ;; Simp lemma representation and extraction
@@ -371,34 +369,35 @@
    and general prop→True.
    Lean 4: SimpTheorems.lean:324-359 — preprocess + shouldPreprocess."
   [env cname level-params num-params rfl-flag priority ty]
-  (let [[head args] (e/get-app-fn-args ty)]
-    (cond
+  (with-inc-rec-depth 1 ty
+    (let [[head args] (e/get-app-fn-args ty)]
+      (cond
       ;; Eq: standard rewrite lemma (lhs = rhs)
-      (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
-      (let [lhs (nth args 1) rhs (nth args 2)
-            [lhs-head _] (e/get-app-fn-args lhs)
-            lhs-nargs (count (e/get-app-args lhs))
-            head-name (when (e/const? lhs-head) (e/const-name lhs-head))
+        (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+        (let [lhs (nth args 1) rhs (nth args 2)
+              [lhs-head _] (e/get-app-fn-args lhs)
+              lhs-nargs (count (e/get-app-args lhs))
+              head-name (when (e/const? lhs-head) (e/const-name lhs-head))
             ;; Detect perm: LHS and RHS are identical modulo variable permutation
             ;; Lean 4: isPerm (SimpTheorems.lean:261-273)
-            perm (is-perm? lhs rhs)]
-        [{:name cname :level-params level-params :num-params num-params
-          :lhs-pattern lhs :rhs rhs :eq-type (nth args 0)
-          :kind :eq :priority priority :perm perm :rfl rfl-flag
-          :head-name head-name :lhs-nargs lhs-nargs}])
+              perm (is-perm? lhs rhs)]
+          [{:name cname :level-params level-params :num-params num-params
+            :lhs-pattern lhs :rhs rhs :eq-type (nth args 0)
+            :kind :eq :priority priority :perm perm :rfl rfl-flag
+            :head-name head-name :lhs-nargs lhs-nargs}])
 
       ;; Iff: bidirectional rewrite (P ↔ Q)
-      (and (e/const? head) (= (e/const-name head) iff-name) (= 2 (count args)))
-      (let [lhs (nth args 0) rhs (nth args 1)
-            [lhs-head _] (e/get-app-fn-args lhs)
-            lhs-nargs (count (e/get-app-args lhs))
-            head-name (when (e/const? lhs-head) (e/const-name lhs-head))
+        (and (e/const? head) (= (e/const-name head) iff-name) (= 2 (count args)))
+        (let [lhs (nth args 0) rhs (nth args 1)
+              [lhs-head _] (e/get-app-fn-args lhs)
+              lhs-nargs (count (e/get-app-args lhs))
+              head-name (when (e/const? lhs-head) (e/const-name lhs-head))
             ;; Detect perm: Lean 4's isPerm
-            perm (is-perm? lhs rhs)]
-        [{:name cname :level-params level-params :num-params num-params
-          :lhs-pattern lhs :rhs rhs :eq-type nil
-          :kind :iff :priority priority :perm perm :rfl false
-          :head-name head-name :lhs-nargs lhs-nargs}])
+              perm (is-perm? lhs rhs)]
+          [{:name cname :level-params level-params :num-params num-params
+            :lhs-pattern lhs :rhs rhs :eq-type nil
+            :kind :iff :priority priority :perm perm :rfl false
+            :head-name head-name :lhs-nargs lhs-nargs}])
 
       ;; Not P → P = False
       ;; In Ansatz, Not P = ∀ _ : P, False. After stripping all outer foralls,
@@ -407,90 +406,90 @@
       ;; num-params stays as the outer forall count — the Not-forall is NOT a
       ;; matchable param. raw-proof applied to outer params yields ¬P, then
       ;; we wrap with eq_false.
-      (and (e/forall? ty)
-           (let [body (e/forall-body ty)]
-             (and (e/const? body) (= (e/const-name body) false-name))))
-      (let [p (e/forall-type ty)
-            [p-head p-args] (e/get-app-fn-args p)]
-        (if (and (e/const? p-head) (= (e/const-name p-head) eq-name) (= 3 (count p-args)))
+        (and (e/forall? ty)
+             (let [body (e/forall-body ty)]
+               (and (e/const? body) (= (e/const-name body) false-name))))
+        (let [p (e/forall-type ty)
+              [p-head p-args] (e/get-app-fn-args p)]
+          (if (and (e/const? p-head) (= (e/const-name p-head) eq-name) (= 3 (count p-args)))
           ;; Ne a b → (a = b) = False
           ;; P is @Eq α a b, so lhs = @Eq α a b, rhs = False
-          (let [lhs p  ;; @Eq α a b
-                rhs (e/const' false-name [])
-                [lhs-head _] (e/get-app-fn-args lhs)
-                lhs-nargs (count (e/get-app-args lhs))
-                head-name (when (e/const? lhs-head) (e/const-name lhs-head))]
-            [{:name cname :level-params level-params
-              :num-params num-params
-              :lhs-pattern lhs :rhs rhs
-              :eq-type (e/sort' lvl/zero)
-              :kind :ne-false :priority priority :perm false :rfl false
-              :head-name head-name :lhs-nargs lhs-nargs}])
+            (let [lhs p  ;; @Eq α a b
+                  rhs (e/const' false-name [])
+                  [lhs-head _] (e/get-app-fn-args lhs)
+                  lhs-nargs (count (e/get-app-args lhs))
+                  head-name (when (e/const? lhs-head) (e/const-name lhs-head))]
+              [{:name cname :level-params level-params
+                :num-params num-params
+                :lhs-pattern lhs :rhs rhs
+                :eq-type (e/sort' lvl/zero)
+                :kind :ne-false :priority priority :perm false :rfl false
+                :head-name head-name :lhs-nargs lhs-nargs}])
           ;; General Not P → P = False
-          (let [lhs p
-                rhs (e/const' false-name [])
-                [lhs-head _] (e/get-app-fn-args lhs)
-                lhs-nargs (count (e/get-app-args lhs))
-                head-name (when (e/const? lhs-head) (e/const-name lhs-head))]
-            [{:name cname :level-params level-params
-              :num-params num-params
-              :lhs-pattern lhs :rhs rhs
-              :eq-type (e/sort' lvl/zero)
-              :kind :not-false :priority priority :perm false :rfl false
-              :head-name head-name :lhs-nargs lhs-nargs}])))
+            (let [lhs p
+                  rhs (e/const' false-name [])
+                  [lhs-head _] (e/get-app-fn-args lhs)
+                  lhs-nargs (count (e/get-app-args lhs))
+                  head-name (when (e/const? lhs-head) (e/const-name lhs-head))]
+              [{:name cname :level-params level-params
+                :num-params num-params
+                :lhs-pattern lhs :rhs rhs
+                :eq-type (e/sort' lvl/zero)
+                :kind :not-false :priority priority :perm false :rfl false
+                :head-name head-name :lhs-nargs lhs-nargs}])))
 
       ;; And P Q: split into two lemmas by recursing on each conjunct
       ;; Lean 4: SimpTheorems.lean:337-344 (preprocess And)
       ;; Proof wrapping: And.left {P} {Q} proof / And.right {P} {Q} proof
       ;; We store :and-proj — a vector of {:side :left/:right, :args [P Q]}
       ;; steps to support nested And (e.g. And (And P Q) R).
-      (and (e/const? head) (= (e/const-name head) and-name) (= 2 (count args)))
-      (let [p (nth args 0)
-            q (nth args 1)
-            proj-step-left {:side :left :args [p q]}
-            proj-step-right {:side :right :args [p q]}
-            left-lemmas (extract-from-conclusion env cname level-params num-params
-                                                 rfl-flag priority p)
-            right-lemmas (extract-from-conclusion env cname level-params num-params
-                                                  rfl-flag priority q)
+        (and (e/const? head) (= (e/const-name head) and-name) (= 2 (count args)))
+        (let [p (nth args 0)
+              q (nth args 1)
+              proj-step-left {:side :left :args [p q]}
+              proj-step-right {:side :right :args [p q]}
+              left-lemmas (extract-from-conclusion env cname level-params num-params
+                                                   rfl-flag priority p)
+              right-lemmas (extract-from-conclusion env cname level-params num-params
+                                                    rfl-flag priority q)
             ;; Prepend this level's projection step to any existing :and-proj chain
-            add-proj (fn [step lemma]
-                       (update lemma :and-proj #(into [step] %)))]
-        (into (vec (map #(add-proj proj-step-left %) left-lemmas))
-              (map #(add-proj proj-step-right %)) right-lemmas))
+              add-proj (fn [step lemma]
+                         (update lemma :and-proj #(into [step] %)))]
+          (into (vec (map #(add-proj proj-step-left %) left-lemmas))
+                (map #(add-proj proj-step-right %)) right-lemmas))
 
       ;; General proposition P (not Eq/Iff/Not/Ne/And): preprocess to P = True
       ;; Lean 4: SimpTheorems.lean:353-359 (preprocess else branch)
       ;; Guard: only for Prop-typed conclusions (not Type like Bool, List, etc.)
       ;; Without this guard, functions returning Bool (like sorted) generate
       ;; Bool → True rewrites that corrupt motive bodies.
-      (and (e/const? head)
-           (not= (e/const-name head) true-name)
-           (not= (e/const-name head) false-name)
+        (and (e/const? head)
+             (not= (e/const-name head) true-name)
+             (not= (e/const-name head) false-name)
            ;; Check the conclusion lives in Prop: look up head constant,
            ;; if it IS a type (its own type is Sort u, u > 0), skip it.
-           (not (when-let [^ConstantInfo ci-head (env/lookup env (e/const-name head))]
-                  (let [ht (.type ci-head)]
-                    (or (e/sort? ht)
+             (not (when-let [^ConstantInfo ci-head (env/lookup env (e/const-name head))]
+                    (let [ht (.type ci-head)]
+                      (or (e/sort? ht)
                         ;; If head type starts with a forall, check result sort
                         ;; (e.g., List : Type → Type is NOT Prop)
-                        (and (e/forall? ht)
-                             (let [result-type (loop [t ht]
-                                                 (if (e/forall? t) (recur (e/forall-body t)) t))]
-                               (and (e/sort? result-type)
-                                    (not= (e/sort-level result-type) lvl/zero)))))))))
-      (let [lhs ty  ;; The whole proposition becomes the LHS
-            rhs (e/const' true-name [])
-            [lhs-head _] (e/get-app-fn-args lhs)
-            lhs-nargs (count (e/get-app-args lhs))
-            head-name (when (e/const? lhs-head) (e/const-name lhs-head))]
-        [{:name cname :level-params level-params :num-params num-params
-          :lhs-pattern lhs :rhs rhs
-          :eq-type (e/sort' lvl/zero)  ;; Prop = Sort 0
-          :kind :prop-true :priority priority :perm false :rfl false
-          :head-name head-name :lhs-nargs lhs-nargs}])
+                          (and (e/forall? ht)
+                               (let [result-type (loop [t ht]
+                                                   (if (e/forall? t) (recur (e/forall-body t)) t))]
+                                 (and (e/sort? result-type)
+                                      (not= (e/sort-level result-type) lvl/zero)))))))))
+        (let [lhs ty  ;; The whole proposition becomes the LHS
+              rhs (e/const' true-name [])
+              [lhs-head _] (e/get-app-fn-args lhs)
+              lhs-nargs (count (e/get-app-args lhs))
+              head-name (when (e/const? lhs-head) (e/const-name lhs-head))]
+          [{:name cname :level-params level-params :num-params num-params
+            :lhs-pattern lhs :rhs rhs
+            :eq-type (e/sort' lvl/zero)  ;; Prop = Sort 0
+            :kind :prop-true :priority priority :perm false :rfl false
+            :head-name head-name :lhs-nargs lhs-nargs}])
 
-      :else nil)))
+        :else nil))))
 
 (defn- extract-simp-lemma
   "Extract simp lemma(s) from a constant's type.
@@ -562,7 +561,9 @@
   ([lemma-index expr] (dt/lookup-simp-tree lemma-index expr))
   ([st env lemma-index expr] (dt/lookup-simp-tree st env lemma-index expr))
   ([st env lemma-index expr config]
-   (let [eager (dt/lookup-simp-tree st env lemma-index expr)]
+   (let [;; An empty trie has no candidates and needs no type-forcing keying.
+         eager (when (or (seq (:children lemma-index)) (seq (:values lemma-index)))
+                 (dt/lookup-simp-tree st env lemma-index expr))]
      (if-let [trie (:ext-trie config)]
        (concat eager (si/candidate-rules trie st env expr))
        eager))))
@@ -593,14 +594,24 @@
         ok (atom true)
         env (:env st)]
     (letfn [(go [p t depth]
+              (with-inc-rec-depth 1 p
                 (when @ok
+                  ;; Lean tryTheoremCore matches with reducible isDefEq. Normalize
+                  ;; both heads with the same reduction used by the index first.
+                  (let [p (dt/reduce-dt env p false)
+                        t (dt/reduce-dt env t false)]
                   (cond
                     (and (e/bvar? p) (>= (e/bvar-idx p) depth))
                     (let [param-idx (- (e/bvar-idx p) depth)]
-                      (if-let [existing (get @subst param-idx)]
-                        (when-not (tc/is-def-eq st existing t)
-                          (reset! ok false))
-                        (swap! subst assoc param-idx t)))
+                      ;; Lean's scoped metavariables cannot capture a binder
+                      ;; introduced while matching. Extracted pattern bvars are
+                      ;; telescope parameters, so their values must be closed.
+                      (if (e/has-loose-bvars? t)
+                        (reset! ok false)
+                        (if-let [existing (get @subst param-idx)]
+                          (when-not (tc/is-def-eq st existing t)
+                            (reset! ok false))
+                          (swap! subst assoc param-idx t))))
 
                   ;; OfNat.ofNat pattern vs literal target
                     (and (e/app? p) (e/lit-nat? t))
@@ -632,18 +643,21 @@
                                                 (= :inst-implicit (nth p-infos last-idx)))]
                              (go (e/app-fn p) (e/app-fn t) depth)
                              (if skip-last
-                               ;; instance-implicit arg: don't structurally match (tolerate
-                               ;; a def-eq-different instance), but BIND the param to the
-                               ;; TARGET's instance so the lemma RHS can reference it. Lean 4
-                               ;; (Simp/Rewrite.lean tryTheoremCore) assigns the instance
-                               ;; metavar via `isDefEq lhs e`; skipping it without binding
-                               ;; broke lemmas whose RHS uses the instance (e.g.
-                               ;; List.lookup_cons → `BEq.beq … k a`).
+                               ;; Bind parameters inside instance arguments while
+                               ;; tolerating definitionally equal instance spellings.
                                (let [pa (e/app-arg p)]
-                                 (when (and (e/bvar? pa) (>= (e/bvar-idx pa) depth))
-                                   (let [pidx (- (e/bvar-idx pa) depth)]
-                                     (when-not (contains? @subst pidx)
-                                       (swap! subst assoc pidx (e/app-arg t))))))
+                                 ;; Lean Rewrite.lean tryTheoremCore unifies the
+                                 ;; entire instance argument. Parameters can occur
+                                 ;; INSIDE it: instBEqOfDecidableEq α dec is the only
+                                 ;; occurrence of `dec` in lookup_filter_ne's LHS.
+                                 ;; Preserve the defeq-instance fallback if the
+                                 ;; structural spelling does not expose parameters.
+                                 (when (and @ok (e/has-loose-bvars? pa))
+                                   (let [saved @subst]
+                                     (go pa (e/app-arg t) depth)
+                                     (when-not @ok
+                                       (reset! subst saved)
+                                       (reset! ok true)))))
                                (go (e/app-arg p) (e/app-arg t) depth)))
                       :lam (do (go (e/lam-type p) (e/lam-type t) depth)
                                (go (e/lam-body p) (e/lam-body t) (inc depth)))
@@ -660,8 +674,12 @@
                   ;; Tags don't match structurally — try def-eq as fallback
                   ;; This handles instance-implicit args where the pattern has
                   ;; AddCommMagma.toAdd but the target has Real.instAdd (def-eq via chain)
-                    :else (when-not (try (tc/is-def-eq st p t) (catch Exception _ false))
-                            (reset! ok false)))))]
+                    ;; Extracted patterns contain loose parameter bvars; they are
+                    ;; placeholders, not terms the kernel can compare (Lean uses mvars).
+                    :else (when-not (and (not (e/has-loose-bvars? p))
+                                         (not (e/has-loose-bvars? t))
+                                         (tc/is-def-eq st p t))
+                            (reset! ok false)))))))]
       (go pattern target 0))
     (when @ok @subst)))
 
@@ -671,6 +689,7 @@
   (if (empty? subst)
     expr
     (letfn [(go [e depth]
+              (with-inc-rec-depth 1 e
                 (case (e/tag e)
                   :bvar (let [idx (e/bvar-idx e)]
                           (if (>= idx depth)
@@ -692,7 +711,7 @@
                           (if (identical? s (e/proj-struct e)) e
                               (e/proj (e/proj-type-name e) (e/proj-idx e) s)))
                   :mdata (go (e/mdata-expr e) depth)
-                  e))]
+                  e)))]
       (go expr 0))))
 
 ;; ============================================================
@@ -708,23 +727,24 @@
    matched against `Eq.{1} (List _) …` pins u=1 directly. `levels`/`resolved` are
    atoms; `lpset` is the set of the lemma's level-param names."
   [levels resolved lpset pattern target]
-  (when (and pattern target)
-    (cond
-      (and (e/const? pattern) (e/const? target)
-           (= (e/const-name pattern) (e/const-name target)))
-      (doseq [[pl tl] (map vector (e/const-levels pattern) (e/const-levels target))]
-        (when (lvl/param? pl)
-          (let [nm (lvl/param-name pl)]
-            (when (and (lpset nm) (not (@resolved nm)))
-              (swap! levels assoc nm tl)
-              (swap! resolved conj nm)))))
-      (and (e/app? pattern) (e/app? target))
-      (do (unify-pattern-levels! levels resolved lpset (e/app-fn pattern) (e/app-fn target))
-          (unify-pattern-levels! levels resolved lpset (e/app-arg pattern) (e/app-arg target)))
-      (and (e/lam? pattern) (e/lam? target))
-      (do (unify-pattern-levels! levels resolved lpset (e/lam-type pattern) (e/lam-type target))
-          (unify-pattern-levels! levels resolved lpset (e/lam-body pattern) (e/lam-body target)))
-      :else nil)))
+  (with-inc-rec-depth 1 pattern
+    (when (and pattern target)
+      (cond
+        (and (e/const? pattern) (e/const? target)
+             (= (e/const-name pattern) (e/const-name target)))
+        (doseq [[pl tl] (map vector (e/const-levels pattern) (e/const-levels target))]
+          (when (lvl/param? pl)
+            (let [nm (lvl/param-name pl)]
+              (when (and (lpset nm) (not (@resolved nm)))
+                (swap! levels assoc nm tl)
+                (swap! resolved conj nm)))))
+        (and (e/app? pattern) (e/app? target))
+        (do (unify-pattern-levels! levels resolved lpset (e/app-fn pattern) (e/app-fn target))
+            (unify-pattern-levels! levels resolved lpset (e/app-arg pattern) (e/app-arg target)))
+        (and (e/lam? pattern) (e/lam? target))
+        (do (unify-pattern-levels! levels resolved lpset (e/lam-type pattern) (e/lam-type target))
+            (unify-pattern-levels! levels resolved lpset (e/lam-body pattern) (e/lam-body target)))
+        :else nil))))
 
 (defn- infer-level-params
   "Infer universe level assignments from matched parameter values.
@@ -747,39 +767,36 @@
          (loop [i 0 ty ctype]
            (when (and (< i (:num-params lemma)) ty (e/forall? ty))
              (when-let [val (get subst i)]
-               (try
-                 (let [expected-sort (e/forall-type ty)
-                       val-ty (tc/infer-type st val)
-                       val-tw (#'tc/cached-whnf st val-ty)]
-                   (when (and (e/sort? expected-sort) (e/sort? val-tw))
-                     (let [expected-level (e/sort-level expected-sort)
-                           actual-level (e/sort-level val-tw)]
-                       (doseq [lp lparams]
-                         (when-not (@resolved lp)
-                           (let [param-lvl (lvl/param lp)
-                                 put! (fn [v] (swap! levels assoc lp v) (swap! resolved conj lp))]
-                             (cond
+               (let [expected-sort (e/forall-type ty)
+                     val-ty (tc/infer-type st val)
+                     val-tw (#'tc/cached-whnf st val-ty)]
+                 (when (and (e/sort? expected-sort) (e/sort? val-tw))
+                   (let [expected-level (e/sort-level expected-sort)
+                         actual-level (e/sort-level val-tw)]
+                     (doseq [lp lparams]
+                       (when-not (@resolved lp)
+                         (let [param-lvl (lvl/param lp)
+                               put! (fn [v] (swap! levels assoc lp v) (swap! resolved conj lp))]
+                           (cond
                                ;; Sort(u) = Sort(n) → u = n
-                               (= expected-level param-lvl) (put! actual-level)
+                             (= expected-level param-lvl) (put! actual-level)
                                ;; Sort(succ u) = Sort(n) → u = n-1
-                               (and (lvl/succ? expected-level)
-                                    (= (lvl/succ-pred expected-level) param-lvl)
-                                    (lvl/succ? actual-level))
-                               (put! (lvl/succ-pred actual-level))
+                             (and (lvl/succ? expected-level)
+                                  (= (lvl/succ-pred expected-level) param-lvl)
+                                  (lvl/succ? actual-level))
+                             (put! (lvl/succ-pred actual-level))
                                ;; Sort(succ(succ u)) = Sort(n) → u = n-2
-                               (and (lvl/succ? expected-level)
-                                    (lvl/succ? (lvl/succ-pred expected-level))
-                                    (= (lvl/succ-pred (lvl/succ-pred expected-level)) param-lvl)
-                                    (lvl/succ? actual-level)
-                                    (lvl/succ? (lvl/succ-pred actual-level)))
-                               (put! (lvl/succ-pred (lvl/succ-pred actual-level))))))))))
-                 (catch Exception _ nil)))
+                             (and (lvl/succ? expected-level)
+                                  (lvl/succ? (lvl/succ-pred expected-level))
+                                  (= (lvl/succ-pred (lvl/succ-pred expected-level)) param-lvl)
+                                  (lvl/succ? actual-level)
+                                  (lvl/succ? (lvl/succ-pred actual-level)))
+                             (put! (lvl/succ-pred (lvl/succ-pred actual-level)))))))))))
              (recur (inc i) (e/forall-body ty))))
          ;; Fallback: recover any unresolved levels by unifying the LHS pattern
          ;; against the concrete matched target.
          (when (and target (:lhs-pattern lemma) (not= (count @resolved) (count lparams)))
-           (try (unify-pattern-levels! levels resolved lpset (:lhs-pattern lemma) target)
-                (catch Exception _ nil)))
+           (unify-pattern-levels! levels resolved lpset (:lhs-pattern lemma) target))
          (mapv (fn [lp] (get @levels lp lvl/zero)) lparams))))))
 
 ;; ============================================================
@@ -811,88 +828,81 @@
       ;; Strategy 1: find matching hypothesis in local context
       (or (some (fn [[id decl]]
                   (when (and (= :local (:tag decl))
-                             (try (tc/is-def-eq st (:type decl) obligation-type)
-                                  (catch Exception _ false)))
+                             (tc/is-def-eq st (:type decl) obligation-type))
                     (e/fvar id)))
                 (:lctx st))
           ;; Strategy 2: typeclass synthesis (Lean 4: synthesizeInstance)
-          (try
-            (let [inst-index (if-let [idx (:inst-index config)]
-                               (if (instance? clojure.lang.Delay idx) @idx idx)
-                               (inst/index-for env))]
-              (inst/synthesize env inst-index obligation-type))
-            (catch Exception _ nil))
+          (let [inst-index (if-let [idx (:inst-index config)]
+                             (if (instance? clojure.lang.Delay idx) @idx idx)
+                             (inst/index-for env))]
+            (inst/synthesize* st env inst-index obligation-type 0))
           ;; Strategy 3: recursive simp with fresh cache (Lean 4: withPreservedCache)
-          (try
-            (let [r (simp-expr* st env lemma-index obligation-type
-                                (assoc config
-                                       :max-depth (min 8 (:max-depth config))
-                                       :discharge-depth (inc depth)
+          (let [r (simp-expr* st env lemma-index obligation-type
+                              (assoc config
+                                     :max-depth (min 8 (:max-depth config))
+                                     :discharge-depth (inc depth)
                                        ;; Fresh cache per discharge (Lean 4: withPreservedCache)
-                                       :cache (atom {})
-                                       :max-steps (atom 0)))
-                  rw (#'tc/cached-whnf st (:expr r))]
-              (cond
+                                     :cache (atom {})
+                                     :max-steps (atom 0)))
+                rw (#'tc/cached-whnf st (:expr r))]
+            (cond
                 ;; 3a. Simplified to True → of_eq_true
                 ;; of_eq_true : {p : Prop} → (p = True) → p
-                (and (e/const? rw) (= (e/const-name rw) true-name))
-                (if (:proof? r)
-                  (e/app* (e/const' of-eq-true-name []) obligation-type (:proof? r))
+              (and (e/const? rw) (= (e/const-name rw) true-name))
+              (if (:proof? r)
+                (e/app* (e/const' of-eq-true-name []) obligation-type (:proof? r))
                   ;; Def-eq to True: True.intro proves it
-                  (e/const' true-intro-name []))
+                (e/const' true-intro-name []))
 
                 ;; 3b. Simplified to Eq with def-eq sides → dischargeRfl
                 ;; Lean 4: Rewrite.lean:631 — if let some p ← dischargeRfl r.expr
-                (let [[h args] (e/get-app-fn-args rw)]
-                  (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count args))
-                       (try (tc/is-def-eq st (nth args 1) (nth args 2))
-                            (catch Exception _ false))))
-                (let [[_ args] (e/get-app-fn-args rw)
-                      rfl-proof (e/app* (e/const' eq-refl-name
-                                                  (e/const-levels (e/get-app-fn rw)))
-                                        (nth args 0) (nth args 1))]
-                  (if (:proof? r)
+              (let [[h args] (e/get-app-fn-args rw)]
+                (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count args))
+                     (tc/is-def-eq st (nth args 1) (nth args 2))))
+              (let [[_ args] (e/get-app-fn-args rw)
+                    rfl-proof (e/app* (e/const' eq-refl-name
+                                                (e/const-levels (e/get-app-fn rw)))
+                                      (nth args 0) (nth args 1))]
+                (if (:proof? r)
                     ;; Eq.mpr (simp-proof : obligation = (a = a)) rfl
-                    (e/app* (e/const' eq-mpr-name [lvl/zero])
-                            obligation-type (:expr r) (:proof? r) rfl-proof)
-                    rfl-proof))
+                  (e/app* (e/const' eq-mpr-name [lvl/zero])
+                          obligation-type (:expr r) (:proof? r) rfl-proof)
+                  rfl-proof))
 
-                :else nil))
-            (catch Exception _ nil))
+              :else nil))
           ;; Strategy 4: omega + decide (for linear arithmetic obligations)
           ;; Lean 4 doesn't do this in dischargeDefault?, but it's essential for
           ;; our use case (inductive proofs with arithmetic side conditions).
-          (try
+
             ;; `omega-proof/decides?` runs the REAL engine's reifier and solver and
             ;; skips only the proof extraction — so this filter agrees with the tactic
             ;; by construction. (It used to call a second, proof-free omega whose
             ;; verdicts could silently disagree with it.)
-            (let [omega-decides? (requiring-resolve 'ansatz.tactic.omega-proof/decides?)]
-              (when (omega-decides? env obligation-type (:lctx st))
+          (let [omega-decides? (requiring-resolve 'ansatz.tactic.omega-proof/decides?)]
+            (when (omega-decides? env obligation-type (:lctx st))
                 ;; Omega says provable — try decide to certify the proof term
-                (let [inst-index (if-let [idx (:inst-index config)]
-                                   (if (instance? clojure.lang.Delay idx) @idx idx)
-                                   (inst/index-for env))
-                      decidable-goal (e/app (e/const' decidable-name [])
-                                            obligation-type)
-                      inst (inst/synthesize* st env inst-index decidable-goal 0)]
-                  (when inst
-                    (let [bt-name (name/from-string "Bool.true")
-                          decide-term (e/app* (e/const' decidable-decide-name [])
-                                              obligation-type inst)
-                          result (#'tc/cached-whnf st decide-term)
-                          bool-true-val (e/const' bt-name [])]
-                      (when (and (e/const? result)
-                                 (= (e/const-name result) bt-name))
+              (let [inst-index (if-let [idx (:inst-index config)]
+                                 (if (instance? clojure.lang.Delay idx) @idx idx)
+                                 (inst/index-for env))
+                    decidable-goal (e/app (e/const' decidable-name [])
+                                          obligation-type)
+                    inst (inst/synthesize* st env inst-index decidable-goal 0)]
+                (when inst
+                  (let [bt-name (name/from-string "Bool.true")
+                        decide-term (e/app* (e/const' decidable-decide-name [])
+                                            obligation-type inst)
+                        result (#'tc/cached-whnf st decide-term)
+                        bool-true-val (e/const' bt-name [])]
+                    (when (and (e/const? result)
+                               (= (e/const-name result) bt-name))
                         ;; of_decide_eq_true P inst (Eq.refl true)
-                        (let [of-decide-name (name/from-string "of_decide_eq_true")
-                              u1 (lvl/succ lvl/zero)
-                              bool-type (e/const' bool-name [])
-                              eq-refl-proof (e/app* (e/const' eq-refl-name [u1])
-                                                    bool-type bool-true-val)]
-                          (e/app* (e/const' of-decide-name [])
-                                  obligation-type inst eq-refl-proof))))))))
-            (catch Exception _ nil))))))
+                      (let [of-decide-name (name/from-string "of_decide_eq_true")
+                            u1 (lvl/succ lvl/zero)
+                            bool-type (e/const' bool-name [])
+                            eq-refl-proof (e/app* (e/const' eq-refl-name [u1])
+                                                  bool-type bool-true-val)]
+                        (e/app* (e/const' of-decide-name [])
+                                obligation-type inst eq-refl-proof))))))))))))
 
 ;; ============================================================
 ;; Rewriting engine
@@ -928,7 +938,7 @@
                   (e/const' (:name lemma) [])
                   :else nil)]
     (when val
-      (let [type (try (tc/infer-type st val) (catch Exception _ nil))]
+      (let [type (tc/infer-type st val)]
         (when (and type (e/forall? type))
           ;; Lean's withNewMCtxDepth: lemma-parameter mvars at depth 1; the
           ;; context is discarded once the zonked proof is extracted.
@@ -937,11 +947,9 @@
                 [head args] (e/get-app-fn-args body)]
             (when (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
               (let [lhs (nth args 1) rhs (nth args 2)]
-                (when (try
-                        (when-let [m (meta/is-def-eq @mctx st lhs expr)]
-                          (reset! mctx m)
-                          true)
-                        (catch Exception _ false))
+                (when (when-let [m (meta/is-def-eq @mctx st lhs expr)]
+                        (reset! mctx m)
+                        true)
                   (let [proof (meta/zonk-expr @mctx (reduce e/app val xs))
                         rhs' (meta/zonk-expr @mctx rhs)]
                     (when (and (not (meta/has-expr-mvar? proof))
@@ -984,8 +992,19 @@
                            subst
                           ;; Walk forall telescope with progressive instantiation.
                           ;; Uses instantiate1 to keep bvar indices correct.
-                           (let [ci (env/lookup env (:name lemma))
-                                 ctype0 (when ci (.type ^ConstantInfo ci))
+                           (let [;; the lemma's statement: a hypothesis rule (a conditional IH
+                                 ;; `h : p → lhs = rhs`) has no constant — its type is the local's,
+                                 ;; a term rule's is inferred. Only the premise prefix is walked, and
+                                 ;; premises are peeled BEFORE an And split, so an And-projected
+                                 ;; hypothesis shares its premises with the hypothesis type.
+                                 ctype0 (cond
+                                          (:proof-term lemma)
+                                          (tc/infer-type st (:proof-term lemma))
+                                          (:hyp-fvar-id lemma)
+                                          (:type (red/lctx-lookup (:lctx st) (:hyp-fvar-id lemma)))
+                                          (:name lemma)
+                                          (when-let [ci (env/lookup env (:name lemma))] (.type ^ConstantInfo ci))
+                                          :else nil)
                                 ;; Resolve the lemma's universe level params from the matched subst
                                 ;; FIRST, then instantiate them into ctype — so discharge obligations
                                 ;; carry CONCRETE levels. Without this, e.g. `beq_iff_eq`'s `LawfulBEq α`
@@ -1027,26 +1046,24 @@
                                           ;; ansatz.core/instance-index is often empty for replayed/
                                           ;; non-init! envs, which silently starved parent-projection
                                           ;; synthesis. Fall back to the global, then a fresh scan.
-                                           (try ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
-                                                 st env
-                                                 (or (when-let [idx (:inst-index config)]
-                                                       (if (instance? clojure.lang.Delay idx) @idx idx))
-                                                     (not-empty ((requiring-resolve 'ansatz.core/instance-index)))
-                                                     (inst/index-for env))
-                                                 param-type 0)
-                                                (catch Throwable _ nil))
-                                           (try-discharge st env lemma-index config
-                                                          param-type
-                                                          (or (:discharge-depth config) 0)))]
+                                           ((requiring-resolve 'ansatz.tactic.instance/synthesize*)
+                                            st env
+                                            (or (when-let [idx (:inst-index config)]
+                                                  (if (instance? clojure.lang.Delay idx) @idx idx))
+                                                (not-empty ((requiring-resolve 'ansatz.core/instance-index)))
+                                                (inst/index-for env))
+                                            param-type 0)
+                                           (when (is-prop-type? st param-type)
+                                             (try-discharge st env lemma-index config
+                                                            param-type
+                                                            (or (:discharge-depth config) 0))))]
                                      (if resolved
                                        (recur (assoc s (- num-params i 1) resolved)
                                               (inc i) (e/instantiate1 (e/forall-body ty) resolved))
-                                      ;; Not resolved — create a placeholder fvar
-                                      ;; so later param-types are properly instantiated
-                                      ;; (Lean 4 uses metavariables for this)
-                                       (let [placeholder (e/fvar (+ 7000000 i))]
-                                         (recur s (inc i)
-                                                (e/instantiate1 (e/forall-body ty) placeholder))))))))))]
+                                       ;; Lean Simp/Rewrite.lean synthesizeArgs/tryTheoremCore:
+                                       ;; an unresolved argument rejects this candidate. Our
+                                       ;; substitution map cannot represent typed metavariables.
+                                       nil)))))))]
                      (let [param-vals (mapv #(get full-subst %) (range num-params))]
                        (when (every? some? param-vals)
                          (let [rhs-raw (apply-subst (:rhs lemma) full-subst num-params)
@@ -1061,7 +1078,10 @@
                                perm-ok (if (:perm lemma)
                                          (ac-lt? env rhs expr)
                                          true)]
-                           (when perm-ok
+                           ;; Lean Rewrite.lean tryTheoremCore rejects a structurally
+                           ;; unchanged RHS, even for rfl rules. Index reduction can
+                           ;; match Nat.add_eq against its own packed HAdd RHS.
+                           (when (and perm-ok (not= rhs expr))
                             ;; RFL optimization (Lean 4: useImplicitDefEqProof)
                             ;; If theorem is rfl, skip proof construction
                              (if (:rfl lemma)
@@ -1073,7 +1093,11 @@
                                                  ;; term lemma (`simp [<proof-term>]`): apply the term
                                                   (:proof-term lemma)
                                                   (reduce e/app (:proof-term lemma) (reverse param-vals))
-                                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                                  (:hyp-fvar-id lemma)
+                                                  ;; a conditional hypothesis `h : p₁ → … → lhs = rhs`
+                                                  ;; is applied to its discharged premises (And
+                                                  ;; projections, if any, wrap the applied proof)
+                                                  (reduce e/app (e/fvar (:hyp-fvar-id lemma)) (reverse param-vals))
                                                   :else (reduce e/app
                                                                 (e/const' (:name lemma) inst-levels)
                                                                 (reverse param-vals)))
@@ -1248,7 +1272,7 @@
           :else nil)))))
 
 ;; ============================================================
-;; AC-compatible LPO term ordering — Lean 4's ACLt (ACLt.lean)
+;; AC-compatible LPO term ordering — Lean Meta/ACLt.lean, checkout 55f80e10a3.
 ;; ============================================================
 ;; Prevents infinite loops for commutative rewrites (e.g., a + b = b + a)
 ;; by only allowing the rewrite if RHS < LHS in a term ordering.
@@ -1263,6 +1287,41 @@
   {:bvar 0 :fvar 1 :mvar 2 :sort 3 :const 4 :lit-nat 5 :lit-str 5
    :mdata 6 :proj 7 :app 8 :lam 9 :forall 10 :let 11})
 
+(defn- name-cmp
+  "Lean Data/Name.lean Name.cmp (prefix first, numeric before string)."
+  [a b]
+  (cond
+    (= a b) 0
+    (name/anonymous? a) -1
+    (name/anonymous? b) 1
+    (and (name/num-name? a) (name/str-name? b)) -1
+    (and (name/str-name? a) (name/num-name? b)) 1
+    :else (let [c (name-cmp (name/name-prefix a) (name/name-prefix b))]
+            (if (zero? c) (compare (name/name-component a) (name/name-component b)) c))))
+
+(defn- level-norm-lt?
+  "Lean Level.lean normLtAux; constructor order differs from the kernel tags."
+  [a b]
+  (letfn [(lt [a ka b kb]
+            (cond
+              (lvl/succ? a) (recur (lvl/succ-pred a) (inc ka) b kb)
+              (lvl/succ? b) (recur a ka (lvl/succ-pred b) (inc kb))
+              (= a b) (< ka kb)
+              (and (lvl/max? a) (lvl/max? b))
+              (if (= (lvl/max-lhs a) (lvl/max-lhs b))
+                (lt (lvl/max-rhs a) 0 (lvl/max-rhs b) 0)
+                (lt (lvl/max-lhs a) 0 (lvl/max-lhs b) 0))
+              (and (lvl/imax? a) (lvl/imax? b))
+              (if (= (lvl/imax-lhs a) (lvl/imax-lhs b))
+                (lt (lvl/imax-rhs a) 0 (lvl/imax-rhs b) 0)
+                (lt (lvl/imax-lhs a) 0 (lvl/imax-lhs b) 0))
+              (and (lvl/param? a) (lvl/param? b))
+              (neg? (name-cmp (lvl/param-name a) (lvl/param-name b)))
+              (and (lvl/mvar? a) (lvl/mvar? b)) (< (lvl/mvar-id a) (lvl/mvar-id b))
+              :else (< ({:zero 0 :param 1 :mvar 2 :succ 3 :max 4 :imax 5} (lvl/tag a))
+                       ({:zero 0 :param 1 :mvar 2 :succ 3 :max 4 :imax 5} (lvl/tag b)))))]
+    (lt a 0 b 0)))
+
 (defn- ac-lt?
   "Lean 4's acLt: a < b in AC-compatible LPO term ordering.
    env is used to look up parameter info for skipping instance args.
@@ -1270,20 +1329,25 @@
   ([a b] (ac-lt? nil a b))
   ([env a b]
    (letfn [(lt [a b]
-             (cond
+             (with-inc-rec-depth 1 a
+               (cond
                ;; Pointer/structural equality → not less
-               (identical? a b) false
-               (= a b) false
+                 (identical? a b) false
+                 (= a b) false
                ;; Strip mdata (Lean 4: ignore metadata)
-               (e/mdata? a) (lt (e/mdata-expr a) b)
-               (e/mdata? b) (lt a (e/mdata-expr b))
-               :else (lpo a b)))
+                 (e/mdata? a) (lt (e/mdata-expr a) b)
+                 (e/mdata? b) (lt a (e/mdata-expr b))
+                 :else (lpo (if (and env (not (e/has-loose-bvars? a)))
+                              (dt/reduce-dt env a false) a)
+                            (if (and env (not (e/has-loose-bvars? b)))
+                              (dt/reduce-dt env b false) b)))))
 
            (lt-pair [a1 a2 b1 b2]
-             (cond
-               (lt a1 b1) true
-               (lt b1 a1) false
-               :else (lt a2 b2)))
+             (with-inc-rec-depth 1 a1
+               (cond
+                 (lt a1 b1) true
+                 (lt b1 a1) false
+                 :else (lt a2 b2))))
 
            (get-param-infos [f nargs]
              ;; Lean 4: getFunInfoNArgs — get binder infos for f's params.
@@ -1294,88 +1358,96 @@
              (and infos (< i (count infos)) (= :inst-implicit (nth infos i))))
 
            (lt-app [a b]
+             (with-inc-rec-depth 1 a
              ;; Lean 4: ACLt.ltApp — flatten apps, compare fn then args
              ;; skipping instance-implicit arguments.
-             (let [a-fn (e/get-app-fn a) b-fn (e/get-app-fn b)]
-               (cond
-                 (lt a-fn b-fn) true
-                 (lt b-fn a-fn) false
-                 :else
-                 (let [a-args (e/get-app-args a) b-args (e/get-app-args b)
-                       na (count a-args) nb (count b-args)]
-                   (cond
-                     (< na nb) true
-                     (> na nb) false
-                     :else
-                     (let [infos (get-param-infos a-fn na)]
+               (let [a-fn (e/get-app-fn a) b-fn (e/get-app-fn b)]
+                 (cond
+                   (lt a-fn b-fn) true
+                   (lt b-fn a-fn) false
+                   :else
+                   (let [a-args (e/get-app-args a) b-args (e/get-app-args b)
+                         na (count a-args) nb (count b-args)]
+                     (cond
+                       (< na nb) true
+                       (> na nb) false
+                       :else
+                       (let [infos (get-param-infos a-fn na)]
                        ;; Lexicographic comparison skipping instance args
-                       (loop [i 0]
-                         (if (>= i na)
-                           false  ;; all equal
-                           (if (instance-arg? infos i)
-                             (recur (inc i))
-                             (let [ai (nth a-args i) bi (nth b-args i)]
-                               (cond
-                                 (lt ai bi) true
-                                 (lt bi ai) false
-                                 :else (recur (inc i)))))))))))))
+                         (loop [i 0]
+                           (if (>= i na)
+                             false  ;; all equal
+                             (if (instance-arg? infos i)
+                               (recur (inc i))
+                               (let [ai (nth a-args i) bi (nth b-args i)]
+                                 (cond
+                                   (lt ai bi) true
+                                   (lt bi ai) false
+                                   :else (recur (inc i))))))))))))))
 
            (lex-same-ctor [a b]
+             (with-inc-rec-depth 1 a
              ;; Lean 4: ACLt.lexSameCtor — compare within same constructor
-             (let [ta (e/tag a)]
-               (case ta
-                 :bvar (< (e/bvar-idx a) (e/bvar-idx b))
-                 :fvar (< (e/fvar-id a) (e/fvar-id b))
-                 :lit-nat (< (e/lit-nat-val a) (e/lit-nat-val b))
-                 :lit-str (neg? (compare (str (e/lit-str-val a)) (str (e/lit-str-val b))))
-                 :const (neg? (compare (name/->string (e/const-name a))
-                                       (name/->string (e/const-name b))))
-                 :sort (< (hash (e/sort-level a)) (hash (e/sort-level b)))
-                 :app (lt-app a b)
-                 :proj (if (not= (e/proj-idx a) (e/proj-idx b))
-                         (< (e/proj-idx a) (e/proj-idx b))
-                         (lt (e/proj-struct a) (e/proj-struct b)))
-                 :lam (lt-pair (e/lam-type a) (e/lam-body a)
-                               (e/lam-type b) (e/lam-body b))
-                 :forall (lt-pair (e/forall-type a) (e/forall-body a)
-                                  (e/forall-type b) (e/forall-body b))
-                 false)))
+               (let [ta (e/tag a)]
+                 (case ta
+                   :mvar (< (e/mvar-id a) (e/mvar-id b))
+                   :let (lt-pair (e/let-value a) (e/let-body a)
+                                 (e/let-value b) (e/let-body b))
+                   :bvar (< (e/bvar-idx a) (e/bvar-idx b))
+                   :fvar (< (e/fvar-id a) (e/fvar-id b))
+                   :lit-nat (or (e/lit-str? b) (< (e/lit-nat-val a) (e/lit-nat-val b)))
+                   :lit-str (and (e/lit-str? b)
+                                 (neg? (compare (str (e/lit-str-val a)) (str (e/lit-str-val b)))))
+                   :const (neg? (name-cmp (e/const-name a) (e/const-name b)))
+                   :sort (level-norm-lt? (e/sort-level a) (e/sort-level b))
+                   :app (lt-app a b)
+                   :proj (if (not= (e/proj-idx a) (e/proj-idx b))
+                           (< (e/proj-idx a) (e/proj-idx b))
+                           (lt (e/proj-struct a) (e/proj-struct b)))
+                   :lam (lt-pair (e/lam-type a) (e/lam-body a)
+                                 (e/lam-type b) (e/lam-body b))
+                   :forall (lt-pair (e/forall-type a) (e/forall-body a)
+                                    (e/forall-type b) (e/forall-body b))
+                   false))))
 
            (all-children-lt [a b]
+             (with-inc-rec-depth 1 a
              ;; Lean 4: ACLt.allChildrenLt — all children of a are < b
-             (let [ta (e/tag a)]
-               (case ta
-                 :app (let [a-fn (e/get-app-fn a)
-                            a-args (e/get-app-args a)
-                            infos (get-param-infos a-fn (count a-args))]
-                        (loop [i 0]
-                          (if (>= i (count a-args))
-                            true
-                            (if (instance-arg? infos i)
-                              (recur (inc i))
-                              (if (lt (nth a-args i) b)
+               (let [ta (e/tag a)]
+                 (case ta
+                   :app (let [a-fn (e/get-app-fn a)
+                              a-args (e/get-app-args a)
+                              infos (get-param-infos a-fn (count a-args))]
+                          (loop [i 0]
+                            (if (>= i (count a-args))
+                              true
+                              (if (instance-arg? infos i)
                                 (recur (inc i))
-                                false)))))
-                 :proj (lt (e/proj-struct a) b)
-                 :lam (and (lt (e/lam-type a) b) (lt (e/lam-body a) b))
-                 :forall (and (lt (e/forall-type a) b) (lt (e/forall-body a) b))
+                                (if (lt (nth a-args i) b)
+                                  (recur (inc i))
+                                  false)))))
+                   :proj (lt (e/proj-struct a) b)
+                   :let (and (lt (e/let-value a) b) (lt (e/let-body a) b))
+                   :lam (and (lt (e/lam-type a) b) (lt (e/lam-body a) b))
+                   :forall (and (lt (e/forall-type a) b) (lt (e/forall-body a) b))
                  ;; Atomic — no children → trivially true
-                 true)))
+                   true))))
 
            (lpo [a b]
+             (with-inc-rec-depth 1 a
              ;; Lean 4: ACLt.lpo — the core LPO algorithm
              ;; Case 1: a < b if some child of b >= a
-             (if (not (all-children-lt b a))
-               true
-               (let [wa (get ctor-weight (e/tag a) 12)
-                     wb (get ctor-weight (e/tag b) 12)]
-                 (cond
-                   (> wa wb) false
+               (if (not (all-children-lt b a))
+                 true
+                 (let [wa (get ctor-weight (e/tag a) 12)
+                       wb (get ctor-weight (e/tag b) 12)]
+                   (cond
+                     (> wa wb) false
                    ;; Case 2: a < b if ctorWeight(a) < ctorWeight(b) and all children of a < b
-                   (not (all-children-lt a b)) false
-                   (< wa wb) true
+                     (not (all-children-lt a b)) false
+                     (< wa wb) true
                    ;; Case 3: same ctor, lex comparison, all children of a < b
-                   :else (lex-same-ctor a b)))))]
+                     :else (lex-same-ctor a b))))))]
      (lt a b))))
 
 ;; ============================================================
@@ -1451,15 +1523,16 @@
 (defn- nat-value
   "Concrete Nat value of a term built from literals / Nat.succ / Nat.zero, else nil."
   [st e]
-  (let [w (#'tc/cached-whnf st e)]
-    (cond
-      (e/lit-nat? w) (e/lit-nat-val w)
-      :else (let [[h a] (e/get-app-fn-args w)]
-              (cond
-                (and (e/const? h) (= (e/const-name h) nat-zero-name)) 0
-                (and (e/const? h) (= (e/const-name h) nat-succ-name) (= 1 (count a)))
-                (some-> (nat-value st (first a)) inc)
-                :else nil)))))
+  (with-inc-rec-depth 1 e
+    (let [w (#'tc/cached-whnf st e)]
+      (cond
+        (e/lit-nat? w) (e/lit-nat-val w)
+        :else (let [[h a] (e/get-app-fn-args w)]
+                (cond
+                  (and (e/const? h) (= (e/const-name h) nat-zero-name)) 0
+                  (and (e/const? h) (= (e/const-name h) nat-succ-name) (= 1 (count a)))
+                  (some-> (nat-value st (first a)) inc)
+                  :else nil))))))
 
 (defn- nat-pred-term
   "Predecessor TERM of a Nat term: Nat.succ X → X; literal k>0 → lit (k-1)."
@@ -1478,30 +1551,29 @@
    predecessors. The kernel reduces Nat.noConfusionType on literals, so this needs no
    decide lemmas (works in a minimal Init env). Returns nil if a,b aren't concrete/distinct."
   [st a b]
-  (let [va (nat-value st a) vb (nat-value st b)
-        natT (e/const' nat-name [])
-        eqp (e/app* (e/const' eq-name [(lvl/succ lvl/zero)]) natT a b)
-        noconf (fn [& xs] (apply e/app* (e/const' nat-noconfusion-name [lvl/zero])
-                                 (e/const' false-name []) a b xs))]
-    (cond
-      (or (nil? va) (nil? vb) (= va vb)) nil
-      (or (zero? va) (zero? vb))                 ;; distinct outer ctor → direct
-      (e/lam "h" eqp (noconf (e/bvar 0)) :default)
-      :else                                       ;; both succ → peel + recurse
-      (when-let [inner (nat-ne-neg st (nat-pred-term st a) (nat-pred-term st b))]
-        (e/lam "h" eqp (e/app (noconf (e/bvar 0)) inner) :default)))))
+  (with-inc-rec-depth 1 a
+    (let [va (nat-value st a) vb (nat-value st b)
+          natT (e/const' nat-name [])
+          eqp (e/app* (e/const' eq-name [(lvl/succ lvl/zero)]) natT a b)
+          noconf (fn [& xs] (apply e/app* (e/const' nat-noconfusion-name [lvl/zero])
+                                   (e/const' false-name []) a b xs))]
+      (cond
+        (or (nil? va) (nil? vb) (= va vb)) nil
+        (or (zero? va) (zero? vb))                 ;; distinct outer ctor → direct
+        (e/lam "h" eqp (noconf (e/bvar 0)) :default)
+        :else                                       ;; both succ → peel + recurse
+        (when-let [inner (nat-ne-neg st (nat-pred-term st a) (nat-pred-term st b))]
+          (e/lam "h" eqp (e/app (noconf (e/bvar 0)) inner) :default))))))
 
 (defn- nat-lit-ne-false-proof
   "Result proving `(a = b) = False` for distinct concrete Nat terms (literals or
    succ/zero forms). Faithful intent of Lean's Nat.reduceEqDiff, but proof-carrying
    via noConfusion so it is sound in a decide-lemma-free env. nil if not applicable."
   [st expr a b]
-  (try
-    (when-let [neg (nat-ne-neg st a b)]
-      {:expr (e/const' false-name [])
-       :proof? (e/app* (e/const' eq-false-name []) expr neg)
-       :cache true})
-    (catch Throwable _ nil)))
+  (when-let [neg (nat-ne-neg st a b)]
+    {:expr (e/const' false-name [])
+     :proof? (e/app* (e/const' eq-false-name []) expr neg)
+     :cache true}))
 
 (defn- nat-type?
   [st alpha]
@@ -1518,27 +1590,25 @@
    — parametrized/indexed inductives use the heterogeneous HEq form and are left to the
    decide-based path. Returns a proof-carrying Result, or nil if not buildable."
   [st expr alpha]
-  (try
-    (let [[ahead _] (e/get-app-fn-args alpha)]
-      (when (e/const? ahead)
-        (let [env (:env st)
-              ind-name (e/const-name ahead)
-              ind-levels (e/const-levels ahead)
-              noconf-name (name/mk-str ind-name "noConfusion")
-              noconf-ci (env/lookup env noconf-name)]
-          (when noconf-ci
-            (let [nty (.type ^ConstantInfo noconf-ci)
-                  arity (loop [t nty n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))]
-              (when (= arity 4)                       ;; simple [P t t' h] form only
-                (let [[_ args] (e/get-app-fn-args expr)
-                      t1 (nth args 1) t2 (nth args 2)
-                      neg (e/lam "h" expr
-                                 (e/app* (e/const' noconf-name (cons lvl/zero ind-levels))
-                                         (e/const' false-name []) t1 t2 (e/bvar 0))
-                                 :default)
-                      proof (e/app* (e/const' eq-false-name []) expr neg)]
-                  {:expr (e/const' false-name []) :proof? proof :cache true})))))))
-    (catch Throwable _ nil)))
+  (let [[ahead _] (e/get-app-fn-args alpha)]
+    (when (e/const? ahead)
+      (let [env (:env st)
+            ind-name (e/const-name ahead)
+            ind-levels (e/const-levels ahead)
+            noconf-name (name/mk-str ind-name "noConfusion")
+            noconf-ci (env/lookup env noconf-name)]
+        (when noconf-ci
+          (let [nty (.type ^ConstantInfo noconf-ci)
+                arity (loop [t nty n 0] (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))]
+            (when (= arity 4)                       ;; simple [P t t' h] form only
+              (let [[_ args] (e/get-app-fn-args expr)
+                    t1 (nth args 1) t2 (nth args 2)
+                    neg (e/lam "h" expr
+                               (e/app* (e/const' noconf-name (cons lvl/zero ind-levels))
+                                       (e/const' false-name []) t1 t2 (e/bvar 0))
+                               :default)
+                    proof (e/app* (e/const' eq-false-name []) expr neg)]
+                {:expr (e/const' false-name []) :proof? proof :cache true}))))))))
 
 (defn- try-reduce-ctor-eq
   "Reduce constructor equality to False when constructors differ — Lean 4's reduceCtorEq
@@ -1699,35 +1769,33 @@
       (when-not (and (e/const? head)
                      (or (= (e/const-name head) true-name)
                          (= (e/const-name head) false-name)))
-        (try
-          (let [env (:env st)
-                inst-index (if-let [idx (:inst-index config)]
-                             (if (instance? clojure.lang.Delay idx) @idx idx)
-                             (inst/index-for env))
-                decidable-goal (e/app (e/const' decidable-name []) expr)
-                inst (inst/synthesize* st env inst-index decidable-goal 0)]
-            (when inst
-              (let [decide-term (e/app* (e/const' decidable-decide-name []) expr inst)
-                    result (#'tc/cached-whnf st decide-term)
-                    u1 (lvl/succ lvl/zero)
-                    bool-type (e/const' bool-name [])
-                    bool-true-val (e/const' bool-true-name [])
-                    bool-false-val (e/const' bool-false-name [])]
-                (cond
+        (let [env (:env st)
+              inst-index (if-let [idx (:inst-index config)]
+                           (if (instance? clojure.lang.Delay idx) @idx idx)
+                           (inst/index-for env))
+              decidable-goal (e/app (e/const' decidable-name []) expr)
+              inst (inst/synthesize* st env inst-index decidable-goal 0)]
+          (when inst
+            (let [decide-term (e/app* (e/const' decidable-decide-name []) expr inst)
+                  result (#'tc/cached-whnf st decide-term)
+                  u1 (lvl/succ lvl/zero)
+                  bool-type (e/const' bool-name [])
+                  bool-true-val (e/const' bool-true-name [])
+                  bool-false-val (e/const' bool-false-name [])]
+              (cond
                   ;; reduces to Bool.true → P = True
-                  (and (e/const? result) (= (e/const-name result) bool-true-name))
-                  (let [eq-refl-proof (e/app* (e/const' eq-refl-name [u1]) bool-type bool-true-val)
-                        proof (e/app* (e/const' eq-true-of-decide-name []) expr inst eq-refl-proof)]
-                    (mk-result (e/const' true-name []) proof))
+                (and (e/const? result) (= (e/const-name result) bool-true-name))
+                (let [eq-refl-proof (e/app* (e/const' eq-refl-name [u1]) bool-type bool-true-val)
+                      proof (e/app* (e/const' eq-true-of-decide-name []) expr inst eq-refl-proof)]
+                  (mk-result (e/const' true-name []) proof))
 
                   ;; reduces to Bool.false → P = False
-                  (and (e/const? result) (= (e/const-name result) bool-false-name))
-                  (let [eq-refl-proof (e/app* (e/const' eq-refl-name [u1]) bool-type bool-false-val)
-                        proof (e/app* (e/const' eq-false-of-decide-name []) expr inst eq-refl-proof)]
-                    (mk-result (e/const' false-name []) proof))
+                (and (e/const? result) (= (e/const-name result) bool-false-name))
+                (let [eq-refl-proof (e/app* (e/const' eq-refl-name [u1]) bool-type bool-false-val)
+                      proof (e/app* (e/const' eq-false-of-decide-name []) expr inst eq-refl-proof)]
+                  (mk-result (e/const' false-name []) proof))
 
-                  :else nil))))
-          (catch Exception _ nil))))))
+                :else nil))))))))
 
 (declare try-fold-bool-and)
 
@@ -1758,8 +1826,7 @@
                     ;; `Add.add→Nat.add`, `OfNat.ofNat→lit` etc., which strips the
                     ;; typeclass forms that downstream decision procedures (omega) match
                     ;; on and exposes a buggy `Nat.lt` equation lemma (malformed `1`).
-                    sw (try (red/whnf-no-delta (:env st) struct-arg (:lctx st))
-                            (catch Exception _ struct-arg))
+                    sw (red/whnf-no-delta (:env st) struct-arg (:lctx st))
                     [sh sargs] (e/get-app-fn-args sw)]
                 (when (e/const? sh)
                   (when-let [cci (env/lookup env (e/const-name sh))]
@@ -1773,14 +1840,12 @@
   "After whnf-no-delta, is `e` headed by a constructor / Nat literal? Used as a
    cheap gate: a matcher only iota-reduces when a discriminant is concrete."
   [st e]
-  (try
-    (let [w (red/whnf-no-delta (:env st) e (:lctx st))]
-      (or (e/lit-nat? w)
-          (let [[h _] (e/get-app-fn-args w)]
-            (and (e/const? h)
-                 (when-let [ci (env/lookup (:env st) (e/const-name h))]
-                   (.isCtor ^ConstantInfo ci))))))
-    (catch Exception _ false)))
+  (let [w (red/whnf-no-delta (:env st) e (:lctx st))]
+    (or (e/lit-nat? w)
+        (let [[h _] (e/get-app-fn-args w)]
+          (and (e/const? h)
+               (when-let [ci (env/lookup (:env st) (e/const-name h))]
+                 (.isCtor ^ConstantInfo ci)))))))
 
 (defn- try-reduce-matcher
   "reduceRecMatcher? (Lean 4): reduce a matcher auxiliary `T.match_N … discr …
@@ -1820,7 +1885,7 @@
                                                   (e/instantiate1 (e/lam-body a) unit-unit)])
                                        alts))
                 probe (apply e/app* head (into (subvec (vec args) 0 alt-start) new-alts))
-                reduced (try (red/whnf env probe (:lctx st)) (catch Exception _ nil))]
+                reduced (red/whnf env probe (:lctx st))]
             (when (and reduced (e/fvar? reduced)
                        (contains? marker->body (e/fvar-id reduced)))
               (mk-result (get marker->body (e/fvar-id reduced))))))))))
@@ -1859,43 +1924,51 @@
           (let [motive (nth args 0) fc (nth args 1) tc (nth args 2) discr (nth args 3)
                 bool-type (e/const' (name/from-string "Bool") [])
                 bool-false (e/const' (name/from-string "Bool.false") [])
-                bool-true (e/const' (name/from-string "Bool.true") [])]
+                bool-true (e/const' (name/from-string "Bool.true") [])
+                constant-motive? (let [m (#'tc/cached-whnf st motive)]
+                                   (and (e/lam? m) (not (e/has-loose-bvars? (e/lam-body m)))))]
             (or
-             ;; Strategy 1: branches are def-eq → eliminate Bool.rec
-             (when (try (tc/is-def-eq st fc tc) (catch Exception _ false))
-               (mk-result fc))
+             ;; Raw Bool.rec is our match encoding. Lean Simp/Rewrite.lean
+             ;; simpMatchCore uses equation proofs; equal branches are not def-eq
+             ;; to a stuck recursor. Prove this equation by Bool induction.
+             (when (and constant-motive? (tc/is-def-eq st fc tc))
+               (let [alpha (tc/infer-type st fc)
+                     u (get-sort-level st alpha)
+                     rec-b (e/app* head (e/lift motive 1 0) (e/lift fc 1 0)
+                                   (e/lift tc 1 0) (e/bvar 0))
+                     eq-motive (e/lam "b" bool-type
+                                      (e/app* (e/const' eq-name [u])
+                                              (e/lift alpha 1 0) rec-b (e/lift fc 1 0)) :default)
+                     refl (e/app* (e/const' eq-refl-name [u]) alpha fc)
+                     h (e/app* (e/const' (name/from-string "Bool.rec") [lvl/zero])
+                               eq-motive refl refl discr)]
+                 (mk-result fc h)))
              ;; Strategy 2: simpMatch — simplify discriminant with full simp.
-             ;; Lean 4: simpMatch (Simp/SimpMatch.lean) applies full simp to the
+             ;; Lean Simp/Rewrite.lean simpMatchDiscrs? applies full simp to the
              ;; discriminant even though CongrArgKind marks it :fixed. If the
              ;; discriminant reduces to true/false, the Bool.rec reduces.
-             (when (and env lemma-index)
-               (try
-                 (let [d-result (simp-expr* st env lemma-index discr
-                                            (assoc config
-                                                   :max-depth (min 10 (:max-depth config))
-                                                   :cache (atom {})
-                                                   :max-steps (atom 0)))
-                       dw (#'tc/cached-whnf st (:expr d-result))]
-                   (cond
-                     ;; Discriminant reduced to true → return tc (true branch)
-                     (and (e/const? dw) (= (e/const-name dw)
-                                           (name/from-string "Bool.true")))
-                     (mk-result tc)
-                     ;; Discriminant reduced to false → return fc (false branch)
-                     (and (e/const? dw) (= (e/const-name dw)
-                                           (name/from-string "Bool.false")))
-                     (mk-result fc)
-                     ;; Discriminant changed but didn't reduce to true/false
-                     ;; → rebuild Bool.rec with simplified discriminant
-                     (not (identical? (:expr d-result) discr))
-                     (mk-result (e/app* head motive fc tc (:expr d-result)))
-                     :else nil))
-                 (catch Exception _ nil)))
+             (when (and constant-motive? env lemma-index)
+               (let [d-result (simp-expr* st env lemma-index discr
+                                          (assoc config
+                                                 :max-depth (min 10 (:max-depth config))
+                                                 :cache (atom {})
+                                                 :max-steps (atom 0)))
+                     dw (#'tc/cached-whnf st (:expr d-result))
+                     ;; Lean simpMatchDiscrs? uses congruence; discriminant
+                     ;; rewriting may itself need a propositional equality proof.
+                     r (when (not= discr (:expr d-result))
+                         (mk-congr-arg st (e/app* head motive fc tc) d-result discr (:expr d-result)))]
+                 (when r
+                   (let [result (cond
+                                  (= dw bool-true) tc
+                                  (= dw bool-false) fc
+                                  :else (:expr r))]
+                     (assoc r :expr result)))))
              ;; Strategy 3: Bool.rec identity — Bool.rec (fun _ => Bool) false true b = b
              ;; Lean 4: simpMatch recognizes when the recursor is the identity.
              ;; Proof: Bool.rec (fun b => Eq Bool (Bool.rec ... b) b) rfl rfl discr
-             (when (and (try (tc/is-def-eq st fc bool-false) (catch Exception _ false))
-                        (try (tc/is-def-eq st tc bool-true) (catch Exception _ false)))
+             (when (and (tc/is-def-eq st fc bool-false)
+                        (tc/is-def-eq st tc bool-true))
                (let [rec-level (first (e/const-levels head))
                      ;; The motive for the proof:
                      ;; fun b => Eq Bool (Bool.rec (fun _ => Bool) false true b) b
@@ -1937,8 +2010,7 @@
                   results (mapv (fn [arg]
                                   (if (e/lam? arg)
                                     (mk-result arg)
-                                    (or (try (simp-expr* st env lemma-index arg dconf)
-                                             (catch Exception _ nil))
+                                    (or (simp-expr* st env lemma-index arg dconf)
                                         (mk-result arg))))
                                 args)
                   changed? (some (fn [[a r]] (not (identical? (:expr r) a)))
@@ -1971,18 +2043,19 @@
                                         ptw (when pt (safe-whnf st pt))
                                         [h as] (when ptw (e/get-app-fn-args ptw))]
                                     (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
-                                         (try (tc/is-def-eq st (nth as 1) expr)
-                                              (catch Exception _ false)))))]
+                                         (tc/is-def-eq st (nth as 1) expr))))]
                       (if ok folded deq-only)))))))))
       (try-ground-eval st (:env st) expr)
       (try-simp-using-decide st expr config)
       ;; User-registered simprocs: dynamic var + persistent registry
       (some (fn [sp]
               (try (sp st expr)
-                   (catch Exception _ nil)))
+                   (catch clojure.lang.ExceptionInfo ex
+                     (if (and (= :tactic-error (:kind (ex-data ex)))
+                              (not (:limit (ex-data ex)))
+                              (not (:proof-construction (ex-data ex)))) nil (throw ex)))))
             (concat config/*simprocs*
-                    (try (deref @(requiring-resolve 'ansatz.core/simproc-registry))
-                         (catch Exception _ []))))))
+                    (deref @(requiring-resolve 'ansatz.core/simproc-registry))))))
 
 ;; ============================================================
 ;; Reduction
@@ -2083,54 +2156,49 @@
 ;; Used for: :fixed args in CongrArgKind, lambda binder types (lambdaTelescopeDSimp).
 
 (defn- dsimp-expr
-  "Definitional simplification — Lean 4's dsimpImpl.
-   Recursively traverses all sub-expressions applying ONLY structural reductions
-   (beta/iota/proj/let/zeta via whnf-no-delta). No rewrite lemmas, no simprocs.
-   Returns the simplified expression (no proof — all changes are def-eq)."
-  [env lctx expr max-depth]
-  (if (or (<= max-depth 0) (nil? expr) (not (instance? ansatz.kernel.Expr expr)))
-    expr
-    (try
-      (let [;; First try structural reduction on the whole expression
-            reduced (red/whnf-no-delta env expr lctx)
-            expr (if (= reduced expr) expr reduced)
-          ;; Then recurse into sub-expressions
-            dec-depth (dec max-depth)]
-        (case (e/tag expr)
-          :app (let [f (dsimp-expr env lctx (e/app-fn expr) dec-depth)
-                     a (dsimp-expr env lctx (e/app-arg expr) dec-depth)]
-                 (if (and (identical? f (e/app-fn expr))
-                          (identical? a (e/app-arg expr)))
-                 ;; Try reduction again after sub-expression changes
-                   (let [r2 (red/whnf-no-delta env expr lctx)]
-                     (if (= r2 expr) expr r2))
-                   (let [rebuilt (e/app f a)
-                         r2 (red/whnf-no-delta env rebuilt lctx)]
-                     (if (= r2 rebuilt) rebuilt r2))))
-          :lam (let [t (dsimp-expr env lctx (e/lam-type expr) dec-depth)
-                     b (dsimp-expr env lctx (e/lam-body expr) dec-depth)]
-                 (if (and (identical? t (e/lam-type expr))
-                          (identical? b (e/lam-body expr)))
-                   expr
-                   (e/lam (e/lam-name expr) t b (e/lam-info expr))))
-          :forall (let [t (dsimp-expr env lctx (e/forall-type expr) dec-depth)
-                        b (dsimp-expr env lctx (e/forall-body expr) dec-depth)]
-                    (if (and (identical? t (e/forall-type expr))
-                             (identical? b (e/forall-body expr)))
-                      expr
-                      (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
-          :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
-                 (dsimp-expr env lctx expanded dec-depth))
-          :proj (let [s (dsimp-expr env lctx (e/proj-struct expr) dec-depth)]
-                  (if (identical? s (e/proj-struct expr))
+  "Definitional simplification; the legacy fourth argument is ignored."
+  [env lctx expr _max-depth]
+  ;; Lean Simp/Main.lean dsimpImpl / Meta/Transform.lean transformWithCache:
+  ;; cache hits precede guarded visits. Cache identity preserves DAG sharing;
+  ;; it is local to this traversal's environment and local context.
+  (let [cache (java.util.IdentityHashMap.)]
+    (letfn [(visit [expr]
+              (if-let [hit (.get cache expr)]
+                hit
+                (with-inc-rec-depth 1 expr
+                  (if-not (instance? ansatz.kernel.Expr expr)
                     expr
-                    (let [rebuilt (e/proj (e/proj-type-name expr) (e/proj-idx expr) s)
-                          r2 (red/whnf-no-delta env rebuilt lctx)]
-                      (if (= r2 rebuilt) rebuilt r2))))
-          :mdata (dsimp-expr env lctx (e/mdata-expr expr) dec-depth)
-        ;; Atoms (const, fvar, bvar, sort, lit) — no descent
-          expr))
-      (catch Exception _ expr))))
+                    (let [original expr
+                          reduced (red/whnf-no-delta env expr lctx)
+                          expr (if (= reduced expr) expr reduced)
+                          result
+                          (case (e/tag expr)
+                            :app (let [f (visit (e/app-fn expr))
+                                       a (visit (e/app-arg expr))
+                                       rebuilt (if (and (identical? f (e/app-fn expr))
+                                                        (identical? a (e/app-arg expr)))
+                                                 expr (e/app f a))]
+                                   (red/whnf-no-delta env rebuilt lctx))
+                            :lam (let [t (visit (e/lam-type expr)) b (visit (e/lam-body expr))]
+                                   (if (and (identical? t (e/lam-type expr))
+                                            (identical? b (e/lam-body expr)))
+                                     expr (e/lam (e/lam-name expr) t b (e/lam-info expr))))
+                            :forall (let [t (visit (e/forall-type expr))
+                                          b (visit (e/forall-body expr))]
+                                      (if (and (identical? t (e/forall-type expr))
+                                               (identical? b (e/forall-body expr)))
+                                        expr (e/forall' (e/forall-name expr) t b (e/forall-info expr))))
+                            :let (visit (e/instantiate1 (e/let-body expr) (e/let-value expr)))
+                            :proj (let [v (visit (e/proj-struct expr))]
+                                    (if (identical? v (e/proj-struct expr)) expr
+                                        (red/whnf-no-delta env
+                                                           (e/proj (e/proj-type-name expr)
+                                                                   (e/proj-idx expr) v) lctx)))
+                            :mdata (visit (e/mdata-expr expr))
+                            expr)]
+                      (.put cache original result)
+                      result)))))]
+      (visit expr))))
 
 ;; ============================================================
 ;; Simplification engine — Lean 4's simpLoop
@@ -2141,22 +2209,18 @@
    Lean 4: isProof e checks that type(e) : Prop, i.e., type(type(e)) = Sort 0.
    NOT the same as 'is a proposition' — Eq Nat 1 0 is a Prop (type), not a proof."
   [st expr]
-  (try
-    (let [ty (tc/infer-type st expr)        ;; type of expr
-          ty-sort (tc/infer-type st ty)      ;; type of type (should be Sort u)
-          tw (#'tc/cached-whnf st ty-sort)]
+  (let [ty (tc/infer-type st expr)        ;; type of expr
+        ty-sort (tc/infer-type st ty)      ;; type of type (should be Sort u)
+        tw (#'tc/cached-whnf st ty-sort)]
       ;; expr is a proof iff its type's type is Prop (Sort 0)
       ;; i.e., type(expr) : Prop means expr IS a proof
-      (and (e/sort? tw) (= (e/sort-level tw) lvl/zero)))
-    (catch Exception _ false)))
+    (and (e/sort? tw) (= (e/sort-level tw) lvl/zero))))
 
 (defn- is-prop-type?
   "Check if a type lives in Prop."
   [st ty]
-  (try
-    (let [s (tc/infer-type st ty) sw (#'tc/cached-whnf st s)]
-      (and (e/sort? sw) (= (e/sort-level sw) lvl/zero)))
-    (catch Exception _ false)))
+  (let [s (tc/infer-type st ty) sw (#'tc/cached-whnf st s)]
+    (and (e/sort? sw) (= (e/sort-level sw) lvl/zero))))
 
 ;; ============================================================
 ;; @[congr] theorem support
@@ -2204,7 +2268,8 @@
                           proof (cond
                                   (:proof-term lemma)
                                   (reduce e/app (:proof-term lemma) (reverse param-vals))
-                                  (:hyp-fvar-id lemma) (e/fvar (:hyp-fvar-id lemma))
+                                  (:hyp-fvar-id lemma)
+                                  (reduce e/app (e/fvar (:hyp-fvar-id lemma)) (reverse param-vals))
                                   :else (reduce e/app
                                                 (e/const' (:name lemma) inst-levels)
                                                 (reverse param-vals)))]
@@ -2222,16 +2287,17 @@
   [expr depth]
   (let [result (volatile! #{})]
     (letfn [(walk [e d]
-              (case (e/tag e)
-                :bvar (when (>= (e/bvar-idx e) d)
-                        (vswap! result conj (- (e/bvar-idx e) d)))
-                :app (do (walk (e/app-fn e) d) (walk (e/app-arg e) d))
-                :lam (do (walk (e/lam-type e) d) (walk (e/lam-body e) (inc d)))
-                :forall (do (walk (e/forall-type e) d) (walk (e/forall-body e) (inc d)))
-                :let (do (walk (e/let-type e) d) (walk (e/let-value e) d) (walk (e/let-body e) (inc d)))
-                :proj (walk (e/proj-struct e) d)
-                :mdata (walk (e/mdata-expr e) d)
-                nil))]
+              (with-inc-rec-depth 1 e
+                (case (e/tag e)
+                  :bvar (when (>= (e/bvar-idx e) d)
+                          (vswap! result conj (- (e/bvar-idx e) d)))
+                  :app (do (walk (e/app-fn e) d) (walk (e/app-arg e) d))
+                  :lam (do (walk (e/lam-type e) d) (walk (e/lam-body e) (inc d)))
+                  :forall (do (walk (e/forall-type e) d) (walk (e/forall-body e) (inc d)))
+                  :let (do (walk (e/let-type e) d) (walk (e/let-value e) d) (walk (e/let-body e) (inc d)))
+                  :proj (walk (e/proj-struct e) d)
+                  :mdata (walk (e/mdata-expr e) d)
+                  nil)))]
       (walk expr depth))
     @result))
 
@@ -2269,11 +2335,11 @@
       (reset! fun-info-cache {})
       (reset! fun-info-cache-env env))
     (or (get @fun-info-cache cache-key)
-        (let [fn-type (try (safe-infer st fn-expr) (catch Exception _ nil))]
+        (let [fn-type (safe-infer st fn-expr)]
           (when fn-type
             (let [;; Walk forall telescope up to nargs
                   info
-                  (loop [ty fn-type i 0 params []]
+                  (loop [ty fn-type i 0 params [] xs [] local-st st]
                     (if (or (>= i nargs) (not (e/forall? ty)))
                       ;; Done — compute result-deps from remaining type
                       ;; Convert raw bvar indices to param indices:
@@ -2306,17 +2372,21 @@
                             back-deps (into #{} (keep (fn [bv] (let [p (- i 1 bv)]
                                                                  (when (>= p 0) p))))
                                             raw-deps)
-                            is-prop (try (let [s (tc/infer-type st param-type)
-                                               sw (#'tc/cached-whnf st s)]
-                                           (and (e/sort? sw) (= (e/sort-level sw) lvl/zero)))
-                                         (catch Exception _ false))
+                            ;; Lean Meta/FunInfo.lean getFunInfoAux opens the telescope.
+                            opened-type (e/instantiate param-type xs)
+                            xid (swap! (:next-id st) inc)
+                            is-prop (let [s (tc/infer-type local-st opened-type)
+                                          sw (#'tc/cached-whnf local-st s)]
+                                      (and (e/sort? sw) (= (e/sort-level sw) lvl/zero)))
                             is-inst (= binfo :inst-implicit)]
                         (recur (e/forall-body ty) (inc i)
                                (conj params {:binder-info binfo
                                              :back-deps back-deps
                                              :has-fwd-deps false  ;; computed in post-pass
                                              :is-prop is-prop
-                                             :is-instance is-inst})))))]
+                                             :is-instance is-inst})
+                               (conj xs (e/fvar xid))
+                               (update local-st :lctx assoc xid {:type opened-type})))))]
               (swap! fun-info-cache assoc cache-key info)
               info))))))
 
@@ -2358,103 +2428,103 @@
    Dispatches by expression type, builds proper congruence proofs."
   [st env lemma-index expr config]
   (let [max-depth (:max-depth config)]
-    (if (<= max-depth 0)
-      (mk-result expr)
-      (case (e/tag expr)
+    (case (e/tag expr)
         ;; Application — Lean 4: simpApp → congr → trySimpCongrTheorem? → congrDefault
-        :app (let [;; First try @[congr] theorem (Lean 4: trySimpCongrTheorem?)
-                   congr-result (try-congr-theorem st env lemma-index expr config)]
-               (if congr-result
-                 congr-result
+      :app (let [;; First try @[congr] theorem (Lean 4: trySimpCongrTheorem?)
+                 congr-result (try-congr-theorem st env lemma-index expr config)]
+             (if congr-result
+               congr-result
                  ;; Pre-descent simpMatch for Bool.rec: simplify discriminant with
                  ;; full simp BEFORE CongrArgKind marks it :fixed.
                  ;; Lean 4: simpMatch (SimpMatch.lean) handles recursors specially.
-                 (let [app-fn-full (e/get-app-fn expr)
-                       app-args-full (e/get-app-args expr)]
-                   (or
+               (let [app-fn-full (e/get-app-fn expr)
+                     app-args-full (e/get-app-args expr)]
+                 (or
                      ;; Bool.rec with constant motive: override discriminant to :eq.
                      ;; When motive body doesn't reference its bound variable (e.g.,
                      ;; fun _ : Bool => Bool), the result type doesn't depend on the
                      ;; discriminant, so congrArg works and full simp is safe.
                      ;; Lean 4 handles this via auto-generated congr theorems; we
                      ;; detect the non-dependent case at runtime.
-                    nil  ;; fall through to generic descent with override below
+                  nil  ;; fall through to generic descent with override below
 
                  ;; Default: simplify fn and arg separately, build congruence proof.
                  ;; Lean 4: simpAppUsingCongr — use CongrArgKind to determine
                  ;; which args get full simp (:eq) vs dsimp-only (:fixed/:cast).
-                    (let [orig-f (e/app-fn expr) orig-a (e/app-arg expr)
-                          f-result (simp-expr* st env lemma-index orig-f (update config :max-depth dec))
+                  (let [orig-f (e/app-fn expr) orig-a (e/app-arg expr)
+                        f-result (simp-expr* st env lemma-index orig-f (update config :max-depth dec))
                        ;; Determine if this arg position should be :fixed (dsimp only)
                        ;; Compute from the full application's head function + arg count
-                          app-fn (e/get-app-fn expr)
-                          app-args (e/get-app-args expr)
-                          arg-idx (dec (count app-args))
-                          fun-info (when (and (e/const? app-fn) (pos? (count app-args)))
-                                     (try (get-fun-info st env app-fn (count app-args))
-                                          (catch Exception _ nil)))
-                          kinds (when fun-info (get-congr-simp-kinds fun-info))
-                          raw-kind (if (and kinds (< arg-idx (count kinds)))
-                                     (nth kinds arg-idx)
+                        app-fn (e/get-app-fn expr)
+                        app-args (e/get-app-args expr)
+                        arg-idx (dec (count app-args))
+                        fun-info (when (and (e/const? app-fn) (pos? (count app-args)))
+                                   (get-fun-info st env app-fn (count app-args)))
+                        kinds (when fun-info (get-congr-simp-kinds fun-info))
+                        raw-kind (if (and kinds (< arg-idx (count kinds)))
+                                   (nth kinds arg-idx)
                                   ;; No info available — use safe heuristic:
                                   ;; if arg's type is Sort u (u > 0), it's a type → :fixed
-                                     (let [at (safe-infer st orig-a)
-                                           atw (when at (safe-whnf st at))]
-                                       (if (and atw (e/sort? atw)
-                                                (not= (e/sort-level atw) lvl/zero))
-                                         :fixed :eq)))
+                                   (let [at (safe-infer st orig-a)
+                                         atw (when at (safe-whnf st at))]
+                                     (if (and atw (e/sort? atw)
+                                              (not= (e/sort-level atw) lvl/zero))
+                                       :fixed :eq)))
                        ;; Override :fixed → :eq for recursor discriminants with constant motive.
                        ;; When the motive doesn't depend on its bound variable (e.g.,
                        ;; Bool.rec (fun _ => Bool) ...), the result type is non-dependent,
                        ;; so congrArg works and full simp on the discriminant is safe.
                        ;; Lean 4 handles this via auto-generated congr theorems.
-                          arg-kind (cond
+                        arg-kind (cond
                                   ;; Override 1: recursor discriminant with constant motive → :eq
-                                     (and (= raw-kind :fixed)
-                                          (e/const? app-fn)
-                                          (let [n (name/->string (e/const-name app-fn))]
-                                            (or (= n "Bool.rec") (= n "List.rec")
-                                                (.endsWith ^String n ".rec")
-                                                (.endsWith ^String n ".casesOn")))
-                                          (= arg-idx (dec (count app-args)))
-                                          (let [motive (first app-args)]
-                                            (and (e/lam? motive)
-                                                 (not (e/has-loose-bvars? (e/lam-body motive) 0)))))
-                                     :eq
+                                   (and (= raw-kind :fixed)
+                                        (e/const? app-fn)
+                                        (let [n (name/->string (e/const-name app-fn))]
+                                          (or (= n "Bool.rec") (= n "List.rec")
+                                              (.endsWith ^String n ".rec")
+                                              (.endsWith ^String n ".casesOn")))
+                                        (= arg-idx (dec (count app-args)))
+                                        (let [motive (first app-args)]
+                                          (and (e/lam? motive)
+                                               (not (e/has-loose-bvars? (e/lam-body motive) 0)))))
+                                   :eq
                                   ;; Override 2: indexed family arg containing stuck Bool.rec → :eq
                                   ;; Without this, hypothesis lemmas can't reduce Bool.rec inside indices.
                                   ;; Lean 4 grind handles this via E-graph, not simp CongrArgKind.
-                                     (and (= raw-kind :fixed)
-                                          (let [found (atom false)]
-                                            (letfn [(scan [e]
-                                                      (when-not @found
+                                   (and (= raw-kind :fixed)
+                                        (let [found (atom false)
+                                              seen (java.util.IdentityHashMap.)]
+                                          (letfn [(scan [e]
+                                                    (with-inc-rec-depth 1 e
+                                                      (when-not (or @found (.containsKey seen e))
+                                                        (.put seen e true)
                                                         (let [[h a] (e/get-app-fn-args e)]
                                                           (when (and (e/const? h)
                                                                      (= "Bool.rec" (name/->string (e/const-name h))))
                                                             (reset! found true)))
                                                         (when (e/app? e)
                                                           (scan (e/app-fn e))
-                                                          (scan (e/app-arg e)))))]
-                                              (scan orig-a))
-                                            @found))
-                                     :eq
-                                     :else raw-kind)
-                          a-result (if (= arg-kind :eq)
+                                                          (scan (e/app-arg e))))))]
+                                            (scan orig-a))
+                                          @found))
+                                   :eq
+                                   :else raw-kind)
+                        a-result (if (= arg-kind :eq)
                                   ;; :eq — full simp (with rewrite lemmas + simprocs)
-                                     (simp-expr* st env lemma-index orig-a (update config :max-depth dec))
+                                   (simp-expr* st env lemma-index orig-a (update config :max-depth dec))
                                   ;; :fixed/:cast — dsimp only (Lean 4's dsimpImpl).
                                   ;; Separate traversal: structural reductions only,
                                   ;; propagates transitively through all sub-expressions
                                   ;; including lambda bodies. No rewrite lemmas.
-                                     (let [reduced (dsimp-expr env (:lctx st) orig-a
-                                                               (:max-depth config))]
-                                       (if (= reduced orig-a)
-                                         (mk-result orig-a)
-                                         (mk-result reduced))))]
-                      (if (and (identical? (:expr f-result) orig-f)
-                               (identical? (:expr a-result) orig-a))
-                        (mk-result expr)
-                        (mk-congr st f-result a-result orig-f orig-a)))))))
+                                   (let [reduced (dsimp-expr env (:lctx st) orig-a
+                                                             (:max-depth config))]
+                                     (if (= reduced orig-a)
+                                       (mk-result orig-a)
+                                       (mk-result reduced))))]
+                    (if (and (identical? (:expr f-result) orig-f)
+                             (identical? (:expr a-result) orig-a))
+                      (mk-result expr)
+                      (mk-congr st f-result a-result orig-f orig-a)))))))
 
         ;; Lambda — Lean 4: simpLambda (Main.lean:328) via lambdaTelescopeDSimp.
         ;; CRITICAL: open the binder with a FRESH FVAR before simplifying the body
@@ -2464,129 +2534,125 @@
         ;; mis-abstracted, yielding ill-typed congrArg proofs. After simp, re-abstract:
         ;;   eNew = mkLambdaFVars [x] r.expr ;  proof = mkFunExt (mkLambdaFVars [x] h)
         ;; (Lean: Result.addLambdas, Types.lean:916).
-        :lam (let [lam-type (e/lam-type expr)
-                   lam-body (e/lam-body expr)
-                   lam-nm (e/lam-name expr)
-                   lam-bi (e/lam-info expr)
+      :lam (let [lam-type (e/lam-type expr)
+                 lam-body (e/lam-body expr)
+                 lam-nm (e/lam-name expr)
+                 lam-bi (e/lam-info expr)
                    ;; dsimp the binder type (Lean: lambdaTelescopeDSimp dsimps `d`)
-                   alpha (let [reduced (dsimp-expr env (:lctx st) lam-type (:max-depth config))]
-                           (if (= reduced lam-type) lam-type reduced))
+                 alpha (let [reduced (dsimp-expr env (:lctx st) lam-type (:max-depth config))]
+                         (if (= reduced lam-type) lam-type reduced))
                    ;; OPEN the binder with a fresh fvar; simp the opened body in proper lctx
-                   xid (swap! (:next-id st) inc)
-                   xf (e/fvar xid)
-                   st' (update st :lctx assoc xid {:name (str lam-nm) :type alpha})
-                   body-x (e/instantiate1 lam-body xf)
-                   b-r (simp-expr* st' env lemma-index body-x (update config :max-depth dec))]
-               (if (and (identical? alpha lam-type)
-                        (identical? (:expr b-r) body-x))
-                 (mk-result expr)
+                 xid (swap! (:next-id st) inc)
+                 xf (e/fvar xid)
+                 st' (update st :lctx assoc xid {:name (str lam-nm) :type alpha})
+                 body-x (e/instantiate1 lam-body xf)
+                 b-r (simp-expr* st' env lemma-index body-x (update config :max-depth dec))]
+             (if (and (identical? alpha lam-type)
+                      (identical? (:expr b-r) body-x))
+               (mk-result expr)
                  ;; Re-abstract: new lambda over the fresh fvar (mkLambdaFVars [x] expr).
-                 (let [new-body (e/abstract1 (:expr b-r) xid)
-                       new-lam (e/lam lam-nm alpha new-body lam-bi)]
-                   (if (nil? (:proof? b-r))
+               (let [new-body (e/abstract1 (:expr b-r) xid)
+                     new-lam (e/lam lam-nm alpha new-body lam-bi)]
+                 (if (nil? (:proof? b-r))
                      ;; Body change is definitional — no proof needed
-                     (mk-result new-lam)
+                   (mk-result new-lam)
                      ;; funext.{u,v} α β f g (λx. proof x) : f = g
                      ;; β : α → Sort v is the (possibly DEPENDENT) result family,
                      ;; f = old lambda, g = new lambda. h = mkLambdaFVars [x] (proof x).
-                     (try
-                       (let [u (get-sort-level st alpha)
-                             beta-body (safe-infer st' body-x)           ; type of (f x)
-                             v (if beta-body (get-sort-level st' beta-body) lvl/zero)
-                             beta (e/lam lam-nm alpha
-                                         (e/abstract1 (or beta-body (e/sort' v)) xid) :default)
+                   (let [u (get-sort-level st alpha)
+                         beta-body (safe-infer st' body-x)           ; type of (f x)
+                         v (if beta-body (get-sort-level st' beta-body) lvl/zero)
+                         beta (e/lam lam-nm alpha
+                                     (e/abstract1 (or beta-body (e/sort' v)) xid) :default)
                              ;; h = λx:α. proof(x), proof abstracted over the fresh fvar
-                             proof-lam (e/lam lam-nm alpha (e/abstract1 (:proof? b-r) xid) :default)]
-                         {:expr new-lam
-                          :proof? (e/app* (e/const' funext-name [u v])
-                                          alpha beta expr new-lam proof-lam)
-                          :cache true})
-                       (catch Exception _
-                         ;; Fallback: return without proof
-                         (mk-result new-lam)))))))
+                         proof-lam (e/lam lam-nm alpha (e/abstract1 (:proof? b-r) xid) :default)]
+                     {:expr new-lam
+                      :proof? (e/app* (e/const' funext-name [u v])
+                                      alpha beta expr new-lam proof-lam)
+                      :cache true})))))
 
         ;; Forall/arrow — Lean 4's simpForall/simpArrow
         ;; Per-binder contextual: add h:P as a simp lemma when simplifying Q
-        :forall
-        (let [is-arrow (not (e/has-loose-bvars? (e/forall-body expr) 0))
-              orig-p (e/forall-type expr)
-              orig-q (e/forall-body expr)]
-          (if is-arrow
+      :forall
+      (let [is-arrow (not (e/has-loose-bvars? (e/forall-body expr) 0))
+            orig-p (e/forall-type expr)
+            orig-q (e/forall-body expr)]
+        (if is-arrow
             ;; Arrow: P → Q
-            (let [p-result (simp-expr* st env lemma-index orig-p (update config :max-depth dec))
-                  ;; Per-binder contextual simp (Lean 4: simpArrow lines 339-361)
-                  ;; If contextual and both P,Q are Props, add h:P as lemma for Q
-                  q-lemma-index
-                  (if (and (:contextual? config)
-                           (is-prop-type? st orig-p)
-                           (is-prop-type? st orig-q))
-                    ;; Add simplified P as a rewrite lemma
-                    ;; This creates a hypothetical proof h:P that can be used
-                    ;; to discharge side conditions when simplifying Q
-                    (let [p-simplified (:expr p-result)
-                          [ph _] (e/get-app-fn-args p-simplified)
-                          phn (when (e/const? ph) (e/const-name ph))
-                          ;; Create a hypothesis-like lemma entry for P
-                          ;; If P is an Eq/Iff, it becomes a rewrite rule for Q
-                          [phead pargs] (e/get-app-fn-args p-simplified)]
-                      (if (and (e/const? phead)
-                               (or (= (e/const-name phead) eq-name)
-                                   (= (e/const-name phead) iff-name)))
-                        ;; P is Eq/Iff: add as rewrite lemma
-                        (let [lhs (if (= 3 (count pargs)) (nth pargs 1) (nth pargs 0))
-                              rhs (if (= 3 (count pargs)) (nth pargs 2) (nth pargs 1))
-                              [lh _] (e/get-app-fn-args lhs)
-                              hn (when (e/const? lh) (e/const-name lh))
-                              hyp-lemma {:name nil :level-params [] :num-params 0
-                                         :lhs-pattern lhs :rhs rhs
-                                         :eq-type (when (= 3 (count pargs)) (nth pargs 0))
-                                         :kind (if (= (e/const-name phead) eq-name) :eq :iff)
-                                         :priority 3000 :perm false
-                                         :head-name hn :lhs-nargs (count (e/get-app-args lhs))}]
-                          ;; Insert the new hyp lemma into existing tree
-                          (dt/trie-insert lemma-index
-                                          (dt/expr->keys lhs)
-                                          hyp-lemma))
-                        ;; P is not Eq/Iff: keep same index
-                        lemma-index))
-                    lemma-index)
-                  ;; Simplify Q with potentially augmented lemma index
-                  ;; Reset cache for fresh context (Lean 4: withFreshCache)
-                  q-config (if (not= q-lemma-index lemma-index)
-                             (assoc config :cache (atom {}))
-                             config)
-                  q-result (simp-expr* st env q-lemma-index orig-q
-                                       (update q-config :max-depth dec))]
-              (if (and (identical? (:expr p-result) orig-p)
-                       (identical? (:expr q-result) orig-q))
-                (mk-result expr)
-                (if (and (is-prop-type? st orig-p) (is-prop-type? st orig-q))
-                  (mk-implies-congr st p-result q-result orig-p orig-q)
-                  (mk-result (e/forall' (e/forall-name expr) (:expr p-result)
-                                        (:expr q-result) (e/forall-info expr))))))
-            ;; Dependent forall: dsimp domain, simp body
-            (let [t-r (simp-expr* st env lemma-index orig-p (update config :max-depth dec))
-                  b-r (simp-expr* st env lemma-index orig-q (update config :max-depth dec))]
-              (if (and (identical? (:expr t-r) orig-p) (identical? (:expr b-r) orig-q))
-                (mk-result expr)
-                (mk-result (e/forall' (e/forall-name expr) (:expr t-r)
-                                      (:expr b-r) (e/forall-info expr)))))))
+          (let [p-result (simp-expr* st env lemma-index orig-p (update config :max-depth dec))
+                contextual? (and (:contextual? config)
+                                 (is-prop-type? st orig-p) (is-prop-type? st orig-q))
+                ;; Lean Simp/Main.lean simpArrow: withLocalDeclD + withNewLemmas.
+                ;; The premise has an actual proof variable, scoped over the
+                ;; consequent's proof with implies_congr_ctx (never a fake lemma).
+                xid (when contextual? (swap! (:next-id st) inc))
+                decl (when contextual? {:tag :local :id xid :name "h" :type (:expr p-result)})
+                st' (if contextual? (update st :lctx assoc xid decl) st)
+                q-index (if contextual?
+                          (reduce (fn [idx lemma]
+                                    (dt/trie-insert idx (dt/expr->keys st' env (:lhs-pattern lemma)) lemma))
+                                  lemma-index (make-hyp-lemmas st' {xid decl}))
+                          lemma-index)
+                q-result (simp-expr* st' env q-index orig-q
+                                     (cond-> (update config :max-depth dec)
+                                       contextual? (assoc :cache (atom {}))))]
+            (if (and contextual? (:proof? q-result))
+              (let [p (:expr p-result)
+                    q (:expr q-result)
+                    hq (e/lam "h" p (e/abstract1 (:proof? q-result) xid) :default)
+                    hp (or (:proof? p-result)
+                           (e/app* (e/const' eq-refl-name [(lvl/succ lvl/zero)])
+                                   (e/sort' lvl/zero) orig-p))
+                    dependent? (not= q (e/abstract1 q xid))
+                    q' (e/abstract1 q xid)]
+                (if dependent?
+                  (mk-result (e/forall' "h" p q' :default)
+                             (e/app* (e/const' (name/from-string "implies_dep_congr_ctx") [])
+                                     orig-p p orig-q hp (e/lam "h" p q' :default) hq))
+                  (mk-result (e/arrow p q)
+                             (e/app* (e/const' (name/from-string "implies_congr_ctx") [])
+                                     orig-p p orig-q q hp hq))))
+              (if (and (is-prop-type? st orig-p) (is-prop-type? st orig-q))
+                (mk-implies-congr st p-result q-result orig-p orig-q)
+                (mk-result (e/forall' (e/forall-name expr) (:expr p-result)
+                                      (:expr q-result) (e/forall-info expr))))))
+            ;; Lean Simp/Main.lean simpForall: open the binder before
+            ;; inferring/simplifying its body, then reabstract with forall_congr.
+          (if-not (is-prop-type? st expr)
+            (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
+            (let [domain (dsimp-expr env (:lctx st) orig-p (:max-depth config))
+                  xid (swap! (:next-id st) inc)
+                  xf (e/fvar xid)
+                  st' (update st :lctx assoc xid {:tag :local :id xid
+                                                  :name (str (e/forall-name expr)) :type domain})
+                  body (e/instantiate1 orig-q xf)
+                  rb (simp-expr* st' env lemma-index body (assoc config :cache (atom {})))
+                  new-body (e/abstract1 (:expr rb) xid)
+                  result (e/forall' (e/forall-name expr) domain new-body (e/forall-info expr))]
+              (if-let [h (:proof? rb)]
+                (let [u (get-sort-level st domain)
+                      p (e/lam (e/forall-name expr) domain orig-q (e/forall-info expr))
+                      q (e/lam (e/forall-name expr) domain new-body (e/forall-info expr))
+                      h (e/lam (e/forall-name expr) domain (e/abstract1 h xid) (e/forall-info expr))]
+                  (mk-result result
+                             (e/app* (e/const' (name/from-string "forall_congr") [u]) domain p q h)))
+                (if (= result expr) (mk-result expr) (mk-result result)))))))
 
         ;; Let — zeta reduce
-        :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
-               (simp-expr* st env lemma-index expanded config))
+      :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
+             (simp-expr* st env lemma-index expanded config))
 
         ;; Projection
-        :proj (let [s-r (simp-expr* st env lemma-index (e/proj-struct expr) (update config :max-depth dec))]
-                (if (identical? (:expr s-r) (e/proj-struct expr))
-                  (mk-result expr)
-                  (mk-result (e/proj (e/proj-type-name expr) (e/proj-idx expr) (:expr s-r)))))
+      :proj (let [s-r (simp-expr* st env lemma-index (e/proj-struct expr) (update config :max-depth dec))]
+              (if (identical? (:expr s-r) (e/proj-struct expr))
+                (mk-result expr)
+                (mk-result (e/proj (e/proj-type-name expr) (e/proj-idx expr) (:expr s-r)))))
 
         ;; Mdata — unwrap
-        :mdata (simp-expr* st env lemma-index (e/mdata-expr expr) config)
+      :mdata (simp-expr* st env lemma-index (e/mdata-expr expr) config)
 
         ;; Atoms
-        (mk-result expr)))))
+      (mk-result expr))))
 
 (def ^:dynamic *simp-trace*
   "When bound to an atom, simp-expr* logs rewrites for debugging.
@@ -2597,94 +2663,98 @@
   "Core simplification loop (Lean 4's simpLoop).
    config: {:max-depth :single-pass? :max-steps :cache :to-unfold :discharge-depth}"
   [st env lemma-index expr config]
-  (when-let [steps (:max-steps config)]
-    (when (> @steps config/*max-simp-steps*)
-      (tactic-error! "maximum number of steps exceeded" {:expr expr}))
-    (swap! steps inc))
+  ;; Lean Simp/Main.lean simpLoop returns cached results before doing work.
+  (if-let [cached (when-let [cache (:cache config)] (get @cache expr))]
+    cached
+    ;; The merged entry accounts for simpImpl and simpLoop's two frames.
+    (with-inc-rec-depth 2 expr
+      (when-let [steps (:max-steps config)]
+        (when (> @steps config/*max-simp-steps*)
+          (tactic-error! "maximum number of steps exceeded" {:expr expr :limit :max-simp-steps}))
+        (swap! steps inc))
 
-  (if (<= (:max-depth config) 0)
-    (mk-result expr)
-
+    ;; Lean simpLoop also bounds total rewrite work with maxSteps.
     ;; Check cache
-    (let [cache (:cache config)
-          cached (when cache (get @cache expr))]
-      (if cached
-        cached
+      (let [cache (:cache config)
+            cached (when cache (get @cache expr))]
+        (if cached
+          cached
 
-        (let [result
-              ;; Skip proof terms
-              (if (and (not (e/has-fvar-flag expr))
-                       (not (e/has-loose-bvars? expr))
-                       (is-proof-term? st expr))
-                (mk-result expr)
+          (let [result
+                ;; Skip proof terms
+                (if (and (not (e/has-fvar-flag expr))
+                         (not (e/has-loose-bvars? expr))
+                         (is-proof-term? st expr))
+                  (mk-result expr)
 
-                ;; PRE-PHASE
-                (let [pre-step (try-rewrite-step st env lemma-index expr config)]
-                  (if pre-step
-                    ;; .visit: recurse on result
-                    (let [inner (simp-expr* st env lemma-index (:expr pre-step) (update config :max-depth dec))]
-                      (mk-eq-trans st pre-step inner))
+                  ;; PRE-PHASE
+                  (let [pre-step (try-rewrite-step st env lemma-index expr config)]
+                    (if pre-step
+                      ;; .visit: recurse on result
+                      (let [inner (simp-expr* st env lemma-index (:expr pre-step) (update config :max-depth dec))]
+                        (mk-eq-trans st pre-step inner))
 
-                    ;; .continue: reduce + descend
-                    (let [whnf-r (reduce-step st expr)
-                          unfold-r (when-not whnf-r
-                                     (when-let [u (try-unfold st env (:to-unfold config) expr)]
-                                       (mk-result u)))
-                          reduced (or whnf-r unfold-r)
-                          current (if reduced
-                                    (let [inner (simp-expr* st env lemma-index (:expr reduced) (update config :max-depth dec))]
-                                      (mk-eq-trans st reduced inner))
-                                    (simp-subterms st env lemma-index expr config))]
+                      ;; .continue: reduce + descend
+                      (let [whnf-r (reduce-step st expr)
+                            unfold-r (when-not whnf-r
+                                       (when-let [u (try-unfold st env (:to-unfold config) expr)]
+                                         (mk-result u)))
+                            reduced (or whnf-r unfold-r)
+                            current (if reduced
+                                      (let [inner (simp-expr* st env lemma-index (:expr reduced) (update config :max-depth dec))]
+                                        (mk-eq-trans st reduced inner))
+                                      (simp-subterms st env lemma-index expr config))]
 
-                      ;; POST-PHASE
-                      ;; Lean 4: after congruence may have introduced reducible redexes
-                      ;; (e.g. Bool.rec ... true after discriminant rewrite).
-                      ;; Try WHNF reduction before post-rewrite.
-                      (let [post-reduced (when (not (identical? (:expr current) expr))
-                                           (reduce-step st (:expr current)))
-                            current (if post-reduced
-                                      (mk-eq-trans st current post-reduced)
-                                      current)
-                            post-r (or (try-rewrite-step st env lemma-index (:expr current) config)
-                                       (try-simproc st (:expr current) config
-                                                    :env env :lemma-index lemma-index))]
-                        (if post-r
-                          (let [composed (mk-eq-trans st current post-r)]
-                            (if (or (:single-pass? config) (= expr (:expr composed)))
-                              composed
-                              (let [again (simp-expr* st env lemma-index (:expr composed)
-                                                      (update config :max-depth dec))]
-                                (mk-eq-trans st composed again))))
-                          current))))))]
-          ;; Trace: log when Bool→True corruption occurs
-          (when (and *simp-trace*
-                     (e/const? expr)
-                     (= (name/->string (e/const-name expr)) "Bool")
-                     (not (identical? (:expr result) expr)))
-            ;; Find which lemma matched via disc tree
-            (let [dt-cands (lookup-lemmas st env lemma-index expr config)
-                  matching (filter (fn [l]
-                                     (match-lemma st (:lhs-pattern l) expr (:num-params l)))
-                                   dt-cands)]
-              (swap! *simp-trace* conj
-                     {:depth (:max-depth config)
-                      :before "Bool"
-                      :after (subs (str (:expr result)) 0 (min 80 (count (str (:expr result)))))
-                      :n-candidates (count dt-cands)
-                      :matching-lemmas (mapv (fn [l]
-                                               {:name (some-> (:name l) name/->string)
-                                                :hyp-id (:hyp-fvar-id l)
-                                                :kind (:kind l)
-                                                :priority (:priority l)
-                                                :lhs (subs (str (:lhs-pattern l)) 0 (min 40 (count (str (:lhs-pattern l)))))})
-                                             matching)})))
-          (when (and cache (:cache result))
-            (swap! cache assoc expr result))
-          result)))))
+                        ;; POST-PHASE
+                        ;; Lean 4: after congruence may have introduced reducible redexes
+                        ;; (e.g. Bool.rec ... true after discriminant rewrite).
+                        ;; Try WHNF reduction before post-rewrite.
+                        (let [post-reduced (when (not (identical? (:expr current) expr))
+                                             (reduce-step st (:expr current)))
+                              current (if post-reduced
+                                        (mk-eq-trans st current post-reduced)
+                                        current)
+                              post-r (or (try-rewrite-step st env lemma-index (:expr current) config)
+                                         (try-simproc st (:expr current) config
+                                                      :env env :lemma-index lemma-index))]
+                          (if post-r
+                            (let [composed (mk-eq-trans st current post-r)]
+                              (if (or (:single-pass? config) (= expr (:expr composed)))
+                                composed
+                                (let [again (simp-expr* st env lemma-index (:expr composed)
+                                                        (update config :max-depth dec))]
+                                  (mk-eq-trans st composed again))))
+                            current))))))]
+            ;; Trace: log when Bool→True corruption occurs
+            (when (and *simp-trace*
+                       (e/const? expr)
+                       (= (name/->string (e/const-name expr)) "Bool")
+                       (not (identical? (:expr result) expr)))
+              ;; Find which lemma matched via disc tree
+              (let [dt-cands (lookup-lemmas st env lemma-index expr config)
+                    matching (filter (fn [l]
+                                       (match-lemma st (:lhs-pattern l) expr (:num-params l)))
+                                     dt-cands)]
+                (swap! *simp-trace* conj
+                       {:depth (:max-depth config)
+                        :before "Bool"
+                        :after (subs (str (:expr result)) 0 (min 80 (count (str (:expr result)))))
+                        :n-candidates (count dt-cands)
+                        :matching-lemmas (mapv (fn [l]
+                                                 {:name (some-> (:name l) name/->string)
+                                                  :hyp-id (:hyp-fvar-id l)
+                                                  :kind (:kind l)
+                                                  :priority (:priority l)
+                                                  :lhs (subs (str (:lhs-pattern l)) 0 (min 40 (count (str (:lhs-pattern l)))))})
+                                               matching)})))
+            (when (and cache (:cache result))
+              (swap! cache assoc expr result))
+            result))))))
 
 ;; Public wrapper
 (defn simp-expr
-  "Simplify an expression. Returns the simplified expression."
+  "Simplify an expression. Returns the simplified expression.
+   The legacy max-depth argument is ignored; max-simp-steps bounds rewriting."
   ([st env lemma-index expr max-depth]
    (simp-expr st env lemma-index expr max-depth #{}))
   ([st env lemma-index expr max-depth to-unfold]
@@ -2773,7 +2843,7 @@
    ;; Function
    "Function.comp_id" "Function.id_comp"])
 
-(defn- ensure-ble-eq
+(defn ensure-ble-eq
   "Derive Nat.ble_eq if not already in env.
    Lean 4: @[simp] theorem ble_eq : (Nat.ble x y = true) = (x ≤ y)
    Proof: propext (Iff.intro Nat.le_of_ble_eq_true Nat.ble_eq_true_of_le)
@@ -2791,50 +2861,77 @@
                  (env/lookup env (name/from-string "Iff.intro")))
         ;; Build: ∀ (x y : Nat), (Nat.ble x y = true) = (x ≤ y)
         ;; Proof: fun x y => propext (Iff.intro (Nat.le_of_ble_eq_true) (Nat.ble_eq_true_of_le))
-        (try
-          (let [nat (e/const' (name/from-string "Nat") [])
-                lz lvl/zero l1 (lvl/succ lz)
-                bool-type (e/const' (name/from-string "Bool") [])
-                bool-true (e/const' (name/from-string "Bool.true") [])
-                inst-le-nat (e/const' (name/from-string "instLENat") [])
+        (let [nat (e/const' (name/from-string "Nat") [])
+              lz lvl/zero l1 (lvl/succ lz)
+              bool-type (e/const' (name/from-string "Bool") [])
+              bool-true (e/const' (name/from-string "Bool.true") [])
+              inst-le-nat (e/const' (name/from-string "instLENat") [])
                 ;; LE.le Nat instLENat x y = x ≤ y
-                mk-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lz])
-                                        nat inst-le-nat a b))
+              mk-le (fn [a b] (e/app* (e/const' (name/from-string "LE.le") [lz])
+                                      nat inst-le-nat a b))
                 ;; Type: ∀ (x y : Nat), (Nat.ble x y = true) = (x ≤ y)
-                ble-xy (e/app* (e/const' (name/from-string "Nat.ble") [])
-                               (e/bvar 1) (e/bvar 0))
-                ble-eq-true (e/app* (e/const' (name/from-string "Eq") [l1])
-                                    bool-type ble-xy bool-true)
-                le-xy (mk-le (e/bvar 1) (e/bvar 0))
-                eq-body (e/app* (e/const' (name/from-string "Eq") [l1])
-                                (e/sort' lz) ble-eq-true le-xy)
-                full-type (e/forall' "y" nat
-                                     (e/forall' "x" nat eq-body :default) :default)
+              ble-xy (e/app* (e/const' (name/from-string "Nat.ble") [])
+                             (e/bvar 1) (e/bvar 0))
+              ble-eq-true (e/app* (e/const' (name/from-string "Eq") [l1])
+                                  bool-type ble-xy bool-true)
+              le-xy (mk-le (e/bvar 1) (e/bvar 0))
+              eq-body (e/app* (e/const' (name/from-string "Eq") [l1])
+                              (e/sort' lz) ble-eq-true le-xy)
+              full-type (e/forall' "y" nat
+                                   (e/forall' "x" nat eq-body :default) :default)
                 ;; Proof with fvars then abstract
-                fv-x (e/fvar 9900000) fv-y (e/fvar 9900001)
-                ble-fv (e/app* (e/const' (name/from-string "Nat.ble") []) fv-x fv-y)
-                ble-eq-fv (e/app* (e/const' (name/from-string "Eq") [l1])
-                                  bool-type ble-fv bool-true)
-                le-fv (mk-le fv-x fv-y)
+              fv-x (e/fvar 9900000) fv-y (e/fvar 9900001)
+              ble-fv (e/app* (e/const' (name/from-string "Nat.ble") []) fv-x fv-y)
+              ble-eq-fv (e/app* (e/const' (name/from-string "Eq") [l1])
+                                bool-type ble-fv bool-true)
+              le-fv (mk-le fv-x fv-y)
                 ;; Nat.le_of_ble_eq_true {n m} h → partial: takes h
-                fwd (e/app* (e/const' (name/from-string "Nat.le_of_ble_eq_true") [])
-                            fv-x fv-y)
-                bwd (e/app* (e/const' (name/from-string "Nat.ble_eq_true_of_le") [])
-                            fv-x fv-y)
-                iff-proof (e/app* (e/const' (name/from-string "Iff.intro") [])
-                                  ble-eq-fv le-fv fwd bwd)
-                proof-body (e/app* (e/const' (name/from-string "propext") [])
-                                   ble-eq-fv le-fv iff-proof)
+              fwd (e/app* (e/const' (name/from-string "Nat.le_of_ble_eq_true") [])
+                          fv-x fv-y)
+              bwd (e/app* (e/const' (name/from-string "Nat.ble_eq_true_of_le") [])
+                          fv-x fv-y)
+              iff-proof (e/app* (e/const' (name/from-string "Iff.intro") [])
+                                ble-eq-fv le-fv fwd bwd)
+              proof-body (e/app* (e/const' (name/from-string "propext") [])
+                                 ble-eq-fv le-fv iff-proof)
                 ;; Abstract fvars and wrap in lambdas
-                proof-abs (e/abstract-many proof-body [9900000 9900001])
-                full-proof (e/lam "y" nat
-                                  (e/lam "x" nat proof-abs :default) :default)]
+              proof-abs (e/abstract-many proof-body [9900000 9900001])
+              full-proof (e/lam "y" nat
+                                (e/lam "x" nat proof-abs :default) :default)]
             ;; Verify and register
-            (let [tc (ansatz.kernel.TypeChecker. env)]
-              (.setFuel tc 20000000)
-              (.inferType tc full-proof))
-            (env/check-constant env (env/mk-thm ble-eq-name [] full-type full-proof)))
-          (catch Exception _ env))))))
+          (let [tc (ansatz.kernel.TypeChecker. env)]
+            (.setFuel tc 20000000)
+            (.inferType tc full-proof))
+          (env/check-constant env (env/mk-thm ble-eq-name [] full-type full-proof)))))))
+
+(defn- ensure-nat-packing
+  "Init/Data/Nat/Basic.lean add_eq/le_eq (Lean 55f80e10a3).
+   Older Init exports omit these packing theorems. Derive their exact rfl
+   statements so explicit `simp only` requests retain Lean's normal forms."
+  [env lemma-names]
+  (reduce
+   (fn [env nm]
+     (let [cn (name/from-string nm)]
+       (if (or (env/lookup env cn) (not (some #(= nm (str %)) lemma-names)))
+         env
+         (let [nat (e/const' (name/from-string "Nat") [])
+               x (e/bvar 1) y (e/bvar 0)
+               add? (= nm "Nat.add_eq")
+               lhs (e/app* (e/const' (name/from-string (if add? "Nat.add" "Nat.le")) []) x y)
+               rhs (if add?
+                     (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
+                             nat nat nat
+                             (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
+                                     nat (e/const' (name/from-string "instAddNat") [])) x y)
+                     (e/app* (e/const' (name/from-string "LE.le") [lvl/zero])
+                             nat (e/const' (name/from-string "instLENat") []) x y))
+               carrier (if add? nat (e/sort' lvl/zero))
+               u (lvl/succ lvl/zero)
+               type (e/app* (e/const' eq-name [u]) carrier lhs rhs)
+               value (e/app* (e/const' eq-refl-name [u]) carrier lhs)
+               bind (fn [ctor body] (ctor "x" nat (ctor "y" nat body :implicit) :implicit))]
+           (env/check-constant env (env/mk-thm cn [] (bind e/forall' type) (bind e/lam value)))))))
+   env ["Nat.add_eq" "Nat.le_eq"]))
 
 (defn- try-close-eq-rfl
   "If expr is Eq T a b where a and b are def-eq, return rfl proof. Else nil."
@@ -2843,14 +2940,27 @@
         [h a] (e/get-app-fn-args w)]
     (when (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count a)))
       (let [lhs (nth a 1) rhs (nth a 2)
-            deq (or (tc/is-def-eq st lhs rhs)
-                    ;; Fallback: Java TC with generous fuel for deep instance chains
-                    (try (let [tc (ansatz.kernel.TypeChecker. (:env st))]
-                           (.setFuel tc config/*default-fuel*)
-                           (.isDefEq tc lhs rhs))
-                         (catch Exception _ false)))]
+            ;; tc/is-def-eq already uses the Java checker with this lctx.
+            deq (tc/is-def-eq st lhs rhs)]
         (when deq
           (e/app* (e/const' eq-refl-name (e/const-levels h)) (nth a 0) lhs))))))
+
+(defn- decide-goal
+  "Preflight optional decide with the nonthrowing instance API."
+  [ps]
+  ;; Lean Simp/Rewrite.lean simpUsingDecide treats missing instances as inapplicable.
+  ;; As in evalDecideCore, synthesis must share the goal's local context.
+  (let [[ps idx] (#'decide-tac/get-instance-index ps)
+        goal (proof/current-goal ps)
+        prop (:type goal)
+        env (:env ps)]
+    ;; Lean Simp/Rewrite.lean simpUsingDecide: only closed terms (`e.hasFVar || e.hasMVar` → no-op)
+    (when (e/has-fvar-flag (decide-tac/zeta-let-locals (:lctx goal) prop))
+      (tactic-error! "decide: goal is not closed" {:goal prop}))
+    (when-not (inst/synthesize* (tc/mk-tc-state env) env idx
+                                (e/app (e/const' decidable-name []) prop) 0)
+      (tactic-error! "no Decidable instance for goal" {:goal prop}))
+    (decide-tac/decide ps)))
 
 (defn- close-goal-with-proof
   "Try to close the goal using a simp result.
@@ -2870,7 +2980,7 @@
         ;; might differ from the raw input/output expressions.
         [goal-type simplified-from-proof]
         (if-let [proof (:proof? result)]
-          (let [proof-type (try (tc/infer-type st proof) (catch Exception _ nil))
+          (let [proof-type (tc/infer-type st proof)
                 proof-whnf (when proof-type (#'tc/cached-whnf st proof-type))
                 [head args] (when proof-whnf (e/get-app-fn-args proof-whnf))]
             (if (and head (e/const? head)
@@ -2892,9 +3002,12 @@
                                  goal-type (:proof? result))]
           (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
               (proof/record-tactic :simp lemma-names (:id goal))))
-        (try (decide-tac/decide ps)
-             (catch Exception _
-               (tactic-error! "simplified to True but cannot certify" {:goal goal-type}))))
+        (try (decide-goal ps)
+             (catch clojure.lang.ExceptionInfo ex
+               (if (and (= :tactic-error (:kind (ex-data ex)))
+                        (not (:limit (ex-data ex)))
+                        (not (:proof-construction (ex-data ex))))
+                 (tactic-error! "simplified to True but cannot certify" {:goal goal-type}) (throw ex)))))
 
       ;; Simplified to False
       (and (e/const? simplified-whnf) (= (e/const-name simplified-whnf) false-name))
@@ -2919,46 +3032,45 @@
           (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term final-proof})
               (proof/record-tactic :simp lemma-names (:id goal))))
         ;; Try decide as last resort
-        (try (decide-tac/decide ps)
-             (catch Exception _
-               (if (= simplified goal-type)
-                 (tactic-error! "simp made no progress" {:goal goal-type})
+        (try (decide-goal ps)
+             (catch clojure.lang.ExceptionInfo ex
+               (if (and (= :tactic-error (:kind (ex-data ex)))
+                        (not (:limit (ex-data ex)))
+                        (not (:proof-construction (ex-data ex))))
+                 (if (= simplified goal-type)
+                   (tactic-error! "simp made no progress" {:goal goal-type})
                  ;; Lean 4: simp replaces goal with simplified form via Eq.mpr
                  ;; when it can't close. Create a new goal with the simplified type.
                  ;; This follows Lean 4's applySimpResultToTarget (Main.lean:780).
-                 (if (:proof? result)
-                   (let [mpr-level (let [gs (safe-infer st goal-type)
-                                         gsw (when gs (safe-whnf st gs))]
-                                     (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
-                         [ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-                     (-> (proof/assign-mvar ps' (:id goal)
-                                            {:kind :simp-reduce
-                                             :eq-proof (:proof? result)
-                                             :child new-id
-                                             :mpr-level mpr-level
-                                             :goal-type goal-type
-                                             :simplified simplified})
-                         (proof/record-tactic :simp lemma-names (:id goal))))
+                   (if (:proof? result)
+                     (let [mpr-level (let [gs (safe-infer st goal-type)
+                                           gsw (when gs (safe-whnf st gs))]
+                                       (if (and gsw (e/sort? gsw)) (e/sort-level gsw) lvl/zero))
+                           [ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+                       (-> (proof/assign-mvar ps' (:id goal)
+                                              {:kind :simp-reduce
+                                               :eq-proof (:proof? result)
+                                               :child new-id
+                                               :mpr-level mpr-level
+                                               :goal-type goal-type
+                                               :simplified simplified})
+                           (proof/record-tactic :simp lemma-names (:id goal))))
                    ;; Proof chain is nil (all rfl steps) but simp simplified.
-                   (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
-                     (-> (proof/assign-mvar ps' (:id goal)
-                                            {:kind :simp-reduce
-                                             :eq-proof nil
-                                             :child new-id
-                                             :mpr-level lvl/zero
-                                             :goal-type goal-type
-                                             :simplified simplified})
-                         (proof/record-tactic :simp lemma-names (:id goal))))))))))))
+                     (let [[ps' new-id] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+                       (-> (proof/assign-mvar ps' (:id goal)
+                                              {:kind :simp-reduce
+                                               :eq-proof nil
+                                               :child new-id
+                                               :mpr-level lvl/zero
+                                               :goal-type goal-type
+                                               :simplified simplified})
+                           (proof/record-tactic :simp lemma-names (:id goal)))))) (throw ex))))))))
 
-(defn simp
-  "Simplify the current goal using rewrite lemmas.
-   Options: :contextual? :single-pass? :max-depth :decide? (default true)"
-  ([ps] (simp ps []))
-  ([ps lemma-names] (simp ps lemma-names {}))
-  ([ps lemma-names opts]
-   (let [goal (proof/current-goal ps)
-         _ (when-not goal (tactic-error! "No goals" {}))
-         env (or (ensure-ble-eq (:env ps)) (:env ps))
+(defn- simp-setup
+  "The simp context for `goal`: [ps st env lemma-index config]. `:exclude-hyp` drops that local
+   from the contextual / term lemmas (Lean erases the simplified hypothesis itself in `simp at h`)."
+  [ps goal lemma-names opts]
+  (let [env (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) lemma-names)
          ;; Update proof state with enriched env (e.g., derived Nat.ble_eq)
          ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; attach-lctx (NOT plain assoc): bumps :next-id above the goal's max fvar id so
@@ -3028,8 +3140,69 @@
                  :ext-trie ext-trie
                  ;; Lazy instance index for TC synthesis in discharge
                  :inst-index (delay (inst/index-for env))}
+         ]
+    [ps st env lemma-index config]))
+
+(defn simp
+  "Simplify the current goal using rewrite lemmas.
+   Options: :contextual? :single-pass? :decide? (default true)"
+  ([ps] (simp ps []))
+  ([ps lemma-names] (simp ps lemma-names {}))
+  ([ps lemma-names opts]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
          result (simp-expr* st env lemma-index (:type goal) config)]
      (close-goal-with-proof ps goal st result lemma-names))))
+
+(defn simp-at
+  "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
+   simplify the TYPE of hypothesis `hyp-id` with the simp set (not containing `h` itself).
+   `False` closes the goal; `True` clears `h`; otherwise `h` is replaced (same name) by its
+   simplified form, transported with `Eq.mp`. No progress is an error, as in Lean."
+  ([ps hyp-id lemma-names] (simp-at ps hyp-id lemma-names {}))
+  ([ps hyp-id lemma-names opts]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         decl (red/lctx-lookup (:lctx goal) hyp-id)
+         _ (when-not decl (tactic-error! "simp at: hypothesis not in context" {:id hyp-id}))
+         lemma-names (remove #(and (instance? ansatz.kernel.Expr %) (e/fvar? %) (= hyp-id (e/fvar-id %)))
+                             lemma-names)
+         [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
+         old-type (:type decl)
+         result (simp-expr* st env lemma-index old-type config)
+         new-type (:expr result)
+         _ (when (or (identical? new-type old-type) (= new-type old-type))
+             (tactic-error! "simp at: made no progress" {:hyp (:name decl)}))
+         [proof-old proof-new]
+         (if-let [pf (:proof? result)]
+           (let [pw (#'tc/cached-whnf st (tc/infer-type st pf))
+                 [h a] (e/get-app-fn-args pw)]
+             (if (and (e/const? h) (= (e/const-name h) eq-name) (= 3 (count a)))
+               [(nth a 1) (nth a 2)]
+               [old-type new-type]))
+           [old-type new-type])
+         [ps new-id] (proof/alloc-id ps)
+         rep {:old-fvar-id hyp-id :new-fvar-id new-id :name (:name decl)
+              :old-type old-type :new-type new-type
+              :proof-old-type proof-old :proof-new-type proof-new
+              :eq-proof (:proof? result)}
+         child-lctx (cond-> (dissoc (:lctx goal) hyp-id)
+                      (not (true-const? new-type))
+                      (assoc new-id {:tag :local :id new-id :name (:name decl) :type new-type}))
+         [ps child-id] (proof/fresh-mvar ps (:type goal) child-lctx)
+         ps (-> (update ps :goals #(into [child-id] (remove #{child-id} %)))
+                (proof/assign-mvar (:id goal) {:kind :simp-all-hyps :replacements [rep] :child child-id})
+                (proof/record-tactic :simp-at (vec lemma-names) (:id goal)))]
+     (if (false-const? new-type)
+       (let [st' (tc/attach-lctx (tc/mk-tc-state (:env ps)) child-lctx)
+             s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal)))
+             u (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)]
+         (proof/assign-mvar ps child-id
+                            {:kind :exact
+                             :term (e/app* (e/const' (name/from-string "False.elim") [u])
+                                           (:type goal) (e/fvar new-id))}))
+       ps))))
 
 (defn- hyp-type->lemmas
   "Extract simp lemma(s) from a single hypothesis type.
@@ -3040,68 +3213,69 @@
    - General propositions: → P = True
    Returns a vector of lemma maps. st is used for is-prop checks."
   [st hyp-type hyp-fvar-id]
-  (let [;; Strip non-dependent arrows (propositional implications)
-        [num-params conclusion]
-        (loop [ty hyp-type n 0]
-          (if (and (e/forall? ty)
-                   (not (e/has-loose-bvars? (e/forall-type ty)))
+  (with-inc-rec-depth 1 hyp-type
+    (let [;; Strip non-dependent arrows (propositional implications)
+          [num-params conclusion]
+          (loop [ty hyp-type n 0]
+            (if (and (e/forall? ty)
+                     (not (e/has-loose-bvars? (e/forall-type ty)))
                    ;; Only peel Prop-typed domains (not Type params like Nat)
-                   (is-prop-type? st (e/forall-type ty)))
-            (recur (e/forall-body ty) (inc n))
-            [n ty]))
-        [head args] (e/get-app-fn-args conclusion)]
-    (cond
+                     (is-prop-type? st (e/forall-type ty)))
+              (recur (e/forall-body ty) (inc n))
+              [n ty]))
+          [head args] (e/get-app-fn-args conclusion)]
+      (cond
       ;; Eq α a b → direct rewrite: a → b
-      (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
-      (let [lhs (nth args 1) rhs (nth args 2)
-            [lh _] (e/get-app-fn-args lhs)
-            hn (when (e/const? lh) (e/const-name lh))]
-        [{:name nil :level-params [] :num-params num-params
-          :lhs-pattern lhs :rhs rhs
-          :eq-type (nth args 0) :kind :eq
-          :priority 2000 :head-name hn
-          :lhs-nargs (count (e/get-app-args lhs))
-          :hyp-fvar-id hyp-fvar-id}])
+        (and (e/const? head) (= (e/const-name head) eq-name) (= 3 (count args)))
+        (let [lhs (nth args 1) rhs (nth args 2)
+              [lh _] (e/get-app-fn-args lhs)
+              hn (when (e/const? lh) (e/const-name lh))]
+          [{:name nil :level-params [] :num-params num-params
+            :lhs-pattern lhs :rhs rhs
+            :eq-type (nth args 0) :kind :eq
+            :priority 2000 :head-name hn
+            :lhs-nargs (count (e/get-app-args lhs))
+            :hyp-fvar-id hyp-fvar-id}])
 
       ;; Iff P Q → rewrite via propext
-      (and (e/const? head) (= (e/const-name head) iff-name) (= 2 (count args)))
-      (let [lhs (nth args 0) rhs (nth args 1)
-            [lh _] (e/get-app-fn-args lhs)
-            hn (when (e/const? lh) (e/const-name lh))]
-        [{:name nil :level-params [] :num-params num-params
-          :lhs-pattern lhs :rhs rhs
-          :eq-type nil :kind :iff
-          :priority 2000 :head-name hn
-          :lhs-nargs (count (e/get-app-args lhs))
-          :hyp-fvar-id hyp-fvar-id}])
+        (and (e/const? head) (= (e/const-name head) iff-name) (= 2 (count args)))
+        (let [lhs (nth args 0) rhs (nth args 1)
+              [lh _] (e/get-app-fn-args lhs)
+              hn (when (e/const? lh) (e/const-name lh))]
+          [{:name nil :level-params [] :num-params num-params
+            :lhs-pattern lhs :rhs rhs
+            :eq-type nil :kind :iff
+            :priority 2000 :head-name hn
+            :lhs-nargs (count (e/get-app-args lhs))
+            :hyp-fvar-id hyp-fvar-id}])
 
       ;; And P Q → split into two sub-lemmas (Lean 4: preprocess And branch)
-      (and (e/const? head) (= (e/const-name head) and-name) (= 2 (count args)))
-      (let [left-lemmas (hyp-type->lemmas st (nth args 0) hyp-fvar-id)
-            right-lemmas (hyp-type->lemmas st (nth args 1) hyp-fvar-id)]
+        (and (e/const? head) (= (e/const-name head) and-name) (= 2 (count args)))
+        (let [left-lemmas (hyp-type->lemmas st (nth args 0) hyp-fvar-id)
+              right-lemmas (hyp-type->lemmas st (nth args 1) hyp-fvar-id)]
         ;; Add And.left/And.right projection chains
-        (into (mapv #(update % :and-proj (fnil conj [])
-                             {:side :left :args [(nth args 0) (nth args 1)]})
-                    left-lemmas)
-              (mapv #(update % :and-proj (fnil conj [])
-                             {:side :right :args [(nth args 0) (nth args 1)]})
-                    right-lemmas)))
+          (into (mapv #(update % :and-proj (fnil conj [])
+                               {:side :left :args [(nth args 0) (nth args 1)]})
+                      left-lemmas)
+                (mapv #(update % :and-proj (fnil conj [])
+                               {:side :right :args [(nth args 0) (nth args 1)]})
+                      right-lemmas)))
 
       ;; General proposition → P = True (only for Prop-typed hypotheses)
       ;; Lean 4: preprocess else branch + isProp guard
-      (and (e/const? head)
-           (not= (e/const-name head) true-name)
-           (is-prop-type? st conclusion))
-      (let [[lh _] (e/get-app-fn-args conclusion)
-            hn (when (e/const? lh) (e/const-name lh))]
-        [{:name nil :level-params [] :num-params num-params
-          :lhs-pattern conclusion :rhs (e/const' true-name [])
-          :eq-type nil :kind :prop-true
-          :priority 2000 :head-name hn
-          :lhs-nargs (count (e/get-app-args conclusion))
-          :hyp-fvar-id hyp-fvar-id}])
+        (and (e/const? head)
+             (not= (e/const-name head) true-name)
+             (is-prop-type? st conclusion))
+        (let [[lh _] (e/get-app-fn-args conclusion)
+              hn (when (e/const? lh) (e/const-name lh))]
+          [{:name nil :level-params [] :num-params num-params
+            :lhs-pattern conclusion :rhs (e/const' true-name [])
+            :eq-type nil :kind :prop-true
+            :priority 2000 :head-name hn
+            :lhs-nargs (count (e/get-app-args conclusion))
+            :hyp-fvar-id hyp-fvar-id}])
 
-      :else nil)))
+        :else nil))))
 
 (defn- make-hyp-lemmas
   "Extract contextual rewrite lemmas from hypotheses in lctx.
@@ -3114,96 +3288,101 @@
     (vec (mapcat (fn [[id decl]]
                    (when (and (= :local (:tag decl))
                               (not= id exclude-id))
-                     (try
-                       (let [ty (:type decl)]
-                         (if (and (e/forall? ty)
-                                  (not (is-prop-type? st (e/forall-type ty))))
+                     (let [ty (:type decl)]
+                       (if (and (e/forall? ty)
+                                (not (is-prop-type? st (e/forall-type ty))))
                            ;; QUANTIFIED-rewrite hypothesis — a `∀ (a : T), lhs = rhs` whose T is a
                            ;; Type (not a Prop implication), e.g. an accumulator-generalized IH
                            ;; `∀ acc, foldl f acc xs = …`. Peel the FULL ∀-telescope (the bound vars
                            ;; become pattern vars) via the proof-TERM path, with the hyp fvar as the
                            ;; proof — so the IH fires at any accumulator. hyp-type->lemmas only peels
                            ;; Prop implications, so it mis-classifies this as a general prop (`→ True`).
-                           (extract-simp-lemma-term env ty 2000 (e/fvar id))
-                           (hyp-type->lemmas st ty id)))
-                       (catch Exception _ nil))))
+                         (extract-simp-lemma-term env ty 2000 (e/fvar id))
+                         (hyp-type->lemmas st ty id)))))
                  lctx))))
 
-(defn simp-all
-  "Simplify goal + all hypotheses (Lean 4's SimpAll).
-   Following Lean 4's SimpAll.lean:
-   Phase 1: simplify hypothesis entries (in-memory, no lctx modification).
-   Phase 2: build simp-all-hyps wrapper with expanded lctx.
+(def ^:private ^:dynamic *simp-all-superseded*
+  "Within one `simp-all` call: an atom of the hypothesis fvar ids an earlier round replaced."
+  nil)
+
+(defn- simp-all-pass
+  "ONE round of Lean 4's SimpAll `loop` (Meta/Tactic/Simp/SimpAll.lean):
+   Phase 1: simplify every hypothesis entry against the others.
+   Phase 2: assert the simplified entries (`simp-all-hyps` wrapper) as `h'` NEXT TO the
+            originals — unlike Lean, which clears them: code compiles `(<= x y)` to `Nat.ble x y`,
+            and only the original form still rewrites it once the entry is in normal form `x ≤ y`.
+            Later rounds do not re-simplify a replaced original (`*simp-all-superseded*`). An entry
+            simplified to `True` is not asserted; one simplified to `False` closes the goal.
    Phase 3: simp the goal in the updated lctx (eq-proof consistent).
    This order ensures the goal's Eq.mpr is built in the correct lctx."
-  ([ps] (simp-all ps []))
-  ([ps lemma-names] (simp-all ps lemma-names {}))
-  ([ps lemma-names opts]
-   (let [goal (proof/current-goal ps)
-         _ (when-not goal (tactic-error! "No goals" {}))
-         env (or (ensure-ble-eq (:env ps)) (:env ps))
-         ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
+  [ps lemma-names opts]
+  (let [goal (proof/current-goal ps)
+        _ (when-not goal (tactic-error! "No goals" {}))
+        env (ensure-nat-packing (or (ensure-ble-eq (:env ps)) (:env ps)) lemma-names)
+        ps (if (not (identical? env (:env ps))) (assoc ps :env env) ps)
          ;; the inherited @[simp] extension: lazy via the persistent index when present (see simp)
-         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
-         all-names (if (:only? opts)
-                     (distinct (concat simp-only-builtins lemma-names))
-                     (distinct (concat default-simp-lemmas
-                                       (si/eager-lemma-names env ext-trie)
-                                       lemma-names)))]
-     ;; Phase 1: hypothesis simplification (Lean 4: loop over entries)
-       ;; Only accept def-eq changes (proof? = nil) to avoid type annotation
-       ;; corruption from full simp on hypothesis types. Non-def-eq changes
-       ;; need transitive CongrArgKind propagation through lambda bodies.
-     (let [goal' goal
-           lctx (:lctx goal')
-           st (tc/attach-lctx (tc/mk-tc-state env) lctx)
-           base-lemmas (make-simp-lemmas env all-names)
-           eqn-lemmas (vec (mapcat (fn [n]
-                                     (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
-                                       (when-let [eqns (find-eqn-theorems env cn)]
-                                         (mapcat (fn [eqn-name]
-                                                   (when-let [ci (env/lookup env eqn-name)]
-                                                     (extract-simp-lemma env ci 50)))
-                                                 eqns))))
-                                   all-names))
-           to-unfold (into #{} (keep (fn [n]
-                                       (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
-                                             ci (env/lookup env cn)]
-                                         (when (and ci
-                                                    (not (seq (extract-simp-lemma env ci 0)))
-                                                    (not (find-eqn-theorems env cn)))
-                                           (str n)))))
-                           all-names)
-           inst-index (delay (inst/index-for env))
-           hyps (vec (filter (fn [[_ d]] (= :local (:tag d))) lctx))
+        ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
+        all-names (if (:only? opts)
+                    (distinct (concat simp-only-builtins lemma-names))
+                    (distinct (concat default-simp-lemmas
+                                      (si/eager-lemma-names env ext-trie)
+                                      lemma-names)))]
+    ;; Phase 1: hypothesis simplification (Lean SimpAll.loop).
+    (let [goal' goal
+          lctx (:lctx goal')
+          st (tc/attach-lctx (tc/mk-tc-state env) lctx)
+          base-lemmas (make-simp-lemmas env all-names)
+          eqn-lemmas (vec (mapcat (fn [n]
+                                    (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))]
+                                      (when-let [eqns (find-eqn-theorems env cn)]
+                                        (mapcat (fn [eqn-name]
+                                                  (when-let [ci (env/lookup env eqn-name)]
+                                                    (extract-simp-lemma env ci 50)))
+                                                eqns))))
+                                  all-names))
+          to-unfold (into #{} (keep (fn [n]
+                                      (let [cn (if (instance? ansatz.kernel.Name n) n (name/from-string (str n)))
+                                            ci (env/lookup env cn)]
+                                        (when (and ci
+                                                   (not (seq (extract-simp-lemma env ci 0)))
+                                                   (not (find-eqn-theorems env cn)))
+                                          (str n)))))
+                          all-names)
+          inst-index (delay (inst/index-for env))
+           ;; an entry a previous round already simplified stays in the context (its original
+           ;; form keeps rewriting the goal: `(<= x y)` in code is `Nat.ble x y`, which the
+           ;; normal form `x ≤ y` no longer matches) but is not simplified again — Lean erases the
+           ;; replaced entry; re-simplifying it would re-add the same entry every round.
+          superseded (if *simp-all-superseded* @*simp-all-superseded* #{})
+          hyps (vec (filter (fn [[id d]] (and (= :local (:tag d)) (not (superseded id)))) lctx))
              ;; Compute simplified hypothesis types
-           replacements
-           (reduce
-            (fn [acc [id decl]]
-              (try
-                  ;; Only simplify non-implication Prop hypotheses.
-                  ;; Skip: Type-valued declarations (x : Nat, l : List Nat)
-                  ;; Skip: Implications/foralls (IH: P → Q) — these must be
-                  ;; preserved in original form for apply/rewrite tactics.
-                  ;; Lean 4: simp_all processes implications via simpArrow,
-                  ;; but for Bool-valued functions the equation theorem
-                  ;; unfolding makes the IH unusable after simplification.
-                (let [ty (:type decl)]
-                  (when (or (not (is-prop-type? st ty))
-                            (and (e/forall? ty)
-                                 (not (e/has-loose-bvars? (e/forall-type ty)))))
-                    (throw (ex-info "skip" {}))))
-                (let [hyp-lemmas (make-hyp-lemmas st lctx :exclude-id id)
-                      all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
-                      lemma-index (build-lemma-index st env all-lemmas)
-                      config {:max-depth 20 :single-pass? false :decide? true
-                              :max-steps (atom 0) :cache (atom {})
-                              :to-unfold to-unfold :discharge-depth 0
-                              :ext-trie ext-trie :inst-index inst-index}
-                      result (simp-expr* st env lemma-index (:type decl) config)]
-                  (if (or (identical? (:expr result) (:type decl))
-                          (= (:expr result) (:type decl)))
-                    acc
+          replacements
+          (reduce
+           (fn [acc [id decl]]
+             ;; Lean Simp/SimpAll.lean initEntries: simplify nondependent Prop
+             ;; hypotheses, including arrows and foralls. Keep superseded entries above.
+             (if (or (not (is-prop-type? st (:type decl)))
+                     (not= (:type goal') (e/abstract1 (:type goal') id))
+                     (some (fn [[other-id d]]
+                             (and (not= id other-id)
+                                  (or (not= (:type d) (e/abstract1 (:type d) id))
+                                      (when-let [v (:value d)]
+                                        (not= v (e/abstract1 v id)))))) lctx))
+               acc
+               (let [;; SimpAll.loop erases previous theorem versions. Originals
+                     ;; remain available to the goal for our Bool encoding, but
+                     ;; must not simplify their own replacements back to True.
+                     hyp-lemmas (make-hyp-lemmas st (apply dissoc lctx superseded) :exclude-id id)
+                     all-lemmas (concat base-lemmas eqn-lemmas hyp-lemmas)
+                     lemma-index (build-lemma-index st env all-lemmas)
+                     config {:max-depth 20 :single-pass? false :decide? true
+                             :max-steps (atom 0) :cache (atom {})
+                             :to-unfold to-unfold :discharge-depth 0
+                             :ext-trie ext-trie :inst-index inst-index}
+                     result (simp-expr* st env lemma-index (:type decl) config)]
+                 (if (or (identical? (:expr result) (:type decl))
+                         (= (:expr result) (:type decl)))
+                   acc
                       ;; Accept the simplification. Root cause of Bool→True corruption
                       ;; is fixed (Prop guards in extract-from-conclusion +
                       ;; try-simp-using-decide). Lean 4 doesn't TC-verify
@@ -3212,78 +3391,125 @@
                       ;; Extract actual proof types for Eq.mp consistency at extraction time.
                       ;; simp-expr* may WHNF before rewriting, so eq-proof endpoints
                       ;; might differ from the raw hypothesis type / simp result.
-                    (let [[proof-old proof-new]
-                          (if-let [proof (:proof? result)]
-                            (let [pt (try (tc/infer-type st proof) (catch Exception _ nil))
-                                  pw (when pt (#'tc/cached-whnf st pt))
-                                  [h a] (when pw (e/get-app-fn-args pw))]
-                              (if (and h (e/const? h)
-                                       (= (e/const-name h) (name/from-string "Eq"))
-                                       (= 3 (count a)))
-                                [(nth a 1) (nth a 2)]
-                                [nil nil]))
-                            [nil nil])]
-                      (conj acc {:old-fvar-id id :name (:name decl)
-                                 :old-type (:type decl) :new-type (:expr result)
+                   (let [[proof-old proof-new]
+                         (if-let [proof (:proof? result)]
+                           (let [pt (tc/infer-type st proof)
+                                 pw (when pt (#'tc/cached-whnf st pt))
+                                 [h a] (when pw (e/get-app-fn-args pw))]
+                             (if (and h (e/const? h)
+                                      (= (e/const-name h) (name/from-string "Eq"))
+                                      (= 3 (count a)))
+                               [(nth a 1) (nth a 2)]
+                               [nil nil]))
+                           [nil nil])]
+                     (conj acc {:old-fvar-id id :name (:name decl)
+                                :old-type (:type decl) :new-type (:expr result)
                                    ;; proof-consistent types for extraction
-                                 :proof-old-type (or proof-old (:type decl))
-                                 :proof-new-type (or proof-new (:expr result))
-                                 :eq-proof (:proof? result)}))))
-                (catch Exception _ acc)))
-            []
-            hyps)]
-       (if (empty? replacements)
+                                :proof-old-type (or proof-old (:type decl))
+                                :proof-new-type (or proof-new (:expr result))
+                                :eq-proof (:proof? result)}))))))
+           []
+           hyps)]
+      (if (empty? replacements)
            ;; No hypothesis changes — just simp the goal directly
-         (try (simp ps lemma-names {:contextual? true})
-              (catch Exception _ ps))
+        (try (simp ps lemma-names {:contextual? true})
+             (catch clojure.lang.ExceptionInfo ex
+               (if (and (= :tactic-error (:kind (ex-data ex)))
+                        (not (:limit (ex-data ex)))
+                        (not (:proof-construction (ex-data ex)))) ps (throw ex))))
            ;; Add simplified hypotheses alongside originals
-         (let [;; Allocate new fvar ids, decomposing And types recursively.
+        (let [;; Allocate new fvar ids, decomposing And types recursively.
                  ;; Lean 4: SimpTheorems.preprocess splits And into left/right
                  ;; via mkProj. We do the same here so each conjunct becomes
                  ;; a separate hypothesis visible to omega and other tactics.
-               [ps' replacements']
-               (reduce (fn [[ps reps] rep]
-                         (letfn [(expand [ps ty name-base]
-                                   (let [[head args] (e/get-app-fn-args ty)]
-                                     (if (and (e/const? head)
-                                              (= (e/const-name head) and-name)
-                                              (= 2 (count args)))
-                                         ;; And P Q → expand left and right
-                                       (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081"))
-                                             [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082"))]
-                                         [ps' (into left-reps right-reps)])
+              [ps' replacements']
+              (reduce (fn [[ps reps] rep]
+                        (letfn [(expand [ps ty name-base proj]
+                                  (with-inc-rec-depth 1 ty
+                                    (let [[head args] (e/get-app-fn-args ty)]
+                                      (if (and (e/const? head)
+                                               (= (e/const-name head) and-name)
+                                               (= 2 (count args)))
+                                         ;; And P Q → expand left and right; each conjunct is reached
+                                         ;; from the transported whole by its And.left/And.right chain
+                                        (let [[ps' left-reps] (expand ps (nth args 0) (str name-base "\u2081")
+                                                                      (conj proj [:left (nth args 0) (nth args 1)]))
+                                              [ps' right-reps] (expand ps' (nth args 1) (str name-base "\u2082")
+                                                                       (conj proj [:right (nth args 0) (nth args 1)]))]
+                                          [ps' (into left-reps right-reps)])
                                          ;; Leaf — allocate one fvar
-                                       (let [[ps' new-id] (proof/alloc-id ps)]
-                                         [ps' [(assoc rep :new-fvar-id new-id
-                                                      :new-type ty :name name-base)]]))))]
-                           (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep))]
-                             [ps' (into reps new-entries)])))
-                       [ps []]
-                       replacements)
+                                        (let [[ps' new-id] (proof/alloc-id ps)]
+                                          [ps' [(assoc rep :new-fvar-id new-id
+                                                       :new-type ty :name name-base
+                                                       :and-proj proj)]])))))]
+                          (let [[ps' new-entries] (expand ps (:new-type rep) (:name rep) [])]
+                            [ps' (into reps new-entries)])))
+                      [ps []]
+                      replacements)
                  ;; Build new lctx: keep originals, add simplified versions
                  ;; Use distinct names (append ') to avoid name collision with
                  ;; originals — otherwise sexp->ansatz name lookup picks the wrong one
-               new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type]}]
-                                  (assoc lctx new-fvar-id
-                                         {:tag :local :id new-fvar-id
-                                          :name (str name "'") :type new-type}))
-                                lctx
-                                replacements')
+              new-lctx (reduce (fn [lctx {:keys [new-fvar-id name new-type]}]
+                                 (if (true-const? new-type)
+                                   lctx
+                                   (assoc lctx new-fvar-id
+                                          {:tag :local :id new-fvar-id
+                                           :name (str name "'") :type new-type})))
+                               lctx
+                               replacements')
+              _ (when *simp-all-superseded*
+                  (swap! *simp-all-superseded* into (map :old-fvar-id replacements')))
                  ;; Create body sub-goal (insert at front for priority)
-               [ps'' body-goal-id]
-               (let [[ps''' id] (proof/fresh-mvar ps' (:type goal') new-lctx)]
-                 [(update ps''' :goals #(into [id] (remove #{id} %)))
-                  id])
+              [ps'' body-goal-id]
+              (let [[ps''' id] (proof/fresh-mvar ps' (:type goal') new-lctx)]
+                [(update ps''' :goals #(into [id] (remove #{id} %)))
+                 id])
                  ;; Assign current goal with simp-all-hyps wrapper
-               ps'' (-> (proof/assign-mvar ps'' (:id goal')
-                                           {:kind :simp-all-hyps
-                                            :replacements replacements'
-                                            :child body-goal-id})
-                        (proof/record-tactic :simp-all (vec lemma-names) (:id goal')))]
-             ;; Phase 2 (Lean 4 order): simp the goal AFTER hypothesis expansion.
+              ps'' (-> (proof/assign-mvar ps'' (:id goal')
+                                          {:kind :simp-all-hyps
+                                           :replacements replacements'
+                                           :child body-goal-id})
+                       (proof/record-tactic :simp-all (vec lemma-names) (:id goal')))]
+             ;; An entry simplified to `False` closes the goal (SimpAll `simpStep` → none).
+          (if-let [false-rep (first (filter #(false-const? (:new-type %)) replacements'))]
+            (let [goal-sort (let [st' (tc/attach-lctx (tc/mk-tc-state (:env ps'')) new-lctx)
+                                  s (#'tc/cached-whnf st' (tc/infer-type st' (:type goal')))]
+                              (if (e/sort? s) (e/sort-level s) lvl/zero))]
+              (proof/assign-mvar ps'' body-goal-id
+                                 {:kind :exact
+                                  :term (e/app* (e/const' (name/from-string "False.elim") [goal-sort])
+                                                (:type goal') (e/fvar (:new-fvar-id false-rep)))}))
+             ;; Phase 3 (Lean 4 order): simp the goal AFTER hypothesis expansion.
              ;; The goal's eq-proof is now built in the expanded lctx — consistent!
-           (try (simp ps'' lemma-names {:contextual? true})
-                (catch Exception _ ps''))))))))
+            (try (simp ps'' lemma-names {:contextual? true})
+                 (catch clojure.lang.ExceptionInfo ex
+                   (if (and (= :tactic-error (:kind (ex-data ex)))
+                            (not (:limit (ex-data ex)))
+                            (not (:proof-construction (ex-data ex)))) ps'' (throw ex))))))))))
+
+(def ^:private simp-all-max-rounds
+  "Bound on SimpAll rounds (Lean bounds the loop by `maxSteps` through the shared stats)."
+  32)
+
+(defn simp-all
+  "Simplify goal + all hypotheses (Lean 4's SimpAll): repeat `simp-all-pass` while it changes
+   the focused goal — each round simplifies the hypotheses against the ones the previous round
+   produced — until a fixpoint, the goal is closed, or `simp-all-max-rounds`."
+  ([ps] (simp-all ps []))
+  ([ps lemma-names] (simp-all ps lemma-names {}))
+  ([ps lemma-names opts]
+   (binding [*simp-all-superseded* (atom #{})]
+    (loop [ps ps round 0]
+     (let [g (proof/current-goal ps)
+           n (count (:goals ps))
+           ps' (simp-all-pass ps lemma-names opts)
+           g' (proof/current-goal ps')]
+       (if (or (< (count (:goals ps')) n)            ; focused goal closed
+               (nil? g')
+               (= (:id g) (:id g'))                   ; no change this round
+               (>= (inc round) simp-all-max-rounds))
+         ps'
+         (recur ps' (inc round))))))))
 
 ;; ============================================================
 ;; Nat offset decomposition — Lean 4's NatOffset (Simprocs/Nat.lean)
@@ -3294,45 +3520,46 @@
    e.g., x + 3 → {:base x :offset 3}, Nat.succ x → {:base x :offset 1},
    pure literal 5 → {:base nil :offset 5}."
   [st expr]
-  (let [w (#'tc/cached-whnf st expr)
-        [head args] (e/get-app-fn-args w)]
-    (cond
+  (with-inc-rec-depth 1 expr
+    (let [w (#'tc/cached-whnf st expr)
+          [head args] (e/get-app-fn-args w)]
+      (cond
       ;; Pure literal
-      (e/lit-nat? w)
-      {:base nil :offset (e/lit-nat-val w)}
+        (e/lit-nat? w)
+        {:base nil :offset (e/lit-nat-val w)}
 
       ;; Nat.succ a
-      (and (e/const? head) (= (e/const-name head) nat-succ-name) (= 1 (count args)))
-      (let [inner (nat-offset-parse st (nth args 0))]
-        (update inner :offset inc))
+        (and (e/const? head) (= (e/const-name head) nat-succ-name) (= 1 (count args)))
+        (let [inner (nat-offset-parse st (nth args 0))]
+          (update inner :offset inc))
 
       ;; Nat.add a b
-      (and (e/const? head) (= (e/const-name head) nat-add-name) (= 2 (count args)))
-      (let [b-val (whnf-to-nat st (nth args 1))]
-        (if b-val
-          (let [inner (nat-offset-parse st (nth args 0))]
-            (update inner :offset + b-val))
-          (let [a-val (whnf-to-nat st (nth args 0))]
-            (if a-val
-              (let [inner (nat-offset-parse st (nth args 1))]
-                (update inner :offset + a-val))
-              {:base w :offset 0}))))
+        (and (e/const? head) (= (e/const-name head) nat-add-name) (= 2 (count args)))
+        (let [b-val (whnf-to-nat st (nth args 1))]
+          (if b-val
+            (let [inner (nat-offset-parse st (nth args 0))]
+              (update inner :offset + b-val))
+            (let [a-val (whnf-to-nat st (nth args 0))]
+              (if a-val
+                (let [inner (nat-offset-parse st (nth args 1))]
+                  (update inner :offset + a-val))
+                {:base w :offset 0}))))
 
       ;; HAdd.hAdd Nat Nat Nat inst a b (6 args)
-      (and (e/const? head)
-           (= (name/->string (e/const-name head)) "HAdd.hAdd")
-           (= 6 (count args)))
-      (let [b-val (whnf-to-nat st (nth args 5))]
-        (if b-val
-          (let [inner (nat-offset-parse st (nth args 4))]
-            (update inner :offset + b-val))
-          (let [a-val (whnf-to-nat st (nth args 4))]
-            (if a-val
-              (let [inner (nat-offset-parse st (nth args 5))]
-                (update inner :offset + a-val))
-              {:base w :offset 0}))))
+        (and (e/const? head)
+             (= (name/->string (e/const-name head)) "HAdd.hAdd")
+             (= 6 (count args)))
+        (let [b-val (whnf-to-nat st (nth args 5))]
+          (if b-val
+            (let [inner (nat-offset-parse st (nth args 4))]
+              (update inner :offset + b-val))
+            (let [a-val (whnf-to-nat st (nth args 4))]
+              (if a-val
+                (let [inner (nat-offset-parse st (nth args 5))]
+                  (update inner :offset + a-val))
+                {:base w :offset 0}))))
 
-      :else {:base w :offset 0})))
+        :else {:base w :offset 0}))))
 
 (defn dsimp
   "Definitional simplification — faithful port of Lean 4's `dsimpGoal`

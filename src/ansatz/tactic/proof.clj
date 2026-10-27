@@ -287,15 +287,24 @@
     (let [{:keys [replacements child]} assignment
           eq-mp-nm (name/from-string "Eq.mp")]
       (reduce (fn [body {:keys [old-fvar-id new-fvar-id old-type new-type
-                                proof-old-type proof-new-type eq-proof]}]
+                                proof-old-type proof-new-type eq-proof and-proj]}]
                 (let [actual-old (or proof-old-type old-type)
                       actual-new (or proof-new-type new-type)
                       transport-proof (if eq-proof
                                         (e/app* (e/const' eq-mp-nm [lvl/zero])
                                                 actual-old actual-new eq-proof (e/fvar old-fvar-id))
-                                        (e/fvar old-fvar-id))]
-                  (e/app (e/lam "h" actual-new (meta/abstract-fvars body [new-fvar-id]) :default)
-                         transport-proof)))
+                                        (e/fvar old-fvar-id))
+                      ;; a conjunct of a simplified `A ∧ B` entry: project the transported whole
+                      [binder-type value]
+                      (if (seq and-proj)
+                        [new-type
+                         (reduce (fn [pf [side a b]]
+                                   (e/app* (e/const' (name/from-string (if (= side :left) "And.left" "And.right")) [])
+                                           a b pf))
+                                 transport-proof and-proj)]
+                        [actual-new transport-proof])]
+                  (e/app (e/lam "h" binder-type (meta/abstract-fvars body [new-fvar-id]) :default)
+                         value)))
               (e/mvar child)
               (reverse replacements)))
 

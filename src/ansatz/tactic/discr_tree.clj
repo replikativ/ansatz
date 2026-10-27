@@ -8,7 +8,7 @@
 ;; in the trie. Lookup walks the trie, always exploring wildcard (star)
 ;; branches in addition to exact matches.
 ;;
-;; Following Lean 4's src/Lean/Meta/DiscrTree.lean.
+;; Following Lean Meta/DiscrTree/Main.lean, checkout 55f80e10a3.
 
 (ns ansatz.tactic.discr-tree
   "Discrimination tree for efficient expression matching.
@@ -58,10 +58,8 @@
 ;; ============================================================
 ;; DiscrTree reduction — Lean 4's reduceDT (DiscrTree/Main.lean:204-245)
 ;; ============================================================
-;; Before keying, reduce expressions using whnf-no-delta (beta/iota/proj/let)
-;; to normalize projections and beta-redexes.
-;; Root terms: stop reducing if the result head is a "bad key" (lambda, sort, etc.)
-;; Nested terms: full whnf-no-delta reduction.
+;; Before keying, reduce structural redexes and reducible definitions.
+;; Root terms stop before a bad key; class projections keep accessor keys.
 
 (defn- bad-key?
   "Lean 4's isBadKey: return true if fn would produce Key.other or Key.star.
@@ -84,57 +82,66 @@
   (boolean (when-let [reg @structure-registry*]
              (contains? @@reg (name/->string tname)))))
 
-(defn- reduce-for-dt
-  "Discrimination-tree keying reduction (Lean 4's reduceDT, DiscrTree/Main.lean:204-245: whnfCore at
-   REDUCIBLE transparency). Faithful to Lean, we do NOT reduce a class-projection accessor
-   (`@BEq.beq α inst a b`, `@HAdd.hAdd … inst a b`) to a projection: the instance is not @[reducible]
-   and the projection function is not @[reducible], so `whnfCore` leaves the head as the CONST accessor
-   (`getKeyArgs` keys `.const BEq.beq`, instance arg starred). Keying BOTH symbolic-instance patterns
-   and concrete-instance queries by that const is what lets `beq_iff_eq`/`zero_add` match their goals.
-   So the base reduction is `whnf-no-delta` (beta/iota/proj/let, no delta) — accessor stays const.
+(defn- mk-add-nat
+  "Lean Simp/BuiltinSimprocs/Nat.lean mkAddNat: use the elaborated Nat addition form."
+  [x y]
+  (let [nat (e/const' (name/from-string "Nat") [])
+        inst (e/app* (e/const' (name/from-string "instHAdd") [lvl/zero])
+                      nat (e/const' (name/from-string "instAddNat") []))]
+    (e/app* (e/const' (name/from-string "HAdd.hAdd") [lvl/zero lvl/zero lvl/zero])
+            nat nat nat inst x y)))
 
-   ONE ansatz-specific deviation: types defined via `a/structure` have auto-generated projection
-   LEMMAS whose types carry raw `.proj` (our `structure` macro emits the kernel projection, where
-   Lean would use the accessor function). For those — and ONLY those (looked up in the
-   structure-registry) — we canonicalize a registered-structure accessor on the goal to the same stuck
-   `.proj` via `accessor->stuck-proj` (beta-only, struct NOT reduced through), so goal and raw-proj
-   lemma key alike. Lean Init classes are not registered, so their accessor const head is left as-is.
-   For root terms, stop if the result is a bad key."
-  [env e root?]
-  (try
-    (let [reduced (red/whnf-no-delta env e)
-          canon (let [p (red/accessor->stuck-proj env reduced)]
-                  (if (and p
-                           (e/proj? (e/get-app-fn p))
-                           (ansatz-structure? (e/proj-type-name (e/get-app-fn p))))
-                    p
-                    reduced))]
-      (if (and root? (bad-key? canon))
-        e  ;; Don't reduce to a bad key at the root
-        canon))
-    (catch Exception _ e)))
+(defn reduce-dt
+  "Lean Meta/DiscrTree/Main.lean reduceDT: unfold reducible heads, stopping
+   before a bad root key. Class projections retain their accessor key.
+   Minimal surface-encoding deviation: surface.ingest/arith-lift emits raw
+   Nat.add for `+`; fold it to Lean's mkAddNat form so addition keys agree."
+  [env expr root?]
+  (loop [expr (red/whnf-no-delta env expr) depth 0]
+    (when (>= depth 512)
+      (throw (ex-info "Tactic error: discrimination tree maxRecDepth exceeded"
+                      {:kind :tactic-error :limit :max-rec-depth :max-rec-depth 512})))
+    (let [[head args] (e/get-app-fn-args expr)
+          ci (when (e/const? head) (env/lookup env (e/const-name head)))
+          projection (when ci (red/accessor->stuck-proj env expr))
+          next-expr (when (and ci (= :abbrev (env/get-reducibility-hints ci)))
+                      (if projection
+                        ;; Kernel abbrev hints alone do not distinguish class
+                        ;; projections (Lean explicitly keeps these irreducible).
+                        (when (ansatz-structure? (e/proj-type-name (e/get-app-fn projection))) projection)
+                        (red/unfold-head-once env expr)))]
+      (cond
+        (and (e/const? head) (= (e/const-name head) (name/from-string "Nat.add"))
+             (= 2 (count args)))
+        (mk-add-nat (first args) (second args))
+
+        (and next-expr (not= next-expr expr)
+             (not (and root? (bad-key? next-expr))))
+        (recur next-expr (inc depth))
+
+        :else expr))))
 
 ;; ============================================================
 ;; Expression → Key sequence (Lean 4's mkPath / pushArgs)
 ;; ============================================================
 
+;; Extracted lemma patterns use loose bvars instead of Lean telescope fvars.
+;; They have no inferable type here; leave their structural keys intact.
 (defn- is-proof?
   "Check if expression is a proof (has type in Prop)."
   [st e]
-  (try
+  (when-not (e/has-loose-bvars? e)
     (let [ty (tc/infer-type st e)
           tw (#'tc/cached-whnf st ty)]
-      (and (e/sort? tw) (= (e/sort-level tw) lvl/zero)))
-    (catch Exception _ false)))
+      (and (e/sort? tw) (= (e/sort-level tw) lvl/zero)))))
 
 (defn- is-type?
   "Check if expression is a type (has type Sort u for some u)."
   [st e]
-  (try
+  (when-not (e/has-loose-bvars? e)
     (let [ty (tc/infer-type st e)
           tw (#'tc/cached-whnf st ty)]
-      (e/sort? tw))
-    (catch Exception _ false)))
+      (e/sort? tw))))
 
 (defn get-param-infos
   "Get parameter info for a function head from the environment.
@@ -183,7 +190,7 @@
                            [(:expr item) (:root? item)]
                            [item false])
                ;; Lean 4's reduceDT: reduce before keying (skip sentinels like ::star)
-               e (if (and env (not (keyword? e))) (reduce-for-dt env e root?) e)]
+               e (if (and env (not (keyword? e))) (reduce-dt env e root?) e)]
            (cond
            ;; Star sentinel (from argument filtering)
              (= e ::star)
