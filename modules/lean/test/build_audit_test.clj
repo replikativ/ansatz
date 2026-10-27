@@ -52,7 +52,7 @@
                  (audit/verify-dependency! (assoc-in deps [:deps 'org.replikativ/pattern :mvn/version] "1.0.449"))))
     (is (thrown? clojure.lang.ExceptionInfo
                  (audit/verify-dependency! (assoc-in deps [:aliases :pattern-git :override-deps 'org.replikativ/pattern :git/sha] "wrong")))))
-  (is (= {:sources 64 :dynamic-resolves 5}
+  (is (= {:sources 65 :dynamic-resolves 5}
          (audit/verify! (edn/read-string (slurp "runtime-closure.edn")) "../../experiments/lean-ir/src" "src")))
   (is (nil? (find-ns 'pattern.nanopass.dialect)))
   (is (nil? (find-ns 'prototype.typed-tail-execution))))
