@@ -20,7 +20,8 @@
   (:require [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
-            [ansatz.kernel.expr :as e]))
+            [ansatz.kernel.expr :as e]
+            [ansatz.tactic.instance :as instance]))
 
 (defn- kconst [s] (e/const' (nm/from-string s) []))
 (defn- has? [s] (some? (env/lookup (a/env) (nm/from-string s))))
@@ -43,6 +44,9 @@
                                   (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
                                   (mul_zero (forall [a S] (= S (mul a zero) zero)))
                                   (zero_mul (forall [a S] (= S (mul zero a) zero))))))
+  ;; Lean Elab/Structure.lean:addParentInstances registers a class's parent projection.
+  ;; These owned classes use `structure`, so install their @[instance] entry explicitly.
+  (swap! a/ansatz-env instance/add-instance (nm/from-string "WSemiring.toWAddMonoid"))
   :installed)
 
 ;; ── Instance terms (carrier-agnostic; from an ops+proof-name row) ────────────────────────────

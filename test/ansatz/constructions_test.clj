@@ -5,6 +5,7 @@
             [clojure.string :as str]
             [clojure.walk :as walk]
             [ansatz.core :as a]
+            [ansatz.test-env :as test-env]
             [ansatz.inductive :as ind]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
@@ -23,7 +24,7 @@
   (delay
     (with-open [in (GZIPInputStream. (java.io.FileInputStream. "test-data/kernel-reference/constructions.ndjson.gz"))]
       (let [parsed (parser/parse-ndjson-string (slurp in))]
-        (try (:env (replay/replay (:decls parsed)))
+        (try (test-env/with-instance-registry (:env (replay/replay (:decls parsed))))
              (finally (.close ^java.io.Closeable (:exprs parsed))))))))
 
 (defn- lookup [env n] (env/lookup env (name/from-string n)))
