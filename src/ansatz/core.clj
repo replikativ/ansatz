@@ -23,7 +23,6 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.meta :as meta]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.elab-term :as telab]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.simp :as simp]
@@ -785,54 +784,30 @@
                       :else [(elab/elaborate-in-context (:env ps) (:lctx g) a)]))
                   args))))
 
-(clojure.core/defn- apply-hole-symbol?
-  [x]
-  (and (symbol? x)
-       (let [s (str x)]
-         (or (= s "_")
-             (= s "?_")
-             (clojure.string/starts-with? s "?")))))
-
 (clojure.core/defn- elab-apply-arg
-  "Resolve an `apply`/`solve_by_elim` lemma argument to a kernel term, returning [ps' term].
-   A bare symbol that names a LOCAL HYPOTHESIS resolves to that fvar first (locals shadow globals,
-   as in Lean's apply/solve_by_elim) — so e.g. a quantified hypothesis `h : ∀x, f x ~ g x` can be
-   passed and applied. Otherwise: bare symbol → `@`-explicit elaboration (no implicit insertion,
-   like Lean's elabTermForApply); compound form → elaborate in context. If a bare symbol is a
-   universe-polymorphic const whose universe is not pinned standalone (e.g. List.Perm.nil :
-   @List.Perm.{u} α [] []), elaboration throws — so we mint fresh Level.mvars for its levelParams
-   and let apply-tac's meta-isDefEq solve them against the goal (Lean's forallMetaTelescope +
-   isDefEq). Mirrors Apply.lean."
+  "Lean Elab/Tactic/ElabTerm.lean elabTermForApply: suppress implicit insertion
+   for identifiers; postpone term and universe holes until result-type matching."
   [ps lctx arg]
   (let [hyp-fid (when (symbol? arg)
                   (reduce (fn [best [id d]]
                             (if (and (= :local (:tag d)) (= (str arg) (:name d))
                                      (or (nil? best) (> (long id) (long best))))
-                              id best))
-                          nil lctx))]
+                              id best)) nil lctx))]
     (if hyp-fid
       [ps (e/fvar hyp-fid)]
-      (if (or (apply-hole-symbol? arg) (not (symbol? arg)))
-        (let [goal (proof/current-goal ps)
-              {:keys [ps checked-expr]}
-              (telab/elab-term-with-holes ps goal arg
-                                          {:expected-type nil
-                                           :allow-natural-holes? true
-                                           :tag-suffix (name/from-string "apply")
-                                           :tactic-name "apply"})]
-          [ps checked-expr])
-        (let [arg' (symbol (str "@" arg))]
-          (try [ps (elab/elaborate-in-context (:env ps) lctx arg')]
-               (catch Throwable ex
-                 (if (and (symbol? arg)
-                          (clojure.string/includes? (str (.getMessage ex)) "universe level"))
-                   (let [ci (env/lookup (:env ps) (name/from-string (str arg)))
-                         lparams (vec (.levelParams ^ansatz.kernel.ConstantInfo ci))
-                         [ps' ids] (reduce (fn [[p acc] _]
-                                             (let [[p' i] (proof/alloc-id p)] [p' (conj acc i)]))
-                                           [ps []] lparams)]
-                     [ps' (e/const' (name/from-string (str arg)) (mapv lvl/mvar ids))])
-                   (throw ex)))))))))
+      (let [form (if (and (symbol? arg)
+                          (not (clojure.string/starts-with? (str arg) "?"))
+                          (not= '_ arg))
+                   (symbol (str "@" arg)) arg)
+            {:keys [expr meta-mctx]}
+            (elab/elaborate-in-context-collecting
+             (:env ps) lctx form nil
+             {:initial-meta-mctx (:meta-mctx ps)
+              :next-id-start (max 1000000 (:next-id ps 1))})
+            next-id (inc (reduce max (:next-id ps 1)
+                                 (concat (keys (:decls meta-mctx))
+                                         (keys (:level-depth meta-mctx)))))]
+        [(assoc ps :meta-mctx meta-mctx :next-id next-id) expr]))))
 
 (clojure.core/defn- do-rewrite-one
   "A SINGLE rewrite rule: a local hypothesis (by name), an env lemma (∀-quantified, instantiated by
@@ -845,13 +820,8 @@
                                      (or (nil? best) (> (long id) (long best))))
                               id best))
                           nil (:lctx g)))
-        term (if hyp-fid
-               (e/fvar hyp-fid)
-               ;; env lemma: elaborate @-explicit so implicits stay ∀-bound (rewrite-lemma
-               ;; instantiates ALL params by matching); applied form elaborates as-is.
-               (elab/elaborate-in-context
-                (:env ps) (:lctx g)
-                (if (symbol? spec) (symbol (str "@" spec)) spec)))]
+        [ps term] (if hyp-fid [ps (e/fvar hyp-fid)]
+                      (elab-apply-arg ps (:lctx g) spec))]
     (basic/rewrite-lemma ps term reverse? hyp-id)))
 
 (declare latest-local-id-by-name)
@@ -1148,6 +1118,20 @@
                       (let [g (proof/current-goal ps)]
                         (if (and g (e/forall? (#'basic/whnf-in-goal ps (:lctx g) (:type g))))
                           (recur (intro-inaccessible ps)) ps)))))
+   'rename_i  (fn [ps names]
+                ;; Lean RenameInaccessibles.lean renameInaccessibles: consume the
+                ;; newest inaccessible or shadowed locals, with names in context order.
+                (let [g (or (proof/current-goal ps)
+                            (throw (ex-info "Tactic error: No goals" {:kind :tactic-error})))
+                      [fields _] (reduce (fn [[ids seen] [fid d]]
+                                           [(cond-> ids
+                                              (or (:inaccessible d) (contains? seen (:name d)))
+                                              (conj fid))
+                                            (conj seen (:name d))])
+                                         [[] #{}] (reverse (sort-by key (:lctx g))))]
+                  (if (every? #{'_} names) ps
+                    (rename-branch-locals ps (:id g)
+                                          (reverse (take (count names) fields)) names))))
    'apply     (fn [ps args]
                 (let [g (proof/current-goal ps)
                       [ps' term] (elab-apply-arg ps (:lctx g) (first args))]
@@ -1287,15 +1271,11 @@
                                          nil (:lctx (proof/current-goal ps))))
                       gen? (= 'generalizing (second args))
                       gen-syms (when gen? (vec (drop 2 args)))
-                      ;; revert innermost-last (reverse order) so re-intro restores original order
-                      ps (reduce (fn [ps g] (basic/revert ps (find-fid ps (str g))))
-                                 ps (reverse gen-syms))
-                      ps (basic/induction ps (find-fid ps (str (first args))))
-                      ps (if (seq gen-syms)
-                           (let [branches (remove (set tail) (:goals ps))
-                                 ps (basic/all-goals (assoc ps :goals (vec branches))
-                                                     #(basic/intros % (mapv str gen-syms)))]
-                             (update ps :goals into tail)) ps)]
+                      gen-ids (mapv (fn [sym]
+                                      (or (find-fid ps (str sym))
+                                          (throw (ex-info "Tactic error: unknown generalizing variable"
+                                                          {:kind :tactic-error :variable sym})))) gen-syms)
+                      ps (basic/induction ps (find-fid ps (str (first args))) gen-ids)]
                   (if (seq alts) (eval-alts ps (rest alts) tail original-fids) ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
    'unfold    (fn [ps args]

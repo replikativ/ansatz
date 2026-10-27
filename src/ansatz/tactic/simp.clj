@@ -3030,6 +3030,8 @@
   ([ps goal st result lemma-names]
    (close-goal-with-proof ps goal st result lemma-names false))
   ([ps goal st result lemma-names target-core?]
+   (close-goal-with-proof ps goal st result lemma-names target-core? true))
+  ([ps goal st result lemma-names target-core? may-close-goal?]
    (let [simplified (:expr result)
          simplified-whnf (#'tc/cached-whnf st simplified)
         ;; For Eq.mpr, goal-type must match the eq-proof's LHS exactly.
@@ -3064,6 +3066,18 @@
         ;; Use proof-extracted simplified if available, otherwise the raw simp result
          simplified (or simplified-from-proof simplified)]
      (cond
+       ;; Lean SplitIf.lean simpIfTarget uses simpTarget (mayCloseGoal := false).
+       ;; Keep even True and reflexive targets available to the branch tactics.
+       (not may-close-goal?)
+       (if (= simplified raw-goal-type) ps
+         (let [goal-sort (#'tc/cached-whnf st (tc/infer-type st goal-type))
+               [ps child] (proof/fresh-mvar-replacing ps simplified (:lctx goal) (:id goal))]
+           (-> (proof/assign-mvar ps (:id goal)
+                                  {:kind :simp-reduce :eq-proof (:proof? result)
+                                   :child child :mpr-level (e/sort-level goal-sort)
+                                   :goal-type goal-type :simplified simplified})
+               (proof/record-tactic :simp lemma-names (:id goal)))))
+
       ;; Simplified to True
       ;; Lean 4: if r.expr.isTrue → close with of_eq_true
       ;; of_eq_true : {p : Prop} → (p = True) → p
@@ -3167,7 +3181,8 @@
          ;; on Mathlib). Without one (the bundled Init tiers) it stays eager.
         ext-trie (when-not (:only? opts) (si/ensure-simp-trie! env))
         all-names (if (:only? opts)
-                    (distinct (concat simp-only-builtins name-args))
+                    (distinct (concat (when (get opts :simp-only-builtins? true)
+                                        simp-only-builtins) name-args))
                     (distinct (concat default-simp-lemmas
                                       (si/eager-lemma-names env ext-trie)
                                       name-args)))
@@ -3228,13 +3243,16 @@
 
 (defn simp-target
   "Lean Meta/Tactic/Simp/Main.lean simpTargetCore, used by Mathlib reduceIfsAt:
-   replace the target even when it becomes False; unchanged targets are allowed."
+   replace the target even when it becomes False; unchanged targets are allowed.
+   `:may-close-goal? false` preserves reduced goals for Lean's simpIfTarget;
+   `:simp-only-builtins? false` uses its conditional-only theorem set."
   [ps lemma-names opts]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
         [ps st env lemma-index config] (simp-setup ps goal lemma-names opts)
         result (simp-expr* st env lemma-index (:type goal) config)]
-    (close-goal-with-proof ps goal st result lemma-names true)))
+    (close-goal-with-proof ps goal st result lemma-names true
+                           (get opts :may-close-goal? true))))
 
 (defn simp-at
   "Lean's `simp [lemmas] at h` (Meta/Tactic/Simp/Main.lean `simpLocalDecl`/`applySimpResultToLocalDecl`):
