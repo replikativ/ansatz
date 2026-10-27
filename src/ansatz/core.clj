@@ -9,7 +9,7 @@
 
 (ns ansatz.core
   "Verified Clojure — write proven programs using Ansatz types and tactics."
-  (:refer-clojure :exclude [defn])
+  (:refer-clojure :exclude [defn class])
   (:require [ansatz.bundle :as bundle]
             [ansatz.artifact-profile :as artifact-profile]
             [clojure.java.io]
@@ -2796,6 +2796,15 @@
     (mapv #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form)
     :else form))
 
+(clojure.core/defn add-parent-instances!
+  "Lean Elab/Structure.lean:addParentInstances (v4.33.1), for one direct parent.
+   The resolution-order ancestor filter is vacuous with single inheritance."
+  [child parent projection]
+  (let [classes (env/get-extension (env) :classes #{})]
+    (when (and (contains? classes child) (contains? classes parent))
+      ;; registerInstance: global attribute, default priority 1000.
+      (swap! ansatz-env instance/add-instance (name/from-string projection)))))
+
 (defmacro structure
   "Define a structure (single-constructor inductive with projections).
 
@@ -2813,7 +2822,7 @@
   [type-name params & fields]
   (let [;; Consume leading option pairs (:in, :extends) in any order
         [opts fields] (loop [o {} fs fields]
-                        (if (and (keyword? (first fs)) (#{:in :extends} (first fs)))
+                        (if (and (keyword? (first fs)) (#{:in :extends :class} (first fs)))
                           (recur (assoc o (first fs) (second fs)) (drop 2 fs))
                           [o fs]))
         extends-form (:extends opts)
@@ -2902,6 +2911,14 @@
            [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
                                        ~(str to-field) ~(/ (count params) 2))])
 
+       ;; Lean's class extension is environment-local; ordinary structures are excluded.
+       ~@(when (:class opts)
+           [`(swap! ansatz-env env/with-extension :classes
+                    (conj (env/get-extension (env) :classes #{}) ~(str type-name)))
+            ~@(when extends-form
+                [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
+                                        ~(str type-name "." to-field))])])
+
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
        ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
@@ -2917,6 +2934,11 @@
                :ctor-sym '~(symbol (str "->" type-name))})
 
        nil)))
+
+(defmacro class
+  "Define a typeclass structure; class parents supply inherited instances."
+  [type-name params & fields]
+  `(structure ~type-name ~params :class true ~@fields))
 
 ;; ============================================================
 ;; do-notation — monadic syntax sugar

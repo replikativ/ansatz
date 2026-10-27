@@ -90,3 +90,24 @@ example : (let f := @Prod.mk Nat Nat; f 2 7) = (2, 7) := rfl
 example : List.zip [1, 2] [7] = [(1, 7)] := rfl
 example : (fun (f : (α : Type) → (β : Type) → α → β → α × β) => f Nat Nat 2 7)
             @Prod.mk = (2, 7) := rfl
+-- Init/Prelude.lean: decEq/Decidable.decide, synthesized at the operand type.
+def boolEquality (b : Bool) : Bool := (fun x : Bool => decide (x = true)) b
+example : boolEquality true = true := rfl
+example : boolEquality false = false := rfl
+example : decide ((3 : Nat) = 3) = true := rfl
+example : decide ((3 : Nat) = 4) = false := rfl
+example : decide ((-3 : Int) = -3) = true := rfl
+example : decide ((-3 : Int) = 3) = false := rfl
+example : decide ("hello" = "hello") = true := rfl
+example : decide ("hello" = "world") = false := rfl
+inductive EqualityColor where
+  | red | blue
+  deriving DecidableEq
+example : decide (EqualityColor.red = .red) = true := rfl
+example : decide (EqualityColor.red = .blue) = false := rfl
+example : decide ([true] = [true]) = true := rfl
+example : decide ([true] = [false]) = false := rfl
+
+structure EqualityToken where
+  deriving DecidableEq
+example : decide (EqualityToken.mk = EqualityToken.mk) = true := rfl

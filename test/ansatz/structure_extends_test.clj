@@ -68,3 +68,29 @@
     (is (thrown? Throwable
                  (eval '(a/structure Bad [S Type] :extends [(WAddMonoid S) (WOther S)]
                                      (x (=> S S S))))))))
+
+(deftest class-parent-projection-is-an-instance
+  (let [saved (a/env)]
+    (try
+      (a/class ParentOps [S Type] (zero S))
+      (a/class ChildOps [S Type] :extends (ParentOps S) (one S))
+      (a/class GrandchildOps [S Type] :extends (ChildOps S) (two S))
+      (a/structure PlainChild [S Type] :extends (ParentOps S) (one S))
+      (a/structure PlainParent [S Type] (zero S))
+      (a/class ClassOverPlain [S Type] :extends (PlainParent S) (one S))
+      (let [entries (get (env/get-extension (a/env) :instances {}) (nm/from-string "ParentOps"))]
+        (is (some #(and (= (nm/from-string "ChildOps.toParentOps") (:name %))
+                        (= 1000 (:priority %))) entries))
+        (is (not-any? #(= (nm/from-string "PlainChild.toParentOps") (:name %)) entries)))
+      (is (empty? (get (env/get-extension (a/env) :instances {}) (nm/from-string "PlainParent"))))
+      (a/theorem inherited-parent [S :- Type, child :- (GrandchildOps S) :inst]
+                 (= (ParentOps S) (ChildOps.toParentOps (GrandchildOps.toChildOps child))
+                    (ChildOps.toParentOps (GrandchildOps.toChildOps child)))
+                 (rfl))
+      ;; The body must synthesize the parent using only a grandchild local instance.
+      (a/defn parent-zero [S :- Type :implicit, parent :- (ParentOps S) :inst] S
+              (@ParentOps.zero S parent))
+      (a/defn inherited-zero [S :- Type :implicit, child :- (GrandchildOps S) :inst] S
+              (parent-zero))
+      (is (has? "inherited-zero"))
+      (finally (reset! a/ansatz-env saved)))))
