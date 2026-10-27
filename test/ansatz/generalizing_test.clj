@@ -7,14 +7,9 @@
             [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.name :as name]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.name :as name]))
 
-(def ^:private full
-  (delay (let [f "test-data/init.ndjson"]
-           (when (.exists (java.io.File. f))
-             (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private full test-env/init-full-ndjson-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full)) (t))
 (clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
 

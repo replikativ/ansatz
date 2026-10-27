@@ -17,16 +17,10 @@
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.prelude.list :as plist]))
 
 ;; Full Init store — wsum's List equation lemmas (List.map_nil/_cons) live here, not in init-medium.
-(def ^:private full
-  (delay (let [f "test-data/init.ndjson"]
-           (when (.exists (java.io.File. f))
-             (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
-
+(def ^:private full test-env/init-full-ndjson-env)
 (defn- with-env [t]
   (if-let [e @full]
     (do (reset! a/ansatz-env e) (plist/install!) (t))

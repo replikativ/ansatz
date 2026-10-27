@@ -35,7 +35,7 @@
    resolver caches are not — hence one context per worker)."
   [store-map branch-name ^ConcurrentHashMap name-cache]
   (let [{:keys [storage store]} store-map
-        meta (k/get store [:branches branch-name] nil {:sync? true})
+        meta (storage/store-get store [:branches branch-name])
         names-pss (pss/restore-by storage/id-cmp (:names-root meta) storage)]
     {:env-pss (pss/restore-by storage/name-cmp (:env-root meta) storage)
      :exprs-pss (pss/restore-by storage/id-cmp (:exprs-root meta) storage)

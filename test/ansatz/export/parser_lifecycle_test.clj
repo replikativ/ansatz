@@ -114,13 +114,17 @@
     (fn [path]
       (with-stores
         (fn [stores]
-          (let [installed (atom nil)]
-            (with-redefs [state/ansatz-env (atom (Env.))
+          (let [installed (atom nil)
+                environment-cell (atom (Env.))]
+            ;; core exposes the same atom as state; keep that alias intact in
+            ;; the modeled installation, including load-export!'s return value.
+            (with-redefs [state/ansatz-env environment-cell
+                          core/ansatz-env environment-cell
                           core/setup-env! (fn [environment & _]
                                             (closed! stores)
                                             (reset! state/ansatz-env environment)
                                             (reset! installed environment))]
-              (core/load-export! path :verify? false))
+              (is (= 1 (:declarations (core/load-export! path :verify? false)))))
             (usable! @installed)))))))
 
 (deftest replay-and-unchecked-session-failures-close-without-publishing

@@ -582,7 +582,16 @@
   "Parse an NDJSON file. Successful state contains caller-owned :exprs;
    parsing failures close the allocated ExprStore."
   [path]
-  (parse-ndjson-string (slurp path)))
+  (let [initial (mk-parser-state)]
+    (try
+      (with-open [reader (io/reader path)]
+        (reduce (fn [state line]
+                  (let [line (clojure.string/trim line)]
+                    (if (empty? line) state (parse-line state (json/read-str line)))))
+                initial (line-seq reader)))
+      (catch Throwable failure
+        (close-after-failure! initial failure)
+        (throw failure)))))
 
 (defn parse-ndjson-file-streaming
   "Parse a lean4export NDJSON file, calling decl-fn on each declaration.

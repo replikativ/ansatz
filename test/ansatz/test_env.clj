@@ -1,7 +1,8 @@
 (ns ansatz.test-env
   "Shared immutable Init environments. Bundled Init is always available through
    the classpath resource API, with separate checked and TRUST replay delays.
-   Full Init remains optional: prefer its local PSS store, then its NDJSON export."
+   Full Init remains optional: prefer its local PSS store, then checked streaming
+   replay of its NDJSON export."
   (:require [ansatz.export.parser :as parser]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -23,15 +24,21 @@
                  (catch Throwable _ nil))
             with-instance-registry)))
 
-(defn- ndjson-env [f]
+(defn ndjson-env
+  "Stream an optional export into a test environment with the bundled instance registry."
+  [f]
   (when (.exists (java.io.File. f))
-    (with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)) :verify? false)))))
+    (with-instance-registry (:env (replay/replay-file-streaming f)))))
+
+(def init-full-ndjson-env
+  "Full Init streamed from the optional export, shared by tests exercising that fixture."
+  (delay (ndjson-env "test-data/init.ndjson")))
 
 (def init-full-env
   "Full Lean `Init` library. Prefers the PSS store, falls back to NDJSON. nil if
    neither is present."
   (delay (or (store-env "test-data/init-store" "init")
-             (ndjson-env "test-data/init.ndjson"))))
+             @init-full-ndjson-env)))
 
 (def bundled-init-text
   "Read the shipped Init closure through the classpath, independently of export size."
