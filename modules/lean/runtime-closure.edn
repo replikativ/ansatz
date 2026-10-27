@@ -33,6 +33,7 @@
   "prototype/native_scalar.cljc"
   "prototype/program_install.clj"
   "prototype/raw_interop.clj"
+  "prototype/resident_code_validation.clj"
   "prototype/resident_frontend.clj"
   "prototype/resident_preparation.clj"
   "prototype/runtime_abi.clj"

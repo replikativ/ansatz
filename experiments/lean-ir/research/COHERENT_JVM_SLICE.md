@@ -209,3 +209,55 @@ a runnable Context that this controller immediately closes. Removing that work
 requires preserving exact prefix/Source/anchor checks, registry/root ownership
 and terminal partial-failure checkpoints. Immutable code-proof reuse comes only
 after that attribution; it must never replace live ownership or image checks.
+
+## Optimize in the small REPL before another full-image run
+
+The full-image experiment is parked. Use the retained small REPL and captured
+identity/tiny-prefix fixtures to fix structural costs first. Do not start another
+Init restore/check merely because host memory becomes available.
+
+`resident-cost-probe.clj` varies immutable synthetic helper images while keeping
+the called identity function unchanged. With 10,000 unrelated functions the
+call allocated about 62 KB, as with the small image. When those same functions
+became protected dependencies, it allocated 5,889,152 bytes. This isolates the
+two repeated protected-registry scans from function execution.
+
+Resident code identity validation now issues an opaque proof after those scans
+succeed. Reuse requires the exact function map, binding map, protected-function
+map and protected-binding map. Only standard persistent maps with frozen keys
+qualify. Unsupported/custom containers retain uncached comparisons. Proof fields
+are weak references and the private weak issuer registry holds only booleans;
+neither cache retains a World, Context or Source. Reloading the validator starts
+a fresh proof epoch. Child contexts inherit a proof when all four maps remain
+identical; a changed image takes the full path again.
+
+World/session identity, idle state, live roots and root ownership remain checked
+on every use. Unit readiness, boxed entrypoint resolution, dependency closure,
+codecs and guest execution retain their existing checks. This proof replaces
+only the previous function/binding pointer comparisons, not kernel admission or
+dependency validation.
+
+The guarded implementation makes repeated call allocation approximately 38 KB
+for all three tested protected sizes: 50, 1,050 and 10,050 functions. First proof
+issuance remains proportional to image size (about 5.6 MB for the 10,050 case),
+and is recorded separately. Timing varies with REPL redefinition/JIT warmup and
+host load; these samples establish the eliminated allocation scaling, not a
+general latency guarantee. Before, prototype and guarded results are stored in
+`../measurements/resident-cost-{before,prototype,after}.json`. All measurements
+use caller-thread JVM counters in a 384 MiB REPL; no full Init is loaded.
+
+These are public boxed API calls including validation/codecs/returned-context
+creation. They are not the cost of each Lean-to-Lean call or compiled loop
+iteration.
+
+The separate `prefix-cost-probe.clj` uses 17 checked native constants and modeled
+guest helpers. It checks exact registry removal, the prefix root's RC/removal,
+unchanged input branches and actual Source closure. Five independent baseline
+releases per size allocate 346,624 bytes (50 protected functions), 5,217,456 bytes
+(1,050) and 51,557,488 bytes (10,050). Inclusive instrumentation at the largest
+size attributes about 45.9 MB to three static-closure walks. Preparation checks
+and subsequent adoption overlap those walks; they must not be added. Producing
+and adopting the context that the caller immediately closes accounts for about
+20.7 MB of the release span. Results are in
+`../measurements/tiny-prefix-costs.json`. This identifies the next structural
+work: consuming prefix retirement and reuse of proven frozen static closures.

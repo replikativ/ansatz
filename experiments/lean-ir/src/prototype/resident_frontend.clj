@@ -6,6 +6,7 @@
   (:refer-clojure :exclude [load-file])
   (:require [prototype.machine :as m]
             [prototype.binding-dependencies :as dependencies]
+            [prototype.resident-code-validation :as code-validation]
             [prototype.frontend :as frontend]
             [prototype.hosted-file :as hosted]
             [prototype.guest-encoding :as encoding]
@@ -58,16 +59,11 @@
   prepared)
 (defn- valid-context! [data]
   (let [{:keys [world session]} (matching! (:prepared data))]
-    (doseq [[name function] (:protected-functions data)]
-      (when-not (identical? function (get-in world [:functions name]))
-        (fail "Resident protected executable changed" {:name name})))
-    (doseq [[symbol binding] (:protected-bindings data)]
-      (when-not (identical? binding (get-in session [:bindings symbol]))
-        (fail "Resident protected host capability changed" {:symbol symbol})))
-    data))
+    (assoc data ::code-proof
+           (code-validation/validate! (:functions world) (:bindings session)
+                                      (:protected-functions data) (:protected-bindings data) (::code-proof data)))))
 (defn- make-context [data]
-  (valid-context! data)
-  (Context. (atom data)))
+  (Context. (atom (valid-context! data))))
 
 (defn snapshot
   "Borrow the explicit prepared snapshot for diagnostics/advanced orchestration.
