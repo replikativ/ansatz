@@ -2422,6 +2422,35 @@
                       (range n))]
     kinds))
 
+(defn- simp-proj
+  "Lean Meta/Tactic/Simp/Main.lean simpProj, v4.33.1: transport a projection
+   equality with Eq.ndrec; dependent fields permit only dsimp."
+  [st env lemma-index expr config]
+  (let [struct (e/proj-struct expr)
+        struct-type (tc/infer-type st struct)
+        fid (swap! (:next-id st) inc)
+        fv (e/fvar fid)
+        st' (update st :lctx red/lctx-add-local fid "s" struct-type)
+        projected (e/proj (e/proj-type-name expr) (e/proj-idx expr) fv)
+        field-type (tc/infer-type st' projected)]
+    (if (not= field-type (e/abstract1 field-type fid))
+      (mk-result (dsimp-expr env (:lctx st) expr (:max-depth config)))
+      (let [v (get-sort-level st' field-type)
+            motive (e/lam "s" struct-type
+                          (e/abstract1 (e/app* (e/const' eq-name [v])
+                                              field-type expr projected) fid) :default)
+            _ (tc/infer-type st motive)
+            r (simp-expr* st env lemma-index struct (update config :max-depth dec))
+            result (e/proj (e/proj-type-name expr) (e/proj-idx expr) (:expr r))]
+        (if-let [h (:proof? r)]
+          (mk-result result
+                     (e/app* (e/const' (name/from-string "Eq.ndrec")
+                                      [lvl/zero (get-sort-level st struct-type)])
+                             struct-type struct motive
+                             (e/app* (e/const' eq-refl-name [v]) field-type expr)
+                             (:expr r) h))
+          (mk-result result))))))
+
 (defn- simp-subterms
   "Simplify subterms (congruence step).
    Dispatches by expression type, builds proper congruence proofs."
@@ -2641,11 +2670,7 @@
       :let (let [expanded (e/instantiate1 (e/let-body expr) (e/let-value expr))]
              (simp-expr* st env lemma-index expanded config))
 
-        ;; Projection
-      :proj (let [s-r (simp-expr* st env lemma-index (e/proj-struct expr) (update config :max-depth dec))]
-              (if (identical? (:expr s-r) (e/proj-struct expr))
-                (mk-result expr)
-                (mk-result (e/proj (e/proj-type-name expr) (e/proj-idx expr) (:expr s-r)))))
+      :proj (simp-proj st env lemma-index expr config)
 
         ;; Mdata — unwrap
       :mdata (simp-expr* st env lemma-index (e/mdata-expr expr) config)
@@ -2974,6 +2999,17 @@
         ;; simp-expr* may start from a WHNF'd or rewritten form, so the eq-proof's
         ;; LHS might differ from (:type goal). Extract the actual LHS from the proof.
         raw-goal-type (:type goal)
+        ;; A proof-free simp step must be definitional equality. Check both
+        ;; endpoints before assigning a goal or constructing Eq.mpr transport.
+        _ (if-let [h (:proof? result)]
+            (let [[head args] (e/get-app-fn-args (#'tc/cached-whnf st (tc/infer-type st h)))]
+              (when-not (and (e/const? head) (= eq-name (e/const-name head))
+                             (= 3 (count args))
+                             (tc/is-def-eq st raw-goal-type (nth args 1))
+                             (tc/is-def-eq st simplified (nth args 2)))
+                (tactic-error! "simp: invalid equality proof" {:proof-construction true :goal raw-goal-type})))
+            (when-not (tc/is-def-eq st raw-goal-type simplified)
+              (tactic-error! "simp: uncertified simplification" {:proof-construction true :goal raw-goal-type})))
         ;; Extract actual LHS/RHS from eq-proof for Eq.mpr consistency.
         ;; simp-expr* may WHNF before rewriting, so the proof's type endpoints
         ;; might differ from the raw input/output expressions.
