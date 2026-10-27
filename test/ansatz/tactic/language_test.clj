@@ -7,7 +7,9 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.proof :as proof]))
+            [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.extract :as extract]
+            [ansatz.surface.elaborate :as elab]))
 
 (use-fixtures :once
   (fn [t]
@@ -246,3 +248,121 @@
                         (change (= (BranchOrder.node child value)
                                    (BranchOrder.node child value)))
                         (rfl)])]))
+
+(deftest split-reduces-propositional-conditionals
+  (doseq [tactic ['split 'split_ifs]]
+    (proves (symbol (str "conditional_branches_" tactic))
+            '[i :- Nat, j :- Nat, p :- (=> Nat Prop),
+              ht :- (p 10), hf :- (p 20)]
+            '(p (if (== i j) 10 20))
+            [(list tactic) '(all_goals (assumption))])))
+
+(deftest split-reduces-dependent-conditionals
+  (doseq [tactic ['split 'split_ifs]]
+    (proves (symbol (str "dependent_conditional_branches_" tactic))
+            '[c :- Prop, dec :- (Decidable c), p :- (=> Nat Prop),
+              t :- (=> c Nat), f :- (=> (Not c) Nat),
+              ht :- (forall [h :- c] (p (t h))),
+              hf :- (forall [h :- (Not c)] (p (f h)))]
+            '(p (dite c t f))
+            [(list tactic) '(all_goals (first (apply ht) (apply hf)))])))
+
+(deftest rewrite-instantiates-universe-from-matched-conditional
+  (proves 'rewrite_if_pos_universe
+          '[i :- Nat, j :- Nat, h :- (= i j), p :- (=> Nat Prop), hp :- (p i)]
+          '(p (if (== i j) i j))
+          '[(rw [(if_pos h)]) (exact hp)])
+  ;; The lemma's universe occurs only in the pending implicit branch arguments.
+  (proves 'rewrite_if_neg_universe
+          '[c :- Prop, dec :- (Decidable c), h :- (Not c),
+            x :- Nat, y :- Nat, p :- (=> Nat Prop), hp :- (p y)]
+          '(p (ite c x y))
+          '[(rw [(if_neg h)]) (exact hp)]))
+
+(deftest apply-placeholder-unifies-with-local
+  (proves 'applied_placeholder
+          '[i :- Nat, j :- Nat, n :- Nat,
+            p :- (=> Nat Nat Nat Prop),
+            lemma :- (forall [x :- Nat y :- Nat z :- Nat] (p x y z))]
+          '(p i j n) '[(apply (lemma _ j n))]))
+
+(deftest assumption-assigns-shared-metavariables
+  (proves 'assumption_shared_hole
+          '[p :- (=> Nat Prop), q :- (=> Nat Prop), n :- Nat,
+            hp :- (p n), hq :- (q n),
+            irrelevant :- True,
+            lemma :- (forall [x :- Nat] (=> (p x) (=> (q x) True)))]
+          'True
+          '[(apply (lemma _)) (assumption) (assumption)]))
+
+(deftest rename-inaccessible-indexed-fields
+  (a/inductive RenameShape [] :in Type (base) (node [prev RenameShape]))
+  (a/inductive ScopedEvidence [] :in Prop :indices [n RenameShape]
+               (base :where [RenameShape.base])
+               (mk [n RenameShape] [hi (Eq RenameShape n n)] :where [(RenameShape.node n)]))
+  (proves 'rename_indexed_fields
+          '[n :- RenameShape, h :- (ScopedEvidence (RenameShape.node n))]
+          '(= n n) '[(cases h) (rename_i hi) (exact hi)]))
+
+(deftest induction-generalizing-reverts-later-dependents
+  (proves 'induction_generalizing_dependents
+          '[n :- Nat, m :- Nat, h :- (= m n), hh :- (= h h)]
+          '(= (+ 0 m) n)
+          '[(induction n generalizing m)
+            (all_goals (rw [h])) (all_goals (simp [Nat.zero_add]))]))
+
+(deftest split-keeps-reduced-branches-and-sibling-goals-open
+  (let [target (elab/elaborate
+                (a/env)
+                '(forall [i :- Nat j :- Nat x :- Nat y :- Nat]
+                         (And (= (if (== i j) x y) (if (== i j) x y)) True)))
+        [ps _] (proof/start-proof (a/env) target)
+        ps (basic/intros ps ["i" "j" "x" "y"])
+        lctx (:lctx (proof/current-goal ps))
+        local (fn [nm] (e/fvar (some (fn [[id d]] (when (= nm (:name d)) id)) lctx)))
+        eq-self (fn [x] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                (e/const' (name/from-string "Nat") []) x x))
+        ps (basic/split-tac (basic/constructor ps))]
+    ;; Check the targets before reflexivity can close an unreduced conditional.
+    (is (= [(eq-self (local "y")) (eq-self (local "x"))
+            (e/const' (name/from-string "True") [])]
+           (mapv #(proof/mvar-type ps %) (:goals ps))))
+    (let [done (-> ps basic/rfl basic/rfl basic/constructor)]
+      (is (proof/solved? done))
+      (is (not (e/has-fvar-flag (extract/verify done)))))))
+
+(deftest rename-inaccessible-selects-trailing-fields
+  (proves 'rename_trailing_fields
+          '[p :- Prop, q :- Prop, h :- (And p q)] 'q
+          '[(cases h) (rename_i hq) (exact hq)])
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"too many"
+                        (binding [a/*verbose* false]
+                          (a/prove-theorem 'rename_too_many '[p :- Prop] '(=> p p)
+                                           '[(intro) (rename_i x y) (exact y)])))))
+
+(deftest induction-on-indexed-proof-generalizes-later-locals
+  (a/inductive CountEvidence [] :in Prop :indices [n Nat]
+               (zero :where [0])
+               (step [n Nat] [h (CountEvidence n)] :where [(Nat.succ n)]))
+  (proves 'indexed_induction_generalizing
+          '[n :- Nat, h :- (CountEvidence n), m :- Nat, hm :- (= m n), hh :- (= hm hm)]
+          '(= (+ 0 m) n)
+          '[(induction h generalizing m)
+            (all_goals (rw [hm])) (all_goals (simp [Nat.zero_add]))]))
+
+(deftest split-ifs-under-binders-with-closed-condition
+  (proves 'conditional_under_binder
+          '[c :- Prop, dec :- (Decidable c), p :- (=> Nat Nat Prop),
+            ht :- (forall [n :- Nat] (p n n)), hf :- (forall [n :- Nat] (p n 0))]
+          '(forall [n :- Nat] (p n (ite c n 0)))
+          '[(split_ifs) (all_goals (intro n) (first (apply ht) (apply hf)))]))
+
+(deftest rewrite-sequence-allocates-fresh-lemma-parameters
+  (proves 'rewrite_sequence_fresh_parameters
+          '[f :- (=> Nat Nat), g :- (=> Nat Nat), k :- (=> Nat Nat),
+            h :- (=> Nat Nat), p :- (=> Nat Prop), n :- Nat,
+            first-rule :- (forall [x :- Nat] (= (f x) (g (k x)))),
+            second-rule :- (forall [y :- Nat] (= (g y) (h y))),
+            third-rule :- (forall [z :- Nat] (= (h z) z)), hp :- (p (k n))]
+          '(p (f n))
+          '[(rw [first-rule second-rule third-rule]) (exact hp)]))

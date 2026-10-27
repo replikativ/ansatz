@@ -563,11 +563,12 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
 | `(intro h)` / `(intros h1 h2)` | Introduce forall binders / implication premises under the given names |
 | `(intro)` / `(intros)` | Introduce one / all binders with inaccessible names (`a✝…`); supply names when later tactics refer to them |
 | `(induction n)` | Structural induction; hypotheses that depend on `n` are reverted and re-introduced in each case, so the IH covers them (Lean's `induction`). Cases come in constructor order, fields named after the constructor's (`head`, `tail`, IH `ih_tail`) |
-| `(induction n generalizing acc)` | Also generalize `acc` |
+| `(induction n generalizing acc)` | Also generalize `acc` and its dependent hypotheses |
 | `(cases h)` | Case analysis, substituting constructors in dependent hypotheses as well as the goal |
 | `(induction xs :with [nil (rfl)] [(cons h t ih) (simp [ih])])` | Constructor alternatives with user-named fields and induction hypotheses; `cases` accepts the same `:with` syntax |
 | `(case (cons h t ih) (tactic) …)` / `(case nil (tactic) …)` | Select a constructor tag, optionally rename its locals, and close the branch |
 | `(next [h t ih] (tactic) …)` / `(next (tactic) …)` | Close the next branch, optionally naming its locals |
+| `(rename_i h1 h2)` | Name the most recent inaccessible or shadowed locals; `_` skips a local |
 | `(cases h e)` | Lean's `cases h : e`: generalize an inductive discriminant and split in constructor order, retaining `h : e = constructor …` |
 | `(rcases h [a b])` | Recursive constructor patterns: vectors for tuples, `(or p q)` for alternatives, nested freely; names bind fields, `_` keeps an anonymous field, `rfl` substitutes an equality. Optional `with` is accepted |
 | `(obtain [a b] := e)` | Destructure a term with an inferred type; `(obtain [a b] :- T := e)` supplies the expected type |
@@ -588,7 +589,8 @@ right-nested, as Lean's `→`. `->` is always Clojure's threading macro, never a
 | `(have name type)` | Introduce intermediate lemma |
 | `(rewrite h)` / `(rw [h])` | Rewrite the goal; `rw` also attempts reflexivity |
 | `(rw [h] at hx)` / `(rw [h] at h1 h2 ⊢)` / `(rw [h] at *)` | Rewrite selected hypotheses, optionally the target, or every matching location |
-| `(split_ifs)` | Split all stuck Boolean conditionals throughout the target and simplify each branch |
+| `(split)` | Split a conditional or matcher in the target and reduce the conditional in each branch |
+| `(split_ifs)` | Split all Boolean and propositional conditionals throughout the target and simplify each branch |
 | `(try (tactic))` | Try tactic, ignore failure |
 | `(all_goals (tactic))` | Apply to each open goal; fail if any application fails |
 | `(any_goals (tactic))` | Apply to each open goal, retaining failed goals; fail if none succeeds |

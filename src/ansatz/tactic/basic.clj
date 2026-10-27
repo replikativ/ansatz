@@ -25,7 +25,7 @@
   (throw (ex-info (str "Tactic error: " msg) (merge {:kind :tactic-error} data))))
 
 ;; Forward declarations for mutually-dependent tactics/helpers
-(declare generalize generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front collect-fvar-ids induction-fvars-to-generalize)
+(declare by-cases-dec generalize generalize-indices unify-cases-eqs unify-eq revert match-expr try-clear move-goals-to-front collect-fvar-ids induction-fvars-to-generalize)
 
 (defn- local-name [nm]
   ;; Lean Meta/Tactic/Intro.lean introNImp stores a Name. Our lctx uses strings.
@@ -103,7 +103,9 @@
   [ps goal-lctx a b]
   (let [st (mk-tc ps goal-lctx)]
     (if (and (:meta-mctx ps)
-             (or (meta/has-expr-mvar? a) (meta/has-expr-mvar? b)))
+             (or (meta/has-expr-mvar? a) (meta/has-expr-mvar? b)
+                 (seq (meta/unassigned-level-mvars (:meta-mctx ps) a))
+                 (seq (meta/unassigned-level-mvars (:meta-mctx ps) b))))
       (when-let [mctx' (meta/is-def-eq (:meta-mctx ps) st a b)]
         (-> ps
             (assoc :meta-mctx mctx')
@@ -641,39 +643,13 @@
         _ (when-not goal (tactic-error! "No goals" {}))
         lctx (:lctx goal)
         goal-type (:type goal)
-        ;; Strategy 1: structural equality (fast, no mvar issues)
-        struct-match (some (fn [[id decl]]
-                             (when (and (= :local (:tag decl))
-                                        (= (:type decl) goal-type))
-                               {:fvar-id id}))
-                           lctx)
-        ;; Strategy 2: one isDefEq per hypothesis in the shared metacontext;
-        ;; assignments commit into the returned proof state.
-        meta-match (when-not struct-match
-                     (some (fn [[id decl]]
-                             (when (and (= :local (:tag decl))
-                                        (or (meta/has-expr-mvar? goal-type)
-                                            (meta/has-expr-mvar? (:type decl))))
-                               (when-let [ps' (try (defeq-in-goal ps lctx (:type decl) goal-type)
-                                                   (catch Exception _ nil))]
-                                 {:fvar-id id :ps ps'})))
-                           lctx))
-        ;; Strategy 3: Java-TC isDefEq for mvar-free goals — full lazy-delta
-        ;; reduction (e.g. a hypothesis spelled through definitions).
-        deq-match (when-not (or struct-match meta-match
-                                (meta/has-expr-mvar? goal-type))
-                    (let [jtc (ansatz.kernel.TypeChecker. (:env ps))
-                          _ (.setFuel jtc config/*default-fuel*)
-                          _ (doseq [[id decl] lctx]
-                              (when (= :local (:tag decl))
-                                (.addLocal jtc (long id) (str (:name decl)) (:type decl))))]
-                      (some (fn [[id decl]]
-                              (when (and (= :local (:tag decl))
-                                         (try (.isDefEq jtc (:type decl) goal-type)
-                                              (catch Exception _ false)))
-                                {:fvar-id id}))
-                            lctx)))
-        result (or struct-match meta-match deq-match)]
+        ;; Lean Assumption.lean findLocalDeclWithType?: newest first, with
+        ;; transactional isDefEq. A mismatch returns nil without leaking assignments.
+        result (some (fn [[id decl]]
+                       (when (= :local (:tag decl))
+                         (when-let [ps' (defeq-in-goal ps lctx goal-type (:type decl))]
+                           {:fvar-id id :ps ps'})))
+                     (reverse (sort-by key lctx)))]
     (when-not result
       (tactic-error! "No matching hypothesis found" {:goal-type (:type goal)}))
     (-> (proof/assign-mvar (or (:ps result) ps) (:id goal)
@@ -1114,26 +1090,26 @@
          _ (when-not goal (tactic-error! "No goals" {}))
          st (mk-tc ps (:lctx goal))
          ty (infer-in-goal ps (:lctx goal) term)
-         ;; Lean's withNewMCtxDepth: lemma-parameter mvars live at depth+1 in
-         ;; the ONE metacontext, so matching cannot assign goal-level holes;
-         ;; the bumped context is discarded once the proof is zonked out.
+         ;; Lean Meta/Tactic/Rewrite.lean: forallMetaTelescope and kabstract
+         ;; share the elaborator's context, including its pending universe holes.
          base-mctx (or (:meta-mctx ps) meta/empty-context)
          mctx (atom (reduce (fn [m lid]
                               (if (contains? (:level-depth m) lid)
                                 m
                                 (meta/add-level-mvar-decl m lid)))
-                            (meta/inc-depth base-mctx)
+                            base-mctx
                             (meta/unassigned-level-mvars base-mctx ty)))
-         base (long (+ 50000000 (or (some-> (:next-id st) deref long) 0)))
-         ;; forallMetaTelescopeReducing: peel ∀ to fresh metavars (none if already concrete).
-         [mvars body] (loop [t ty xs [] i 0]
-                        (if (e/forall? t)
-                          (let [id (+ base i)
-                                _ (swap! mctx meta/add-expr-mvar-decl id
-                                         (e/forall-type t) (:lctx goal))]
-                            (recur (e/instantiate1 (e/forall-body t) (e/mvar id))
-                                   (conj xs (e/mvar id)) (inc i)))
-                          [xs t]))
+         ;; Lean Meta/Basic.lean forallMetaTelescopeReducingAux uses
+         ;; mkFreshExprMVar: every rule needs fresh IDs in the shared context,
+         ;; including when an earlier rewrite has already assigned its parameters.
+         [ps mvars body] (loop [ps ps t ty xs []]
+                           (if (e/forall? t)
+                             (let [[ps id] (proof/alloc-id ps)
+                                   _ (swap! mctx meta/add-expr-mvar-decl id
+                                            (e/forall-type t) (:lctx goal))]
+                               (recur ps (e/instantiate1 (e/forall-body t) (e/mvar id))
+                                      (conj xs (e/mvar id))))
+                             [ps xs t]))
          heq (reduce e/app term mvars)
          [head args] (e/get-app-fn-args body)
          hname (when (e/const? head) (name/->string (e/const-name head)))
@@ -1188,7 +1164,8 @@
                          (reset! mctx m)))))))
              (when (not= before @mctx) (recur (inc i))))))
        (let [zonk* #(meta/zonk-expr @mctx %)
-             eq-proof (zonk* eq-proof)]
+             eq-proof (zonk* eq-proof)
+             ps (-> ps (assoc :meta-mctx @mctx) proof/prune-solved-goals)]
          (when (or (meta/has-expr-mvar? eq-proof)
                    (seq (meta/unassigned-level-mvars @mctx eq-proof)))
            (tactic-error! "rewrite: lemma parameters unresolved after matching" {:type ty}))
@@ -1834,39 +1811,48 @@
    Creates one subgoal per constructor. For each constructor field
    that has the same type as the inductive being eliminated,
    adds an induction hypothesis to the local context."
-  [ps hyp-fvar-id]
-  (let [goal (proof/current-goal ps)
-        _ (when-not goal (tactic-error! "No goals" {}))
-        lctx (:lctx goal)
-        hyp-decl (red/lctx-lookup lctx hyp-fvar-id)
-        _ (when-not hyp-decl
-            (tactic-error! "induction: hypothesis not in context" {:id hyp-fvar-id}))
-        [type-head type-args] (e/get-app-fn-args (whnf-in-goal ps lctx (:type hyp-decl)))
-        ;; the targets are the major premise and its INDEX fvars — never the parameters (`S` of
-        ;; `List S`): a local mentioning only a parameter is not generalized
-        num-params (or (when (e/const? type-head)
-                         (when-let [^ConstantInfo ci (env/lookup (:env ps) (e/const-name type-head))]
-                           (when (.isInduct ci) (.numParams ci))))
-                       (count type-args))
-        index-ids (keep (fn [a] (when (and (e/fvar? a) (contains? lctx (e/fvar-id a))) (e/fvar-id a)))
-                        (drop num-params type-args))
-        generalized (induction-fvars-to-generalize lctx (cons hyp-fvar-id index-ids))]
-    (if (empty? generalized)
-      (induction-core ps hyp-fvar-id)
-      (let [names (mapv #(:name (red/lctx-lookup lctx %)) generalized)
-            ;; revert innermost first, so no remaining local mentions a reverted one
-            ps (reduce revert ps (rseq generalized))
-            n-before (count (:goals ps))
-            ps (induction-core ps hyp-fvar-id)
-            n-alts (inc (- (count (:goals ps)) n-before))
-            alt-ids (vec (take n-alts (:goals ps)))]
-        (let [[ps children]
-              (reduce (fn [[ps children] alt-id]
-                        (let [ps (move-goals-to-front ps [alt-id])
-                              ps (reduce intro ps names)]
-                          [ps (conj children (first (:goals ps)))]))
-                      [ps []] alt-ids)]
-          (move-goals-to-front ps children))))))
+  ([ps hyp-fvar-id] (induction ps hyp-fvar-id []))
+  ([ps hyp-fvar-id user-generalizing]
+   (let [goal (proof/current-goal ps)
+         _ (when-not goal (tactic-error! "No goals" {}))
+         lctx (:lctx goal)
+         hyp-decl (red/lctx-lookup lctx hyp-fvar-id)
+         _ (when-not hyp-decl
+             (tactic-error! "induction: hypothesis not in context" {:id hyp-fvar-id}))
+         [type-head type-args] (e/get-app-fn-args (whnf-in-goal ps lctx (:type hyp-decl)))
+         ;; the targets are the major premise and its INDEX fvars — never the parameters (`S` of
+         ;; `List S`): a local mentioning only a parameter is not generalized
+         num-params (or (when (e/const? type-head)
+                          (when-let [^ConstantInfo ci (env/lookup (:env ps) (e/const-name type-head))]
+                            (when (.isInduct ci) (.numParams ci))))
+                        (count type-args))
+         index-ids (keep (fn [a] (when (and (e/fvar? a) (contains? lctx (e/fvar-id a))) (e/fvar-id a)))
+                         (drop num-params type-args))
+         automatic (induction-fvars-to-generalize lctx (cons hyp-fvar-id index-ids))
+         requested (set (concat automatic user-generalizing))
+         ;; Lean Induction.lean generalizeVars + Revert.lean collectForwardDeps:
+         ;; revert the union and all dependents in declaration order.
+         generalized (vec (sort (into requested
+                                      (induction-fvars-to-generalize lctx requested))))
+         _ (when (some (set (cons hyp-fvar-id index-ids)) generalized)
+             (tactic-error! "induction: target depends on generalizing variable"
+                            {:variables user-generalizing}))]
+     (if (empty? generalized)
+       (induction-core ps hyp-fvar-id)
+       (let [names (mapv #(:name (red/lctx-lookup lctx %)) generalized)
+             ;; revert innermost first, so no remaining local mentions a reverted one
+             ps (reduce revert ps (rseq generalized))
+             n-before (count (:goals ps))
+             ps (induction-core ps hyp-fvar-id)
+             n-alts (inc (- (count (:goals ps)) n-before))
+             alt-ids (vec (take n-alts (:goals ps)))]
+         (let [[ps children]
+               (reduce (fn [[ps children] alt-id]
+                         (let [ps (move-goals-to-front ps [alt-id])
+                               ps (reduce intro ps names)]
+                           [ps (conj children (first (:goals ps)))]))
+                       [ps []] alt-ids)]
+           (move-goals-to-front ps children)))))))
 
 ;; ============================================================
 ;; have (introduce intermediate lemma)
@@ -3308,16 +3294,21 @@
 ;; split_ifs — automatic case split on stuck Bool.rec
 ;; ============================================================
 
-(defn- find-stuck-bool-rec
-  "Walk expression to find first stuck Bool.rec discriminant.
-   A Bool.rec is stuck if its discriminant doesn't WHNF to Bool.true/Bool.false.
-   Returns the Bool discriminant expression, or nil."
+(defn- find-if-to-split
+  "Lean SplitIf.lean / Mathlib SplitIfs.lean findIfToSplit?: search
+   conditions before branches. Retain Bool.rec for surface Bool conditionals."
   [ps goal-lctx expr]
   (let [result (volatile! nil)]
     (letfn [(walk [e]
               (when-not @result
-                ;; Check for Bool.rec
                 (let [[head args] (e/get-app-fn-args e)]
+                  (when (and (e/const? head)
+                             (contains? #{"ite" "dite"} (name/->string (e/const-name head)))
+                             (= 5 (count args))
+                             (not (e/has-loose-bvars? (nth args 1))))
+                    (walk (nth args 1))
+                    (when-not @result
+                      (vreset! result {:kind :dec :cond (nth args 1) :inst (nth args 2)})))
                   (when (and (e/const? head)
                              (= (name/->string (e/const-name head)) "Bool.rec")
                              (= 4 (count args)))
@@ -3332,7 +3323,7 @@
                                            (or (= n "Bool.true") (= n "Bool.false"))))
                             ;; Mathlib findIfToSplit? searches the condition itself first.
                             (walk discr)
-                            (when-not @result (vreset! result discr))))))))
+                            (when-not @result (vreset! result {:kind :bool :discr discr}))))))))
                 ;; Recurse into subterms
                 (when-not @result
                   (case (e/tag e)
@@ -3349,22 +3340,26 @@
 (defn split-ifs
   "Mathlib Tactic/SplitIfs.lean splitIfsCore: find conditions throughout the
    target, split, simplify with the branch equation, and repeat in each branch.
-   Ansatz's surface if is Bool.rec, so use Bool cases and its equation."
+   Lean conditionals use Decidable cases; surface Bool.rec uses Bool equations."
   [ps]
   (letfn [(go [ps done]
               (let [g (proof/current-goal ps)
-                    discr (or (find-stuck-bool-rec ps (:lctx g) (:type g))
-                              (find-stuck-bool-rec ps (:lctx g)
-                                                   (whnf-in-goal ps (:lctx g) (:type g))))]
+                    tgt (or (find-if-to-split ps (:lctx g) (:type g))
+                            (find-if-to-split ps (:lctx g)
+                                              (whnf-in-goal ps (:lctx g) (:type g))))
+                    discr (or (:cond tgt) (:discr tgt))]
                 (cond
                   (nil? discr) (if (seq done) ps (tactic-error! "split_ifs: no if-then-else conditions to split" {}))
                   (some #{discr} done) ps
-                  :else (all-goals (by-cases ps discr)
+                  :else (all-goals (if (= :dec (:kind tgt))
+                                     (by-cases-dec ps discr (:inst tgt))
+                                     (by-cases ps discr))
                                    (fn [ps]
                                      (let [g (proof/current-goal ps)
                                            hid (last (sort (keys (:lctx g))))
                                            ps ((requiring-resolve 'ansatz.tactic.simp/simp-target)
-                                               ps [(e/fvar hid)] {:only? true})]
+                                               ps ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
+                                               {:only? true})]
                                        (if (seq (:goals ps)) (go ps (conj done discr)) ps)))))))]
     (when-not (proof/current-goal ps) (tactic-error! "No goals" {}))
     ;; Mathlib Tactic/Core.lean andThenOnSubgoals uses focus: the branch
@@ -3409,10 +3404,12 @@
                         (let [c (nth args 3)]
                           (when (splittable-bool? c) (vreset! result {:kind :bool :discr c})))
 
-                        (and (contains? #{"ite" "dite"} hn) (>= (count args) 3))
+                        (and (contains? #{"ite" "dite"} hn) (>= (count args) 5))
                         (let [c (nth args 1) inst (nth args 2)]
                           (when-not (e/has-loose-bvars? c)
-                            (vreset! result {:kind :dec :cond c :inst inst})))
+                            (walk c)
+                            (when-not @result
+                              (vreset! result {:kind :dec :cond c :inst inst}))))
 
                         (re-find #"\.match_\d+$" hn)
                         (vreset! result {:kind :matcher :app e :head head :args args})
@@ -3436,8 +3433,7 @@
    with a CONSTANT motive (λ _:Decidable c, Goal):
      Goal 1 (isFalse): h : ¬c ⊢ goal
      Goal 2 (isTrue):  h : c  ⊢ goal
-   The ite/dite stays unreduced; the following simp_all reduces it via if_pos/if_neg
-   discharged by h (faithful to `split <;> simp_all` in combination)."
+   The caller reduces ite/dite using the new branch hypothesis."
   [ps c inst]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (tactic-error! "No goals" {}))
@@ -3492,7 +3488,20 @@
             ;; Lean SplitIf.lean splitIfTarget?/simpIfTarget reduces the conditional
             ;; in each branch. Our Bool.rec encoding uses substituting cases-eq.
             :bool (cases-eq ps (:discr tgt) "hc")
-            :dec  (by-cases-dec ps (:cond tgt) (:inst tgt))
+            :dec  (let [siblings (vec (rest (:goals ps)))
+                        ps (by-cases-dec (assoc ps :goals [(first (:goals ps))])
+                                         (:cond tgt) (:inst tgt))
+                        ;; Lean SplitIf.lean splitIfTarget?/simpIfTarget: rewrite
+                        ;; if_pos/if_neg (and dif_pos/dif_neg) in each new branch.
+                        ps (all-goals ps
+                                      (fn [ps]
+                                        (let [g (proof/current-goal ps)
+                                              hid (last (sort (keys (:lctx g))))]
+                                          ((requiring-resolve 'ansatz.tactic.simp/simp-target)
+                                           ps ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
+                                           {:only? true :simp-only-builtins? false
+                                            :may-close-goal? false :decide? false}))))]
+                    (update ps :goals into (remove #(proof/mvar-assigned? ps %) siblings)))
             :matcher (let [res (try {:ok (split-matcher ps tgt)}
                                     (catch clojure.lang.ExceptionInfo ex
                                       (if (:split-retry (ex-data ex))

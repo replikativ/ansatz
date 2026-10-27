@@ -141,3 +141,66 @@ example (x : BranchOrder) : x = x := by
   | node child value =>
     change BranchOrder.node child value = BranchOrder.node child value
     rfl
+
+example (i j : Nat) (p : Nat → Prop) (ht : p 10) (hf : p 20) :
+    p (if i = j then 10 else 20) := by
+  split <;> assumption
+example (c : Prop) [Decidable c] (p : Nat → Prop) (t : c → Nat) (f : ¬c → Nat)
+    (ht : ∀ h, p (t h)) (hf : ∀ h, p (f h)) : p (dite c t f) := by
+  split <;> first | apply ht | apply hf
+example (i j : Nat) (h : i = j) (p : Nat → Prop) (hp : p i) :
+    p (if i = j then i else j) := by
+  rw [if_pos h]
+  exact hp
+example (c : Prop) [Decidable c] (h : ¬c) (x y : Nat) (p : Nat → Prop) (hp : p y) :
+    p (ite c x y) := by
+  rw [if_neg h]
+  exact hp
+example (i j n : Nat) (p : Nat → Nat → Nat → Prop) (lemma : ∀ x y z, p x y z) :
+    p i j n := by
+  apply (lemma _ j n)
+example (p q : Nat → Prop) (n : Nat) (hp : p n) (hq : q n) (irrelevant : True)
+    (lemma : ∀ x, p x → q x → True) : True := by
+  apply (lemma _)
+  assumption
+  assumption
+inductive RenameShape where
+  | base
+  | node (prev : RenameShape)
+inductive ScopedEvidence : RenameShape → Prop where
+  | base : ScopedEvidence RenameShape.base
+  | mk (n : RenameShape) (hi : n = n) : ScopedEvidence (RenameShape.node n)
+example (n : RenameShape) (h : ScopedEvidence (RenameShape.node n)) : n = n := by
+  cases h
+  rename_i hi
+  exact hi
+example (n m : Nat) (h : m = n) (hh : h = h) : 0 + m = n := by
+  induction n generalizing m <;> rw [h] <;> simp
+example (i j x y : Nat) : (if i = j then x else y) = (if i = j then x else y) ∧ True := by
+  constructor
+  split
+  · rfl
+  · rfl
+  · constructor
+example (p q : Prop) (h : p ∧ q) : q := by
+  cases h
+  rename_i hq
+  exact hq
+example (p : Prop) : p → p := by
+  intro
+  rename_i h
+  exact h
+inductive CountEvidence : Nat → Prop where
+  | zero : CountEvidence 0
+  | step (n : Nat) (h : CountEvidence n) : CountEvidence (Nat.succ n)
+example (n : Nat) (h : CountEvidence n) (m : Nat) (hm : m = n) (hh : hm = hm) :
+    0 + m = n := by
+  induction h generalizing m <;> rw [hm] <;> simp
+example (c : Prop) [Decidable c] (p : Nat → Nat → Prop)
+    (ht : ∀ n, p n n) (hf : ∀ n, p n 0) : ∀ n, p n (ite c n 0) := by
+  split <;> intro n <;> first | apply ht | apply hf
+example (f g k h : Nat → Nat) (p : Nat → Prop) (n : Nat)
+    (first_rule : ∀ x, f x = g (k x)) (second_rule : ∀ y, g y = h y)
+    (third_rule : ∀ z, h z = z) (hp : p (k n)) : p (f n) := by
+  rw [first_rule, second_rule, third_rule]
+  exact hp
