@@ -935,7 +935,7 @@
         ;; The provisional inductive is needed to infer recursive field types;
         ;; the complete bundle still goes through kernel admission below.
         prop-only? (elim-only-at-universe-zero? (env/add-constant env ind-ci)
-                                               result-level n-params ctor-cis)
+                                                result-level n-params ctor-cis)
         ;; The elim-level param name MUST match the kernel's recursor-rule generator
         ;; (InductiveChecker.initElimLevel: "u", suffixed "u_<i>" only on collision with the
         ;; inductive's own level params). The Clojure side previously hardcoded "u_1" while the
