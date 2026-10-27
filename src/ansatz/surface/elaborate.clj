@@ -1,4 +1,7 @@
 ;; Surface syntax — runtime elaboration with implicit argument insertion.
+;; Binder types/scopes follow Lean checkout 55f80e10a3: Elab/Binders.lean
+;; (elabBinderViews, elabLetDeclAux), Elab/Term/TermElabM.lean (elabType),
+;; and Meta/Basic.lean (mkLetFVars).
 
 (ns ansatz.surface.elaborate
   "Runtime elaboration: transforms surface s-expressions into fully explicit
@@ -358,6 +361,15 @@
 (defn- elab-error! [msg data]
   (throw (ex-info (str "Elaboration error: " msg) (merge {:kind :elab-error} data))))
 
+(defn- elab-type
+  "Elaborate against a fresh Sort, as Lean.Elab.Term.elabType does."
+  [est form]
+  (let [expected (e/sort' (fresh-level-mvar! est))
+        expr (elab-term (assoc est :prop-ctx true) form)]
+    (when-not (unify! est (infer-with-mvars est expr) expected)
+      (elab-error! "Type expected" {:form form :inferred (infer-with-mvars est expr)}))
+    (zonk est expr)))
+
 (defn- resolve-const
   "Resolve a constant name, creating level metavars if levels not provided."
   [est base-name explicit-levels]
@@ -684,7 +696,7 @@
         est (assoc est :prop-ctx true)]
     (letfn [(build [binders est]
               (if (empty? binders)
-                (elab-term est body-sexpr)
+                (elab-type est body-sexpr)
                 (let [[nam typ-sexpr] (first binders)
                       ;; Zonk the binder type so its solved level-mvars (`?u`) are substituted before
                       ;; it is stored into :scope / the tc :lctx. Lean instantiates mvars in binder
@@ -692,7 +704,7 @@
                       ;; infer of a sub-term in ARGUMENT position (elab-app) trips on the opaque `?u`
                       ;; ("Type mismatch in application") — the body position survives only because it
                       ;; reaches the final whole-term zonk. See [[elab-binder-zonk-bug]].
-                      typ-expr (zonk est (elab-term est typ-sexpr))
+                      typ-expr (elab-type est typ-sexpr)
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
                       est' (-> est
@@ -732,7 +744,7 @@
                       ;; infer of a sub-term in ARGUMENT position (elab-app) trips on the opaque `?u`
                       ;; ("Type mismatch in application") — the body position survives only because it
                       ;; reaches the final whole-term zonk. See [[elab-binder-zonk-bug]].
-                      typ-expr (zonk est (elab-term est typ-sexpr))
+                      typ-expr (elab-type est typ-sexpr)
                       fvar-id (fresh-id! est)
                       fv (e/fvar fvar-id)
                       as-term (when coerce? (subtype-as-term typ-expr fv))
@@ -748,21 +760,25 @@
 (defn- elab-let
   "Elaborate a let expression."
   [est binder-vec body-sexpr]
-  (let [tokens (remove (fn [t] (or (= (str t) ":") (= (str t) "="))) binder-vec)
+  (let [tokens (remove #(contains? #{":" ":-" "=" ","} (str %)) binder-vec)
         tokens-vec (vec tokens)]
     (when (not= 3 (count tokens-vec))
       (elab-error! "let binder expects [name type value]" {:binder binder-vec}))
     (let [nam (nth tokens-vec 0)
           typ-sexpr (nth tokens-vec 1)
           val-sexpr (nth tokens-vec 2)
-          typ-expr (elab-term est typ-sexpr)
+          typ-expr (elab-type est typ-sexpr)
           val-expr (elab-term est val-sexpr)
+          _ (when-not (unify! est (infer-with-mvars est val-expr) typ-expr)
+              (elab-error! "let value type mismatch" {:binder binder-vec}))
           fvar-id (fresh-id! est)
           est' (-> est
                    (assoc-in [:scope nam] {:fvar-id fvar-id :type typ-expr})
                    (update :tc update :lctx red/lctx-add-let fvar-id (str nam) typ-expr val-expr))
           body-expr (elab-term est' body-sexpr)
-          abs-body (e/abstract1 body-expr fvar-id)]
+          ;; Lean/Elab/Binders.lean elabLetDeclAux instantiates mvars before
+          ;; Meta.mkLetFVars (Lean/Meta/Basic.lean) closes the let scope.
+          abs-body (e/abstract1 (meta/abstract-fvars (zonk est' body-expr) [fvar-id]) fvar-id)]
       (e/let' (str nam) typ-expr val-expr abs-body))))
 
 (defn sizeof-inst
@@ -1030,7 +1046,7 @@
             (let [parts (rest sexpr)]
               (when (< (count parts) 2)
                 (elab-error! "arrow / => expects at least two types" {:form sexpr}))
-              (let [exprs (mapv #(elab-term est %) parts)]
+              (let [exprs (mapv #(elab-type est %) parts)]
                 (reduce (fn [b a] (e/arrow a b)) (last exprs) (reverse (butlast exprs)))))
 
             "Sort"   (let [[_ level-form] sexpr
@@ -1409,7 +1425,10 @@
                                                 (assoc-in [:scope nm] {:fvar-id fid :type vtype})
                                                 (update :tc update :lctx
                                                         red/lctx-add-let fid (str nm) vtype vexpr))
-                                       body-expr (build (rest ps) est')]
+                                       body-expr (build (rest ps) est')
+                                       ;; elabLetDeclAux / mkLetFVars: instantiate solved
+                                       ;; mvars before abstraction, delay unresolved ones.
+                                       body-expr (meta/abstract-fvars (zonk est' body-expr) [fid])]
                                    (e/let' (str nm) vtype vexpr (e/abstract1 body-expr fid)))))]
                        (build (partition 2 bindings) est)))
 
@@ -1619,7 +1638,7 @@
                (or (:type-position opts)
                    (and expected (e/sort? expected)))
                (assoc :prop-ctx true))
-         expr (elab-term est sexpr)]
+         expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))]
      (check-expected! est expr expected)
      (finalize-elaboration mode est expr))))
 
