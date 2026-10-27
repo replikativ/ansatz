@@ -52,6 +52,21 @@
       (is (proof/solved? ps))
       (is (not (e/has-fvar-flag (extract/verify ps)))))))
 
+(deftest test-intro-normalizes-local-names
+  (doseq [override [nil 'h (name/from-string "h")]]
+    (let [goal (e/forall' (name/from-string "p") prop
+                          (e/forall' (name/from-string "h") (e/bvar 0) (e/bvar 1) :default)
+                          :default)
+          [ps _] (proof/start-proof (env/empty-env) goal)
+          ps (basic/intro ps)
+          ps (basic/intro ps override)
+          names (mapv :name (vals (:lctx (proof/current-goal ps))))]
+      (is (every? string? names))
+      (is (= #{"p" "h"} (set names)))
+      (let [ps (-> ps (basic/revert (find-hyp ps "h")) basic/intro)]
+        (is (every? string? (map :name (vals (:lctx (proof/current-goal ps))))))
+        (is (not (e/has-fvar-flag (extract/verify (basic/exact-form ps 'h)))))))))
+
 (deftest test-exact-form-rejects-holes
   (testing "exact rejects fresh unassigned holes instead of creating goals"
     (let [env (env/empty-env)

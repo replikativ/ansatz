@@ -1,12 +1,5 @@
 (ns ansatz.dependent-field-struct-test
-  "Regression: structures whose field types APPLY an earlier field — i.e. typeclass-style
-   records carrying algebraic axioms like `add_assoc : ∀ a b c, add (add a b) c = …`.
-
-   These define correctly: the inductive, constructors, recursor, casesOn, recOn are all
-   kernel-checked. The only auxiliary that the current builder cannot derive for such a
-   dependent field is noConfusion — it is warned-and-skipped (an auxiliary, not core), so
-   the declaration still succeeds. This pins that behaviour so the typeclass front door
-   (WSemiring etc.) stays open."
+  "Regression: noConfusion for dependent algebraic fields must be kernel-checked."
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
@@ -32,7 +25,6 @@
 
 (deftest dependent-axiom-field-defines
   (testing "structure with a field type that applies an earlier field (associativity axiom)"
-    ;; Both kernels admit the constructor type; only noConfusion is skipped.
     (ind/define-inductive (a/env) "WSemigT" '[S Type]
       [['mk '[add (=> S S S)
               assoc (forall [a S b S c S]
@@ -40,9 +32,9 @@
     (is (some? (lookup "WSemigT")) "inductive admitted")
     (is (some? (lookup "WSemigT.mk")) "constructor admitted")
     (is (some? (lookup "WSemigT.rec")) "recursor admitted")
-    ;; noConfusion is the only auxiliary the dependent-field builder cannot derive yet.
-    (is (nil? (lookup "WSemigT.noConfusionType"))
-        "noConfusion warned-and-skipped (auxiliary), declaration still succeeds")))
+    (doseq [suffix ["noConfusionType" "noConfusion" "mk.noConfusion"]]
+      (is (some? (lookup (str "WSemigT." suffix)))
+          "dependent-field noConfusion is generated and kernel-checked"))))
 
 (deftest dependent-field-via-structure-macro
   (testing "the surface (a/structure …) macro handles a dependent commutativity axiom"

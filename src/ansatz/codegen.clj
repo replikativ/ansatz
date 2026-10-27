@@ -3,7 +3,8 @@
    lowering tables (`builtin-app`/`builtin-value`). Extracted from ansatz.core. Reads the shared
    registries in ansatz.surface.ingest (structure/codegen/arity) and the structural ctor/recursor/
    arity machinery; the runtime (wandler) augments lowering via `codegen-registry`."
-  (:require [ansatz.codegen.numeric]
+  (:require [clojure.walk :as walk]
+            [ansatz.codegen.numeric]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -37,27 +38,16 @@
                   (list [a b] (emit2 a b))))))
 
 (clojure.core/defn- tagged-inductive?
-  "True when an inductive's runtime representation is the GENERAL tagged vector
-   `[cidx field…]` (so both constructors and the recursor dispatch on the cidx in
-   slot 0). Excludes the inductives that keep a NATIVE representation: List (cons
-   seq), Nat (long), registered structures (defrecord/map), and all-zero enums
-   (a bare index). The remaining shape — a multi-constructor inductive where at
-   least one constructor carries fields (e.g. the EDN `Value` universe) — needs
-   the tag to discriminate ctors that would otherwise collide (`vint i`/`vbool b`
-   both being one-field). Mirrors `wandler.surface.edn/edn->value`'s encoding."
+  "Tagged vectors distinguish fielded constructors that the native nil/vector rep cannot."
   [env ind-name-str]
   (and (not (#{"List" "Nat"} ind-name-str))
        (not (get @structure-registry ind-name-str))
        (when-let [ind-ci (env/lookup env (name/from-string ind-name-str))]
-         (let [ctors (.ctors ^ConstantInfo ind-ci)]
-           ;; >2 ctors with fields: needs the cidx tag to discriminate (e.g. Value's 11
-           ;; ctors). Strictly ≤2-ctor shapes keep their NATIVE reps — Bool-like enums
-           ;; (index) and leaf+node (nil / (vec fields), nil-dispatched by the leaf+node
-           ;; recursor branch) — so a 2-ctor tree's hand-built [color l k r] rep is unchanged.
-           (and ctors (> (alength ctors) 2)
-                (boolean (some (fn [cn] (when-let [cci (env/lookup env cn)]
-                                          (pos? (.numFields ^ConstantInfo cci))))
-                               ctors)))))))
+         (let [ctors (.ctors ^ConstantInfo ind-ci)
+               fields (mapv #(.numFields ^ConstantInfo (env/lookup env %)) ctors)]
+           (and (some pos? fields)
+                (or (> (count fields) 2)
+                    (and (= 2 (count fields)) (pos? (first fields)))))))))
 
 (declare ansatz->clj beta-apply runtime-instance-op standard-real-approx)
 
@@ -540,6 +530,161 @@
         :proj   (e/proj (e/proj-type-name expr) (e/proj-idx expr) (coll (e/proj-struct expr)))
         expr))))
 
+(clojure.core/defn- compile-minor [env minor names actuals]
+  (let [n (count actuals)]
+    ;; Apply in Expr space so eta-reduced builtins and flat-arity functions use
+    ;; the same application lowering as explicitly written applications.
+    (ansatz->clj env
+                 (beta-apply (e/lift minor n 0)
+                             (map #(e/bvar (- n % 1)) (range n)))
+                 (into names (map str actuals)))))
+
+(clojure.core/defn- share-lazy-arguments [body replacements]
+  (let [uses (frequencies (tree-seq coll? seq body))
+        shared (filter #(and (> (get uses % 0) 1) (not (symbol? (replacements %))))
+                       (keys replacements))
+        result (walk/postwalk-replace
+                (merge replacements (into {} (map #(vector % (list 'clojure.core/deref %)) shared)))
+                body)]
+    (if (seq shared)
+      (list 'let (vec (mapcat #(vector % (list 'clojure.core/delay (replacements %))) shared)) result)
+      result)))
+
+(clojure.core/defn- validate-constructor-representation! [env rec-ci]
+  ;; An override on a non-enum needs its own recursor lowering: generic codegen cannot
+  ;; recover fields from an arbitrary runtime encoding. Enum overrides are decoded
+  ;; by enum-dispatch using the very same lowering used for construction.
+  (doseq [rule (.rules ^ConstantInfo rec-ci)
+          :let [ctor-ci (env/lookup env (.ctor rule))
+                ctor (name/->string (.ctor rule))
+                ind-ci (env/lookup env (.inductName ^ConstantInfo ctor-ci))
+                enum? (every? #(zero? (.numFields ^ConstantInfo (env/lookup env %)))
+                              (.ctors ^ConstantInfo ind-ci))]
+          :when (and (not enum?)
+                     (contains? @codegen-registry ctor)
+                     (not (contains? builtin-app ctor)))]
+    (throw (ex-info "Codegen: constructor representation requires a matching recursor lowering"
+                    {:kind :codegen-error :recursor (name/->string (.name ^ConstantInfo rec-ci))
+                     :constructor ctor}))))
+
+(clojure.core/defn- enum-dispatch [env rec-ci t bodies args names]
+  (let [rules (.rules ^ConstantInfo rec-ci)
+        values (mapv #(ansatz->clj env
+                                   (reduce e/app (e/const' (.ctor %) [])
+                                           (take (.numParams ^ConstantInfo rec-ci) args))
+                                   names) rules)]
+    ;; Const-position construction defines the representation, including builtin
+    ;; precedence and registry overrides. Accept only distinct scalar literals;
+    ;; arbitrary expressions require an explicitly registered eliminator.
+    (when (or (not-every? #(or (nil? %) (boolean? %) (keyword? %) (string? %)
+                               (number? %) (char? %)) values)
+              (not= (count values) (count (distinct values))))
+      (throw (ex-info "Codegen: enum representation requires distinct literal constructors or a matching recursor lowering"
+                      {:kind :codegen-error :recursor (name/->string (.name ^ConstantInfo rec-ci))})))
+    (list* 'cond
+           (concat (mapcat (fn [v body] [(list 'clojure.core/= t v) body]) values bodies)
+                   [:else (list 'throw (list 'ex-info "no matching enum constructor" {}))]))))
+
+(def ^:dynamic *recursor-calls* {})
+
+(clojure.core/defn- recursor-group->clj
+  "Lower nested/mutual recursors from their kernel rules, with one local fn per recursor."
+  [env head args names]
+  (let [root (name/->string (e/const-name head))
+        ci (env/lookup env (e/const-name head))
+        prefix-count (+ (.numParams ci) (.numMotives ci) (.numMinors ci))
+        major-idx (+ prefix-count (.numIndices ci))]
+    (validate-constructor-representation! env ci)
+    (when (< (count args) major-idx)
+      (throw (ex-info "Codegen: unsupported recursor shape (missing minors or indices)"
+                      {:kind :codegen-error :recursor root})))
+    ;; Lean kernel inductive.h, inductive_reduce_rec: instantiate a rule with
+    ;; params/motives/minors, then constructor fields. Discover auxiliary recursors
+    ;; from those rules (nested types become a mutual group in inductive.cpp).
+    (letfn [(children [x]
+              (cond (e/app? x) [(e/app-fn x) (e/app-arg x)]
+                    (e/lam? x) [(e/lam-body x)]
+                    :else []))
+            (references [ci]
+              (for [rule (.rules ^ConstantInfo ci)
+                    term (tree-seq #(seq (children %)) children (.rhs rule))
+                    :when (e/const? term)
+                    :let [c (env/lookup env (e/const-name term))]
+                    :when (and c (.isRecursor ^ConstantInfo c))]
+                (name/->string (.name ^ConstantInfo c))))]
+      (let [group (loop [pending [root] found {}]
+                    (if-let [n (peek pending)]
+                      (if (contains? found n)
+                        (recur (pop pending) found)
+                        (let [c (env/lookup env (name/from-string n))]
+                          (validate-constructor-representation! env c)
+                          (recur (into (pop pending) (references c)) (assoc found n c))))
+                      found))
+            calls (into {} (map (fn [[n _]] [n (gensym "rec_")]) group))
+            defs
+            (binding [*recursor-calls*
+                      (reduce-kv (fn [m n sym]
+                                   (update m n (fnil conj [])
+                                           {:sym sym :prefix (vec (take prefix-count args))
+                                            :depth (count names)}))
+                                 *recursor-calls* calls)]
+              (mapv
+               (fn [[n c]]
+                 (let [t (gensym "t_")
+                       clauses
+                       (mapv
+                        (fn [rule]
+                          (let [ctor (env/lookup env (.ctor rule))
+                                ind (name/->string (.inductName ^ConstantInfo ctor))
+                                nf (.nfields rule)
+                                fields (mapv (fn [_] (gensym "field_")) (range nf))
+                                tagged? (tagged-inductive? env ind)
+                                structure (get @structure-registry ind)
+                                bindings (vec (mapcat
+                                               (fn [i]
+                                                 [(nth fields i)
+                                                  (cond
+                                                    (= ind "Nat") (list 'dec t)
+                                                    (= ind "List") (list (if (zero? i) 'first 'rest) t)
+                                                    structure (list (keyword (nth (:fields structure) i)) t)
+                                                    :else (list 'nth t (+ i (if tagged? 1 0))))])
+                                               (range nf)))
+                                rhs (beta-apply (.rhs rule)
+                                                (concat (map #(e/lift % nf 0) (take prefix-count args))
+                                                        (map #(e/bvar (- nf % 1)) (range nf))))
+                                [minor actuals] (e/get-app-fn-args rhs)
+                                actual-syms (mapv (fn [_] (gensym "arg_")) actuals)
+                                ctx (into names (map str fields))
+                                body (share-lazy-arguments
+                                      (compile-minor env minor ctx actual-syms)
+                                      (zipmap actual-syms (map #(ansatz->clj env % ctx) actuals)))]
+                            {:cidx (.cidx ctor) :ind ind :tagged? tagged? :nf nf
+                             :body (if (seq bindings) (list 'let bindings body) body)}))
+                        (.rules ^ConstantInfo c))
+                       {:keys [ind tagged?]} (first clauses)
+                       body (cond
+                              tagged? (list* 'case (list 'nth t 0)
+                                             (mapcat #(vector (:cidx %) (:body %)) clauses))
+                              (every? #(zero? (:nf %)) clauses)
+                              (enum-dispatch env c t (mapv :body clauses) args names)
+                              (= 1 (count clauses)) (:body (first clauses))
+                              (and (= 2 (count clauses)) (zero? (:nf (first clauses))))
+                              (list 'if (cond (= ind "Nat") (list 'zero? t)
+                                              (= ind "List") (list 'not (list 'seq t))
+                                              :else (list 'nil? t))
+                                    (:body (first clauses)) (:body (second clauses)))
+                              :else (throw (ex-info "Codegen: unsupported recursor shape"
+                                                    {:kind :codegen-error :recursor n})))]
+                   (list (calls n) [t] body)))
+               group))
+            eta? (<= (count args) major-idx)
+            t (gensym "major_")
+            result (list 'letfn defs
+                         (list (calls root) (if eta? t (ansatz->clj env (nth args major-idx) names))))
+            result (reduce (fn [f x] (list f (ansatz->clj env x names))) result
+                           (drop (inc major-idx) args))]
+        (if eta? (list 'fn [t] result) result)))))
+
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
@@ -571,7 +716,18 @@
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
               ca (mapv #(ansatz->clj env % names) args)]
-          (if-let [bi (builtin-app h)]
+          (if-let [bi (or (when-let [entry
+                                     (some (fn [{:keys [prefix depth] :as entry}]
+                                             (when (and (>= (count names) depth)
+                                                        (= (mapv #(e/lift % (- (count names) depth) 0) prefix)
+                                                           (vec (take (count prefix) args))))
+                                               entry))
+                                           (get *recursor-calls* h))]
+                            (fn [env head _ ca _]
+                              (let [ci (env/lookup env (e/const-name head))
+                                    idx (+ (.numParams ci) (.numMotives ci) (.numMinors ci) (.numIndices ci))]
+                                (reduce (fn [f a] (list f a)) (list (:sym entry) (nth ca idx)) (drop (inc idx) ca)))))
+                          (builtin-app h))]
             (bi env head args ca names)
             ;; Constructor application
             ;; For structures (defrecord): use ->RecordName constructor
@@ -617,238 +773,169 @@
                 (if-let [rec-ci (when (.endsWith ^String h ".rec")
                                   (env/lookup env (e/const-name head)))]
                   (when (.isRecursor ^ConstantInfo rec-ci)
-                    (let [np (.numParams rec-ci)
-                          nm (.numMotives rec-ci)
-                          nmin (.numMinors rec-ci)
-                          minor-start (+ np nm)
-                          major-idx (+ minor-start nmin)
+                    ;; Lean inductive.cpp, is_reflexive/mk_rec_rules: functional
+                    ;; recursive fields require the rule's lambda-wrapped IH.
+                    ;; Route the whole family through rule instantiation, whatever
+                    ;; its constructor representation (tagged, leaf/node or single).
+                    (if (or (> (.numMotives ^ConstantInfo rec-ci) 1)
+                            (pos? (.numIndices ^ConstantInfo rec-ci))
+                            (when-let [rule (first (.rules ^ConstantInfo rec-ci))]
+                              (let [ctor (env/lookup env (.ctor rule))
+                                    ind (env/lookup env (.inductName ^ConstantInfo ctor))]
+                                (.isReflexive ^ConstantInfo ind))))
+                      (recursor-group->clj env head args names)
+                      (let [_ (validate-constructor-representation! env rec-ci)
+                            np (.numParams rec-ci)
+                            nm (.numMotives rec-ci)
+                            nmin (.numMinors rec-ci)
+                            minor-start (+ np nm)
+                            _ (when (or (not= nm 1) (< (count ca) (+ minor-start nmin)))
+                                (throw (ex-info "Codegen: unsupported recursor shape (motives or missing minors)"
+                                                {:kind :codegen-error :recursor h :motives nm
+                                                 :minors nmin :arguments (count ca)})))
+                          ;; Lean inductive.h, inductive_reduce_rec/get_major_idx:
+                          ;; params, motives, minors, indices, then major.
+                            major-idx (+ minor-start nmin (.numIndices rec-ci))
                           ;; Arity tolerance: a recursor used as a FUNCTION VALUE (e.g. an
                           ;; eta-reduced `R.rec motive minors` the optimizer passes to
                           ;; map/filterMap) lacks the major premise. Bind it to a fresh param
                           ;; and wrap the lowering in a fn supplying it (mirrors the
                           ;; Subtype.val / nary-op arity tolerance). Only the major may be
                           ;; missing (minors precede it and are present).
-                          eta-major? (<= (count ca) major-idx)
-                          eta-major-sym (gensym "etamaj_")
-                          major (if eta-major? eta-major-sym (nth ca major-idx))
-                          rules (.rules rec-ci)
+                            eta-major? (<= (count ca) major-idx)
+                            eta-major-sym (gensym "etamaj_")
+                            major (if eta-major? eta-major-sym (nth ca major-idx))
+                            rules (.rules rec-ci)
                       ;; Determine which fields are recursive per constructor
-                          ind-name-str (subs h 0 (- (count h) 4)) ;; remove ".rec"
-                          ind-ci (env/lookup env (name/from-string ind-name-str))
+                            ind-name-str (subs h 0 (- (count h) 4)) ;; remove ".rec"
+                            ind-ci (env/lookup env (name/from-string ind-name-str))
                       ;; Build a letfn with self-recursive function
-                          self-sym (gensym "rec_")
+                            self-sym (gensym "rec_")
                         ;; Unique prefix for field names to avoid shadowing in nested matches
-                          field-prefix (str "f" (gensym "") "_")
-                          clauses
-                          (map-indexed
-                           (fn [i ^ansatz.kernel.ConstantInfo$RecursorRule rule]
-                             (let [nf (.nfields rule)
-                                   minor (nth ca (+ minor-start i))
-                                   minor-ansatz-expr (nth args (+ minor-start i))
-                                   ctor-name (.ctor rule)
-                                   ctor-ci (env/lookup env ctor-name)
+                            field-prefix (str "f" (gensym "") "_")
+                            clauses
+                            (map-indexed
+                             (fn [i ^ansatz.kernel.ConstantInfo$RecursorRule rule]
+                               (let [nf (.nfields rule)
+                                     minor (nth ca (+ minor-start i))
+                                     minor-ansatz-expr (nth args (+ minor-start i))
+                                     ctor-name (.ctor rule)
+                                     ctor-ci (env/lookup env ctor-name)
                                 ;; Find recursive field indices
-                                   rec-indices
-                                   (when (.isRec ind-ci)
-                                     (let [ct (.type ctor-ci)]
-                                       (loop [ty ct skip (.numParams ctor-ci) j 0 acc []]
-                                         (if (or (not (e/forall? ty)) (>= j nf))
-                                           acc
-                                           (if (pos? skip)
-                                             (recur (e/forall-body ty) (dec skip) j acc)
-                                             (let [ft (e/forall-type ty)
-                                                   is-rec (ansatz.inductive/occurs-in?
-                                                           ft (name/from-string ind-name-str))]
-                                               (recur (e/forall-body ty) 0 (inc j)
-                                                      (if is-rec (conj acc j) acc))))))))
-                                   field-syms (mapv #(symbol (str field-prefix %)) (range nf))
-                                   ih-syms (mapv #(symbol (str "ih" (gensym "") "_" %)) (or rec-indices []))]
-                               {:idx i :cidx (.cidx ^ConstantInfo ctor-ci)
-                                :nfields nf :minor minor :minor-ansatz minor-ansatz-expr
-                                :field-syms field-syms
-                                :rec-indices (or rec-indices []) :ih-syms ih-syms}))
-                           rules)]
+                                     rec-indices
+                                     (when (.isRec ind-ci)
+                                       (let [ct (.type ctor-ci)]
+                                         (loop [ty ct skip (.numParams ctor-ci) j 0 acc []]
+                                           (if (or (not (e/forall? ty)) (>= j nf))
+                                             acc
+                                             (if (pos? skip)
+                                               (recur (e/forall-body ty) (dec skip) j acc)
+                                               (let [ft (e/forall-type ty)
+                                                     is-rec (ansatz.inductive/occurs-in?
+                                                             ft (name/from-string ind-name-str))
+                                                     _ (when (and is-rec (e/forall? ft))
+                                                         (throw (ex-info "Codegen: functional recursive field requires kernel rule lowering"
+                                                                         {:kind :codegen-error :recursor h
+                                                                          :constructor (name/->string ctor-name)
+                                                                          :field j})))]
+                                                 (recur (e/forall-body ty) 0 (inc j)
+                                                        (if is-rec (conj acc j) acc))))))))
+                                     field-syms (mapv #(symbol (str field-prefix %)) (range nf))
+                                     ih-syms (mapv #(symbol (str "ih" (gensym "") "_" %)) (or rec-indices []))]
+                                 {:idx i :cidx (.cidx ^ConstantInfo ctor-ci)
+                                  :nfields nf :minor minor :minor-ansatz minor-ansatz-expr
+                                  :field-syms field-syms
+                                  :rec-indices (or rec-indices []) :ih-syms ih-syms}))
+                             rules)]
                   ;; Generate case dispatch
-                      (let [t-sym (gensym "t_")
-                            all-zero (every? #(zero? (:nfields %)) clauses)
-                            has-rec (some #(seq (:rec-indices %)) clauses)
-                            apply-minor (fn [clause args]
-                                          (reduce (fn [f a] (list f a))
-                                                  (:minor clause) args))
-                            body
-                            (cond
+                        (let [t-sym (gensym "t_")
+                              all-zero (every? #(zero? (:nfields %)) clauses)
+                              has-rec (some #(seq (:rec-indices %)) clauses)
+                            ;; Lean kernel inductive.h, inductive_reduce_rec: apply the
+                            ;; rule to fields/IHs, beta-reducing only actual lambdas. A
+                            ;; non-lambda remainder still lives in the consumed context.
+                              apply-minor
+                              (fn [{:keys [minor-ansatz field-syms ih-syms rec-indices]}]
+                                (let [actuals (into field-syms ih-syms)
+                                      compiled (compile-minor env minor-ansatz names actuals)
+                                      calls (zipmap ih-syms
+                                                    (map #(list self-sym (nth field-syms %)) rec-indices))]
+                                ;; Share repeated IHs without forcing unused branches.
+                                  (share-lazy-arguments compiled calls)))
+                              field-bindings
+                              (fn [{:keys [nfields field-syms]} offset]
+                                (vec (mapcat
+                                      (fn [i]
+                                        [(nth field-syms i)
+                                         (cond
+                                           (= ind-name-str "List")
+                                           (list (if (zero? i) 'first 'rest) t-sym)
+                                           (get @structure-registry ind-name-str)
+                                           (list (keyword (nth (:fields (get @structure-registry ind-name-str)) i)) t-sym)
+                                           :else (list 'nth t-sym (+ offset i)))])
+                                      (range nfields))))
+                              branch (fn [clause offset]
+                                       (let [bindings (field-bindings clause offset)
+                                             result (apply-minor clause)]
+                                         (if (seq bindings) (list 'let bindings result) result)))
+                              body
+                              (cond
                           ;; General tagged inductive (e.g. Value, 11 ctors mixed arity):
                           ;; dispatch on the cidx tag in slot 0; each branch binds its
                           ;; fields from (nth t (inc i)) and inlines IH as (self (nth t (inc ri))).
                           ;; The recursion (if any) rides the surrounding letfn self-sym.
-                              (tagged-inductive? env ind-name-str)
-                              (let [branches
-                                    (mapcat
-                                     (fn [{:keys [cidx nfields field-syms rec-indices ih-syms minor-ansatz]}]
-                                       (let [bindings (vec (mapcat (fn [i] [(nth field-syms i)
-                                                                            (list 'nth t-sym (inc i))])
-                                                                   (range nfields)))
-                                             n-ih (count rec-indices)
-                                             all-names (into (mapv str field-syms) (mapv str ih-syms))
-                                             minor-body (loop [e minor-ansatz n (+ nfields n-ih)]
-                                                          (if (and (pos? n) (e/lam? e))
-                                                            (recur (e/lam-body e) (dec n)) e))
-                                             compiled-body (ansatz->clj env minor-body (into names all-names))
-                                             ih-replacements
-                                             (into {} (map (fn [j ri]
-                                                             [(nth ih-syms j)
-                                                              (list self-sym (list 'nth t-sym (inc ri)))])
-                                                           (range n-ih) rec-indices))
-                                             major-sym (when (symbol? major) major)
-                                             inline-all (fn inline-all [form]
-                                                          (cond
-                                                            (and (symbol? form) (contains? ih-replacements form))
-                                                            (get ih-replacements form)
-                                                            (and major-sym (symbol? form) (= form major-sym)) t-sym
-                                                            (seq? form) (apply list (map inline-all form))
-                                                            (vector? form) (mapv inline-all form)
-                                                            :else form))
-                                             node-body (inline-all compiled-body)]
-                                         [cidx (if (seq bindings) (list 'let bindings node-body) node-body)]))
-                                     clauses)]
+                                (tagged-inductive? env ind-name-str)
                                 (list* 'case (list 'nth t-sym 0)
-                                       (concat branches
+                                       (concat (mapcat (fn [clause] [(:cidx clause) (branch clause 1)]) clauses)
                                                [(list 'throw (list 'ex-info "no matching ctor (tagged rep)"
-                                                                   (list 'array-map :tag (list 'nth t-sym 0))))])))
+                                                                   (list 'array-map :tag (list 'nth t-sym 0))))]))
 
-                          ;; Enum: all ctors have 0 fields (Bool, Color, etc.)
-                              (and all-zero (= 2 (count clauses)))
-                          ;; Bool-like: (if value minor_1 minor_0)
-                          ;; ctor 0 = falsy (nil/false), ctor 1 = truthy
-                              (list 'if t-sym
-                                    (:minor (second clauses))
-                                    (:minor (first clauses)))
-
-                              all-zero  ;; 3+ ctor enum
-                              (list* 'case t-sym
-                                     (mapcat (fn [{:keys [idx minor]}] [idx minor])
-                                             clauses))
+                                all-zero
+                                (enum-dispatch env rec-ci t-sym (mapv :minor clauses) args names)
 
                           ;; Nat.rec: Nat is native longs, not nil/vector
-                              (and (= ind-name-str "Nat")
-                                   (= 2 (count clauses))
-                                   (zero? (:nfields (first clauses))))
-                              (let [leaf-c (first clauses)
-                                    node-c (second clauses)
-                                    pred-sym (first (:field-syms node-c))
-                                ;; Nat.succ has 1 field: predecessor
-                                    bindings [pred-sym (list 'dec t-sym)]
-                                    minor-ansatz (:minor-ansatz node-c)
-                                    n-ih (count (:rec-indices node-c))
-                                    all-names (into (mapv str (:field-syms node-c))
-                                                    (mapv str (:ih-syms node-c)))
-                                    minor-body (loop [e minor-ansatz n (+ 1 n-ih)]
-                                                 (if (and (pos? n) (e/lam? e))
-                                                   (recur (e/lam-body e) (dec n))
-                                                   e))
-                                    compiled-body (ansatz->clj env minor-body
-                                                               (into names all-names))
-                                    ih-replacements
-                                    (into {} (map (fn [j ri]
-                                                    [(nth (:ih-syms node-c) j)
-                                                     (list self-sym (nth (:field-syms node-c) ri))])
-                                                  (range n-ih) (:rec-indices node-c)))
-                                    major-sym (when (symbol? major) major)
-                                    inline-all (fn inline-all [form]
-                                                 (cond
-                                                   (and (symbol? form) (contains? ih-replacements form))
-                                                   (get ih-replacements form)
-                                                   (and major-sym (symbol? form) (= form major-sym))
-                                                   t-sym
-                                                   (seq? form) (apply list (map inline-all form))
-                                                   (vector? form) (mapv inline-all form)
-                                                   :else form))
-                                    node-body (inline-all compiled-body)]
-                                (list 'if (list 'zero? t-sym)
-                                      (:minor leaf-c)
-                                      (list 'let bindings node-body)))
+                                (and (= ind-name-str "Nat")
+                                     (= 2 (count clauses))
+                                     (zero? (:nfields (first clauses))))
+                                (let [node-c (second clauses)
+                                      pred-sym (first (:field-syms node-c))]
+                                  (list 'if (list 'zero? t-sym)
+                                        (apply-minor (first clauses))
+                                        (list 'let [pred-sym (list 'dec t-sym)] (apply-minor node-c))))
 
                           ;; Leaf + node: first ctor 0 fields, others have fields
-                              (and (= 2 (count clauses))
-                                   (zero? (:nfields (first clauses))))
-                              (let [leaf-c (first clauses)
-                                    node-c (second clauses)
-                                    nf (:nfields node-c)
-                                ;; Field bindings: [color (nth t 0) left (nth t 1) ...]
-                                ;; For List: use first/rest instead of nth (native seq interop)
-                                ;; Also bind the discriminant name to t-sym so that
-                                ;; references to the matched value inside the body
-                                ;; see the current node, not the outer parameter.
-                                    is-list (= ind-name-str "List")
-                                    bindings (vec (mapcat (fn [i]
-                                                            [(nth (:field-syms node-c) i)
-                                                             (if is-list
-                                                               (case (int i)
-                                                                 0 (list 'first t-sym)
-                                                                 1 (list 'rest t-sym))
-                                                               (list 'nth t-sym i))])
-                                                          (range nf)))
-                                ;; Unwrap minor Ansatz lambdas to get the body
-                                ;; Then compile body with field names + IH inlined as (rec field)
-                                    minor-ansatz (:minor-ansatz node-c)
-                                ;; Unwrap nf + n-ih lambdas
-                                    n-ih (count (:rec-indices node-c))
-                                    all-names (into (mapv str (:field-syms node-c))
-                                                    (mapv str (:ih-syms node-c)))
-                                    minor-body (loop [e minor-ansatz n (+ nf n-ih)]
-                                                 (if (and (pos? n) (e/lam? e))
-                                                   (recur (e/lam-body e) (dec n))
-                                                   e))
-                                ;; Compile body with names for fields + IH symbols
-                                    compiled-body (ansatz->clj env minor-body
-                                                               (into names all-names))
-                                ;; Replace IH symbols with inline recursive calls
-                                ;; ih_sym → (self_fn field_sym) — lazy, only evaluated when needed
-                                    ih-replacements
-                                    (into {} (map (fn [j ri]
-                                                    [(nth (:ih-syms node-c) j)
-                                                     (list self-sym (nth (:field-syms node-c) ri))])
-                                                  (range n-ih) (:rec-indices node-c)))
-                                  ;; Replace major-premise references with t-sym.
-                                  ;; When the body references the matched value (e.g., `l`
-                                  ;; in `(cons x l)` inside a match on `l`), it should
-                                  ;; refer to the current node in the recursion, not the
-                                  ;; outer function parameter.
-                                    major-sym (when (symbol? major) major)
-                                    inline-all (fn inline-all [form]
-                                                 (cond
-                                                   (and (symbol? form) (contains? ih-replacements form))
-                                                   (get ih-replacements form)
-                                                   (and major-sym (symbol? form) (= form major-sym))
-                                                   t-sym
-                                                   (seq? form) (apply list (map inline-all form))
-                                                   (vector? form) (mapv inline-all form)
-                                                   :else form))
-                                    node-body (inline-all compiled-body)]
-                              ;; For List: use (not (seq t)) since (rest (cons x nil)) = ()
-                                (list 'if (if is-list
+                                (and (= 2 (count clauses))
+                                     (zero? (:nfields (first clauses))))
+                                (list 'if (if (= ind-name-str "List")
                                             (list 'not (list 'seq t-sym))
                                             (list 'nil? t-sym))
-                                      (:minor leaf-c)
-                                      (list 'let bindings node-body)))
+                                      (apply-minor (first clauses))
+                                      (branch (second clauses) 0))
 
-                              :else
-                              (list 'throw (list 'ex-info "unsupported rec pattern" {})))]
+                              ;; One constructor keeps the existing untagged field vector
+                              ;; (or registered structure map/record).
+                                (= 1 (count clauses))
+                                (branch (first clauses) 0)
+
+                                :else
+                                (throw (ex-info "Codegen: unsupported recursor shape"
+                                                {:kind :codegen-error :recursor h})))]
+
                     ;; Wrap in letfn only if the emitted body actually SELF-RECURSES (an IH
                     ;; landed in it) — a casesOn-derived dispatch never uses its IHs, and the
                     ;; `let` form keeps downstream self-calls (storedef recur) in tail position.
-                        (let [rec-result
-                              (if (and has-rec
-                                       (some #(= self-sym %) (tree-seq coll? seq body)))
-                                (list 'letfn [(list self-sym [t-sym] body)]
-                                      (list self-sym major))
+                          (let [rec-result
+                                (if (and has-rec
+                                         (some #(= self-sym %) (tree-seq coll? seq body)))
+                                  (list 'letfn [(list self-sym [t-sym] body)]
+                                        (list self-sym major))
                               ;; Non-recursive: just apply directly
-                                (list 'let [t-sym major] body))
+                                  (list 'let [t-sym major] body))
                             ;; Extra args beyond major? Apply them (fuel-based WF pattern).
-                              extra-args (if eta-major? [] (subvec ca (inc major-idx)))
-                              applied (reduce (fn [f a] (list f a)) rec-result extra-args)]
+                                extra-args (if eta-major? [] (subvec ca (inc major-idx)))
+                                applied (reduce (fn [f a] (list f a)) rec-result extra-args)]
                           ;; eta-wrap when the recursor was a bare function value
-                          (if eta-major? (list 'fn [eta-major-sym] applied) applied)))))
+                            (if eta-major? (list 'fn [eta-major-sym] applied) applied))))))
             ;; @[extern] native primitive with no builtin/registry lowering: emit a clear throw
             ;; rather than a bare symbol applied to args (opaque ClassNotFoundException).
                   (or (extern-unhandled-form env h)
@@ -931,8 +1018,10 @@
                       ;; ops in VALUE position (a fold step, a passed comparator) lower to the
                       ;; runnable Clojure op, not a bare (unresolvable) symbol — `find` so a
                       ;; false/0 lowering isn't mistaken for "absent".
-                      (if-let [e (find builtin-value cn)]
-                        (val e)
+                      (cond
+                        (contains? builtin-value cn) (get builtin-value cn)
+                        (contains? @codegen-registry cn) ((get @codegen-registry cn) env expr names)
+                        :else
                         ;; Check if it's a constructor
                         (if-let [ci (env/lookup env (e/const-name expr))]
                           (if (.isCtor ^ConstantInfo ci)

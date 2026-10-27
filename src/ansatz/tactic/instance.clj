@@ -145,7 +145,7 @@
                            (update idx (name/from-string (nth parts 0)) (fnil conj [])
                                    {:name (name/from-string (nth parts 1))
                                     :priority (if (>= (count parts) 3)
-                                                (try (Long/parseLong (nth parts 2)) (catch Exception _ 1000))
+                                                (Long/parseLong (nth parts 2))
                                                 1000)})
                            idx)))
                      {} lines)]
@@ -274,7 +274,8 @@
 (defn select-candidates
   "The candidates of `candidates` (a class's registry entries, in order) worth trying for
    `goal-type`, in order: the instances whose conclusion key matches the goal's first argument,
-   then the generic ones — Lean's DiscrTree selection, one level deep, in Lean's order.
+   then the generic ones at equal priority; higher priority always goes first.
+   This approximates Lean's DiscrTree selection with a two-head key.
 
    The ORDER is load-bearing, not just the filtering. `getUnify` returns a class's star (generic)
    matches before its keyed ones and `SynthInstance.generate` consumes that array BACKWARDS
@@ -292,7 +293,8 @@
                    [_ gaargs] (when g (e/get-app-fn-args g))]
                [(head-key g) (if (seq gaargs) (head-key (first gaargs)) :generic)])]
     (if (= gkey [:generic :generic])
-      (remove #(= :absent (conclusion-key env (:name %))) candidates)
+      (sort-by #(- (or (:priority %) 1000))
+               (remove #(= :absent (conclusion-key env (:name %))) candidates))
       (let [scored (group-by (fn [c]
                                (let [ck (conclusion-key env (:name c))]
                                  (cond (= ck :absent) :no
@@ -301,7 +303,10 @@
                                        :else :no)))
                              candidates)
             picked (into (vec (:exact scored)) (:compatible scored))]
-        (if (empty? picked) (remove #(= :absent (conclusion-key env (:name %))) candidates) picked)))))
+        (sort-by #(- (or (:priority %) 1000))
+                 (if (empty? picked)
+                   (remove #(= :absent (conclusion-key env (:name %))) candidates)
+                   picked))))))
 
 ;; ============================================================
 ;; Structural matching (avoids proof irrelevance)
@@ -390,29 +395,44 @@
         [gh _] (e/get-app-fn-args g)]
     (and (e/const? rh) (e/fvar? gh))))
 
+(defn- candidate-application
+  "Check domains and the complete instantiated result before building a candidate term.
+   Lean Meta/SynthInstance.lean:getSubgoals/tryResolve uses typed metavariables and
+   full-result unification; an incompatible candidate is a mismatch, not an inference error."
+  [st candidate-type goal-type candidate-term args]
+  (loop [ty candidate-type remaining (seq args)]
+    (if remaining
+      (let [ty (whnf st ty)
+            arg (first remaining)]
+        (when (and (e/forall? ty)
+                   (tc/is-def-eq st (tc/infer-type st arg) (e/forall-type ty)))
+          (recur (e/instantiate1 (e/forall-body ty) arg) (next remaining))))
+      (when (tc/is-def-eq st ty goal-type)
+        (reduce e/app candidate-term args)))))
+
 (defn- try-candidate
   "Try a single candidate instance against a goal type.
-   Returns the fully-applied instance term, or nil on failure."
+   Returns the fully-applied instance term, or nil on mismatch; unexpected errors propagate.
+   Lean Meta/SynthInstance.lean:tryResolve represents mismatch with none, not an exception."
   [st env index candidate goal-type depth]
-  (try
-    (let [^ConstantInfo ci (env/lookup! env (:name candidate))
-          ctype (.type ci)
-          level-params (vec (.levelParams ci))
+  (let [^ConstantInfo ci (env/lookup! env (:name candidate))
+        ctype (.type ci)
+        level-params (vec (.levelParams ci))
           ;; Infer level assignments from the goal
-          goal-head-levels (let [[h _] (e/get-app-fn-args goal-type)]
-                             (when (e/const? h) (e/const-levels h)))
-          level-subst (if (and (seq level-params) (seq goal-head-levels))
-                        (into {} (map vector level-params
-                                      (take (count level-params)
-                                            (concat goal-head-levels (repeat lvl/zero)))))
-                        (into {} (map (fn [p] [p lvl/zero]) level-params)))
-          ctype (if (seq level-subst)
-                  (e/instantiate-level-params ctype level-subst)
-                  ctype)
-          inst-levels (mapv (fn [p] (get level-subst p lvl/zero)) level-params)
+        goal-head-levels (let [[h _] (e/get-app-fn-args goal-type)]
+                           (when (e/const? h) (e/const-levels h)))
+        level-subst (if (and (seq level-params) (seq goal-head-levels))
+                      (into {} (map vector level-params
+                                    (take (count level-params)
+                                          (concat goal-head-levels (repeat lvl/zero)))))
+                      (into {} (map (fn [p] [p lvl/zero]) level-params)))
+        ctype (if (seq level-subst)
+                (e/instantiate-level-params ctype level-subst)
+                ctype)
+        inst-levels (mapv (fn [p] (get level-subst p lvl/zero)) level-params)
           ;; Peel foralls, creating fvars as pattern variables
-          fvar-ids (atom #{})
-          arg-info (atom [])
+        fvar-ids (atom #{})
+        arg-info (atom [])
           ;; Peel foralls, WHNF at each step to handle type aliases
           ;; (e.g., DecidableEq Nat → ∀ a b, Decidable (Eq Nat a b))
           ;; …but stop at the instance's DECLARED conclusion when it already has the goal's
@@ -421,49 +441,48 @@
           ;; `∀ a b, Decidable (a = b)` peels two binders the goal does not have, so nothing
           ;; matches (a zero-arity instance like `instDecidableEqBool` only got through the
           ;; name-based fallback).
-          goal-head (let [[h _] (e/get-app-fn-args goal-type)] (when (e/const? h) (e/const-name h)))
-          result-type (loop [t ctype]
-                        (let [[th _] (e/get-app-fn-args t)
-                              tw (if (and goal-head (not (e/forall? t)) (e/const? th)
-                                          (= (e/const-name th) goal-head))
-                                   t
-                                   (or (try (whnf st t) (catch Exception _ nil)) t))]
-                          (if (e/forall? tw)
-                            (let [fv-id (swap! (:next-id st) inc)
-                                  fv (e/fvar fv-id)
-                                  info (e/forall-info tw)
-                                  arg-type (e/forall-type tw)]
-                              (swap! fvar-ids conj fv-id)
-                              (swap! arg-info conj {:fvar-id fv-id :fvar fv
-                                                    :type arg-type :info info})
-                              (recur (e/instantiate1 (e/forall-body tw) fv)))
-                            tw)))]
-      ;; Match result-type vs goal-type.
-      ;; Handles partial class applications: goal may have fewer args than result
-      ;; (e.g., goal = InnerProductSpace ℝ ℝ with 2 args, result has 4 args)
-      (let [result-type-w (or (try (whnf st result-type) (catch Exception _ nil)) result-type)
-            goal-type-w (or (try (whnf st goal-type) (catch Exception _ nil)) goal-type)
+        goal-head (let [[h _] (e/get-app-fn-args goal-type)] (when (e/const? h) (e/const-name h)))
+        result-type (loop [t ctype]
+                      (let [[th _] (e/get-app-fn-args t)
+                            tw (if (and goal-head (not (e/forall? t)) (e/const? th)
+                                        (= (e/const-name th) goal-head))
+                                 t
+                                 (or (whnf st t) t))]
+                        (if (e/forall? tw)
+                          (let [fv-id (swap! (:next-id st) inc)
+                                fv (e/fvar fv-id)
+                                info (e/forall-info tw)
+                                arg-type (e/forall-type tw)]
+                            (swap! fvar-ids conj fv-id)
+                            (swap! arg-info conj {:fvar-id fv-id :fvar fv
+                                                  :type arg-type :info info})
+                            (recur (e/instantiate1 (e/forall-body tw) fv)))
+                          tw)))]
+      ;; Propose substitutions from the result type. Prefix/positional matches are
+      ;; provisional: candidate-application checks domains and the full result.
+    (let [result-type-w (or (whnf st result-type) result-type)
+          goal-type-w (or (whnf st goal-type) goal-type)
             ;; Extract head + args from both sides
-            [rh ra] (e/get-app-fn-args result-type-w)
-            [gh ga] (e/get-app-fn-args goal-type-w)]
-        (when-let [subst (or (structural-match result-type goal-type @fvar-ids)
-                             (when (not= result-type result-type-w)
-                               (structural-match result-type-w goal-type-w @fvar-ids))
-                            ;; Partial application: result has MORE args than goal
-                            ;; Match the first N args (goal's count), treat rest as extra
-                             (when (and (e/const? rh) (e/const? gh)
-                                        (= (e/const-name rh) (e/const-name gh))
-                                        (>= (count ra) (count ga)))
-                               (let [s (atom {}) ok (atom true)]
+          [rh ra] (e/get-app-fn-args result-type-w)
+          [gh ga] (e/get-app-fn-args goal-type-w)]
+      (when-let [subst (or (structural-match result-type goal-type @fvar-ids)
+                           (when (not= result-type result-type-w)
+                             (structural-match result-type-w goal-type-w @fvar-ids))
+                            ;; A matching prefix can propose substitutions, but cannot
+                            ;; bypass the final complete-result check.
+                           (when (and (e/const? rh) (e/const? gh)
+                                      (tc/is-def-eq st rh gh)
+                                      (>= (count ra) (count ga)))
+                             (let [s (atom {}) ok (atom true)]
                                 ;; Match only the first (count ga) args
-                                 (doseq [[r g] (map vector (take (count ga) ra) ga)]
-                                   (when @ok
-                                     (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
-                                       (swap! s assoc (e/fvar-id r) g)
-                                       (when-not (and (not (rigid-fvar-mismatch? r g))
-                                                      (try (tc/is-def-eq st r g) (catch Exception _ false)))
-                                         (reset! ok false)))))
-                                 (when @ok @s)))
+                               (doseq [[r g] (map vector (take (count ga) ra) ga)]
+                                 (when @ok
+                                   (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
+                                     (swap! s assoc (e/fvar-id r) g)
+                                     (when-not (and (not (rigid-fvar-mismatch? r g))
+                                                    (tc/is-def-eq st r g))
+                                       (reset! ok false)))))
+                               (when @ok @s)))
                             ;; LENIENT positional match — DERIVED instances. Same head +
                             ;; arity; fill ONLY the pattern-fvar positions and SKIP the
                             ;; rest. A derived instance's result args are PROJECTIONS
@@ -474,13 +493,13 @@
                             ;; recursive synthesis and the final is-def-eq below GATES
                             ;; soundness. (Only fires when the earlier, stricter matches
                             ;; failed, so ordinary instances are unaffected.)
-                             (when (and (e/const? rh) (e/const? gh)
-                                        (= (e/const-name rh) (e/const-name gh))
-                                        (= (count ra) (count ga)))
-                               (let [s (atom {}) ok (atom true)]
-                                 (doseq [[r g] (map vector ra ga)]
-                                   (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
-                                     (swap! s assoc (e/fvar-id r) g)
+                           (when (and (e/const? rh) (e/const? gh)
+                                      (tc/is-def-eq st rh gh)
+                                      (= (count ra) (count ga)))
+                             (let [s (atom {}) ok (atom true)]
+                               (doseq [[r g] (map vector ra ga)]
+                                 (if (and (e/fvar? r) (contains? @fvar-ids (e/fvar-id r)))
+                                   (swap! s assoc (e/fvar-id r) g)
                                      ;; skipped positions are gated by the final
                                      ;; is-def-eq — but a rigid const-vs-fvar head
                                      ;; mismatch can never pass it, and neither can two
@@ -488,44 +507,44 @@
                                      ;; `Eq …`): Lean's DiscrTree never offers such a
                                      ;; candidate, and this path once accepted `Nat.decLt`
                                      ;; for `Decidable (0 = 0)`. Fail fast.
-                                     (let [[rh' _] (e/get-app-fn-args (strip r))
-                                           [gh' _] (e/get-app-fn-args (strip g))]
-                                       (when (or (rigid-fvar-mismatch? r g)
-                                                 (and (e/const? rh') (e/const? gh')
-                                                      (not= (e/const-name rh') (e/const-name gh'))))
-                                         (reset! ok false)))))
-                                 (when (and @ok (seq @s)) @s))))]
+                                   (let [[rh' _] (e/get-app-fn-args (strip r))
+                                         [gh' _] (e/get-app-fn-args (strip g))]
+                                     (when (or (rigid-fvar-mismatch? r g)
+                                               (and (e/const? rh') (e/const? gh')
+                                                    (not= (e/const-name rh') (e/const-name gh'))))
+                                       (reset! ok false)))))
+                               (when (and @ok (seq @s)) @s))))]
         ;; Try to fill all arguments
-          (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
+        (let [;; A structure-`extends` parent projection (e.g. `LawfulBEq.toReflBEq`). Lean auto-
                 ;; registers these as instances whose structure argument is an instance subgoal,
                 ;; even though as a plain function that argument is EXPLICIT. We mirror that ONLY for
                 ;; projection-named candidates, so ordinary instances with genuine explicit args are
                 ;; untouched (Lean gates on class metadata; this name gate is the faithful proxy).
-                proj-candidate? (let [s (name/->string (:name candidate))]
-                                  (or (.contains s ".to") (.contains s ".toImpl")))
-                filled-args
-                (reduce
-                 (fn [acc {:keys [fvar-id fvar type info]}]
-                   (when acc
-                     (if-let [val (get subst fvar-id)]
+              proj-candidate? (let [s (name/->string (:name candidate))]
+                                (or (.contains s ".to") (.contains s ".toImpl")))
+              filled-args
+              (reduce
+               (fn [acc {:keys [fvar-id fvar type info]}]
+                 (when acc
+                   (if-let [val (get subst fvar-id)]
                      ;; Solved by structural matching
-                       (conj acc val)
+                     (conj acc val)
                      ;; Not in subst — try other strategies
-                       (let [resolved-type (reduce (fn [ty [fid val]]
-                                                     (e/instantiate1 (e/abstract1 ty fid) val))
-                                                   type subst)]
-                         (case info
-                           :inst-implicit
+                     (let [resolved-type (reduce (fn [ty [fid val]]
+                                                   (e/instantiate1 (e/abstract1 ty fid) val))
+                                                 type subst)]
+                       (case info
+                         :inst-implicit
                            ;; Instance-implicit: synthesize recursively.
-                           (if-let [inst (synthesize* st env index resolved-type (inc depth))]
-                             (conj acc inst)
-                             nil)
+                         (if-let [inst (synthesize* st env index resolved-type (inc depth))]
+                           (conj acc inst)
+                           nil)
 
-                           (:implicit :strict-implicit)
+                         (:implicit :strict-implicit)
                            ;; Implicit arg not determined by structural match.
                            ;; This can happen if the arg appears only in other args' types.
                            ;; Try: look at other solved args to determine this one.
-                           nil
+                         nil
 
                            ;; :default — explicit arg. For a structure-`extends` parent projection
                            ;; (`X.toY`), Lean treats the structure argument as an instance subgoal
@@ -534,45 +553,17 @@
                            ;; not synthesized. `synthesize*` self-gates further (succeeds only for real
                            ;; class goals) and the full term is type-checked against the goal below, so
                            ;; this never loosens soundness.
-                           (if proj-candidate?
-                             (if-let [inst (synthesize* st env index resolved-type (inc depth))]
-                               (conj acc inst)
-                               nil)
-                             nil))))))
-                 []
-                 @arg-info)]
-            (when filled-args
-            ;; Build fully applied term and verify it type-checks
-              (let [term (reduce e/app (e/const' (:name candidate) inst-levels) filled-args)]
-              ;; Verify: inferred type must match goal (handling partial applications)
-                (try
-                  (let [inferred (tc/infer-type st term)
-                      ;; For partial class apps, check prefix match
-                        [ih ia] (e/get-app-fn-args inferred)
-                        n-goal-args (count ga)]
-                    (if (or (tc/is-def-eq st inferred goal-type)
-                          ;; Partial app: same head, first N args match
-                            (and (e/const? ih) (e/const? gh)
-                                 (= (e/const-name ih) (e/const-name gh))
-                                 (>= (count ia) n-goal-args)
-                                 (every? true?
-                                         (map (fn [i g] (tc/is-def-eq st i g))
-                                              (take n-goal-args ia) ga))))
-                      term
-                    ;; Try Java TC with more fuel
-                      (let [jtc (ansatz.kernel.TypeChecker. (:env st))]
-                        (.setFuel jtc config/*high-fuel*)
-                        (let [jinf (.inferType jtc term)
-                              [jh ja] (e/get-app-fn-args jinf)]
-                          (when (and (e/const? jh)
-                                     (= (e/const-name jh) (e/const-name gh))
-                                     (>= (count ja) n-goal-args)
-                                     (every? true?
-                                             (map (fn [i g] (.isDefEq jtc i g))
-                                                  (take n-goal-args ja) ga)))
-                            term)))))
-                  (catch Exception _ nil))))))))
-    (catch Exception _ nil)))
+                         (if proj-candidate?
+                           (if-let [inst (synthesize* st env index resolved-type (inc depth))]
+                             (conj acc inst)
+                             nil)
+                           nil))))))
+               []
+               @arg-info)]
+          (when filled-args
+            (candidate-application st ctype goal-type
+                                   (e/const' (:name candidate) inst-levels)
+                                   filled-args)))))))
 
 (def ^:private parent-class-sources
   "Curated superclass → subclasses whose structure-`extends` parent projection `{Sub}.to{Super}`
@@ -675,9 +666,14 @@
               deq (e/app (e/const' (name/from-string "DecidableEq") (vec (e/const-levels eh))) T)]
           (when-let [inst (synthesize* st env index deq (inc depth))]
             (let [t (e/app* inst a b)]
-              (when (try (tc/is-def-eq st (tc/infer-type st t) goal-type)
-                         (catch Exception _ false))
+              (when (tc/is-def-eq st (tc/infer-type st t) goal-type)
                 t))))))))
+
+(declare synthesize-tracked*)
+
+(def ^:dynamic *depth-hits*
+  "Within one `synthesize` call: an atom of the goals at which the depth bound cut a path."
+  nil)
 
 (defn synthesize*
   "Synthesis with depth limit and backtracking, memoized on the tc-state
@@ -687,88 +683,121 @@
    Uses the pre-built index when available, falls back to on-demand
    candidate discovery for PSS environments."
   [st env index goal-type depth]
-  (let [memo (:synth-memo st)]
-    (if-let [hit (when memo (find @memo goal-type))]
-      (val hit)
-      (let [result (synthesize-uncached* st env index goal-type depth)]
-        (when (and memo (not (> depth config/*max-synth-depth*)))
-          (swap! memo assoc goal-type result))
-        result))))
+  (if (nil? *depth-hits*)
+    ;; every top-level search tracks its own depth cuts, so no caller can memoize a cut path;
+    ;; a search that fails after a cut is exhausted, not negative (Lean checkSystem names its
+    ;; limit), so it says so instead of returning nil
+    (binding [*depth-hits* (atom [])]
+      (or (synthesize-tracked* st env index goal-type depth)
+          (when-let [hits (seq @*depth-hits*)]
+            (throw (ex-info (str "Tactic error: instance synthesis exhausted the search depth bound "
+                                 "(*max-synth-depth* " config/*max-synth-depth* ", " (count hits) " path(s) cut)")
+                            {:kind :tactic-error :reason :depth-exhausted
+                             :limit config/*max-synth-depth* :goal goal-type :depth-limit-hits (count hits)})))))
+    (synthesize-tracked* st env index goal-type depth)))
+
+(defn- synthesize-tracked*
+  [st env index goal-type depth]
+  ;; The depth bound is an artifact of this depth-first search (Lean's tabled resolution needs
+  ;; none): exceeding it fails THIS candidate path, so the search goes on with the next
+  ;; candidate, and the hit is recorded (`synthesize` reports it if the whole search fails).
+  ;; A failure that involved a cut holds only for the remaining budget it was searched with, so
+  ;; it is memoized as `{::cut-fail remaining}` and reused by attempts with no more budget left;
+  ;; never memoizing it re-explores the same subgoals exponentially on Mathlib-sized registries.
+  (if (> depth config/*max-synth-depth*)
+    (do (when *depth-hits* (swap! *depth-hits* conj goal-type))
+        nil)
+    (let [memo (:synth-memo st)
+          remaining (- config/*max-synth-depth* depth)
+          hit (when memo (find @memo goal-type))
+          cached (when hit (val hit))]
+      (cond
+        (and hit (not (map? cached)))
+        cached
+
+        (and hit (<= remaining (::cut-fail cached)))
+        (do (when *depth-hits* (swap! *depth-hits* conj goal-type))
+            nil)
+
+        :else
+        (let [hits-before (some-> *depth-hits* deref count)
+              result (synthesize-uncached* st env index goal-type depth)
+              cut? (not= hits-before (some-> *depth-hits* deref count))]
+          (when memo
+            (swap! memo assoc goal-type
+                   (cond result result
+                         cut? {::cut-fail (max remaining (or (::cut-fail cached) -1))}
+                         :else nil)))
+          result)))))
 
 (defn- synthesize-uncached*
   [st env index goal-type depth]
-  (when-not (> depth config/*max-synth-depth*)  ;; configurable depth limit
   ;; Get the goal's head class name (try raw, then WHNF)
-    (let [head-info (or (let [[h _] (e/get-app-fn-args goal-type)]
-                          (when (e/const? h) (e/const-name h)))
-                        (let [w (whnf st goal-type)
-                              [h _] (e/get-app-fn-args w)]
-                          (when (e/const? h) (e/const-name h))))]
-      (when head-info
-        (let [;; Local instances FIRST (Lean synthInstance checks local-context instances): an lctx
+  (let [head-info (or (let [[h _] (e/get-app-fn-args goal-type)]
+                        (when (e/const? h) (e/const-name h)))
+                      (let [w (whnf st goal-type)
+                            [h _] (e/get-app-fn-args w)]
+                        (when (e/const? h) (e/const-name h))))]
+    (when head-info
+      (let [;; Local instances FIRST (Lean synthInstance checks local-context instances): an lctx
               ;; hypothesis whose type head is this class and is def-eq to the goal (e.g. a polymorphic
               ;; `dec : DecidableEq K` discharging a `DecidableEq K` obligation).
-              local-inst
-              (some (fn [[fid decl]]
-                      (when (and (= :local (:tag decl)) (:type decl))
-                        (let [[dh _] (e/get-app-fn-args (:type decl))]
-                          (when (and (e/const? dh) (= (e/const-name dh) head-info)
-                                     (try (tc/is-def-eq st (:type decl) goal-type)
-                                          (catch Throwable _ false)))
-                            (e/fvar fid)))))
-                    (:lctx st))
+            local-inst
+            (some (fn [[fid decl]]
+                    (when (and (= :local (:tag decl)) (:type decl))
+                      (let [[dh _] (e/get-app-fn-args (:type decl))]
+                        (when (and (e/const? dh) (= (e/const-name dh) head-info)
+                                   (tc/is-def-eq st (:type decl) goal-type))
+                          (e/fvar fid)))))
+                  (:lctx st))
               ;; Try pre-built index first, then on-demand discovery
-              candidates (let [idx-cands (get-instances index head-info)]
-                           (if (seq idx-cands)
-                             idx-cands
-                             (discover-candidates env head-info goal-type)))
+            candidates (let [idx-cands (get-instances index head-info)]
+                         (if (seq idx-cands)
+                           idx-cands
+                           (discover-candidates env head-info goal-type)))
             ;; Try candidates from index/discovery
-            ;; Limit candidates to prevent combinatorial explosion
-            ;; (some classes have 300+ instances in Mathlib)
-              from-candidates (when-not local-inst
-                                (some (fn [candidate]
-                                        (try-candidate st env index candidate goal-type depth))
-                                      (take config/*max-candidates*
-                                            (select-candidates env candidates goal-type))))]
-          (or local-inst
-              from-candidates
+            ;; Lean Meta/SynthInstance.lean:getInstances/generate tries all keyed matches;
+            ;; a candidate count must never change a successful search into a miss.
+            from-candidates (when-not local-inst
+                              (some (fn [candidate]
+                                      (try-candidate st env index candidate goal-type depth))
+                                    (select-candidates env candidates goal-type)))]
+        (or local-inst
+            from-candidates
               ;; `Nat.AtLeastTwo <numeral>` — built, not searched (see above). Type-checked
               ;; against the goal like every other path here.
-              (when-let [t (at-least-two-instance env goal-type)]
-                (when (try (tc/is-def-eq st (tc/infer-type st t) goal-type)
-                           (catch Exception _ false))
-                  t))
+            (when-let [t (at-least-two-instance env goal-type)]
+              (when (tc/is-def-eq st (tc/infer-type st t) goal-type)
+                t))
               ;; `Decidable (@Eq T a b)` from a `DecidableEq T` instance. Lean keys DecidableEq
               ;; instances under their unfolded conclusion `Decidable (Eq _ _ _)`, so they answer
               ;; such goals directly; the registry here lists them under `DecidableEq`. Type-checked.
-              (decidable-eq-instance st env index goal-type head-info depth)
+            (decidable-eq-instance st env index goal-type head-info depth)
             ;; Fallback: name-based resolution with derivation chains (from ansatz.core).
             ;; TYPE-CHECKED before it is returned: that resolver builds terms from naming
             ;; conventions alone and its H-class rule assumes a HOMOGENEOUS operator, so on a
             ;; genuinely heterogeneous goal (`HPow Real Nat Real`) it produced an ill-typed
             ;; `instHPow Real Real.instPow` that silently poisoned the elaborated term. Every
-            ;; other path here verifies its result; this one now does too, with the same
-            ;; tolerance try-candidate applies (head + argument prefix, so a goal whose universe
-            ;; the caller left at zero still resolves — inference alone rejects the poison).
-              (try
-                (let [resolve-fn (requiring-resolve 'ansatz.core/resolve-basic-instance)
-                      [_ goal-args] (e/get-app-fn-args goal-type)
-                      type-arg (first goal-args)
-                      [th _] (when type-arg (e/get-app-fn-args type-arg))
-                      class-str (name/->string head-info)
-                      type-str (when (e/const? th) (name/->string (e/const-name th)))]
-                  (when-let [term (when type-str (resolve-fn env class-str type-str type-arg))]
-                    (let [inferred (tc/infer-type st term)
-                          [ih ia] (e/get-app-fn-args inferred)]
-                      (when (or (tc/is-def-eq st inferred goal-type)
-                                (and (e/const? ih)
-                                     (= (e/const-name ih) head-info)
-                                     (>= (count ia) (count goal-args))
-                                     (every? true?
-                                             (map (fn [i g] (tc/is-def-eq st i g))
-                                                  (take (count goal-args) ia) goal-args))))
-                        term))))
-                (catch Exception _ nil))))))))  ;; extra close for when-not
+            ;; This legacy fallback still tolerates a head/argument prefix when callers leave
+            ;; the goal's universe at zero; unlike candidate-application it is not full-result
+            ;; unification. Remove it with the core resolver migration (see design doc).
+            (let [resolve-fn (requiring-resolve 'ansatz.core/resolve-basic-instance)
+                  [_ goal-args] (e/get-app-fn-args goal-type)
+                  type-arg (first goal-args)
+                  [th _] (when type-arg (e/get-app-fn-args type-arg))
+                  class-str (name/->string head-info)
+                  type-str (when (and th (e/const? th)) (name/->string (e/const-name th)))]
+              (when-let [term (when type-str (resolve-fn env class-str type-str type-arg))]
+                (let [inferred (tc/infer-type st term)
+                      [ih ia] (e/get-app-fn-args inferred)]
+                  (when (or (tc/is-def-eq st inferred goal-type)
+                            (and (e/const? ih)
+                                 (= (e/const-name ih) head-info)
+                                 (>= (count ia) (count goal-args))
+                                 (every? true?
+                                         (map (fn [i g] (tc/is-def-eq st i g))
+                                              (take (count goal-args) ia) goal-args))))
+                    term)))))))))
 
 ;; ============================================================
 ;; Public API
@@ -779,9 +808,15 @@
    Returns the fully-applied instance term, or throws if not found."
   [env index goal-type]
   (let [st (tc/mk-tc-state env)]
-    (or (synthesize* st env index goal-type 0)
-        (throw (ex-info "Instance resolution: no instance found"
-                        {:kind :no-instance :goal goal-type})))))
+    (binding [*depth-hits* (or *depth-hits* (atom []))]
+      (or (synthesize* st env index goal-type 0)
+          (let [hits @*depth-hits*]
+            (throw (ex-info (str "Tactic error: instance resolution: no instance found"
+                                 (when (seq hits)
+                                   (str "; the search depth bound (*max-synth-depth* "
+                                        config/*max-synth-depth* ") cut " (count hits) " path(s)")))
+                            {:kind :tactic-error :reason :no-instance :goal goal-type
+                             :depth-limit-hits (count hits)})))))))
 
 (defn resolve-decidable
   "Convenience: resolve a Decidable instance for a proposition, against the session's registry."
@@ -811,50 +846,42 @@
    Does NOT modify synthesize or synthesize*."
   [st env index goal-type]
   (let [max-steps 200
-        jtc (doto (ansatz.kernel.TypeChecker. env) (.setFuel 30000000))
         result (atom nil)
         gen-stack (atom [])
 
         get-cands (fn [gtype]
                     (let [[h _] (e/get-app-fn-args gtype)]
                       (when (e/const? h)
-                        (let [cands (get-instances index (e/const-name h))
-                              sorted (sort-by (fn [c]
-                                                (let [s (name/->string (:name c))]
-                                                  (if (re-find #"\.to[A-Z]" s) 0 1)))
-                                              cands)]
-                          (vec (take 6 sorted))))))
+                        (vec (select-candidates env
+                                                (get-instances index (e/const-name h))
+                                                gtype)))))
 
         try-fill (fn [candidate gtype]
-                   (try
-                     (let [^ConstantInfo ci (env/lookup env (:name candidate))
-                           cty (.type ci)
-                           lps (vec (.levelParams ci))
-                           lvls (mapv (fn [_] lvl/zero) lps)
-                           cty (if (seq lps)
-                                 (e/instantiate-level-params cty (zipmap lps lvls))
-                                 cty)
-                           [_ gargs] (e/get-app-fn-args gtype)
-                           type-arg (first gargs)]
-                       (loop [t cty args [] n 0]
-                         (if (and (e/forall? t) (< n 8))
-                           (let [pty (e/forall-type t)
-                                 pty-sub (reduce (fn [ty val] (e/instantiate1 ty val))
-                                                 pty (reverse args))
-                                 tw (try (#'tc/cached-whnf st pty-sub) (catch Exception _ nil))
-                                 val (cond
-                                       (and tw (e/sort? tw)) type-arg
-                                       :else (try (synthesize* st env index pty-sub 10)
-                                                  (catch Exception _ nil)))]
-                             (if val
-                               (recur (e/instantiate1 (e/forall-body t) val)
-                                      (conj args val) (inc n))
-                               nil))
-                           (when (seq args)
-                             (let [term (reduce e/app (e/const' (:name candidate) lvls) args)]
-                               (when (.isDefEq jtc (.inferType jtc term) gtype)
-                                 term))))))
-                     (catch Exception _ nil)))]
+                   (let [^ConstantInfo ci (env/lookup env (:name candidate))
+                         cty (.type ci)
+                         lps (vec (.levelParams ci))
+                         lvls (mapv (fn [_] lvl/zero) lps)
+                         cty (if (seq lps)
+                               (e/instantiate-level-params cty (zipmap lps lvls))
+                               cty)
+                         [_ gargs] (e/get-app-fn-args gtype)
+                         type-arg (first gargs)]
+                     (loop [t cty args []]
+                       (if (e/forall? t)
+                         (let [pty (e/forall-type t)
+                               pty-sub (reduce (fn [ty val] (e/instantiate1 ty val))
+                                               pty (reverse args))
+                               tw (#'tc/cached-whnf st pty-sub)
+                               val (cond
+                                     (and tw (e/sort? tw)) type-arg
+                                     :else (synthesize* st env index pty-sub 10))]
+                           (if val
+                             (recur (e/instantiate1 (e/forall-body t) val)
+                                    (conj args val))
+                             nil))
+                         (candidate-application st cty gtype
+                                                (e/const' (:name candidate) lvls)
+                                                args)))))]
 
     (when-let [cands (get-cands goal-type)]
       (swap! gen-stack conj {:type goal-type :candidates cands :idx 0}))
@@ -862,7 +889,9 @@
     (loop [steps 0]
       (cond
         @result @result
-        (>= steps max-steps) nil
+        (>= steps max-steps)
+        (throw (ex-info "Tactic error: tabled instance synthesis exceeded max-steps"
+                        {:kind :tactic-error :limit max-steps :goal goal-type}))
         (seq @gen-stack)
         (let [gnode (peek @gen-stack)]
           (if (>= (:idx gnode) (count (:candidates gnode)))
@@ -883,7 +912,7 @@
    (Lean's `synthPending`). Uses the session's registry (`index-for`) and the tc-state's synth
    memo, so a goal that keeps recurring during one match costs a single resolution."
   [_mctx st goal]
-  (try (synthesize* st (:env st) (index-for (:env st)) goal 0) (catch Throwable _ nil)))
+  (synthesize* st (:env st) (index-for (:env st)) goal 0))
 
 ;; Loading this namespace is what makes instances synthesizable; installing the hook here
 ;; keeps `ansatz.meta` free of any dependency on the tactic layer.

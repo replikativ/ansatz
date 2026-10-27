@@ -352,7 +352,7 @@
     ;; happened to find a rational refutation, and the bmod proof path could rot
     ;; unnoticed exactly as it did before. `solve-hard-equality` is private, so reach
     ;; it through its Var.
-    (let [v (ns-resolve 'ansatz.tactic.omega.fm 'solve-hard-equality)
+    (let [v (ns-resolve 'ansatz.tactic.omega.core 'deal-with-hard-equality)
           orig @v
           calls (atom [])]
       (with-redefs-fn {v (fn [table problem coeffs-key f g]
@@ -720,7 +720,7 @@
     ;; divisor with `e/lit-nat-val` — which is nil for `Int.ofNat 2` — and threw straight
     ;; into a bare `catch`. Both failures looked identical from outside: a quotient
     ;; reaching the solver unconstrained. `*strict-div-bounds*` makes them visible.
-    (let [v (ns-resolve 'ansatz.tactic.omega-proof 'add-div-bounds)
+    (let [v (ns-resolve 'ansatz.tactic.omega.frontend 'add-div-bounds)
           orig @v
           deltas (atom [])
           example (ex [["e" INT]] (fn [ee] {:hyps [(i< (ilit 0) ee)]
@@ -729,8 +729,8 @@
                            (let [[t p] (orig st table problem)]
                              (swap! deltas conj
                                     [(count (:div-atoms table))
-                                     (- (count (:constraints p))
-                                        (count (:constraints problem)))])
+                                     (- (count (:facts p))
+                                        (count (:facts problem)))])
                              [t p]))}
         (fn []
           (binding [omega-proof/*strict-div-bounds* true]
@@ -741,7 +741,7 @@
       (is (= [1] (distinct (map first @deltas)))
           "the Int quotient must be tagged as a div atom")
       (is (pos? (reduce + (map second @deltas)))
-          (str "add-div-bounds must ADD constraints for the Int quotient. Zero means the "
+          (str "add-div-bounds must enqueue proof facts for the Int quotient. Zero means the "
                "branch threw into its `catch` again — run with *strict-div-bounds* true "
                "to see why. Saw: " (pr-str @deltas))))))
 

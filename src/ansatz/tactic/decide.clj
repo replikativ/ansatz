@@ -1,4 +1,4 @@
-;; Tactic layer — decide tactic.
+;; Tactic layer — Lean Elab/Tactic/Decide.lean evalDecideCore, checkout 55f80e10a3.
 
 (ns ansatz.tactic.decide
   "The `decide` tactic closes goals of decidable propositions by:
@@ -10,8 +10,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.instance :as instance])
-  (:import [ansatz.kernel TypeChecker]))
+            [ansatz.tactic.instance :as instance]))
 
 ;; ============================================================
 ;; Well-known names
@@ -41,9 +40,8 @@
 (defn- verify-decide
   "Verify that decide P inst reduces to Bool.true.
    Returns true if it does, false otherwise."
-  [env prop inst]
-  (let [st (tc/mk-tc-state env)
-        decide-term (e/app* (e/const' decidable-decide-name []) prop inst)
+  [st prop inst]
+  (let [decide-term (e/app* (e/const' decidable-decide-name []) prop inst)
         result (#'tc/cached-whnf st decide-term)
         bool-true (e/const' bool-true-name [])]
     (= result bool-true)))
@@ -60,6 +58,16 @@
     (let [idx (instance/index-for (:env ps))]
       [(assoc ps :instance-index idx) idx])))
 
+(defn zeta-let-locals
+  "Substitute the values of let-bound locals of `lctx` into `e`, innermost first (Lean
+   `preprocessPropToDecide` zeta-reduces the expected type before checking it is closed)."
+  [lctx e]
+  (reduce (fn [e [id d]]
+            (if (= :let-decl (:tag d))
+              (e/instantiate1 (e/abstract1 e id) (:value d))
+              e))
+          e (sort-by key > (seq lctx))))
+
 (defn decide
   "Close the current goal by constructing a decision proof.
 
@@ -74,18 +82,25 @@
             (throw (ex-info "Tactic error: No goals" {:kind :tactic-error})))
         [ps idx] (get-instance-index ps)
         env (:env ps)
-        prop (:type goal)
+        prop (zeta-let-locals (:lctx goal) (:type goal))
+        ;; Lean Elab/Tactic/Decide.lean: the expected type must be closed (no `+revert` here)
+        _ (when (e/has-fvar-flag prop)
+            (throw (ex-info "Tactic error: decide — expected type must not contain free variables"
+                            {:kind :tactic-error :prop prop})))
         decidable-goal (e/app (e/const' decidable-name []) prop)
-        inst (instance/synthesize env idx decidable-goal)]
+        ;; Lean Elab/Tactic/Decide.lean evalDecideCore runs in the goal context.
+        st (tc/attach-lctx (tc/mk-tc-state env) (:lctx goal))
+        inst (or (instance/synthesize* st env idx decidable-goal 0)
+                 (throw (ex-info "Tactic error: decide: no Decidable instance"
+                                 {:kind :tactic-error :prop prop})))]
     ;; Verify the decision evaluates to true
-    (when-not (verify-decide env prop inst)
+    (when-not (verify-decide st prop inst)
       (throw (ex-info "Tactic error: decide failed — proposition is false or undecidable at this point"
                       {:kind :tactic-error :prop prop})))
     (let [proof-term (build-decide-proof env prop inst)]
       ;; Double-check: type-check the proof
-      (let [tc (TypeChecker. env)
-            inferred (.inferType tc proof-term)]
-        (when-not (.isDefEq tc inferred prop)
+      (let [inferred (tc/infer-type st proof-term)]
+        (when-not (tc/is-def-eq st inferred prop)
           (throw (ex-info "Tactic error: decide proof does not type-check"
                           {:kind :tactic-error :expected prop :inferred inferred}))))
       (-> (proof/assign-mvar ps (:id goal) {:kind :exact :term proof-term})
