@@ -10,6 +10,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.tc :as tc]
             [ansatz.meta.match.matcher-info :as mi]))
 
 (def base (delay (binding [a/*verbose* false] (a/load-init!))))
@@ -165,3 +166,63 @@
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"redundant"
                           (a/define-verified 'matcher-redundant '[^Bool b] 'Nat '(match b [_ 10] [true 20]))))
     (is (identical? before (a/env)))))
+
+
+(deftest dependent-boolean-hypotheses-become-matcher-discriminants
+  (a/define-verified 'matcher-dependent-bool '[^Bool b ^{:- (Eq b b)} h]
+                     '(Eq b b) '(match b [false h] [true h]))
+  (let [ci (decl "matcher-dependent-bool")
+        bool (e/const' (name/from-string "Bool") [])]
+    (is (= 2 (:num-discrs (mi/get-matcher-info-core? (a/env) "matcher-dependent-bool.match_1"))))
+    (doseq [ctor ["Bool.false" "Bool.true"]]
+      (let [b (e/const' (name/from-string ctor) [])
+            h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) bool b)]
+        (is (tc/is-def-eq (tc/mk-tc-state (a/env)) (e/app* (.value ci) b h) h))))))
+
+(deftest dependent-natural-hypotheses-are-typed-at-the-constructor-pattern
+  (a/define-verified 'matcher-dependent-nat '[^Nat n ^{:- (Eq n n)} h]
+                     '(Eq n n) '(match n [Nat.zero h] [(Nat.succ k) h]))
+  (let [ci (decl "matcher-dependent-nat")
+        nat (e/const' (name/from-string "Nat") [])]
+    (is (= 2 (:num-discrs (mi/get-matcher-info-core? (a/env) "matcher-dependent-nat.match_1"))))
+    (doseq [n [0 7]]
+      (let [n (e/lit-nat n)
+            h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat n)]
+        (is (tc/is-def-eq (tc/mk-tc-state (a/env)) (e/app* (.value ci) n h) h))))))
+
+(deftest fixed-successor-indices-realize-missing-constructor-no-confusion
+  ;; Start with the plain load-init! fixture, without construction prewarming.
+  (is (nil? (decl "Nat.succ.noConfusion")))
+  (reset! a/ansatz-env
+          (ind/define-inductive (a/env) "ProbeVec" '[a Type]
+                                [['nil [] [0]] ['cons '[n Nat x a xs (ProbeVec a n)] ['(Nat.succ n)]]]
+                                :indices '[n Nat]))
+  (let [f (a/define-verified 'matcher-fixed-vector '[^Nat n ^{:- (ProbeVec Nat (Nat.succ n))} v]
+                             'Nat '(match v [(cons k x xs) x]))]
+    (is (some? (decl "Nat.succ.noConfusion")))
+    (is (= 17 (f 0 [0 17 nil])))
+    (is (= 23 (f 1 [1 23 [0 17 nil]])))))
+
+(deftest dependent-local-generalization-follows-transitive-hypothesis-dependencies
+  (a/define-verified 'matcher-dependent-chain
+                     '[^Bool b ^{:- (Eq b b)} h ^{:- (Eq h h)} p]
+                     '(Eq h h) '(match b [false p] [true p]))
+  (let [ci (decl "matcher-dependent-chain")
+        b (e/const' (name/from-string "Bool.false") [])
+        bool (e/const' (name/from-string "Bool") [])
+        eq (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) bool b b)
+        h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) bool b)
+        p (e/app* (e/const' (name/from-string "Eq.refl") [lvl/zero]) eq h)]
+    (is (= 3 (:num-discrs (mi/get-matcher-info-core? (a/env) "matcher-dependent-chain.match_1"))))
+    (is (tc/is-def-eq (tc/mk-tc-state (a/env)) (e/app* (.value ci) b h p) p))))
+
+(deftest explicit-pattern-bindings-shadow-generalized-hypotheses
+  (a/define-verified 'matcher-pattern-shadow '[^Nat n ^{:- (Eq n n)} h]
+                     'Nat '(match n [Nat.zero 13] [(Nat.succ h) h]))
+  (let [ci (decl "matcher-pattern-shadow")
+        nat (e/const' (name/from-string "Nat") [])]
+    (doseq [[n expected] [[0 13] [7 6]]]
+      (let [n (e/lit-nat n)
+            h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat n)]
+        (is (tc/is-def-eq (tc/mk-tc-state (a/env))
+                         (e/app* (.value ci) n h) (e/lit-nat expected)))))))

@@ -11,7 +11,8 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
             [ansatz.meta.fvar-subst :as subst]
-            [ansatz.meta.constructions.util :as u]))
+            [ansatz.meta.constructions.util :as u]
+            [ansatz.meta.constructions.no-confusion :as no-confusion]))
 
 (defn tactic-error! [message data]
   (throw (ex-info (str "Tactic error: " message) (assoc data :kind :tactic-error))))
@@ -214,6 +215,22 @@
         ci (when (e/const? f) (env/lookup (:env @ctx) (e/const-name f)))]
     (when (and ci (.isCtor ci)) {:info ci :args args :expr expr :us (e/const-levels f)})))
 
+(defn- ensure-no-confusion! [ctx ctor]
+  ;; Lean realizes constructor noConfusion on demand (NoConfusion.lean).
+  ;; Bundled environments may contain the parent declarations but omit its
+  ;; constructor auxiliaries, so preserve each prerequisite already installed.
+  (let [n (name/mk-str (.name ctor) "noConfusion")]
+    (when-not (env/lookup (:env @ctx) n)
+      (let [ind (.inductName ctor)
+            out (:env @ctx)
+            out (if (env/lookup out (name/mk-str ind "noConfusionType")) out
+                    (no-confusion/mk-no-confusion-type out ind))
+            out (if (env/lookup out (name/mk-str ind "noConfusion")) out
+                    (no-confusion/mk-no-confusion-core-imp out ind))
+            out (no-confusion/mk-no-confusion-ctors out ind)]
+        (swap! ctx assoc :env out)
+        (set-lctx! ctx (:lctx @ctx))))))
+
 (defn- mk-no-confusion [ctx target type a b h]
   ;; AppBuilder.lean mkNoConfusion: ctorIdx for disjoint constructors, and
   ;; the per-constructor noConfusion declaration for an injective constructor.
@@ -227,7 +244,8 @@
                              [type (u/app (e/const' (name/mk-str ind "ctorIdx") us) ia) a b h])])
       (if (zero? (.numFields ca))
         (let [p (u/local-decl ctx "P" target)] (u/mk-lambda-fvars ctx [p] p))
-        (let [n (name/mk-str (.name ca) "noConfusion")
+        (let [_ (ensure-no-confusion! ctx ca)
+              n (name/mk-str (.name ca) "noConfusion")
               ci (env/lookup! (:env @ctx) n)
               np (.numParams ca)
               start (u/app (e/const' n (into [v] us))

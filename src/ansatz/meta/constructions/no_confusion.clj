@@ -174,7 +174,8 @@
     (reduce
      (fn [env ctor]
        (let [ci (env/lookup! env ctor) ctx (u/context env)]
-         (if (zero? (.numFields ci)) env
+         (if (or (zero? (.numFields ci))
+                 (env/lookup env (name/from-string (str ctor ".noConfusion")))) env
              (let [[xs t] (u/forall-telescope ctx (.type ci) (.numParams ci))
                    p (u/local-decl ctx "P" (e/sort' v))
                    [fs1 _] (u/forall-telescope ctx t (.numFields ci))
@@ -206,8 +207,15 @@
                                                     (u/app (u/const' "heq_of_eq" (e/const-levels (e/get-app-fn qt)))
                                                            (conj (e/get-app-args qt) eq)) eq)))) start eqs)
                          val (e/app val k)]
-                     (u/add-definition env ctx (str ctor ".noConfusion") (vec (.levelParams cases))
-                                       (vec (concat xs [p] fs1 fs2 eqvs [k])) p val)))))))) env (.ctors info))))
+                     ;; NoConfusion.lean markNoConfusion (.perCtor arity fields).
+                     (let [binders (vec (concat xs [p] fs1 fs2 eqvs [k]))
+                           fields (loop [t kt n 0]
+                                    (if (e/forall? t) (recur (e/forall-body t) (inc n)) n))]
+                       (env/update-extension
+                        (u/add-definition env ctx (str ctor ".noConfusion") (vec (.levelParams cases))
+                                          binders p val)
+                        :no-confusion {} assoc (str ctor ".noConfusion")
+                        {:kind :per-ctor :arity (dec (count binders)) :num-fields fields}))))))))) env (.ctors info))))
 
 (defn mk-no-confusion-enum [env n]
   (let [info (env/lookup! env (name/from-string (str n))) ctx (u/context env)

@@ -145,6 +145,13 @@
         body (reduce (fn [f a] (list f a)) (nth args 3) (drop 6 args))]
     (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
 
+(clojure.core/defn- erase-false-rec [ca]
+  ;; ToLCNF.visitFalseRec: eta-expand to arity two, then emit unreachable.
+  ;; False.elim is the standard wrapper around False.rec.
+  (let [missing (vec (repeatedly (max 0 (- 2 (count ca))) #(gensym "false_arg_")))
+        body (list 'throw (list 'ex-info "Unreachable elimination" {:kind :unreachable}))]
+    (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
+
 (def ^:private builtin-app
   (merge
    ;; n-ary arithmetic / comparison saturating to a bare op. Nat add/mul/succ use the
@@ -181,6 +188,9 @@
     ;; Lean Compiler/LCNF/ToLCNF.lean: equality eliminators erase to their minor.
     "Eq.ndrec"      (fn [_ _ _ ca _] (erase-eq-rec ca))
     "Eq.rec"        (fn [_ _ _ ca _] (erase-eq-rec ca))
+    "False.elim"    (fn [_ _ _ ca _] (erase-false-rec ca))
+    "False.rec"     (fn [_ _ _ ca _] (erase-false-rec ca))
+    "Empty.rec"     (fn [_ _ _ ca _] (erase-false-rec ca))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
     "List.length"   (fn [_ _ _ ca _]              ; arity-tolerant: `List.length A` as a fn VALUE
                       (case (count ca)             ; (eta-reduced, e.g. fused into a comp) lowers to `count`
@@ -766,6 +776,19 @@
   (if (instance? clojure.lang.IObj form)
     (with-meta form (assoc (meta form) ::resolved-head head))
     form))
+(clojure.core/defn- visit-no-confusion [env args ca names {:keys [arity num-fields]}]
+  ;; ToLCNF.visitNoConfusion / expandNoConfusionMajor (.perCtor): discard
+  ;; equality proofs before visiting the continuation. Erased proof arguments
+  ;; use Unit.unit's nil runtime representation; no kernel term is admitted here.
+  (if (> (count args) arity)
+    (ansatz->clj env
+                (beta-apply (nth args arity)
+                            (concat (repeat num-fields (e/const' (name/from-string "Unit.unit") []))
+                                    (drop (inc arity) args))) names)
+    (let [missing (vec (repeatedly (- (inc arity) (count ca)) #(gensym "nc_arg_")))
+          major (nth (into (vec ca) missing) arity)
+          body (reduce (fn [f _] (list f nil)) major (range num-fields))]
+      (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing)))))
 
 (clojure.core/defn ansatz->clj
   "Compile Ansatz Expr to Clojure form for eval."
@@ -837,6 +860,9 @@
                               (let [ci (env/lookup env (e/const-name head))
                                     idx (+ (.numParams ci) (.numMotives ci) (.numMinors ci) (.numIndices ci))]
                                 (reduce (fn [f a] (list f a)) (list (:sym entry) (nth ca idx)) (drop (inc idx) ca)))))
+                          (when-let [info (get (env/get-extension env :no-confusion {}) h)]
+                            (when (= :per-ctor (:kind info))
+                              (fn [env _ args ca names] (visit-no-confusion env args ca names info))))
                           (builtin-app h))]
             (bi env head args ca names)
             ;; Constructor application

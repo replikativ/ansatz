@@ -89,4 +89,38 @@ example : branches false 4 = 3 := rfl
 example : branches true 4 = 4 := rfl
 example : recursive 7 = 7 := rfl
 
+def dependentBool (b : Bool) (h : b = b) : b = b :=
+  match b with
+  | false => h
+  | true => h
+
+def dependentNat (n : Nat) (h : n = n) : n = n :=
+  match n with
+  | 0 => h
+  | Nat.succ _ => h
+
+def fixedVector (n : Nat) (v : Vec Nat (Nat.succ n)) : Nat :=
+  match v with
+  | .cons _ x _ => x
+
+example : dependentBool false rfl = rfl := rfl
+example : dependentBool true rfl = rfl := rfl
+example : dependentNat 0 rfl = rfl := rfl
+example : dependentNat 7 rfl = rfl := rfl
+example : fixedVector 0 (.cons 0 17 .nil) = 17 := rfl
+example : fixedVector 1 (.cons 1 23 (.cons 0 17 .nil)) = 23 := rfl
+
+def dependentChain (b : Bool) (h : b = b) (p : h = h) : h = h :=
+  match b with
+  | false => p
+  | true => p
+
+def patternShadow (n : Nat) (h : n = n) : Nat :=
+  match n with
+  | 0 => 13
+  | Nat.succ h => h
+
+example : dependentChain false rfl rfl = rfl := rfl
+example : patternShadow 7 rfl = 6 := rfl
+
 end MatcherDeclarations

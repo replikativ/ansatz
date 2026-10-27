@@ -33,6 +33,7 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta.fvar-subst :as subst]
+            [ansatz.meta.generalize-vars :as generalize]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.tactic.cases :as cases]
             [ansatz.meta.match.basic :as basic]
@@ -688,6 +689,12 @@
   (let [lhs (subst/apply s lhs) rhs (subst/apply s rhs)]
     (cond
       (tc/is-def-eq @ctx lhs rhs) s
+      ;; Pattern metavariables specialize to existing locals during Lean's
+      ;; elabPatterns unification. Keep the older local when both are variables.
+      (and (e/fvar? lhs) (e/fvar? rhs))
+      (if (< (e/fvar-id lhs) (e/fvar-id rhs))
+        (subst/insert s (e/fvar-id rhs) lhs)
+        (subst/insert s (e/fvar-id lhs) rhs))
       (and (e/fvar? lhs) (not (cases/depends-on? rhs (e/fvar-id lhs))))
       (subst/insert s (e/fvar-id lhs) rhs)
       (and (e/fvar? rhs) (not (cases/depends-on? lhs (e/fvar-id rhs))))
@@ -796,15 +803,21 @@
                                   (when (and ci (.isInduct ci))
                                     (filter #(and (e/fvar? %) (not (contains? explicit-ids (e/fvar-id %))))
                                             (drop (.numParams ci) args))))) types)))
-        all-discrs (vec (concat indices discrs))
-        all-types (vec (concat (map #(u/infer-type ctx %) indices) types))
+        ;; Elab/Match.lean generalize: dependent locals become additional
+        ;; discriminants, shadowed by fresh pattern variables in each branch.
+        generalized (mapv e/fvar (generalize/get-fvars-to-generalize
+                                  ctx (vec (concat indices discrs)) :ignore-let-decls true))
+        generalized-types (mapv #(u/infer-type ctx %) generalized)
+        all-discrs (vec (concat indices discrs generalized))
+        all-types (vec (concat (map #(u/infer-type ctx %) indices) types generalized-types))
         matcher-name (loop []
                        (let [n (str (:matcher-prefix est) ".match_" (swap! (:matcher-counter est) inc))]
                          (if (env/lookup (lean-env est) (name/from-string n)) (recur) n)))
         ;; Allocate the outer match name before elaborating its branch bodies.
         rows (mapv (fn [[forms rhs]]
                      (let [forms (if (= 1 (count discrs)) [forms] forms)
-                           row (lean-row ctx discrs types forms)
+                           row (lean-row ctx (into discrs generalized) (into types generalized-types)
+                                         (into (vec forms) (mapv (fn [_] (gensym "_generalized")) generalized)))
                            row (update row :patterns #(into (mapv (fn [x] (basic/inaccessible (subst/apply (:subst row) x))) indices) %))]
                        (assoc row :rhs-form rhs))) alt-forms)
         ret (atom (:declared-ret-type est))
