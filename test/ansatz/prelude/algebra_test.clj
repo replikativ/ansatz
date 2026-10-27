@@ -1,6 +1,7 @@
 (ns ansatz.prelude.algebra-test
   "Phase 1 of the wandler reimpl: the owned algebraic spine verifies end-to-end."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -14,7 +15,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- with-env [t]
   (when-let [e @init-medium-env] (reset! a/ansatz-env e))

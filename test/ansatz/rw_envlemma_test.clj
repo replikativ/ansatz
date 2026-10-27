@@ -2,7 +2,8 @@
   "#145: the `rewrite` tactic accepts ENV lemmas (∀-quantified, instantiated by matching) + `<-`
    reverse — Lean's `rw [lemma]`. Validated over the bundled WAddMonoid.add_assoc (no HAdd spelling
    issue) including the Lean-idiom controlled-rw proof of foldl_assoc."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -13,7 +14,7 @@
 (def ^:private full
   (delay (let [f "test-data/init.ndjson"]
            (when (.exists (java.io.File. f))
-             (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+             (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full) (alg/install-classes!)) (t))
 (use-fixtures :once with-env)
 (defn- vrf? [s] (let [ci (env/lookup (a/env) (name/from-string s))]

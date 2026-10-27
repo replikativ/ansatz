@@ -2,7 +2,8 @@
   "Tests that verify the examples from examples/ directory work.
    RB tree tests run against init-medium.ndjson (no Mathlib needed).
    GD convergence tests require Mathlib store (skipped if unavailable)."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -19,18 +20,13 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (def ^:private baseline-state
   (delay
     (when-let [base-env @init-env]
       (let [env (env/fork base-env)
-            tsv "resources/instances.tsv"
-            load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-            build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-            idx (if (.exists (java.io.File. tsv))
-                  (load-tsv tsv)
-                  (build-fn env))]
+            idx (env/get-extension env :instances nil)]
         (reset! a/ansatz-env (env/with-extension env :instances idx))
         (reset! a/ansatz-instance-index idx)
         (binding [a/*verbose* false]

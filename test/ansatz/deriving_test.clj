@@ -1,6 +1,7 @@
 (ns ansatz.deriving-test
   "Tests for the deriving framework — DecidableEq for simple enums."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.deriving :as deriving]
             [ansatz.export.parser :as parser]
@@ -17,7 +18,7 @@
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
-              env (:env (replay/replay (:decls st)))]
+              env (test-env/with-instance-registry (:env (replay/replay (:decls st))))]
           env)))))
 
 (defn- require-env []
@@ -27,12 +28,7 @@
 (defn- with-env [f]
   (let [env (require-env)]
     (reset! a/ansatz-env env)
-    (let [tsv "resources/instances.tsv"
-          load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-          build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-          idx (if (.exists (java.io.File. tsv))
-                (load-tsv tsv)
-                (build-fn env))]
+    (let [idx (env/get-extension env :instances nil)]
       ;; the registry rides on the env (Lean's instance table is part of the environment)
       (swap! a/ansatz-env (fn [e] (env/with-extension e :instances idx)))
       (reset! a/ansatz-instance-index idx))

@@ -1,6 +1,7 @@
 (ns ansatz.tactic.smoke-test
   "REPL smoke test for the tactic layer with init-medium env."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
@@ -18,7 +19,7 @@
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
               result (replay/replay (:decls st))]
-          (:env result))))))
+          (test-env/with-instance-registry (:env result)))))))
 
 (defn- require-env []
   (or @init-medium-env

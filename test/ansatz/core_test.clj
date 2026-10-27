@@ -1,7 +1,8 @@
 (ns ansatz.core-test
   "Tests for the public API: defn, theorem, inductive.
    Uses init-medium.ndjson (2997 declarations, ~1.5s load)."
-  (:require [clojure.test :refer [deftest testing is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
             [ansatz.export.storage :as storage]
@@ -23,7 +24,7 @@
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
         (let [st (parser/parse-ndjson-file f)
-              env (:env (replay/replay (:decls st)))]
+              env (test-env/with-instance-registry (:env (replay/replay (:decls st))))]
           env)))))
 
 (defn- require-env []
@@ -33,13 +34,7 @@
 (defn- with-env [f]
   (let [env (require-env)]
     (reset! a/ansatz-env env)
-    ;; Load instance index from TSV if available, otherwise build
-    (let [tsv "resources/instances.tsv"
-          load-tsv (requiring-resolve 'ansatz.tactic.instance/load-instance-tsv)
-          build-fn (requiring-resolve 'ansatz.tactic.instance/build-instance-index)
-          idx (if (.exists (java.io.File. tsv))
-                (load-tsv tsv)
-                (build-fn env))]
+    (let [idx (env/get-extension env :instances nil)]
       ;; the registry rides on the env (Lean's instance table is part of the environment)
       (swap! a/ansatz-env (fn [e] (env/with-extension e :instances idx)))
       (reset! a/ansatz-instance-index idx))

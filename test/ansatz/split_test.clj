@@ -3,7 +3,8 @@
    ite/dite/cond/Bool.rec discriminant in the goal. Goals are built at the kernel
    level because the surface `cond`/`ite` keywords intercept a/theorem elaboration.
    Each proof is checked with the AUTHORITATIVE check-constant (env/verifies?)."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -21,7 +22,7 @@
 (def ^:private full
   (delay (let [f "test-data/init.ndjson"]
            (when (.exists (java.io.File. f))
-             (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+             (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- with-env [t]
   (when @full

@@ -1,7 +1,8 @@
 (ns ansatz.tactic.unify-test
   "Unit tests for metavariable-aware, reduction-aware unification
    (Lean Meta.isDefEq analog, `ansatz.meta/is-def-eq`)."
-  (:require [clojure.test :refer [deftest testing is]]
+  (:require [ansatz.test-env :as test-env]
+            [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]
@@ -14,7 +15,7 @@
   (delay
     (let [f "test-data/init-medium.ndjson"]
       (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
 
 (defn- require-env []
   (or @init-medium-env (throw (ex-info "init-medium.ndjson not found" {}))))

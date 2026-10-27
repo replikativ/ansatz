@@ -166,8 +166,10 @@
         loaded (matchers/install loaded matcher-map)
         bundled (when-not derived
                   ((requiring-resolve 'ansatz.tactic.instance/load-bundled-instances) {:present? present?}))
-        index (or (:instances derived) (when (seq bundled) bundled)
-                  ((requiring-resolve 'ansatz.tactic.instance/build-instance-index) base))
+        index (if derived
+                (or (:instances derived)
+                    (throw (ex-info "Tactic error: no instance registry" {:kind :tactic-error})))
+                bundled)
         loaded (env/with-extension loaded :instances index)
         loaded (if (and store (:simp-trie derived))
                  ((requiring-resolve 'ansatz.simp-index/with-captured-index)
@@ -276,7 +278,7 @@
    session environment, without building a store. By default every declaration is re-checked
    by the kernel from an empty env (`:verify? false` admits them in TRUST mode instead) and an
    export that does not check throws. Optional companions from the same Lean environment:
-   `:instances` — the scripts/dump_instances.lean TSV (else instances are discovered by name),
+   `:instances` — the scripts/dump_instances.lean TSV (else the bundled Init registry),
    `:attrs` — the scripts/dump_attrs.lean corpus (@[simp]/@[csimp]/@[extern]); both are
    restricted to the declarations the export contains. Returns {:declarations :elapsed-ms}."
   [ndjson & {:keys [instances attrs verify?] :or {verify? true}}]
@@ -293,14 +295,15 @@
     (let [present? (fn [n] (some? (env/lookup env (name/from-string n))))
           derived {:attrs (when attrs
                             (filterv (fn [[_ n _ _]] (present? n)) (attrs/read-attr-file attrs)))
-                   :instances (when instances
+                   :instances (if instances
                                 (instance/parse-instance-tsv
-                                 (clojure.string/split-lines (slurp instances)) present?))
+                                 (clojure.string/split-lines (slurp instances)) present?)
+                                (instance/load-bundled-instances {:present? present?}))
                    :matchers (into {} (filter (fn [[n _]] (present? n))) (matchers/bundled-matchers))}]
       (setup-env! (env/with-extension env artifact-profile/extension-key
                     (artifact-profile/external-export meta verify?
                                                       {:attrs {:source (if attrs :explicit-input :absent) :provenance/status :unrecorded}
-                                                       :instances {:source (if instances :explicit-input :name-discovery) :provenance/status :unrecorded}
+                                                       :instances {:source (if instances :explicit-input :bundled) :provenance/status :unrecorded}
                                                        :matchers {:source :bundled-by-name :resource "ansatz/init-matchers.ndjson.gz"
                                                                   :provenance/status :unrecorded}})) nil present? derived)
       {:declarations (.size ^ansatz.kernel.Env @ansatz-env)
@@ -455,7 +458,9 @@
   ([env goal-type] (try-synthesize-instance env goal-type nil nil))
   ([env goal-type instance-idx] (try-synthesize-instance env goal-type instance-idx nil))
   ([env goal-type instance-idx cache-atom]
-   (let [cache (or cache-atom synth-cache)
+   (let [registry (instance/index-for env)
+         instance-idx (or instance-idx registry)
+         cache (or cache-atom synth-cache)
          ;; ENV-AWARE key: the global synth-cache is `defonce` and survives manual `(reset! ansatz-env …)`
          ;; (only `init!` clears it). Keying by goal-type ALONE meant a `::miss` cached against a SMALLER
          ;; env (e.g. init-medium, which couldn't synthesize an instance) was wrongly reused by a LARGER
