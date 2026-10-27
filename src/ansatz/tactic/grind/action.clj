@@ -35,21 +35,26 @@
 
 (defn check-expr!
   "Grind.Simp.simpCore / Simp.Main.simpLoop's maxSteps and withIncRecDepth.
-   Check before type inference: the surface reducer traverses repeated occurrences
-   without simp's memoization, so a small graph can contain an exponentially large
-   traversal (e.g. nested records rebuilt from their projections)."
+   Count shared nodes once, as simp's memoization does. Revisit a node only
+   at a greater binder/term depth to retain the maximum recursion-depth check."
   [expr]
-  (let [config *config*]
+  (let [config *config*
+        seen (java.util.IdentityHashMap.)]
     (loop [todo [[expr 0]] steps 0]
       (when-let [[expr depth] (peek todo)]
-        (budget! config :max-steps steps)
         (when (>= depth 1000)
           (fail! "maximum recursion depth exceeded (1000)" {:limit :maxRecDepth :value 1000}))
-        (let [children (case (e/tag expr)
-                         :app [(e/app-fn expr) (e/app-arg expr)]
-                         :lam [(e/lam-type expr) (e/lam-body expr)]
-                         :forall [(e/forall-type expr) (e/forall-body expr)]
-                         :let [(e/let-type expr) (e/let-value expr) (e/let-body expr)]
-                         :proj [(e/proj-struct expr)]
-                         :mdata [(e/mdata-expr expr)] [])]
-          (recur (into (pop todo) (map #(vector % (inc depth)) children)) (inc steps)))))))
+        (let [previous (.get seen expr)]
+          (if (and previous (>= (long previous) depth))
+            (recur (pop todo) steps)
+            (let [_ (when-not previous (budget! config :max-steps steps))
+                  _ (.put seen expr depth)
+                  children (case (e/tag expr)
+                             :app [(e/app-fn expr) (e/app-arg expr)]
+                             :lam [(e/lam-type expr) (e/lam-body expr)]
+                             :forall [(e/forall-type expr) (e/forall-body expr)]
+                             :let [(e/let-type expr) (e/let-value expr) (e/let-body expr)]
+                             :proj [(e/proj-struct expr)]
+                             :mdata [(e/mdata-expr expr)] [])]
+              (recur (into (pop todo) (map #(vector % (inc depth)) children))
+                     (if previous steps (inc steps))))))))))

@@ -3,12 +3,12 @@
 (ns ansatz.kernel.tc
   "Type checker implementing bidirectional type inference and
    definitional equality for the Calculus of Inductive Constructions.
-   Follows Lean 4's kernel type_checker.cpp."
+   Follows Lean v4.33.1 kernel/type_checker.cpp and Meta/InferType.lean."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red])
-  (:import [ansatz.kernel Name ConstantInfo Env TypeChecker]))
+  (:import [ansatz.kernel Name ConstantInfo Env TypeChecker ExprMap]))
 
 ;; ============================================================
 ;; Type checker state
@@ -30,6 +30,7 @@
    ;; synthInstance cache: failures memoize too, collapsing the repeated
    ;; exploration of the same class goal across candidates.
    :synth-memo (atom {})
+   ;; Env identity -> local-context identity -> Lean ExprMap of inferred types.
    :infer-cache (java.util.IdentityHashMap.)})
 
 (defn- lctx-max-id
@@ -47,7 +48,8 @@
   [st lctx]
   (let [mx (lctx-max-id lctx)]
     (swap! (:next-id st) (fn [v] (if (> (inc mx) v) (inc mx) v)))
-    (assoc st :lctx lctx)))
+    (cond-> (assoc st :lctx lctx)
+      (not (identical? (:lctx st) lctx)) (assoc :infer-cache (java.util.IdentityHashMap.)))))
 
 (defn mk-tc-state-with-locals
   "A tc-state with `lctx-map` (a {fvar-id → {:name :type ...}} map, e.g. core's
@@ -94,10 +96,29 @@
 
 (declare infer-type is-def-eq is-def-eq* is-def-eq-fallback ensure-sort ensure-pi try-eta)
 
+(defn- infer-type-cache
+  ;; Lean Meta/InferType.lean:checkInferTypeCache assumes globally fresh locals.
+  ;; Surface tactics may reuse fvar IDs in different persistent local contexts,
+  ;; so scope the expression cache to the environment and local-context identities.
+  ^ExprMap [st]
+  (let [^java.util.IdentityHashMap environments (:infer-cache st)
+        ^java.util.IdentityHashMap contexts
+        (or (.get environments (:env st))
+            (let [contexts (java.util.IdentityHashMap.)]
+              (.put environments (:env st) contexts)
+              contexts))]
+    (or (.get contexts (:lctx st))
+        (let [cache (ExprMap. 64)]
+          (.put contexts (:lctx st) cache)
+          cache))))
+
 (defn infer-type
-  "Infer the type of expression e in type checker state st."
+  "Infer the type of expression e in type checker state st.
+   Lean Meta/InferType.lean:checkInferTypeCache memoizes by expression/config.
+   ExprMap uses Lean expression hash/equality, so separately allocated equal
+   subterms share results too, within the same environment and local context."
   [st e]
-  (let [^java.util.IdentityHashMap cache (:infer-cache st)
+  (let [^ExprMap cache (infer-type-cache st)
         cached (.get cache e)]
     (if (some? cached)
       cached

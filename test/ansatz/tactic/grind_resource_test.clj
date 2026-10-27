@@ -15,7 +15,7 @@
           (f))
         (finally (reset! a/ansatz-env before))))))
 
-(deftest recursive-coverage-stays-within-preprocessing-budget
+(deftest recursive-coverage-closes-with-shared-record-terms
   ;; Reconstructing a record from projections can multiply the traversal cost
   ;; even when E-matching generates only a few hundred graph nodes.
   (a/structure CovHandle [] (id Nat) (spin Nat) (reachable Bool) (touched Bool) (dropped Bool))
@@ -47,10 +47,10 @@
                  :proved
                  (catch clojure.lang.ExceptionInfo ex
                    (if (= :tactic-error (:kind (ex-data ex))) (ex-data ex) (throw ex))))]
-    (is (or (= :proved result) (= :max-steps (:limit result))) (str result))))
+    (is (= :proved result) (str result))))
 
 (deftest preprocessing-step-limit-is-configurable
-  (let [term (reduce (fn [t _] (e/app t t)) (e/fvar 0) (range 12))]
+  (let [term (reduce (fn [t i] (e/app t (e/fvar i))) (e/fvar 0) (range 60))]
     (binding [action/*config* (action/configure {:max-steps 100})]
       (let [error (try (action/check-expr! term)
                        (catch clojure.lang.ExceptionInfo ex ex))]
@@ -58,3 +58,8 @@
         (is (= :max-steps (:limit (ex-data error))))
         (is (= 100 (:used (ex-data error))))))
     (is (nil? (action/check-expr! term)))))
+
+(deftest preprocessing-budget-counts-shared-nodes-once
+  (let [term (reduce (fn [t _] (e/app t t)) (e/fvar 0) (range 40))]
+    (binding [action/*config* (action/configure {:max-steps 100})]
+      (is (nil? (action/check-expr! term))))))
