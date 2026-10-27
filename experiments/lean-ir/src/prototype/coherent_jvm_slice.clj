@@ -254,9 +254,9 @@
       (boundary! :context-retirement
         (fn []
           (if prefix
-            (owners/release-prefix! ownership [:context index] {:context context :prefix prefix}
+            (owners/retire-prefix! ownership [:context index] {:context context :prefix prefix}
               ;; Include the owner-ledger escrow before collecting diagnostics.
-              prefix/release-prefix resident/close! true boundary!)
+              prefix/release-prefix-and-close-branch resident/close! true boundary!)
             (owners/operation! ownership [:context-close index] #(resident/close! context)))))
       (swap! ownership assoc-in [:contexts index :closed?] true))))
 (defn dispose!

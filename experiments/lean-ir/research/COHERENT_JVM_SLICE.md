@@ -151,8 +151,10 @@ The controller retains completed diagnostic spans separately from the exact
 acceptance result: `boundary-measurements` returns bounded scalar records only.
 `:resident-call` includes public validation, target resolution, codecs, execution,
 result-context creation and owner escrow. It excludes subsequent retirement.
-`:context-retirement` contains `:prefix-release-and-adoption`,
-`:released-context-close` and `:original-context-close`. Nested spans overlap;
+`:context-retirement` contains `:prefix-release-and-close` and
+`:original-context-close`. The earlier gate used prefix release/adoption followed
+by closing the newly adopted wrapper; its historical timings remain unchanged.
+Nested spans overlap;
 do not sum them with their parents or the existing phase measurements. Each row
 labels caller-thread CPU/allocation explicitly. Missing completion records mean
 the operation did not complete; they do not imply zero cost or safe retry.
@@ -260,4 +262,52 @@ and subsequent adoption overlap those walks; they must not be added. Producing
 and adopting the context that the caller immediately closes accounts for about
 20.7 MB of the release span. Results are in
 `../measurements/tiny-prefix-costs.json`. This identifies the next structural
-work: consuming prefix retirement and reuse of proven frozen static closures.
+work: closed-branch prefix retirement and reuse of proven frozen static closures.
+
+## Closed-branch retirement and static-closure proofs
+
+The controller now uses `release-prefix-and-close-branch`: release the issued
+registry owner, then Environment and Options in a new closed branch. It returns
+only a closed receipt and leaves its input/siblings and borrowed Source intact.
+It does not create or adopt a runnable Context or invoke kernel getter helpers.
+The owner ledger claims the combined operation once and separately closes the
+original wrapper where the caller already requested that. Partial failure keeps
+the latest available World/session, release phase and completed owner dispositions;
+it cannot trigger automatic retry or Source cleanup.
+
+Assert-only readiness reuses two issued static-closure proofs per prefix. These
+hold weak references to exact function/registry maps and a bounded frozen root
+vector. Immutable map keys and all reachable dependency-bearing structures must
+qualify under the existing canonical dependency scanner. Mutable or unsupported
+containers take full validation. Metadata-bearing Name spines cannot be cached.
+Reloading the proof validator invalidates issuance. Weak identities of the 17
+validation/dependency/eligibility rule values also invalidate proofs after partial
+REPL redefinitions; changes during validation prevent issuance. No closure map, handler,
+Context, Source or World is retained by a proof.
+
+Every use still recomputes binding/configuration roots and checks live ownership,
+bindings, manifests, native handlers/signatures, issued prefix membership and the
+lower Source/registry/scaffold/anchor/range checks. Ordinary adoption and the
+branch-producing `release-prefix` retain their full original paths.
+
+The tiny-Source probe used a 384 MiB REPL. The warm column was remeasured
+in a replacement REPL after a server restart, with the final semantic-rule guards:
+
+| Protected functions | Old release/adopt | Closed branch without code reuse | Warm closed branch with proofs |
+| --- | ---: | ---: | ---: |
+| 50 | 346,624 B | 162,712 B | 83,816 B |
+| 1,050 | 5,217,456 B | 3,089,864 B | 83,816 B |
+| 10,050 | 51,557,488 B | 30,918,880 B | 83,816 B |
+
+These are caller-thread allocations per retirement, not complete function-call
+costs. The new path's first 10,050-function validation still allocated 46,136,680
+bytes; image changes or proof invalidation repeat that work. Cold and warm
+measurements are separate in `tiny-prefix-retirement-{uncached,cached}.json`.
+The probe verifies registry/RC/branch/Source controls. Dedicated tests compare
+closed heaps across all three backends, prohibit adoption/guest execution, and
+exercise advanced partial-failure checkpoints and warm-cache live-check failures.
+No full Init has been loaded to validate these changes.
+
+Final source-load verification in that REPL passed 64 fixture-free models (721
+assertions) and 36 focused closure/retirement/controller tests (452 assertions).
+These overlapping suites are controls, not a full-image compatibility result.

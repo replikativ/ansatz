@@ -7,6 +7,7 @@
   (:require [prototype.machine :as m]
             [prototype.binding-dependencies :as dependencies]
             [prototype.resident-code-validation :as code-validation]
+            [prototype.executable-closure-proof :as closure-proof]
             [prototype.frontend :as frontend]
             [prototype.hosted-file :as hosted]
             [prototype.guest-encoding :as encoding]
@@ -87,7 +88,7 @@
               (identical? encode-names encoding/encode-names))
       [(get options :helper encoding/names-helper)])))
 
-(defn adoption-readiness!
+(defn- adoption-readiness*
   "Validate the independent host registry/catalogue and selected frontend/helper
    closures without guest execution or Options acquisition. ENVIRONMENT must be
    a live owned root in an idle matching world/session. This does not validate a
@@ -97,7 +98,7 @@
    Declared fixed helper roots are read only from identity-authenticated trusted
    bindings and become protected with their full independent executable closure.
    Legacy callbacks without such metadata remain explicitly trusted host code."
-  [prepared configuration]
+  [prepared configuration validate-code!]
   (matching-world! prepared)
   (let [environment (:environment prepared) world (:world prepared)]
     (when-not (m/ref? environment) (fail "Resident context requires owned Environment" {}))
@@ -131,13 +132,31 @@
                     (when (or (get-in frontend-configuration [:install-options :authorize-source-import])
                               (contains? (get-in prepared [:world :functions]) default-witness))
                       default-witness))
-        protected (eval/validate-executables! (:world prepared) (:trusted-functions configuration)
+        protected (validate-code! (:world prepared) (:trusted-functions configuration)
                                               (concat binding-roots
                                                       (map helpers [:root :constant-map :quot-init?])
                                                       [compile-target frontend/header-target]
                                                       (when witness [witness])
                                                       (guest-encoder-roots frontend-configuration)))]
     {:kernel-helpers helpers :protected-functions protected}))
+
+(defn adoption-readiness!
+  "Validate live readiness and return the full independently checked protection
+   closure. Ordinary adoption always uses this full path and kernel association."
+  [prepared configuration]
+  (adoption-readiness* prepared configuration eval/validate-executables!))
+
+(defn assert-adoption-readiness!
+  "Run the same live readiness checks, recompute current roots and assert their
+   static closure without producing a protection map or runnable Context. A code
+   proof skips only immutable closure comparisons, never live readiness checks."
+  [prepared configuration proof]
+  (let [next-proof (volatile! nil)]
+    (adoption-readiness* prepared configuration
+      (fn [world registry roots]
+        (vreset! next-proof (closure-proof/validate! world registry (vec roots) proof))
+        nil))
+    @next-proof))
 
 (defn adopt-prepared
   "Adopt ONE existing owned Environment/Options pair in this branch. No implicit
@@ -189,6 +208,50 @@
           (-> world (m/release environment 1) (m/release options 1))
           (reset! (.-state ^Context context) nil)))))
   nil)
+
+(defn owned-roots-readiness!
+  "Check an idle matching packet and BOTH owned roots without executing or
+   acquiring anything. The returned packet is borrowed, not new authority."
+  [prepared]
+  (matching! prepared))
+
+(defn close-prepared-branch!
+  "Release Environment then Options in an already owned NEW prepared branch.
+   Returns its closed World, never a runnable Context. The input packet and any
+   original Context remain unchanged. Callers must claim this cleanup once: a
+   failure is terminal, with completed owner dispositions and the latest available
+   checkpoint; this helper neither retries nor closes a Source or artifact Store."
+  [{:keys [world session environment options] :as prepared}]
+  (let [progress (volatile! world)
+        phase (volatile! :validate-owned-roots)
+        owners (volatile! {:environment :owned :options :owned})]
+    (try
+      ;; Validate both roots and their combined ownership BEFORE either drop.
+      ;; In particular an aliased finite root requires two owners, while RC0 is
+      ;; immortal. This performs no adoption, guest call or code-closure walk.
+      (matching! prepared)
+      (vreset! phase :release-environment)
+      (vreset! progress (m/release @progress environment 1))
+      (vswap! owners assoc :environment :released)
+      (vreset! phase :release-options)
+      (vreset! progress (m/release @progress options 1))
+      (vswap! owners assoc :options :released)
+      @progress
+      (catch Throwable cause
+        (let [data (ex-data cause)
+              failed-owner (case @phase
+                             :release-environment :environment
+                             :release-options :options
+                             nil)]
+          (throw (ex-info "Prepared branch root retirement failed"
+                          (merge data
+                                 {:checkpoint (or (:checkpoint data) @progress)
+                                  :checkpoint-session (or (:checkpoint-session data) session)
+                                  :phase @phase
+                                  :owner-dispositions (cond-> @owners
+                                                        failed-owner (assoc failed-owner :release-failed))
+                                  :terminal true})
+                          cause)))))))
 
 (defn load-source
   "Load source with explicit module, roots and initialization policy. Returns

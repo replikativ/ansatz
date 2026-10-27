@@ -14,6 +14,7 @@
             [prototype.module-import :as imports]
             [prototype.module-store :as store]
             [prototype.eval-const :as eval]
+            [prototype.executable-closure-proof :as closure-proof]
             [prototype.import-ir :as ir]
             [prototype.raw-interop :as raw]
             [prototype.machine :as m]
@@ -44,14 +45,14 @@
   (vec (distinct (concat (vals imports/helpers) (vals source/helpers)
                          [source/hybrid-assemble-helper]))))
 
-(defn- preparation-readiness!
+(defn- preparation-readiness*
   "Host-only checks. CONFIGURATION and NATIVE-BINDINGS are independently captured
    trusted host inputs. Routing must already be prepared: this API changes no
    binding. Only read/free/evalConst may differ from the original native registry;
    in particular the original native initializer callback is preserved exactly."
-  [prepared configuration native-bindings]
-  (resident/adoption-readiness! prepared configuration)
-  (eval/validate-executables! (:world prepared) (:trusted-functions configuration) preparation-roots)
+  [prepared configuration native-bindings adoption-check! preparation-check!]
+  (adoption-check! prepared configuration)
+  (preparation-check! (:world prepared) (:trusted-functions configuration) preparation-roots)
   ;; This public constructor validates required native signatures and handlers.
   ;; Its fresh closures are discarded; installed closures are authenticated by
   ;; the independent configuration, not by equality with a newly built registry.
@@ -68,6 +69,28 @@
                      (fn? (:handler (get actual symbol))))
         (fail "Init prefix hybrid routing signature changed" {:symbol symbol}))))
   true)
+
+(defn- preparation-readiness! [prepared configuration native-bindings]
+  (preparation-readiness* prepared configuration native-bindings
+                         resident/adoption-readiness! eval/validate-executables!))
+
+(defn- retirement-readiness! [entry prefix configuration native-bindings]
+  (let [before (:retirement-code-proofs (capability! prefix))
+        adoption (volatile! nil) preparation (volatile! nil)]
+    ;; Binding/configuration roots, native handlers, signatures, manifests and
+    ;; Environment liveness are read afresh. Only immutable code walks can hit.
+    (preparation-readiness* entry configuration native-bindings
+      (fn [prepared config]
+        (vreset! adoption (resident/assert-adoption-readiness! prepared config (:adoption before))))
+      (fn [world registry roots]
+        (vreset! preparation (closure-proof/validate! world registry roots (:preparation before)))))
+    ;; Exactly two replaceable proof slots, no history of Worlds/code images.
+    ;; Publish only after ALL live readiness checks succeeded.
+    (locking issued
+      (let [current (.get issued prefix)]
+        (when-not current (fail "Expected an issued resident Init prefix" {}))
+        (.put issued prefix (assoc current :retirement-code-proofs
+                                  {:adoption @adoption :preparation @preparation}))))))
 
 (defn- checked! [entry checked]
   (let [world (:world entry) original (:world checked) certificate (:certificate checked)
@@ -182,6 +205,40 @@
                                  {:resident-init-prefix-entry entry :resident-init-prefix-released @released
                                   :resident-init-prefix-phase @phase :resident-init-prefix-terminal? true
                                   :resident-init-prefix-root-ownership :inherited-in-independent-branch}) cause)))))))
+
+(defn release-prefix-and-close-branch
+  "Release the issued registry owner and both roots in a NEW closed branch.
+   Input Context/siblings and the borrowed Source remain open and unchanged.
+   Unlike release-prefix, this produces no runnable Context or kernel adoption.
+   Callers must claim destructive work once; a failure is terminal and retains
+   the latest available checkpoint and completed owner dispositions."
+  [context prefix]
+  (locking context
+    (let [entry (resident/snapshot context) progress (volatile! (:world entry))
+          phase (volatile! :entry)]
+      (try
+        (let [{raw-prefix :prefix :keys [certificate configuration native-bindings receipt]} (capability! prefix)]
+          (resident/owned-roots-readiness! entry)
+          (retirement-readiness! entry prefix configuration native-bindings)
+          (when-not (and (identical? raw-prefix (get-in @progress [:source-import-prefixes (:id (:state raw-prefix))]))
+                         (identical? (:env certificate) (:checked-env raw-prefix)))
+            (fail "Issued Init prefix is absent or belongs to another branch" {}))
+          (vreset! phase :release-started)
+          (vreset! progress (source/release-init-prefix @progress raw-prefix))
+          (vreset! phase :root-close-started)
+          (vreset! progress (resident/close-prepared-branch! (packet entry @progress (:session entry))))
+          {:status :closed :receipt receipt})
+        (catch Throwable cause
+          (let [data (ex-data cause)]
+            (throw (ex-info "Resident Init prefix branch retirement failed"
+                            (merge data
+                                   {:checkpoint (or (:checkpoint data) @progress)
+                                    :checkpoint-session (or (:checkpoint-session data) (:session entry))
+                                    :resident-init-prefix-entry entry
+                                    :resident-init-prefix-phase @phase
+                                    :resident-init-prefix-terminal? true
+                                    :resident-init-prefix-root-ownership :inherited-in-independent-branch})
+                            cause))))))))
 
 
 ;; The staged operation owns its continuation privately. Neither a descriptor nor
