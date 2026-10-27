@@ -44,6 +44,46 @@
 
 (clojure.test/use-fixtures :once with-init-env)
 
+(deftest prop-recursor-elimination-universes
+  ;; Lean src/kernel/inductive.cpp, elim_only_at_universe_zero;
+  ;; paired with test/lean/prop_recursor_elimination.lean.
+  (let [saved (a/env)]
+    (try
+      (reset! a/ansatz-env @init-env)
+      (a/inductive ElimPair [] (mk [a Nat] [b Nat]))
+      (a/inductive PairIndex [] :in Prop :indices [c ElimPair]
+                   (mk [a Nat] [b Nat] :where [(ElimPair.mk a b)]))
+      (a/inductive PairProofIndex [] :in Prop :indices [c ElimPair]
+                   (mk [a Nat] [b Nat] [h (= a b)] :where [(ElimPair.mk a b)]))
+      (a/inductive ConsIndex [] :in Prop :indices [c (List Nat)]
+                   (mk [a Nat] [b (List Nat)] :where [(cons a b)]))
+      (a/inductive TwoPairIndex [] :in Prop :indices [c ElimPair]
+                   (left [a Nat] [b Nat] :where [(ElimPair.mk a b)])
+                   (right [a Nat] [b Nat] :where [(ElimPair.mk a b)]))
+      (a/inductive DirectIndex [] :in Prop :indices [a Nat b Nat]
+                   (refl [a Nat] :where [a a]))
+      (a/inductive DirectProofIndex [p (=> Nat Prop)] :in Prop :indices [a Nat]
+                   (mk [a Nat] [h (p a)] :where [a]))
+      (a/inductive ProofOnly [p Prop] :in Prop (mk [h p]))
+      (a/inductive EmptyProp [] :in Prop)
+      (a/inductive HiddenData [] :in Prop (mk [a Nat]))
+      (doseq [[ind-name prop-only?]
+              [["PairIndex" true] ["PairProofIndex" true] ["ConsIndex" true]
+               ["TwoPairIndex" true] ["HiddenData" true]
+               ["DirectIndex" false] ["DirectProofIndex" false]
+               ["ProofOnly" false] ["EmptyProp" false]]]
+        (testing ind-name
+          (let [rec-ci (env/lookup (a/env) (name/from-string (str ind-name ".rec")))
+                after-params (nth (iterate e/forall-body (.type rec-ci)) (.numParams rec-ci))
+                motive-type (e/forall-type after-params)
+                motive-sort (loop [t motive-type]
+                              (if (e/forall? t) (recur (e/forall-body t)) t))]
+            (is (e/sort? motive-sort))
+            (is (= (if prop-only? lvl/zero (lvl/param (name/from-string "u")))
+                   (e/sort-level motive-sort)))
+            (is (= (if prop-only? 0 1) (count (.levelParams rec-ci)))))))
+      (finally (reset! a/ansatz-env saved)))))
+
 ;; ============================================================
 ;; Vec: length-indexed vector
 ;; ============================================================
