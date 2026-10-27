@@ -3,7 +3,7 @@
 {:bundle/schema "ansatz-bundle/1"
  :bundle/status :legacy-inventory
  :bundle/co-generation :unrecorded
- :artifact/cohort "legacy-inventory-sha256:7911a546c68c71156294b40c880d22beb5c4b918b06b6d2748ca940a25359230"
+ :artifact/cohort "legacy-inventory-sha256:3285f254785d9f38db8339a5dfc74f7d320adc562447ba1a810bb73ff7e610bf"
  :producer/scope :kernel-exports-only
  :producer {:exporter {:name "lean4export" :version "3.1.0"}
                            :format {:version "3.1.0"}
@@ -34,6 +34,6 @@
    :sha256 "8b3eda934a69658b9cdf25a693e482a44b983550b18bad97fa06bd1686018852"
    :provenance/status :unrecorded}
   {:resource "ansatz/init-instances.tsv.gz" :role :instances
-   :sha256 "2f3ef33a3be1a525ea420ba982df40018926c0caee038f0a2d2c20d2a9fce90a"
+   :sha256 "f8a918e11036af69cb543f35a4cef10795eeebd8a02eeb93dc499b9074c3f15d"
    :provenance/status :unrecorded}
  ]}

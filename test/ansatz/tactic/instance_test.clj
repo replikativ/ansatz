@@ -198,3 +198,109 @@
         (is (some? r))
         (is (= "instT" (str (e/const-name (e/get-app-fn r)))))
         (is (tc/is-def-eq st (tc/infer-type st r) goal))))))
+
+(deftest test-instance-search-does-not-truncate
+  (let [nm name/from-string
+        c (fn [s] (e/const' (nm s) []))
+        goal (e/app (c "CapClass") (c "Nat"))
+        env (-> (require-env)
+                (.addConstant (env/mk-axiom (nm "CapClass") []
+                                            (e/forall' "α" (e/sort' (lvl/succ lvl/zero))
+                                                       (e/sort' lvl/zero) :default)))
+                (.addConstant (env/mk-axiom (nm "capBlocked") []
+                                            (e/forall' "h" (c "False") goal :inst-implicit)))
+                (.addConstant (env/mk-axiom (nm "capAnswer") [] goal)))
+        idx {(nm "CapClass") [{:name (nm "capBlocked")} {:name (nm "capAnswer")}]}]
+    (binding [config/*max-candidates* 1]
+      (is (= (c "capAnswer") (inst/synthesize env idx goal))))))
+
+(deftest test-instance-priority-precedes-specificity
+  (let [env (require-env)
+        goal (e/app* (e/const' (name/from-string "OfNat") [lvl/zero])
+                     (e/const' (name/from-string "Nat") []) (e/lit-nat 0))
+        candidates [{:name (name/from-string "instOfNatNat") :priority 1000}
+                    {:name (name/from-string "Zero.toOfNat0") :priority 2000}]]
+    (is (= ["Zero.toOfNat0" "instOfNatNat"]
+           (mapv (comp str :name) (inst/select-candidates env candidates goal))))))
+
+(deftest test-instance-errors-propagate
+  (let [env (require-env)
+        goal (e/app (e/const' (name/from-string "Add") [lvl/zero])
+                    (e/const' (name/from-string "Nat") []))
+        failure (NullPointerException. "injected synthesis bug")]
+    (testing "candidate reduction does not turn bugs into another instance"
+      (with-redefs-fn {#'tc/cached-whnf (fn [& _] (throw failure))}
+        #(is (thrown-with-msg? NullPointerException #"injected synthesis bug"
+                               (inst/synthesize env @test-index goal)))))
+    (testing "the synthPending hook propagates bugs"
+      (with-redefs [inst/synthesize* (fn [& _] (throw failure))]
+        (is (thrown-with-msg? NullPointerException #"injected synthesis bug"
+                             (inst/synth-pending-instance nil (tc/mk-tc-state env) goal)))))
+    (testing "depth exhaustion fails only that path, is recorded, and is named when the search fails"
+      (binding [config/*max-synth-depth* 0
+                inst/*depth-hits* (atom [])]
+        (is (nil? (inst/synthesize* (tc/mk-tc-state env) env @test-index goal 1)))
+        (is (= [goal] @inst/*depth-hits*)))
+      (with-redefs [inst/synthesize* (fn [& _] (some-> inst/*depth-hits* (swap! conj goal)) nil)]
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"\*max-synth-depth\*"
+                              (inst/synthesize env @test-index goal)))))))
+
+(deftest test-invalid-instance-priority-fails
+  (is (thrown? NumberFormatException (inst/parse-instance-tsv ["C\tbroken\tnot-a-priority"]))))
+
+(deftest test-incompatible-instance-universe-backtracks
+  ;; Regression: valid Lean declarations; the Type candidate must not be applied to a Prop.
+  (let [nm name/from-string
+        c (fn [s] (e/const' (nm s) []))
+        prop (e/sort' lvl/zero)
+        type0 (e/sort' (lvl/succ lvl/zero))
+        u (nm "u")
+        add-ax (fn [en s ty] (env/check-constant en (env/mk-axiom (nm s) [] ty)))
+        env (-> (env/empty-env)
+                (env/check-constant
+                 (env/mk-axiom (nm "RegrU") [u]
+                               (e/forall' "A" (e/sort' (lvl/param u)) prop :default)))
+                (add-ax "regrP" prop)
+                (add-ax "regrTypeInst"
+                        (e/forall' "A" type0
+                                   (e/app (e/const' (nm "RegrU") [(lvl/succ lvl/zero)])
+                                          (e/bvar 0)) :implicit))
+                (add-ax "regrPropInst"
+                        (e/forall' "A" prop
+                                   (e/app (e/const' (nm "RegrU") [lvl/zero])
+                                          (e/bvar 0)) :implicit)))
+        goal (e/app (e/const' (nm "RegrU") [lvl/zero]) (c "regrP"))
+        bad {:name (nm "regrTypeInst") :priority 1100}
+        good {:name (nm "regrPropInst") :priority 1000}
+        expected (e/app (c "regrPropInst") (c "regrP"))]
+    (doseq [[label resolve] [["recursive" #(inst/synthesize* %1 env %2 goal 0)]
+                             ["legacy tabled" #(inst/tabled-synthesize %1 env %2 goal)]]]
+      (testing label
+        (is (nil? (resolve (tc/mk-tc-state env) {(nm "RegrU") [bad]}))
+            "an incompatible candidate is an ordinary mismatch")
+        (let [st (tc/mk-tc-state env)
+              result (resolve st {(nm "RegrU") [bad good]})]
+          (is (= expected result) "search continues to the compatible candidate")
+          (when result
+            (is (tc/is-def-eq st (tc/infer-type st result) goal))
+            (is (some? (env/check-constant
+                        env (env/mk-thm (nm (str "regrChecked" label)) [] goal result)))
+                "the successful proof passes kernel admission")))))))
+
+(deftest test-direct-search-reports-depth-exhaustion
+  ;; A direct synthesize* call whose search fails only because the depth bound cut a path is
+  ;; exhausted, not negative: it names the bound (Lean checkSystem), while backtracking past
+  ;; individual cuts still works.
+  (let [env (require-env)
+        goal (e/app (e/const' (name/from-string "Decidable") [])
+                    (e/app* (e/const' (name/from-string "And") [])
+                            (e/const' (name/from-string "True") []) (e/const' (name/from-string "True") [])))
+        ;; an explicit index: the legacy name-scan index also lists Classical.propDecidable
+        ;; (no subgoals), which would answer at depth 0 (backlog G19)
+        dec (name/from-string "Decidable")
+        idx {dec [{:name (name/from-string "instDecidableAnd") :priority 1000}
+                  {:name (name/from-string "instDecidableTrue") :priority 1000}]}]
+    (binding [config/*max-synth-depth* 0]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"exhausted the search depth bound"
+                            (inst/synthesize* (tc/mk-tc-state env) env idx goal 0))))
+    (is (some? (inst/synthesize* (tc/mk-tc-state env) env idx goal 0)))))

@@ -2,6 +2,7 @@
   "Tests for instance resolution and the decide tactic."
   (:require [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
@@ -297,3 +298,63 @@
       (is (proof/solved? ps))
       (let [proof-term (extract/verify ps)]
         (is (some? proof-term))))))
+
+(deftest test-decide-zeta-reduces-let-locals
+  ;; Lean Elab/Tactic/Decide.lean preprocessPropToDecide: let-bound locals are substituted before
+  ;; the closed-goal check (let n := 0; let m := n; m = m is decided).
+  (let [nat (e/const' (name/from-string "Nat") [])
+        eq (fn [x y] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat x y))
+        lctx {901 {:tag :let-decl :id 901 :name "n" :type nat :value (e/lit-nat 0)}
+              902 {:tag :let-decl :id 902 :name "m" :type nat :value (e/fvar 901)}}
+        [ps0 _] (proof/start-proof (require-env) (eq (e/lit-nat 0) (e/lit-nat 0)))
+        [ps gid] (proof/fresh-mvar ps0 (eq (e/fvar 902) (e/fvar 902)) lctx)
+        ps (update ps :goals (fn [gs] (into [gid] (remove #{gid} gs))))]
+    (is (= (eq (e/lit-nat 0) (e/lit-nat 0)) (decide/zeta-let-locals lctx (eq (e/fvar 902) (e/fvar 902)))))
+    (is (some? (decide/decide ps)) "decide closes the goal after zeta-reducing the let chain")))
+
+(deftest test-decide-closed-goal-uses-local-instance
+  (testing "a closed proposition reaches evaluation with its local Decidable instance"
+    ;; Lean Elab/Tactic/Decide.lean preprocessPropToDecide permits this
+    ;; closed constant; evalDecideCore then synthesizes in the goal context.
+    (let [prop-name (name/from-string "DecideTest.closedGoal")
+          env (env/check-constant (require-env) (env/mk-axiom prop-name [] (e/sort' lvl/zero)))
+          prop (e/const' prop-name [])
+          dec (e/app (e/const' (name/from-string "Decidable") []) prop)
+          ty (e/forall' "d" dec prop :inst-implicit)
+          [ps _] (proof/start-proof env ty)
+          ps (basic/intro ps "d")
+          goal (proof/current-goal ps)
+          local-id (first (keys (:lctx goal)))
+          evaluated (atom nil)
+          verify-decide @#'decide/verify-decide
+          failure (with-redefs-fn
+                    {#'decide/verify-decide
+                     (fn [st prop inst]
+                       ;; Observe the actual evaluator inputs, then run it unchanged.
+                       (reset! evaluated {:lctx (:lctx st) :prop prop :inst inst})
+                       (verify-decide st prop inst))}
+                    #(try (decide/decide ps) nil
+                          (catch clojure.lang.ExceptionInfo ex ex)))]
+      (is (not (e/has-fvar-flag (:type goal))))
+      (is (= {:lctx (:lctx goal) :prop prop :inst (e/fvar local-id)} @evaluated))
+      (is (= :tactic-error (:kind (ex-data failure))))
+      (is (re-find #"decide failed" (or (ex-message failure) ""))
+          "the local instance is opaque, so evaluation must report that it cannot compute")
+      (is (not (proof/solved? ps))))))
+
+(deftest test-decide-rejects-free-variable-goal
+  (testing "a non-let free variable is rejected before synthesis or evaluation"
+    ;; Lean preprocessPropToDecide rejects n = n even with a local instance.
+    (let [env (require-env)
+          nat (e/const' (name/from-string "Nat") [])
+          eq (fn [n] (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat n n))
+          dec (e/app (e/const' (name/from-string "Decidable") []) (eq (e/bvar 0)))
+          ty (e/forall' "n" nat
+                        (e/forall' "d" dec (eq (e/bvar 1)) :inst-implicit) :default)
+          [ps _] (proof/start-proof env ty)
+          ps (basic/intros ps ["n" "d"])
+          failure (try (decide/decide ps) nil
+                       (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (e/has-fvar-flag (:type (proof/current-goal ps))))
+      (is (= :tactic-error (:kind (ex-data failure))))
+      (is (re-find #"expected type must not contain free variables" (or (ex-message failure) ""))))))
