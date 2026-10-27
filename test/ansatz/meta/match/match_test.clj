@@ -203,7 +203,7 @@
                                                             [:value (.value fresh) (.value oracle)]]
                                    :let [actual (e/instantiate-level-params actual levels)]
                                    :when (not= (alpha-rename actual) (alpha-rename expected))] label))]
-        (println "Matcher comparison" n "structural differences after alpha renaming:" differences)
+        (is (empty? differences) (str n " structural differences after alpha renaming: " differences))
         (when (seq differences)
           (println "Fresh type:" (e/->string (.type fresh)))
           (println "Lean type:" (e/->string (.type oracle))))

@@ -9,7 +9,11 @@
 
 (def ^:dynamic *lean-matchers*
   "Compile matches in non-recursive verified definitions through generated,
-   kernel-checked matcher declarations. Recursive definitions retain their current path."
+   kernel-checked matcher declarations. Recursive definitions retain their current path.
+   Default-off until matcher-aware equation generation (Meta/Match/MatchEqs and
+   Eqns.getEqnsFor? for nonrecursive definitions) preserves constructor equations:
+   the eight existing option-on equation assertions must pass before enabling
+   this by default."
   false)
 
 ;; -- Kernel fuel --
