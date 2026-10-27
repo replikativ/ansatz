@@ -144,3 +144,68 @@ programs and imports, keeping proof-only/noncomputable modules separate from
 executable roots. The unchanged rbmap/Mcmc constructor runtime corpus is prior
 native-exported IR evidence; this new hosted-source gate does not turn that
 whole corpus into hosted-file acceptance.
+
+## Boundary attribution and staged development
+
+The controller retains completed diagnostic spans separately from the exact
+acceptance result: `boundary-measurements` returns bounded scalar records only.
+`:resident-call` includes public validation, target resolution, codecs, execution,
+result-context creation and owner escrow. It excludes subsequent retirement.
+`:context-retirement` contains `:prefix-release-and-adoption`,
+`:released-context-close` and `:original-context-close`. Nested spans overlap;
+do not sum them with their parents or the existing phase measurements. Each row
+labels caller-thread CPU/allocation explicitly. Missing completion records mean
+the operation did not complete; they do not imply zero cost or safe retry.
+
+Cold strict-init is also split into bootstrap support preparation and strict
+admission. The latter still includes getter execution, projection, dependency
+ordering, Java kernel checking and live association. These two coarse spans do
+not yet attribute those individual components. Async restore still requires
+separate worker/process accounting.
+
+Staged developer operations retain the actual checked owners in one JVM.
+They do not add authenticated bootstrap entrypoints, authorize a different
+runtime image, or turn initialization into a passed campaign. Keep the JVM
+under the existing memory and lifetime bounds. Inspect only scalar diagnostics;
+never print `checkpoint`, whose borrowed contents can include the entire heap.
+Do not reload classes or ownership namespaces under live Contexts. A modified
+runtime requires a new development epoch; the old immutable acceptance receipts
+remain historical evidence.
+
+With an independently captured and verified development cohort, the REPL
+sequence is:
+
+```clojure
+(slice/initialize! approved)       ; restore/check/prefix exactly once
+(slice/prepare-applications!)     ; hosted A load and selection exactly once
+(slice/sample-a!)                 ; reviewed A cases; at most four batches
+(slice/boundary-measurements)     ; scalar diagnostics only
+(slice/continue!)                 ; finite calls/callback/B/A/disposal
+```
+
+Sampling accepts no caller-supplied code, target or arguments, supports one
+reviewed corpus row, reserves Context ledger space for the finite remainder,
+and checks callback effects did not change. These fixed cases were reviewed as
+pure; scalar signatures alone do not prove arbitrary Lean code pure. A repeated
+stage or exhausted sampling budget rejects before execution. A partial guest
+or destructive cleanup failure is terminal and retains its canonical checkpoint.
+An initialized session may instead explicitly `dispose!` its known owners.
+The original `run!` performs the unchanged one-shot finite gate without samples.
+
+A small REPL control measured the existing captured identity model on the JVM
+backend: 50 protected functions, 52 total functions and 6 heap entries. After
+20 warm-up calls, 50 independent calls all returned 42. Median public-call wall
+time was 0.973 ms, caller CPU 0.948 ms and allocation 63,568 bytes; closing the
+returned wrapper took 0.079 ms wall, 0.081 ms CPU and 4,192 bytes. Raw samples
+are in `../measurements/boundary-model-control.json`. This model
+does not use the genuine frontend, a checked Init prefix or prefix retirement.
+It is a small-boundary control, not a Lean worker throughput result or a speedup
+against the genuine run. It cannot explain the large-image costs by itself.
+
+The next actual-image measurements must compare first and subsequent pure calls
+and their retirement spans before changing validation. The leading narrow
+candidate is close-only prefix retirement: existing release makes and validates
+a runnable Context that this controller immediately closes. Removing that work
+requires preserving exact prefix/Source/anchor checks, registry/root ownership
+and terminal partial-failure checkpoints. Immutable code-proof reuse comes only
+after that attribution; it must never replace live ownership or image checks.

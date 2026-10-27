@@ -23,20 +23,21 @@
   (doseq [n '[prototype.coherent-source-preparation prototype.coherent-helper-value
               prototype.coherent-typed-eio prototype.coherent-execution
               prototype.coherent-stage-guards prototype.coherent-campaign
-              prototype.coherent-stage-guards-test prototype.coherent-owner-ledger-test prototype.coherent-consumer-profile-test]]
+              prototype.coherent-stage-guards-test prototype.coherent-owner-ledger-test prototype.coherent-consumer-profile-test
+              prototype.coherent-boundary-test prototype.coherent-jvm-lifecycle-test]]
     (require n))
   (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
-  (let [vars (set (filter #(-> % meta :test) (mapcat #(vals (ns-publics %)) '[prototype.coherent-stage-guards-test prototype.coherent-owner-ledger-test prototype.coherent-consumer-profile-test])))
-        _ (assert (= 28 (count vars)))
+  (let [vars (set (filter #(-> % meta :test) (mapcat #(vals (ns-publics %)) '[prototype.coherent-stage-guards-test prototype.coherent-owner-ledger-test prototype.coherent-consumer-profile-test prototype.coherent-boundary-test prototype.coherent-jvm-lifecycle-test])))
+        _ (assert (= 40 (count vars)))
         counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
                    (t/test-vars (sort-by #(str (:name (meta %))) vars))
                    @t/*report-counters*)]
     (assert (= vars @observed))
     (assert (zero? (+ (:fail counters) (:error counters))))
-    (assert (= 28 (:test counters)))
+    (assert (= 40 (:test counters)))
     (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
     (println (assoc counters :scope "definitions-contract-and-protocol-models-only"))
-    (println "COHERENT_INFRASTRUCTURE_28_PASS")
+    (println "COHERENT_INFRASTRUCTURE_40_PASS")
     (shutdown-agents)
     (System/exit 0))
   (catch Throwable failure

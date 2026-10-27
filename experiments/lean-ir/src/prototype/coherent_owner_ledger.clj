@@ -58,13 +58,20 @@
 (defn release-prefix!
   "Record the returned Context before closing it. Never reconstruct that branch
    by replaying release-prefix, including when a close fails afterward."
-  [state role packet release close close-original?]
-  (let [released (operation! state [role :release]
-                   #(release (:context packet) (:prefix packet)))]
-    (operation! state [role :released-context-close] #(close (:context released)))
-    (when close-original?
-      (operation! state [role :original-context-close] #(close (:context packet))))
-    released))
+  ([state role packet release close close-original?]
+   (release-prefix! state role packet release close close-original? (fn [_ invoke] (invoke))))
+  ([state role packet release close close-original? observe]
+   ;; Observe WHOLE ledger operations, after their result has entered escrow.
+   ;; A diagnostic failure must never make a destructive invocation retryable.
+   (let [released (observe :prefix-release-and-adoption
+                    #(operation! state [role :release]
+                       (fn [] (release (:context packet) (:prefix packet)))))]
+     (observe :released-context-close
+       #(operation! state [role :released-context-close] (fn [] (close (:context released)))))
+     (when close-original?
+       (observe :original-context-close
+         #(operation! state [role :original-context-close] (fn [] (close (:context packet))))))
+     released)))
 
 (defn begin-disposal! [state]
   (let [before @state]

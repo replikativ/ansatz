@@ -24,6 +24,10 @@
 (defonce ^:private ownership (atom {:phase :ready}))
 (defn checkpoint "Borrow private canonical owners and failures; never serialize." []
   {:controller @state :ownership @ownership})
+(defn boundary-measurements
+  "Bounded completed diagnostics, containing no guest owners. Nested spans are
+   inclusive; never add them to their parent phases. Missing spans did not finish."
+  [] (vec (:boundaries @state)))
 (defn- require! [condition message] (wire/check condition message))
 (defn- read-input [approved id limit]
   (let [rows (filter #(= id (:id %)) (get-in approved [:manifest :direct-inputs]))]
@@ -119,10 +123,30 @@
                         (.isThreadAllocatedMemorySupported bean) (.isThreadAllocatedMemoryEnabled bean))
         cpu (when supported? (.getCurrentThreadCpuTime bean))
         bytes (when supported? (.getThreadAllocatedBytes bean tid)) wall (System/nanoTime)
-        result (f)]
-    [result {:wall-ns (- (System/nanoTime) wall)
-             :cpu-ns (when supported? (- (.getCurrentThreadCpuTime bean) cpu))
-             :allocated-bytes (when supported? (- (.getThreadAllocatedBytes bean tid) bytes))}]))
+        result (f)
+        end-wall (System/nanoTime)
+        end-cpu (when supported? (.getCurrentThreadCpuTime bean))
+        end-bytes (when supported? (.getThreadAllocatedBytes bean tid))]
+    [result {:wall-ns (- end-wall wall)
+             :cpu-ns (when supported? (- end-cpu cpu))
+             :allocated-bytes (when supported? (- end-bytes bytes))}]))
+(defn- boundary!
+  "Completed inclusive span. CPU/allocation cover this caller thread only.
+   Owner-returning operations must escrow their result INSIDE f. No guest or
+   owner values enter this bounded diagnostic record. Nested spans overlap."
+  [operation f]
+  (let [[result metrics] (measurement f)]
+    ;; Pure owner-ledger models can call cleanup without constructing a run.
+    ;; Diagnostics must not manufacture controller state or consume its claim.
+    (when (some? @state)
+      (swap! state update :boundaries
+             (fn [rows]
+               (let [rows (or rows [])]
+                 (require! (< (count rows) 512) "Finite boundary observation bound exceeded")
+                 (conj rows {:operation operation :call (:active-call @state)
+                             :thread (.getName (Thread/currentThread))
+                             :scope :caller-thread :inclusive true :metrics metrics})))))
+    result))
 (defn- phase! [stage measured]
   (let [index (count (:phases @state))]
     (require! (= stage (nth profile/jvm-stages index nil)) "Finite stage duplicate/order mismatch")
@@ -155,10 +179,17 @@
         _ (do (println (json/write-str {:stage :fresh-init :operation :strict-init :status :running})) (flush))
         [checked check-time]
         (measurement
-          #(let [branch (source/prepare-bootstrap-support factory restored (:resolve-input bootstrap))
-                 _ (swap! state assoc :bootstrap-support branch)
-                 checked (source/check-restored! {:factory factory :restored (:candidate branch) :support (:support branch)})]
-             (swap! state assoc :checked checked) checked))]
+          #(let [branch (boundary! :bootstrap-support
+                          (fn []
+                            (println (json/write-str {:operation :bootstrap-support :status :running})) (flush)
+                            (let [branch (source/prepare-bootstrap-support factory restored (:resolve-input bootstrap))]
+                              (swap! state assoc :bootstrap-support branch) branch)))
+                 checked (boundary! :strict-admission
+                           (fn []
+                             (println (json/write-str {:operation :strict-admission :status :running})) (flush)
+                             (let [checked (source/check-restored! {:factory factory :restored (:candidate branch) :support (:support branch)})]
+                               (swap! state assoc :checked checked) checked)))]
+             checked))]
     (phase! :fresh-init {:measurement :separate-segments :segments [{:phase :restore :metrics restore-time}
                                                                   {:phase :strict-init :metrics check-time}]})
     (println (json/write-str {:stage :graph-helpers :operation :source-preparation :status :running})) (flush)
@@ -220,10 +251,13 @@
 (defn- close-tracked-context! [index]
   (let [{:keys [context prefix closed?]} (nth (:contexts @ownership) index)]
     (when-not closed?
-      (if prefix
-        (owners/release-prefix! ownership [:context index] {:context context :prefix prefix}
-                                prototype.resident-init-prefix/release-prefix resident/close! true)
-        (owners/operation! ownership [:context-close index] #(resident/close! context)))
+      (boundary! :context-retirement
+        (fn []
+          (if prefix
+            (owners/release-prefix! ownership [:context index] {:context context :prefix prefix}
+              ;; Include the owner-ledger escrow before collecting diagnostics.
+              prefix/release-prefix resident/close! true boundary!)
+            (owners/operation! ownership [:context-close index] #(resident/close! context)))))
       (swap! ownership assoc-in [:contexts index :closed?] true))))
 (defn dispose!
   "Close known owners exactly once before Source. Unknown partial work retains
@@ -323,8 +357,9 @@
 (defn- invoke! [context file entry args signature expected selected-worker label]
   (swap! state assoc :active-call label)
   (let [start (count (:route-events @state))
-        called (owned-call! [:call label] #(resident/call context file (kernel-name entry) args signature)
-                 #(own-context! (:context %) (get-in @state [:prefix-result :prefix])))
+        called (boundary! :resident-call
+                 #(owned-call! [:call label] (fn [] (resident/call context file (kernel-name entry) args signature))
+                    (fn [returned] (own-context! (:context returned) (get-in @state [:prefix-result :prefix])))))
         events (subvec (vec (:route-events @state)) start)
         selected (filterv #(and (= selected-worker (:function %)) (= :specialized (:route %))) events)
         result (:value called)]
@@ -374,14 +409,19 @@
       ;; Only this known pure rejection discharges the negative operation.
       (swap! ownership #(-> % (assoc :unsafe-partial? false) (dissoc :active-operation))))))
 
-(defn- applications! []
-  (let [_ (swap! state assoc :application-cache (lazy/code-cache))
+(defn- applications!
+  ([] (applications! :all))
+  ([mode]
+  (let [_ (require! (contains? #{:all :prepare :finish} mode) "Unknown finite application segment")
+        _ (when (contains? #{:all :prepare} mode) (swap! state assoc :application-cache (lazy/code-cache)))
         rows (get-in @state [:application :corpus]) compile-var (requiring-resolve 'prototype.typed-tail-execution/compile-entry)
         compile @compile-var]
     (with-redefs-fn {compile-var (route-observer compile)}
       (fn []
-        (perform! :load-a #(doseq [[index row] (map-indexed vector rows)] (load-version! row :a (zero? index))))
-        (perform! :select-a #(doseq [row rows] (select-version! row :a)))
+        (when (contains? #{:all :prepare} mode)
+          (perform! :load-a #(doseq [[index row] (map-indexed vector rows)] (load-version! row :a (zero? index))))
+          (perform! :select-a #(doseq [row rows] (select-version! row :a))))
+        (when (contains? #{:all :finish} mode)
         (perform! :call-a
           #(doseq [row rows]
              (let [results (call-version! row :a :a)
@@ -410,19 +450,98 @@
                        :source-b-sha256 (get-in @state [:versions (:id row) :b :source-sha256])
                        :unit-a (:unit-digest a) :unit-b (get-in @state [:versions (:id row) :b :unit-digest])
                        :region-a (get-in a [:selection :region-key]) :region-b (get-in @state [:versions (:id row) :b :selection :region-key])
-                       :a (:results a) :b b-results :a-again a-again :wrong-image-rejected true :cache cache}))))))))
+                       :a (:results a) :b b-results :a-again a-again :wrong-image-rejected true :cache cache}))))))))))
 
-(defn run!
-  "Construct/restore/check once, then finite genuine file A/B/A and disposal.
-   This controller grants no trust from receipts and retries no guest effects."
+(defn- fail-run! [failure]
+  (swap! state assoc :phase :failed :failure failure :checking-checkpoint (source/checking-checkpoint)
+         :preparation-checkpoint (source/checkpoint) :helper-checkpoint (helper/checkpoint))
+  (if (and (:lease @ownership) (not (:unsafe-partial? @ownership)) (nil? (:disposal-phase @ownership)))
+    (try (dispose!) (catch Throwable cleanup
+                      (when-not (identical? failure cleanup) (.addSuppressed ^Throwable failure cleanup))))
+    (swap! state assoc :disposal-phase :unresolved))
+  (throw failure))
+
+(defn initialize!
+  "Developer staging only: construct/restore/check and retain the actual Init
+   prefix owners once. Returns bounded diagnostics, never owners or a full-run
+   receipt. This is not an additional authenticated bootstrap entrypoint.
+   Use continue! or dispose! explicitly; no effects are automatically retried."
   [approved]
   (construct! approved)
   (try
     (restore-and-prepare!)
     (perform! :init-prefix prepare-prefix!)
-    (applications!)
+    (let [stages (mapv :stage (:phases @state))]
+      (require! (= (subvec profile/jvm-stages 0 9) stages) "Incomplete retained Init preparation")
+      (swap! state assoc :phase :initialized)
+      {:status :development-initialized :stages stages
+       :consumer-contract-sha256 (get-in @state [:approved-contract :sha256])
+       :consumer-implementation-sha256 (:implementation-sha256 approved)
+       :compatibility-profile profile/jvm-profile-id})
+    (catch Throwable failure (fail-run! failure))))
+
+(defn prepare-applications!
+  "Developer staging only: load/select A once and retain its actual owners.
+   Neither this diagnostic result nor initialize! is a bootstrap entrypoint."
+  []
+  (let [before @state]
+    (require! (and (= :initialized (:phase before))
+                   (not (:unsafe-partial? @ownership)) (nil? (:disposal-phase @ownership))
+                   (compare-and-set! state before (assoc before :phase :preparing-applications)))
+              "Application preparation requires one live initialized stage"))
+  (try
+    (applications! :prepare)
+    (let [stages (mapv :stage (:phases @state))]
+      (require! (= (subvec profile/jvm-stages 0 11) stages) "Incomplete retained A preparation")
+      (swap! state assoc :phase :applications-ready :sample-batches 0)
+      {:status :development-applications-ready :stages stages})
+    (catch Throwable failure (fail-run! failure))))
+
+(defn- with-route-observation [f]
+  (let [compile-var (requiring-resolve 'prototype.typed-tail-execution/compile-entry)]
+    (with-redefs-fn {compile-var (route-observer @compile-var)} f)))
+
+(defn sample-a!
+  "Explicit developer repetition of reviewed A cases, not a general purity test.
+   One corpus row, at most four batches; no caller arguments or callback entry.
+   Return only scalar call summaries and leave the finite gate stages untouched.
+   Serialize developer operations; a partial failure is terminal."
+  []
+  (let [before @state ledger @ownership rows (get-in before [:application :corpus])
+        batch (:sample-batches before)]
+    ;; Reserve64 ledger slots for the remaining finite program. Refuse before
+    ;; any invocation, including if other developer work consumed owner slots.
+    (require! (and (= :applications-ready (:phase before)) (= 1 (count rows))
+                   (integer? batch) (<= 0 batch 3)
+                   (<= (+ (count (:contexts ledger)) (count (:calls (first rows))) 64) 128)
+                   (not (:unsafe-partial? ledger)) (nil? (:disposal-phase ledger))
+                   (compare-and-set! state before (assoc before :phase :sampling :sample-batches (inc batch))))
+              "A sampling requires one live prepared row and remaining batch/owner budget")
+    (try
+      (let [effects (:effects before)
+            results (with-route-observation
+                      #(mapv (fn [row] {:id (:id row)
+                                        :calls (call-version! row :a [:sample (inc batch)])}) rows))]
+        (require! (= effects (:effects @state)) "Reviewed sampling cases executed an unexpected callback")
+        (swap! state assoc :phase :applications-ready)
+        {:status :development-sampled :batch (inc batch) :results results})
+      (catch Throwable failure (fail-run! failure)))))
+
+(defn continue!
+  "Claim one retained initialized developer stage, run the existing finite A/B/A
+   program and dispose. Only all seventeen completed stages return :passed.
+   Reject duplicate/out-of-order claims before cleanup or any guest operation."
+  []
+  (let [before @state mode (if (= :applications-ready (:phase before)) :finish :all)]
+    (require! (and (contains? #{:initialized :applications-ready} (:phase before))
+                   (not (:unsafe-partial? @ownership)) (nil? (:disposal-phase @ownership))
+                   (compare-and-set! state before (assoc before :phase :continuing)))
+              "Finite JVM continuation requires one live initialized stage")
+  (try
+    (if (= :finish mode) (applications! :finish) (applications!))
     (perform! :dispose dispose!)
-    (let [stages (mapv :stage (:phases @state)) application (:application @state)
+    (let [approved (:bootstrap @state)
+          stages (mapv :stage (:phases @state)) application (:application @state)
           result (merge (:execution approved)
                         {:status :passed :disposal-phase :disposed :stages stages
                          :consumer-contract-sha256 (get-in @state [:approved-contract :sha256])
@@ -433,11 +552,11 @@
                                         :phases (:phases @state)}})]
       (require! (= profile/jvm-stages stages) "Incomplete finite JVM application stage evidence")
       (swap! state assoc :phase :passed :result result) result)
-    (catch Throwable failure
-      (swap! state assoc :phase :failed :failure failure :checking-checkpoint (source/checking-checkpoint)
-             :preparation-checkpoint (source/checkpoint) :helper-checkpoint (helper/checkpoint))
-      (if (and (:lease @ownership) (not (:unsafe-partial? @ownership)) (nil? (:disposal-phase @ownership)))
-        (try (dispose!) (catch Throwable cleanup
-                          (when-not (identical? failure cleanup) (.addSuppressed ^Throwable failure cleanup))))
-        (swap! state assoc :disposal-phase :unresolved))
-      (throw failure))))
+    (catch Throwable failure (fail-run! failure)))))
+
+(defn run!
+  "Construct/restore/check once, then finite genuine file A/B/A and disposal.
+   This controller grants no trust from receipts and retries no guest effects."
+  [approved]
+  (initialize! approved)
+  (continue!))

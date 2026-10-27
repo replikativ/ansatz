@@ -7,6 +7,25 @@
   (fn [& _] (swap! calls update key (fnil inc 0))
     (when failure (throw failure)) result))
 
+(deftest diagnostic-failure-cannot-lose-or-reinvoke-a-returned-prefix-owner
+  (let [state (atom {}) calls (atom {}) returned {:context (Object.)}
+        failure (ex-info "diagnostic failed" {})
+        release (counter calls :release returned nil)
+        close (counter calls :close nil nil)
+        observed (fn [operation invoke]
+                   (let [result (invoke)]
+                     (is (= :prefix-release-and-adoption operation))
+                     (is (identical? returned (get-in @state [:cleanup-operations [:p :release] :result])))
+                     (throw failure)
+                     result))]
+    (is (identical? failure (thrown #(owners/release-prefix! state :p {:context :old :prefix :prefix}
+                                     release close true observed))))
+    (is (= {:release 1} @calls))
+    ;; Resuming known cleanup uses the escrowed branch; release cannot repeat.
+    (is (identical? returned (owners/release-prefix! state :p {:context :old :prefix :prefix}
+                              release close true)))
+    (is (= {:release 1 :close 2} @calls))))
+
 (deftest pre-adoption-rejection-keeps-checked-environment-and-lease
   (let [state (atom {:phase :ready}) checked (Object.) prepared (Object.) lease (Object.)
         calls (atom {}) failure (ex-info "bad Factory/controller/configuration" {})]
