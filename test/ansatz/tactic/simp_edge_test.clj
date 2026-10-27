@@ -24,8 +24,6 @@
 ;; isPerm detection
 ;; ============================================================
 
-
-
 (deftest test-perm-comm-detected
   (testing "add_comm is detected as permutative (LHS and RHS differ only in bvar order)"
     (let [env (require-env)

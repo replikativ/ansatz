@@ -34,8 +34,6 @@
     (is (proof/solved? ps))
     (is (meta/closed-expr? (:meta-mctx ps) meta-term))))
 
-
-
 (deftest zonk-instantiates-expression-and-level-mvars
   (testing "direct expression and level assignments are chased together"
     (let [u (lvl/mvar 10)

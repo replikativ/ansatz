@@ -25,8 +25,6 @@
 ;; Basic elaboration (no implicits needed)
 ;; ============================================================
 
-
-
 (deftest test-elab-sort-shortcuts
   (testing "Prop and Type elaborate correctly"
     (let [env (env/with-extension (env/empty-env) :instances {})]

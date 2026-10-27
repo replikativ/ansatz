@@ -23,8 +23,6 @@
 ;; simp-expr tests (expression-level simplification)
 ;; ============================================================
 
-
-
 (deftest test-simp-expr-nat-literal-reduction
   (testing "Nat.add 3 4 reduces to 7 via WHNF"
     (let [env (require-env)

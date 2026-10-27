@@ -32,8 +32,6 @@
 (defn- whnf [env expr]
   (red/whnf env expr))
 
-
-
 (deftest test-structural-self-call-probe-rolls-back-metacontext
   (testing "failed fixed-parameter probes do not leak speculative mvar assignments"
     (let [prop (e/sort' lvl/zero)

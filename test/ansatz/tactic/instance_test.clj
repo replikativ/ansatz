@@ -27,8 +27,6 @@
 ;; Basic instance lookup
 ;; ============================================================
 
-
-
 (deftest test-get-instances
   (testing "Instance index has candidates for common classes"
     (let [idx @test-index]

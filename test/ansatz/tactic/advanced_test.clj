@@ -83,8 +83,6 @@
 ;; Omega tests — ground arithmetic
 ;; ============================================================
 
-
-
 (deftest test-omega-ground-eq
   (testing "Ground equalities"
     (let [env (require-env)]

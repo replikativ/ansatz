@@ -20,8 +20,6 @@
 (defn- fresh-ctx [id type]
   (meta/add-expr-mvar-decl meta/empty-context id type {}))
 
-
-
 (deftest test-bare-mvar-assign
   (testing "a bare metavariable unifies with any term and gets assigned"
     (let [env (require-env)

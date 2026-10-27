@@ -32,8 +32,6 @@
 ;; Grind via rfl
 ;; ============================================================
 
-
-
 (deftest test-grind-rfl
   (testing "grind solves a = a via rfl"
     (let [env (require-env)

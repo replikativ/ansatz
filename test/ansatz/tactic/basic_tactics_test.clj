@@ -31,8 +31,6 @@
 ;; exact
 ;; ============================================================
 
-
-
 (deftest test-exact-form-closes-goal
   (testing "exact elaborates a surface term against the current target"
     (let [env (env/with-extension (env/empty-env) :instances {})

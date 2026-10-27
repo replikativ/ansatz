@@ -39,8 +39,6 @@
 ;; Test 1: ∀ (a : Prop), a → a — intro + intro + assumption
 ;; ============================================================
 
-
-
 (deftest test-prop-identity
   (testing "∀ (a : Prop), a → a via intro + intro + assumption"
     (let [env (minimal-env)

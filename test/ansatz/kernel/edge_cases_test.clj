@@ -19,8 +19,6 @@
 ;; Proof irrelevance
 ;; ============================================================
 
-
-
 (deftest test-proof-irrelevance-basic
   (testing "Two proofs of same proposition are def-eq"
     (let [env (require-env)

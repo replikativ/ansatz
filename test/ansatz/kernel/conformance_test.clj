@@ -31,8 +31,6 @@
         jT (.inferType jtc e)]
     (.isDefEq jtc cT jT)))
 
-
-
 (deftest two-kernel-conformance
   (testing "Clojure tactic-kernel (tc/reduce) agrees with the Java TypeChecker on a sample of Init decls"
     (if-let [e-env @init-medium-env]

@@ -17,8 +17,6 @@
   (or @init-medium-env
       (throw (ex-info "bundled Init unavailable" {}))))
 
-
-
 (deftest smoke-test-repl-workflow
   (testing "Full REPL workflow: prove, intro, rfl, qed"
     (let [env (require-env)

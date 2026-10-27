@@ -17,8 +17,6 @@
 (defn- nat-eq [a b] (e/app* (e/const' (name/from-string "Eq") [u1]) nat a b))
 (defn- fh [ps n] (some (fn [[id d]] (when (= n (:name d)) id)) (:lctx (proof/current-goal ps))))
 
-
-
 (deftest test-grind-transitivity
   (let [goal (e/forall' "a" nat (e/forall' "b" nat (e/forall' "c" nat
                                                               (e/forall' "h1" (nat-eq (e/bvar 2) (e/bvar 1))

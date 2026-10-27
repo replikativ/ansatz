@@ -28,8 +28,6 @@
 ;; Apply error cases
 ;; ============================================================
 
-
-
 (deftest test-apply-nonexistent-const
   (testing "Apply with nonexistent constant throws"
     (let [nat (e/const' (name/from-string "Nat") [])

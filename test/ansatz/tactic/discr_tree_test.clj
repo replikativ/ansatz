@@ -20,8 +20,6 @@
 ;; Key encoding tests
 ;; ============================================================
 
-
-
 (deftest test-expr-to-keys-const
   (testing "Bare constant encodes to single const key"
     (let [keys (dt/expr->keys (e/const' (name/from-string "Nat") []))]

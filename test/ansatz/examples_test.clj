@@ -56,8 +56,6 @@
 ;; Structure tests (init-medium sufficient)
 ;; ============================================================
 
-
-
 (deftest test-structure-definition
   (testing "Define structures with auto-generated projections"
     (binding [a/*verbose* false]

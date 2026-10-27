@@ -29,8 +29,6 @@
 ;; Instance resolution tests
 ;; ============================================================
 
-
-
 (deftest test-resolve-decidable-eq-nat
   (testing "Resolve Decidable (Eq Nat 0 0)"
     (let [env (require-env)
