@@ -1317,7 +1317,7 @@
                       (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
     (swap! ansatz-env env/add-constant ax)
-    (decl/plan! (str fn-name) type-ansatz (count pairs))
+    (decl/plan! env (str fn-name) type-ansatz (count pairs))
     (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
     ;; codegen the recursive body — body-ansatz already IS the direct-recursion term
     ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
@@ -1356,7 +1356,7 @@
          cname (name/from-string (str fn-name))
          ax (env/mk-axiom cname [] type-ansatz)]
      (swap! ansatz-env env/add-constant ax)
-     (decl/plan! (str fn-name) type-ansatz (count pairs))
+     (decl/plan! env (str fn-name) type-ansatz (count pairs))
      (println "⚠ foreign:" fn-name "— trusted Clojure fn asserted at its type, NOT verified")
      :foreign))
   ([fn-name params ret-type-form impl]
@@ -1640,7 +1640,7 @@
         ci (env/mk-def cname [] type-ansatz body-ansatz)
         _ (swap! ansatz-env env/check-constant ci)
         ;; Register arity for Clojure compilation (FAP/PAP dispatch)
-        _ (decl/plan! (str fn-name) type-ansatz (count pairs))
+        _ (decl/plan! env (str fn-name) type-ansatz (count pairs))
         equation-errors (atom [])
         equation-names (atom [])
         equation-auxiliaries (atom [])
@@ -2377,10 +2377,16 @@
 
 (clojure.core/defn tag-kernel-name
   "Attach the kernel constant name to a compiled fn (no-op for non-IObj values)."
-  [f fn-name]
-  (if (instance? clojure.lang.IObj f)
-    (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
-    f))
+  ([f fn-name]
+   (if (instance? clojure.lang.IObj f)
+     (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
+     f))
+  ([f fn-name runtime-sym]
+   ;; LCNF Decl.name identifies a global independently of its caller. Capture
+   ;; the Clojure Var's namespace at macro expansion, since *ns* at execution
+   ;; may be a test runner or REPL namespace instead of the defining namespace.
+   (swap! arity-registry update (str fn-name) assoc :sym runtime-sym)
+   (tag-kernel-name f fn-name)))
 
 (clojure.core/defn- csimp-head
   "The const-name head of one side of a csimp equation: a bare symbol `f`, or the head of an
@@ -2440,16 +2446,17 @@
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
                       [{} (first body-and-opts)])
         partial? (:partial (meta fn-name))
-        nm (vary-meta fn-name dissoc :- :tag :partial)]
+        nm (vary-meta fn-name dissoc :- :tag :partial)
+        runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
     ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
     ;; to find the definition from the VALUE (e.g. generative checkers)
     (cond
       partial?
-      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm))
+      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm '~runtime-sym))
       (:termination-by opts)
-      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm))
+      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm '~runtime-sym))
       :else
-      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm)))))
+      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm '~runtime-sym)))))
 
 (defmacro foreign
   "Declare a TRUSTED FOREIGN function — an arbitrary Clojure fn asserted at a kernel type,
@@ -2462,8 +2469,9 @@
    Then `(map (fn [x] (sqrt x)) xs)` in an a/defn body verifies + optimizes the pipeline
    structure while `sqrt` stays a trusted hole."
   [fn-name params ret-type impl]
-  (let [nm (vary-meta fn-name dissoc :- :tag)]
-    `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm))))
+  (let [nm (vary-meta fn-name dissoc :- :tag)
+        runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
+    `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm '~runtime-sym))))
 
 (defmacro implemented_by
   "Lean's @[implemented_by] / @[extern] correspondence, named to match — an alias of `a/foreign`:

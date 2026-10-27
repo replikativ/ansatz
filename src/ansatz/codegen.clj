@@ -11,6 +11,7 @@
             [ansatz.kernel.level :as level]
             [ansatz.inductive :as inductive]
             [ansatz.codegen.decl :as decl]
+            [ansatz.codegen.types :as types]
             [ansatz.surface.ingest :as ingest :refer [structure-registry codegen-registry arity-registry]])
   (:import [ansatz.kernel ConstantInfo TypeChecker]))
 
@@ -109,6 +110,16 @@
    "Int.ediv" 'ansatz.codegen.numeric/ediv "Int.emod" 'ansatz.codegen.numeric/emod
    "Int.fdiv" 'ansatz.codegen.numeric/fdiv "Int.fmod" 'ansatz.codegen.numeric/fmod})
 
+;; Init/Prelude.lean List.foldl: foldl f a [] = a;
+;; foldl f a (b :: l) = foldl f (f a b) l. The bundled export carries
+;; only brecOn, without eq_def or a compiler replacement for this declaration.
+;; Like List.length's native lowering, reduce executes these equations directly.
+(def ^:private list-foldl
+  (:fn-form (decl/emit-wrapper
+             '[f_ init_ xs_]
+             '(clojure.core/reduce (fn [acc_ x_] ((f_ acc_) x_)) init_ xs_)
+             {})))
+
 (def ^:private builtin-app
   (merge
    ;; n-ary arithmetic / comparison saturating to a bare op. Nat add/mul/succ use the
@@ -134,7 +145,9 @@
    {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
-   {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
+   {"List.foldl"    (fn [_ _ _ ca _]
+                      (decl/apply-args {:arity 3 :erased 2} list-foldl ca))
+    "Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
@@ -185,10 +198,10 @@
       (let [then-fn (nth args 3)
             else-fn (nth args 4)
             then-body (if (e/lam? then-fn)
-                        (ansatz->clj env (e/lam-body then-fn) (conj names "_h"))
+                        (ansatz->clj env (e/lam-body then-fn) (types/bind-type names "_h" (e/lam-type then-fn)))
                         (nth ca 3))
             else-body (if (e/lam? else-fn)
-                        (ansatz->clj env (e/lam-body else-fn) (conj names "_h"))
+                        (ansatz->clj env (e/lam-body else-fn) (types/bind-type names "_h" (e/lam-type else-fn)))
                         (nth ca 4))
             dec-expr (nth args 2)
             [dec-head dec-args] (e/get-app-fn-args dec-expr)
@@ -213,7 +226,10 @@
               x-name (when (e/lam? f-expr) (or (e/lam-name f-expr) "x"))
               ih-name (when (and f-body-1 (e/lam? f-body-1)) (or (e/lam-name f-body-1) "IH"))
               compiled-body (when f-body-2
-                              (ansatz->clj env f-body-2 (conj names x-name ih-name)))
+                              (ansatz->clj env f-body-2
+                                           (types/bind-type
+                                            (types/bind-type names x-name (e/lam-type f-expr))
+                                            ih-name (e/lam-type f-body-1))))
               ih-sym (symbol ih-name)
               replace-ih (fn replace-ih [form]
                            (cond
@@ -235,7 +251,8 @@
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
   (merge
-   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
+   {"List.foldl" list-foldl
+    "Nat.zero" 0 "Bool.true" true "Bool.false" false
     "Nat.succ" 'inc' "Int.ofNat" 'identity
     "Float.pow" (nary-op2 (fn [x y] (list 'Math/pow x y)) [])
     "Int.neg" '-' "Int.natAbs" 'ansatz.codegen.numeric/nat-abs
@@ -270,10 +287,13 @@
 
 (clojure.core/defn- storedef-compile!
   "Bridge to ansatz.codegen.storedef/compile-store-def! (requiring-resolve breaks the
-   namespace cycle). Returns the {:arity :erased :sym} registry entry or nil; memoized
-   over there, so repeated attempts on uncompilable heads are cheap."
+   namespace cycle). Returns a successful {:arity :erased :sym} entry or nil
+   for ineligible constants; unsupported definitions raise a named codegen error."
   [env ^String cname]
   ((requiring-resolve 'ansatz.codegen.storedef/compile-store-def!) env cname))
+
+(clojure.core/defn- storedef-compile? [env cname]
+  ((requiring-resolve 'ansatz.codegen.storedef/try-compile-store-def!) env cname))
 
 (clojure.core/defn- csimp-target
   "Lean @[csimp] f→g: return g only when codegen can actually LOWER it as a head
@@ -284,7 +304,10 @@
    An f that already has a NATIVE lowering keeps it: a csimp swap must not hijack e.g.
    List.length → count into a compiled loop."
   [env h]
-  (when-let [g (get (env/get-extension env :csimp {}) h)]
+  ;; Compiler/CSimpAttr.lean replaceConstant? and LCNF/Simp/SimpValue.lean
+  ;; applyImplementedBy? both replace the global constant, preserving arguments.
+  (when-let [g (or (get (env/get-extension env :csimp {}) h)
+                   (get (env/get-extension env :implemented-by {}) h))]
     (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h))
       (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
                 (contains? @arity-registry g)
@@ -292,7 +315,10 @@
                   (or (.isCtor ^ConstantInfo ci)
                       (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
                       (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))))
-                (when *compile-store-defs* (some? (storedef-compile! env g))))
+                (when *compile-store-defs*
+                  ;; An optional compiler replacement may use native machinery
+                  ;; absent from this runtime. Keep the original definition then.
+                  (some? (storedef-compile? env g))))
         g))))
 
 (def ^:private match-aux-re #"\.match_\d+$")
@@ -538,7 +564,14 @@
     (ansatz->clj env
                  (beta-apply (e/lift minor n 0)
                              (map #(e/bvar (- n % 1)) (range n)))
-                 (into names (map str actuals)))))
+                 (loop [ctx names t (types/infer-type env minor names) xs actuals]
+                   (if (empty? xs) ctx
+                       (let [t (when t (types/whnf env t ctx))]
+                         (recur (if (and t (e/forall? t))
+                                  (types/bind-type ctx (str (first xs)) (e/forall-type t))
+                                  (conj ctx (str (first xs))))
+                                (when (and t (e/forall? t)) (e/forall-body t))
+                                (rest xs))))))))
 
 (clojure.core/defn- share-lazy-arguments [body replacements]
   (let [uses (frequencies (tree-seq coll? seq body))
@@ -655,7 +688,14 @@
                                                         (map #(e/bvar (- nf % 1)) (range nf))))
                                 [minor actuals] (e/get-app-fn-args rhs)
                                 actual-syms (mapv (fn [_] (gensym "arg_")) actuals)
-                                ctx (into names (map str fields))
+                                ctx (loop [ctx names
+                                           t (reduce (fn [t arg]
+                                                       (e/instantiate1 (e/forall-body t) arg))
+                                                     (.type ctor) (take (.numParams ctor) args))
+                                           fs fields]
+                                      (if (empty? fs) ctx
+                                          (recur (types/bind-type ctx (str (first fs)) (e/forall-type t))
+                                                 (e/forall-body t) (rest fs))))
                                 body (share-lazy-arguments
                                       (compile-minor env minor ctx actual-syms)
                                       (zipmap actual-syms (map #(ansatz->clj env % ctx) actuals)))]
@@ -705,6 +745,8 @@
   "Compile Ansatz Expr to Clojure form for eval."
   [env expr names]
   (cond
+    ;; ToLCNF.visit / visitAppArg erase before lowering the expression's body.
+    (types/irrelevant? env expr names) nil
     ;; Nat literal: kernel Nats are BigInteger — emit a primitive long when it fits, so
     ;; literals don't seed accumulator chains with bigint arithmetic (~40% on hot loops).
     ;; The arithmetic builtins are auto-promoting (+'/*'/inc'), so unbounded-Nat semantics
@@ -721,7 +763,7 @@
     ;; hygienic names that aren't, and duplicates would shadow incorrectly.
     (e/lam? expr) (let [n (str "v" (count names))]
                     (list 'fn [(symbol n)]
-                          (ansatz->clj env (e/lam-body expr) (conj names n))))
+                          (ansatz->clj env (e/lam-body expr) (types/bind-type names n (e/lam-type expr)))))
     (e/app? expr)
     (let [[head args] (e/get-app-fn-args expr)]
       (if (e/const? head)
@@ -732,9 +774,31 @@
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
               cc (when-not (contains? *raw-constants* h) (get @arity-registry h))
+              ;; The native Nat decision is lowered directly by dite's handler;
+              ;; ordinary type, predicate and proof erasure uses visitAppArg below.
+              native-decision? (when (and (= h "dite") (> (count args) 2))
+                                 (let [[dh _] (e/get-app-fn-args (nth args 2))]
+                                   (and (e/const? dh)
+                                        (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
+                                         (name/->string (e/const-name dh))))))
+              ;; This backend's native literal handlers consume the numeral,
+              ;; not its dictionary (unlike ordinary Lean dictionary calls).
+              erased-type-heads (case h
+                                  "OfNat.ofNat" #{"OfNat"}
+                                  "OfScientific.ofScientific" #{"OfScientific"}
+                                  nil)
               ;; Erased parameters never reach expression lowering or runtime calls.
               ca (mapv (fn [i arg]
-                         (when-not (< i (or (:erased cc) 0))
+                         (when-not (or (< i (or (:erased cc) 0))
+                                       (types/irrelevant? env arg names erased-type-heads)
+                                       ;; hop extracts the actual field from the
+                                       ;; raw instance before emitting operands;
+                                       ;; its type/dictionary prefix is not emitted.
+                                       (and (#{"HAdd.hAdd" "HMul.hMul" "HSub.hSub"
+                                               "HDiv.hDiv" "HMod.hMod" "HPow.hPow"} h)
+                                            (< i 4))
+                                       (and (= h "dite")
+                                            (and (= i 2) native-decision?)))
                            (ansatz->clj env arg names))) (range) args)]
           (if-let [bi (or (when-let [entry
                                      (some (fn [{:keys [prefix depth] :as entry}]
@@ -1002,7 +1066,9 @@
             ;; Plain (non-abbrev) recursive/wrapper store def: compile it from its exported
             ;; equation lemma (f.eq_def) or non-recursive value (ansatz.codegen.storedef),
             ;; which interns + registers {:arity :erased :sym}, then re-dispatch (hits the
-            ;; :sym-aware registry path below). Memoized; failure falls through unchanged.
+            ;; :sym-aware registry path below). All builtin/numeric/instance-field
+            ;; lowerings above are exhausted here, so this is a terminal request;
+            ;; optional replacement probes use storedef-compile? instead.
                       (when (and *compile-store-defs* (not (contains? @arity-registry h)))
                         (when (storedef-compile! env h)
                           (ansatz->clj env expr names)))
@@ -1086,6 +1152,6 @@
                                                   (- (count names) (inc (e/bvar-idx value)))))]
                     (list 'let [(symbol n) compiled]
                           (binding [*local-conventions* (assoc *local-conventions* (count names) cc)]
-                            (ansatz->clj env (e/let-body expr) (conj names n)))))
+                            (ansatz->clj env (e/let-body expr) (types/bind-let names n (e/let-type expr) value)))))
     :else expr))
 

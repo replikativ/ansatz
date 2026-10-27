@@ -5,6 +5,7 @@
    etaIfUnderApplied, Compiler/LCNF/Simp/Main.lean inlineApp?."
   (:require [clojure.walk :as walk]
             [ansatz.kernel.expr :as e]
+            [ansatz.codegen.types :as types]
             [ansatz.surface.ingest :refer [arity-registry]]))
 
 (defn convention [params erased value?]
@@ -13,16 +14,17 @@
 (defn plan!
   "Reserve the declaration's parameter list for recursive references. Emission
    replaces this reservation with the actual wrapper's convention."
-  [cname type num-params]
+  [env cname type num-params]
   (let [erased (loop [t type i 0]
                  (if (and (< i num-params) (e/forall? t) (not= :default (e/forall-info t)))
                    (recur (e/forall-body t) (inc i)) i))
         cc (convention (vec (repeatedly (- num-params erased) #(gensym "p")))
                        erased (zero? num-params))]
-    (let [kinds (loop [t type i 0 kinds []]
+    (let [kinds (loop [t type i 0 kinds [] ctx []]
                   (if (= i erased) kinds
                       (recur (e/forall-body t) (inc i)
-                             (conj kinds (if (e/sort? (e/forall-type t)) :type :implicit)))))]
+                             (conj kinds (if (types/irrelevant-type? env (e/forall-type t) ctx) :type :implicit))
+                             (types/bind-type ctx "_" (e/forall-type t)))))]
       (swap! arity-registry assoc cname (assoc cc :erasure-kinds kinds)))
     cc))
 
@@ -65,7 +67,9 @@
         raw (compile-term)
         [params body] (or (peel-fns raw n)
                           (let [ps (vec (repeatedly n #(gensym "p")))]
-                            [ps (reduce (fn [f a] (list f a)) raw ps)]))
+                            ;; ToLCNF.visit erases type formers and proofs as a whole.
+                            ;; Keep the surface wrapper's calling convention around nil.
+                            [ps (when (some? raw) (reduce (fn [f a] (list f a)) raw ps))]))
         erased' (count (take-while (fn [i] (or (= :type (nth erasure-kinds i nil))
                                                (not (occurs? (nth params i) body))))
                                    (range erased)))

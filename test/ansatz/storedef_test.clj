@@ -7,7 +7,9 @@
    gracefully when the booted store carries no equation lemmas."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
+            [ansatz.eqns :as eqns]
             [ansatz.codegen :as cg]
+            [ansatz.codegen.types :as types]
             [ansatz.codegen.storedef :as sd]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -133,3 +135,139 @@
             code (cg/ansatz->clj (a/env) term [])]
         (is (not-any? #(and (symbol? %) (= "ansatz.storedef.runtime" (namespace %)))
                       (tree-seq coll? seq code)))))))
+
+(deftest unsupported-store-definition-reports-reason-without-poisoning-search
+  (let [nm (name/from-string "RuntimeIdentity")
+        nat (e/const' (name/from-string "Nat") [])
+        ty (e/forall "x" nat nat :default)
+        good (env/mk-def nm [] ty (e/lam "x" nat (e/bvar 0) :default) :hints {:regular 1})
+        bad (env/mk-def (name/from-string "RuntimeUnsupported") [] ty
+                        (e/lam "x" nat (e/const' (name/from-string "Nat.brecOn") []) :default)
+                        :hints {:regular 1})
+        en (-> (a/env) (env/add-constant good) (env/add-constant bad))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo
+                          #"RuntimeUnsupported.*Nat.brecOn.*equation"
+                          (sd/compile-store-def! en "RuntimeUnsupported")))
+    (let [entry (sd/compile-store-def! en "RuntimeIdentity")]
+      (is (= 7 ((deref (resolve (:sym entry))) 7)))))
+  (testing "a failed definition can compile after a runtime dependency becomes available"
+    (let [nm (name/from-string "RuntimeRetry")
+          dep (name/from-string "RuntimeDependency")
+          nat (e/const' (name/from-string "Nat") [])
+          ty (e/forall "x" nat nat :default)
+          ci (env/mk-def nm [] ty (e/lam "x" nat (e/app (e/const' dep []) (e/bvar 0)) :default) :hints {:regular 1})
+          en (env/add-constant (a/env) ci)
+          saved @a/codegen-registry]
+      (try
+        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"RuntimeRetry"
+                              (sd/compile-store-def! en "RuntimeRetry")))
+        (swap! a/codegen-registry assoc "RuntimeDependency"
+               (fn [_ expr names]
+                 (cg/ansatz->clj en (first (second (e/get-app-fn-args expr))) names)))
+        ;; A long-lived REPL can retain the former compiler's negative cache.
+        (swap! @#'sd/compiled assoc "RuntimeRetry" {:fail true})
+        (let [entry (sd/compile-store-def! en "RuntimeRetry")]
+          (is (= 8 ((deref (resolve (:sym entry))) 8))))
+        (finally (reset! a/codegen-registry saved))))))
+
+(deftest eta-contracted-store-value-keeps-full-runtime-arity
+  (let [nat (e/const' (name/from-string "Nat") [])
+        nm (name/from-string "RuntimeEtaSuccessor")
+        ci (env/mk-def nm [] (e/forall "n" nat nat :default)
+                       (e/const' (name/from-string "Nat.succ") []) :hints {:regular 1})
+        entry (sd/compile-store-def! (env/add-constant (a/env) ci) "RuntimeEtaSuccessor")]
+    (is (= 1 (:arity entry)))
+    (is (= 8 ((deref (resolve (:sym entry))) 7)))))
+
+(deftest recorded-equation-body-skips-inapplicable-equations
+  (let [nat (e/const' (name/from-string "Nat") [])
+        zero (e/lit-nat (biginteger 0))
+        nm (name/from-string "RuntimeEquationBody")
+        brec (env/lookup (a/env) (name/from-string "List.brecOn"))
+        levels (vec (repeat (count (env/ci-level-params brec)) lvl/zero))
+        brec-type (e/instantiate-level-params (.type brec) (zipmap (env/ci-level-params brec) levels))
+        ;; Valid kernel term with an unused recursion encoding: compiling its
+        ;; stored value is refused; its admitted direct equation must be used.
+        ci (env/mk-def nm [] (e/forall "n" nat nat :default)
+                       (e/lam "n" nat
+                              (e/let' "unused" brec-type
+                                      (e/const' (name/from-string "List.brecOn") levels) (e/bvar 1))
+                              :default)
+                       :hints {:regular 1})
+        en (env/check-constant (a/env) ci)
+        equation (fn [suffix arg]
+                   (let [lhs (e/app (e/const' nm []) arg)
+                         ty (e/forall "n" nat
+                                      (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                              nat lhs arg) :default)
+                         proof (e/lam "n" nat
+                                      (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)])
+                                              nat arg) :default)]
+                     (env/mk-thm (name/from-string (str "RuntimeEquationBody." suffix)) [] ty proof)))
+        specific (equation "atZero" zero)
+        general (equation "unfold" (e/bvar 0))
+        en (-> en (env/check-constant specific) (env/check-constant general))]
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"RuntimeEquationBody.*List.brecOn"
+                          (sd/compile-store-def! en "RuntimeEquationBody")))
+    (let [en (eqns/register-eqn-thms en nm [(.name specific) (.name general)] [])
+          entry (sd/compile-store-def! en "RuntimeEquationBody")]
+      (is (= (.name general) (:equation entry)))
+      (is (= 11 ((deref (resolve (:sym entry))) 11))))))
+
+(deftest optional-store-candidate-records-refusal-before-other-lowerings
+  (let [nat (e/const' (name/from-string "Nat") [])
+        type0 (e/sort' (lvl/succ lvl/zero))
+        c (fn [s] (e/const' (name/from-string s) [lvl/zero]))
+        nm (name/from-string "ExplicitNumeralInstance")
+        ci (env/mk-def nm []
+                       (e/forall "alpha" type0
+                                 (e/forall "n" nat (e/app* (c "OfNat") nat (e/bvar 0)) :default)
+                                 :default)
+                       (e/lam "alpha" type0
+                              (e/lam "n" nat
+                                     (e/app* (c "OfNat.mk") nat (e/bvar 0) (e/bvar 0)) :default)
+                              :default)
+                       :hints {:regular 1})
+        en (env/check-constant (a/env) ci)
+        two (e/lit-nat (biginteger 2))
+        instance (e/app* (e/const' nm []) nat two)
+        term (e/app* (c "OfNat.ofNat") nat two instance)]
+    (is (not (types/irrelevant? en instance [])))
+    (is (types/irrelevant? en instance [] #{"OfNat"}))
+    (is (nil? (sd/try-compile-store-def! en "ExplicitNumeralInstance")))
+    (is (= "ExplicitNumeralInstance" (:declaration (sd/failure-reason "ExplicitNumeralInstance"))))
+    (is (re-find #"unsupported runtime binder telescope" (:reason (sd/failure-reason "ExplicitNumeralInstance"))))
+    (testing "the numeric lowering follows the declined store candidate"
+      (is (env/verifies? en
+                         (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)]) nat term two)
+                         (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat two)))
+      (is (= 2 (eval (cg/ansatz->clj en term [])))))
+    (testing "without a numeric lowering, the same refusal remains a hard named error"
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"ExplicitNumeralInstance.*unsupported runtime binder telescope"
+                            (cg/ansatz->clj en (e/app* (e/const' nm []) nat two) []))))))
+
+(deftest optional-store-candidate-does-not-swallow-handler-errors
+  (let [nat (e/const' (name/from-string "Nat") [])
+        ty (e/forall "n" nat nat :default)
+        dep (name/from-string "FaultyRuntimeHandler")
+        ci (env/mk-def (name/from-string "RuntimeHandlerCaller") [] ty
+                       (e/lam "n" nat (e/app (e/const' dep []) (e/bvar 0)) :default)
+                       :hints {:regular 1})
+        en (-> (a/env) (env/check-constant (env/mk-axiom dep [] ty)) (env/check-constant ci))
+        original (env/mk-def (name/from-string "RuntimeHandlerOriginal") [] ty
+                             (e/lam "n" nat (e/bvar 0) :default) :hints {:regular 1})
+        en (-> en (env/check-constant original)
+               (env/update-extension :csimp {} assoc "RuntimeHandlerOriginal" "RuntimeHandlerCaller"))
+        failure (ex-info "runtime handler bug" {:kind :codegen-error})
+        saved @a/codegen-registry]
+    (try
+      (swap! a/codegen-registry assoc "FaultyRuntimeHandler" (fn [& _] (throw failure)))
+      (is (identical? failure
+                      (try (sd/try-compile-store-def! en "RuntimeHandlerCaller")
+                           (catch clojure.lang.ExceptionInfo ex ex))))
+      (is (identical? failure
+                      (try (cg/ansatz->clj en
+                                           (e/app (e/const' (name/from-string "RuntimeHandlerOriginal") [])
+                                                  (e/lit-nat (biginteger 5))) [])
+                           (catch clojure.lang.ExceptionInfo ex ex))))
+      (finally (reset! a/codegen-registry saved)))))

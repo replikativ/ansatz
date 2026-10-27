@@ -186,7 +186,7 @@
           (is (= 7 (eval (cg/ansatz->clj (a/env)
                                          (elab/elaborate (a/env) (list f 2 5)) [])))))
         ;; Ordinary functions retain the flat call fast path.
-        (is (= '(cg-result-flat 2 3 5)
+        (is (= '(ansatz.codegen-recursor-test/cg-result-flat 2 3 5)
                (cg/ansatz->clj (a/env)
                                (elab/elaborate (a/env) '(cg-result-flat 2 3 5)) []))))
       (finally
@@ -428,9 +428,9 @@
         ;; Check both the shorter and longer replacement parameter windows.
         (doseq [[form expected]
                 [['(let [f original-flat] (f 2 3))
-                  '(let [f replacement-result] ((f 2) 3))]
+                  '(let [f ansatz.codegen-recursor-test/replacement-result] ((f 2) 3))]
                  ['(let [f original-result] (f 2 3))
-                  '(let [f replacement-flat] (f 2 3))]]]
+                  '(let [f ansatz.codegen-recursor-test/replacement-flat] (f 2 3))]]]
           (is (= expected (cg/ansatz->clj (a/env) (elab/elaborate (a/env) form) []))))
         ;; A runtime-used instance prefix must be retained by the classic wrapper.
         (eval '(ansatz.core/defn cc-used-instance [inst :- Nat :inst, n :- Nat] Nat (+ inst n)))
