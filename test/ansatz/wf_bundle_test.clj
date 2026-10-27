@@ -2,6 +2,7 @@
   "Lazy-prelude cohort guards. Parsing is stubbed where noted: these tests cover
    the resource/session boundary, not prelude kernel replay correctness."
   (:require [clojure.test :refer [deftest is]]
+            [clojure.java.io :as io]
             [ansatz.bundle :as bundle]
             [ansatz.core :as a]
             [ansatz.wf :as wf]
@@ -22,6 +23,10 @@
         (binding [a/*verbose* false] (f))
         (finally (reset! state/ansatz-env before))))))
 
+(defn- stub-parser-state [declarations]
+  ;; Parser clients own a Closeable expression store, even for an empty prelude.
+  (assoc (parser/mk-parser-state) :decls declarations))
+
 (deftest lazy-preludes-reject-another-bundle-before-parsing-or-mutation
   (let [manifest (bundle/verify!)
         old-manifest (assoc manifest :artifact/cohort "previous-generation")
@@ -29,7 +34,7 @@
         parsed? (atom false)]
     (with-environment base
       (fn []
-        (with-redefs [parser/parse-ndjson-string (fn [_] (reset! parsed? true) {:decls []})]
+        (with-redefs [parser/parse-ndjson-string (fn [_] (reset! parsed? true) (stub-parser-state []))]
           (doseq [load [wf/wf-fix-ensure-lex-prelude! wf/wf-fix-ensure-sizeof-prelude!]]
             (is (thrown-with-msg? clojure.lang.ExceptionInfo #"do not match requirements" (load)))
             (is (identical? base @state/ansatz-env))))
@@ -43,7 +48,7 @@
         (with-environment base
           (fn []
             (with-redefs [bundle/classpath-bytes (fn [_] (throw (AssertionError. "snapshot must not reopen")))
-                          parser/parse-ndjson-string (fn [_] (swap! parsed inc) {:decls []})]
+                          parser/parse-ndjson-string (fn [_] (swap! parsed inc) (stub-parser-state []))]
               (wf/wf-fix-ensure-lex-prelude!)
               (wf/wf-fix-ensure-sizeof-prelude!)
               (is (= 2 @parsed))
@@ -54,7 +59,7 @@
         parsed? (atom false)]
     (with-environment base
       (fn []
-        (with-redefs [parser/parse-ndjson-string (fn [_] (reset! parsed? true) {:decls []})]
+        (with-redefs [parser/parse-ndjson-string (fn [_] (reset! parsed? true) (stub-parser-state []))]
           (wf/wf-fix-ensure-lex-prelude!)
           (is @parsed?)
           (is (identical? base @state/ansatz-env)))))))
@@ -140,13 +145,13 @@
         base (.addConstant (model-base) inductive)]
     (with-environment base
       (fn []
-        (with-redefs [parser/parse-ndjson-string (fn [_] {:decls [inductive ctor]})]
+        (with-redefs [parser/parse-ndjson-string (fn [_] (stub-parser-state [inductive ctor]))]
           (is (thrown-with-msg? Exception #"Partially present inductive" (wf/wf-fix-ensure-lex-prelude!)))
           (is (identical? base @state/ansatz-env)))))))
 
 (deftest lazy-prelude-skips-complete-existing-inductive-and-quotient-packages
   (let [parsed (parser/parse-ndjson-string
-                (slurp (clojure.java.io/resource "ansatz/export/fixtures/quotient-4.29.ndjson") :encoding "UTF-8"))
+                (slurp (io/resource "ansatz/export/fixtures/quotient-4.29.ndjson") :encoding "UTF-8"))
         capture (:decls parsed)]
     (try
       (let [base (:env (replay/replay capture))
@@ -155,7 +160,7 @@
             declarations (into capture (model-prelude :partial))]
         (with-environment base
           (fn []
-            (with-redefs [parser/parse-ndjson-string (fn [_] {:decls declarations})]
+            (with-redefs [parser/parse-ndjson-string (fn [_] (stub-parser-state declarations))]
               (wf/wf-fix-ensure-lex-prelude!)
               (is (identical? (env/lookup base (name/from-string "Eq"))
                               (env/lookup @state/ansatz-env (name/from-string "Eq")))))
@@ -164,14 +169,14 @@
 
 (deftest lazy-prelude-rejects-partial-quotient-packages-before-publication
   (let [parsed (parser/parse-ndjson-string
-                (slurp (clojure.java.io/resource "ansatz/export/fixtures/quotient-4.29.ndjson") :encoding "UTF-8"))
+                (slurp (io/resource "ansatz/export/fixtures/quotient-4.29.ndjson") :encoding "UTF-8"))
         capture (:decls parsed)
         q (first (filter #(.isQuot ^ansatz.kernel.ConstantInfo %) capture))
         base (.addConstant (model-base) q)]
     (try
       (with-environment base
         (fn []
-          (with-redefs [parser/parse-ndjson-string (fn [_] {:decls capture})]
+          (with-redefs [parser/parse-ndjson-string (fn [_] (stub-parser-state capture))]
             (is (thrown-with-msg? Exception #"Partially present quotient" (wf/wf-fix-ensure-lex-prelude!)))
             (is (identical? base @state/ansatz-env)))))
       (finally (.close ^ExprStore (:exprs parsed))))))
