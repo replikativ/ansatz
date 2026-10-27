@@ -370,16 +370,15 @@ clj -J-Xmx8g -M:datahike -m ansatz.import "$(clj -M -e '(print ((requiring-resol
 This imports CSLib (including its Mathlib dependency) into a store named `cslib` under the
 durable store root (see above).
 
-**Using init-medium for quick testing (no Lean needed)**
+**Using bundled Init for quick testing (no Lean needed)**
 
-The test data `test-data/init-medium.ndjson` (10MB, 2997 declarations) is included
-in the repo and sufficient for basic proofs on Nat. No Mathlib setup required:
+The Init closure ships as the classpath resource `ansatz/init-medium.ndjson.gz`.
+No export file or Mathlib setup is required:
 
 ```clojure
-;; Works out of the box for Nat proofs (no Real/analysis)
-(require '[ansatz.export.storage :as s] '[ansatz.export.replay :as r]
-         '[ansatz.export.parser :as p])
-(def env (:env (r/replay (:decls (p/parse-ndjson-file "test-data/init-medium.ndjson")))))
+(require '[ansatz.core :as a])
+(a/load-init!)
+(def env (a/env))
 ```
 
 ### Initialize and Prove
@@ -794,7 +793,7 @@ cd ansatz
 # Compile Java kernel
 clj -T:build javac
 
-# Run tests (requires test-data/init-medium.ndjson)
+# Run tests (bundled Init; optional full Init / Mathlib suites skip if absent)
 clj -M:test
 
 # Start REPL
@@ -817,14 +816,18 @@ Copyright 2026 Christian Weilbach
 `test/**/*_test.clj` namespaces, excluding `:wip` tests. Discovery includes new
 namespaces automatically. `python3 bin/test-namespaces --inventory` lists every
 namespace and its fixture requirements; the commented exclusion map in that script
-contains only namespaces needing uncommitted Init exports or the Mathlib store.
+contains only namespaces needing full Init exports/stores or the Mathlib store.
+The shared test helper reads the bundled Init resource, with separate checked and
+TRUST replay environments. Tests that previously checked replay still check it.
+Importer tests materialize the resource into a temporary file and derive expected
+declaration counts from that export.
 Committed `test-data/arena`, kernel reference files and `Nat.add_succ.ndjson` run
-in CI. Mixed kernel namespaces print skips for optional exports while running
-all their other assertions. Optional fixture namespaces also print a reason when
+in CI. The reducer namespace prints a skip for its optional small export while running
+all its other assertions. Optional fixture namespaces also print a reason when
 run directly without their exports.
 
 CircleCI runs four independent `medium` containers (2 vCPU, 4 GiB), each with a
-1 GiB test heap. A separate `test-contracts` job runs the existing package and
+1 GiB test heap and 8 MiB thread stacks. A separate `test-contracts` job runs the existing package and
 experimental contracts via `bin/run-unittests contracts`. Both jobs gate deployment.
 Running `bin/run-unittests` locally runs all four groups and then the contracts.
 Use `ANSATZ_STORE_DIR` pointing at an empty directory to reproduce store-free CI.

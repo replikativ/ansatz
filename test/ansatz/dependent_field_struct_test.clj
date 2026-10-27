@@ -1,27 +1,20 @@
 (ns ansatz.dependent-field-struct-test
   "Regression: noConfusion for dependent algebraic fields must be kernel-checked."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
             [ansatz.kernel.env :as env]
-            [ansatz.kernel.name :as name]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.name :as name]))
 
-(def ^:private init-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private init-env test-env/checked-bundled-init-env)
 
 (defn- with-init-env [f]
   (when-let [env @init-env]
     (reset! a/ansatz-env env)
     (f)))
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"] with-init-env))
+(clojure.test/use-fixtures :once with-init-env)
 
 (defn- lookup [s] (env/lookup (a/env) (name/from-string s)))
 

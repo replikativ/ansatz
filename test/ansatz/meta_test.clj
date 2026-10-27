@@ -1,6 +1,5 @@
 (ns ansatz.meta-test
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is testing]]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -10,23 +9,15 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
             [ansatz.surface.elaborate :as elab]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.proof :as proof]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-init-medium []
   (or @init-medium-env
-      (throw (ex-info "init-medium.ndjson not found" {}))))
+      (throw (ex-info "bundled Init unavailable" {}))))
 
 (defn- local-id [ps local-name]
   (some (fn [[id d]]
@@ -43,7 +34,7 @@
     (is (proof/solved? ps))
     (is (meta/closed-expr? (:meta-mctx ps) meta-term))))
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest zonk-instantiates-expression-and-level-mvars
   (testing "direct expression and level assignments are chased together"

@@ -1,7 +1,6 @@
 (ns ansatz.surface.match-test
   "Tests for match expression compilation and theorem/def macros."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -15,33 +14,25 @@
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.repl :as repl]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.repl :as repl])
   (:import [ansatz.kernel TypeChecker]))
 
 ;; ============================================================
 ;; Test environment
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-env []
   (let [env @init-medium-env]
     (when-not env
-      (throw (ex-info "init-medium.ndjson not found" {})))
+      (throw (ex-info "bundled Init unavailable" {})))
     env))
 
 (defn- whnf [env expr]
   (red/whnf env expr))
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-structural-self-call-probe-rolls-back-metacontext
   (testing "failed fixed-parameter probes do not leak speculative mvar assignments"

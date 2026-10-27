@@ -2,8 +2,7 @@
   "Tests for tactic error handling, edge cases, and error message quality.
    Verifies that wrong tactics, unsolvable goals, and type errors
    produce actionable error messages."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -12,17 +11,11 @@
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.simp :as simp]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.simp :as simp]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
-(defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
+(defn- require-env [] (or @test-env (throw (ex-info "bundled Init unavailable" {}))))
 
 (defn- mk-proof-state
   "Create a proof state for a goal type."
@@ -35,7 +28,7 @@
 ;; Apply error cases
 ;; ============================================================
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-apply-nonexistent-const
   (testing "Apply with nonexistent constant throws"

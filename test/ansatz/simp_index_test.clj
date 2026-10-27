@@ -2,7 +2,7 @@
   "The @[simp] LHS index (ansatz.simp-index) at the unit level: keying agrees between the
    stored and query sides, rules resolve lazily at their inherited priority and memoize, and
    the index source rides on the Env — an env built without `init!` has none. The store-backed
-   path (trie blob loaded on first simp) is exercised end to end in ansatz.import-test."
+   path (captured trie with rules resolved on demand) is exercised end to end in ansatz.import-test."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [ansatz.core :as a]
             [ansatz.simp-index :as si]

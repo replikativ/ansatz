@@ -1,6 +1,5 @@
 (ns ansatz.tactic.level1-test
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -8,15 +7,9 @@
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.extract :as extract]
-            [ansatz.tactic.grind :as grind]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.grind :as grind]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
 (defn- env [] (or @test-env (throw (ex-info "no env" {}))))
 (def ^:private nat (e/const' (name/from-string "Nat") []))
@@ -24,7 +17,7 @@
 (defn- nat-eq [a b] (e/app* (e/const' (name/from-string "Eq") [u1]) nat a b))
 (defn- fh [ps n] (some (fn [[id d]] (when (= n (:name d)) id)) (:lctx (proof/current-goal ps))))
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-grind-transitivity
   (let [goal (e/forall' "a" nat (e/forall' "b" nat (e/forall' "c" nat

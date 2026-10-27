@@ -1,8 +1,7 @@
 (ns ansatz.tactic.simp-edge-test
   "Edge case tests for the simp tactic: perm detection, prop-true,
    discrimination tree matching, and proof construction."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
@@ -14,24 +13,18 @@
             [ansatz.simp-index :as si]
             [ansatz.tactic.instance :as inst]
             [ansatz.tactic.proof :as proof]
-            [ansatz.tactic.basic :as basic]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.tactic.basic :as basic])
   (:import [ansatz.kernel ConstantInfo]))
 
-(def ^:private test-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private test-env test-env/checked-bundled-init-env)
 
-(defn- require-env [] (or @test-env (throw (ex-info "init-medium.ndjson not found" {}))))
+(defn- require-env [] (or @test-env (throw (ex-info "bundled Init unavailable" {}))))
 
 ;; ============================================================
 ;; isPerm detection
 ;; ============================================================
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-perm-comm-detected
   (testing "add_comm is detected as permutative (LHS and RHS differ only in bvar order)"

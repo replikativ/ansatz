@@ -1,27 +1,20 @@
 (ns ansatz.examples-test
   "Tests that verify the examples from examples/ directory work.
-   RB tree tests run against init-medium.ndjson (no Mathlib needed).
+   RB tree tests run against bundled Init (no Mathlib needed).
    GD convergence tests require Mathlib store (skipped if unavailable)."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.name :as name]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.name :as name]))
 
 ;; ============================================================
 ;; Environment setup (init-medium for RB tree, Mathlib for GD)
 ;; ============================================================
 
-(def ^:private init-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private init-env test-env/checked-bundled-init-env)
 
 (def ^:private baseline-state
   (delay
@@ -63,7 +56,7 @@
 ;; Structure tests (init-medium sufficient)
 ;; ============================================================
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-structure-definition
   (testing "Define structures with auto-generated projections"

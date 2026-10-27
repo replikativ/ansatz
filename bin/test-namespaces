@@ -12,56 +12,32 @@ import re
 GROUPS = 4
 # These exports/stores are uncommitted and unavailable on a fresh checkout.
 EXCLUDED = {
-    "ansatz.core-test": "test-data/init-medium.ndjson",
-    "ansatz.dependent-field-struct-test": "test-data/init-medium.ndjson",
-    "ansatz.deriving-test": "test-data/init-medium.ndjson",
-    "ansatz.examples-test": "test-data/init-medium.ndjson; optional Mathlib store",
     "ansatz.foldl-assoc-generic-test": "test-data/init.ndjson",
     "ansatz.generalizing-test": "test-data/init.ndjson",
-    "ansatz.import-test": "test-data/init-medium.ndjson",
-    "ansatz.indexed-inductive-test": "test-data/init-medium.ndjson",
     "ansatz.induction-motive-test": "test-data/init-store or test-data/init.ndjson",
     "ansatz.int-arith-test": "Mathlib store (ANSATZ_STORE_DIR)",
-    "ansatz.kernel.conformance-test": "test-data/init-medium.ndjson",
-    "ansatz.kernel.edge-cases-test": "test-data/init-medium.ndjson",
-    "ansatz.meta-test": "test-data/init-medium.ndjson",
-    "ansatz.nested-inductive-test": "test-data/init-medium.ndjson",
-    "ansatz.prelude.algebra-test": "test-data/init-medium.ndjson",
     "ansatz.prelude.list-test": "test-data/init.ndjson",
     "ansatz.rw-envlemma-test": "test-data/init.ndjson",
     "ansatz.split-test": "test-data/init.ndjson",
-    "ansatz.structure-extends-test": "test-data/init-medium.ndjson",
-    "ansatz.surface.elaborate-test": "test-data/init-medium.ndjson",
-    "ansatz.surface.match-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.advanced-test": "test-data/init-medium.ndjson; optional Mathlib store",
-    "ansatz.tactic.basic-tactics-test": "test-data/init-medium.ndjson",
     "ansatz.tactic.carriers-test": "Mathlib store (ANSATZ_STORE_DIR)",
-    "ansatz.tactic.decide-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.discr-tree-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.error-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.grind-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.instance-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.level1-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.simp-edge-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.simp-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.smoke-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.tactic-test": "test-data/init-medium.ndjson",
-    "ansatz.tactic.unify-test": "test-data/init-medium.ndjson",
     "ansatz.theory.convergence-test": "Mathlib store (ANSATZ_STORE_DIR)",
     "ansatz.theory.inferred-real-test": "Mathlib store (ANSATZ_STORE_DIR)",
 }
 
 
-# These are committed, so they are inputs rather than exclusions. The two mixed
-# kernel namespaces run their fixture-free assertions and print optional skips.
+# These are committed, so they are inputs rather than exclusions. The reducer
+# namespace retains a printed skip for its optional small export.
 REPOSITORY_FIXTURES = {
+    "ansatz.examples-test": "checked bundled Init; optional Mathlib store",
+    "ansatz.import-test": "bundled Init materialized as temporary NDJSON + bundled attributes",
+    "ansatz.tactic.advanced-test": "checked bundled Init; optional Mathlib store",
     "ansatz.constructions-test": "test-data/kernel-reference/constructions.ndjson.gz",
     "ansatz.export.parser-test": "test-data/Nat.add_succ.ndjson",
     "ansatz.export.replay-test": "test-data/Nat.add_succ.ndjson",
     "ansatz.export.storage-test": "test-data/Nat.add_succ.ndjson",
     "ansatz.kernel.level-reference-test": "test-data/kernel-reference/levels.edn",
     "ansatz.kernel.reducer-test": "bundled resources; optional test-data/init-small.ndjson",
-    "ansatz.kernel.typechecker-test": "test-data/Nat.add_succ.ndjson; optional test-data/init-medium.ndjson",
+    "ansatz.kernel.typechecker-test": "test-data/Nat.add_succ.ndjson + checked bundled Init",
     "ansatz.kernel-soundness-test": "test-data/arena/{proj-of-subst-prop,rec-of-subst-prop}.ndjson",
     "ansatz.load-export-test": "test-data/Nat.add_succ.ndjson, test-data/arena/002_badDef.ndjson",
     "ansatz.store.fetch-test": "test-data/Nat.add_succ.ndjson (temporary stores, no Mathlib)",

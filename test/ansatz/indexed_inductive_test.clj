@@ -1,7 +1,6 @@
 (ns ansatz.indexed-inductive-test
   "Tests for indexed inductive families (Vec, Fin, etc.)."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.inductive :as ind]
@@ -9,19 +8,13 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.level :as lvl]
-            [ansatz.kernel.tc :as tc]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.kernel.tc :as tc]))
 
 ;; ============================================================
 ;; Environment setup
 ;; ============================================================
 
-(def ^:private init-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (test-env/with-instance-registry (:env (replay/replay (:decls (parser/parse-ndjson-file f)))))))))
+(def ^:private init-env test-env/checked-bundled-init-env)
 
 (defn- ensure-tvec []
   (when-not (env/lookup (a/env) (name/from-string "TVec"))
@@ -49,7 +42,7 @@
     (reset! a/ansatz-env env)
     (f)))
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"] with-init-env))
+(clojure.test/use-fixtures :once with-init-env)
 
 ;; ============================================================
 ;; Vec: length-indexed vector

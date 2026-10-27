@@ -1,8 +1,7 @@
 (ns ansatz.tactic.basic-tactics-test
   "Tests for new core tactics: induction, have, revert, exfalso, subst, clear,
    and tactic combinators."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -10,21 +9,13 @@
             [ansatz.kernel.env :as env]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
-            [ansatz.tactic.extract :as extract]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.tactic.extract :as extract]))
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-env []
   (or @init-medium-env
-      (throw (ex-info "init-medium.ndjson not found" {}))))
+      (throw (ex-info "bundled Init unavailable" {}))))
 
 (def ^:private nat (e/const' (name/from-string "Nat") []))
 (def ^:private u1 (lvl/succ lvl/zero))
@@ -40,7 +31,7 @@
 ;; exact
 ;; ============================================================
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-exact-form-closes-goal
   (testing "exact elaborates a surface term against the current target"

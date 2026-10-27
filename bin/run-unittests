@@ -17,7 +17,8 @@ for group in "${groups[@]}"; do
   for ns in "${namespaces[@]}"; do args+=(-n "$ns"); done
   echo "Running CI group $group: ${namespaces[*]}"
   SECONDS=0
-  clojure -J-Xmx1g -M:ci -e :wip "${args[@]}"
+  # Match the contract JVMs so deep expressions reach the named recursion guards.
+  clojure -J-Xmx1g -J-Xss8m -M:ci -e :wip "${args[@]}"
   echo "CI group $group completed in ${SECONDS}s"
 done
 if [[ "${1:-all}" == all ]]; then

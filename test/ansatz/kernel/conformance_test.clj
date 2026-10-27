@@ -6,21 +6,14 @@
    is high-risk (the Clojure kernel handles open metavars + an attachable mutable lctx the Java
    kernel has no API for), so instead this turns the standing divergence risk into a TEST FAILURE:
    for a sample of Init declarations, both kernels must infer def-equal types."
-  (:require [ansatz.fixtures :as fixtures]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm])
   (:import [ansatz.kernel TypeChecker Env Expr]))
 
-(def ^:private init-medium-env
-  "Lazily loaded init-medium environment (local — does NOT touch the global ansatz-env)."
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (:env (replay/replay (:decls (parser/parse-ndjson-file f))))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (def ^:private sample-names
   "Init declarations spanning every ConstantInfo kind — definitions, constructors, inductives,
@@ -38,7 +31,7 @@
         jT (.inferType jtc e)]
     (.isDefEq jtc cT jT)))
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest two-kernel-conformance
   (testing "Clojure tactic-kernel (tc/reduce) agrees with the Java TypeChecker on a sample of Init decls"
@@ -54,4 +47,4 @@
               (is (infer-agree? e-env jtc v)
                   (str "two-kernel divergence on the VALUE of " n)))))
         (is (<= 15 @checked) "expected most sample decls present in init-medium"))
-      (println "SKIP two-kernel-conformance: test-data/init-medium.ndjson not found"))))
+      (println "SKIP two-kernel-conformance: bundled Init unavailable"))))

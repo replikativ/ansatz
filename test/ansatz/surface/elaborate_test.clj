@@ -1,7 +1,6 @@
 (ns ansatz.surface.elaborate-test
   "Tests for the elaboration function."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest testing is]]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
@@ -10,31 +9,23 @@
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
             [ansatz.meta :as meta]
-            [ansatz.surface.elaborate :as elab]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay]))
+            [ansatz.surface.elaborate :as elab]))
 
 ;; ============================================================
 ;; Environment helpers
 ;; ============================================================
 
-(def ^:private init-medium-env
-  (delay
-    (let [f "test-data/init-medium.ndjson"]
-      (when (.exists (java.io.File. f))
-        (let [st (parser/parse-ndjson-file f)
-              result (replay/replay (:decls st))]
-          (test-env/with-instance-registry (:env result)))))))
+(def ^:private init-medium-env test-env/checked-bundled-init-env)
 
 (defn- require-init-medium []
   (or @init-medium-env
-      (throw (ex-info "init-medium.ndjson not found" {}))))
+      (throw (ex-info "bundled Init unavailable" {}))))
 
 ;; ============================================================
 ;; Basic elaboration (no implicits needed)
 ;; ============================================================
 
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init-medium.ndjson"]))
+
 
 (deftest test-elab-sort-shortcuts
   (testing "Prop and Type elaborate correctly"
