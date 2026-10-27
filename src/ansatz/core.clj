@@ -1541,7 +1541,7 @@
                                     (subtype-val fid pt) (assoc :as-term (subtype-val fid pt)))])
                            fids pairs ptypes))
         expected (when (and opts ret-type-form (not= '_ ret-type-form))
-                   (elab/elaborate-in-context env lctx ret-type-form))
+                   (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true}))
         body-result (if opts
                       (elab/elaborate-in-context-with-env
                        env lctx body-form expected

@@ -11,7 +11,8 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
-            [ansatz.meta.match.matcher-info :as mi]))
+            [ansatz.meta.match.matcher-info :as mi]
+            [ansatz.tactic.instance :as instance]))
 
 (def base (delay (binding [a/*verbose* false] (a/load-init!))))
 (def string-env
@@ -20,7 +21,10 @@
                     (java.io.FileInputStream. "test-data/kernel-reference/matcher-values.ndjson.gz"))]
       (parser/with-parser-state
         (parser/parse-ndjson-string (slurp in))
-        (fn [parsed] (:env (replay/replay (:decls parsed) :stop-on-error? true)))))))
+        (fn [parsed]
+          ;; The declaration export does not include Lean's instance registry.
+          (instance/add-instance (:env (replay/replay (:decls parsed) :stop-on-error? true))
+                                 (name/from-string "instDecidableEqString")))))))
 (use-fixtures :each
   (fn [f]
     (let [saved @a/ansatz-env]
@@ -226,3 +230,23 @@
             h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat n)]
         (is (tc/is-def-eq (tc/mk-tc-state (a/env))
                          (e/app* (.value ci) n h) (e/lit-nat expected)))))))
+
+(deftest matcher-environments-preserve-typed-proof-local-lets
+  (let [f (a/define-verified 'matcher-proof-lets '[^Bool b ^Nat n] 'Nat
+                             '(let [x Nat (match b [false n] [true (+ n 1)])]
+                                (let [p (Eq x x) (Eq.refl x)]
+                                  (let [q (Eq p p) (Eq.refl p)] x))))]
+    (is (= 7 (f false 7)))
+    (is (= 8 (f true 7)))
+    (is (some? (decl "matcher-proof-lets.match_1")))))
+
+(deftest matcher-return-annotations-elaborate-as-types
+  (a/define-verified 'matcher-proof-return '[^Bool b ^Nat n] '(= n n)
+                     '(match b [false (Eq.refl n)] [true (Eq.refl n)]))
+  (let [ci (decl "matcher-proof-return")
+        nat (e/const' (name/from-string "Nat") [])
+        n (e/lit-nat 7)
+        h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat n)]
+    (doseq [ctor ["Bool.false" "Bool.true"]]
+      (is (tc/is-def-eq (tc/mk-tc-state (a/env))
+                       (e/app* (.value ci) (e/const' (name/from-string ctor) []) n) h)))))

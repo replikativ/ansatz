@@ -1,5 +1,8 @@
 import Lean
 
+-- Keep proof-valued functions as definitions to exercise matcher generation.
+set_option linter.defProp false
+
 namespace MatcherDeclarations
 
 inductive Enum where
@@ -122,5 +125,23 @@ def patternShadow (n : Nat) (h : n = n) : Nat :=
 
 example : dependentChain false rfl rfl = rfl := rfl
 example : patternShadow 7 rfl = 6 := rfl
+
+def proofLets (b : Bool) (n : Nat) : Nat :=
+  let x : Nat := match b with
+    | false => n
+    | true => n + 1
+  let p : x = x := rfl
+  let _q : p = p := rfl
+  x
+
+def proofReturn (b : Bool) (n : Nat) : n = n :=
+  match b with
+  | false => rfl
+  | true => rfl
+
+example : proofLets false 7 = 7 := rfl
+example : proofLets true 7 = 8 := rfl
+example : proofReturn false 7 = rfl := rfl
+example : proofReturn true 7 = rfl := rfl
 
 end MatcherDeclarations

@@ -120,6 +120,7 @@
              '[f_ init_ xs_]
              '(clojure.core/reduce (fn [acc_ x_] ((f_ acc_) x_)) init_ xs_)
              {})))
+
 (def ^:private decidable-comparisons
   {"Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=
    "Int.decEq" '== "String.decEq" '= "Bool.decEq" '=})
@@ -776,6 +777,7 @@
   (if (instance? clojure.lang.IObj form)
     (with-meta form (assoc (meta form) ::resolved-head head))
     form))
+
 (clojure.core/defn- visit-no-confusion [env args ca names {:keys [arity num-fields]}]
   ;; ToLCNF.visitNoConfusion / expandNoConfusionMajor (.perCtor): discard
   ;; equality proofs before visiting the continuation. Erased proof arguments
@@ -823,13 +825,14 @@
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
               cc (when-not (contains? *raw-constants* h) (get @arity-registry h))
-              ;; The native Nat decision is lowered directly by dite's handler;
-              ;; ordinary type, predicate and proof erasure uses visitAppArg below.
+              ;; dite lowers these decision instances directly from their raw
+              ;; operands; aliases must not also enter storedef compilation.
+              ;; Ordinary type/proof erasure uses the shared irrelevant? below.
               native-decision? (when (and (= h "dite") (> (count args) 2))
-                                 (let [[dh _] (e/get-app-fn-args (nth args 2))]
+                                 (let [[dh _] (e/get-app-fn-args (decidable-head env (nth args 2)))]
                                    (and (e/const? dh)
-                                        (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
-                                         (name/->string (e/const-name dh))))))
+                                        (contains? decidable-comparisons
+                                                   (name/->string (e/const-name dh))))))
               ;; This backend's native literal handlers consume the numeral,
               ;; not its dictionary (unlike ordinary Lean dictionary calls).
               erased-type-heads (case h
