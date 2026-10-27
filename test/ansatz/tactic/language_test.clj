@@ -54,8 +54,23 @@
 
 (deftest cases-substitutes-transitive-dependents
   (proves 'cases_transitive_dependents
-          '[b :- Bool, p :- (=> Bool Prop), h :- (p b), hh :- (=> (p b) (p b))]
-          '(p b) '[(cases b) (all_goals (exact (hh h)))]))
+          '[b :- Bool, p :- (=> Bool Prop), h1 :- (p b),
+            q :- (=> (p b) Prop), h2 :- (q h1)]
+          '(q h1)
+          '[(cases b)
+            (have h1-special (p false) h1)
+            (have h2-special (q h1-special) h2) (exact h2-special)
+            (have h1-special (p true) h1)
+            (have h2-special (q h1-special) h2) (exact h2-special)])
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Type mismatch"
+                        (binding [a/*verbose* false]
+                          (a/prove-theorem 'unspecialized_transitive_dependents
+                                           '[b :- Bool, p :- (=> Bool Prop), h1 :- (p b),
+                                             q :- (=> (p b) Prop), h2 :- (q h1)]
+                                           '(q h1)
+                                           '[(have h1-special (p false) h1)
+                                             (have h2-special (q h1-special) h2)
+                                             (exact h2-special)])))))
 
 (deftest split-ifs-under-function-application
   (proves 'split_ifs_function
@@ -204,3 +219,30 @@
 (deftest split-ifs-retains-false-branches-for-later-contradiction
   (proves 'split_ifs_false_branch '[b :- Bool, hb :- (= b true)]
           '(= (if b 0 1) 0) '[(split_ifs) (all_goals (simp_all))]))
+
+(deftest split-ifs-preserves-existing-sibling-goals
+  (proves 'split_ifs_siblings '[b :- Bool]
+          '(And (= (if b 0 1) (if b 0 1)) True)
+          '[(constructor) (split_ifs) (constructor)]))
+
+(deftest induction-partial-alternative-names-start-with-fields
+  (proves 'partial_induction_names '[n :- Nat] '(= n n)
+          '[(induction n :with [zero (rfl)]
+                       [(succ k)
+                        (change (= (Nat.succ k) (Nat.succ k))) (rfl)])]))
+
+(deftest partial-alternative-names-exclude-inherited-inaccessibles
+  (proves 'nested_partial_induction_names '[p :- Prop, hp :- p, n :- Nat]
+          '(=> p (= n n))
+          '[(intro) (induction n :with [zero (rfl)]
+                              [(succ k)
+                               (change (= (Nat.succ k) (Nat.succ k))) (rfl)])]))
+
+(deftest partial-alternative-names-put-all-fields-before-ihs
+  (a/inductive BranchOrder [] :in Type (leaf) (node [prev BranchOrder] [value Nat]))
+  (proves 'partial_recursive_field_order '[x :- BranchOrder] '(= x x)
+          '[(induction x :with [leaf (rfl)]
+                       [(node child value)
+                        (change (= (BranchOrder.node child value)
+                                   (BranchOrder.node child value)))
+                        (rfl)])]))

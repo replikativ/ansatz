@@ -18,8 +18,18 @@ example (x y : Nat) (h : x = y) (hx : x = 1) (hh : hx = hx) : y = 1 := by
 example (b x y : Bool) (ht : b = true → x = true) (hf : b = false → y = true) :
     (if b then x else y) = true := by
   cases b <;> simp_all
-example (b : Bool) (p : Bool → Prop) (h : p b) (hh : p b → p b) : p b := by
-  cases b <;> exact hh h
+example (b : Bool) (p : Bool → Prop) (h1 : p b)
+    (q : p b → Prop) (h2 : q h1) : q h1 := by
+  fail_if_success have h1_special : p false := h1
+  cases b
+  case false =>
+    have h1_special : p false := h1
+    have h2_special : q h1_special := h2
+    exact h2_special
+  case true =>
+    have h1_special : p true := h1
+    have h2_special : q h1_special := h2
+    exact h2_special
 example (b : Bool) (p : Nat → Bool) (n : Nat) : p (if b then n else n) = p n := by
   repeat' split
   all_goals rfl
@@ -103,3 +113,31 @@ example (n : CaseShape) (h : LocalEvidence (CaseShape.node n)) (hh : h = h) : n 
 example (b : Bool) (hb : b = true) : (if b then (0 : Nat) else 1) = 0 := by
   repeat' split
   all_goals simp_all
+
+example (b : Bool) : ((if b then (0 : Nat) else 1) = (if b then 0 else 1)) ∧ True := by
+  constructor
+  (split <;> rfl)
+  constructor
+example (n : Nat) : n = n := by
+  induction n with
+  | zero => rfl
+  | succ k =>
+    change Nat.succ k = Nat.succ k
+    rfl
+example (p : Prop) (hp : p) (n : Nat) : p → n = n := by
+  intro
+  induction n with
+  | zero => rfl
+  | succ k =>
+    change Nat.succ k = Nat.succ k
+    rfl
+
+inductive BranchOrder where
+  | leaf
+  | node (prev : BranchOrder) (value : Nat)
+example (x : BranchOrder) : x = x := by
+  induction x with
+  | leaf => rfl
+  | node child value =>
+    change BranchOrder.node child value = BranchOrder.node child value
+    rfl

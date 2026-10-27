@@ -892,10 +892,9 @@
             nil
             lctx)))
 
-(clojure.core/defn- eval-case
-  "Lean BuiltinTactic.lean evalCase: select a tag, rename branch locals, and close it.
-   Local :inaccessible flags represent Lean macro-scope differences."
-  [ps tag names body]
+(clojure.core/defn- get-case-goal
+  "Lean BuiltinTactic.lean getCaseGoals/findTag?: exact, suffix, then prefix."
+  [ps tag]
   (let [gs (:goals ps)
         tagged (fn [id] (some-> (proof/mvar-user-name ps id) name/->string))
         tag (some-> tag str)
@@ -904,32 +903,50 @@
                   (some #(when (some-> (tagged %) (clojure.string/ends-with? (str "." tag))) %) gs)
                   (some #(when (some-> (tagged %) (clojure.string/starts-with? (str tag "."))) %) gs))
               (first gs))]
-    (when-not gid
-      (throw (ex-info (str "Tactic error: case tag not found: " tag) {:kind :tactic-error})))
-    (let [lctx (proof/mvar-lctx ps gid)
-          fields (mapv key (filter (comp :inaccessible val) (sort-by key lctx)))
-          _ (when (> (count names) (count fields))
-              (throw (ex-info "Tactic error: too many case variable names" {:kind :tactic-error})))
-          lctx (reduce (fn [ctx [fid nm]]
-                         (if (= '_ nm) ctx
-                           (-> ctx (assoc-in [fid :name] (str nm))
-                               (assoc-in [fid :inaccessible] false))))
-                       lctx (map vector (take-last (count names) fields) names))
-          ps (-> ps (assoc :goals [gid])
-                 (update :meta-mctx meta/set-expr-mvar-lctx gid lctx)
-                 (proof/set-mvar-user-name gid (name/anonymous)))
-          ps (reduce run-tactic ps body)]
-      (when (seq (:goals ps))
-        (throw (ex-info "Tactic error: case body did not close its goals" {:kind :tactic-error})))
-      (assoc ps :goals (filterv #(and (not= gid %) (not (proof/mvar-assigned? ps %))) gs)))))
+    (or gid (throw (ex-info (str "Tactic error: case tag not found: " tag) {:kind :tactic-error})))))
+
+(clojure.core/defn- rename-branch-locals [ps gid fields names]
+  (when (> (count names) (count fields))
+    (throw (ex-info "Tactic error: too many case variable names" {:kind :tactic-error})))
+  (let [lctx (reduce (fn [ctx [fid nm]]
+                       (if (= '_ nm) ctx
+                         (-> ctx (assoc-in [fid :name] (str nm))
+                             (assoc-in [fid :inaccessible] false))))
+                     (proof/mvar-lctx ps gid) (map vector fields names))]
+    (update ps :meta-mctx meta/set-expr-mvar-lctx gid lctx)))
+
+(clojure.core/defn- eval-case
+  "Lean BuiltinTactic.lean evalCase: select a tag, rename trailing inaccessibles,
+   and close it. Local :inaccessible flags represent macro-scope differences."
+  [ps tag names body]
+  (let [gs (:goals ps)
+        gid (get-case-goal ps tag)
+        fields (mapv key (filter (comp :inaccessible val)
+                                (sort-by key (proof/mvar-lctx ps gid))))
+        ps (-> (rename-branch-locals ps gid (take-last (count names) fields) names)
+               (assoc :goals [gid])
+               (proof/set-mvar-user-name gid (name/anonymous)))
+        ps (reduce run-tactic ps body)]
+    (when (seq (:goals ps))
+      (throw (ex-info "Tactic error: case body did not close its goals" {:kind :tactic-error})))
+    (assoc ps :goals (filterv #(and (not= gid %) (not (proof/mvar-assigned? ps %))) gs))))
 
 (clojure.core/defn- eval-alts
-  "Lean Elab/Tactic/Induction.lean evalAlts: constructor-named alternatives."
-  [ps alts tail]
+  "Lean Elab/Tactic/Induction.lean evalAlts.applyAltStx: introN consumes names
+   from the first constructor field, followed by IHs, independently of case/next."
+  [ps alts tail original-fids]
   (let [ps (reduce (fn [ps alt]
                      (let [[pattern & body] alt
-                           [tag & names] (if (sequential? pattern) pattern [pattern])]
-                       (eval-case ps (if (nil? tag) "nil" tag) names body)))
+                           [tag & names] (if (sequential? pattern) pattern [pattern])
+                           tag (if (nil? tag) "nil" tag)
+                           gid (get-case-goal ps tag)
+                           fields (mapv key (filter (fn [[fid d]]
+                                                      (and (:inaccessible d)
+                                                           (not (contains? original-fids fid))))
+                                                    (sort-by (fn [[fid d]] [(boolean (:is-ih d)) fid])
+                                                             (proof/mvar-lctx ps gid))))
+                           ps (rename-branch-locals ps gid (take (count names) fields) names)]
+                       (eval-case ps tag [] body)))
                    ps alts)]
     (when (some #(not (contains? (set tail) %)) (:goals ps))
       (throw (ex-info "Tactic error: missing constructor alternatives" {:kind :tactic-error})))
@@ -1216,6 +1233,7 @@
                 (let [[args alts] (split-with #(not= :with %) args)
                       rest-args (rest args)
                       tail (vec (rest (:goals ps)))
+                      original-fids (set (keys (:lctx (proof/current-goal ps))))
                       result
                   (if (seq rest-args)
                     (let [hname (str (first args))
@@ -1229,7 +1247,7 @@
                                           id best))
                                       nil (:lctx (proof/current-goal ps)))]
                       (basic/cases ps fid)))]
-                  (if (seq alts) (eval-alts result (rest alts) tail) result)))
+                  (if (seq alts) (eval-alts result (rest alts) tail original-fids) result)))
    'generalize (fn [ps args]
                  ;; (generalize x h e) — Lean's `generalize h : e = x`: abstract term `e` in the goal
                  ;; as fresh var `x` (+ hyp `h : e = x`), so `cases`/`induction` can split a NESTED
@@ -1246,6 +1264,7 @@
                 ;; do induction on x, then re-intro acc… in every resulting case.
                 (let [[args alts] (split-with #(not= :with %) args)
                       tail (vec (rest (:goals ps)))
+                      original-fids (set (keys (:lctx (proof/current-goal ps))))
                       find-fid (fn [ps nm]
                                  (reduce (fn [best [id d]]
                                            (if (and (= nm (:name d))
@@ -1263,7 +1282,7 @@
                                  ps (basic/all-goals (assoc ps :goals (vec branches))
                                       #(basic/intros % (mapv str gen-syms)))]
                              (update ps :goals into tail)) ps)]
-                  (if (seq alts) (eval-alts ps (rest alts) tail) ps)))
+                  (if (seq alts) (eval-alts ps (rest alts) tail original-fids) ps)))
    'whnf      (fn [ps _args] (basic/whnf-goal ps))
    'unfold    (fn [ps args]
                 (basic/unfold-in-goal ps (str (first args))))

@@ -1737,7 +1737,8 @@
                                                          (conj (vec field-ret-indices) fv))
                                           (e/instantiate1 motive-body fv))
                                 ih-name (str "ih_" fname)
-                                lctx'' (add-local lctx' ih-id ih-name ih-type)]
+                                lctx'' (assoc-in (add-local lctx' ih-id ih-name ih-type)
+                                                [ih-id :is-ih] true)]
                             [ps'' lctx'' [ih-id]])
                           [ps' lctx' []])]
                     (recur ps''
@@ -3366,7 +3367,11 @@
                               ps [(e/fvar hid)] {:only? true})]
                       (if (seq (:goals ps)) (go ps (conj done discr)) ps)))))))]
     (when-not (proof/current-goal ps) (tactic-error! "No goals" {}))
-    (go ps [])))
+    ;; Mathlib Tactic/Core.lean andThenOnSubgoals uses focus: the branch
+    ;; equations belong only to descendants of the main goal, never siblings.
+    (let [siblings (vec (rest (:goals ps)))
+          ps (go (assoc ps :goals [(first (:goals ps))]) [])]
+      (update ps :goals into (remove #(proof/mvar-assigned? ps %) siblings)))))
 
 ;; ============================================================
 ;; split — faithful port of Lean 4 Tactic/Split.lean (findSplit? + dispatch)
