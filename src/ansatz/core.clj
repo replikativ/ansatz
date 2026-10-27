@@ -2363,10 +2363,16 @@
 
 (clojure.core/defn tag-kernel-name
   "Attach the kernel constant name to a compiled fn (no-op for non-IObj values)."
-  [f fn-name]
-  (if (instance? clojure.lang.IObj f)
-    (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
-    f))
+  ([f fn-name]
+   (if (instance? clojure.lang.IObj f)
+     (vary-meta f assoc :ansatz.core/kernel-name (str fn-name))
+     f))
+  ([f fn-name runtime-sym]
+   ;; LCNF Decl.name identifies a global independently of its caller. Capture
+   ;; the Clojure Var's namespace at macro expansion, since *ns* at execution
+   ;; may be a test runner or REPL namespace instead of the defining namespace.
+   (swap! arity-registry update (str fn-name) assoc :sym runtime-sym)
+   (tag-kernel-name f fn-name)))
 
 (clojure.core/defn- csimp-head
   "The const-name head of one side of a csimp equation: a bare symbol `f`, or the head of an
@@ -2426,16 +2432,17 @@
                       [{:termination-by (second body-and-opts)} (nth body-and-opts 2)]
                       [{} (first body-and-opts)])
         partial? (:partial (meta fn-name))
-        nm (vary-meta fn-name dissoc :- :tag :partial)]
+        nm (vary-meta fn-name dissoc :- :tag :partial)
+        runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
     ;; the compiled fn carries its kernel constant name as metadata — runtimes use it
     ;; to find the definition from the VALUE (e.g. generative checkers)
     (cond
       partial?
-      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm))
+      `(def ~nm (tag-kernel-name (define-partial '~nm '~params '~ret-type '~body) '~nm '~runtime-sym))
       (:termination-by opts)
-      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm))
+      `(def ~nm (tag-kernel-name (define-verified-wf '~nm '~params '~ret-type '~body '~(:termination-by opts)) '~nm '~runtime-sym))
       :else
-      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm)))))
+      `(def ~nm (tag-kernel-name (define-verified '~nm '~params '~ret-type '~body) '~nm '~runtime-sym)))))
 
 (defmacro foreign
   "Declare a TRUSTED FOREIGN function — an arbitrary Clojure fn asserted at a kernel type,
@@ -2448,8 +2455,9 @@
    Then `(map (fn [x] (sqrt x)) xs)` in an a/defn body verifies + optimizes the pipeline
    structure while `sqrt` stays a trusted hole."
   [fn-name params ret-type impl]
-  (let [nm (vary-meta fn-name dissoc :- :tag)]
-    `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm))))
+  (let [nm (vary-meta fn-name dissoc :- :tag)
+        runtime-sym (symbol (str (ns-name *ns*)) (str nm))]
+    `(def ~nm (tag-kernel-name (define-foreign '~nm '~params '~ret-type ~impl) '~nm '~runtime-sym))))
 
 (defmacro implemented_by
   "Lean's @[implemented_by] / @[extern] correspondence, named to match — an alias of `a/foreign`:

@@ -27,8 +27,8 @@
     (let [code (cg/ansatz->clj (a/env)
                                (e/app (e/const' (name/from-string "cs-slow") []) (e/lit-nat 5)) [])
           syms (head-syms code)]
-      (is (contains? syms (symbol "cs-fast")) "codegen lowered cs-slow as its verified replacement")
-      (is (not (contains? syms (symbol "cs-slow"))) "the original head cs-slow is gone"))))
+      (is (contains? syms 'ansatz.csimp-test/cs-fast) "codegen lowered cs-slow as its verified replacement")
+      (is (not (contains? syms 'ansatz.csimp-test/cs-slow)) "the original head cs-slow is gone"))))
 
 (deftest csimp-guard-skips-unlowerable-target
   ;; The lowerability guard is what makes inheriting Lean's compiler-internal @[csimp]
@@ -39,7 +39,7 @@
     (let [env  (env/update-extension (a/env) :csimp {} assoc "cs-keep" "No.Such.Target")
           code (cg/ansatz->clj env (e/app (e/const' (name/from-string "cs-keep") []) (e/lit-nat 5)) [])
           syms (head-syms code)]
-      (is (contains? syms (symbol "cs-keep")) "unlowerable csimp target → original head kept")
+      (is (contains? syms 'ansatz.csimp-test/cs-keep) "unlowerable csimp target → original head kept")
       (is (not (contains? syms (symbol "No.Such.Target"))) "the bogus target is never emitted"))))
 
 (deftest implemented-by-is-foreign-alias
@@ -49,3 +49,14 @@
     (a/implemented_by ib-inc [x :- Nat] Nat (fn [x] (inc x)))
     (is (some? (env/lookup (a/env) (name/from-string "ib-inc"))) "the typed hole is in the env")
     (is (= 5 (ib-inc 4)) "and the Clojure impl runs")))
+
+(deftest compiler-replacements-skip-unsupported-bodies-and-use-runnable-targets
+  (a/defn cs-original [n :- Nat] Nat n)
+  (a/defn cs-runnable [n :- Nat] Nat (+ n 1))
+  (let [term (e/app (e/const' (name/from-string "cs-original") []) (e/lit-nat 5))
+        unsupported (env/update-extension (a/env) :csimp {} assoc "cs-original" "List.foldr")
+        supported (env/update-extension (a/env) :csimp {} assoc "cs-original" "cs-runnable")
+        implemented (env/update-extension (a/env) :implemented-by {} assoc "cs-original" "cs-runnable")]
+    (is (= 5 (eval (cg/ansatz->clj unsupported term []))))
+    (is (= 6 (eval (cg/ansatz->clj supported term []))))
+    (is (= 6 (eval (cg/ansatz->clj implemented term []))))))

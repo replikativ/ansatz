@@ -109,6 +109,16 @@
    "Int.ediv" 'ansatz.codegen.numeric/ediv "Int.emod" 'ansatz.codegen.numeric/emod
    "Int.fdiv" 'ansatz.codegen.numeric/fdiv "Int.fmod" 'ansatz.codegen.numeric/fmod})
 
+;; Init/Prelude.lean List.foldl: foldl f a [] = a;
+;; foldl f a (b :: l) = foldl f (f a b) l. The bundled export carries
+;; only brecOn, without eq_def or a compiler replacement for this declaration.
+;; Like List.length's native lowering, reduce executes these equations directly.
+(def ^:private list-foldl
+  (:fn-form (decl/emit-wrapper
+             '[f_ init_ xs_]
+             '(clojure.core/reduce (fn [acc_ x_] ((f_ acc_) x_)) init_ xs_)
+             {})))
+
 (def ^:private builtin-app
   (merge
    ;; n-ary arithmetic / comparison saturating to a bare op. Nat add/mul/succ use the
@@ -134,7 +144,9 @@
    {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
-   {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
+   {"List.foldl"    (fn [_ _ _ ca _]
+                     (decl/apply-args {:arity 3 :erased 2} list-foldl ca))
+    "Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
@@ -235,7 +247,8 @@
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
   (merge
-   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
+   {"List.foldl" list-foldl
+    "Nat.zero" 0 "Bool.true" true "Bool.false" false
     "Nat.succ" 'inc' "Int.ofNat" 'identity
     "Float.pow" (nary-op2 (fn [x y] (list 'Math/pow x y)) [])
     "Int.neg" '-' "Int.natAbs" 'ansatz.codegen.numeric/nat-abs
@@ -270,8 +283,8 @@
 
 (clojure.core/defn- storedef-compile!
   "Bridge to ansatz.codegen.storedef/compile-store-def! (requiring-resolve breaks the
-   namespace cycle). Returns the {:arity :erased :sym} registry entry or nil; memoized
-   over there, so repeated attempts on uncompilable heads are cheap."
+   namespace cycle). Returns a successful {:arity :erased :sym} entry or nil
+   for ineligible constants; unsupported definitions raise a named codegen error."
   [env ^String cname]
   ((requiring-resolve 'ansatz.codegen.storedef/compile-store-def!) env cname))
 
@@ -284,7 +297,10 @@
    An f that already has a NATIVE lowering keeps it: a csimp swap must not hijack e.g.
    List.length → count into a compiled loop."
   [env h]
-  (when-let [g (get (env/get-extension env :csimp {}) h)]
+  ;; Compiler/CSimpAttr.lean replaceConstant? and LCNF/Simp/SimpValue.lean
+  ;; applyImplementedBy? both replace the global constant, preserving arguments.
+  (when-let [g (or (get (env/get-extension env :csimp {}) h)
+                  (get (env/get-extension env :implemented-by {}) h))]
     (when-not (or (builtin-app h) (contains? builtin-value h) (contains? @codegen-registry h))
       (when (or (builtin-app g) (contains? builtin-value g) (contains? @codegen-registry g)
                 (contains? @arity-registry g)
@@ -292,7 +308,12 @@
                   (or (.isCtor ^ConstantInfo ci)
                       (and (.isRecursor ^ConstantInfo ci) (.endsWith ^String g ".rec"))
                       (= ConstantInfo/HINTS_ABBREV (.getHints ^ConstantInfo ci))))
-                (when *compile-store-defs* (some? (storedef-compile! env g))))
+                (when *compile-store-defs*
+                  ;; An optional compiler replacement may use native machinery
+                  ;; absent from this runtime. Keep the original definition then.
+                  (try (some? (storedef-compile! env g))
+                       (catch clojure.lang.ExceptionInfo ex
+                         (if (= :codegen-error (:kind (ex-data ex))) nil (throw ex))))))
         g))))
 
 (def ^:private match-aux-re #"\.match_\d+$")
@@ -732,9 +753,30 @@
               head (if g (e/const' (name/from-string g) (e/const-levels head)) head)
               h (or g h0)
               cc (when-not (contains? *raw-constants* h) (get @arity-registry h))
+              ;; ToLCNF.visitAppArg erases predicates before visiting their
+              ;; bodies. dite's type and proposition never reach runtime; its
+              ;; native Nat decision is lowered directly by the handler above.
+              native-decision? (when (and (= h "dite") (> (count args) 2))
+                                 (let [[dh _] (e/get-app-fn-args (nth args 2))]
+                                   (and (e/const? dh)
+                                        (#{"Nat.decEq" "Nat.decLt" "Nat.decLe"}
+                                         (name/->string (e/const-name dh))))))
               ;; Erased parameters never reach expression lowering or runtime calls.
               ca (mapv (fn [i arg]
-                         (when-not (< i (or (:erased cc) 0))
+                         (when-not (or (< i (or (:erased cc) 0))
+                                       (and (= h "List.foldl") (< i 2))
+                                       ;; Subtype.val/mk erase the predicate;
+                                       ;; mk also erases its proof argument.
+                                       (and (#{"Subtype.val" "Subtype.mk"} h) (< i 2))
+                                       (and (= h "Subtype.mk") (= i 3))
+                                       ;; hop extracts the actual field from the
+                                       ;; raw instance before emitting operands;
+                                       ;; its type/dictionary prefix is not emitted.
+                                       (and (#{"HAdd.hAdd" "HMul.hMul" "HSub.hSub"
+                                               "HDiv.hDiv" "HMod.hMod" "HPow.hPow"} h)
+                                            (< i 4))
+                                       (and (= h "dite")
+                                            (or (< i 2) (and (= i 2) native-decision?))))
                            (ansatz->clj env arg names))) (range) args)]
           (if-let [bi (or (when-let [entry
                                      (some (fn [{:keys [prefix depth] :as entry}]
@@ -1002,7 +1044,7 @@
             ;; Plain (non-abbrev) recursive/wrapper store def: compile it from its exported
             ;; equation lemma (f.eq_def) or non-recursive value (ansatz.codegen.storedef),
             ;; which interns + registers {:arity :erased :sym}, then re-dispatch (hits the
-            ;; :sym-aware registry path below). Memoized; failure falls through unchanged.
+            ;; :sym-aware registry path below). Unsupported definitions fail here.
                       (when (and *compile-store-defs* (not (contains? @arity-registry h)))
                         (when (storedef-compile! env h)
                           (ansatz->clj env expr names)))

@@ -10,6 +10,9 @@
    dispatch, and the self-calls become `recur` when in tail position (Lean's *TR runtime
    re-implementations are tail-recursive by construction, so they become real loops).
 
+   References: Lean v4.33.1 Elab/PreDefinition/Basic.lean and
+   Compiler/LCNF/ToLCNF.lean (etaIfUnderApplied).
+
    Non-recursive plain defs (the `@[inline]` TR wrappers like List.lengthTR, instance
    literals) have no eq_def; their stored value compiles directly.
 
@@ -18,8 +21,9 @@
    symbol resolves as a var) and registered in the arity-registry as
    {:arity n :erased k :sym qualified-sym}, which the codegen FAP path and the csimp
    lowerability guard consume. Any failure anywhere leaves the registries untouched and
-   codegen falls back to today's behavior (bare symbol / extern throw)."
-  (:require [ansatz.kernel.env :as env]
+   unsupported definitions raise a named codegen error before runtime emission."
+  (:require [ansatz.eqns :as eqns]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.codegen.decl :as decl])
@@ -27,8 +31,8 @@
 
 (def ^:private runtime-ns (create-ns 'ansatz.storedef.runtime))
 
-;; name -> {:sym qualified-sym} | {:fail reason}. Store decls are immutable, so a global
-;; memo is safe; negative results are cached to keep the codegen fall-through cheap.
+;; Only successful compilations are memoized. A failed dependency may become
+;; available after installing a runtime lowering; failures must remain diagnostic.
 (defonce ^:private compiled (atom {}))
 
 ;; Names currently being compiled (cycle guard). Self-references inside the body being
@@ -53,12 +57,12 @@
       (recur (e/forall-body t) (conj binders [(e/forall-name t) (e/forall-type t) (e/forall-info t)]))
       [binders t])))
 
-(defn- parse-eq-def
-  "From f.eq_def's theorem type `∀ tele, Eq T (f tele-bvars) rhs` return
+(defn- parse-equation
+  "From an equation theorem type `∀ tele, Eq T (f tele-bvars) rhs` return
    {:binders [[name type info] …] :rhs Expr}, or nil if the shape doesn't match
    (conditional equations carry extra hypothesis binders and fail the lhs check)."
-  [env fname]
-  (when-let [ci (env/lookup env (name/from-string (str fname ".eq_def")))]
+  [env fname equation]
+  (when-let [ci (env/lookup env equation)]
     (let [[binders concl] (strip-telescope (.type ^ConstantInfo ci))
           [h args] (e/get-app-fn-args concl)
           n (count binders)]
@@ -70,7 +74,14 @@
                      (every? identity
                              (map-indexed (fn [i a] (and (e/bvar? a) (= (- n 1 i) (e/bvar-idx a))))
                                           largs)))
-            {:binders binders :rhs rhs}))))))
+            {:binders binders :rhs rhs :equation equation}))))))
+
+(defn- parse-eq-def [env fname]
+  ;; Meta/Eqns.lean getEqnsFor?: consume the recorded inventory in order.
+  ;; The explicitly exported legacy eq_def remains usable without metadata.
+  (some #(parse-equation env fname %)
+        (distinct (concat (eqns/eqns-for env fname)
+                          [(name/from-string (str fname ".eq_def"))]))))
 
 (defn- const-refs
   "All constant names referenced in an Expr."
@@ -259,8 +270,8 @@
    artifact; PreDefinition/Basic.lean:282).
 
    Returns {:fn-form form :fn compiled-fn} or nil when the shape is unsupported (arity
-   mismatch on a self-call, an erased binder that turns out runtime-relevant, or eval
-   failure from an unresolvable dependency). Callers own interning/registration."
+   mismatch on a self-call or an erased binder that turns out runtime-relevant).
+   Emission/eval failures propagate. Callers own interning/registration."
   [env ^String cname term {:keys [erased arity]}]
   (let [total (+ erased arity)
         raw (binding [*in-progress* (conj *in-progress* cname)]
@@ -279,59 +290,79 @@
 
 ;; ── the store-def compiler ────────────────────────────────────────────────────
 
+(defn- compilation-error [cname reason]
+  (ex-info (str "Codegen error: cannot compile '" cname "': " reason)
+           {:kind :codegen-error :declaration cname :reason reason}))
+
 (defn- compile!*
   [env ^String cname ^ConstantInfo ci]
   (let [eqd (parse-eq-def env cname)
-        ;; source term + its telescope: eq_def when present (recursive defs), else the
-        ;; stored value of a non-recursive plain def (wrappers, instance literals).
-        [binders rhs provenance]
+        ;; Lean Elab/PreDefinition/Basic.lean compiles the pre-encoding body.
+        ;; Exports with eq_def provide the corresponding direct recursive RHS.
+        [binders rhs]
         (if eqd
-          [(:binders eqd) (:rhs eqd) :eq-def]
-          (let [v (.getValue ci)
-                [vb vbody] (loop [t v bs []]
-                             (if (e/lam? t)
-                               (recur (e/lam-body t) (conj bs [(e/lam-name t) (e/lam-type t) (e/lam-info t)]))
-                               [bs t]))
-                ;; eta-contracted value (fewer lams than the type's ∀s) would register an
-                ;; arity smaller than call sites supply — require exact agreement.
-                [tb _] (strip-telescope (.type ci))]
-            (if (= (count vb) (count tb)) [vb vbody :value] [nil nil nil])))
-        refs (when rhs (const-refs rhs))]
-    (when (and rhs
-               (not-any? unexecutable-ref? refs)
-               (or (= provenance :eq-def) (not (contains? refs cname))))
-      (when-let [{:keys [erased arity]} (audit-binders binders)]
-        (let [lam (reduce (fn [body [bn bt bi]] (e/lam bn bt body bi)) rhs (rseq (vec binders)))
-              emitted (emit-direct-recursion env cname lam {:erased erased :arity arity})]
-          (when emitted
-            (intern runtime-ns (symbol cname) (:fn emitted))
-            (assoc (:convention emitted)
-                   :sym (symbol (str (ns-name runtime-ns)) cname) :provenance provenance)))))))
+          [(:binders eqd) (:rhs eqd)]
+          (loop [t (.getValue ci) bs []]
+            (if (e/lam? t)
+              (recur (e/lam-body t) (conj bs [(e/lam-name t) (e/lam-type t) (e/lam-info t)]))
+              [bs t])))
+        [type-binders _] (strip-telescope (.type ci))
+        ;; Compiler/LCNF/ToLCNF.lean etaIfUnderApplied: expose the remaining
+        ;; parameters of an eta-contracted value before fixing its convention.
+        missing (- (count type-binders) (count binders))
+        rhs (if (pos? missing)
+              (reduce e/app (e/lift rhs missing 0) (map e/bvar (reverse (range missing))))
+              rhs)
+        binders (if (pos? missing) (into (vec binders) (drop (count binders) type-binders)) binders)
+        refs (const-refs rhs)]
+    (when-let [ref (first (sort (filter unexecutable-ref? refs)))]
+      (throw (compilation-error cname
+                               (str "kernel recursion encoding " ref
+                                    "; exported direct equation body (.eq_def) is unavailable"))))
+    (when (and (not eqd) (contains? refs cname))
+      (throw (compilation-error cname "recursive value requires an exported direct equation body")))
+    (when (not= (count binders) (count type-binders))
+      (throw (compilation-error cname "eta-contracted value does not expose the declaration telescope")))
+    (let [{:keys [erased arity] :as audit} (audit-binders binders)]
+      (when-not audit
+        (throw (compilation-error cname
+                                  "unsupported runtime binder telescope: requires an erased prefix and 1..20 explicit non-type parameters (arity limit 20)")))
+      (let [lam (reduce (fn [body [bn bt bi]] (e/lam bn bt body bi)) rhs (rseq (vec binders)))
+            emitted (emit-direct-recursion env cname lam {:erased erased :arity arity})]
+        (when-not emitted
+          (throw (compilation-error cname "direct recursion emission cannot erase binders or match self-call arity")))
+        (intern runtime-ns (symbol cname) (:fn emitted))
+        (assoc (:convention emitted)
+               :sym (symbol (str (ns-name runtime-ns)) cname)
+               :provenance (cond (nil? eqd) :value
+                                 (= (name/->string (:equation eqd)) (str cname ".eq_def")) :eq-def
+                                 :else :equation)
+               :equation (:equation eqd))))))
 
 (defn compile-store-def!
-  "Compile plain store def `cname` to a Clojure fn, intern it, and register
-   {:arity :erased :sym} in the arity-registry. Returns the registry entry on success,
-   nil on failure (memoized either way; registries untouched on failure)."
+  "Compile a plain store definition and register its runtime convention. Ineligible
+   constants and active recursive references return nil. Unsupported definitions
+   throw :codegen-error naming the declaration and cause; failures are not cached."
   [env ^String cname]
+  ;; Ignore legacy negative entries retained by defonce during a hot reload.
   (let [memo (get @compiled cname)]
-    (cond
-      (:sym memo) memo
-      (some? memo) nil
-      (contains? *in-progress* cname) nil
-      :else
-      (let [res (try
-                  (when-let [^ConstantInfo ci (env/lookup env (name/from-string cname))]
-                    ;; regular def with a body, and NOT an @[extern] native primitive —
-                    ;; extern reference bodies may not match native runtime reps (String),
-                    ;; so they keep codegen's explanatory-throw path.
-                    (when (and (<= 0 (.getHintsCode ci)) (some? (.getValue ci))
-                               (not (contains? (env/get-extension env :extern #{}) cname)))
-                      (compile!* env cname ci)))
-                  (catch Throwable _ nil))]
-        (if res
-          (do (swap! (deref (requiring-resolve 'ansatz.surface.ingest/arity-registry))
-                     assoc cname res)
+    (if (:sym memo)
+      (do
+        ;; A caller may have restored an isolated arity registry since this
+        ;; compilation. Reinstall the convention before codegen redispatches.
+        (swap! (deref (requiring-resolve 'ansatz.surface.ingest/arity-registry)) assoc cname memo)
+        memo)
+      (when-not (contains? *in-progress* cname)
+        (when-let [^ConstantInfo ci (env/lookup env (name/from-string cname))]
+          (when (and (<= 0 (.getHintsCode ci)) (some? (.getValue ci))
+                     (not (contains? (env/get-extension env :extern #{}) cname)))
+            (let [res (try
+                        (compile!* env cname ci)
+                        (catch clojure.lang.Compiler$CompilerException ex
+                          (throw (ex-info (str "Codegen error: cannot compile '" cname "': "
+                                               (.getMessage (.getCause ex)))
+                                          {:kind :codegen-error :declaration cname
+                                           :reason (.getMessage (.getCause ex))} ex))))]
+              (swap! (deref (requiring-resolve 'ansatz.surface.ingest/arity-registry)) assoc cname res)
               (swap! compiled assoc cname res)
-              res)
-          (do (swap! compiled assoc cname {:fail true})
-              nil))))))
+              res)))))))
