@@ -1503,7 +1503,9 @@
         ptypes (loop [i 0 lctx {} acc []]
                  (if (= i n) acc
                      (let [p (nth pairs i)
-                           pt (elab/elaborate-in-context env lctx (second p))]
+                           ;; Lean/Elab/Binders.lean elabBinderViews uses elabType
+                           ;; for annotations even while elaborating a computational body.
+                           pt (elab/elaborate-in-context env lctx (second p) nil {:type-position true})]
                        (recur (inc i)
                               (assoc lctx (nth fids i) {:name (str (first p)) :type pt :tag :local})
                               (conj acc pt)))))
