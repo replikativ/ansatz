@@ -84,7 +84,7 @@
   (if-let [alt (first (:alts p))]
     (do (solve-cnstrs ctx state (:mvar-id p) alt)
         (record-overlaps! state alt (rest (:alts p))))
-    (swap! state update :counter-examples conj (:examples p))))
+    (swap! state update :counter-examples #(into [(:examples p)] %))))
 
 (defn process-ex-falso [ctx p]
   (let [id (:mvar-id p) target (c/goal-type ctx id)

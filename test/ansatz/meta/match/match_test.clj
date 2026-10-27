@@ -1,6 +1,8 @@
 (ns ansatz.meta.match.match-test
   (:require [clojure.test :refer [deftest is testing]]
             [ansatz.core :as a]
+            [ansatz.export.parser :as parser]
+            [ansatz.export.replay :as replay]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
@@ -15,6 +17,13 @@
             [ansatz.matchers :as imported]))
 
 (def environment (delay (binding [a/*verbose* false] (a/load-init!))))
+(def extra-oracle
+  (delay
+    (with-open [in (java.util.zip.GZIPInputStream.
+                    (java.io.FileInputStream. "test-data/kernel-reference/matcher-values.ndjson.gz"))]
+      (parser/with-parser-state
+        (parser/parse-ndjson-string (slurp in))
+        (fn [parsed] (:env (replay/replay (:decls parsed) :stop-on-error? true)))))))
 (defn ctor [n & fields] (b/ctor (name/from-string n) [] [] fields))
 (def nat (u/const' "Nat" []))
 (def bool (u/const' "Bool" []))
@@ -96,6 +105,14 @@
     (is (some? (env/lookup (:env result) (name/from-string "MatcherReference.empty.match_1"))))
     (is (contains? (u/fold-constants conj #{} (:value result)) (name/from-string "False.elim")))))
 
+(deftest missing-cases-follow-leans-counterexample-stack-order
+  (let [ctx (c/context @environment)
+        result (m/mk-matcher ctx {:matcher-name "MatcherReference.missing.match_1"
+                                  :match-type (e/forall' "b" bool nat :default)
+                                  :discr-infos [(mi/discr-info)] :lhss []})]
+    (is (= ["Bool.true" "Bool.false"]
+           (mapv (fn [example] (str (:ctor-name (first example)))) (:counter-examples result))))))
+
 (def init-patterns
   ;; Restated from Init/Prelude.lean Nat.add/mul/pow/beq/ble, Option.getD,
   ;; List.append/concat/foldl; Init/Data/{Option,List}/Basic.lean for the rest.
@@ -113,7 +130,12 @@
     ["List.concat.match_1" [[List.nil b] [(List.cons a as) b]]]
     ["List.reverseAux.match_1" [[List.nil r] [(List.cons a l) r]]]
     ["List.foldl.match_1" [[a List.nil] [a (List.cons b l)]]]
-    ["List.dropLast.match_1" [[List.nil] [(List.cons _ List.nil)] [(List.cons a as)]]]])
+    ["List.dropLast.match_1" [[List.nil] [(List.cons _ List.nil)] [(List.cons a as)]]]
+    ;; Init/WF.lean: nested Decidable matches, the outer pair match, and lex's wf match.
+    ["Prod.Lex.instDecidableRelOfDecidableEq.match_1" [[(Decidable.isTrue h)] [(Decidable.isFalse h)]]]
+    ["Prod.Lex.instDecidableRelOfDecidableEq.match_3" [[(Decidable.isTrue h)] [(Decidable.isFalse h)]]]
+    ["Prod.Lex.instDecidableRelOfDecidableEq.match_5" [[(Prod.mk a b) (Prod.mk c d)]]]
+    ["Prod.lex.match_1" [[(Prod.mk a b)]]]])
 
 (defn- pattern-from-source [ctx type form]
   (if (integer? form)
@@ -142,11 +164,11 @@
                (next forms) (conj pats p) (into ds more)))
       (b/alt-lhs nil ds pats))))
 
-(defn- replace-motive-sort [type]
+(defn- replace-motive-sort [type result]
   (if (e/forall? type)
     (e/forall' (e/forall-name type) (e/forall-type type)
-               (replace-motive-sort (e/forall-body type)) (e/forall-info type))
-    nat))
+               (replace-motive-sort (e/forall-body type) result) (e/forall-info type))
+    result))
 
 (defn- alpha-rename [x]
   (let [go alpha-rename]
@@ -162,14 +184,16 @@
 (deftest generated-init-matchers-agree-with-lean-exports
   (doseq [[n rows] init-patterns]
     (testing n
-      (let [ctx (c/context @environment)
-            oracle (env/lookup! @environment (name/from-string n))
+      (let [oracle-env (if (env/lookup @environment (name/from-string n)) @environment @extra-oracle)
+            ctx (c/context oracle-env)
+            oracle (env/lookup! oracle-env (name/from-string n))
             info (get (imported/bundled-matchers) n)
             ;; Use only the discriminant telescope and closure parameters from the
             ;; oracle. Patterns above are source restatements; neither the exported
             ;; alternatives nor the value are used to construct the matcher.
             [_ rest-type] (u/forall-telescope ctx (.type oracle) (:num-params info))
-            match-type (replace-motive-sort (e/forall-type rest-type))
+            match-type (replace-motive-sort (e/forall-type rest-type)
+                                             (if (some? (:u-elim-pos info)) nat (u/const' "True" [])))
             lhss (mapv #(lhs-from-source ctx match-type %) rows)
             result (m/mk-matcher ctx {:matcher-name (str "Fresh." n) :match-type match-type
                                       :discr-infos (mapv mi/discr-info (:discrs info)) :lhss lhss})
