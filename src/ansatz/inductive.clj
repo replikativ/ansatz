@@ -15,6 +15,8 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
+            [ansatz.kernel.tc :as tc]
+            [ansatz.kernel.reduce :as red]
             [ansatz.meta.constructions.cases-on :as cases-on]
             [ansatz.meta.constructions.rec-on :as rec-on]
             [ansatz.meta.constructions.brec-on :as brec-on]
@@ -305,6 +307,31 @@
       (if (< i 0) body
           (recur (dec i) (e/forall' (:name (nth params i)) (:compiled-type (nth params i))
                                     body :implicit))))))
+
+(defn- elim-only-at-universe-zero?
+  ;; Lean src/kernel/inductive.cpp (55f80e10a3), elim_only_at_universe_zero.
+  ;; Data fields must be whole result arguments, not subterms of an index.
+  [env result-level n-params ctor-cis]
+  (and (= result-level lvl/zero)
+       (cond
+         (> (count ctor-cis) 1) true
+         (empty? ctor-cis) false
+         :else
+         (loop [st (tc/mk-tc-state env)
+                type (.type ^ConstantInfo (first ctor-cis))
+                i 0 to-check []]
+           (if (e/forall? type)
+             (let [domain (e/forall-type type)
+                   fv-id (swap! (:next-id st) inc)
+                   fv (e/fvar fv-id)
+                   sort (when (>= i n-params)
+                          (tc/ensure-sort st (tc/infer-type st domain)))
+                   to-check (if (and sort (not= lvl/zero (e/sort-level sort)))
+                              (conj to-check fv) to-check)
+                   st (update st :lctx red/lctx-add-local fv-id (e/forall-name type) domain)]
+               (recur st (e/instantiate1 (e/forall-body type) fv) (inc i) to-check))
+             (let [[_ result-args] (e/get-app-fn-args type)]
+               (boolean (some (fn [arg] (not-any? #(= arg %) result-args)) to-check))))))))
 
 (defn- build-constructor-type
   "Build: ∀ (p1:T1) ... (pn:Tn) (f1:F1) ... (fm:Fm) → I p1...pn idx1...idxk
@@ -866,8 +893,6 @@
                          :compiled-return-indices (or compiled-ret-indices [])}))
                     (range) ctors-spec)
 
-        n-ctors (count ctors)
-
         ;; Phase 2: Validation
         _ (doseq [ctor ctors, field (:fields ctor)]
             (check-positivity! env (:type field) ind-name (:name ctor) (:name field)))
@@ -890,8 +915,27 @@
                                             (:fields ctor)))
                                     ctors))
 
-        ;; Elimination level
-        prop-only? (and (= result-level lvl/zero) (> n-ctors 1))
+        ;; Build inductive and constructor types before checking elimination.
+        ind-type (build-inductive-type params compiled-indices result-level)
+        ind-ci (env/mk-induct ind-name ind-levels ind-type
+                              :num-params n-params :num-indices n-indices
+                              :all [ind-name]
+                              :ctors (mapv #(name/from-string (:full-name %)) ctors)
+                              :num-nested num-nested
+                              :rec? is-rec :reflexive? is-reflexive)
+        ctor-cis (mapv (fn [ctor]
+                         (let [ctor-cname (name/from-string (:full-name ctor))
+                               ctor-type (build-constructor-type params (:fields ctor)
+                                                                 ind-name ind-level-levels
+                                                                 (:compiled-return-indices ctor))
+                               n-fields (count (:fields ctor))]
+                           (env/mk-ctor ctor-cname ind-levels ctor-type
+                                        ind-name (:idx ctor) n-params n-fields)))
+                       ctors)
+        ;; The provisional inductive is needed to infer recursive field types;
+        ;; the complete bundle still goes through kernel admission below.
+        prop-only? (elim-only-at-universe-zero? (env/add-constant env ind-ci)
+                                                result-level n-params ctor-cis)
         ;; The elim-level param name MUST match the kernel's recursor-rule generator
         ;; (InductiveChecker.initElimLevel: "u", suffixed "u_<i>" only on collision with the
         ;; inductive's own level params). The Clojure side previously hardcoded "u_1" while the
@@ -910,26 +954,6 @@
         rec-level-params (into (if elim-level-param [elim-level-param] [])
                                ind-levels)
         rec-level-levels (mapv lvl/param rec-level-params)
-
-        ;; Build inductive type: ∀ params indices → Sort result-level
-        ind-type (build-inductive-type params compiled-indices result-level)
-        ind-ci (env/mk-induct ind-name ind-levels ind-type
-                              :num-params n-params :num-indices n-indices
-                              :all [ind-name]
-                              :ctors (mapv #(name/from-string (:full-name %)) ctors)
-                              :num-nested num-nested
-                              :rec? is-rec :reflexive? is-reflexive)
-
-        ;; Build constructor types
-        ctor-cis (mapv (fn [ctor]
-                         (let [ctor-cname (name/from-string (:full-name ctor))
-                               ctor-type (build-constructor-type params (:fields ctor)
-                                                                 ind-name ind-level-levels
-                                                                 (:compiled-return-indices ctor))
-                               n-fields (count (:fields ctor))]
-                           (env/mk-ctor ctor-cname ind-levels ctor-type
-                                        ind-name (:idx ctor) n-params n-fields)))
-                       ctors)
 
         ;; Build recursor
         rec-name (name/from-string (str ind-name-str ".rec"))
