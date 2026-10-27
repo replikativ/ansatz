@@ -95,14 +95,14 @@
   (let [ns 'prototype.coherent-jvm-slice
         ownership-var (ns-resolve ns 'ownership) dispose (ns-resolve ns 'dispose!)
         close-var (ns-resolve 'prototype.resident-frontend 'close!)
-        release-var (ns-resolve 'prototype.resident-init-prefix 'release-prefix)]
+        release-var (ns-resolve 'prototype.resident-init-prefix 'release-prefix-and-close-branch)]
     (doseq [fail? [false true]]
       (let [events (atom []) calls (atom 0) context (Object.) released (Object.)
             ledger (atom {:phase :adopted :contexts [{:context context :prefix :model-prefix :closed? false}]
                           :lease (reify java.io.Closeable (close [_] (swap! events conj :source-close)))})]
         (with-redefs-fn {ownership-var ledger
                         release-var (fn [ctx p] (is (identical? context ctx)) (is (= :model-prefix p))
-                                      (swap! events conj :prefix-release) {:context released})
+                                      (swap! events conj :prefix-release) {:status :closed})
                         close-var (fn [ctx]
                                     (swap! calls inc)
                                     (swap! events conj (if (identical? ctx released) :released-context-close :original-context-close))
@@ -112,12 +112,12 @@
                (is (thrown? clojure.lang.ExceptionInfo (dispose)))
                (is (thrown? clojure.lang.ExceptionInfo (dispose)))
                (is (= 1 @calls))
-               (is (= [:prefix-release :released-context-close] @events))
+               (is (= [:prefix-release :original-context-close] @events))
                (is (:unsafe-partial? @ledger)))
              (do
                (is (= {:disposal-phase :disposed} (dispose)))
                (is (= {:disposal-phase :disposed} (dispose)))
-               (is (= [:prefix-release :released-context-close :original-context-close :source-close] @events)))))))))
+               (is (= [:prefix-release :original-context-close :source-close] @events)))))))))
 
 (deftest explicit-application-cache-is-shared-without-changing-pristine-model-input
   (let [prepared ((ns-resolve 'prototype.resident-frontend-test 'prepared) :mutable true

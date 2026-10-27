@@ -83,6 +83,23 @@
                   "Cleanup already begun or canonical owners unresolved; lease retained")
         :claimed))))
 
+(defn retire-prefix!
+  "Close a NEW prefix branch in one claimed operation, then optionally close the
+   original wrapper. RETIRE must return no runnable Context/owned roots. Never
+   reconstruct or retry a destructive partial result, including after close fails."
+  ([state role packet retire close close-original?]
+   (retire-prefix! state role packet retire close close-original? (fn [_ invoke] (invoke))))
+  ([state role packet retire close close-original? observe]
+   (let [retired (observe :prefix-release-and-close
+                   #(operation! state [role :release-and-close]
+                      (fn [] (retire (:context packet) (:prefix packet)))
+                      (fn [result]
+                        (require! (= :closed (:status result)) "Prefix branch did not report closed"))))]
+     (when close-original?
+       (observe :original-context-close
+         #(operation! state [role :original-context-close] (fn [] (close (:context packet))))))
+     retired)))
+
 (defn recover!
   "At most one recovery entry. Never retry cleanup begun by the normal path.
    Preserve the first failure; an independent cleanup error is suppressed."
