@@ -49,12 +49,16 @@ example {S : Type} [ClassOverPlain S] : True := by
   fail_if_success have := (inferInstance : PlainParent S)
   trivial
 
-class ReviewBEq (S : Type) extends BEq S where
+class ExtendedBEq (S : Type) extends BEq S where
   extra : S
-example {S : Type} [ReviewBEq S] : BEq S := inferInstance
+example {S : Type} [ExtendedBEq S] : BEq S := inferInstance
 
 class ExportedParent (S : Type) where
   zero : S
 class ExportedChild (S : Type) extends ExportedParent S where
   one : S
 example {S : Type} [ExportedChild S] : ExportedParent S := inferInstance
+
+class ExtraOrd (S : Type) extends Ord S where
+  extra : S
+example {S : Type} [ExtraOrd S] : Ord S := inferInstance

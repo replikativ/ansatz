@@ -16,8 +16,10 @@
         inst (instance/synthesize* st (:env st) (instance/index-for (:env st))
                                    (e/app (c "Decidable") p) 0)
         _ (when-not inst (action/fail! "literal equality decision unavailable" {:lhs lhs :rhs rhs}))
-        value (#'tc/cached-whnf st (e/app* (c "Decidable.decide") p inst))
-        _ (when-not (= value (c "Bool.false"))
+        ;; Core.lean's eagerReflBoolFalse is checked by kernel definitional
+        ;; equality, including literal expansion for String decisions.
+        decision (e/app* (c "Decidable.decide") p inst)
+        _ (when-not (tc/is-def-eq st decision (c "Bool.false"))
             (action/fail! "literal equality decision did not reduce to false" {:lhs lhs :rhs rhs}))
         ;; The bundled Init exports of_decide_eq_false, but not the convenience
         ;; eq_false_of_decide used by Lean Core. Its Not proof closes identically.

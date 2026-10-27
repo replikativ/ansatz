@@ -11,11 +11,10 @@
             [ansatz.malli :as am]
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.instance :as instance]
-            [ansatz.deriving :as deriving]
-            [ansatz.kernel.tc :as tc])
+            [ansatz.deriving :as deriving])
   (:import [ansatz.kernel TypeChecker]))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once (fn [f] (a/load-init! :verify? true) (binding [a/*verbose* false] (f))))
 
 (defn- nat-list [xs]
   (reduce (fn [tail x] (list 'List.cons 'Nat x tail)) '(List.nil Nat) (reverse xs)))
@@ -265,21 +264,13 @@
       (finally (reset! a/ansatz-env saved)))))
 
 (deftest string-equality-uses-registered-dictionary
-  ;; Older bundled tiers omit this dictionary; exercise it when it is exported.
-  (let [goal (e/app (e/const' (name/from-string "DecidableEq") [(level/succ level/zero)])
-                    (e/const' (name/from-string "String") []))]
-    (if (instance/synthesize* (tc/mk-tc-state (a/env)) (a/env)
-                              (instance/index-for (a/env)) goal 0)
-      (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
-        (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
-        (doseq [[x y expected] [["hello" "hello" true] ["hello" "world" false]
-                                ["é" "é" true] ["" "a" false]]]
-          (let [application (list 'string-equality x y)]
-            (compare-kernel! application :boolean)
-            (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) [])))))))
-      (do
-        (println "String equality skipped: bundled Init omits its registered dictionary")
-        (is true "bundled String equality dictionary unavailable")))))
+  (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+    (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
+    (doseq [[x y expected] [["hello" "hello" true] ["hello" "world" false]
+                            ["é" "é" true] ["" "a" false]]]
+      (let [application (list 'string-equality x y)]
+        (compare-kernel! application :boolean)
+        (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) []))))))))
 
 (deftest parameterized-equality-elaborates-at-full-carrier
   (doseq [[rhs expected] [[true true] [false false]]]
@@ -289,7 +280,4 @@
           term (elab/elaborate-check (a/env) application (e/const' (name/from-string "Bool") []))
           tc (TypeChecker. (a/env))]
       (is (= expected (#'am/decode-val #(.whnf (.getReducer tc) %) :boolean term)))
-      ;; The medium export has no direct equation body for List.hasDecEq.
-      ;; Keep this compiler boundary explicit until that artifact is exported.
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"List.hasDecEq.*List.brecOn"
-                            (cg/ansatz->clj (a/env) term []))))))
+      (is (= expected (eval (cg/ansatz->clj (a/env) term [])))))))

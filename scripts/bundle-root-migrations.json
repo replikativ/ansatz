@@ -526,6 +526,8 @@
     "Std.LawfulLeftIdentity.left_id",
     "beq_eq_false_iff_ne",
     "beq_self_eq_true",
-    "eq_comm"
+    "eq_comm",
+    "String.decEq",
+    "instDecidableEqString"
   ]
 }

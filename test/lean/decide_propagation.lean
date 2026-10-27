@@ -6,3 +6,5 @@ example (x y : Nat) (h : x = y) : decidedEqual x y = true := by grind [decidedEq
 example (x y : Nat) (h : decidedEqual x y = true) : x = y := by grind [decidedEqual]
 example (x y : Nat) (h : x ≠ y) : decidedEqual x y = false := by grind [decidedEqual]
 example (x y : Nat) (h : decidedEqual x y = false) : x ≠ y := by grind [decidedEqual]
+
+example (s : String) (h0 : s = "a") (h1 : s = "b") : False := by grind

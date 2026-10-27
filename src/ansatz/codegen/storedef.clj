@@ -348,6 +348,8 @@
         binders (if (pos? missing) (into (vec binders) (drop (count binders) type-binders)) binders)
         refs (const-refs rhs)
         ref (first (sort (filter unexecutable-ref? refs)))
+        unhandled? (requiring-resolve 'ansatz.codegen/unhandled-extern?)
+        extern-ref (first (sort (filter #(unhandled? env %) refs)))
         audit (audit-binders env binders)]
     ;; ToLCNF's specialized visitors use explicit shape guards before selecting
     ;; a lowering. A store body is only one candidate, so refusal is data here.

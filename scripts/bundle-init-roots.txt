@@ -1,6 +1,6 @@
-# Lean 4.33 staging roots, migrated from the legacy public inventory.
+# Lean 4.33 public roots, sorted; private names are reached through dependencies.
 # Explicit migration audit: scripts/bundle-root-migrations.json.
-# Generated private names are dependencies; missing requested roots are fatal.
+# Includes the List prelude, SizeOf API, and String equality dictionaries.
 Acc
 Acc.inv
 Acc.recOn
@@ -1194,11 +1194,16 @@ Lean.opaqueId
 List
 List.Mem
 List.Mem.casesOn
+List.Perm
+List.Perm.refl
+List._sizeOf_inst
 List.all
+List.any
 List.any.match_1
 List.append
 List.append.match_1
 List.append_assoc
+List.append_eq
 List.append_nil
 List.append_toArray
 List.below
@@ -1213,28 +1218,43 @@ List.cons
 List.cons.inj
 List.cons.injEq
 List.cons.noConfusion
+List.cons.sizeOf_spec
+List.cons_append
+List.contains
 List.ctorIdx
 List.drop
 List.dropLast
 List.dropLast.match_1
 List.drop_of_length_le
+List.elem
 List.eq_nil_of_length_eq_zero
 List.filter
 List.filter.match_1
+List.filterMap
+List.filter_cons
+List.filter_cons_of_neg
+List.filter_cons_of_pos
+List.filter_nil
 List.find?
 List.findIdx.go.match_1
 List.findIdx?
 List.findIdx?.go
 List.flatMap
+List.flatMap_cons
+List.flatMap_nil
 List.flatten
 List.flatten.match_1
+List.flatten_cons
+List.flatten_nil
 List.foldl
 List.foldl.match_1
 List.foldlM
 List.foldlM.match_1
 List.foldlM_cons
 List.foldlM_pure
+List.foldl_cons
 List.foldl_eq_foldlM
+List.foldl_nil
 List.foldr
 List.get
 List.get!Internal
@@ -1260,6 +1280,7 @@ List.hasDecEq.match_1
 List.hasDecEq.match_3
 List.hasDecEq.match_5
 List.head.match_1
+List.head?
 List.instAppend
 List.instGetElem?NatLtLength
 List.instGetElemNatLtLength
@@ -1273,7 +1294,14 @@ List.length_dropLast_cons
 List.length_eq_zero_iff
 List.length_eq_zero_iff._simp_1
 List.length_nil
+List.lookup
+List.lookup_cons
+List.lookup_cons_self
+List.lookup_nil
 List.map
+List.map_cons
+List.map_nil
+List.map_reverse
 List.mem_cons
 List.mem_cons._simp_1
 List.min
@@ -1284,6 +1312,8 @@ List.min?_eq_some_min
 List.min?_mem
 List.min_eq_iff
 List.nil
+List.nil.sizeOf_spec
+List.nil_append
 List.nil_eq
 List.nil_eq._simp_1
 List.noConfusion
@@ -1291,13 +1321,20 @@ List.noConfusionType
 List.not_mem_nil
 List.not_mem_nil._simp_1
 List.push_toArray
+List.range
+List.replicate
 List.repr'
 List.reverse
 List.reverseAux
 List.reverseAux.match_1
 List.reverseAux_eq_append
 List.reverse_cons
+List.reverse_nil
+List.singleton_append
 List.size_toArray
+List.sum
+List.tail
+List.take
 List.take.match_1
 List.toArray
 List.toArray_cons
@@ -1305,6 +1342,7 @@ List.toByteArray
 List.toByteArray.loop
 List.toByteArray.match_1
 List.utf8Encode
+List.zip
 List.zipIdx
 List.zipWith
 List.zipWith.eq_2
@@ -1590,6 +1628,8 @@ Nat.lt_trans
 Nat.lt_trichotomy
 Nat.lt_wfRel
 Nat.lt_wfRel._proof_3
+Nat.max
+Nat.min
 Nat.mod
 Nat.mod.eq_2
 Nat.mod.inductionOn
@@ -1670,6 +1710,7 @@ Nat.pred_le
 Nat.pred_le_pred
 Nat.pred_mul
 Nat.pred_succ
+Nat.rec
 Nat.recAux
 Nat.repr
 Nat.right_distrib
@@ -1873,6 +1914,7 @@ Pi.instInhabited
 Pow
 Pow.pow
 Prod
+Prod._sizeOf_inst
 Prod.casesOn
 Prod.fst
 Prod.snd
@@ -1902,10 +1944,15 @@ ShiftLeft
 ShiftLeft.shiftLeft
 ShiftRight
 ShiftRight.shiftRight
+SizeOf.sizeOf
 Std.Antisymm
 Std.Antisymm.antisymm
+Std.Associative
+Std.Associative.assoc
 Std.Asymm
 Std.Asymm.asymm
+Std.Commutative
+Std.Commutative.comm
 Std.FactoryInstances.instLawfulOrderOrdOfDecidableLE
 Std.FactoryInstances.instOrdOfDecidableLE
 Std.Format
@@ -2025,6 +2072,8 @@ Std.Iterators.FinitenessRelation
 Std.Iterators.FinitenessRelation.Rel
 Std.Iterators.FinitenessRelation.subrelation
 Std.Iterators.FinitenessRelation.wf
+Std.LawfulLeftIdentity
+Std.LawfulLeftIdentity.left_id
 Std.LawfulOrderBEq
 Std.LawfulOrderBEq.beq_iff_le_and_ge
 Std.LawfulOrderInf
@@ -2394,6 +2443,7 @@ String.Slice.startInclusive_le_endExclusive
 String.Slice.str
 String.Slice.utf8ByteSize
 String.Slice.utf8ByteSize_eq
+String.decEq
 String.instDecidableLeRaw
 String.instDecidableLtRaw
 String.instHAddRawSlice
@@ -2491,10 +2541,12 @@ and_self_left
 and_self_left._simp_1
 and_true
 autoParam
+beq_eq_false_iff_ne
 beq_false
 beq_iff_eq
 beq_iff_eq._simp_1
 beq_of_eq
+beq_self_eq_true
 beq_true
 bind_congr
 bne
@@ -2541,6 +2593,7 @@ dite_not
 dite_then_false
 dite_then_true
 dite_true
+eq_comm
 eq_false
 eq_false'
 eq_iff_iff
@@ -2640,6 +2693,7 @@ instDecidableEqRaw._proof_1
 instDecidableEqRaw._proof_2
 instDecidableEqRaw.match_1
 instDecidableEqRaw.match_3
+instDecidableEqString
 instDecidableFalse
 instDecidableForall
 instDecidableForall._proof_1
@@ -2690,6 +2744,7 @@ instPowNat
 instReprAtomInt
 instReprListOfReprAtom
 instReprOption
+instSizeOfNat
 instSubNat
 instSubsingletonDecidable
 instToStringInt
@@ -2786,66 +2841,3 @@ true_iff
 true_implies
 true_or
 wfParam
-
-# Runtime surface vocabulary.
-List._sizeOf_inst
-List.any
-List.contains
-List.elem
-List.filterMap
-List.head?
-List.lookup
-List.range
-List.replicate
-List.sum
-List.tail
-List.take
-List.zip
-Nat.max
-Nat.min
-Nat.rec
-
-# Complete native SizeOf vocabulary used by the surface elaborator and WF encoder.
-instSizeOfNat
-SizeOf.sizeOf
-List.cons.sizeOf_spec
-List.nil.sizeOf_spec
-Prod._sizeOf_inst
-
-# Public List laws used by the owned prelude.
-List.Perm
-List.append_eq
-List.cons_append
-List.filter_cons
-List.filter_cons_of_neg
-List.filter_cons_of_pos
-List.filter_nil
-List.flatMap_cons
-List.flatMap_nil
-List.flatten_cons
-List.flatten_nil
-List.foldl_cons
-List.foldl_nil
-List.lookup_cons
-List.lookup_cons_self
-List.lookup_nil
-List.map_cons
-List.map_nil
-List.map_reverse
-List.nil_append
-List.reverse_nil
-List.singleton_append
-List.Perm.refl
-
-# Algebra laws referenced by the owned List prelude (Init/Core.lean).
-Std.Associative
-Std.Associative.assoc
-Std.Commutative
-Std.Commutative.comm
-Std.LawfulLeftIdentity
-Std.LawfulLeftIdentity.left_id
-
-# Equality laws explicitly cited by the owned List prelude.
-beq_eq_false_iff_ne
-beq_self_eq_true
-eq_comm
