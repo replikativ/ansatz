@@ -566,7 +566,7 @@
                              (map #(e/bvar (- n % 1)) (range n)))
                  (loop [ctx names t (types/infer-type env minor names) xs actuals]
                    (if (empty? xs) ctx
-                       (let [t (when t (.whnf (.getReducer (TypeChecker. env)) t))]
+                       (let [t (when t (types/whnf env t ctx))]
                          (recur (if (and t (e/forall? t))
                                   (types/bind-type ctx (str (first xs)) (e/forall-type t))
                                   (conj ctx (str (first xs))))
@@ -1147,6 +1147,6 @@
                                                   (- (count names) (inc (e/bvar-idx value)))))]
                     (list 'let [(symbol n) compiled]
                           (binding [*local-conventions* (assoc *local-conventions* (count names) cc)]
-                            (ansatz->clj env (e/let-body expr) (types/bind-type names n (e/let-type expr))))))
+                            (ansatz->clj env (e/let-body expr) (types/bind-let names n (e/let-type expr) value)))))
     :else expr))
 

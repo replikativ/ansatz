@@ -1,6 +1,7 @@
 (ns ansatz.codegen.types
   "Runtime erasure following Lean v4.33.1 (55f80e10a3) Compiler/LCNF/ToLCNF.lean
-   visit, visitAppArg and isTypeFormerType; Types.lean erased."
+   visit, visitAppArg and isTypeFormerType; Types.lean erased;
+   Meta/Basic.lean mkLetFVars and Meta/WHNF.lean whnfEasyCases (LocalDecl.ldecl)."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name])
@@ -9,6 +10,22 @@
 (defn bind-type [names n type]
   (with-meta (conj names n)
     (assoc (meta names) (count names) type)))
+
+(defn bind-let [names n type value]
+  (let [ctx (bind-type names n type)]
+    (with-meta ctx (assoc-in (meta ctx) [::values (count names)] value))))
+
+(defn whnf [env expr names]
+  ;; Zeta-unfold let-decls while retaining the indices of ordinary locals.
+  (let [values (::values (meta names))
+        args (when (seq values)
+               (reduce (fn [args i]
+                         (conj args (if-let [value (get values i)]
+                                      (e/instantiate value args)
+                                      (e/bvar (- (count names) i 1)))))
+                       [] (range (count names))))]
+    (.whnf (.getReducer (TypeChecker. env))
+           (if args (e/instantiate expr args) expr))))
 
 (declare infer-type)
 
@@ -35,7 +52,7 @@
       (when-let [t (get (meta names) pos)] (e/lift t (inc i) 0)))
     (e/app? expr)
     (when-let [t (infer-type env (e/app-fn expr) names)]
-      (let [t (.whnf (.getReducer (TypeChecker. env)) t)]
+      (let [t (whnf env t names)]
         (when (e/forall? t) (e/instantiate1 (e/forall-body t) (e/app-arg expr)))))
     (e/lam? expr)
     (when-let [t (infer-type env (e/lam-body expr)
@@ -48,29 +65,39 @@
                ;; Only ask the kernel about a projection of its actual structure.
                (or (not (e/proj? expr))
                    (when-let [t (infer-type env (e/proj-struct expr) names)]
-                     (let [t (.whnf (.getReducer (TypeChecker. env)) t)
+                     (let [t (whnf env t names)
                            [head _] (e/get-app-fn-args t)]
                        (and (e/const? head)
                             (= (e/const-name head) (e/proj-type-name expr)))))))
-      (let [closed (reduce (fn [body i] (e/lam "_" (get (meta names) i) body :default))
+      (let [values (::values (meta names))
+            closed (reduce (fn [body i]
+                             (if-let [value (get values i)]
+                               (e/let' "_" (get (meta names) i) value body)
+                               (e/lam "_" (get (meta names) i) body :default)))
                            expr (reverse (range (count names))))
             type (.inferType (TypeChecker. env) closed)]
-        (nth (iterate e/forall-body type) (count names))))))
+        ;; mkLetFVars preserves definitions. Inference may drop unused lets;
+        ;; zeta-reduce them and reopen only the ordinary parameter binders.
+        (whnf env
+         (reduce (fn [type i]
+                  (if (contains? values i) type
+                      (e/instantiate1 (e/forall-body (whnf env type []))
+                                      (e/bvar (- (count names) i 1)))))
+                 type (range (count names))) [])))))
 
 (defn irrelevant-type?
   "Lean's visit/visitAppArg: erase proofs and values of Sort or As → Sort.
    Clojure uses nil for LCNF's erased value, including type arguments."
   [env type names]
-  (let [tc (TypeChecker. env)
-        whnf #(.whnf (.getReducer tc) %)]
-    (or (loop [t type]
-          (let [t (whnf t)]
-            (cond (e/sort? t) true
-                  (e/forall? t) (recur (e/forall-body t))
-                  :else false)))
-        (when-let [sort (infer-type env type names)]
-          (let [sort (whnf sort)]
-            (and (e/sort? sort) (Level/isZero (e/sort-level sort))))))))
+  (or (loop [t type ctx names]
+        (let [t (whnf env t ctx)]
+          (cond (e/sort? t) true
+                (e/forall? t) (recur (e/forall-body t)
+                                     (bind-type ctx "_" (e/forall-type t)))
+                :else false)))
+      (when-let [sort (infer-type env type names)]
+        (let [sort (whnf env sort names)]
+          (and (e/sort? sort) (Level/isZero (e/sort-level sort)))))))
 
 (defn irrelevant? [env expr names]
   (or (e/sort? expr) (e/forall? expr)

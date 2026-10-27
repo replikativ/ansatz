@@ -7,6 +7,7 @@
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
+            [ansatz.kernel.level :as level]
             [ansatz.malli :as am]
             [ansatz.surface.elaborate :as elab])
   (:import [ansatz.kernel TypeChecker]))
@@ -158,3 +159,27 @@
       (compare-kernel! (list 'pass-type n) :int)
       (compare-kernel! (list 'pass-proof n) :int)
       (compare-kernel! (list 'pass-predicate n) :int))))
+
+
+(deftest dependent-let-types-erase-their-applications
+  (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+    (eval '(ansatz.core/defn let-ignore-type [t :- Type, n :- Nat] Nat n))
+    (let [nat (e/const' (name/from-string "Nat") [])
+          type0 (e/sort' (level/from-nat 1))
+          type1 (e/sort' (level/from-nat 2))
+          call (e/app* (e/const' (name/from-string "let-ignore-type") [])
+                       (e/app (e/bvar 0) (e/lit-nat 0)) (e/lit-nat 7))
+          value (e/lam "n" nat nat :default)
+          bodies [(e/let' "T" type1 type0
+                          (e/let' "f" (e/forall' "n" nat (e/bvar 1) :default) value call))
+                  (e/let' "T" type1 type0
+                          (e/let' "U" type1 (e/bvar 0)
+                                  (e/let' "f" (e/forall' "n" nat (e/bvar 1) :default) value
+                                          (e/let' "g" (e/forall' "n" nat (e/bvar 2) :default)
+                                                  (e/bvar 0) call))))]]
+      (doseq [[i body] (map-indexed vector bodies)]
+        (let [ci (env/mk-def (name/from-string (str "dependentLetType" i)) [] nat body)
+              checked (env/check-constant (a/env) ci)
+              tc (TypeChecker. checked)]
+          (is (.isDefEq tc body (e/lit-nat 7)))
+          (is (= 7 (eval (cg/ansatz->clj checked body [])))))))))
