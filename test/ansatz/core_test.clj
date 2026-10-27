@@ -39,6 +39,26 @@
 ;; defn tests
 ;; ============================================================
 
+(deftest verified-names-reject-redefinition
+  ;; Lean src/kernel/environment.cpp check_name rejects duplicate declarations.
+  (let [before @a/ansatz-env]
+    (try
+      (a/defn append-only-function [] Nat 0)
+      (a/theorem append-only-theorem [] (= Nat (append-only-function) 0) (rfl))
+      (let [function (env/lookup! (a/env) (name/from-string "append-only-function"))
+            theorem (env/lookup! (a/env) (name/from-string "append-only-theorem"))]
+        (is (thrown-with-msg? RuntimeException #"Constant already declared: append-only-function"
+                              (a/defn append-only-function [] Nat 1)))
+        (is (identical? function (env/lookup! (a/env) (env/ci-name function))))
+        (is (= (e/lit-nat 0) (env/ci-value function)))
+        (is (env/verifies? (a/env) (env/ci-type theorem) (env/ci-value theorem)))
+        (is (thrown-with-msg? RuntimeException #"Constant already declared: append-only-theorem"
+                              (a/theorem append-only-theorem [] (= Nat (append-only-function) 0) (rfl))))
+        (is (identical? theorem (env/lookup! (a/env) (env/ci-name theorem))))
+        (is (env/verifies? (a/env) (env/ci-type theorem) (env/ci-value theorem))))
+      (finally
+        (reset! a/ansatz-env before)))))
+
 (deftest test-defn-identity
   (testing "Define identity function on Nat"
     (binding [a/*verbose* false]

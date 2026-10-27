@@ -542,12 +542,13 @@
       (is (thrown-with-msg?
            Exception #"canonical quotient primitive|does not match the kernel-expected"
            (TypeChecker/checkConstant E (env/mk-quot (name/from-string "Quot.mk") [] False* :ctor) 5000000)))
-      ;; The real primitives (already in init-medium) pass validation — checked by
-      ;; re-admitting via checkConstantReplace (same validateQuotDeclaration path).
-      (doseq [nm ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"]]
-        (let [ci (env/lookup E (name/from-string nm))]
-          (is (some? (TypeChecker/checkConstantReplace E ci 5000000))
-              (str nm " should pass quotient validation")))))))
+      ;; Admit the real primitives in order into a fresh environment.
+      (reduce (fn [checked nm]
+                (let [ci (env/lookup E (name/from-string nm))
+                      admitted (TypeChecker/checkConstant checked ci 5000000)]
+                  (is (some? admitted) (str nm " should pass quotient validation"))
+                  admitted))
+              (env/empty-env) ["Quot" "Quot.mk" "Quot.lift" "Quot.ind"]))))
 
 (deftest reject-corrupt-imported-recursor-rule-test
   (testing "InductiveChecker rejects imported recursor rules that differ from Lean-generated iota rules"

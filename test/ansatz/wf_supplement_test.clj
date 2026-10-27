@@ -107,11 +107,16 @@
         original (env/lookup (:env prepared) (name/from-string "Prod.Lex.right'"))
         changed (env/mk-def (.name ^ConstantInfo original) [] (.type ^ConstantInfo original)
                             (.value ^ConstantInfo original) :hints :abbrev)
-        drift (assoc prepared :env (.addOrReplaceConstant ^Env (:env prepared) changed))
+        ;; Build independent malformed inputs; admitted environments cannot replace declarations.
+        independent (fn [replacement]
+                      (reduce env/add-constant (Env.)
+                              (map (fn [ci] (if (= (env/ci-name ci) (env/ci-name replacement)) replacement ci))
+                                   (env/all-constants (:env prepared)))))
+        drift (assoc prepared :env (independent changed))
         theorem (env/lookup (:env prepared) (name/from-string "Evidence.thm"))
         missing (ConstantInfo/mkThm (.name ^ConstantInfo theorem) (object-array []) (.type ^ConstantInfo theorem)
                                     nil (object-array [(.name ^ConstantInfo theorem)]))
-        omitted (assoc prepared :env (.addOrReplaceConstant ^Env (:env prepared) missing))]
+        omitted (assoc prepared :env (independent missing))]
     (is (= :overlap (:stage (ex-data (error #(supplement/prepare-strict-role drift :lex (options selected)))))))
     (is (some? (error #(supplement/prepare-strict-role omitted :lex (options selected)))))))
 

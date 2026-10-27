@@ -165,23 +165,14 @@ public final class Env {
     }
 
     /**
-     * Add a constant. Returns a NEW Env with the constant added.
+     * Add a constant, rejecting duplicates as in Lean src/kernel/environment.cpp check_name.
+     * Returns a NEW Env with the constant added.
      * The original Env is unchanged (persistent/immutable).
      */
     public Env addConstant(ConstantInfo ci) {
         if (lookup(ci.name) != null) {
             throw new RuntimeException("Constant already declared: " + ci.name);
         }
-        return new Env(locals.assoc(ci.name, ci), sharedCache,
-                      quotEnabled, externalLookup, externalSize, visibilityCheck, extensions);
-    }
-
-    /**
-     * Like addConstant, but REPLACES an existing constant of the same name instead of throwing.
-     * For SURFACE redefinition (a/defn / a/theorem in a REPL, matching Clojure `defn` semantics).
-     * Kernel proof / install paths keep using the strict {@link #addConstant}.
-     */
-    public Env addOrReplaceConstant(ConstantInfo ci) {
         return new Env(locals.assoc(ci.name, ci), sharedCache,
                       quotEnabled, externalLookup, externalSize, visibilityCheck, extensions);
     }

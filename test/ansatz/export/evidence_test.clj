@@ -179,7 +179,7 @@
         local (ConstantInfo/mkAxiom nm (object-array []) (Expr/sort Level/ZERO_LEVEL false) false)
         a (fn [_] local) b (fn [_] nil) visible (constantly true)
         base (.withExternalLookup (Env.) a 1)
-        overlay (.addOrReplaceConstant base local)]
+        overlay (.withExternalLookup (.addConstant (Env.) local) a 1)]
     (is (nil? (.lookupLocal base nm)))
     (is (identical? local (.lookupLocal overlay nm)))
     (is (.sameExternalView base overlay))
@@ -229,7 +229,10 @@
     (fn [^Env loaded _ _]
       (let [local (ConstantInfo/mkThm declaration-name (object-array [])
                                       (Expr/sort Level/ZERO_LEVEL false) nil (object-array []))
-            shadow (.addOrReplaceConstant loaded local)
+            ;; Capture the same raw evidence for an independently constructed local input.
+            shadow (.addConstant (Env.) local)
+            shadow (.withExtension shadow :ansatz.export.storage/captured-full-evidence
+                                   (assoc (.getExtension loaded :ansatz.export.storage/captured-full-evidence) :view shadow))
             replaced (.withExternalLookup loaded (constantly nil) 0)]
         (is (thrown-with-msg? clojure.lang.ExceptionInfo #"local declaration"
                               (storage/full-ci-evidence shadow [declaration-name] limits)))

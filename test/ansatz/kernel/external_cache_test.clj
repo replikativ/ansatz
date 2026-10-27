@@ -143,7 +143,7 @@
     (let [{:keys [a fa fb base calls]} (fixture)
           original (.withExternalLookup ^Env base fa 1) _ (.lookup original declaration-name)
           local (definition declaration-name 2) extra (definition local-name 0)
-          shadow (-> original (.addOrReplaceConstant local) (.addConstant extra)
+          shadow (-> base (.addConstant local) (.withExternalLookup fa 1) (.addConstant extra)
                      (.enableQuot) (.withExtension :retained-extension {:local true}))
           changed (changed-view shadow fb filtered?)
           hidden (.withExternalLookupFiltered shadow fb 1 (constantly false))]
