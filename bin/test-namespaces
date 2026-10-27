@@ -6,8 +6,11 @@ Committed test-data files (arena, kernel-reference, Nat.add_succ) are CI inputs.
 Mixed namespaces retain their own per-test fixture guards.
 """
 import argparse
+from collections import Counter
+import json
 from pathlib import Path
 import re
+import subprocess
 
 GROUPS = 4
 # These exports/stores are uncommitted and unavailable on a fresh checkout.
@@ -45,28 +48,133 @@ REPOSITORY_FIXTURES = {
 }
 
 
+def reader_command(*args, self_test=False):
+    command = ["clojure", "-J-Xmx256m", "-J-Xss8m"]
+    if self_test:
+        command += ["-Sdeps", '{:aliases {:discovery-script {:main-opts [] :extra-paths ["bin/fixtures/namespace-discovery"]}}}',
+                    "-M:ci:discovery-script"]
+    else:
+        command += ["-M"]
+    return command + ["bin/read-test-namespaces.clj", *args]
+
+
 def namespaces():
-    for path in sorted(Path("test").rglob("*_test.clj")):
-        match = re.search(r"\(ns\s+([^\s()]+)", path.read_text())
-        if not match:
-            raise SystemExit(f"No namespace declaration: {path}")
-        yield match[1]
+    result = subprocess.run(reader_command("test"), stdout=subprocess.PIPE, text=True)
+    if result.returncode:
+        raise SystemExit(result.returncode)
+    entries = json.loads(result.stdout)
+    seen = {}
+    for entry in entries:
+        name, file = entry["namespace"], entry["file"]
+        if name in seen:
+            raise SystemExit(f"Duplicate namespace {name}: {seen[name]}, {file}")
+        seen[name] = file
+        yield name
+
+
+def verify_partition(eligible, groups):
+    if len(groups) != GROUPS or len(set(eligible)) != len(eligible):
+        raise ValueError("Invalid namespace partition or duplicate eligible namespaces")
+    actual = Counter(name for group in groups for name in group)
+    if actual != Counter(eligible):
+        raise ValueError(f"Namespace partition must cover every eligible namespace exactly once: {actual}")
+
+
+def partition(names, excluded=EXCLUDED):
+    if len(set(names)) != len(names):
+        raise ValueError("Duplicate discovered namespace names")
+    stale = set(excluded) - set(names)
+    if stale:
+        raise ValueError(f"Stale fixture exclusions: {sorted(stale)}")
+    eligible = [n for n in names if n not in excluded]
+    groups = [eligible[i::GROUPS] for i in range(GROUPS)]
+    verify_partition(eligible, groups)
+    return eligible, groups
+
+
+def check_run(expected, output):
+    if not expected or len(set(expected)) != len(expected):
+        raise ValueError("Expected namespace list must be nonempty and unique")
+    actual = Counter(re.findall(r"^Testing (\S+)[ \t]*$", output, re.MULTILINE))
+    wanted = Counter(expected)
+    if actual != wanted:
+        missing = sorted(set(wanted) - set(actual))
+        extra = sorted(set(actual) - set(wanted))
+        repeated = {n: count for n, count in actual.items() if count != 1}
+        raise ValueError(f"Runner namespace coverage mismatch: missing={missing}, unexpected={extra}, counts={repeated}")
+
+
+def self_test():
+    import tempfile
+    import unittest
+
+    class CoverageContracts(unittest.TestCase):
+        def test_cli_errors_include_the_file(self):
+            with tempfile.TemporaryDirectory(prefix="ansatz-discovery-cli-") as root:
+                file = Path(root) / "wrong_test.clj"
+                file.write_text("(ns sample.actual-test)")
+                result = subprocess.run(reader_command(root), capture_output=True, text=True)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(str(file), result.stderr)
+                self.assertIn("requires path", result.stderr)
+
+        def test_partition_covers_eligible_once(self):
+            eligible, groups = partition(["a", "external", "b", "c", "d", "e"], {"external": "fixture"})
+            self.assertEqual(["a", "b", "c", "d", "e"], eligible)
+            self.assertEqual(4, len(groups))
+            for bad in [[['a'], ['b'], ['c'], []], [['a'], ['b'], ['c'], ['a']]]:
+                with self.assertRaises(ValueError):
+                    verify_partition(["a", "b", "c", "d"], bad)
+
+        def test_run_requires_every_namespace_once(self):
+            check_run(["a", "b"], "Testing b\n\nTesting a\n")
+            for output in ["Testing a\n", "Testing a\nTesting b\nTesting b\n",
+                           "Testing a\nTesting b\nTesting c\n", ""]:
+                with self.assertRaises(ValueError):
+                    check_run(["a", "b"], output)
+
+        def test_requested_names_are_unique_and_nonempty(self):
+            for names in [[], ["a", "a"]]:
+                with self.assertRaises(ValueError):
+                    check_run(names, "Testing a\n")
+
+    outcome = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(CoverageContracts))
+    if not outcome.wasSuccessful():
+        raise SystemExit(1)
+    result = subprocess.run(reader_command("--self-test", self_test=True))
+    if result.returncode:
+        raise SystemExit(result.returncode)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("group", nargs="?", type=int, choices=range(GROUPS))
     parser.add_argument("--inventory", action="store_true")
+    parser.add_argument("--self-test", action="store_true")
+    parser.add_argument("--check-run", type=Path)
+    parser.add_argument("--expected", type=Path)
     args = parser.parse_args()
+    if args.self_test:
+        self_test()
+        return
+    if args.check_run or args.expected:
+        if not (args.check_run and args.expected):
+            parser.error("--check-run and --expected must be provided together")
+        try:
+            check_run(args.expected.read_text().splitlines(), args.check_run.read_text())
+        except ValueError as error:
+            raise SystemExit(f"{args.check_run}: {error}") from error
+        print(f"Verified every requested namespace ran exactly once: {args.check_run}")
+        return
     names = list(namespaces())
-    stale = set(EXCLUDED) - set(names)
-    if stale:
-        raise SystemExit(f"Stale fixture exclusions: {sorted(stale)}")
-    eligible = [n for n in names if n not in EXCLUDED]
-    for n in names if args.inventory else eligible:
+    try:
+        eligible, groups = partition(names)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
+    for n in names if args.inventory else (eligible if args.group is None else groups[args.group]):
         if args.inventory:
             print(n, EXCLUDED.get(n, REPOSITORY_FIXTURES.get(n, "repository + bundled resources")), sep="\t")
-        elif args.group is None or eligible.index(n) % GROUPS == args.group:
+        else:
             print(n)
 
 

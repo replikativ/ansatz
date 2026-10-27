@@ -9,18 +9,34 @@ case "${1:-all}" in
   0|1|2|3) groups=("$1") ;;
   *) echo "Usage: $0 [0|1|2|3|all|contracts]" >&2; exit 2 ;;
 esac
+# Each CI node must run its own shard, and the job must instantiate every shard.
+if [[ -n "${CIRCLE_NODE_TOTAL:-}" && "${1:-all}" != all ]]; then
+  if [[ "$CIRCLE_NODE_TOTAL" != 4 || "${CIRCLE_NODE_INDEX:-}" != "$1" ]]; then
+    echo "CI node count/index must match the four namespace groups" >&2
+    exit 1
+  fi
+fi
+run_dir=$(mktemp -d "${TMPDIR:-/tmp}/ansatz-unittests.XXXXXX")
+trap 'rm -rf -- "$run_dir"' EXIT
 for group in "${groups[@]}"; do
+  if [[ "$group" == 0 ]]; then
+    python3 bin/test-namespaces --self-test
+  fi
   discovered=$(python3 bin/test-namespaces "$group")
   [[ -n "$discovered" ]] || { echo "No test namespaces discovered" >&2; exit 1; }
+  printf '%s\n' "$discovered" > "$run_dir/expected"
   mapfile -t namespaces <<< "$discovered"
   args=()
   for ns in "${namespaces[@]}"; do args+=(-n "$ns"); done
   echo "Running CI group $group: ${namespaces[*]}"
   SECONDS=0
   # Match the contract JVMs so deep expressions reach the named recursion guards.
-  clojure -J-Xmx1g -J-Xss8m -M:ci -e :wip "${args[@]}"
+  runner_status=0
+  clojure -J-Xmx1g -J-Xss8m -M:ci -e :wip "${args[@]}" | tee "$run_dir/output" || runner_status=$?
+  python3 bin/test-namespaces --check-run "$run_dir/output" --expected "$run_dir/expected"
+  (( runner_status == 0 )) || exit "$runner_status"
   echo "CI group $group completed in ${SECONDS}s"
 done
 if [[ "${1:-all}" == all ]]; then
-  exec ./bin/run-test-contracts
+  ./bin/run-test-contracts
 fi

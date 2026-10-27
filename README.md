@@ -814,7 +814,14 @@ Copyright 2026 Christian Weilbach
 
 `bin/run-unittests 0` through `bin/run-unittests 3` run disjoint groups of all
 `test/**/*_test.clj` namespaces, excluding `:wip` tests. Discovery includes new
-namespaces automatically. `python3 bin/test-namespaces --inventory` lists every
+namespaces automatically. Discovery reads each file with the Clojure reader,
+checks its namespace against its path, rejects duplicate/ambiguous declarations,
+and verifies the four groups cover every eligible namespace exactly once. The
+runner compares its selected list with every `Testing <ns>` line and fails on
+missing, duplicate or unexpected namespaces. `python3 bin/test-namespaces --self-test`
+checks reader/coverage behavior, including an intentionally failing fixture outside
+the regular test tree; group 0 runs this check in CI.
+`python3 bin/test-namespaces --inventory` lists every
 namespace and its fixture requirements; the commented exclusion map in that script
 contains only namespaces needing full Init exports/stores or the Mathlib store.
 The shared test helper reads the bundled Init resource, with separate checked and
