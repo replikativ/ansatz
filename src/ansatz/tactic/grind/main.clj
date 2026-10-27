@@ -210,6 +210,8 @@
 (defn- propagate [branch]
   (let [branch (-> branch (update :graph normalize/propagate (:tc branch))
                    (update :graph simp/preprocess (:tc branch)))
+        branch (normalize/propagate-decide-up branch truth)
+        branch (normalize/propagate-decide-down branch truth)
         branch (normalize/propagate-ite branch truth)
         branch (normalize/activate-comparison-theorems branch)
         branch (split/activate-intro-theorems branch)

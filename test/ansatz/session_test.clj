@@ -3,6 +3,7 @@
             [ansatz.core :as core]
             [ansatz.matchers :as matchers]
             [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name]
             [ansatz.session :as session]
             [ansatz.state :as state]
             [ansatz.recall :as recall]
@@ -225,7 +226,7 @@
 (deftest setup-prepares-extensions-and-clears-all-session-caches
   (let [base (Env.)
         descriptor {:store-map {:fixture :borrowed} :store-path "prepared-store" :branch "library"}
-        index {:class [:instance]}
+        index {(name/from-string "fixture.Class") [:instance]}
         matcher-info {"fixture.matcher" {:num-params 0}}
         derived {:attrs [["simp" "fixture.lemma" nil nil]] :matchers matcher-info
                  :instances index :simp-trie {}}]
@@ -242,6 +243,7 @@
       (is (= "prepared-store" (:recall-store-path installed)))
       (is (= index (:instance-index installed)))
       (is (= index (env/get-extension (:env installed) :instances nil)))
+      (is (= #{"fixture.Class"} (env/get-extension (:env installed) :classes #{})))
       (is (= #{"fixture.lemma"} (env/get-extension (:env installed) :simp-lemmas nil)))
       (is (= matcher-info (env/get-extension (:env installed) :matcher-info nil)))
       (is (= (select-keys descriptor [:store-path :branch]) (simp-index/index-source (:env installed))))

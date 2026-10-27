@@ -25,7 +25,7 @@
                      (= (contains? row :post) (contains? row :inv))
                      (or (not (contains? row :post))
                          (and (boolean? (:post row)) (boolean? (:inv row)))))
-         ("unfold" "extern") (keys? row #{:kind :name} #{})
+         ("unfold" "extern" "class") (keys? row #{:kind :name} #{})
          ("csimp" "impl") (and (keys? row #{:kind :name :target} #{}) (name? target))
          "unfold-thms" (and (keys? row #{:kind :name :theorems} #{})
                             (vector? theorems) (every? name? theorems))

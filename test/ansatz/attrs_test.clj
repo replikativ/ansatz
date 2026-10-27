@@ -155,3 +155,13 @@
     (is (= 1 (:simp-unfold-thms stats)))
     (is (contains? (env/get-extension loaded :simp-lemmas #{}) "f.eq_1"))
     (is (= 47 (get (env/get-extension loaded :simp-priorities {}) "f.eq_1")))))
+(deftest class-attributes-preserve-identity-without-instances
+  (let [tuples (attrs/parse-attr-lines ["{\"kind\":\"class\",\"name\":\"ExportedClass\"}"
+                                       "{\"kind\":\"class\",\"name\":\"AbsentClass\"}"])
+        [loaded stats] (attrs/import-attr-tuples (env/empty-env) tuples
+                                                {:present? #{"ExportedClass"}})]
+    (is (= [["class" "ExportedClass" nil nil] ["class" "AbsentClass" nil nil]] tuples))
+    (is (= #{"ExportedClass"} (env/get-extension loaded :classes #{})))
+    (is (= 1 (:classes stats)))
+    (is (= 1 (:skipped stats)))
+    (is (empty? (env/get-extension loaded :instances {})))))

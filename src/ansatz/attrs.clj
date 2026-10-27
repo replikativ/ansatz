@@ -8,6 +8,7 @@
    the env, so version drift degrades gracefully (an absent lemma is simply skipped). The attributes
    become env EXTENSIONS (Lean's EnvironmentExtension), so they branch with the env:
      simp → :simp-lemmas   unfold → :simp-unfold   csimp → :csimp   extern → :extern
+     class → :classes (Lean.Class.classExtension identity)
    plus :simp-priorities — {name → priority} for the @[simp] lemmas whose priority is NOT
    Lean's default (`@[simp low]` / `@[simp high]`). Priority is not decoration: `Bool.false_eq`
    and `Bool.true_eq` are confluent only because they are low.
@@ -23,7 +24,7 @@
 
 (def ^:private kind->ext
   "Attribute kind (NDJSON \"kind\") → the Env extension key its entries accumulate into."
-  {"simp" :simp-lemmas, "unfold" :simp-unfold, "unfold-thms" :simp-unfold-thms, "extern" :extern, "csimp" :csimp, "impl" :implemented-by})
+  {"simp" :simp-lemmas, "unfold" :simp-unfold, "unfold-thms" :simp-unfold-thms, "extern" :extern, "csimp" :csimp, "impl" :implemented-by, "class" :classes})
 
 (def default-simp-priority
   "Lean's `eval_prio default` — the priority every @[simp] lemma has unless it says otherwise.

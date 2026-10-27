@@ -12,9 +12,7 @@
             [ansatz.surface.elaborate :as elab]
             [ansatz.tactic.instance :as instance]
             [ansatz.deriving :as deriving]
-            [ansatz.test-env :as test-env]
-            [ansatz.export.parser :as parser]
-            [ansatz.export.replay :as replay])
+            [ansatz.kernel.tc :as tc])
   (:import [ansatz.kernel TypeChecker]))
 
 (use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
@@ -266,35 +264,29 @@
                    (e/->string (elab/elaborate (a/env) '(fn [b :- Bool] (= b true))))))
       (finally (reset! a/ansatz-env saved)))))
 
-(def ^:private string-init-env
-  (delay
-    (when (.exists (java.io.File. "test-data/init.ndjson"))
-      (test-env/with-instance-registry
-        (:env (replay/replay (:final-state (parser/parse-ndjson-file-streaming "test-data/init.ndjson" [] conj))
-                            :verify? false))))))
-
 (deftest string-equality-uses-registered-dictionary
-  ;; The bundled medium tier omits the String equality dictionary; full Init has it.
-  (if-let [full @string-init-env]
-    (let [saved (a/env)]
-      (try
-        (reset! a/ansatz-env full)
-        (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
-          (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
-          (doseq [[x y expected] [["hello" "hello" true] ["hello" "world" false]
-                                  ["é" "é" true] ["" "a" false]]]
-            (let [application (list 'string-equality x y)]
-              (compare-kernel! application :boolean)
-              (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) [])))))))
-        (finally (reset! a/ansatz-env saved))))
-    (is true "full Init fixture unavailable; String dictionary test skipped")))
+  ;; Older bundled tiers omit this dictionary; exercise it when it is exported.
+  (let [goal (e/app (e/const' (name/from-string "DecidableEq") [(level/succ level/zero)])
+                    (e/const' (name/from-string "String") []))]
+    (if (instance/synthesize* (tc/mk-tc-state (a/env)) (a/env)
+                              (instance/index-for (a/env)) goal 0)
+      (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+        (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
+        (doseq [[x y expected] [["hello" "hello" true] ["hello" "world" false]
+                                ["é" "é" true] ["" "a" false]]]
+          (let [application (list 'string-equality x y)]
+            (compare-kernel! application :boolean)
+            (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) [])))))))
+      (do
+        (println "String equality skipped: bundled Init omits its registered dictionary")
+        (is true "bundled String equality dictionary unavailable")))))
 
 (deftest parameterized-equality-elaborates-at-full-carrier
   (doseq [[rhs expected] [[true true] [false false]]]
     (let [application (list '(fn [x :- (List Bool), y :- (List Bool)] (= x y))
                             '(List.cons Bool true (List.nil Bool))
                             (list 'List.cons 'Bool rhs '(List.nil Bool)))
-          term (elab/elaborate (a/env) application)
+          term (elab/elaborate-check (a/env) application (e/const' (name/from-string "Bool") []))
           tc (TypeChecker. (a/env))]
       (is (= expected (#'am/decode-val #(.whnf (.getReducer tc) %) :boolean term)))
       ;; The medium export has no direct equation body for List.hasDecEq.

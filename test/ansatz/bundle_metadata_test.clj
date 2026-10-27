@@ -11,7 +11,8 @@
                 {:kind "extern" :name "native"}
                 {:kind "csimp" :name "original" :target "replacement"}
                 {:kind "impl" :name "opaque" :target "implementation"}
-                {:kind "unfold-thms" :name "recursive" :theorems ["recursive.eq_1" "recursive.eq_2"]}])
+                {:kind "unfold-thms" :name "recursive" :theorems ["recursive.eq_1" "recursive.eq_2"]}
+                {:kind "class" :name "ExportedClass"}])
 (def matcher {:name "matcher" :numParams 2 :numDiscrs 1 :uElimPos 3
               :discrs ["localBinder"] :overlaps [[0 1]]
               :alts [{:numFields 1 :numOverlaps 0 :unitThunk false}

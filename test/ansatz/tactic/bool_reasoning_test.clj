@@ -88,3 +88,17 @@
     (is (a/has-constant? "nullary-and-true"))
     (is (a/has-constant? "nullary-or-false"))
     (is (a/has-constant? "unary-or-id"))))
+
+(deftest decidable-equality-propagates-both-directions
+  (fresh-init!)
+  (a/defn decided-equal [x Nat, y Nat] Bool (= x y))
+  (a/theorem decided-equal-up [x :- Nat, y :- Nat, h :- (= Nat x y)]
+             (= Bool (decided-equal x y) true) (grind decided-equal))
+  (a/theorem decided-equal-down [x :- Nat, y :- Nat, h :- (= Bool (decided-equal x y) true)]
+             (= Nat x y) (grind decided-equal))
+  (a/theorem decided-unequal-up [x :- Nat, y :- Nat, h :- (Not (= Nat x y))]
+             (= Bool (decided-equal x y) false) (grind decided-equal))
+  (a/theorem decided-unequal-down [x :- Nat, y :- Nat, h :- (= Bool (decided-equal x y) false)]
+             (Not (= Nat x y)) (grind decided-equal))
+  (is (every? a/has-constant? ["decided-equal-up" "decided-equal-down"
+                              "decided-unequal-up" "decided-unequal-down"])))

@@ -94,3 +94,34 @@
               (parent-zero S))
       (is (has? "inherited-zero"))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest imported-class-parent-projection-is-an-instance
+  (let [saved (a/env)]
+    (try
+      (a/load-init!)
+      (is (contains? (env/get-extension (a/env) :classes #{}) "BEq"))
+      (a/class ReviewBEq [S Type] :extends (BEq S) (extra S))
+      (is (some #(= (nm/from-string "ReviewBEq.toBEq") (:name %))
+                (get (env/get-extension (a/env) :instances {}) (nm/from-string "BEq"))))
+      (a/defn require-beq [S :- Type, dictionary :- (BEq S) :inst] (BEq S) dictionary)
+      (a/defn inherited-beq [S :- Type, child :- (ReviewBEq S) :inst] (BEq S)
+              (require-beq S))
+      (is (has? "inherited-beq"))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest store-session-inherits-exported-class-identity
+  (let [saved (a/env)]
+    (try
+      (a/load-init!)
+      (a/structure ExportedParent [S Type] (zero S))
+      (let [index (select-keys (env/get-extension (a/env) :instances {}) [(nm/from-string "BEq")])
+            prepared (#'a/prepare-proof-session (a/env) {:store-path "metadata-fixture" :branch "init"}
+                       nil {:attrs [["class" "ExportedParent" nil nil]] :instances index :matchers {}})
+            loaded (:env prepared)]
+        (is (contains? (env/get-extension loaded :classes #{}) "BEq"))
+        (is (contains? (env/get-extension loaded :classes #{}) "ExportedParent"))
+        (reset! a/ansatz-env loaded))
+      (a/class ExportedChild [S Type] :extends (ExportedParent S) (one S))
+      (is (some #(= (nm/from-string "ExportedChild.toExportedParent") (:name %))
+                (get (env/get-extension (a/env) :instances {}) (nm/from-string "ExportedParent"))))
+      (finally (reset! a/ansatz-env saved)))))

@@ -180,6 +180,12 @@
                                    (select-keys store [:store-path :branch])))))
                 bundled)
         loaded (env/with-extension loaded :instances index)
+        ;; Lean Class.lean:classExtension. Exported @[class] rows include classes
+        ;; without instances; instance-registry class keys also identify classes
+        ;; in older companions. Both are metadata, independent of name spelling.
+        loaded (env/with-extension loaded :classes
+                 (into (env/get-extension loaded :classes #{})
+                       (map name/->string) (keys index)))
         loaded (if (and store (:simp-trie derived))
                  ((requiring-resolve 'ansatz.simp-index/with-captured-index)
                   loaded (select-keys store [:store-path :branch]) (:simp-trie derived))
