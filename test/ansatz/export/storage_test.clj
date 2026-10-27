@@ -327,3 +327,23 @@
           (storage/close-store store-map))
         (finally
           (delete-dir-recursive dir))))))
+
+(deftest branch-enumeration-read-failures-are-errors
+  (let [dir (temp-dir)]
+    (try
+      (let [sm (storage/open-store dir)
+            blobs (storage/blobs-dir dir)
+            corrupt (java.io.File. blobs "corrupt.ksv")]
+        (storage/store-put (:store sm) [:branches "main"] {:timestamp 1})
+        (is (= ["main"] (mapv :name (storage/list-branches sm))))
+        (spit corrupt "not a blob")
+        (is (thrown? clojure.lang.ExceptionInfo (storage/list-branches sm))
+            "a corrupt blob must not silently disappear from enumeration")
+        (.delete corrupt)
+        (with-redefs [storage/store-get (fn [& _] nil)]
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Branch metadata missing"
+                                (storage/list-branches sm))))
+        (delete-dir-recursive (.getPath blobs))
+        (is (thrown? java.nio.file.NoSuchFileException (storage/list-branches sm))
+            "an unreadable directory must not look like an empty store"))
+      (finally (delete-dir-recursive dir)))))

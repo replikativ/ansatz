@@ -72,27 +72,28 @@
         bb (java.nio.ByteBuffer/wrap d)]
     (UUID. (.getLong bb) (.getLong bb))))
 
-(defn- read-store-value
-  "Read a filestore blob through a read-only channel, retaining konserve's decoder."
-  [store key operation & [locked-cb]]
+(defn- read-store-blob
+  "Decode an existing filestore blob through a read-only channel. Read failures propagate."
+  [store store-key operation & [locked-cb]]
   ;; Lean/Environment.lean readModuleData (library/module.cpp
   ;; lean_read_module_data_parts) opens existing module data with O_RDONLY. Our
   ;; konserve 0.9.398 backend instead opens even reads with WRITE/CREATE. Bypass
   ;; that opener (and its exclusive write lock), not the header/codec validation.
   ;; Store writes use atomic replacement; an open channel retains its inode.
-  (let [store-key (defaults/key->store-key key)
-        path (.toPath (io/file (:base (:backing store)) store-key))
-        channel (try
-                  (java.nio.channels.FileChannel/open
-                   path (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/READ]))
-                  (catch java.nio.file.NoSuchFileException _ nil))]
-    (when channel
-      (with-open [blob channel]
-        (defaults/read-blob*
-         blob (:read-handlers store) (:serializers store)
-         (merge (select-keys store [:config :version :buffer-size :compressor :encryptor])
-                {:sync? true :operation operation :store-key store-key
-                 :locked-cb locked-cb :msg {:key key :type :read-error}}))))))
+  (let [path (.toPath (io/file (:base (:backing store)) store-key))]
+    (with-open [blob (java.nio.channels.FileChannel/open
+                     path (into-array java.nio.file.OpenOption [java.nio.file.StandardOpenOption/READ]))]
+      (defaults/read-blob*
+       blob (:read-handlers store) (:serializers store)
+       (merge (select-keys store [:config :version :buffer-size :compressor :encryptor])
+              {:sync? true :operation operation :store-key store-key
+               :locked-cb locked-cb :msg {:store-key store-key :type :read-error}})))))
+
+(defn- read-store-value
+  [store key operation & [locked-cb]]
+  (try
+    (read-store-blob store (defaults/key->store-key key) operation locked-cb)
+    (catch java.nio.file.NoSuchFileException _ nil)))
 
 (defn- read-blob ^bytes [store address]
   (read-store-value store address :read-binary
@@ -855,15 +856,28 @@
       forked)))
 
 (defn list-branches
-  "List all branches with their metadata."
+  "List all branches with their metadata. Directory and blob read failures throw."
   [store-map]
   (let [{:keys [store]} store-map
-        key-metas (k/keys store {:sync? true})]
+        ;; Konserve's list-keys opens blobs writable and silently skips failures.
+        ;; Ignore its staging/backup/lock artifacts; decode each committed blob's
+        ;; metadata through the same read-only opener as ordinary store reads.
+        key-metas (with-open [files (java.nio.file.Files/newDirectoryStream
+                                    (.toPath (io/file (:base (:backing store)))) "*.ksv")]
+                    (mapv (fn [^java.nio.file.Path file]
+                            (let [meta (read-store-blob store (str (.getFileName file)) :read-meta)]
+                              (when-not (and (map? meta) (contains? meta :key))
+                                (throw (ex-info "Invalid blob metadata during branch enumeration"
+                                                {:file (str file)})))
+                              meta))
+                          files))]
     (->> key-metas
          (map :key)
          (filter #(and (vector? %) (= :branches (first %))))
          (mapv (fn [k]
                  (let [meta (store-get store k)]
+                   (when-not (map? meta)
+                     (throw (ex-info "Branch metadata missing during enumeration" {:key k})))
                    {:name (second k)
                     :timestamp (:timestamp meta)
                     :counts {:names (:names-count meta)

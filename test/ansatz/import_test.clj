@@ -156,6 +156,7 @@
           (java.nio.file.Files/setPosixFilePermissions (.toPath f) (set (remove writes perms))))
         (binding [a/*verbose* false]
           (a/init! dir "init")
+          (is (= ["init"] (mapv :name (storage/list-branches (:store-map @state/ansatz-store)))))
           (let [kstore (get-in @state/ansatz-store [:store-map :store])]
             (is (nil? (storage/store-get kstore :absent)))
             (is (nil? (storage/read-derived kstore "init" :absent))))
