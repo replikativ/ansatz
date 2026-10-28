@@ -15,9 +15,8 @@
   true)
 
 (def ^:dynamic *lean-structural-matchers*
-  "Experimental `brecOn` compilation for one-argument recursive matches.
-   The full fixed-parameter and indexed-inductive port is still in progress."
-  false)
+  "Compile recursive matches with `brecOn` and generated matchers."
+  true)
 
 ;; -- Kernel fuel --
 (def ^:dynamic *default-fuel*

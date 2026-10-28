@@ -1753,15 +1753,15 @@
         rec-pos (when (and (seq? body-form) (= 'match (first body-form)))
                   (let [pos (.indexOf (mapv first pairs) (second body-form))]
                     (when (<= 0 pos) pos)))
-        structural-matcher? (and config/*lean-matchers*
-                                 config/*lean-structural-matchers*
-                                 recursive? (not explicit-ih?)
-                                 (some? rec-pos))
-        lean-matchers? (and config/*lean-matchers*
-                            (or structural-matcher?
-                                (and (not recursive?) (not explicit-ih?))))
-        matcher-opts (when lean-matchers? {:lean-matchers? true :matcher-prefix (str fn-name)})
-        inferred-body (when (and lean-matchers? (= '_ ret-type-form))
+        structural-candidate? (and config/*lean-matchers*
+                                   config/*lean-structural-matchers*
+                                   recursive? (not explicit-ih?)
+                                   (some? rec-pos))
+        matcher-elaboration? (and config/*lean-matchers*
+                                  (or structural-candidate?
+                                      (and (not recursive?) (not explicit-ih?))))
+        matcher-opts (when matcher-elaboration? {:lean-matchers? true :matcher-prefix (str fn-name)})
+        inferred-body (when (and matcher-elaboration? (= '_ ret-type-form))
                         (build-telescope-fvar env pairs nil body-form matcher-opts))
         ;; Build type ∀ params → ret-type up front (the self-axiom below needs it).
         ;; `_` return type = INFER it from the body (non-recursive fns only — e.g. a
@@ -1823,6 +1823,26 @@
                                                     (nth param-names i))))
                                        (range n))))
                           (tree-seq coll? seq body-form)))))
+        ;; Lean's indexed structural recursion needs FindRecArg index transport.
+        ;; Until that port lands, keep such definitions on the existing verified
+        ;; recursor path. Inspect the elaborated signature before matcher
+        ;; compilation, so unsupported families never enter that compiler.
+        structural-matcher?
+        (and structural-candidate?
+             (let [arg-type (loop [ty type-ansatz i 0]
+                              (if (= i rec-pos)
+                                (e/forall-type ty)
+                                (recur (e/instantiate1 (e/forall-body ty) (e/fvar (inc i)))
+                                       (inc i))))
+                   [head _] (e/get-app-fn-args (red/whnf env arg-type {}))
+                   ind-name (when (e/const? head) (e/const-name head))
+                   ci (when ind-name (env/lookup env ind-name))]
+               (and ci (zero? (.numIndices ^ConstantInfo ci))
+                    (env/lookup env (name/mk-str ind-name "below"))
+                    (env/lookup env (name/mk-str ind-name "brecOn")))))
+        lean-matchers? (and matcher-elaboration?
+                            (or structural-matcher?
+                                (and (not recursive?) (not explicit-ih?))))
         body-result (when lean-matchers?
                       (or inferred-body
                           (build-telescope-fvar
@@ -1842,7 +1862,7 @@
                                             {:kind ::redirect-wf
                                              :measure measure}))
                             (throw ex))))
-                      (if body-result (:expr body-result)
+                      (if lean-matchers? (:expr body-result)
                           (binding [surface-match/*self-name* (when top-match? cname)
                                     surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
                                     surface-match/*generalize-self-params?* generalized-self-params?]
@@ -1863,7 +1883,7 @@
                            "`^:partial` for trusted (unverified) recursion.")
                       {:fn fn-name :kind :non-structural-recursion}))))
         ;; Type-check on the REAL env (no axiom — every self-call must have become an IH).
-        definition-env (if body-result (:env body-result) env)
+        definition-env (if lean-matchers? (:env body-result) env)
         tc (ansatz.kernel.TypeChecker. definition-env)
         _ (.inferType tc body-ansatz)
         ci (env/mk-def cname [] type-ansatz body-ansatz)
@@ -2465,10 +2485,17 @@
         ;; becomes a real loop — no more closure cascade / 20k-frame stack bound), named
         ;; self-call otherwise, flat + curried methods. Falls back to the classic path on
         ;; any failure; non-recursive bodies keep the optimizer-seam path below.
-        direct-fn (when (and top-match? (not lean-matchers?))
+        direct-fn (when (and top-match? (or structural-matcher? (not lean-matchers?)))
                     (try
-                      (let [direct (binding [surface-match/*use-cases-on?* true]
-                                     (build-telescope-fvar @ansatz-env pairs ret-type-form body-form))]
+                      (let [direct (if structural-matcher?
+                                     ;; The pre-encoding matcher body is Lean's `_unsafe_rec`
+                                     ;; runtime source. Replace its local self with the
+                                     ;; admitted constant; no old match recompilation.
+                                     (e/instantiate1
+                                      (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                                      (e/const' cname []))
+                                     (binding [surface-match/*use-cases-on?* true]
+                                       (build-telescope-fvar @ansatz-env pairs ret-type-form body-form)))]
                         (when (mentions-const? direct cname)
                           (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
                                 emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)

@@ -62,6 +62,15 @@
              zonked))
       (is (meta/closed-expr? mctx zonked)))))
 
+(deftest universe-only-metavariable-remains-visible-to-dag-scans
+  (let [u (lvl/mvar 10)
+        term (e/sort' u)
+        mctx (meta/add-level-mvar-decl meta/empty-context 10)]
+    (is (empty? (meta/collect-expr-mvars term)))
+    (is (= [10] (meta/unassigned-level-mvars mctx term)))
+    (is (not (meta/closed-expr? mctx term)))
+    (is (meta/closed-expr? (meta/assign-level mctx 10 lvl/zero) term))))
+
 (deftest delayed-assignment-expands-when-pending-is-ground
   (testing "a delayed assignment rebinds its fvars once the pending mvar is solved"
     (let [mctx (-> meta/empty-context
