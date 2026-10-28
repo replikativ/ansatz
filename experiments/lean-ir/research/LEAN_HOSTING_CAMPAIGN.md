@@ -29,6 +29,11 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- [Register capture probes](REGISTER_CAPTURE_PROBES.md) retain exact fork and
+  checkpoint state with copy-on-write pages. The bounded final RBMap comparison
+  saved about 17% cumulative allocation at about 2% more CPU; dense registers
+  remain the default. This is a research adapter, not a fourth released backend.
+
 - The [constructor corpus and cache-admission investigation](INTERPRETER_COST_CORPUS.md)
   found repeated hashing and retention of runtime-created continuations in the
   lazy compiler. Source-based admission removes that growth in bounded tests and
