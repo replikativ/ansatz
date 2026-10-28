@@ -16,7 +16,13 @@
               ci (env/lookup! (a/env) (name/from-string "structuralNat"))]
           (is (= 4 (f 4)))
           (is (.contains (e/->string (.value ci)) "Nat.brecOn"))
-          (is (some? (env/lookup (a/env) (name/from-string "structuralNat.match_1")))))
+          (is (some? (env/lookup (a/env) (name/from-string "structuralNat.match_1"))))
+          (is (some? (env/lookup (a/env) (name/from-string "structuralNat.eq_1"))))
+          (is (some? (env/lookup (a/env) (name/from-string "structuralNat.eq_2"))))
+          (is (not (.contains
+                    (e/->string (.type (env/lookup! (a/env) (name/from-string "structuralNat.eq_2"))))
+                    "brecOn")))
+          (is (empty? (:errors (:equation-generation (meta f))))))
         (let [f (a/define-verified 'structuralNested '[^Nat n] 'Nat
                   '(match n [0 0]
                           [(Nat.succ k)
@@ -25,7 +31,8 @@
         (let [f (a/define-verified 'structuralChanging '[^Nat m ^Nat n] 'Nat
                   '(match n [0 m]
                           [(Nat.succ k) (structuralChanging (Nat.succ m) k)]))]
-          (is (= 7 (f 3 4))))
+          (is (= 7 (f 3 4)))
+          (is (some? (env/lookup (a/env) (name/from-string "structuralChanging.eq_2")))))
         (let [f (a/define-verified 'structuralPoly '[S :- Type, xs :- (List S)] 'Nat
                   '(match xs [nil 0]
                           [(List.cons h t) (Nat.succ (structuralPoly S t))]))]

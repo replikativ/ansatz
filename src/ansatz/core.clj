@@ -34,6 +34,7 @@
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
             [ansatz.elab.structural :as structural]
+            [ansatz.elab.structural-eqns :as structural-eqns]
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
             [ansatz.codegen :as codegen]
@@ -1830,9 +1831,17 @@
                              structural-matcher?
                              (assoc :self-name fn-name :self-type type-ansatz)))))
         body-ansatz (if structural-matcher?
-                      (structural/compile-recursive-match
-                       (:env body-result) (:expr body-result) type-ansatz
-                       (:self-fvar-id body-result) rec-pos n)
+                      (try
+                        (structural/compile-recursive-match
+                         (:env body-result) (:expr body-result) type-ansatz
+                         (:self-fvar-id body-result) rec-pos n)
+                        (catch clojure.lang.ExceptionInfo ex
+                          (if-let [measure (when (= :non-structural-recursion (:kind (ex-data ex)))
+                                             (wf-guess-measure pairs body-form fn-name n))]
+                            (throw (ex-info "auto-measure WF"
+                                            {:kind ::redirect-wf
+                                             :measure measure}))
+                            (throw ex))))
                       (if body-result (:expr body-result)
                           (binding [surface-match/*self-name* (when top-match? cname)
                                     surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
@@ -1883,7 +1892,7 @@
                   ;; parameters. The major premise still selects constructor equations.
                   ctor-eq? (and rec-info
                                 (e/bvar? major) (< (e/bvar-idx major) n))
-                  _ (when-not ctor-eq?
+                  _ (when (and (not ctor-eq?) (not structural-matcher?))
                       (let [eqn (install-unfold-equation! fn-name body-ansatz)]
                         (swap! equation-names conj [cname eqn])))]
               (when ctor-eq?
@@ -2424,6 +2433,18 @@
                         (report-equation-error! equation-errors (str fn-name ".eq_" (inc i)) e)))))))
             (catch Exception ex
               (report-equation-error! equation-errors (str fn-name ".eq_1") ex)))
+        _ (when structural-matcher?
+            (try
+              (let [{:keys [env names errors]}
+                    (structural-eqns/constructor-equations
+                     @ansatz-env fn-name (:expr body-result)
+                     (:self-fvar-id body-result) rec-pos n)]
+                (reset! ansatz-env env)
+                (swap! equation-names into (mapv (fn [eqn] [cname eqn]) names))
+                (doseq [[eqn ex] errors]
+                  (report-equation-error! equation-errors eqn ex)))
+              (catch Exception ex
+                (report-equation-error! equation-errors (str fn-name ".eq_1") ex))))
         ;; Lean Meta/Eqns.lean registerEqnThms/getEqnsFor?: record the names at
         ;; installation, including matcher equations, never reconstruct them by suffix.
         ;; Preserve the parent's equation order before its auxiliary equations; retain
