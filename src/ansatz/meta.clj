@@ -208,43 +208,49 @@
    the nested mvar's context or creates an auxiliary mvar (`ctxApprox`); we
    reject conservatively, which is sound but may fail where Lean succeeds."
   [mctx id value allowed]
-  (letfn [(check! [expr allowed]
-            (case (e/tag expr)
-              :fvar (when-not (contains? allowed (e/fvar-id expr))
-                      (checked-assignment-error!
-                       "assignment contains free variables outside the metavariable context"
-                       {:mvar-id id
-                        :escaped-fvars [(e/fvar-id expr)]
-                        :allowed-fvars (vec (sort allowed))}))
-              :mvar (let [mid (e/mvar-id expr)]
+  (let [seen (java.util.IdentityHashMap.)]
+    (letfn [(check! [expr allowed]
+              ;; Proof terms share subexpressions extensively. A previous check
+              ;; under a subset of the current allowed fvars is sufficient here.
+              (let [prior (.get seen expr)]
+                (when-not (some #(every? allowed %) prior)
+                  (.put seen expr (conj (or prior []) allowed))
+                  (case (e/tag expr)
+                    :fvar (when-not (contains? allowed (e/fvar-id expr))
+                            (checked-assignment-error!
+                             "assignment contains free variables outside the metavariable context"
+                             {:mvar-id id
+                              :escaped-fvars [(e/fvar-id expr)]
+                              :allowed-fvars (vec (sort allowed))}))
+                    :mvar (let [mid (e/mvar-id expr)]
                       ;; value is zonked, so a remaining mvar is unassigned or
                       ;; delayed; its future value may mention anything in its
                       ;; own local context.
-                      (when-let [d (expr-decl mctx mid)]
-                        (let [extra (vec (sort (remove allowed (keys (:lctx d)))))]
-                          (when (seq extra)
-                            (checked-assignment-error!
-                             "nested metavariable context is not contained in the assignee's context"
-                             {:mvar-id id
-                              :nested-mvar-id mid
-                              :escaping-fvars extra
-                              :allowed-fvars (vec (sort allowed))})))))
-              :app (do (check! (e/app-fn expr) allowed)
-                       (check! (e/app-arg expr) allowed))
-              :lam (do (check! (e/lam-type expr) allowed)
-                       (check! (e/lam-body expr) allowed))
-              :forall (do (check! (e/forall-type expr) allowed)
-                          (check! (e/forall-body expr) allowed))
-              :let (do (check! (e/let-type expr) allowed)
-                       (check! (e/let-value expr) allowed)
-                       (check! (e/let-body expr) allowed))
-              :mdata (check! (e/mdata-expr expr)
-                             (if-let [fvar-ids (::abstract-fvars (e/mdata-data expr))]
-                               (into allowed fvar-ids)
-                               allowed))
-              :proj (check! (e/proj-struct expr) allowed)
-              nil))]
-    (check! value allowed)))
+                            (when-let [d (expr-decl mctx mid)]
+                              (let [extra (vec (sort (remove allowed (keys (:lctx d)))))]
+                                (when (seq extra)
+                                  (checked-assignment-error!
+                                   "nested metavariable context is not contained in the assignee's context"
+                                   {:mvar-id id
+                                    :nested-mvar-id mid
+                                    :escaping-fvars extra
+                                    :allowed-fvars (vec (sort allowed))})))))
+                    :app (do (check! (e/app-fn expr) allowed)
+                             (check! (e/app-arg expr) allowed))
+                    :lam (do (check! (e/lam-type expr) allowed)
+                             (check! (e/lam-body expr) allowed))
+                    :forall (do (check! (e/forall-type expr) allowed)
+                                (check! (e/forall-body expr) allowed))
+                    :let (do (check! (e/let-type expr) allowed)
+                             (check! (e/let-value expr) allowed)
+                             (check! (e/let-body expr) allowed))
+                    :mdata (check! (e/mdata-expr expr)
+                                   (if-let [fvar-ids (::abstract-fvars (e/mdata-data expr))]
+                                     (into allowed fvar-ids)
+                                     allowed))
+                    :proj (check! (e/proj-struct expr) allowed)
+                    nil))))]
+      (check! value allowed))))
 
 (defn- validate-expr-assignment
   [mctx id value {:keys [env check-type? allow-depth-mismatch? unification?]
@@ -621,21 +627,29 @@
     false))
 
 (defn collect-expr-mvars
-  "Collect expression metavariable ids occurring syntactically in `expr`."
+  "Collect expression metavariable ids occurring syntactically in `expr`.
+   Traverse each expression node once: proof terms from case splitting share
+   large subtrees, as Lean's expression DAGs do."
   [expr]
-  (letfn [(go [expr acc]
-              (case (e/tag expr)
-                :mvar (conj acc (e/mvar-id expr))
-                :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
-                :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
-                :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
-                :let (go (e/let-body expr)
-                         (go (e/let-value expr)
-                             (go (e/let-type expr) acc)))
-                :mdata (go (e/mdata-expr expr) acc)
-                :proj (go (e/proj-struct expr) acc)
-                acc))]
-    (go expr #{})))
+  (let [seen (java.util.IdentityHashMap.)
+        ids (java.util.HashSet.)]
+    (letfn [(go [expr]
+                (when (and (.hasMVar ^ansatz.kernel.Expr expr)
+                           (not (.containsKey seen expr)))
+                  (.put seen expr true)
+                  (case (e/tag expr)
+                    :mvar (.add ids (e/mvar-id expr))
+                    :app (do (go (e/app-fn expr)) (go (e/app-arg expr)))
+                    :lam (do (go (e/lam-type expr)) (go (e/lam-body expr)))
+                    :forall (do (go (e/forall-type expr)) (go (e/forall-body expr)))
+                    :let (do (go (e/let-type expr))
+                             (go (e/let-value expr))
+                             (go (e/let-body expr)))
+                    :mdata (go (e/mdata-expr expr))
+                    :proj (go (e/proj-struct expr))
+                    nil)))]
+      (go expr)
+      (set ids))))
 
 (defn expr-occurs?
   "Occurs check for expression mvar `id` in `expr`.
@@ -767,22 +781,29 @@
   ([mctx]
    (vec (remove #(level-assignment mctx %) (keys (:level-depth mctx)))))
   ([mctx expr]
-   (letfn [(go [expr acc]
-               (case (e/tag expr)
-                 :sort (collect-level-mvars* (e/sort-level expr) acc)
-                 :const (reduce (fn [acc u] (collect-level-mvars* u acc))
-                                acc (e/const-levels expr))
-                 :app (go (e/app-arg expr) (go (e/app-fn expr) acc))
-                 :lam (go (e/lam-body expr) (go (e/lam-type expr) acc))
-                 :forall (go (e/forall-body expr) (go (e/forall-type expr) acc))
-                 :let (go (e/let-body expr)
-                          (go (e/let-value expr)
-                              (go (e/let-type expr) acc)))
-                 :mdata (go (e/mdata-expr expr) acc)
-                 :proj (go (e/proj-struct expr) acc)
-                 acc))]
-     (vec (remove #(level-assignment mctx %)
-                  (go (zonk-expr mctx expr) #{}))))))
+   (let [seen (java.util.IdentityHashMap.)
+         ids (java.util.HashSet.)]
+     (letfn [(add-level! [level]
+               (doseq [id (collect-level-mvars* level #{})]
+                 (.add ids id)))
+             (go [expr]
+                 (when (and (.hasMVar ^ansatz.kernel.Expr expr)
+                            (not (.containsKey seen expr)))
+                   (.put seen expr true)
+                   (case (e/tag expr)
+                     :sort (add-level! (e/sort-level expr))
+                     :const (doseq [u (e/const-levels expr)] (add-level! u))
+                     :app (do (go (e/app-fn expr)) (go (e/app-arg expr)))
+                     :lam (do (go (e/lam-type expr)) (go (e/lam-body expr)))
+                     :forall (do (go (e/forall-type expr)) (go (e/forall-body expr)))
+                     :let (do (go (e/let-type expr))
+                              (go (e/let-value expr))
+                              (go (e/let-body expr)))
+                     :mdata (go (e/mdata-expr expr))
+                     :proj (go (e/proj-struct expr))
+                     nil)))]
+       (go (zonk-expr mctx expr))
+       (vec (remove #(level-assignment mctx %) ids))))))
 
 (defn closed-expr?
   "True when zonking `expr` leaves no expression or level metavariables."
