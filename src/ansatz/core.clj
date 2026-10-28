@@ -1876,13 +1876,17 @@
         (set (mapcat (fn [form]
                        (when (and (seq? form)
                                   (symbol? (first form))
-                                  (= (source-name (first form)) (str fn-name))
-                                  (<= n (dec (count form))))
-                         (keep (fn [i]
-                                 (when (not= (nth (vec (rest form)) i)
-                                             (first (nth pairs i)))
-                                   i))
-                               (range n))))
+                                  (= (source-name (first form)) (str fn-name)))
+                         (let [positions (if (.startsWith (name (first form)) "@")
+                                           (range n)
+                                           (keep-indexed (fn [i [_ _ info]]
+                                                           (when (= :default (or info :default)) i))
+                                                         pairs))
+                               args (vec (rest form))]
+                           (when (<= (count positions) (count args))
+                             (keep-indexed (fn [j i]
+                                             (when (not= (nth args j) (first (nth pairs i))) i))
+                                           positions)))))
                      (tree-seq coll? seq body-form)))
         ;; Lean searches the elaborated predefinition for recursive calls and
         ;; tries structural arguments independently of the outer body shape.
