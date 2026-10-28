@@ -17,7 +17,7 @@
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
             [ansatz.inductive :as inductive]
-            [ansatz.surface.match :as surface-match]
+            [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.codegen :as codegen :refer [ansatz->clj]]
             [ansatz.codegen.decl :as decl]
             [ansatz.config :as config]
@@ -793,6 +793,31 @@
 
 (declare wf-fix-refine)
 
+(defn- wf-fix-matcher? [env h]
+  (and (e/const? h)
+       (matcher-info/is-matcher-core env (e/const-name h))))
+
+(defn- wf-fix-unfold-matcher [env reducer h as]
+  ;; Delta-reduce only the matcher and its `casesOn` wrapper. Full WHNF can
+  ;; continue into the recursive function on a constructor-headed branch and
+  ;; erase the useful self-call from its defining equation.
+  (loop [term (apply e/app* h as) fuel 4]
+    (let [[head args] (e/get-app-fn-args term)
+          unfold? (and (pos? fuel) (e/const? head)
+                       (or (wf-fix-matcher? env head)
+                           (.endsWith (name/->string (e/const-name head)) ".casesOn")))
+          ci (when unfold? (env/lookup env (e/const-name head)))
+          value (when ci (env/ci-value ci))]
+      (if value
+        (let [next (.whnfCore reducer
+                              (apply e/app*
+                                     (e/instantiate-level-params
+                                      value (zipmap (env/ci-level-params ci)
+                                                    (e/const-levels head)))
+                                     args))]
+          (if (= next term) term (recur next (dec fuel))))
+        term))))
+
 ;; refine recursor (R.rec params motive minors… major) to thread ih-fvar, exposing each branch's
 ;; pattern via the dependent motive. Returns the refined recursor APPLIED to ih-fvar.
 (defn- wf-fix-refine-rec [env callspec ret reducer rec-head call-args ih-fvar P scope]
@@ -834,8 +859,18 @@
 ;; guard and the generic descent below collects it into the decrease-proof scope.)
 
 (defn- wf-fix-refine [env callspec ret reducer body ih-fvar P scope]
-  (let [[h as] (e/get-app-fn-args body)]
+  ;; Matcher minors introduce beta wrappers around their branches. Reduce these
+  ;; before inspecting a recursive call so its argument and the current pattern
+  ;; share the same locals in the decrease goal.
+  (let [body (.whnfCore reducer body)
+        [h as] (e/get-app-fn-args body)]
     (cond
+      (wf-fix-matcher? env h)
+      (let [unfolded (wf-fix-unfold-matcher env reducer h as)]
+        (if (or (nil? unfolded) (= unfolded body))
+          (apply e/app* h
+                 (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as))
+          (wf-fix-refine env callspec ret reducer unfolded ih-fvar P scope)))
       ;; Lean Elab/PreDefinition/WF/Fix.lean replaceRecApps.processRec:
       ;; pack the recursion arguments, insert the decrease proof, then apply extras.
       (and (e/const? h) (= (e/const-name h) (:cname callspec)) (<= (:arity callspec) (count as)))
@@ -875,36 +910,43 @@
 ;; pattern; stop at dites/leaves. fields = the ∀-binders of the equation ([[id type] …]);
 ;; a split consumes the matched var and appends the constructor's fields.
 (defn- wf-fix-eq-leaves [env tc reducer body pattern fields ret]
-  (let [[h as] (e/get-app-fn-args body)]
-    (if (wf-fix-refinable? env h as pattern)
-      (let [rec-name (e/const-name h)
-            rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
-            params (vec (take np as))
-            major (last as) v-id (e/fvar-id major)
-            ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
-            ctor-names (vec (.ctors (env/lookup env ind-name)))
-            rec-applied (apply e/app* (e/const' rec-name (vec (e/const-levels h))) (conj params (nth as np)))
-            tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
-            minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))]
-        (vec (mapcat
-              (fn [mi]
-                (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
-                      bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer ret)) bid (mapv first bs)
-                      field-ids (vec (take nf bid))
-                      field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
-                      ctor-pat (apply e/app* (e/const' ctor-name (vec (rest (e/const-levels h))))
-                                      (into params (mapv e/fvar field-ids)))
-                      pattern' (e/instantiate1 (e/abstract-many pattern [v-id]) ctor-pat)
-                      fields' (into (vec (remove (fn [[id _]] (= id v-id)) fields))
-                                    (mapv vector field-ids field-tys))
+  ;; Keep equation splitting on the same normalized branch shape as refinement.
+  (let [body (.whnfCore reducer body)
+        [h as] (e/get-app-fn-args body)]
+    (if (wf-fix-matcher? env h)
+      (let [unfolded (wf-fix-unfold-matcher env reducer h as)]
+        (if (or (nil? unfolded) (= unfolded body))
+          [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}]
+          (wf-fix-eq-leaves env tc reducer unfolded pattern fields ret)))
+      (if (wf-fix-refinable? env h as pattern)
+        (let [rec-name (e/const-name h)
+              rci (env/lookup env rec-name) np (.numParams rci) nminors (.numMinors rci)
+              params (vec (take np as))
+              major (last as) v-id (e/fvar-id major)
+              ind-name (let [s (name/->string rec-name)] (name/from-string (subs s 0 (- (count s) 4))))
+              ctor-names (vec (.ctors (env/lookup env ind-name)))
+              rec-applied (apply e/app* (e/const' rec-name (vec (e/const-levels h))) (conj params (nth as np)))
+              tb (:binders (wf-fix-tele-open (.inferType tc rec-applied) reducer))
+              minor-types (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) tb) i)) (range nminors))]
+          (vec (mapcat
+                (fn [mi]
+                  (let [ctor-name (nth ctor-names mi) nf (.numFields (env/lookup env ctor-name))
+                        bs (:binders (wf-fix-tele-open (nth minor-types mi) reducer ret)) bid (mapv first bs)
+                        field-ids (vec (take nf bid))
+                        field-tys (mapv (fn [i] (nth (mapv (fn [[_ _ t]] t) bs) i)) (range nf))
+                        ctor-pat (apply e/app* (e/const' ctor-name (vec (rest (e/const-levels h))))
+                                        (into params (mapv e/fvar field-ids)))
+                        pattern' (e/instantiate1 (e/abstract-many pattern [v-id]) ctor-pat)
+                        fields' (into (vec (remove (fn [[id _]] (= id v-id)) fields))
+                                      (mapv vector field-ids field-tys))
                       ;; open the ORIGINAL minor: nf fields + structural-ih binders (unused in
                       ;; WF bodies — recursive calls reference the function constant)
-                      orig (nth as (+ np 1 mi))
-                      obody (loop [b orig i 0] (if (and (< i (count bs)) (e/lam? b))
-                                                 (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))]
-                  (wf-fix-eq-leaves env tc reducer obody pattern' fields' ret)))
-              (range nminors))))
-      [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}])))
+                        orig (nth as (+ np 1 mi))
+                        obody (loop [b orig i 0] (if (and (< i (count bs)) (e/lam? b))
+                                                   (recur (e/instantiate1 (e/lam-body b) (e/fvar (nth bid i))) (inc i)) b))]
+                    (wf-fix-eq-leaves env tc reducer obody pattern' fields' ret)))
+                (range nminors))))
+        [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}]))))
 
 ;; Build the (unapplied) fix term: param-type → ret. raw-body = the compiled body with the
 ;; (possibly packed) recursion param at bvar 0 (any shape: match/casesOn, if/Bool.rec, or mixed —
@@ -1006,14 +1048,18 @@
         {:keys [param-types ret-ansatz type-ansatz]} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
 
-        ;; Fork env and add temporary axiom for self-reference
-        tmp-ci (env/mk-axiom cname [] type-ansatz)
-        tmp-env (env/add-constant (env/fork env) tmp-ci)
-
-        ;; Compile body fvar-first (consistent with define-verified) on the forked env —
-        ;; self-calls resolve to the axiom const; replace-rec-calls rewrites them to the IH below.
-        body-ansatz (binding [surface-match/*use-cases-on?* true]
-                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))
+        ;; Elaborate the recursive predefinition with a local self-reference. Generated
+        ;; matchers close over that local, as in Lean's predefinition pipeline.
+        body-result (build-telescope-fvar env pairs ret-type-form body-form
+                                          {:lean-matchers? true
+                                           :matcher-prefix (str fn-name)
+                                           :self-name fn-name
+                                           :self-type type-ansatz})
+        env (:env body-result)
+        _ (reset! ansatz-env env)
+        body-ansatz (e/instantiate1
+                     (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                     (e/const' cname []))
 
         ;; Peel all outer lambdas to get the raw body
         raw-body (loop [e body-ansatz i 0]

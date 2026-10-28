@@ -176,11 +176,35 @@
                                          (succ [k] (Nat.succ (ex-div2 k)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-div2"))]
         (is (some? ci) "div2 (n-2 recursion) defined")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-div2.match_1")))
+            "well-founded recursion uses a generated matcher")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-div2.match_2")))
+            "nested match is generated too")
         (is (uses-wf-fix? ci) "div2 is encoded with kernel-enforced WellFounded.Nat.fix")
         ;; (the definition already passed check-constant in define-verified-wf — both the encoder's
         ;;  own check and the swap! check-constant — so presence in the env implies kernel-verified)
         (is (= ["0" "0" "1" "1" "2" "2" "3"] (run-nat-fn "ex-div2" (range 7)))
             "div2 computes floor(n/2)")))))
+
+(deftest test-wf-matcher-equation-keeps-recursive-call
+  (binding [a/*verbose* false]
+    (let [f (a/define-verified-wf 'ex-wf-nested-head '[n :- Nat] 'Nat
+              '(match n Nat Nat
+                      (zero 0)
+                      (succ [p]
+                            (match p Nat Nat
+                                   (zero 0)
+                                   (succ [k]
+                                         (match true Bool Nat
+                                                (true (ex-wf-nested-head k))
+                                                (false 0)))))) 'n)
+          ci (env/lookup (a/env) (name/from-string "ex-wf-nested-head"))
+          eq (env/lookup (a/env) (name/from-string "ex-wf-nested-head.eq_3"))]
+      (is (= 0 (f 4)))
+      (is (uses-wf-fix? ci))
+      (is (some? eq))
+      (is (.contains (e/->string (.type eq)) "(ex-wf-nested-head #0)"))
+      (is (not (.contains (e/->string (.type eq)) "WellFounded"))))))
 
 (deftest test-wf-fix-if-guarded
   (testing "Stage 1b-A: if-guarded recursion is kernel-enforced via the dite conversion
