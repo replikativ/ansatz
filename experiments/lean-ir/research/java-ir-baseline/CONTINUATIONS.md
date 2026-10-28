@@ -117,8 +117,10 @@ not establish a speedup. Keep exact method/source revisions and report CPU and w
 separately; allocation equality alone does not establish equal throughput.
 
 The retained loop separates lifecycle/failure handling from dispatch and keeps a
-local cursor, publishing the attempted instruction for errors and the next PC at
-pause. Two final ordinary C2 processes measured RBMap1000 recursive/explicit CPU
+local cursor, publishing the current body before dispatch and the next PC at pause.
+Transfer helpers can publish a callee/caller PC before failing, so a failed PC is
+the last published control state, not always the original attempted instruction.
+Two final ordinary C2 processes measured RBMap1000 recursive/explicit CPU
 medians of 4.012/4.627 ms and 4.855/6.202 ms: roughly 15–28% extra CPU. Both modes
 allocated 1.516 MB per run after warming their storage. Earlier driver versions
 had 7.5–9.3 ms explicit CPU samples, while an instrumented unchanged version had
