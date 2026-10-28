@@ -1452,13 +1452,19 @@
         ;; function type  ∀ params → ret  (same construction as define-verified)
         {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
         cname (name/from-string (str fn-name))
-        ;; trusted axiom at the type; also the self-reference used to elaborate the body for codegen
+        ;; trusted axiom at the type; the body is elaborated with a local self
+        ;; reference so generated matchers do not depend on the axiom.
         ax (env/mk-axiom cname [] type-ansatz)
-        tmp-env (env/add-constant (env/fork env) ax)
-        ;; Compile body fvar-first (consistent with define-verified/-wf), for codegen only.
-        body-ansatz (binding [surface-match/*use-cases-on?* true]
-                      (build-telescope-fvar tmp-env pairs ret-type-form body-form))]
+        body-result (build-telescope-fvar env pairs ret-type-form body-form
+                                          {:lean-matchers? true
+                                           :matcher-prefix (str fn-name)
+                                           :self-name fn-name
+                                           :self-type type-ansatz})
+        body-ansatz (e/instantiate1
+                     (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                     (e/const' cname []))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
+    (reset! ansatz-env (:env body-result))
     (swap! ansatz-env env/add-constant ax)
     (decl/plan! env (str fn-name) type-ansatz (count pairs))
     (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
