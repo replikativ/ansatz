@@ -497,7 +497,7 @@
                                          ps
                                          (throw ex))))
                                 ps)))
-                          ps1 (:h-ids alt))]
+                          ps1 (concat (:named-eq-ids alt) (:h-ids alt)))]
           (recur (subvec pending 1) (into done (:goals ps2)) ps2))
         (assoc ps :goals (into (vec done) siblings))))))
 
