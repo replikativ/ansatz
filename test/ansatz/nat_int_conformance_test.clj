@@ -4,6 +4,7 @@
   Constructor branches use ansatz field names. No alternative proof scripts for gaps."
   (:require [clojure.test :refer [deftest is]]
             [ansatz.core :as a]
+            [ansatz.config :as config]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.reduce :as red]
@@ -168,11 +169,19 @@
                    '(match xs [nil 0]
                            [(cons h t) (if (if b true false) h (regrNested b t))])))]
     (is (= {:errors []} (:equation-generation (meta result))))
-    (doseq [lemma ["regrNested._match_1.eq_1" "regrNested._match_1.eq_2"]]
-      (when-let [equality (checked-equation lemma)]
-        (is (= "Bool" (str (e/const-name (first (e/get-app-args equality))))))))
-    (doseq [lemma ["regrNested.eq_1" "regrNested.eq_2s1" "regrNested.eq_2s2"]]
-      (checked-equation lemma))))
+    (if config/*lean-structural-matchers*
+      (do
+        (doseq [lemma (:eqn-names (match-eqns/get-equations-for "regrNested.match_1"))]
+          (when-let [equality (checked-equation (str lemma))]
+            (is (e/bvar? (e/get-app-fn (first (e/get-app-args equality)))))))
+        (doseq [lemma ["regrNested.eq_1" "regrNested.eq_2"]]
+          (checked-equation lemma)))
+      (do
+        (doseq [lemma ["regrNested._match_1.eq_1" "regrNested._match_1.eq_2"]]
+          (when-let [equality (checked-equation lemma)]
+            (is (= "Bool" (str (e/const-name (first (e/get-app-args equality))))))))
+        (doseq [lemma ["regrNested.eq_1" "regrNested.eq_2s1" "regrNested.eq_2s2"]]
+          (checked-equation lemma))))))
 
 (deftest regression-overapplied-recursor-equation
   (a/load-init!)
