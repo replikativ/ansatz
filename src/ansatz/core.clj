@@ -2011,7 +2011,14 @@
                   (if measure
                     (throw (ex-info "auto-measure WF"
                                     {:kind ::redirect-wf :measure measure} ex))
-                    (throw ex))))))
+                    (if unexpected
+                      (throw ex)
+                      (throw (ex-info
+                              (str "Cannot auto-verify recursive function `" fn-name
+                                   "`: no structural parameter or decreasing measure was found. "
+                                   "Add :termination-by for well-founded recursion, or ^:partial "
+                                   "for trusted recursion.")
+                              {:fn fn-name :kind :non-structural-recursion} ex))))))))
         rec-pos (:pos compiled-structural)
         body-ansatz (if structural-matcher?
                       (:expr compiled-structural)
