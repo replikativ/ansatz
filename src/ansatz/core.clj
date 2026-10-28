@@ -2064,17 +2064,17 @@
                                                                       (subvec generalized-args discr-pos)))
                                                         (= expr rec-val) f-call
                                                         :else
-                                                      (case (e/tag expr)
-                                                        :app (let [nf (replace-rv (e/app-fn expr))
-                                                                   na (replace-rv (e/app-arg expr))]
-                                                               (if (and (identical? nf (e/app-fn expr))
-                                                                        (identical? na (e/app-arg expr)))
-                                                                 expr (e/app nf na)))
-                                                        :lam (let [nb (replace-rv (e/lam-body expr))]
-                                                               (if (identical? nb (e/lam-body expr))
-                                                                 expr (e/lam (e/lam-name expr) (e/lam-type expr)
-                                                                             nb (e/lam-info expr))))
-                                                        expr))))]
+                                                        (case (e/tag expr)
+                                                          :app (let [nf (replace-rv (e/app-fn expr))
+                                                                     na (replace-rv (e/app-arg expr))]
+                                                                 (if (and (identical? nf (e/app-fn expr))
+                                                                          (identical? na (e/app-arg expr)))
+                                                                   expr (e/app nf na)))
+                                                          :lam (let [nb (replace-rv (e/lam-body expr))]
+                                                                 (if (identical? nb (e/lam-body expr))
+                                                                   expr (e/lam (e/lam-name expr) (e/lam-type expr)
+                                                                               nb (e/lam-info expr))))
+                                                          expr))))]
                                    (replace-fn rhs))
                                  (catch Exception ex
                                    (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " recursive calls") ex)

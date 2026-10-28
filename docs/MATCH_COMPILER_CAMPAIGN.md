@@ -13,14 +13,14 @@ implementation, then check the corresponding Klara proof where one exists.
 | 4 | Reduce wasted `apply` work across many induction goals | `Apply.lean` | Implemented in draft PR #239. REPL probe: 20 wrong candidates fell from 26 seconds to about 2 seconds; CI passed. |
 | 5 | Reduce beta redexes left by `simp` | `Meta/Tactic/Simp/Main.lean` | Implemented in draft PR #239. Alternate `smn-step2` and `run-quote` proofs passed the Klara REPL with the default compiler; CI passed. With opt-in matchers, `smn-step2` also proves if `rw [rx]` precedes `simp only [ev]`. The original tactic order remains a migration issue. |
 | 6 | Recognize structural recursion when a non matched argument changes, and when a recursive call is a match scrutinee | `Elab/PreDefinition/Structural/FixedParams.lean`, `BRecOn.lean` | Kernel checked REPL definitions cover both cases. Generated constructor equations reduce to direct recursive calls, including under a nested match. Focused tests passed before the equation change; CI pending. |
-| 7 | End to end validation | Ansatz and Klara suites | The combined matcher/tactic branch passed CI at `fe6069c`. The full opt-in Klara specification kernel checked with one local proof edit: move `rw [rx]` before `simp only [ev]` in `smn-step2`. The Klara checkout was not changed. |
+| 7 | End to end validation | Ansatz and Klara suites | The combined matcher/tactic branch passed CI at `fe6069c`; later recursion commits await CI. The full opt-in Klara specification kernel checked with an `smn-step2` proof migration. Draft Klara PR #1 tries `rw [rx]` before and after `simp only [ev]`; that theorem kernel checked with both compiler modes. |
 
 The opt-in Klara run initially stopped at `handleEff-ok`: `simp [handleEff]`
 exposed `Option.casesOn`, which `simp` did not reduce. A local fix unfolds
 `*.casesOn` definitions; the REPL then reached `smn-step2`.
 
-The generalized recursor now yields constructor-specific equations. The original
-Klara `smn-step2` tactic order remains a proof migration item for opt-in matchers.
+The generalized recursor now yields constructor-specific equations. Klara's
+`smn-step2` proof migration is in draft PR #1.
 
 The order permits independent tactic repairs after the current splitter work.
 Do not close a report because a workaround passes: its original reproduction
