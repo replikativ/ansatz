@@ -1787,11 +1787,31 @@
         ;; (if-wrapped, let-wrapped, nested) the IH is a different fold — those self-calls stay
         ;; as the axiom and route to the well-founded path below.
         top-match? (and (seq? body-form) (= 'match (first body-form)))
+        ;; Lean FixedParams: a parameter changed by a structural self-call belongs
+        ;; in the recursor motive. Keep the ordinary, smaller motive for definitions
+        ;; whose nonrecursive arguments are fixed.
+        generalized-self-params?
+        (and top-match?
+             (let [discr (second body-form)
+                   param-names (mapv first pairs)
+                   rec-pos (.indexOf param-names discr)]
+               (and (<= 0 rec-pos)
+                    (some (fn [form]
+                            (and (seq? form)
+                                 (= (first form) fn-name)
+                                 (<= n (dec (count form)))
+                                 (some (fn [i]
+                                         (and (not= i rec-pos)
+                                              (not= (nth (vec (rest form)) i)
+                                                    (nth param-names i))))
+                                       (range n))))
+                          (tree-seq coll? seq body-form)))))
         body-result (when lean-matchers?
                       (or inferred-body (build-telescope-fvar env pairs ret-type-form body-form matcher-opts)))
         body-ansatz (if body-result (:expr body-result)
                         (binding [surface-match/*self-name* (when top-match? cname)
-                                  surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))]
+                                  surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
+                                  surface-match/*generalize-self-params?* generalized-self-params?]
                           (build-telescope-fvar tmp-env pairs ret-type-form body-form)))
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
