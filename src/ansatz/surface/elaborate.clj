@@ -1021,7 +1021,7 @@
                           sort (zonk est (infer-with-mvars est T))
                           u (e/sort-level sort)
                           inst (inst-mvar! est
-                                 (e/app (e/const' (name/from-string "DecidableEq") [u]) T))]
+                                           (e/app (e/const' (name/from-string "DecidableEq") [u]) T))]
                       (e/app* (e/const' (name/from-string "Decidable.decide") [])
                               (e/app* (e/const' (name/from-string "Eq") [u]) T a b)
                               (e/app* inst a b))))]
@@ -1268,15 +1268,15 @@
                   (and (= 3 (count sexpr)) (:prop-ctx est))
                   (elab-prop-comparison est hs sexpr)
 
-                (= 4 (count sexpr))
-                (let [[_ T a b] sexpr]
-                  (if (= hs "==")
-                    (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
-                    (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
-                          rel (case hs ("<" ">") "lt" "le")]
-                      (elab-term est (list (symbol rel) T a* b*)))))
-                :else
-                (elab-bool-comparison est hs sexpr)))
+                  (= 4 (count sexpr))
+                  (let [[_ T a b] sexpr]
+                    (if (= hs "==")
+                      (elab-term est (list 'Eq T a b))     ; (== T a b) → Eq T a b (Prop)
+                      (let [[a* b*] (case hs (">" ">=" "≥") [b a] [a b])
+                            rel (case hs ("<" ">") "lt" "le")]
+                        (elab-term est (list (symbol rel) T a* b*)))))
+                  :else
+                  (elab-bool-comparison est hs sexpr)))
 
         ;; Dependent if over a Prop condition → dite. The Decidable instance is an
         ;; inst-implicit mvar solved by synthesis (no comparison fallback needed); the

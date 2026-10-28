@@ -317,7 +317,7 @@
                    ;; erased binders must be runtime-irrelevant in the final body
                    (not-any? #(occurs-sym? body' %) (subvec params 0 erased)))
           (let [emitted (decl/emit-wrapper rt-params body' {:erased erased :local-name local-name
-                                                           :value? (zero? arity)})]
+                                                            :value? (zero? arity)})]
             (assoc emitted :fn (eval (:fn-form emitted)))))))))
 
 ;; ── the store-def compiler ────────────────────────────────────────────────────

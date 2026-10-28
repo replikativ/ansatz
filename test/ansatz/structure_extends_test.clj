@@ -88,9 +88,9 @@
                  (rfl))
       ;; The body must synthesize the parent using only a grandchild local instance.
       (a/defn parent-zero [S :- Type, parent :- (ParentOps S) :inst] S
-              (ParentOps.zero parent))
+        (ParentOps.zero parent))
       (a/defn inherited-zero [S :- Type :implicit, child :- (GrandchildOps S) :inst] S
-              (parent-zero S))
+        (parent-zero S))
       (is (has? "inherited-zero"))
       (finally (reset! a/ansatz-env saved)))))
 
@@ -104,7 +104,7 @@
                 (get (env/get-extension (a/env) :instances {}) (nm/from-string "BEq"))))
       (a/defn require-beq [S :- Type, dictionary :- (BEq S) :inst] (BEq S) dictionary)
       (a/defn inherited-beq [S :- Type, child :- (ExtendedBEq S) :inst] (BEq S)
-              (require-beq S))
+        (require-beq S))
       (is (has? "inherited-beq"))
       (finally (reset! a/ansatz-env saved)))))
 
@@ -115,7 +115,7 @@
       (a/structure ExportedParent [S Type] (zero S))
       (let [index (select-keys (env/get-extension (a/env) :instances {}) [(nm/from-string "BEq")])
             prepared (#'a/prepare-proof-session (a/env) {:store-path "metadata-fixture" :branch "init"}
-                       nil {:attrs [["class" "ExportedParent" nil nil]] :instances index :matchers {}})
+                                                nil {:attrs [["class" "ExportedParent" nil nil]] :instances index :matchers {}})
             loaded (:env prepared)]
         (is (contains? (env/get-extension loaded :classes #{}) "BEq"))
         (is (contains? (env/get-extension loaded :classes #{}) "ExportedParent"))
@@ -136,6 +136,6 @@
                 (get (env/get-extension (a/env) :instances {}) (nm/from-string "Ord"))))
       (a/defn require-ord [S :- Type, dictionary :- (Ord S) :inst] (Ord S) dictionary)
       (a/defn inherited-ord [S :- Type, child :- (ExtraOrd S) :inst] (Ord S)
-              (require-ord S))
+        (require-ord S))
       (is (has? "inherited-ord"))
       (finally (reset! a/ansatz-env saved)))))

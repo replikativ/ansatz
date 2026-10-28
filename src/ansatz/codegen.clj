@@ -311,8 +311,8 @@
         (list 'apply (ansatz->clj env head names) ca)))}
    (into {} (map (fn [[n op]] [n (bi-nary op)]) integer-binary))
    (into {} (map (fn [[n value]]
-                  [n (fn [_ _ _ ca _] (decl/apply-args {:arity 2 :erased 0} value ca))])
-                nat-decisions))))
+                   [n (fn [_ _ _ ca _] (decl/apply-args {:arity 2 :erased 0} value ca))])
+                 nat-decisions))))
 
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."

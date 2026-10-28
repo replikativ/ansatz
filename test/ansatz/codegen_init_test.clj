@@ -124,10 +124,10 @@
            ['(Option.getD (Option.none Nat) 9) :int]
            ['(List.lookup 1 (List.nil (Prod Nat Nat))) [:maybe :int]]
            ['(List.lookup 2 (List.cons (Prod Nat Nat) (Prod.mk Nat Nat 1 7)
-                                      (List.nil (Prod Nat Nat)))) [:maybe :int]]
+                                       (List.nil (Prod Nat Nat)))) [:maybe :int]]
            ['(List.filterMap (fn [x :- Nat]
-                              (if (Nat.beq x 2) (Option.some Nat x) (Option.none Nat)))
-                            (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))) [:sequential :int]]
+                               (if (Nat.beq x 2) (Option.some Nat x) (Option.none Nat)))
+                             (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))) [:sequential :int]]
            ['(Prod.fst (Prod.mk Nat Nat 2 3)) :int]
            ['(Prod.snd (Prod.mk Nat Nat 2 3)) :int]]]
     (compare-kernel! application schema)))
@@ -252,7 +252,7 @@
         ci (env/lookup saved inst-name)
         alias (name/from-string "booleanDecisionDictionary")
         custom (env/check-constant saved
-                 (env/mk-def alias [] (.type ci) (e/const' inst-name [])))
+                                   (env/mk-def alias [] (.type ci) (e/const' inst-name [])))
         unregistered (env/with-extension custom :instances {})]
     (try
       (reset! a/ansatz-env unregistered)

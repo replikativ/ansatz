@@ -318,9 +318,9 @@
                       (env/check-constant primitive)
                       (env/check-constant (env/mk-def (name/from-string source-name) [] type source-body :hints {:regular 0}))
                       (env/check-constant (env/mk-def (name/from-string target-name) [] type target-body
-                                                     :hints {:regular 0} :safety (if (= mode :unsafe) :unsafe :safe))))
+                                                      :hints {:regular 0} :safety (if (= mode :unsafe) :unsafe :safe))))
           checked (cond-> (env/update-extension checked (if (= mode :unsafe) :implemented-by :csimp)
-                                               {} assoc source-name target-name)
+                                                {} assoc source-name target-name)
                     (= mode :extern) (env/update-extension :extern #{} conj primitive-name))
           term (e/app (e/const' (name/from-string source-name) []) (e/lit-nat 3))]
       (is (= 4 (eval (cg/ansatz->clj checked term []))))

@@ -349,8 +349,8 @@
              False [(grind)]]]]
     (check-script script))
   (check-script '[regr_string_conflict
-                   [s :- String, h0 :- (= s "a"), h1 :- (= s "b")]
-                   False [(grind)]]))
+                  [s :- String, h0 :- (= s "a"), h1 :- (= s "b")]
+                  False [(grind)]]))
 
 (deftest inductive-predicate-introduction-and-cases
   (let [before (a/env)]

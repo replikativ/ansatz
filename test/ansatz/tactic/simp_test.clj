@@ -472,7 +472,7 @@
           expr (e/app* (e/const' (name/from-string "List.append") [lvl/zero])
                        nat-e (mk-nat-list [1 2]) (mk-nat-list [3]))
           _ (is (tc/is-def-eq st (tc/infer-type st expr)
-                            (e/app (e/const' (name/from-string "List") [lvl/zero]) nat-e)))
+                              (e/app (e/const' (name/from-string "List") [lvl/zero]) nat-e)))
           result (simp/simp-expr st env {} expr 40)]
       (let [head (e/get-app-fn result)]
         (is (e/const? head))

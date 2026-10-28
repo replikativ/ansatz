@@ -101,4 +101,4 @@
   (a/theorem decided-unequal-down [x :- Nat, y :- Nat, h :- (= Bool (decided-equal x y) false)]
              (Not (= Nat x y)) (grind decided-equal))
   (is (every? a/has-constant? ["decided-equal-up" "decided-equal-down"
-                              "decided-unequal-up" "decided-unequal-down"])))
+                               "decided-unequal-up" "decided-unequal-down"])))

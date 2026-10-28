@@ -14,15 +14,15 @@
    Kernel admission records the caller's replay mode, independently of provenance."
   ([manifest] (bundled manifest false))
   ([manifest checked?]
-    (when-not (and (map? manifest) (string? (:artifact/cohort manifest))
-                   (vector? (:resources manifest))) (fail "Invalid bundle profile input"))
-    {:schema schema
-     :base {:kind :bundle :cohort (:artifact/cohort manifest) :producer (:producer manifest)
-            :generation-status (:bundle/co-generation manifest) :kernel-admission (if checked? :checked-export :trust)}
-     :roles (into {} (map (fn [row]
-                            [(:role row) (select-keys row [:resource :sha256 :producer :provenance/status])]))
-                  (:resources manifest))
-     :supplements []}))
+   (when-not (and (map? manifest) (string? (:artifact/cohort manifest))
+                  (vector? (:resources manifest))) (fail "Invalid bundle profile input"))
+   {:schema schema
+    :base {:kind :bundle :cohort (:artifact/cohort manifest) :producer (:producer manifest)
+           :generation-status (:bundle/co-generation manifest) :kernel-admission (if checked? :checked-export :trust)}
+    :roles (into {} (map (fn [row]
+                           [(:role row) (select-keys row [:resource :sha256 :producer :provenance/status])]))
+                 (:resources manifest))
+    :supplements []}))
 
 (defn prepared-store
   "Describe a readable prepared-store manifest without opening the DB. Import

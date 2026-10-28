@@ -70,8 +70,8 @@
                           (bundle/verify! (assoc options :requirements {:verified true})))))
   (testing "the shipped bundle matches its recorded Lean producer"
     (is (= :recorded (:bundle/co-generation
-                     (bundle/verify! {:requirements {:producer {:lean {:version "4.33.1"}}
-                                                    :bundle/co-generation :recorded}}))))))
+                      (bundle/verify! {:requirements {:producer {:lean {:version "4.33.1"}}
+                                                      :bundle/co-generation :recorded}}))))))
 
 (deftest checksum-and-missing-resource-fail-before-caller-activation
   (let [{:keys [manifest resources]} (fixture)

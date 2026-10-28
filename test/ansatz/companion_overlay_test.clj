@@ -187,12 +187,12 @@
 (deftest equation-owner-overlay-is-idempotent-and-rejects-conflicting-order
   (let [base (model-session)
         selected (assoc rows :attrs [{:kind "unfold-thms" :name "role.source"
-                                     :theorems ["role.first" "role.last"]}])
+                                      :theorems ["role.first" "role.last"]}])
         prepared (prepare base selected)]
     (is (= ["role.first" "role.last"]
            (get (env/get-extension (:env prepared) :simp-unfold-thms {}) "role.source")))
     (is (= (env/get-extension (:env prepared) :simp-unfold-thms {})
            (env/get-extension (:env (prepare prepared selected)) :simp-unfold-thms {})))
     (is (some? (error-data #(prepare prepared
-                                    (assoc-in selected [:attrs 0 :theorems]
-                                              ["role.last" "role.first"])))))))
+                                     (assoc-in selected [:attrs 0 :theorems]
+                                               ["role.last" "role.first"])))))))

@@ -26,7 +26,7 @@
         (fn [parsed]
           (let [base (:env (replay/replay (:decls parsed) :stop-on-error? true))
                 [out stats] (imported/import-matchers base
-                              "test-data/kernel-reference/matcher-values-matchers.ndjson")]
+                                                      "test-data/kernel-reference/matcher-values-matchers.ndjson")]
             (when-not (= {:loaded 4} stats)
               (throw (ex-info "Incomplete matcher oracle metadata" {:stats stats})))
             out))))))

@@ -2920,10 +2920,10 @@
        ;; Lean's class extension is environment-local; ordinary structures are excluded.
        ~@(when (:class opts)
            (concat
-             [`(swap! ansatz-env env/with-extension :classes
-                      (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
-             (when extends-form
-               [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
+            [`(swap! ansatz-env env/with-extension :classes
+                     (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
+            (when extends-form
+              [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
                                        ~(str type-name "." to-field))])))
 
        ;; Emit Clojure defrecord for runtime representation
