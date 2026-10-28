@@ -44,19 +44,22 @@
     ;; Distinct scope: these explicit small programs execute guest instructions,
     ;; but never load Init, a Source, bootstrap or the genuine frontend.
     (require 'prototype.unchanged-host-resume-test)
+    (require 'prototype.scalar-test)
     (reset! observed #{})
-    (let [runtime-vars (set (filter #(-> % meta :test)
-                                   (vals (ns-publics 'prototype.unchanged-host-resume-test))))
-          _ (assert (= 14 (count runtime-vars)))
+    (let [runtime-vars (conj (set (filter #(-> % meta :test)
+                                        (vals (ns-publics 'prototype.unchanged-host-resume-test))))
+                             (ns-resolve 'prototype.scalar-test
+                                         'scalar-storage-rejects-uninitialized-out-of-bounds-and-shared-writes))
+          _ (assert (= 15 (count runtime-vars)))
           runtime-counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
                              (t/test-vars (sort-by #(str (:name (meta %))) runtime-vars))
                              @t/*report-counters*)]
       (assert (= runtime-vars @observed))
-      (assert (= 14 (:test runtime-counters)))
+      (assert (= 15 (:test runtime-counters)))
       (assert (zero? (+ (:fail runtime-counters) (:error runtime-counters))))
       (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
       (println (assoc runtime-counters :scope "small-explicit-host-storage-runtime-programs"))
-      (println "HOST_STORAGE_RUNTIME_14_PASS"))
+      (println "HOST_STORAGE_RUNTIME_15_PASS"))
     ;; Bounded branching evidence: checked-in generated IR/model observations;
     ;; no native Lean executable, Init image or external host IO is required.
     (let [nss '[prototype.branch-lab-test prototype.host-cells-lab-test

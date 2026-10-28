@@ -84,7 +84,9 @@
       {::type type ::bytes bytes} number)))
 
 (defn layout! [{:keys [objects usize ssize] :as layout}]
-  (when-not (and (every? #(and (integer? %) (<= 0 % 1048576)) [objects usize ssize])
+  (when-not (and (integer? objects) (<= 0 objects 1048576)
+                 (integer? usize) (<= 0 usize 1048576)
+                 (integer? ssize) (<= 0 ssize 1048576)
                  (< objects 256) (< (+ (* 8 usize) ssize) 1024) (pos? (+ usize ssize)))
     (throw (ex-info "Invalid scalar constructor layout" {:layout layout}))) layout)
 

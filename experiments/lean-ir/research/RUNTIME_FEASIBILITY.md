@@ -1,5 +1,9 @@
 # Runtime feasibility before expanding project loading
 
+The [bulk follow-up](BULK_EXECUTION_PROBES.md) records direct-call, sparse-join
+and metadata controls, their rejected variants and the retained stateless
+validation/lookup improvement.
+
 These probes run in one retained 384 MiB Java 25 REPL. They load selected,
 already-exported Lean IR, not a frontend, Init image, Source or Mathlib. The
 purpose is to identify a manageable performance path before repeating the

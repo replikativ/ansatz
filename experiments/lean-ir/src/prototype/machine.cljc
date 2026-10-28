@@ -24,14 +24,14 @@
   "Verified imported ranges are immutable RC0 roots; membership never decodes."
   [s r]
   (and (ref? r)
-       (native-heap/imported? (or (:native-imports s) (get-in s [:world-context :native-imports])) (:id r))))
+       (native-heap/imported? (or (:native-imports s) (:native-imports (:world-context s))) (:id r))))
 
 (defn node [s r]
   (if (native-reference? s r)
     (do
       (when (contains? (:heap s) (:id r))
         (fail "Imported guest reference is shadowed by mutable heap storage" {:ref r}))
-      (let [n (or (native-heap/lookup (or (:native-imports s) (get-in s [:world-context :native-imports])) (:id r))
+      (let [n (or (native-heap/lookup (or (:native-imports s) (:native-imports (:world-context s))) (:id r))
                   (fail "Missing verified imported guest node" {:ref r}))]
         (when-not (and (map? n) (= 0 (:rc n)) (vector? (:fields n))
                        (case (:kind n)
