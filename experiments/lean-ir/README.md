@@ -1,5 +1,15 @@
 # Lean IR runtime REPL experiment
 
+The bounded [Klara branching experiment](research/KLARA_BRANCH_CONTRACT.md)
+compares forked guest cells and captured aliases across all three execution
+backends, with a separate synthetic settlement ledger and deferred effects.
+It does not change resident frontend interop or implement the full Klara
+authority model.
+Its [five-step results](research/KLARA_BRANCH_RESULTS.md) add allocation
+attribution, scoped effects, branch-local host cells, a frontend-generated Lean
+fixture with ownership cleanup, and a small checked Lean model with finite JVM
+differential tests.
+
 The draft [typed IR and Pattern design](research/TYPED_IR_PATTERN_DESIGN.md)
 maps a proposed typed compiler pipeline, pass contracts and snapshot boundaries.
 Its [executable instruction fragment](research/typed-ir-pattern-example.clj)

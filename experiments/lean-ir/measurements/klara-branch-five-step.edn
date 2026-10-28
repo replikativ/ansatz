@@ -1,0 +1,278 @@
+{:source-versions
+ {:ansatz-base "9919be2b1dc5788d2ab9497c6486107559c61602",
+  :ansatz-experiment :uncommitted,
+  :klara-head "0e1c2a77f47769ec5c04c90fe77846cfc2ac87dd",
+  :klara-world-sha256
+  "012cc5cd17a43a759fa54c053d06c0f8bba4b6ee1f099fc4248bbe07992796b5",
+  :lean-head "55f80e10a31494936e619671357e07ae2e9dfa12"},
+ :jvm-restarted false,
+ :boundary-attribution
+ {:iterations-per-sample 200,
+  :samples 5,
+  :input-preparation :excluded,
+  :backends
+  {:compiled
+   {:first-freeze
+    [{:ns-per-trial 8548.555, :allocated-bytes-per-trial 7846.92}
+     {:ns-per-trial 7162.585, :allocated-bytes-per-trial 7841.52}
+     {:ns-per-trial 6460.0, :allocated-bytes-per-trial 7841.52}
+     {:ns-per-trial 7666.22, :allocated-bytes-per-trial 7847.16}
+     {:ns-per-trial 11560.47, :allocated-bytes-per-trial 7848.24}],
+    :first-thaw
+    [{:ns-per-trial 6537.205, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 6649.83, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 6443.695, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 6106.445, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 6296.16, :allocated-bytes-per-trial 9728.64}],
+    :resume-to-done
+    [{:ns-per-trial 2470.285, :allocated-bytes-per-trial 1056.64}
+     {:ns-per-trial 1705.34, :allocated-bytes-per-trial 1056.64}
+     {:ns-per-trial 1407.93, :allocated-bytes-per-trial 1056.64}
+     {:ns-per-trial 1340.03, :allocated-bytes-per-trial 1056.64}
+     {:ns-per-trial 1431.04, :allocated-bytes-per-trial 1056.64}],
+    :resume-to-host
+    [{:ns-per-trial 33197.635, :allocated-bytes-per-trial 5336.64}
+     {:ns-per-trial 28292.94, :allocated-bytes-per-trial 5336.64}
+     {:ns-per-trial 28302.625, :allocated-bytes-per-trial 5336.64}
+     {:ns-per-trial 29321.455, :allocated-bytes-per-trial 5336.64}
+     {:ns-per-trial 29089.21, :allocated-bytes-per-trial 5336.64}],
+    :second-freeze
+    [{:ns-per-trial 3981.94, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 4078.16, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 4051.925, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 4016.305, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 3993.245, :allocated-bytes-per-trial 6856.64}],
+    :second-thaw
+    [{:ns-per-trial 7533.545, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 7213.435, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 6738.025, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 6773.03, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 7368.145, :allocated-bytes-per-trial 11376.64}]},
+   :mutable
+   {:first-freeze
+    [{:ns-per-trial 7109.795, :allocated-bytes-per-trial 7848.24}
+     {:ns-per-trial 5004.3, :allocated-bytes-per-trial 7848.24}
+     {:ns-per-trial 67324.595, :allocated-bytes-per-trial 7842.48}
+     {:ns-per-trial 6866.84, :allocated-bytes-per-trial 7841.52}
+     {:ns-per-trial 6990.555, :allocated-bytes-per-trial 7845.0}],
+    :first-thaw
+    [{:ns-per-trial 6464.575, :allocated-bytes-per-trial 9729.64}
+     {:ns-per-trial 6335.135, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 5554.86, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 5545.81, :allocated-bytes-per-trial 9728.64}
+     {:ns-per-trial 6919.525, :allocated-bytes-per-trial 9728.64}],
+    :resume-to-done
+    [{:ns-per-trial 1253.18, :allocated-bytes-per-trial 32.64}
+     {:ns-per-trial 945.765, :allocated-bytes-per-trial 32.64}
+     {:ns-per-trial 632.165, :allocated-bytes-per-trial 32.64}
+     {:ns-per-trial 608.52, :allocated-bytes-per-trial 32.64}
+     {:ns-per-trial 672.6, :allocated-bytes-per-trial 32.64}],
+    :resume-to-host
+    [{:ns-per-trial 53643.66, :allocated-bytes-per-trial 6016.64}
+     {:ns-per-trial 42078.465, :allocated-bytes-per-trial 6016.64}
+     {:ns-per-trial 24469.255, :allocated-bytes-per-trial 6016.64}
+     {:ns-per-trial 24454.52, :allocated-bytes-per-trial 6016.64}
+     {:ns-per-trial 24044.775, :allocated-bytes-per-trial 6016.64}],
+    :second-freeze
+    [{:ns-per-trial 4083.005, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 4451.22, :allocated-bytes-per-trial 6857.0}
+     {:ns-per-trial 4162.275, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 5377.295, :allocated-bytes-per-trial 6856.64}
+     {:ns-per-trial 4179.86, :allocated-bytes-per-trial 6856.64}],
+    :second-thaw
+    [{:ns-per-trial 6319.65, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 11344.43, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 11889.36, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 7039.685, :allocated-bytes-per-trial 11376.64}
+     {:ns-per-trial 7141.815, :allocated-bytes-per-trial 11376.64}]}}},
+ :scoped-host-cells-runtime-arguments
+ {:iterations-per-sample 200,
+  :samples 5,
+  :backends
+  {:compiled
+   {:materialized
+    [{:ns-per-trial 80482.615, :allocated-bytes-per-trial 150648.0}
+     {:ns-per-trial 80541.66, :allocated-bytes-per-trial 150648.0}
+     {:ns-per-trial 99449.81, :allocated-bytes-per-trial 150648.0}
+     {:ns-per-trial 80522.935, :allocated-bytes-per-trial 150648.0}
+     {:ns-per-trial 80306.13, :allocated-bytes-per-trial 150648.0}],
+    :scoped
+    [{:ns-per-trial 30663.27, :allocated-bytes-per-trial 51960.0}
+     {:ns-per-trial 54023.68, :allocated-bytes-per-trial 51960.0}
+     {:ns-per-trial 44685.195, :allocated-bytes-per-trial 51960.0}
+     {:ns-per-trial 41664.91, :allocated-bytes-per-trial 51960.0}
+     {:ns-per-trial 44575.195, :allocated-bytes-per-trial 51960.0}]},
+   :mutable
+   {:materialized
+    [{:ns-per-trial 102156.96, :allocated-bytes-per-trial 144760.0}
+     {:ns-per-trial 117138.475, :allocated-bytes-per-trial 144760.0}
+     {:ns-per-trial 118060.02, :allocated-bytes-per-trial 144760.0}
+     {:ns-per-trial 125735.955, :allocated-bytes-per-trial 144760.0}
+     {:ns-per-trial 118776.465, :allocated-bytes-per-trial 144760.0}],
+    :scoped
+    [{:ns-per-trial 25505.29, :allocated-bytes-per-trial 46072.0}
+     {:ns-per-trial 25297.575, :allocated-bytes-per-trial 46072.0}
+     {:ns-per-trial 25430.015, :allocated-bytes-per-trial 46072.0}
+     {:ns-per-trial 25261.915, :allocated-bytes-per-trial 46072.0}
+     {:ns-per-trial 44462.82, :allocated-bytes-per-trial 46072.0}]},
+   :persistent
+   {:materialized
+    [{:ns-per-trial 18910.39, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 18819.41, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 20028.155, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 18973.16, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 18387.035, :allocated-bytes-per-trial 31800.0}],
+    :scoped
+    [{:ns-per-trial 20097.55, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 20760.69, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 20382.655, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 21287.24, :allocated-bytes-per-trial 31800.0}
+     {:ns-per-trial 21961.15, :allocated-bytes-per-trial 31800.0}]}}},
+ :max-heap-bytes 389283840,
+ :full-image false,
+ :formal
+ {:native-lean "4.33.1",
+  :theorems 13,
+  :axioms [],
+  :store-sample-cases 27,
+  :jvm-paths-per-case 6,
+  :authority-example-matched true,
+  :interpreter-refinement-proved false},
+ :java "25.0.1",
+ :measurement :jvm-current-thread-allocation,
+ :scoped-tiny
+ {:iterations-per-sample 500,
+  :samples 5,
+  :backends
+  {:compiled
+   {:materialized
+    [{:ns-per-trial 53698.344, :allocated-bytes-per-trial 93200.832}
+     {:ns-per-trial 45622.922, :allocated-bytes-per-trial 93200.832}
+     {:ns-per-trial 53446.81, :allocated-bytes-per-trial 93200.832}
+     {:ns-per-trial 45809.682, :allocated-bytes-per-trial 93200.832}
+     {:ns-per-trial 52996.024, :allocated-bytes-per-trial 93200.832}],
+    :scoped
+    [{:ns-per-trial 35626.668, :allocated-bytes-per-trial 57537.552}
+     {:ns-per-trial 35613.692, :allocated-bytes-per-trial 57537.792}
+     {:ns-per-trial 44299.078, :allocated-bytes-per-trial 57537.792}
+     {:ns-per-trial 35779.142, :allocated-bytes-per-trial 57537.792}
+     {:ns-per-trial 35332.466, :allocated-bytes-per-trial 57537.792}]},
+   :mutable
+   {:materialized
+    [{:ns-per-trial 54253.18, :allocated-bytes-per-trial 92528.832}
+     {:ns-per-trial 43137.934, :allocated-bytes-per-trial 92528.976}
+     {:ns-per-trial 42823.426, :allocated-bytes-per-trial 92528.832}
+     {:ns-per-trial 52673.466, :allocated-bytes-per-trial 92528.832}
+     {:ns-per-trial 42896.004, :allocated-bytes-per-trial 92521.824}],
+    :scoped
+    [{:ns-per-trial 32904.068, :allocated-bytes-per-trial 56849.792}
+     {:ns-per-trial 32693.112, :allocated-bytes-per-trial 56849.792}
+     {:ns-per-trial 32487.09, :allocated-bytes-per-trial 56849.792}
+     {:ns-per-trial 42865.888, :allocated-bytes-per-trial 56849.792}
+     {:ns-per-trial 32568.39, :allocated-bytes-per-trial 56849.792}]},
+   :persistent
+   {:materialized
+    [{:ns-per-trial 26256.368, :allocated-bytes-per-trial 49800.256}
+     {:ns-per-trial 37309.858, :allocated-bytes-per-trial 49800.0}
+     {:ns-per-trial 26283.072, :allocated-bytes-per-trial 49800.0}
+     {:ns-per-trial 26314.69, :allocated-bytes-per-trial 49800.144}
+     {:ns-per-trial 25972.612, :allocated-bytes-per-trial 49800.0}],
+    :scoped
+    [{:ns-per-trial 26454.786, :allocated-bytes-per-trial 49800.0}
+     {:ns-per-trial 26191.268, :allocated-bytes-per-trial 49800.0}
+     {:ns-per-trial 27392.316, :allocated-bytes-per-trial 49800.0}
+     {:ns-per-trial 38234.98, :allocated-bytes-per-trial 49800.0}
+     {:ns-per-trial 26448.32, :allocated-bytes-per-trial 49800.0}]}}},
+ :basis-check
+ {:parent 2,
+  :klara-child 1,
+  :pinned-fiber 1,
+  :lean-branch-bases [1 1],
+  :lean-results [10 20]},
+ :scoped-generated
+ {:iterations-per-sample 200,
+  :samples 5,
+  :backends
+  {:compiled
+   {:materialized
+    [{:ns-per-trial 91353.835, :allocated-bytes-per-trial 170313.08}
+     {:ns-per-trial 104382.5, :allocated-bytes-per-trial 170316.56}
+     {:ns-per-trial 85338.31, :allocated-bytes-per-trial 170316.56}
+     {:ns-per-trial 85094.775, :allocated-bytes-per-trial 170316.56}
+     {:ns-per-trial 106693.49, :allocated-bytes-per-trial 170315.16}],
+    :scoped
+    [{:ns-per-trial 68967.085, :allocated-bytes-per-trial 116019.92}
+     {:ns-per-trial 121282.885, :allocated-bytes-per-trial 116016.64}
+     {:ns-per-trial 70096.72, :allocated-bytes-per-trial 116015.72}
+     {:ns-per-trial 68996.145, :allocated-bytes-per-trial 116020.84}
+     {:ns-per-trial 69429.305, :allocated-bytes-per-trial 116011.52}]},
+   :mutable
+   {:materialized
+    [{:ns-per-trial 81391.51, :allocated-bytes-per-trial 180488.36}
+     {:ns-per-trial 82516.495, :allocated-bytes-per-trial 180488.36}
+     {:ns-per-trial 97285.85, :allocated-bytes-per-trial 180490.28}
+     {:ns-per-trial 82494.28, :allocated-bytes-per-trial 180492.56}
+     {:ns-per-trial 81898.905, :allocated-bytes-per-trial 180492.56}],
+    :scoped
+    [{:ns-per-trial 81238.065, :allocated-bytes-per-trial 126198.64}
+     {:ns-per-trial 64989.1, :allocated-bytes-per-trial 126187.32}
+     {:ns-per-trial 66437.11, :allocated-bytes-per-trial 126198.92}
+     {:ns-per-trial 66137.51, :allocated-bytes-per-trial 126189.92}
+     {:ns-per-trial 82368.345, :allocated-bytes-per-trial 126194.72}]},
+   :persistent
+   {:materialized
+    [{:ns-per-trial 88830.665, :allocated-bytes-per-trial 188680.0}
+     {:ns-per-trial 71106.67, :allocated-bytes-per-trial 188665.6}
+     {:ns-per-trial 70892.7, :allocated-bytes-per-trial 188664.0}
+     {:ns-per-trial 89042.845, :allocated-bytes-per-trial 188664.0}
+     {:ns-per-trial 72820.155, :allocated-bytes-per-trial 188664.0}],
+    :scoped
+    [{:ns-per-trial 86900.09, :allocated-bytes-per-trial 188664.0}
+     {:ns-per-trial 72717.38, :allocated-bytes-per-trial 188664.0}
+     {:ns-per-trial 72480.395, :allocated-bytes-per-trial 188664.0}
+     {:ns-per-trial 88250.005, :allocated-bytes-per-trial 188664.0}
+     {:ns-per-trial 74083.08, :allocated-bytes-per-trial 188664.0}]}}},
+ :scoped-host-cells-embedded-handles
+ {:iterations-per-sample 200,
+  :samples 5,
+  :backends
+  {:compiled
+   {:materialized
+    [{:ns-per-trial 191265.335, :allocated-bytes-per-trial 426440.0}
+     {:ns-per-trial 165611.245, :allocated-bytes-per-trial 426440.0}
+     {:ns-per-trial 190635.07, :allocated-bytes-per-trial 426440.0}
+     {:ns-per-trial 187175.38, :allocated-bytes-per-trial 426427.92}
+     {:ns-per-trial 184405.385, :allocated-bytes-per-trial 426424.0}],
+    :scoped
+    [{:ns-per-trial 52240.225, :allocated-bytes-per-trial 120904.0}
+     {:ns-per-trial 72556.74, :allocated-bytes-per-trial 120904.0}
+     {:ns-per-trial 52363.065, :allocated-bytes-per-trial 120904.0}
+     {:ns-per-trial 52258.695, :allocated-bytes-per-trial 120904.0}
+     {:ns-per-trial 52298.485, :allocated-bytes-per-trial 120904.0}]},
+   :mutable
+   {:materialized
+    [{:ns-per-trial 205915.68, :allocated-bytes-per-trial 420768.36}
+     {:ns-per-trial 186410.39, :allocated-bytes-per-trial 420774.6}
+     {:ns-per-trial 193492.85, :allocated-bytes-per-trial 420840.0}
+     {:ns-per-trial 211484.02, :allocated-bytes-per-trial 420840.36}
+     {:ns-per-trial 185141.88, :allocated-bytes-per-trial 420698.16}],
+    :scoped
+    [{:ns-per-trial 46249.3, :allocated-bytes-per-trial 115032.0}
+     {:ns-per-trial 46166.27, :allocated-bytes-per-trial 115032.0}
+     {:ns-per-trial 72161.095, :allocated-bytes-per-trial 115032.0}
+     {:ns-per-trial 46675.39, :allocated-bytes-per-trial 115032.0}
+     {:ns-per-trial 46415.92, :allocated-bytes-per-trial 115032.0}]},
+   :persistent
+   {:materialized
+    [{:ns-per-trial 17555.715, :allocated-bytes-per-trial 31456.36}
+     {:ns-per-trial 54313.6, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 17056.255, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 16908.4, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 16863.67, :allocated-bytes-per-trial 31456.0}],
+    :scoped
+    [{:ns-per-trial 16985.94, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 17148.825, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 17088.74, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 17166.92, :allocated-bytes-per-trial 31456.0}
+     {:ns-per-trial 17141.02, :allocated-bytes-per-trial 31456.0}]}}},
+ :validation {:test 58, :pass 2594, :fail 0, :error 0, :type :summary}}

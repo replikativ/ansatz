@@ -57,6 +57,25 @@
       (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
       (println (assoc runtime-counters :scope "small-explicit-host-storage-runtime-programs"))
       (println "HOST_STORAGE_RUNTIME_14_PASS"))
+    ;; Bounded branching evidence: checked-in generated IR/model observations;
+    ;; no native Lean executable, Init image or external host IO is required.
+    (let [nss '[prototype.branch-lab-test prototype.host-cells-lab-test
+                prototype.klara-branch-generated-test prototype.klara-branch-bridge-test
+                prototype.klara-branch-model-test]
+          _ (doseq [n nss] (require n))
+          branch-vars (set (filter #(-> % meta :test)
+                                  (mapcat #(vals (ns-publics %)) nss)))
+          _ (assert (= 25 (count branch-vars)))
+          _ (reset! observed #{})
+          counters (binding [t/*report-counters* (ref t/*initial-report-counters*)]
+                     (t/test-vars (sort-by #(str (:name (meta %))) branch-vars))
+                     @t/*report-counters*)]
+      (assert (= branch-vars @observed))
+      (assert (= 25 (:test counters)))
+      (assert (zero? (+ (:fail counters) (:error counters))))
+      (assert (nil? ((ns-resolve 'prototype.coherent-campaign 'checkpoint))))
+      (println (assoc counters :scope "bounded-klara-lean-branch-runtime-and-model-fixtures"))
+      (println "KLARA_LEAN_BRANCH_25_PASS"))
     (shutdown-agents)
     (System/exit 0))
   (catch Throwable failure
