@@ -2465,10 +2465,17 @@
         ;; becomes a real loop — no more closure cascade / 20k-frame stack bound), named
         ;; self-call otherwise, flat + curried methods. Falls back to the classic path on
         ;; any failure; non-recursive bodies keep the optimizer-seam path below.
-        direct-fn (when (and top-match? (not lean-matchers?))
+        direct-fn (when (and top-match? (or structural-matcher? (not lean-matchers?)))
                     (try
-                      (let [direct (binding [surface-match/*use-cases-on?* true]
-                                     (build-telescope-fvar @ansatz-env pairs ret-type-form body-form))]
+                      (let [direct (if structural-matcher?
+                                     ;; The pre-encoding matcher body is Lean's `_unsafe_rec`
+                                     ;; runtime source. Replace its local self with the
+                                     ;; admitted constant; no old match recompilation.
+                                     (e/instantiate1
+                                      (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                                      (e/const' cname []))
+                                     (binding [surface-match/*use-cases-on?* true]
+                                       (build-telescope-fvar @ansatz-env pairs ret-type-form body-form)))]
                         (when (mentions-const? direct cname)
                           (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
                                 emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)

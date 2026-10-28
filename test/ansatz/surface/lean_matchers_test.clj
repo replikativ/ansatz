@@ -400,11 +400,15 @@
                       (fn [k :- Nat, x :- Nat, xs :- (MatcherVec Nat k)] x)))
                  '[(split) (all_goals (rfl))]))))))
 
-(deftest recursive-definition-continues-to-use-the-existing-path
+(deftest recursive-definition-uses-selected-structural-path
   (let [f (a/define-verified 'matcher-recursive '[^Nat n] 'Nat
             '(match n [Nat.zero 0] [(Nat.succ k) (+ (matcher-recursive k) 1)]))]
     (is (= 7 (f 7)))
-    (is (nil? (mi/get-matcher-info-core? (a/env) "matcher-recursive.match_1")))))
+    (if config/*lean-structural-matchers*
+      (do
+        (is (some? (mi/get-matcher-info-core? (a/env) "matcher-recursive.match_1")))
+        (is (.contains (e/->string (.value (decl "matcher-recursive"))) "Nat.brecOn")))
+      (is (nil? (mi/get-matcher-info-core? (a/env) "matcher-recursive.match_1"))))))
 
 (deftest missing-and-redundant-alternatives-fail-before-global-installation
   (let [before (a/env)]
