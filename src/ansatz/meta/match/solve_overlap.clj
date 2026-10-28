@@ -54,7 +54,7 @@
                                   [p term])))))
                         (cons #(constructor-contradiction ctx ps)
                               (map #(fn [] (run ps %))
-                                   ['(contradiction) '(simp_all) '(omega)])))]
+                                   ['(contradiction) '(omega) '(simp_all)])))]
     (when-not candidate
       (throw (ex-info "Failed to solve splitter overlap premise"
                       {:kind :match-overlap-proof-failure

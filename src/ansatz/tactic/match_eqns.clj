@@ -64,7 +64,7 @@
                           fields)]
     (simp-h/not-alt environment lctx current-patterns prior-patterns field-decls)))
 
-(defn- split-candidate [ps]
+(defn- split-candidate [ps eligible]
   (let [goal (proof/current-goal ps)
         [h args] (e/get-app-fn-args (:type goal))
         target (if (and (e/const? h)
@@ -74,13 +74,32 @@
                  (:type goal))
         lctx (:lctx goal)]
     (some (fn [[id d]]
-            (when (and (= :local (:tag d))
+            (when (and (contains? eligible id)
+                       (= :local (:tag d))
                        (not= target (e/abstract1 target id)))
               (let [ty (red/whnf (:env ps) (:type d) lctx)
                     h (e/get-app-fn ty)
                     ci (when (e/const? h) (env/lookup (:env ps) (e/const-name h)))]
                 (when (and ci (.isInduct ci)) id))))
           (sort-by (comp - key) lctx))))
+
+(defn- nat-pattern-depth [expr]
+  (let [children (case (e/tag expr)
+                   :app [(e/app-fn expr) (e/app-arg expr)]
+                   :forall [(e/forall-type expr) (e/forall-body expr)]
+                   :lam [(e/lam-type expr) (e/lam-body expr)]
+                   :let [(e/let-type expr) (e/let-value expr) (e/let-body expr)]
+                   :proj [(e/proj-struct expr)]
+                   :mdata [(e/mdata-expr expr)]
+                   [])
+        [head args] (e/get-app-fn-args expr)
+        succ-depth (when (and (e/const? head)
+                              (= "Nat.succ" (name/->string (e/const-name head)))
+                              (= 1 (count args)))
+                     (inc (nat-pattern-depth (first args))))]
+    (min 4 (apply max (or succ-depth 0)
+                  (if (e/lit-nat? expr) (e/lit-nat-val expr) 0)
+                  (map nat-pattern-depth children)))))
 
 (defn- guard-eq-args [ty]
   (let [[h args] (e/get-app-fn-args ty)]
@@ -158,13 +177,17 @@
          (catch Exception _ nil)))
      (sort-by (comp - key) lctx))))
 
-(defn- prove-by-stuck-cases [type names guard-names higher-guard?]
+(defn- prove-by-stuck-cases [type names guard-names higher-guard? extra-budget]
   ;; Lean MatchEqs.proveCondEqThm repeatedly tries refl/contradiction, then
   ;; casesOnStuckLHS. This fallback follows that loop on the inductive locals
   ;; still present in the equality target; simp handles the resulting iota and
   ;; precedence-hypothesis reductions. Each proof is checked by the kernel.
   (let [[ps _] (proof/start-proof @state/ansatz-env type)
         ps (basic/intros ps names)
+        ;; Only split original discriminants. Splitting fields introduced by
+        ;; `cases` repeats the same Nat branch indefinitely.
+        eligible (zipmap (keys (:lctx (proof/current-goal ps)))
+                         (repeat extra-budget))
         run (requiring-resolve 'ansatz.core/run-tactic)
         steps (atom 0)
         close-guard (when (seq guard-names)
@@ -173,7 +196,7 @@
                                  guard-names)))]
     (letfn [(try-step [ps f]
               (try (f ps) (catch clojure.lang.ExceptionInfo _ ps)))
-            (solve [ps depth]
+            (solve [ps depth eligible]
               (when (> (swap! steps inc) 32)
                 (throw (ex-info "match-eqns: cases search exceeded 32 goals"
                                 {:kind :match-eqns-search-limit})))
@@ -182,17 +205,30 @@
                     ps (if (seq (:goals ps)) (or (close-by-guard ps) ps) ps)
                     ps (if (and (seq (:goals ps)) close-guard)
                          (try-step ps #(run % close-guard)) ps)
+                    ;; With several precedence guards, the guards and cases
+                    ;; suffice. `simp_all` eagerly unfolds the stuck matcher
+                    ;; and can expand the proof search exponentially.
                     ps (if (and (seq (:goals ps))
+                                (<= (count guard-names) 1)
                                 (or (pos? depth) (not higher-guard?)))
                          (try-step ps #(run % '(simp_all))) ps)]
                 (if (empty? (:goals ps))
                   ps
                   (if (>= depth 4)
                     ps
-                    (if-let [fid (split-candidate ps)]
-                      (basic/all-goals (basic/cases ps fid) #(solve % (inc depth)))
+                    (if-let [fid (split-candidate ps eligible)]
+                      (let [before (set (keys (:lctx (proof/current-goal ps))))
+                            budget (get eligible fid 0)]
+                        (basic/all-goals
+                         (basic/cases ps fid)
+                         (fn [branch]
+                           (let [added (when (pos? budget)
+                                         (remove before (keys (:lctx (proof/current-goal branch)))))
+                                 eligible (into eligible
+                                                (map (fn [id] [id (dec budget)]) added))]
+                             (solve branch (inc depth) eligible)))))
                       ps)))))]
-      (let [ps (solve ps 0)]
+      (let [ps (solve ps 0 eligible)]
         (when-not (proof/solved? ps)
           (throw (ex-info (str "Stuck after cases\n" (proof/format-goals ps))
                           {:kind :match-eqns-stuck-cases})))
@@ -207,7 +243,8 @@
         guard-names (mapv #(symbol (nth names %))
                           (range (count binders) (+ (count binders) (count guards))))
         higher-guard? (some #(and (e/forall? %) (= "x" (e/forall-name %))) guards)]
-    (try (prove-by-stuck-cases type names guard-names higher-guard?)
+    (try (prove-by-stuck-cases type names guard-names higher-guard?
+                               (apply max 0 (map nat-pattern-depth guards)))
          (catch Exception e
            (throw (ex-info "match-eqns: could not prove conditional equation"
                            {:kind :match-eqns-proof-failure :type type}
@@ -216,10 +253,8 @@
 (defn matcher-alt-data
   "Telescope analysis of matcher `match-name` for the split tactic. Returns
      {:levels [..] :params [[id fv ty]..] :motive [id fv ty] :discr-types [ty..]
-      :alts [{:pattern <discr pattern expr> :ys-types [ty..] :unit-thunk bool} ..]}
-   where each alt's :pattern is the discriminant value (from the alt's conclusion `motive pattern`),
-   :ys-types the alt's own binder types (the constructor fields; a single Unit for a unit thunk).
-   Single-discriminant matchers only for now (multi-discriminant patterns nest)."
+      :alts [{:patterns [..] :fields [..] :guards [..] :unit-thunk bool} ..]}.
+   Patterns come from each alternative's motive application."
   [env match-name]
   (let [info (mtch/matcher-info env match-name)
         _ (when-not info (throw (ex-info "matcher-alt-data: no MatcherInfo" {:name match-name})))
@@ -373,7 +408,7 @@
                                             :info info :levels lvls}))))))
       (get (env/get-extension @state/ansatz-env :match-eqns {}) match-name))))
 
-;; ── split-matcher: applyMatchSplitter for single-discriminant matchers ──
+;; ── split-matcher: applyMatchSplitter ──
 ;; The splitter is the eliminator. We do `by-cases`
 ;; (basic.clj by-cases) generalized to it: motive  λd. (Eq DiscrType discr d) → Goal  applied to the
 ;; discriminant + Eq.refl, one minor premise per alternative carrying `h : discr = patternᵢ`.
@@ -402,7 +437,7 @@
       expr)))
 
 (defn split-matcher
-  "Split a single-discriminant matcher using its on-demand splitter. Overlapping
+  "Split a matcher using its on-demand splitter. Overlapping
    alternatives receive the same precedence hypotheses as Lean's splitter."
   [ps tgt]
   (let [goal (proof/current-goal ps)
@@ -420,29 +455,37 @@
         ps (assoc ps :env env)
         d (matcher-alt-data env splitter-name)
         np (:num-params d) nd (:num-discrs d)
-        _ (when (not= nd 1)
-            (throw (ex-info "split-matcher: multi-discriminant not yet supported" {:split-retry true})))
         _ (when (< (count args) (+ np 1 nd (count (:alts d))))
             (throw (ex-info "split-matcher: matcher application not fully applied" {:split-retry true})))
         st (mk-tc env (:lctx goal))
         params-actual (subvec args 0 np)
-        discr (nth args (+ np 1))
+        discrs (subvec args (+ np 1) (+ np 1 nd))
         telescope-subst (into {}
                               (concat (map (fn [[id] actual] [id actual])
                                            (:params d) params-actual)
                                       [[(first (:motive d)) (nth args np)]]
                                       (map (fn [[id] actual] [id actual])
-                                           (:discrs d) [discr])))
-        discr-type (tc/infer-type st discr)
+                                           (:discrs d) discrs)))
+        discr-types (mapv #(tc/infer-type st %) discrs)
         sort-level (fn [t] (let [s (try (red/whnf env (tc/infer-type st t) (:lctx goal)) (catch Throwable _ nil))]
                              (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
-        eq-lvl (sort-level discr-type)            ; Eq over DiscrType elements (Bool → 1)
+        eq-lvls (mapv sort-level discr-types)
+        [ps dfv-ids] (reduce (fn [[ps ids] _]
+                               (let [[ps id] (proof/alloc-id ps)]
+                                 [ps (conj ids id)]))
+                             [ps []] discrs)
+        dfvs (mapv e/fvar dfv-ids)
+        motive-discr-types
+        (mapv (fn [i ty]
+                (reduce (fn [t [discr dfv]] (replace-subterm t discr dfv))
+                        ty (map vector (subvec discrs 0 i) (subvec dfvs 0 i))))
+              (range nd) discr-types)
+        hetero? (mapv not= discr-types motive-discr-types)
         goal-lvl (sort-level (:type goal))         ; Goal : Prop → 0
         head-lvls (vec (e/const-levels head))
         u-elim-pos (:u-elim-pos info)
         us (if (and u-elim-pos (< u-elim-pos (count head-lvls)))
              (assoc head-lvls u-elim-pos goal-lvl) head-lvls)
-        eq-c (e/const' (name/from-string "Eq") [eq-lvl])
         ;; one subgoal per alternative
         [ps alt-infos]
         (reduce
@@ -459,33 +502,60 @@
                  guard-ids (subvec local-ids (count (:fields alt)))
                  ys-types (mapv #(subst/apply local-subst (nth % 2)) (:fields alt))
                  guard-types (mapv #(subst/apply local-subst (nth % 2)) (:guards alt))
-                 pattern (subst/apply local-subst (:pattern alt))
-                 [ps h-id] (proof/alloc-id ps)
-                 h-type (e/app* eq-c discr-type discr pattern)
+                 patterns (mapv #(subst/apply local-subst %) (:patterns alt))
+                 pattern-types
+                 (mapv (fn [i ty]
+                         (reduce (fn [t [discr pattern]]
+                                   (replace-subterm t discr pattern))
+                                 ty (map vector (subvec discrs 0 i)
+                                         (subvec patterns 0 i))))
+                       (range nd) discr-types)
+                 [ps h-ids] (reduce (fn [[ps ids] _]
+                                      (let [[ps id] (proof/alloc-id ps)]
+                                        [ps (conj ids id)]))
+                                    [ps []] discrs)
+                 h-types (mapv (fn [eq-lvl discr-type pattern-type discr pattern heq?]
+                                 (if heq?
+                                   (e/app* (e/const' (name/from-string "HEq") [eq-lvl])
+                                           discr-type discr pattern-type pattern)
+                                   (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
+                                           discr-type discr pattern)))
+                               eq-lvls discr-types pattern-types discrs patterns hetero?)
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "y" ty))
                               (:lctx goal) (map vector ys-ids ys-types))
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "notAlt" ty))
                               lctx (map vector guard-ids guard-types))
-                 lctx (red/lctx-add-local lctx h-id "h" h-type)
-                 ;; subgoal type = Goal[discr := patternᵢ]  (the matcher reduces via eqᵢ here)
-                 sg-type (replace-subterm (:type goal) discr pattern)
+                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "h" ty))
+                              lctx (map vector h-ids h-types))
+                 sg-type (reduce (fn [t [discr pattern]]
+                                   (replace-subterm t discr pattern))
+                                 (:type goal) (map vector discrs patterns))
                  [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
-             [ps (conj acc {:pattern pattern :ys-ids ys-ids :ys-types ys-types
+             [ps (conj acc {:patterns patterns :ys-ids ys-ids :ys-types ys-types
                             :guard-ids guard-ids :guard-types guard-types
-                            :h-id h-id :h-type h-type :goal sg-id})]))
+                            :h-ids h-ids :h-types h-types :goal sg-id})]))
          [ps []] (:alts d))
-        ;; motive = λ d:DiscrType. (Eq DiscrType discr d) → Goal[discr := d]
-        [ps dfv-id] (proof/alloc-id ps)
-        dfv (e/fvar dfv-id)
-        motive (e/lam "d" discr-type
-                      (e/abstract1 (e/arrow (e/app* eq-c discr-type discr dfv)
-                                            (replace-subterm (:type goal) discr dfv))
-                                   dfv-id)
-                      :default)]
+        motive-target (reduce (fn [t [discr dfv]]
+                                (replace-subterm t discr dfv))
+                              (:type goal) (map vector discrs dfvs))
+        motive-body (reduce (fn [t [eq-lvl discr-type motive-type discr dfv heq?]]
+                              (e/arrow
+                               (if heq?
+                                 (e/app* (e/const' (name/from-string "HEq") [eq-lvl])
+                                         discr-type discr motive-type dfv)
+                                 (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
+                                         discr-type discr dfv))
+                               t))
+                            motive-target
+                            (reverse (map vector eq-lvls discr-types motive-discr-types
+                                          discrs dfvs hetero?)))
+        motive (reduce (fn [body [id discr-type]]
+                         (e/lam "d" discr-type (e/abstract1 body id) :default))
+                       motive-body (reverse (map vector dfv-ids motive-discr-types)))]
     (-> (proof/assign-mvar ps (:id goal)
                            {:kind :split-matcher
                             :match-name splitter-name :us us
-                            :params params-actual :discr discr :discr-type discr-type
-                            :eq-lvl eq-lvl :motive motive
+                            :params params-actual :discrs discrs :discr-types discr-types
+                            :eq-lvls eq-lvls :hetero? hetero? :motive motive
                             :alts alt-infos})
-        (proof/record-tactic :split-matcher [discr] (:id goal)))))
+        (proof/record-tactic :split-matcher discrs (:id goal)))))

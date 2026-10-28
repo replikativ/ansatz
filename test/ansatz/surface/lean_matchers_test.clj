@@ -130,6 +130,40 @@
     (is (= 3 (f 4 0)))
     (is (= 5 (f 4 3)))))
 
+(deftest multiple-discriminant-splitter-proves-its-branches
+  (a/define-verified 'matcher-pair-split '[^Nat a ^Nat b] 'Nat
+    '(match [a b] [[0 _] 100] [[(Nat.succ n) 0] n]
+            [[(Nat.succ n) (Nat.succ m)] (+ n m)]))
+  (is (some? (second
+              (a/prove-law
+               '[a :- Nat, b :- Nat]
+               '(= Nat
+                   (matcher-pair-split.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                               (fn [u :- Nat] 100) (fn [n :- Nat] n)
+                                               (fn [n :- Nat, m :- Nat] (+ n m)))
+                   (matcher-pair-split.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                               (fn [u :- Nat] 100) (fn [n :- Nat] n)
+                                               (fn [n :- Nat, m :- Nat] (+ n m))))
+               '[(split) (all_goals (rfl))])))))
+
+(deftest overlapping-multiple-discriminant-splitter
+  (a/define-verified 'matcher-pair-overlap '[^Nat a ^Nat b] 'Nat
+    '(match [a b] [[0 _] 1] [[_ 0] 2] [[_ _] 3]))
+  (let [result (match-eqns/get-equations-for "matcher-pair-overlap.match_1")]
+    (is (= [0 1 2] (mapv :num-overlaps (:alts (:splitter-info result)))))
+    (is (= 3 (count (:eqn-names result))))
+    (is (some? (second
+                (a/prove-law
+                 '[a :- Nat, b :- Nat]
+                 '(= Nat
+                     (matcher-pair-overlap.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                                   (fn [u :- Nat] 1) (fn [v :- Nat] 2)
+                                                   (fn [u :- Nat, v :- Nat] 3))
+                     (matcher-pair-overlap.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                                   (fn [u :- Nat] 1) (fn [v :- Nat] 2)
+                                                   (fn [u :- Nat, v :- Nat] 3)))
+                 '[(split) (all_goals (rfl))]))))))
+
 (deftest overlapping-constructor-alternatives-use-the-first-match
   (let [f (a/define-verified 'matcher-overlap '[^Nat n] 'Nat
             '(match n [(Nat.succ Nat.zero) 10] [(Nat.succ k) k] [Nat.zero 20]))]
@@ -243,7 +277,20 @@
         info (mi/get-matcher-info-core? (a/env) "matcher-vector.match_1")]
     (is (= 2 (:num-discrs info)))
     (is (= 0 (f 0 nil)))
-    (is (= 17 (f 1 [0 17 nil])))))
+    (is (= 17 (f 1 [0 17 nil])))
+    (is (some? (second
+                (a/prove-law
+                 '[n :- Nat, v :- (MatcherVec Nat n)]
+                 '(= Nat
+                     (matcher-vector.match_1
+                      (fn [k :- Nat, xs :- (MatcherVec Nat k)] Nat) n v
+                      (fn [u :- Unit] 0)
+                      (fn [k :- Nat, x :- Nat, xs :- (MatcherVec Nat k)] x))
+                     (matcher-vector.match_1
+                      (fn [k :- Nat, xs :- (MatcherVec Nat k)] Nat) n v
+                      (fn [u :- Unit] 0)
+                      (fn [k :- Nat, x :- Nat, xs :- (MatcherVec Nat k)] x)))
+                 '[(split) (all_goals (rfl))]))))))
 
 (deftest recursive-definition-continues-to-use-the-existing-path
   (let [f (a/define-verified 'matcher-recursive '[^Nat n] 'Nat
