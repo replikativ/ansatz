@@ -29,6 +29,13 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- The [constructor corpus and cache-admission investigation](INTERPRETER_COST_CORPUS.md)
+  found repeated hashing and retention of runtime-created continuations in the
+  lazy compiler. Source-based admission removes that growth in bounded tests and
+  cuts the MH constructor's compiled execution from about 13.0 to 0.58 ms. The
+  ordinary interpreter remains faster on that constructor. These raw-IR results
+  do not establish hosted file-loading speed or current-head full-image acceptance.
+
 - A historical genuine hosted frontend run at main `01016b2` passed all 17
   stages, including strict checking of 65,994 constants with 15 assumptions,
   edited/retained versions, host callbacks and managed teardown. This is

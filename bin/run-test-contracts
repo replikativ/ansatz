@@ -37,7 +37,7 @@ clojure -J-Xmx384m -J-Xss8m \
                                  (zero? (+ (:fail result) (:error result)))) 0 1)))'
 
 echo
-echo "Running compact checking progress, cold controller phase and native Store decoding contracts"
+echo "Running compact checking progress, cold controller, native Store and code-cache admission contracts"
 mkdir -p target
 cold_check_classes=$(mktemp -d "$PWD/target/cold-check-classes.XXXXXX")
 cleanup_cold_check_classes() {

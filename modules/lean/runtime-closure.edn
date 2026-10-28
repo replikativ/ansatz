@@ -3,6 +3,7 @@
  :sources [
   "prototype/binding_dependencies.clj"
   "prototype/block_compile.clj"
+  "prototype/code_provenance.clj"
   "prototype/constructor_layout.cljc"
   "prototype/entropy.cljc"
   "prototype/eval_const.clj"

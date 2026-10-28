@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is]]
             [prototype.block-compile :as b]
             [prototype.fingerprint :as fingerprint]
+            [prototype.code-provenance :as provenance]
             [clojure.edn :as edn]
             [prototype.import-ir :as ir]
             [prototype.lazy-runtime :as lazy]
@@ -20,6 +21,115 @@
           (is (= completed (u/freeze (lazy/run! program (u/resume! machine nil)))))
           (is (= completed (m/run (m/resume captured nil)))))))
     completed))
+
+(defn cache-sizes [program]
+  (assoc (select-keys (lazy/summary program) [:compiled :cache-hits :dispatch-blocks :cached-blocks])
+         :identities (.size ^java.util.IdentityHashMap (:identity-dispatch program))
+         :keys (.size ^java.util.IdentityHashMap (:identity-keys program))
+         :visits (.size ^java.util.IdentityHashMap (:visits program))
+         :source-bodies (.size ^java.util.IdentityHashMap (:source-bodies program))))
+
+(deftest runtime-publication-continuations-never-enter-code-caches
+  (doseq [functions [{:entry {:params [] :body [:global :g :init]}
+                     :init {:params [] :body [:return [:imm 42]]}}
+                    {:entry {:params [] :body [:begin-init :g :init [] "object"]}
+                     :init {:params [] :body [:let 0 [:ctor 0 [[:imm 42]]] [:return [:var 0]]]}}]]
+    (let [program (lazy/open-program functions)
+          initial (m/start (m/world functions) :entry [])
+          completed (check-fuels functions initial)
+          original fingerprint/key
+          run #(u/freeze (lazy/run! program (u/thaw initial)))]
+      (is (= 42 (:result completed)))
+      (with-redefs [fingerprint/key
+                    (fn [body]
+                      (when (and (vector? body)
+                                 (contains? #{:publish-global :publish-io-global} (first body)))
+                        (throw (ex-info "Runtime publisher was hashed" {})))
+                      (original body))]
+        (is (= completed (run)))
+        (let [before (cache-sizes program)]
+          (dotimes [_ 10] (is (= completed (run))))
+          (is (= before (cache-sizes program))))))))
+
+(deftest overapplication-surplus-values-never-become-code
+  (let [functions {:entry {:params [0]
+                           :body [:let 1 [:closure :first []]
+                                  [:tail [:closure [:var 1]] [[:imm 0] [:var 0]]]]}
+                   :first {:params [0] :body [:let 1 [:closure :identity []] [:return [:var 1]]]}
+                   :identity {:params [0] :body [:return [:var 0]]}}
+        [world ref] (m/resource (m/world functions) :surplus)
+        initial (m/start world :entry [ref])
+        completed (check-fuels functions initial)
+        program (lazy/open-program functions)
+        original fingerprint/key
+        run #(u/freeze (lazy/run! program (u/thaw initial)))]
+    (is (= ref (:result completed)))
+    (with-redefs [fingerprint/key
+                  (fn [body]
+                    (when (and (vector? body) (= :tail (first body))
+                               (= :imm (first (first (nth body 2 nil))))
+                               (m/ref? (second (first (nth body 2 nil)))))
+                      (throw (ex-info "Surplus guest value was hashed as code" {})))
+                    (original body))]
+      (is (= completed (run)))
+      (let [before (cache-sizes program)]
+        (dotimes [_ 10] (is (= completed (run))))
+        (is (= before (cache-sizes program)))))))
+
+(deftest cached-source-provenance-keeps-equivalent-multi-region-reuse
+  (let [functions {:entry {:params [] :body [:call 0 [:direct :worker] []
+                                           [:let 1 [:literal 99] [:return [:var 1]]]]}
+                   :worker {:params [] :body [:return [:imm 42]]}}
+        original-continuation (get-in functions [:entry :body 4])
+        cache (lazy/code-cache)
+        first-program (lazy/open-program functions {} cache)
+        run #(u/freeze (lazy/run! % (u/thaw (m/start (m/world (:functions %)) :entry []))))]
+    (is (= 99 (:result (run first-program))))
+    (let [independent (edn/read-string (pr-str functions))
+          second-program (lazy/open-program independent {} cache)]
+      (is (not (.containsKey ^java.util.IdentityHashMap (:source-bodies second-program) original-continuation)))
+      (is (= 99 (:result (run second-program))))
+      (is (.containsKey ^java.util.IdentityHashMap (:source-bodies second-program) original-continuation))
+      (is (zero? (:compiled (lazy/summary second-program))))
+      (is (= 3 (:cache-hits (lazy/summary second-program)))))))
+
+(deftest source-discovery-is-nonvalidating-and-does-not-walk-literals
+  (let [hashed (atom 0)
+        opaque-op (reify Object (hashCode [_] (swap! hashed inc) (throw (ex-info "Unexpected hash" {}))))
+        literal [:return [:imm :data]]
+        functions {:entry {:params [] :body [:let 0 [:literal literal] [:return [:var 0]]]}
+                   :unused {:params [] :body [opaque-op]}}
+        program (lazy/open-program functions)
+        index (:source-bodies program)]
+    (is (zero? @hashed))
+    (is (not (.containsKey ^java.util.IdentityHashMap index literal)))
+    (is (identical? index (provenance/admit-body! index literal)))
+    (is (.containsKey ^java.util.IdentityHashMap index literal)))
+  (let [functions {:entry {:params [] :body [:return [:imm 42]]}}
+        program (lazy/open-program functions)
+        copied (edn/read-string (pr-str (get-in functions [:entry :body])))
+        initial (assoc (m/start (m/world functions) :entry []) :body copied)]
+    (with-redefs [fingerprint/key (fn [& _] (throw (ex-info "Copied runtime PC was hashed" {})))]
+      (is (= (m/run initial) (u/freeze (lazy/run! program (u/thaw initial))))))
+    (is (zero? (:compiled (lazy/summary program))))))
+
+(deftest copied-pc-failures-retain-ordinary-interpreter-checkpoints
+  (let [functions {:entry {:params [0] :body [:inc [:var 0] 1 [:return [:var 0]] true]}}
+        [world ref] (m/resource (m/world functions) :owned)
+        initial (assoc (m/start world :entry [ref])
+                       :body (edn/read-string (pr-str (get-in functions [:entry :body]))))
+        program (lazy/open-program functions)
+        attempt (fn [run]
+                  (let [machine (u/thaw initial)]
+                    (try (run machine 10)
+                         (catch Throwable error
+                           [(class error) (ex-message error) (ex-data error) (u/freeze machine)]))))]
+    (with-redefs [fingerprint/key (fn [& _] (throw (ex-info "Copied failing PC was hashed" {})))]
+      (let [expected (attempt u/run!) actual (attempt (partial lazy/run! program))]
+        (is (= expected actual))
+        (is (= "Persistent RC invariant violated" (second actual)))
+        (is (= 1 (get-in (nth actual 3) [:stats :steps])))))
+    (is (zero? (:compiled (lazy/summary program))))))
 
 (deftest real-ir-pauses-and-suspension-forks
   (let [functions (h/functions)]
