@@ -73,6 +73,16 @@
     (is (empty? (:heap result)))))
 
 (deftest scalar-storage-rejects-uninitialized-out-of-bounds-and-shared-writes
+  (doseq [field [:objects :usize :ssize]
+          value [nil "0" -1 1048577 Long/MAX_VALUE]]
+    ;; Oversized operands must fail layout validation before size arithmetic
+    ;; can overflow; malformed fields retain the same explicit error.
+    (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid scalar constructor layout"
+                         (scalar/layout! (assoc {:objects 1 :usize 1 :ssize 1} field value)))))
+  (doseq [layout [{:objects 0 :usize 1 :ssize 0}
+                  {:objects 255 :usize 127 :ssize 7}
+                  {:objects 0N :usize 0N :ssize 1N}]]
+    (is (identical? layout (scalar/layout! layout))))
   (doseq [layout [{:objects 256 :usize 0 :ssize 1} {:objects 0 :usize 128 :ssize 0}]]
     (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Invalid scalar constructor layout" (scalar/layout! layout))))
   (let [layout {:objects 1 :usize 1 :ssize 13}
