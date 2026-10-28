@@ -16,7 +16,7 @@ implementation, then check the corresponding Klara proof where one exists.
 | 7 | End to end validation | Ansatz and Klara suites | The combined matcher/tactic and recursion branch passed CI in PR #239. The exact Klara draft PR #1 source loaded and kernel checked the full specification with the default compiler. The full opt-in specification kernel checked with its `smn-step2` rewrite moved before `simp only [ev]`; the PR's guarded rewrite form kernel checked separately with both compiler modes. |
 | 8 | Generalize matcher discriminants by argument position and simplify branch equations | `Meta/Tactic/Split.lean` `generalizeMatchDiscrs`, `Cases.unifyEqs?` | Merged in PR #242. Repeated discriminants produce independent branch equalities; unrelated goal occurrences stay in place; constructor-injected equalities are processed before returning goals. |
 | 9 | Transport named discriminant alternative binders during generalization | `Meta/Tactic/Split.lean` `withNewAltEqs` | Merged in PR #243. Imported `Nat.decEq.match_1` splits with a computed discriminant and kernel checks; `HEq.rec` composition is kernel checked. An integrated dependent named-discriminant split remains a coverage gap. |
-| 10 | Separate structural recursion from match expression compilation | `Elab/PreDefinition/{FixedParams,Structural/BRecOn,Structural/Main}.lean` | The `MatcherApp.addArg` transport is in PR #245. An opt-in `brecOn` path now kernel checks and runs single-argument, nested-match, changing-argument, polymorphic-list, recursive-scrutinee, and let-body examples. Indexed inductives and the full fixed-parameter analysis remain open. |
+| 10 | Separate structural recursion from match expression compilation | `Elab/PreDefinition/{FixedParams,Structural/BRecOn,Structural/Main}.lean` | `MatcherApp.addArg` and the opt-in `brecOn` path merged in PRs #245 and #246. A constructor-equation reflexivity fast path is in progress. Indexed inductives, the full fixed-parameter analysis, and Lean's general equation proof pass remain open. |
 | 11 | Enable matcher compilation by default for ordinary definitions | `Elab/Match.lean`, `Meta/Match`, `Elab/PreDefinition/Eqns.lean` | Merged in PR #244. All CI checks passed; the unchanged Klara specification kernel checks with 69/69 programs. |
 | 12 | Retire the direct recursor match compiler | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean`, `Meta/Match` | Remove `compile-match-term` and the recursion-triggered matcher bypass after recursive match bodies compile through `Meta.Match.mkMatcher`. Validate recursive equations, runtime codegen, and the unchanged Klara specification with the sole compiler. |
 
@@ -33,6 +33,14 @@ The generalized recursor now yields constructor-specific equations. Klara's
 `smn-step2` proof migration remains in draft PR #1, but the unchanged source
 also passes after the no-change `simp` fix; the migration is no longer required
 for matcher compilation.
+
+With the opt-in structural matcher switch enabled, a selected 25-test
+Nat/List/codegen/inferred-forms corpus improved from 30 failures and 2 errors
+to 4 failures and 0 errors after constructor equations were added. The four
+remaining assertions in `regression-nested-matcher-result-type` expect old
+auxiliary equation names; its nested recursive branch also needs Lean's
+`Structural/Eqns.lean` split-based proof, and `ifp-pairs.eq_2` reports the same
+gap. Keep the switch opt-in until the equations and unchanged proofs pass.
 
 Do not close a report because a workaround passes: its original reproduction
 must pass or fail cleanly as appropriate.
