@@ -53,6 +53,20 @@
                                         (fn [h :- (Eq Bool b Bool.false)] 2)))
                  '[(split) (all_goals (rfl))]))))))
 
+(deftest split-keeps-equal-discriminants-independent
+  (a/define-verified 'duplicate-match '[^Nat n] 'Nat
+    '(match [n n] [[0 0] 1] [[_ _] 2]))
+  (is (some? (second
+              (a/prove-law
+               '[n :- Nat]
+               '(= Nat
+                   (duplicate-match.match_1 (fn [x :- Nat, y :- Nat] Nat)
+                                            (Nat.succ n) (Nat.succ n)
+                                            (fn [u :- Unit] 1)
+                                            (fn [x :- Nat, y :- Nat] 2))
+                   2)
+               '[(split) (all_goals (rfl))])))))
+
 (deftest option-off-retains-direct-recursor-bodies
   (binding [config/*lean-matchers* false]
     (let [f (a/define-verified 'matcher-off '[^Bool b] 'Nat '(match b [false 13] [true 21]))]

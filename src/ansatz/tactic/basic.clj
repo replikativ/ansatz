@@ -2523,7 +2523,7 @@
   (let [s (try (whnf-in-goal ps lctx (tc/infer-type st expr)) (catch Exception _ nil))]
     (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
 
-(defn- unify-eq
+(defn unify-eq
   "Process one equality hypothesis in a cases branch (Lean 4 UnifyEq.lean + injectionCore).
    Returns {:ps ps' :status :solved/:continue :num-new-eqs n}.
    :solved means the branch is impossible (goal closed via noConfusion/False.elim).
@@ -2564,8 +2564,16 @@
           (tc/is-def-eq st lhs-whnf rhs-whnf) {:ps (clear ps eq-fvar-id) :status :continue :num-new-eqs 0}
           ;; ctor … = ctor … → injection / noConfusion
           :else
-          (let [[lhs-head lhs-args] (e/get-app-fn-args lhs-whnf)
-                [rhs-head rhs-args] (e/get-app-fn-args rhs-whnf)]
+          (let [nat-lit-ctor (fn [x]
+                               (if (e/lit-nat? x)
+                                 (let [n (e/lit-nat-val x)]
+                                   (if (zero? n)
+                                     (e/const' (name/from-string "Nat.zero") [])
+                                     (e/app (e/const' (name/from-string "Nat.succ") [])
+                                            (e/lit-nat (dec n)))))
+                                 x))
+                [lhs-head lhs-args] (e/get-app-fn-args (nat-lit-ctor lhs-whnf))
+                [rhs-head rhs-args] (e/get-app-fn-args (nat-lit-ctor rhs-whnf))]
             ;; A stuck function application can also have a constant head. Only
             ;; constructors justify noConfusion and ctorIdx disjointness.
             (if (and (e/const? lhs-head) (e/const? rhs-head)
