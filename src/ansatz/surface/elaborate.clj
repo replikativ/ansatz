@@ -421,8 +421,10 @@
         [explicit? sym-str] (strip-at-prefix sym-str)]
     ;; Bound variable? (:as-term carries a coercion — e.g. a Subtype-typed parameter
     ;; whose references elaborate as its .val, so refined params are usable directly)
-    (if-let [{:keys [fvar-id as-term]} (get (:scope est) sym)]
-      {:expr (or as-term (e/fvar fvar-id)) :explicit? false}
+    (if-let [{:keys [fvar-id as-term]}
+             (or (get (:scope est) sym)
+                 (when explicit? (get (:scope est) (symbol sym-str))))]
+      {:expr (or as-term (e/fvar fvar-id)) :explicit? explicit?}
       ;; Special shortcuts
       (case sym-str
         "Prop" {:expr (e/sort' lvl/zero) :explicit? false}

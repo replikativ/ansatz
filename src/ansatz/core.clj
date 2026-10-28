@@ -33,6 +33,7 @@
             [ansatz.tactic.instance :as instance]
             [ansatz.inductive :as inductive]
             [ansatz.surface.match :as surface-match]
+            [ansatz.elab.structural :as structural]
             [ansatz.surface.ingest :as ingest]
             [ansatz.surface.elaborate :as elab]
             [ansatz.codegen :as codegen]
@@ -1545,6 +1546,14 @@
                               [fid (cond-> {:name (str (first p)) :type pt :tag :local}
                                      (subtype-val fid pt) (assoc :as-term (subtype-val fid pt)))])
                             fids pairs ptypes))
+         ;; Lean elaborates recursive predefinitions with the recursive name in the
+         ;; local context, then Structural.replaceRecApps removes it before admission.
+         ;; A local avoids carrying a temporary self axiom into matcher declarations.
+         self-id (when (:self-name opts) (inc n))
+         lctx (if self-id
+                (assoc lctx self-id {:name (str (:self-name opts))
+                                     :type (:self-type opts) :tag :local})
+                lctx)
          expected (when (and opts ret-type-form (not= '_ ret-type-form))
                     (elab/elaborate-in-context env lctx ret-type-form nil {:type-position true}))
          body-result (if opts
@@ -1557,6 +1566,7 @@
         ;; param order (fids[0]=outermost param → highest bvar). Do NOT reverse.
          body-bvar (e/abstract-many body-expr fids)]
      {:env (:env body-result)
+      :self-fvar-id self-id
       :expr (loop [i (dec n) acc body-bvar]
               (if (< i 0) acc
                   (let [[pn _ binfo] (nth pairs i)]
@@ -1734,17 +1744,21 @@
         pairs (parse-params params)
         n (count pairs)
         cname (name/from-string (str fn-name))
-        ;; Keep recursion on the existing path. This conservative source check also
-        ;; preserves the older explicit ih_<field> structural-recursion notation.
+        source-symbols (filter symbol? (tree-seq coll? seq body-form))
+        source-name (fn [x] (let [nm (name x)]
+                              (if (.startsWith nm "@") (subs nm 1) nm)))
+        recursive? (some #(= (source-name %) (str fn-name)) source-symbols)
+        explicit-ih? (some #(.startsWith (source-name %) "ih_") source-symbols)
+        rec-pos (when (and (seq? body-form) (= 'match (first body-form)))
+                  (let [pos (.indexOf (mapv first pairs) (second body-form))]
+                    (when (<= 0 pos) pos)))
+        structural-matcher? (and config/*lean-matchers*
+                                 config/*lean-structural-matchers*
+                                 recursive? (not explicit-ih?)
+                                 (some? rec-pos))
         lean-matchers? (and config/*lean-matchers*
-                            (not-any? (fn [x]
-                                        (and (symbol? x)
-                                             (let [nm (name x)
-                                                   nm (if (.startsWith nm "@") (subs nm 1) nm)]
-                                               (or (= (str x) (str fn-name))
-                                                   (= nm (str fn-name))
-                                                   (.startsWith nm "ih_")))))
-                                      (tree-seq coll? seq body-form)))
+                            (or structural-matcher?
+                                (and (not recursive?) (not explicit-ih?))))
         matcher-opts (when lean-matchers? {:lean-matchers? true :matcher-prefix (str fn-name)})
         inferred-body (when (and lean-matchers? (= '_ ret-type-form))
                         (build-telescope-fvar env pairs nil body-form matcher-opts))
@@ -1809,12 +1823,21 @@
                                        (range n))))
                           (tree-seq coll? seq body-form)))))
         body-result (when lean-matchers?
-                      (or inferred-body (build-telescope-fvar env pairs ret-type-form body-form matcher-opts)))
-        body-ansatz (if body-result (:expr body-result)
-                        (binding [surface-match/*self-name* (when top-match? cname)
-                                  surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
-                                  surface-match/*generalize-self-params?* generalized-self-params?]
-                          (build-telescope-fvar tmp-env pairs ret-type-form body-form)))
+                      (or inferred-body
+                          (build-telescope-fvar
+                           env pairs ret-type-form body-form
+                           (cond-> matcher-opts
+                             structural-matcher?
+                             (assoc :self-name fn-name :self-type type-ansatz)))))
+        body-ansatz (if structural-matcher?
+                      (structural/compile-recursive-match
+                       (:env body-result) (:expr body-result) type-ansatz
+                       (:self-fvar-id body-result) rec-pos n)
+                      (if body-result (:expr body-result)
+                          (binding [surface-match/*self-name* (when top-match? cname)
+                                    surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
+                                    surface-match/*generalize-self-params?* generalized-self-params?]
+                            (build-telescope-fvar tmp-env pairs ret-type-form body-form))))
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
         _ (when (mentions-const? body-ansatz cname)

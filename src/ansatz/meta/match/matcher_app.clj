@@ -26,7 +26,7 @@
   (u/app (e/const' matcher-name matcher-levels)
          (concat params [motive] discrs alternatives remaining)))
 
-(defn- lambda-telescope [ctx term n]
+(defn lambda-telescope [ctx term n]
   (loop [term term xs []]
     (if (= n (count xs))
       [xs term]
