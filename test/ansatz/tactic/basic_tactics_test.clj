@@ -7,6 +7,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.env :as env]
+            [ansatz.meta :as meta]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.extract :as extract]))
@@ -26,6 +27,19 @@
 (defn- find-hyp [ps hyp-name]
   (let [g (proof/current-goal ps)]
     (some (fn [[id d]] (when (= hyp-name (:name d)) id)) (:lctx g))))
+
+(deftest test-apply-normalization-cache-respects-mvar-assignments
+  (let [base (meta/add-expr-mvar-decl meta/empty-context 7001 nat {})
+        ps {:env (require-env)}
+        expr (e/mvar 7001)
+        cache (java.util.IdentityHashMap.)]
+    (binding [basic/*apply-normalization-cache* cache]
+      (is (= (e/lit-nat 0)
+             (#'basic/normalize-for-match
+              (assoc ps :meta-mctx (meta/assign-expr base 7001 (e/lit-nat 0))) {} expr)))
+      (is (= (e/lit-nat 1)
+             (#'basic/normalize-for-match
+              (assoc ps :meta-mctx (meta/assign-expr base 7001 (e/lit-nat 1))) {} expr))))))
 
 ;; ============================================================
 ;; exact

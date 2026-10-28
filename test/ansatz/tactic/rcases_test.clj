@@ -21,7 +21,11 @@
         (a/structure FrameState [] (x Nat))
         (a/structure FrameOutcome [] (state FrameState) (accepted Bool))
         (a/defn frame-step [n :- Nat, s :- FrameState] FrameOutcome
-          (if (Nat.beq n 0) (FrameOutcome.mk s true) (FrameOutcome.mk s false))))
+          (if (Nat.beq n 0) (FrameOutcome.mk s true) (FrameOutcome.mk s false)))
+        (a/defn probe-case-f [n :- Nat] (Option Nat)
+          (match n
+            [0 (Option.some Nat 0)]
+            [_ (Option.none Nat)])))
       (f))))
 
 (defn- proves [params target tactics]
@@ -111,6 +115,21 @@
     (is (proves '[p :- (Prod Nat Nat)]
                 '(= (Prod.fst Nat Nat p) (Prod.fst Nat Nat p))
                 [tac '(exact (Eq.refl Nat a))]))))
+
+(deftest obtain-rejects-surplus-constructor-patterns
+  (is (proves '[x :- Bool, h :- (= Bool x true)] '(= Bool x x)
+              '[(try (obtain [a b] := h)) (rfl)]))
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"more fields"
+                        (proves '[x :- Bool, h :- (= Bool x true)] '(= Bool x x)
+                                '[(obtain [a b] := h) (rfl)]))))
+
+(deftest cases-rejects-stuck-function-as-constructor
+  (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot solve equality"
+                        (proves '[n :- Nat, c :- Nat,
+                                  h :- (= (Option Nat) (probe-case-f n)
+                                          (Option.some Nat c))]
+                                'True
+                                '[(cases h) (all_goals (trivial))]))))
 
 (deftest regression-rfl-normalizes-sides
   (is (proves '[x :- Nat, y :- Nat, h :- (= x ((fn [z :- Nat] z) y))]

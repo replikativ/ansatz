@@ -13,6 +13,8 @@
   (:require [clojure.test :refer [deftest testing is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as kenv]
+            [ansatz.kernel.name :as kn]
             [ansatz.surface.elaborate :as el]))
 
 (defn- init-once [f]
@@ -105,6 +107,24 @@
   (a/theorem ifp-app-len [xs :- (List Nat), ys :- (List Nat)]
              (= (ifp-len (ifp-lappend xs ys)) (+ (ifp-len xs) (ifp-len ys)))
              (induction xs) (all_goals (grind "ifp-lappend" "ifp-len"))))
+
+(deftest structural-recursion-with-varying-parameters
+  (a/defn ifp-vary [j :- Nat, n :- Nat] Nat
+    (match n [0 j] [(Nat.succ k) (ifp-vary (Nat.succ j) k)]))
+  (is (= 7 (ifp-vary 3 4)))
+  (is (some? (kenv/lookup (a/env) (kn/from-string "ifp-vary.eq_2"))))
+  (is (empty? (:errors (:equation-generation (meta ifp-vary)))))
+  (a/theorem ifp-vary-zero [j :- Nat] (= (ifp-vary j 0) j) (rfl))
+  (a/defn ifp-vary-scrutinee [j :- Nat, v :- Nat, n :- Nat] Nat
+    (match n
+      [0 (+ j v)]
+      [(Nat.succ k)
+       (match (ifp-vary-scrutinee (Nat.succ j) v k)
+         [0 v]
+         [(Nat.succ r) r])]))
+  (is (= 3 (ifp-vary-scrutinee 2 1 3)))
+  (is (some? (kenv/lookup (a/env) (kn/from-string "ifp-vary-scrutinee.eq_2"))))
+  (is (empty? (:errors (:equation-generation (meta ifp-vary-scrutinee))))))
 
 (deftest measure-guessed-for-the-pattern-form
   (testing "the rec-call collector reads the pattern form, so the sizeOf measure is found"

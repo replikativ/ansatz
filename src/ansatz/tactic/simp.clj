@@ -2141,7 +2141,8 @@
                         (or (e/lit-nat? w) (and ci (.isCtor ^ConstantInfo ci)))))
                     (subvec (vec args) (inc (:num-params info))
                             (+ 1 (:num-params info) (:num-discrs info)))))]
-        (when (or (contains? to-unfold hstr) matcher-ready?)
+        (when (or (contains? to-unfold hstr) matcher-ready?
+                  (.endsWith hstr ".casesOn"))
           (when-let [^ConstantInfo ci (env/lookup env hname)]
               ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
               ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)
@@ -2819,7 +2820,13 @@
                                 (let [again (simp-expr* st env lemma-index (:expr composed)
                                                         (update config :max-depth dec))]
                                   (mk-eq-trans st composed again))))
-                            current))))))]
+                            current))))))
+                result (if (and (not (:single-pass? config))
+                                (not= expr (:expr result)))
+                         (mk-eq-trans st result
+                                      (simp-expr* st env lemma-index (:expr result)
+                                                  (update config :max-depth dec)))
+                         result)]
             ;; Trace: log when Bool→True corruption occurs
             (when (and *simp-trace*
                        (e/const? expr)

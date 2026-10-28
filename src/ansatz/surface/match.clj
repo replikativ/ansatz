@@ -210,6 +210,7 @@
 ;; rewritten to the field's IH here.
 (def ^:dynamic *self-name* nil)
 (def ^:dynamic *self-params* nil)   ;; vector of the function's parameter fvar-ids, in order
+(def ^:dynamic *generalize-self-params?* false)
 
 (defn- collect-spine
   "Decompose an application into [head [arg0 arg1 …]]."
@@ -222,12 +223,11 @@
 (defn- replace-self-ih
   "Rewrite a structural self-call to the recursor's IH throughout expr. A self-call qualifies when
    its FIRST `arity` arguments are the FULLY-applied self-name with exactly one a bare recursive-field
-   fvar (the structurally-smaller arg) and every OTHER the corresponding unchanged parameter fvar —
-   i.e. (add k n) with k the recursive field of m and n the second parameter → the field's IH (which
-   the motive carries the other params through). Single- and multi-parameter; partial applications and
-   calls that change another *parameter* argument are left as the axiom → check-constant rejects (→ the
-   user adds :termination-by / ^:partial). field->ih maps recursive-field fvar-id → IH fvar-id; param-ids
-   is the positional parameter fvar-ids.
+   fvar (the structurally-smaller arg). Ordinarily every other argument must be the
+   unchanged parameter fvar. When the motive generalizes those parameters, their
+   actual arguments are applied to the IH instead. Partial applications and calls
+   without a recursive field remain unresolved. field->ih maps recursive-field
+   fvar-id → IH fvar-id; param-ids is the positional parameter fvar-ids.
 
    EXTRA trailing args (beyond `arity`) are an APPLICATION OF THE IH — the faithful Lean `brecOn`
    encoding for a recursion whose result type is itself a function (the motive generalizes the
@@ -263,19 +263,23 @@
                       ;; The metacontext is the ONE unification state — a
                       ;; snapshot of its value is Lean's saveState/restoreState.
                       mm0 (when (and uf (:meta-mctx est)) @(:meta-mctx est))
-                      fixed? (every? (fn [j]
-                                       (or (= j jr)
-                                           (let [a (nth param-args j)
-                                                 pid (nth param-ids j)]
-                                             (if uf
-                                               (boolean (try (uf est a (e/fvar pid)) (catch Throwable _ false)))
-                                               (and (= :fvar (e/tag a)) (= (e/fvar-id a) pid))))))
-                                     (range np))]
-                  (if fixed?
+                      fixed? (or *generalize-self-params?*
+                                 (every? (fn [j]
+                                           (or (= j jr)
+                                               (let [a (nth param-args j)
+                                                     pid (nth param-ids j)]
+                                                 (if uf
+                                                   (boolean (try (uf est a (e/fvar pid)) (catch Throwable _ false)))
+                                                   (and (= :fvar (e/tag a)) (= (e/fvar-id a) pid))))))
+                                         (range np)))]
+                  (if (or fixed? *generalize-self-params?*)
                     ;; IH for the field; apply to any extra args (the brecOn motive-as-function case).
                     (reduce e/app
                             (e/fvar (get field->ih (e/fvar-id (nth param-args jr))))
-                            (map rec extra-args))
+                            (map rec (if *generalize-self-params?*
+                                       (concat (keep-indexed (fn [j a] (when (not= j jr) a)) param-args)
+                                               extra-args)
+                                       extra-args)))
                     (do (when (and uf mm0)
                           (reset! (:meta-mctx est) mm0))
                         nil)))))))]
@@ -307,7 +311,7 @@
    constructor with different sub-patterns, we build nested matches from
    all of them."
   [env est elab-fn ind-name ind-levels params ctor-name nfields
-   num-ih-args matching-alts ret-type & [discr-fvar-id]]
+   num-ih-args matching-alts ret-type generalized-params & [discr-fvar-id]]
   (when (empty? matching-alts)
     (throw (ex-info (str "Match: non-exhaustive patterns, missing case for "
                          (name/->string ctor-name))
@@ -482,6 +486,11 @@
                                           (concat params field-fvars))]
                      (e/instantiate1 (e/abstract1 rhs-body discr-fvar-id) ctor-app))
                    rhs-body)
+        ;; Lean's structural motive keeps varying parameters inside the motive.
+        ;; Each minor premise must therefore return a function of those parameters.
+        rhs-body (reduce (fn [body {:keys [id name type]}]
+                           (e/lam name type (e/abstract1 body id) :default))
+                         rhs-body (reverse generalized-params))
         ;; Build lambda: abstract IH fvars, then field fvars (inside out)
         body-with-ih
         (reduce (fn [body i]
@@ -646,7 +655,15 @@
                     rhs-expr (elab-fn temp-est (:rhs-sexpr alt))
                     rhs-type (est-infer temp-est rhs-expr)]
                 {:ret-type rhs-type}))))
-        ret-type (:ret-type ret-type-info)
+        generalized-params
+        (when (and *self-name* *generalize-self-params?* (e/fvar? discr-expr))
+          (mapv (fn [id]
+                  (let [d (red/lctx-lookup (get-in est [:tc :lctx]) id)]
+                    {:id id :name (or (:name d) (str "p" id)) :type (:type d)}))
+                (remove #(= % (e/fvar-id discr-expr)) *self-params*)))
+        ret-type (reduce (fn [body {:keys [id name type]}]
+                           (e/forall' name type (e/abstract1 body id) :default))
+                         (:ret-type ret-type-info) (reverse generalized-params))
         ;; Build the motive: λ (x : IndType params) => ret-type
         ind-applied (reduce e/app (e/const' ind-name ind-levels) params)
         motive (e/lam "x" ind-applied ret-type :default)
@@ -671,14 +688,16 @@
                  matching-alts (find-matching-alts ctor-name alts)]
              (build-minor-premise env est elab-fn-for-rhs ind-name ind-levels params
                                   ctor-name nfields num-ih
-                                  matching-alts ret-type
+                                  matching-alts ret-type generalized-params
                                   ;; Pass discriminant fvar-id for substitution
                                   (when (e/fvar? discr-expr) (e/fvar-id discr-expr)))))
          (range num-minors))]
     ;; Build recursor application: params, motive, minors, indices, major
     (reduce e/app
-            (e/const' rec-name rec-levels)
-            (concat params [motive] minor-terms indices [discr-expr]))))
+            (reduce e/app
+                    (e/const' rec-name rec-levels)
+                    (concat params [motive] minor-terms indices [discr-expr]))
+            (map (comp e/fvar :id) generalized-params))))
 
 ;; Lean Elab/Match.lean: elaborate typed pattern rows, generalize free indices,
 ;; build alternative lambdas, then call Meta.Match.mkMatcher. This path is used

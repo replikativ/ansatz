@@ -1787,11 +1787,31 @@
         ;; (if-wrapped, let-wrapped, nested) the IH is a different fold — those self-calls stay
         ;; as the axiom and route to the well-founded path below.
         top-match? (and (seq? body-form) (= 'match (first body-form)))
+        ;; Lean FixedParams: a parameter changed by a structural self-call belongs
+        ;; in the recursor motive. Keep the ordinary, smaller motive for definitions
+        ;; whose nonrecursive arguments are fixed.
+        generalized-self-params?
+        (and top-match?
+             (let [discr (second body-form)
+                   param-names (mapv first pairs)
+                   rec-pos (.indexOf param-names discr)]
+               (and (<= 0 rec-pos)
+                    (some (fn [form]
+                            (and (seq? form)
+                                 (= (first form) fn-name)
+                                 (<= n (dec (count form)))
+                                 (some (fn [i]
+                                         (and (not= i rec-pos)
+                                              (not= (nth (vec (rest form)) i)
+                                                    (nth param-names i))))
+                                       (range n))))
+                          (tree-seq coll? seq body-form)))))
         body-result (when lean-matchers?
                       (or inferred-body (build-telescope-fvar env pairs ret-type-form body-form matcher-opts)))
         body-ansatz (if body-result (:expr body-result)
                         (binding [surface-match/*self-name* (when top-match? cname)
-                                  surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))]
+                                  surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
+                                  surface-match/*generalize-self-params?* generalized-self-params?]
                           (build-telescope-fvar tmp-env pairs ret-type-form body-form)))
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
@@ -1834,9 +1854,9 @@
                   [rec-head rec-args] (e/get-app-fn-args peeled)
                   rec-info (recursor-app-info env' rec-head rec-args)
                   major (:major rec-info)
-                  ;; Overapplication keeps the trailing arguments in a checked unfold equation.
-                  ;; Constructor equations below require a major premise among the user binders.
-                  ctor-eq? (and rec-info (= (count rec-args) (:arity rec-info))
+                  ;; A generalized motive overapplies the recursor with its varying
+                  ;; parameters. The major premise still selects constructor equations.
+                  ctor-eq? (and rec-info
                                 (e/bvar? major) (< (e/bvar-idx major) n))
                   _ (when-not ctor-eq?
                       (let [eqn (install-unfold-equation! fn-name body-ansatz)]
@@ -2013,11 +2033,11 @@
                                                    (if (empty? fvs) b
                                                        (recur (e/instantiate1 (e/lam-body b) (first fvs))
                                                               (rest fvs))))
-                                    ;; inst-body is the rec application with all params substituted
-                                    ;; Replace major premise (last arg) with tail-fvar
+                                    ;; inst-body is the rec application with all params substituted.
+                                    ;; The major premise precedes generalized motive arguments.
                                        [inst-head inst-args] (e/get-app-fn-args inst-body)
                                        rec-val (reduce e/app inst-head
-                                                       (conj (vec (butlast inst-args)) tail-fvar))
+                                                       (assoc (vec inst-args) (:major-pos rec-info) tail-fvar))
                                     ;; The function call to replace with
                                     ;; Place tail-fvar at discriminant position
                                        f-call-args (let [pv (vec param-fvars)]
@@ -2026,19 +2046,35 @@
                                        f-call (reduce e/app (e/const' cname []) f-call-args)
                                     ;; Find and replace rec-val with f-call in the RHS
                                        replace-fn (fn replace-rv [expr]
-                                                    (if (= expr rec-val)
-                                                      f-call
-                                                      (case (e/tag expr)
-                                                        :app (let [nf (replace-rv (e/app-fn expr))
-                                                                   na (replace-rv (e/app-arg expr))]
-                                                               (if (and (identical? nf (e/app-fn expr))
-                                                                        (identical? na (e/app-arg expr)))
-                                                                 expr (e/app nf na)))
-                                                        :lam (let [nb (replace-rv (e/lam-body expr))]
-                                                               (if (identical? nb (e/lam-body expr))
-                                                                 expr (e/lam (e/lam-name expr) (e/lam-type expr)
-                                                                             nb (e/lam-info expr))))
-                                                        expr)))]
+                                                    (let [[eh ea] (e/get-app-fn-args expr)
+                                                          generalized-args
+                                                          (when (and generalized-self-params?
+                                                                     (= eh inst-head)
+                                                                     (>= (count ea) (:arity rec-info))
+                                                                     (= (subvec (vec ea) 0 (:major-pos rec-info))
+                                                                        (subvec (vec inst-args) 0 (:major-pos rec-info)))
+                                                                     (= (nth ea (:major-pos rec-info)) tail-fvar)
+                                                                     (= (- (count ea) (:arity rec-info)) n-non-discr))
+                                                            (subvec (vec ea) (:arity rec-info)))]
+                                                      (cond
+                                                        generalized-args
+                                                        (reduce e/app (e/const' cname [])
+                                                                (into (into (subvec generalized-args 0 discr-pos)
+                                                                            [tail-fvar])
+                                                                      (subvec generalized-args discr-pos)))
+                                                        (= expr rec-val) f-call
+                                                        :else
+                                                        (case (e/tag expr)
+                                                          :app (let [nf (replace-rv (e/app-fn expr))
+                                                                     na (replace-rv (e/app-arg expr))]
+                                                                 (if (and (identical? nf (e/app-fn expr))
+                                                                          (identical? na (e/app-arg expr)))
+                                                                   expr (e/app nf na)))
+                                                          :lam (let [nb (replace-rv (e/lam-body expr))]
+                                                                 (if (identical? nb (e/lam-body expr))
+                                                                   expr (e/lam (e/lam-name expr) (e/lam-type expr)
+                                                                               nb (e/lam-info expr))))
+                                                          expr))))]
                                    (replace-fn rhs))
                                  (catch Exception ex
                                    (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " recursive calls") ex)
