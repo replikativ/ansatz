@@ -19,6 +19,7 @@
     {:loader loader :class cls :node-class node
      :prepare (.getMethod cls "prepare" (into-array Class [java.util.List]))
      :constructor (.getConstructor cls (into-array Class [program]))
+     :constructor-explicit (.getConstructor cls (into-array Class [program Boolean/TYPE]))
      :function-id (.getMethod program "functionId" (into-array Class [String]))
      :invoke (.getMethod cls "invoke" (into-array Class [Integer/TYPE (class (object-array 0))]))
      :rbmap (.getMethod cls "rbmap" (into-array Class (repeat 4 Integer/TYPE)))
@@ -26,6 +27,13 @@
      :inc (.getMethod cls "inc" (into-array Class [Object Integer/TYPE]))
      :dec (.getMethod cls "dec" (into-array Class [Object Integer/TYPE]))
      :close (.getMethod cls "close" (make-array Class 0))
+     :start (.getMethod cls "start" (into-array Class [Integer/TYPE (class (object-array 0))]))
+     :advance (.getMethod cls "advance" (into-array Class [Long/TYPE]))
+     :take-result (.getMethod cls "takeResult" (make-array Class 0))
+     :phase (.getMethod cls "phase" (make-array Class 0))
+     :depth (.getMethod cls "continuationDepth" (make-array Class 0))
+     :instructions (.getMethod cls "instructionCount" (make-array Class 0))
+     :active (.getMethod cls "activeFunction" (make-array Class 0))
      :tag (.getField node "tag") :rc (.getField node "rc")
      :fields (.getField node "fields") :scalars (.getField node "scalars")}))
 
@@ -33,7 +41,9 @@
 (defn open-program [basis path]
   (assoc basis :program (invoke-static (:prepare basis) [(rows path)])))
 (defn machine [basis]
-  (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)])))
+  (if (:explicit basis)
+    (.newInstance ^Constructor (:constructor-explicit basis) (object-array [(:program basis) true]))
+    (.newInstance ^Constructor (:constructor basis) (object-array [(:program basis)]))))
 (defn function-id [basis label]
   (.invoke ^Method (:function-id basis) (:program basis) (object-array [label])))
 (defn call [basis engine label args]
@@ -42,6 +52,14 @@
 (defn close! [basis engine] (.invoke ^Method (:close basis) engine (object-array 0)))
 (defn release! [basis engine value] (.invoke ^Method (:dec basis) engine (object-array [value (int 1)])))
 (defn retain! [basis engine value] (.invoke ^Method (:inc basis) engine (object-array [value (int 1)])))
+(defn start! [basis engine label args]
+  (.invoke ^Method (:start basis) engine (object-array [(int (function-id basis label)) (object-array args)])))
+(defn advance! [basis engine budget] (.invoke ^Method (:advance basis) engine (object-array [(long budget)])))
+(defn take-result! [basis engine] (.invoke ^Method (:take-result basis) engine (object-array 0)))
+(defn phase [basis engine] (.invoke ^Method (:phase basis) engine (object-array 0)))
+(defn depth [basis engine] (.invoke ^Method (:depth basis) engine (object-array 0)))
+(defn instructions [basis engine] (.invoke ^Method (:instructions basis) engine (object-array 0)))
+(defn active [basis engine] (.invoke ^Method (:active basis) engine (object-array 0)))
 
 (defn rbmap-runner [basis engine]
   (let [ids (mapv #(int (function-id basis %)) ["mkMap" "fold._redArg" "main._closed_0"])]
@@ -94,3 +112,22 @@
                       (assert (= expected checksum))
                       (assoc metrics :n n :trial trial :checksum checksum))))}
       (finally (close! basis engine)))))
+
+(defn measure-modes [basis sizes repetitions]
+  (let [contexts {:recursive (dissoc basis :explicit) :explicit (assoc basis :explicit true)}
+        engines (into {} (map (fn [[mode ctx]] [mode (machine ctx)])) contexts)
+        ids (mapv #(int (function-id basis %)) ["mkMap" "fold._redArg" "main._closed_0"])
+        run (fn [mode n]
+              (.invoke ^Method (:batch basis) (engines mode)
+                       (object-array (into ids [(int n) (int repetitions)]))))]
+    (try
+      (doseq [_ (range 5) n [300 1000] mode [:recursive :explicit]] (run mode n))
+      {:scope "Paired recursive and explicit drivers, same prepared Program/heap semantics; adjacent inputs and reusable engine per mode; preparation/capture excluded."
+       :repetitions repetitions
+       :runs (vec (for [n sizes trial (range 7)
+                        mode (if (even? trial) [:recursive :explicit] [:explicit :recursive])]
+                    (let [[checksum metrics] (benchmark/measure #(run mode n))]
+                      (assert (= checksum (* (quot repetitions 2)
+                                             (+ (quot (+ n 9) 10) (quot (+ (inc n) 9) 10)))))
+                      (assoc metrics :mode mode :n n :trial trial :checksum checksum))))}
+      (finally (doseq [[mode engine] engines] (close! (contexts mode) engine))))))

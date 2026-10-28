@@ -29,6 +29,14 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- [Explicit Java continuations](java-ir-baseline/CONTINUATIONS.md) support
+  instruction-boundary pause/resume and 20,000 non-tail guest calls without Java
+  guest call frames. Both drivers share the same data/RC model. The isolated jar
+  gate passes 26 test executions / 1,331 assertions. Final paired CPU overhead
+  was about 25% on default JVMCI and 15–28% across two C2 controls, with equal warm
+  allocation. Recursive execution remains the default; heap forking and managed
+  cancellation are still separate work.
+
 - The [Java interpreter baseline](java-ir-baseline/README.md) executes original
   typed exported IR with direct node headers, reusable stacks and lexical joins.
   On RBMap1000/1001 it measured 6.16 ms wall with ordinary C2 or 2.82 ms with the

@@ -75,10 +75,31 @@ public final class Interpreter implements AutoCloseable {
     private final boolean[] constantReady;
     private boolean closed;
     private long callsLeft;
+    private final boolean explicit;
+    private static final int IDLE=0, RUNNING=1, COMPLETE=2, FAILED=3;
+    private static final int ASSIGN=0, CACHE=1, APPLY=2, ROOT=4;
+    private int phase=IDLE, continuationDepth;
+    private long instructions;
+    private boolean advancing, pendingOwnedResult;
+    private Function active, entry;
+    private Body pc;
+    private Continuation[] continuations;
+    private Function applicationTarget;
+    private Object[] applicationArgs,applicationSurplus;
+    private static final class Continuation {
+        Function caller;
+        Body next;
+        int bp,sp,jbp,jsp,dest,kind;
+        Object[] surplus;
+        void clear() { caller=null; next=null; surplus=null; }
+    }
     public long allocations,stores,retains,releases,shellDeletes;
 
-    public Interpreter(Program program) {
+    public Interpreter(Program program) { this(program,false); }
+    public Interpreter(Program program,boolean explicit) {
         this.program=program;
+        this.explicit=explicit;
+        if(explicit) continuations=new Continuation[32];
         constants=new Object[program.functions.length];
         constantReady=new boolean[constants.length];
     }
@@ -455,9 +476,206 @@ public final class Interpreter implements AutoCloseable {
             }
         }
     }
+
+    private void explicitOnly() {
+        if(!explicit) throw new IllegalStateException("Explicit mode required");
+        if(closed) throw new IllegalStateException("Interpreter closed");
+    }
+    public String phase() { return new String[]{"idle","running","complete","failed"}[phase]; }
+    public int continuationDepth() { return continuationDepth; }
+    public long instructionCount() { return instructions; }
+    public String activeFunction() { return active==null?null:active.label; }
+
+    /** Bind an owned external invocation, without executing its body. */
+    public void start(int function,Object[] args) {
+        explicitOnly();
+        if(advancing||phase!=IDLE) throw new IllegalStateException("Take the result or finish the current execution before start");
+        Function f=program.functions[function];
+        if(args.length!=f.params.length) throw error("Arity mismatch: "+f.label);
+        // Validate host inputs before publishing state or writing stack slots.
+        for(int i=0;i<args.length;i++) {
+            if(f.paramTypes[i]==U8) require(number(args[i])<=255,"Byte argument outside range");
+            else if(args[i] instanceof Node) {
+                Node n=node(args[i]);
+                if(n.closure!=null&&n.image!=program) throw error("Closure belongs to another code image");
+            }
+        }
+        if(f.intrinsic!=0) {
+            intrinsic(f,args[0],args[1]); callsLeft=10_000_000; instructions=0;
+            entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
+        }
+        if(f.params.length==0&&constantReady[f.id]) {
+            if(f.resultType==OBJ) { result=constants[f.id]; inc(result,1); }
+            else scalarResult=(Long)constants[f.id];
+            callsLeft=10_000_000; instructions=0;
+            entry=f; phase=COMPLETE; pendingOwnedResult=true; return;
+        }
+        callsLeft=10_000_000; instructions=0;
+        entry=f; phase=RUNNING;
+        try { enterExplicit(f,null,args,null,0,ROOT|(f.params.length==0?CACHE:0),null); }
+        catch(Throwable failure) { phase=FAILED; throw failure; }
+    }
+
+    private void enterExplicit(Function f,int[] slots,Object[] args,Body next,int dest,int kind,Object[] surplus) {
+        if(continuationDepth>=65536) throw error("Continuation depth limit");
+        int newSp=Math.addExact(sp,f.width),newJsp=Math.addExact(jsp,f.joinWidth);
+        if(newSp>8_000_000||newJsp>2_000_000) throw error("Explicit stack limit");
+        ensure(newSp,newJsp);
+        if(continuationDepth==continuations.length) continuations=Arrays.copyOf(continuations,continuations.length*2);
+        Continuation k=continuations[continuationDepth];
+        if(k==null) continuations[continuationDepth]=k=new Continuation();
+        for(int i=0;i<f.params.length;i++) {
+            int target=sp+f.params[i];
+            if(slots!=null) {
+                if(f.paramTypes[i]==OBJ) objects[target]=obj(slots[i]); else numbers[target]=numbers[bp+slots[i]];
+            } else {
+                if(f.paramTypes[i]==OBJ) objects[target]=args[i]; else numbers[target]=number(args[i]);
+            }
+        }
+        k.caller=active; k.next=next; k.bp=bp; k.sp=sp; k.jbp=jbp; k.jsp=jsp;
+        k.dest=dest; k.kind=kind; k.surplus=surplus;
+        continuationDepth++;
+        bp=sp; sp=newSp; jbp=jsp; jsp=newJsp; active=f; pc=f.body;
+        tick();
+    }
+
+    /** Prepare and consume one AP exactly once; no guest execution here. */
+    private boolean prepareExplicitApply(Object value,Object[] args) {
+        Node closure=node(value); if(closure.closure==null) throw error("Expected closure");
+        if(closure.image!=program) throw error("Closure belongs to another code image");
+        Function f=closure.closure;
+        Object[] combined=new Object[closure.fields.length+args.length];
+        System.arraycopy(closure.fields,0,combined,0,closure.fields.length);
+        if(closure.rc!=1) for(Object a:closure.fields) inc(a,1);
+        System.arraycopy(args,0,combined,closure.fields.length,args.length);
+        if(closure.rc==1) { closure.dead=true; Arrays.fill(closure.fields,null); shellDeletes++; }
+        else dec(closure,1);
+        if(combined.length<f.params.length) { result=closure(f,combined); return false; }
+        applicationTarget=f;
+        applicationArgs=combined.length==f.params.length?combined:Arrays.copyOf(combined,f.params.length);
+        applicationSurplus=combined.length==f.params.length?null:Arrays.copyOfRange(combined,f.params.length,combined.length);
+        return true;
+    }
+    private void applyExplicit(Object value,Object[] args,Body next,int dest) {
+        while(true) {
+            if(!prepareExplicitApply(value,args)) { objects[dest]=result; pc=next; return; }
+            Function f=applicationTarget; Object[] actual=applicationArgs,rest=applicationSurplus;
+            applicationTarget=null; applicationArgs=null; applicationSurplus=null;
+            if(f.intrinsic==0) { enterExplicit(f,null,actual,next,dest,APPLY,rest); return; }
+            intrinsic(f,actual[0],actual[1]);
+            value=f.resultType==OBJ?result:Long.valueOf(scalarResult);
+            if(rest==null) { objects[dest]=value; pc=next; return; }
+            args=rest;
+        }
+    }
+    private void returnExplicit() {
+        Function completed=active;
+        Continuation k=continuations[--continuationDepth];
+        int kind=k.kind,dest=k.dest; Body next=k.next; Object[] surplus=k.surplus;
+        if((kind&CACHE)!=0) {
+            constants[completed.id]=completed.resultType==OBJ?result:Long.valueOf(scalarResult);
+            constantReady[completed.id]=true;
+        }
+        Arrays.fill(objects,k.sp,sp,null); Arrays.fill(joins,k.jsp,jsp,null);
+        bp=k.bp; sp=k.sp; jbp=k.jbp; jsp=k.jsp; active=k.caller; pc=next;
+        k.clear();
+        if((kind&ROOT)!=0) {
+            if(entry.params.length==0&&entry.resultType==OBJ) inc(result,1);
+            pendingOwnedResult=true; phase=COMPLETE; return;
+        }
+        if((kind&APPLY)!=0) {
+            Object answer=completed.resultType==OBJ?result:Long.valueOf(scalarResult);
+            if(surplus==null) objects[dest]=answer; else applyExplicit(answer,surplus,next,dest);
+        } else {
+            if(completed.resultType==OBJ) objects[dest]=result; else numbers[dest]=scalarResult;
+        }
+    }
+
+    /** New engine-level body-dispatch budget, not the legacy World fuel ABI.
+     * Calls commit their continuation before pause; RET restoration is atomic.
+     * Self-tail elimination consumes its VDECL and has no deferred RET frame. */
+    public boolean advance(long budget) {
+        explicitOnly();
+        if(budget<0) throw error("Negative instruction budget");
+        if(advancing) throw new IllegalStateException("Reentrant advance");
+        if(phase==COMPLETE) return true;
+        if(phase!=RUNNING) throw new IllegalStateException("No resumable execution: "+phase());
+        advancing=true;
+        try { runExplicitLoop(budget); return phase==COMPLETE; }
+        catch(Throwable failure) { phase=FAILED; throw failure; }
+        finally { advancing=false; }
+    }
+    private void runExplicitLoop(long budget) {
+        Body b=pc;
+            while(phase==RUNNING&&budget-->0) {
+                // Keep the dispatch cursor local. Publish the attempted body
+                // for failures and let control-transfer helpers publish callees.
+                pc=b; instructions++;
+                switch(b.op) {
+                    case VDECL: {
+                        Expr e=b.expr; int dest=bp+b.a;
+                        if(e.op==FAP) {
+                            Function f=e.target;
+                            if(f==active&&b.next.op==RET&&b.next.a==b.a) {
+                                int scratch=sp; ensure(sp+e.args.length,jsp);
+                                for(int i=0;i<e.args.length;i++) { objects[scratch+i]=obj(e.args[i]); numbers[scratch+i]=numbers[bp+e.args[i]]; }
+                                for(int i=0;i<e.args.length;i++) { objects[bp+f.params[i]]=objects[scratch+i]; numbers[bp+f.params[i]]=numbers[scratch+i]; objects[scratch+i]=null; }
+                                tick(); b=f.body;
+                            } else if(e.args.length==0&&constantReady[f.id]) {
+                                if(f.resultType==OBJ) objects[dest]=constants[f.id]; else numbers[dest]=(Long)constants[f.id];
+                                b=b.next;
+                            } else if(f.intrinsic!=0) {
+                                intrinsic(f,obj(e.args[0]),obj(e.args[1]));
+                                if(b.type==OBJ) objects[dest]=result; else numbers[dest]=scalarResult;
+                                b=b.next;
+                            } else { enterExplicit(f,e.args,null,b.next,dest,e.args.length==0?CACHE:ASSIGN,null); b=pc; }
+                        } else if(e.op==AP) {
+                            Object value=obj(e.a); Object[] args=new Object[e.args.length];
+                            for(int i=0;i<args.length;i++) args[i]=obj(e.args[i]);
+                            applyExplicit(value,args,b.next,dest);
+                            b=pc;
+                        } else { expression(e,b.type,dest); b=b.next; }
+                        break;
+                    }
+                    case JDECL: joins[jbp+b.a]=b; b=b.next; break;
+                    case JMP: {
+                        Body join=joins[jbp+b.a]; if(join==null||join.args.length!=b.args.length) throw error("Invalid join");
+                        for(int i=0;i<b.args.length;i++) { int dest=bp+join.args[i],source=bp+b.args[i]; objects[dest]=obj(b.args[i]); numbers[dest]=numbers[source]; }
+                        b=join.body; break;
+                    }
+                    case SET: { Node n=node(obj(b.a)); unique(n); n.fields[b.b]=obj(b.args[0]); stores++; b=b.next; break; }
+                    case SSET: { Node n=node(obj(b.a)); unique(n); if(b.type!=U8) throw error("Non-byte store"); int offset=Math.addExact(Math.multiplyExact(b.tags[0]-n.fields.length,8),b.b); n.scalars[offset]=(byte)numbers[bp+b.args[0]]; stores++; b=b.next; break; }
+                    case SETTAG: { Node n=node(obj(b.a)); unique(n); n.tag=b.b; b=b.next; break; }
+                    case INC: inc(obj(b.a),b.b); b=b.next; break;
+                    case DEC: dec(obj(b.a),b.b); b=b.next; break;
+                    case DEL: { Node n=node(obj(b.a)); unique(n); n.dead=true; Arrays.fill(n.fields,null); shellDeletes++; b=b.next; break; }
+                    case CASE: {
+                        Object value=b.type==OBJ?obj(b.a):null;
+                        if(b.type==OBJ&&!(value instanceof Node)&&!(value instanceof Long)) throw error("Object case outside baseline value profile");
+                        int tag=b.type==U8?(int)numbers[bp+b.a]:value instanceof Node?node(value).tag:((Long)value).intValue();
+                        Body selected=null;
+                        for(int i=0;i<b.tags.length;i++) if(b.tags[i]==tag||b.tags[i]==-1) { selected=b.alternatives[i]; break; }
+                        if(selected==null) throw error("Incomplete case"); b=selected; break;
+                    }
+                    case RET: if(active.resultType==OBJ) result=obj(b.a); else scalarResult=numbers[bp+b.a]; returnExplicit(); b=pc; break;
+                    case UNREACHABLE: throw error("Unreachable");
+                    default: throw error("Invalid body opcode");
+                }
+            }
+            pc=b;
+    }
+    /** Transfer the completed external result exactly once. */
+    public Object takeResult() {
+        explicitOnly();
+        if(phase!=COMPLETE||!pendingOwnedResult) throw new IllegalStateException("No owned result available");
+        Object value=entry.resultType==OBJ?result:Long.valueOf(scalarResult);
+        pendingOwnedResult=false; result=null; entry=null; phase=IDLE;
+        return value;
+    }
     /** Internal owned-argument typed entry, not Lean's generic call_boxed ABI. */
     public Object invoke(int function,Object[] args) {
         if(closed) throw error("Interpreter closed");
+        if(explicit) { start(function,args); advance(Long.MAX_VALUE); return takeResult(); }
         if(sp!=0) throw error("Reentrant external invocation unsupported");
         callsLeft=10_000_000;
         Function f=program.functions[function];
@@ -481,6 +699,12 @@ public final class Interpreter implements AutoCloseable {
     }
     @Override public void close() {
         if(closed) return; closed=true;
+        if(explicit&&(phase==RUNNING||phase==FAILED)) {
+            closed=false;
+            throw new IllegalStateException("Active or failed explicit execution requires ownership cleanup before close");
+        }
+        if(pendingOwnedResult&&entry.resultType==OBJ) dec(result,1);
+        pendingOwnedResult=false;
         for(int i=0;i<constants.length;i++) if(constantReady[i]&&program.functions[i].resultType==OBJ) dec(constants[i],1);
         Arrays.fill(constants,null); Arrays.fill(objects,null); result=null;
     }

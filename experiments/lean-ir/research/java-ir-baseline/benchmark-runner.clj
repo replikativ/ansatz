@@ -9,14 +9,14 @@
       [program preparation] (prototype.unchanged-program-benchmark/measure
                              #(java-ir-baseline/invoke-static (:prepare basis) [rows]))
       context (assoc basis :program program)
-      result (assoc (java-ir-baseline/measure-batch context [300 1000] 100)
+      result (assoc (java-ir-baseline/measure-modes context [300 1000] 100)
                     :preparation preparation :java (System/getProperty "java.version")
                     :clojure (clojure-version) :max-heap (.maxMemory (Runtime/getRuntime)))]
   (spit output (with-out-str (pp/pprint result)))
-  (doseq [n [300 1000]
-          :let [runs (filter #(= n (:n %)) (:runs result))
+  (doseq [n [300 1000] mode [:recursive :explicit]
+          :let [runs (filter #(and (= n (:n %)) (= mode (:mode %))) (:runs result))
                 median #(nth (vec (sort %)) 3)]]
-    (println {:n n :median-cpu-ms-per-run (/ (median (map :cpu-ns runs)) 1e8)
+    (println {:n n :mode mode :median-cpu-ms-per-run (/ (median (map :cpu-ns runs)) 1e8)
               :median-wall-ms-per-run (/ (median (map :wall-ns runs)) 1e8)
               :allocated-bytes-per-run (/ (median (map :allocated-bytes runs)) 100.0)}))
   (shutdown-agents))
