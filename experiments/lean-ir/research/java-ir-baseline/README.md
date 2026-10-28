@@ -9,6 +9,10 @@ backend or complete Lean runtime. The port carries the upstream Apache license.
 The purpose is to establish competitive interpreter execution before introducing
 forkable storage. No guest-specific JVM compilation, Pattern or LLVM is used.
 
+The [explicit continuation experiment](CONTINUATIONS.md) adds a second mode with
+instruction-boundary pause/resume. Recursive execution remains the control/default;
+the heap is still mutable and neither mode is forkable.
+
 ## Representation
 
 - Immutable prepared functions and instruction nodes resolve calls and supported
@@ -77,8 +81,10 @@ growth, code-image isolation and external byte input errors. It also compares:
 - All 81 MCMC constructor-data declarations against the persistent reference,
   twice each to cover cold/warm cache access. This does not execute a sampler.
 
-There are nine tests and 258 assertions, including guest allocation and field-store
-counter parity at every RBMap size. The tests run from a separately compiled
+The baseline suite has nine tests and 258 assertions, including guest allocation
+and field-store counter parity at every RBMap size. The current runner executes it
+in both modes and adds eight continuation tests: 26 executions / 1,331 assertions.
+The tests run from a separately compiled
 jar in a fresh 384 MiB JVM and are part of the experimental CI contract job.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
 No Init image, hosted frontend, project loader or full Mathlib campaign is run.
@@ -159,6 +165,6 @@ clojure -M research/java-ir-baseline/write-native-harness.clj \
 This disables preference for precompiled functions; extern primitives still use
 Lean's native runtime. It is not a wholly native-free execution mode.
 
-The next experiments separate explicit continuations from forkable heap ownership,
-measuring each change against this baseline. Guest RC, JVM storage ownership and
-external resource authority remain separate contracts.
+The next experiment adds forkable heap ownership over explicit continuations,
+measuring each storage change against the recursive control. Guest RC, JVM storage
+ownership and external resource authority remain separate contracts.
