@@ -813,7 +813,7 @@
         types (mapv #(est-whnf est (est-infer est %)) discrs)
         environment (lean-env est)
         ctx (cases/context environment (:lctx (:tc est)))
-        _ (swap! ctx assoc :next-id (:next-id est))
+        _ (swap! ctx assoc :next-id (:next-id est) :meta-mctx (:meta-mctx est))
         explicit-ids (set (keep #(when (e/fvar? %) (e/fvar-id %)) discrs))
         indices (vec (distinct
                       (mapcat (fn [type]
@@ -825,7 +825,9 @@
         ;; Elab/Match.lean generalize: dependent locals become additional
         ;; discriminants, shadowed by fresh pattern variables in each branch.
         generalized (mapv e/fvar (generalize/get-fvars-to-generalize
-                                  ctx (vec (concat indices discrs)) :ignore-let-decls true))
+                                  ctx (vec (concat indices discrs))
+                                  :target-types (vec (concat (map #(u/infer-type ctx %) indices) types))
+                                  :ignore-let-decls true))
         generalized-types (mapv #(u/infer-type ctx %) generalized)
         all-discrs (vec (concat indices discrs generalized))
         all-types (vec (concat (map #(u/infer-type ctx %) indices) types generalized-types))

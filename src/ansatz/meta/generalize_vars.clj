@@ -16,9 +16,11 @@
   (cond-> (expr-fvars ctx (:type d))
     (:value d) (into (expr-fvars ctx (:value d)))))
 
-(defn mk-generalization-forbidden-set [ctx targets forbidden]
-  (loop [todo (vec (mapcat #(if (e/fvar? %) [(e/fvar-id %)]
-                                (expr-fvars ctx (u/infer-type ctx %))) targets))
+(defn mk-generalization-forbidden-set [ctx targets target-types forbidden]
+  (loop [todo (vec (mapcat (fn [target type]
+                             (if (e/fvar? target) [(e/fvar-id target)]
+                                 (expr-fvars ctx type)))
+                           targets target-types))
          forbidden forbidden]
     (if-let [id (peek todo)]
       (if (contains? forbidden id)
@@ -30,8 +32,10 @@
 (defn get-fvars-to-generalize
   "GetFVarsToGeneralize: exclude targets and their dependencies; collect
    transitive forward dependencies, excluding instances and auxiliary locals."
-  [ctx targets & {:keys [forbidden ignore-let-decls] :or {forbidden #{} ignore-let-decls false}}]
-  (let [forbidden (mk-generalization-forbidden-set ctx targets forbidden)]
+  [ctx targets & {:keys [target-types forbidden ignore-let-decls]
+                  :or {forbidden #{} ignore-let-decls false}}]
+  (let [target-types (or target-types (mapv #(u/infer-type ctx %) targets))
+        forbidden (mk-generalization-forbidden-set ctx targets target-types forbidden)]
     (first
      (reduce (fn [[result deps] [id d]]
                (if (and (not (contains? forbidden id))
