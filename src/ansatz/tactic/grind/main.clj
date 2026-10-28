@@ -1,10 +1,14 @@
 (ns ansatz.tactic.grind.main
   "Logical refutation engine; Lean Grind/{Main,Finish,Intro,Core,Propagate}.lean, v4.33.1."
   (:require [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
             [ansatz.kernel.reduce :as red]
+            [ansatz.eqns :as eqns]
+            [ansatz.matchers :as matchers]
+            [ansatz.state :as state]
             [ansatz.tactic.basic :as basic]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.grind.action :as action]
@@ -455,7 +459,18 @@
    (binding [action/*config* (action/configure options)
              simp/*state* (simp/mk-state)]
      (let [ensure (requiring-resolve 'ansatz.tactic.simp/ensure-ble-eq)
-           ps (if-let [env' (ensure (:env ps))] (assoc ps :env env') ps)]
+           ps (if-let [env' (ensure (:env ps))] (assoc ps :env env') ps)
+           ;; Lean Grind/EMatchTheorem asks Meta.Match for matcher equations
+           ;; when a matcher definition is supplied as a hint.
+           ps (reduce (fn [ps hint]
+                        (let [nm (str hint)]
+                          (if (and (matchers/matcher-info (:env ps) nm)
+                                   (not (seq (eqns/eqns-for (:env ps) nm)))
+                                   (env/lookup @state/ansatz-env (name/from-string nm)))
+                            (do ((requiring-resolve 'ansatz.tactic.match-eqns/get-equations-for) nm)
+                                (assoc ps :env @state/ansatz-env))
+                            ps)))
+                      ps hints)]
        (reduce (fn [ps gid]
                  (if (proof/mvar-assigned? ps gid) ps
                      (grind-goal (assoc ps :goals (into [gid] (remove #{gid} (:goals ps)))) hints options)))
