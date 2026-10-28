@@ -50,7 +50,8 @@
           (binding [fixture/*jvm-program* (lazy/open-program rebuilt)]
             (doseq [fuel (range 6) backend [:reference :mutable :jvm]]
               (is (= (m/run initial fuel)
-                     (fixture/backend-run backend rebuilt (assoc initial :functions rebuilt) fuel)))))))))
+                     (fixture/backend-run backend rebuilt
+                                          (m/start (assoc world :functions rebuilt) caller [value]) fuel)))))))))
   (let [caller (name-of "GlobalProbe" "readValues") callee (name-of "GlobalProbe" "values")
         rows (actual-rows "globals.jsonl" #{caller callee})
         signature {:params [] :result-type (get-in rows [callee :ir :fdecl :type])
@@ -133,7 +134,10 @@
     (let [r (rc-row persistent) fs (fixture/selected [r]) name (fixture/name-of "rc")
           unit (:unit (prepared [r] "rc")) rebuilt (assoc-in fs [name :body] (blocks/legacy-body (get-in unit [:functions name])))
           [world value] (rc-world fs kind) initial (m/start world name [value])
-          rebuilt-initial (assoc initial :functions rebuilt)]
+          ;; Enter reconstructed code, rather than keeping the old PC while
+          ;; replacing only the function table. Unknown PC copies intentionally
+          ;; use ordinary interpretation in the lazy runtime.
+          rebuilt-initial (m/start (assoc world :functions rebuilt) name [value])]
       (if (and persistent (= :owned kind))
         ;; Error states compare the same backend before/after reconstruction;
         ;; this preparation change does not repair legacy compiler error charging.

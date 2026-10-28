@@ -113,6 +113,24 @@
       (is (= (m/run initial) (u/freeze (lazy/run! program (u/thaw initial))))))
     (is (zero? (:compiled (lazy/summary program))))))
 
+(deftest copied-pc-failures-retain-ordinary-interpreter-checkpoints
+  (let [functions {:entry {:params [0] :body [:inc [:var 0] 1 [:return [:var 0]] true]}}
+        [world ref] (m/resource (m/world functions) :owned)
+        initial (assoc (m/start world :entry [ref])
+                       :body (edn/read-string (pr-str (get-in functions [:entry :body]))))
+        program (lazy/open-program functions)
+        attempt (fn [run]
+                  (let [machine (u/thaw initial)]
+                    (try (run machine 10)
+                         (catch Throwable error
+                           [(class error) (ex-message error) (ex-data error) (u/freeze machine)]))))]
+    (with-redefs [fingerprint/key (fn [& _] (throw (ex-info "Copied failing PC was hashed" {})))]
+      (let [expected (attempt u/run!) actual (attempt (partial lazy/run! program))]
+        (is (= expected actual))
+        (is (= "Persistent RC invariant violated" (second actual)))
+        (is (= 1 (get-in (nth actual 3) [:stats :steps])))))
+    (is (zero? (:compiled (lazy/summary program))))))
+
 (deftest real-ir-pauses-and-suspension-forks
   (let [functions (h/functions)]
     (doseq [shared? [false true] workload [:map :fold :reverse]]

@@ -112,6 +112,14 @@ inventory and three negative audit tests (20 assertions) passed after updating
 the explicit source count from 67 to 68. The first CI contract attempt caught
 that packaging omission before running the experimental suites.
 
+The next stage exposed two older reconstruction fixtures that replaced the
+function table while still executing the original PC. They now enter the rebuilt
+function through `m/start`, strengthening the roundtrip test. The known legacy
+compiler failure-step charging is not repaired here. A separate copied-PC failure
+test checks the ordinary interpreter's exception and checkpoint, with no hashing
+or compilation. The bounded CI gate now includes all 20 lazy-runtime tests and
+passed 80 tests/9,641 assertions in a fresh 384 MiB JVM.
+
 Load the existing benchmark/prepared research namespaces, then
 `static-code-dispatch.clj` and `interpreter-cost-corpus.clj` in the retained REPL.
 Create the existing compiler-ir fixture context and call
