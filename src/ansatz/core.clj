@@ -1737,6 +1737,21 @@
     (swap! errors conj error)
     (binding [*out* *err*] (println "WARNING:" (.getMessage error)))))
 
+(clojure.core/defn- expr-fvar-ids [expr]
+  (if-not (e/has-fvar-flag expr)
+    #{}
+    (case (e/tag expr)
+      :fvar #{(e/fvar-id expr)}
+      :app (into (expr-fvar-ids (e/app-fn expr)) (expr-fvar-ids (e/app-arg expr)))
+      :lam (into (expr-fvar-ids (e/lam-type expr)) (expr-fvar-ids (e/lam-body expr)))
+      :forall (into (expr-fvar-ids (e/forall-type expr)) (expr-fvar-ids (e/forall-body expr)))
+      :let (into (expr-fvar-ids (e/let-type expr))
+                 (concat (expr-fvar-ids (e/let-value expr))
+                         (expr-fvar-ids (e/let-body expr))))
+      :proj (expr-fvar-ids (e/proj-struct expr))
+      :mdata (expr-fvar-ids (e/mdata-expr expr))
+      #{})))
+
 (clojure.core/defn- define-verified-impl
   "Structural-recursion path. Throws {:kind ::redirect-wf :measure m} when recursion is
    non-structural but a WF measure was synthesized (handled by define-verified)."
@@ -1829,9 +1844,8 @@
                                                     (nth param-names i))))
                                        (range n))))
                           (tree-seq coll? seq body-form)))))
-        ;; Lean FindRecArg: only distinct parameter variables may serve as
-        ;; indices. Keep more dependent families on the existing checked path
-        ;; until their index-dependency transport is implemented.
+        ;; Lean FindRecArg: indices are distinct parameter variables, and each
+        ;; index type may depend on other indices, but not varying arguments.
         structural-matcher?
         (and structural-candidate?
              (let [param-types (loop [ty type-ansatz i 0 acc []]
@@ -1851,11 +1865,9 @@
                     (= (count indices) (.numIndices ^ConstantInfo ci))
                     (= (count indices) (count (distinct indices)))
                     (every? #(and (<= 0 %) (< % n) (not= % rec-pos)) index-positions)
-                    (every? #(not (e/has-fvar-flag (nth param-types %)))
+                    (every? #(every? (set (map e/fvar-id indices))
+                                     (expr-fvar-ids (nth param-types %)))
                             index-positions)
-                    (or (empty? indices)
-                        (every? #(not (e/has-fvar-flag (nth param-types %)))
-                                (remove (set (conj index-positions rec-pos)) (range n))))
                     (every? #(or (not (e/has-fvar-flag %))
                                  (some #{%} (map e/fvar (range 1 (inc n)))))
                             ind-params)
