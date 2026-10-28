@@ -489,11 +489,34 @@
         [head _] (e/get-app-fn-args app)]
     (replace-subterm target app (apply e/app* head new-args))))
 
+(defn- heq-trans
+  "Compose two HEq proofs using the kernel's HEq.rec. Bundled Init does not
+   contain Lean's derived HEq.trans theorem."
+  [u alpha a beta b gamma c h1 h2]
+  (let [heq (fn [x y z w]
+              (e/app* (e/const' (name/from-string "HEq") [u]) x y z w))
+        beta-id (fresh-id)
+        b-id (fresh-id)
+        t-id (fresh-id)
+        h2-id (fresh-id)
+        beta-fv (e/fvar beta-id)
+        b-fv (e/fvar b-id)
+        motive (close-lambdas
+                (e/arrow (heq beta-fv b-fv gamma c)
+                         (heq alpha a gamma c))
+                [[beta-id beta-fv (e/sort' u)]
+                 [b-id b-fv beta-fv]
+                 [t-id (e/fvar t-id) (heq alpha a beta-fv b-fv)]])
+        refl-case (close-lambdas (e/fvar h2-id)
+                                 [[h2-id (e/fvar h2-id) (heq alpha a gamma c)]])]
+    (e/app* (e/const' (name/from-string "HEq.rec") [lvl/zero u])
+            alpha a motive refl-case beta b h1 h2)))
+
 (defn- transport-named-alts
   "Lean Split.withNewAltEqs: after changing matcher discriminants, replace each
    named equality binder `oldDiscr = pattern` with `newDiscr = pattern`. Its old
    uses are reconstructed using the generalization equality and Eq.trans."
-  [target app args info new-discrs generalization-eqs]
+  [target app args info new-discrs new-discr-types generalization-eqs general-heq?]
   (let [named-indices (vec (keep-indexed (fn [i h] (when h i)) (:discrs info)))
         n-named (count named-indices)
         np (:num-params info)
@@ -511,18 +534,33 @@
                                 (let [[eq-head eq-args] (e/get-app-fn-args old-type)
                                       eq-name (when (e/const? eq-head)
                                                 (name/->string (e/const-name eq-head)))
-                                      _ (when-not (= "Eq" eq-name)
-                                          (throw (ex-info "HEq named discriminant transport is not yet supported"
+                                      _ (when-not (contains? #{"Eq" "HEq"} eq-name)
+                                          (throw (ex-info "named discriminant is not an equality"
                                                           {:kind :match-splitter-error :type old-type})))
-                                      [alpha old-discr pattern] eq-args
+                                      [alpha old-discr gamma pattern]
+                                      (if (= "Eq" eq-name)
+                                        [(nth eq-args 0) (nth eq-args 1) nil (nth eq-args 2)]
+                                        eq-args)
                                       new-discr (nth new-discrs discr-idx)
+                                      new-discr-type (nth new-discr-types discr-idx)
                                       eq-proof (nth generalization-eqs discr-idx)
+                                      eq-proof-heq (if (nth general-heq? discr-idx)
+                                                     eq-proof
+                                                     (e/app* (e/const' (name/from-string "heq_of_eq")
+                                                                       (e/const-levels eq-head))
+                                                             alpha old-discr new-discr eq-proof))
                                       new-id (fresh-id)
                                       new-fv (e/fvar new-id)
-                                      new-type (e/app* eq-head alpha new-discr pattern)
-                                      old-proof (e/app* (e/const' (name/from-string "Eq.trans")
-                                                         (e/const-levels eq-head))
-                                                        alpha old-discr new-discr pattern eq-proof new-fv)]
+                                      new-type (if (= "Eq" eq-name)
+                                                 (e/app* eq-head alpha new-discr pattern)
+                                                 (e/app* eq-head new-discr-type new-discr gamma pattern))
+                                      old-proof (if (= "Eq" eq-name)
+                                                  (e/app* (e/const' (name/from-string "Eq.trans")
+                                                                    (e/const-levels eq-head))
+                                                          alpha old-discr new-discr pattern eq-proof new-fv)
+                                                  (heq-trans (first (e/const-levels eq-head))
+                                                             alpha old-discr new-discr-type new-discr gamma pattern
+                                                             eq-proof-heq new-fv))]
                                   [(conj bs [new-id new-fv new-type])
                                    (assoc s old-id old-proof)]))
                               [[] {}] (map vector named named-indices))]
@@ -680,7 +718,8 @@
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "h" ty))
                               lctx (map vector h-ids h-types))
                  sg-type (if (pos? (mi/get-num-discr-eqs info))
-                           (transport-named-alts (:type goal) app args info patterns (mapv e/fvar h-ids))
+                           (transport-named-alts (:type goal) app args info patterns
+                                                 pattern-types (mapv e/fvar h-ids) hetero?)
                            (replace-matcher-discrs (:type goal) app args np nd patterns))
                  [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
              [ps (conj acc {:patterns patterns :ys-ids ys-ids :ys-types ys-types
@@ -689,7 +728,8 @@
                             :h-ids h-ids :h-types h-types :goal sg-id})]))
          [ps []] (:alts d))
         motive-target (if (pos? (mi/get-num-discr-eqs info))
-                        (transport-named-alts (:type goal) app args info dfvs general-hs)
+                        (transport-named-alts (:type goal) app args info dfvs
+                                              motive-discr-types general-hs hetero?)
                         (replace-matcher-discrs (:type goal) app args np nd dfvs))
         motive-body (reduce (fn [t [hid eq-lvl discr-type motive-type discr dfv heq?]]
                               (let [eq-type (if heq?

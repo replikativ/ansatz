@@ -67,6 +67,17 @@
                                       (fn [h :- (Eq Bool (Bool.not b) Bool.false)] 2)))
                '[(split) (all_goals (rfl))])))))
 
+(deftest heterogeneous-named-equality-transport-is-kernel-checked
+  (let [nat (e/const' (name/from-string "Nat") [])
+        zero (e/lit-nat 0)
+        u (lvl/succ lvl/zero)
+        heq (e/const' (name/from-string "HEq") [u])
+        refl (e/app* (e/const' (name/from-string "HEq.refl") [u]) nat zero)
+        type (e/app* heq nat zero nat zero)
+        term (#'match-eqns/heq-trans u nat zero nat zero nat zero refl refl)]
+    (is (some? (env/check-constant (a/env)
+                                   (env/mk-thm (name/from-string "test.heqTrans") [] type term))))))
+
 (deftest split-keeps-equal-discriminants-independent
   (a/define-verified 'duplicate-match '[^Nat n] 'Nat
     '(match [n n] [[0 0] 1] [[_ _] 2]))
