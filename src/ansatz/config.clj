@@ -14,6 +14,11 @@
    its separate recursor transformation until the brecOn port is complete."
   true)
 
+(def ^:dynamic *lean-structural-matchers*
+  "Experimental `brecOn` compilation for one-argument recursive matches.
+   The full fixed-parameter and indexed-inductive port is still in progress."
+  false)
+
 ;; -- Kernel fuel --
 (def ^:dynamic *default-fuel*
   "Default fuel for interactive Java TypeChecker operations (20M steps).
