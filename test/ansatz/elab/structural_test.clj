@@ -107,3 +107,42 @@
         (is (some? (env/lookup (a/env) (name/from-string "twoIndexedLength.eq_2"))))
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest dependent-index-types-use-structural-matcher
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (reset! a/ansatz-env
+              (ind/define-inductive (a/env) "StructuralFin" '[]
+                [['zero '[n Nat] ['(Nat.succ n)]]
+                 ['succ '[n Nat i (StructuralFin n)] ['(Nat.succ n)]]]
+                :indices '[n Nat]))
+      (reset! a/ansatz-env
+              (ind/define-inductive (a/env) "DependentIndexVec" '[]
+                [['nil [] [0 '(StructuralFin.zero 0)]]
+                 ['cons '[n Nat i (StructuralFin (Nat.succ n))
+                          xs (DependentIndexVec n i)]
+                  ['(Nat.succ n) '(StructuralFin.succ (Nat.succ n) i)]]]
+                :indices '[n Nat i (StructuralFin (Nat.succ n))]))
+      (let [f (a/define-verified 'dependentIndexLength
+                '[n :- Nat, i :- (StructuralFin (Nat.succ n))
+                  v :- (DependentIndexVec n i)] 'Nat
+                '(match v [nil 0]
+                        [(cons k j xs) (Nat.succ (dependentIndexLength k j xs))]))]
+        (is (= 2 (f 2 nil [1 nil [0 nil nil]])))
+        (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLength.match_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLength.eq_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLength.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (let [f (a/define-verified 'dependentIndexLengthExtra
+                '[n :- Nat, i :- (StructuralFin (Nat.succ n))
+                  v :- (DependentIndexVec n i)
+                  t :- (StructuralFin (Nat.succ n))] 'Nat
+                '(match v [nil 0]
+                        [(cons k j xs)
+                         (Nat.succ (dependentIndexLengthExtra k j xs j))]))]
+        (is (= 2 (f 2 nil [1 nil [0 nil nil]] nil)))
+        (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLengthExtra.eq_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "dependentIndexLengthExtra.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))

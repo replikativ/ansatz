@@ -95,12 +95,7 @@
         ;; its runtime/proof source remains the original let expression.
         matcher-name (e/const-name
                       (e/get-app-fn
-                       (red/whnf-no-delta environment source-body (:lctx @ctx))))
-        original-params (vec (keep-indexed
-                              (fn [i x]
-                                (when (and (not= i rec-pos)
-                                           (not (some #{i} index-positions))) x))
-                              xs))]
+                       (red/whnf-no-delta environment source-body (:lctx @ctx))))]
     (reduce
      (fn [{:keys [env names errors]} [i ctor-name]]
        (try
@@ -112,21 +107,41 @@
                [fields ctor-result] (u/forall-telescope ctx ctor-type (.numFields ctor))
                ctor-result-args (e/get-app-args ctor-result)
                result-indices (subvec ctor-result-args (.numParams ind))
+               index-subst (mapv vector indices result-indices)
+               ;; A non-index parameter after an index may have a dependent
+               ;; type. Specialize it to the constructor result indices before
+               ;; binding it in the equation theorem.
+               [param-subst unchanged-params specialized-params]
+               (reduce (fn [[subst unchanged specialized] [pos x]]
+                         (if (or (= pos rec-pos) (some #{pos} index-positions))
+                           [subst unchanged specialized]
+                           (let [type (u/replace-fvars (u/infer-type ctx x)
+                                                       (into index-subst subst))
+                                 x' (if (= type (u/infer-type ctx x))
+                                      x
+                                      (u/local-decl ctx "eqParam" type))]
+                             [(conj subst [x x'])
+                              (cond-> unchanged (= x x') (conj x'))
+                              (cond-> specialized (not= x x') (conj x'))])))
+                       [[] [] []] (map-indexed vector xs))
+               substitutions (into index-subst param-subst)
                ctor-app (u/app (e/const' ctor-name levels) (concat params fields))
-               actual-params (reduce (fn [args [pos idx]] (assoc args pos idx))
-                                     (assoc xs rec-pos ctor-app)
-                                     (map vector index-positions result-indices))
+               actual-params (mapv (fn [pos x]
+                                     (if (= pos rec-pos)
+                                       ctor-app
+                                       (u/replace-fvars x substitutions)))
+                                   (range (count xs)) xs)
                lhs (u/app fconst actual-params)
                rhs (reduce-matcher env (:lctx @ctx)
                                    (u/replace-fvars source-body
                                                     (into [[(e/fvar self-id) fconst]
                                                            [major ctor-app]]
-                                                          (map vector indices result-indices)))
+                                                          substitutions))
                                    matcher-name (e/const-name head))
                result-type (u/infer-type ctx lhs)
                level (u/get-level ctx result-type)
                eq-type (u/app (u/const' "Eq" [level]) [result-type lhs rhs])
-               binders (into original-params fields)
+               binders (vec (concat unchanged-params fields specialized-params))
                theorem-type (u/mk-forall-fvars ctx binders eq-type)
                proof (or (prove-by-splitting ctx lhs rhs binders 2)
                          (throw (ex-info "Structural equation needs Lean's general proof pass"
