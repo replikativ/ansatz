@@ -2518,7 +2518,13 @@
           :else
           (let [[lhs-head lhs-args] (e/get-app-fn-args lhs-whnf)
                 [rhs-head rhs-args] (e/get-app-fn-args rhs-whnf)]
-            (if (and (e/const? lhs-head) (e/const? rhs-head))
+            ;; A stuck function application can also have a constant head. Only
+            ;; constructors justify noConfusion and ctorIdx disjointness.
+            (if (and (e/const? lhs-head) (e/const? rhs-head)
+                     (let [^ConstantInfo lc (env/lookup (:env ps) (e/const-name lhs-head))
+                           ^ConstantInfo rc (env/lookup (:env ps) (e/const-name rhs-head))]
+                       (and lc rc (.isCtor lc) (.isCtor rc)
+                            (= (.inductName lc) (.inductName rc)))))
               (let [lhs-name (e/const-name lhs-head)
                     rhs-name (e/const-name rhs-head)
                     same? (= lhs-name rhs-name)
@@ -3206,11 +3212,15 @@
   ;; Lean RCases.lean processConstructor: surplus tuple patterns nest in the
   ;; final explicit field; missing patterns are anonymous, not clear operations.
   (if-let [nm (first fields)]
-    (let [pat (if (and (= 1 (count fields)) (> (count patterns) 1))
-                (vec patterns) (first patterns))
+    (let [nested? (and (= 1 (count fields)) (> (count patterns) 1))
+          pat (if nested? (vec patterns) (first patterns))
           ps (rcases-pattern ps (rcases-local-id ps nm) (or pat '_))]
-      (rcases-map-goals ps #(rcases-fields % (rest fields) (rest patterns))))
-    ps))
+      (rcases-map-goals ps #(rcases-fields % (rest fields)
+                                           (if nested? [] (rest patterns)))))
+    (if (seq patterns)
+      (tactic-error! "rcases: constructor pattern has more fields than the constructor"
+                     {:patterns patterns})
+      ps)))
 
 (defn- rcases-subst-eq
   "Lean Subst.lean substEq first calls heqToEq for homogeneous HEq proofs."
