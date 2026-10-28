@@ -67,6 +67,18 @@
                    2)
                '[(split) (all_goals (rfl))])))))
 
+(deftest split-processes-equalities-created-by-constructor-injection
+  (a/define-verified 'matcher-succ '[^Nat n] 'Nat
+    '(match n [0 0] [(Nat.succ y) y]))
+  (is (some? (second
+              (a/prove-law
+               '[n :- Nat]
+               '(= Nat
+                   (matcher-succ.match_1 (fn [x :- Nat] Nat) (Nat.succ n)
+                                         (fn [u :- Unit] 0) (fn [y :- Nat] y))
+                   n)
+               '[(split) (all_goals (rfl))])))))
+
 (deftest option-off-retains-direct-recursor-bodies
   (binding [config/*lean-matchers* false]
     (let [f (a/define-verified 'matcher-off '[^Bool b] 'Nat '(match b [false 13] [true 21]))]

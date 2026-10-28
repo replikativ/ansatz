@@ -481,23 +481,37 @@
   "Use the same equality simplification as `cases` on the splitter's branch
    equations. An impossible constructor equation closes its branch."
   [ps alt-infos]
-  (let [alt-ids (set (map :goal alt-infos))
+  (let [unify-branch
+        (fn [ps ids]
+          (loop [ps ps, pending (seq ids)]
+            (if-let [hid (first pending)]
+              (let [goal (proof/current-goal ps)]
+                (if-not (and goal (contains? (:lctx goal) hid))
+                  (recur ps (next pending))
+                  (let [result (try (basic/unify-eq ps hid)
+                                    (catch clojure.lang.ExceptionInfo ex
+                                      (if (= :tactic-error (:kind (ex-data ex)))
+                                        {:ps ps :status :continue :num-new-eqs 0}
+                                        (throw ex))))
+                        ps (:ps result)]
+                    (if (= :solved (:status result))
+                      ps
+                      (let [[ps new-ids]
+                            (reduce (fn [[ps ids] _]
+                                      (let [ps (basic/intro ps)
+                                            new-id (last (sort (keys (:lctx (proof/current-goal ps)))))]
+                                        [ps (conj ids new-id)]))
+                                    [ps []] (range (:num-new-eqs result)))]
+                        (recur ps (concat new-ids (next pending))))))))
+              ps)))
+        alt-ids (set (map :goal alt-infos))
         siblings (vec (remove alt-ids (:goals ps)))
         ps (assoc ps :goals (vec (filter alt-ids (:goals ps))))]
     (loop [pending (vec (:goals ps)), done [], ps ps]
       (if-let [goal-id (first pending)]
         (let [alt (some #(when (= goal-id (:goal %)) %) alt-infos)
               ps1 (assoc ps :goals [goal-id])
-              ps2 (reduce (fn [ps hid]
-                            (let [goal (proof/current-goal ps)]
-                              (if (and goal (contains? (:lctx goal) hid))
-                                (try (:ps (basic/unify-eq ps hid))
-                                     (catch clojure.lang.ExceptionInfo ex
-                                       (if (= :tactic-error (:kind (ex-data ex)))
-                                         ps
-                                         (throw ex))))
-                                ps)))
-                          ps1 (concat (:named-eq-ids alt) (:h-ids alt)))]
+              ps2 (unify-branch ps1 (concat (:named-eq-ids alt) (:h-ids alt)))]
           (recur (subvec pending 1) (into done (:goals ps2)) ps2))
         (assoc ps :goals (into (vec done) siblings))))))
 
