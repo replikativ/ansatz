@@ -169,17 +169,22 @@
   (testing "Tree build time scales linearly"
     (let [l500  (make-bench-lemmas 500)
           l1000 (make-bench-lemmas 1000)
-          _ (dotimes [_ 2] (dt/make-simp-tree l1000))   ; JIT warmup — else cold-compile noise trips the bound
-          t0 (System/nanoTime)
-          _ (dt/make-simp-tree l500)
-          t1 (System/nanoTime)
-          _ (dt/make-simp-tree l1000)
-          t2 (System/nanoTime)
-          ms500  (/ (- t1 t0) 1e6)
-          ms1000 (/ (- t2 t1) 1e6)]
-      ;; 1000 should take ≈2× as long as 500 — generous bound (+ additive floor) to survive JIT/GC jitter.
-      (is (< ms1000 (+ 5.0 (* 6 ms500)))
-          (str "1000-lemma build (" ms1000 "ms) should be roughly linear vs 500-lemma build (" ms500 "ms)")))))
+          _ (dotimes [_ 2] (dt/make-simp-tree l1000))
+          samples (vec (repeatedly 7
+                                   (fn []
+                                     (let [t0 (System/nanoTime)
+                                           _ (dt/make-simp-tree l500)
+                                           t1 (System/nanoTime)
+                                           _ (dt/make-simp-tree l1000)
+                                           t2 (System/nanoTime)]
+                                       [(/ (- t1 t0) 1e6) (/ (- t2 t1) 1e6)]))))
+          within-bound? (fn [[ms500 ms1000]]
+                          (< ms1000 (+ 5.0 (* 6 ms500))))]
+      ;; The bound is unchanged. Require five of seven paired samples so an
+      ;; unrelated GC or scheduler pause in one build cannot fail the shard.
+      (is (<= 5 (count (filter within-bound? samples)))
+          (str "1000-lemma builds should scale roughly linearly vs 500-lemma builds: "
+               samples)))))
 
 (deftest test-scaling-lookup-selectivity
   (testing "Lookup returns exactly 1 result from N lemmas (all same head)"
