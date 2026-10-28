@@ -309,7 +309,11 @@
    projection-heavy theorem conclusions can be compared to elaborated goals."
   [ps goal-lctx expr]
   (let [cache *apply-normalization-cache*
-        cached (when cache (.get ^java.util.IdentityHashMap cache expr))]
+        ;; The metavariable context can gain assignments between apply candidates.
+        ;; Only cache expressions whose reduction is independent of that context.
+        cacheable? (not (meta/has-expr-mvar? expr))
+        cached (when (and cache cacheable?)
+                 (.get ^java.util.IdentityHashMap cache expr))]
     (if (and cached
              (identical? (:env cached) (:env ps))
              (identical? (:lctx cached) goal-lctx))
@@ -356,7 +360,7 @@
                                  (e/mdata (e/mdata-data expr) ne)))
                       expr)))]
         (let [result (go expr)]
-          (when cache
+          (when (and cache cacheable?)
             (.put ^java.util.IdentityHashMap cache expr
                   {:env (:env ps) :lctx goal-lctx :result result}))
           result)))))
