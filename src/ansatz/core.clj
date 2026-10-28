@@ -1647,6 +1647,97 @@
               :else form))]
     (walk body-form)))
 
+(clojure.core/defn- expand-explicit-ih
+  "Translate the older `ih_field` shorthand into a recursive call before
+   elaboration. Lean elaborates recursive names in predefinitions and lets
+   Structural.replaceRecApps obtain the induction hypothesis from `below`."
+  [environment fn-name param-names body-form]
+  (let [has-ih? (some #(and (symbol? %)
+                            (.startsWith (name %) "ih_"))
+                      (tree-seq coll? seq body-form))]
+    (if-not has-ih?
+      body-form
+      (letfn [(binder-symbols [form]
+                (set (filter symbol? (tree-seq coll? seq form))))
+              (rewrite-rhs [form ih-fields rec-pos shadowed]
+                (cond
+                  (and (symbol? form) (contains? ih-fields form)
+                       (not (contains? shadowed form)))
+                  (list* fn-name (assoc param-names rec-pos (get ih-fields form)))
+                  (and (seq? form) (= 'quote (first form))) form
+                  (and (seq? form) (= 'let (first form)) (vector? (second form)))
+                  (let [[bindings scoped]
+                        (reduce (fn [[out scoped] [binder value]]
+                                  [(conj out binder
+                                         (rewrite-rhs value ih-fields rec-pos scoped))
+                                   (into scoped (binder-symbols binder))])
+                                [[] shadowed] (partition 2 (second form)))]
+                    (apply list 'let (vec bindings)
+                           (map #(rewrite-rhs % ih-fields rec-pos scoped) (drop 2 form))))
+                  (and (seq? form) (= 'fn (first form)) (vector? (second form)))
+                  (apply list 'fn (second form)
+                         (map #(rewrite-rhs % ih-fields rec-pos
+                                            (into shadowed (binder-symbols (second form))))
+                              (drop 2 form)))
+                  (and (seq? form) (= 'match (first form)))
+                  (let [explicit? (not (vector? (nth form 2 nil)))
+                        prefix (if explicit? 4 2)
+                        alts (map (fn [alt]
+                                    (if explicit?
+                                      (let [fields (when (vector? (second alt)) (second alt))
+                                            rhs-pos (if fields 2 1)]
+                                        (apply list (assoc (vec alt) rhs-pos
+                                                           (rewrite-rhs (nth alt rhs-pos)
+                                                                        ih-fields rec-pos
+                                                                        (into shadowed
+                                                                              (binder-symbols fields))))))
+                                      (let [[pat rhs] alt]
+                                        [pat (rewrite-rhs rhs ih-fields rec-pos
+                                                          (into shadowed (binder-symbols pat)))])))
+                                  (drop prefix form))]
+                    (apply list (concat ['match
+                                         (rewrite-rhs (second form) ih-fields rec-pos shadowed)]
+                                        (when explicit? (take 2 (drop 2 form))) alts)))
+                  (seq? form) (apply list (map #(rewrite-rhs % ih-fields rec-pos shadowed) form))
+                  (vector? form) (mapv #(rewrite-rhs % ih-fields rec-pos shadowed) form)
+                  :else form))
+              (rewrite-leading [form]
+                (cond
+                  (and (seq? form) (= 'let (first form)) (= 3 (count form)))
+                  (list 'let (second form) (rewrite-leading (nth form 2)))
+                  (and (seq? form) (= 'match (first form))
+                       (<= 0 (.indexOf param-names (second form)))
+                       (not (vector? (nth form 2 nil))))
+                  (let [rec-pos (.indexOf param-names (second form))
+                        type-form (nth form 2)
+                        ind-name (str (if (seq? type-form) (first type-form) type-form))
+                        alts (map (fn [alt]
+                                    (let [ctor-name (name/from-string
+                                                     (str ind-name "." (or (first alt) 'nil)))
+                                          ci (env/lookup environment ctor-name)
+                                          fields (when (vector? (second alt)) (second alt))
+                                          rhs-pos (if fields 2 1)
+                                          ih-fields
+                                          (when (and ci fields)
+                                            (loop [type (.type ^ConstantInfo ci)
+                                                   i 0 names []]
+                                              (if (= i (+ (.numParams ^ConstantInfo ci)
+                                                          (.numFields ^ConstantInfo ci)))
+                                                (into {} (map (fn [field-name binder]
+                                                                [(symbol (str "ih_" field-name)) binder])
+                                                              (drop (.numParams ^ConstantInfo ci) names)
+                                                              fields))
+                                                (recur (e/forall-body type) (inc i)
+                                                       (conj names (str (e/forall-name type)))))))]
+                                      (apply list (assoc (vec alt) rhs-pos
+                                                         (rewrite-rhs (nth alt rhs-pos)
+                                                                      ih-fields rec-pos
+                                                                      (binder-symbols fields))))))
+                                  (drop 4 form))]
+                    (apply list (concat (take 4 form) alts)))
+                  :else form))]
+        (rewrite-leading body-form)))))
+
 (clojure.core/defn define-verified
   "Define a verified function. Auto-detects structural recursion; if the recursion is not
    structural, tries lean4's GuessLex (single Nat measure, then lexicographic pairs) and
@@ -1656,7 +1747,9 @@
   [fn-name params ret-type-form body-form]
   (atomic-definition
    (fn []
-     (let [body-form (hoist-loops! fn-name (mapv first (parse-params params)) body-form)]
+     (let [param-names (mapv first (parse-params params))
+           body-form (hoist-loops! fn-name param-names body-form)
+           body-form (expand-explicit-ih (env) fn-name param-names body-form)]
        (try
          (define-verified-impl fn-name params ret-type-form body-form)
          (catch clojure.lang.ExceptionInfo e
