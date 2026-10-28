@@ -20,6 +20,7 @@
      (elaborate env '(lam [a Nat] (Eq.refl a))  expected-type)
      ;; => checks against expected-type, infers implicits"
   (:require [clojure.string]
+            [clojure.walk :as walk]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
@@ -31,7 +32,7 @@
             [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
             [ansatz.surface.ingest :as ingest])
-  (:import [ansatz.kernel Env]))
+  (:import [ansatz.kernel Env Expr]))
 
 ;; ============================================================
 ;; Elaboration state
@@ -1719,7 +1720,10 @@
          (:return-env? opts) {:env result-env :expr result}
          (identical? env result-env) result
          (= mode :collecting)
-         (update result :expr #(inline-local-matchers env result-env %))
+         (walk/postwalk #(if (instance? Expr %)
+                           (inline-local-matchers env result-env %)
+                           %)
+                        result)
          :else (inline-local-matchers env result-env result))))))
 
 (defn elaborate
