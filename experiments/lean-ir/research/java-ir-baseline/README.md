@@ -35,7 +35,7 @@ the heap is still mutable and neither mode is forkable.
 
 The implementation precomputes frame sizes and resolves function/intrinsic
 identities, whereas upstream grows slots on access and caches symbol lookup.
-Object and primitive stacks replace its C++ union. Five Nat intrinsics have
+Object and primitive stacks replace its C++ union. Eight Nat intrinsics have
 Java implementations rather than a native boxed ABI bridge. These are explicit
 JVM adaptations, not a binary Lean runtime ABI.
 
@@ -44,7 +44,7 @@ JVM adaptations, not a binary Lean runtime ABI.
 Supported value lanes are object/tagged/tobject/erased/void and uint8. The profile
 covers constructors, object/byte projection and stores, calls, boxed partial and
 closure application, boxing/unboxing uint8, literals, sharing tests, RC operations,
-joins, cases, returns and traps. Nat add/sub/mod/equality/less-than support
+joins, cases, returns and traps. Nat add/sub/mul/div/mod/pow/equality/less-than support
 nonnegative Long and promoted BigInteger values. Subtraction saturates; mod0
 returns the numerator. External uint8 inputs require exact values in 0..255.
 
@@ -55,7 +55,7 @@ declaration sets, not a public source-file loader. Stack/index preparation remai
 bounded by the prototype's limits; arbitrary deeply nested input is unverified.
 
 Unsupported families include float and wider scalar lanes, struct/union, USize
-fields, reset/reuse, foreign functions other than the five Nat operations, IO,
+fields, reset/reuse, foreign functions other than the eight Nat operations, IO,
 tasks/resources, native globals/initializers and the full string/MPZ object runtime.
 String and large-Nat arithmetic leaves use JVM values without guest RC headers;
 sharing tests and object cases on those families reject. The prototype does not
@@ -89,7 +89,12 @@ jar in a fresh 384 MiB JVM and are part of the experimental CI contract job.
 Six additional [compatibility inventory tests](corpus-checks.clj) add 38
 assertions for pinned fixtures, static dependency derivation, dynamic-site
 reporting and rejection of hash/name/producer drift. The runner now executes 32
-tests / 1,369 assertions. These inventory tests do not execute original RBMap `main`.
+tests / 1,369 assertions before the extern expansion. Five further
+[extern tests](extern-checks.clj), run in both modes, bring the current runner to
+42 executions / 2,711 assertions. The
+[extern ABI and Nat report](../JAVA_EXTERN_RUNTIME.md) records native oracles,
+signature validation and remaining gaps. These tests do not execute original
+RBMap `main`.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
 No Init image, hosted frontend, project loader or full Mathlib campaign is run.
 
