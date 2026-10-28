@@ -55,10 +55,10 @@
         n (when (e/const? h) (name/->string (e/const-name h)))]
     (case n
       "Eq" (e/app* (e/const' (name/from-string "Eq.refl") (e/const-levels h))
-                    (nth args 0) (nth args 2))
+                   (nth args 0) (nth args 2))
       "HEq" (e/app* (e/const' (name/from-string "HEq.refl")
                               [(first (e/const-levels h))])
-                     (nth args 2) (nth args 3))
+                    (nth args 2) (nth args 3))
       (throw (ex-info "matcher named discriminant is not an equality"
                       {:type type})))))
 
@@ -292,7 +292,7 @@
                       guards (if unit-thunk []
                                  (subvec opened num-fields (+ num-fields num-overlaps)))
                       named-eqs (subvec opened (+ num-fields num-overlaps
-                                                       (if unit-thunk 1 0)))
+                                                  (if unit-thunk 1 0)))
                       [_ pat-args] (e/get-app-fn-args alt-body)]
                   {:pattern (first pat-args)        ; single-discriminant: one pattern
                    :patterns (vec pat-args)

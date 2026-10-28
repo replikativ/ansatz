@@ -274,7 +274,7 @@
     :split-matcher
     (let [{:keys [match-name us params discrs discr-types eq-lvls hetero? motive alts]} assignment
           alt-lams (mapv (fn [{:keys [ys-ids ys-types guard-ids guard-types
-                                     named-eq-ids named-eq-types h-ids h-types goal]}]
+                                      named-eq-ids named-eq-types h-ids h-types goal]}]
                            (let [h-lam (reduce (fn [body [hid hty]]
                                                  (e/lam "h" hty
                                                         (meta/abstract-fvars body [hid]) :default))
