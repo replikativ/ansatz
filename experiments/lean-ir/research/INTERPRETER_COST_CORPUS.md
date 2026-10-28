@@ -107,6 +107,11 @@ An initial retained gate had one instrumentation-count failure after reloading
 because its captured function identity had changed. A fresh process with coherent
 definition owners passed. No runtime guard was weakened to conceal this result.
 
+The optional Lean package closure includes the new provenance source. Its strict
+inventory and three negative audit tests (20 assertions) passed after updating
+the explicit source count from 67 to 68. The first CI contract attempt caught
+that packaging omission before running the experimental suites.
+
 Load the existing benchmark/prepared research namespaces, then
 `static-code-dispatch.clj` and `interpreter-cost-corpus.clj` in the retained REPL.
 Create the existing compiler-ir fixture context and call
