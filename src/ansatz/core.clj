@@ -1786,18 +1786,16 @@
         ;; Lean searches the elaborated predefinition for recursive calls and
         ;; tries structural arguments independently of the outer body shape.
         ;; Start by recognizing a matched parameter inside an enclosing form.
-        match-body (first (filter (fn [form]
-                                    (and (seq? form) (= 'match (first form))
-                                         (contains? changed-rec-positions
-                                                    (.indexOf (mapv first pairs) (second form)))))
-                                  (tree-seq coll? seq body-form)))
-        rec-pos (when match-body
-                  (let [pos (.indexOf (mapv first pairs) (second match-body))]
-                    (when (<= 0 pos) pos)))
+        candidate-positions
+        (vec (distinct (keep (fn [form]
+                               (when (and (seq? form) (= 'match (first form)))
+                                 (let [pos (.indexOf (mapv first pairs) (second form))]
+                                   (when (contains? changed-rec-positions pos) pos))))
+                             (tree-seq coll? seq body-form))))
         structural-candidate? (and config/*lean-matchers*
                                    config/*lean-structural-matchers*
                                    recursive? (not explicit-ih?)
-                                   (some? rec-pos))
+                                   (seq candidate-positions))
         matcher-elaboration? (and config/*lean-matchers*
                                   (or structural-candidate?
                                       (and (not recursive?) (not explicit-ih?))))
@@ -1866,33 +1864,37 @@
                           (tree-seq coll? seq body-form)))))
         ;; Lean FindRecArg: indices are distinct parameter variables, and each
         ;; index type may depend on other indices, but not varying arguments.
-        structural-matcher?
-        (and structural-candidate?
-             (let [param-types (loop [ty type-ansatz i 0 acc []]
-                                 (if (= i n)
-                                   acc
-                                   (recur (e/instantiate1 (e/forall-body ty) (e/fvar (inc i)))
-                                          (inc i) (conj acc (e/forall-type ty)))))
-                   [head ind-args] (e/get-app-fn-args
-                                    (red/whnf env (nth param-types rec-pos) {}))
-                   ind-name (when (e/const? head) (e/const-name head))
-                   ci (when ind-name (env/lookup env ind-name))
-                   ind-params (when ci (subvec ind-args 0 (.numParams ^ConstantInfo ci)))
-                   indices (when ci (subvec ind-args (.numParams ^ConstantInfo ci)))
-                   index-positions (when (every? e/fvar? indices)
-                                     (mapv #(dec (e/fvar-id %)) indices))]
-               (and ci
-                    (= (count indices) (.numIndices ^ConstantInfo ci))
-                    (= (count indices) (count (distinct indices)))
-                    (every? #(and (<= 0 %) (< % n) (not= % rec-pos)) index-positions)
-                    (every? #(every? (set (map e/fvar-id indices))
-                                     (expr-fvar-ids (nth param-types %)))
-                            index-positions)
-                    (every? #(or (not (e/has-fvar-flag %))
-                                 (some #{%} (map e/fvar (range 1 (inc n)))))
-                            ind-params)
-                    (env/lookup env (name/mk-str ind-name "below"))
-                    (env/lookup env (name/mk-str ind-name "brecOn")))))
+        structural-positions
+        (when structural-candidate?
+          (let [param-types (loop [ty type-ansatz i 0 acc []]
+                              (if (= i n)
+                                acc
+                                (recur (e/instantiate1 (e/forall-body ty) (e/fvar (inc i)))
+                                       (inc i) (conj acc (e/forall-type ty)))))]
+            (vec (filter
+                  (fn [rec-pos]
+                    (let [[head ind-args] (e/get-app-fn-args
+                                           (red/whnf env (nth param-types rec-pos) {}))
+                          ind-name (when (e/const? head) (e/const-name head))
+                          ci (when ind-name (env/lookup env ind-name))
+                          ind-params (when ci (subvec ind-args 0 (.numParams ^ConstantInfo ci)))
+                          indices (when ci (subvec ind-args (.numParams ^ConstantInfo ci)))
+                          index-positions (when (every? e/fvar? indices)
+                                            (mapv #(dec (e/fvar-id %)) indices))]
+                      (and ci
+                           (= (count indices) (.numIndices ^ConstantInfo ci))
+                           (= (count indices) (count (distinct indices)))
+                           (every? #(and (<= 0 %) (< % n) (not= % rec-pos)) index-positions)
+                           (every? #(every? (set (map e/fvar-id indices))
+                                            (expr-fvar-ids (nth param-types %)))
+                                   index-positions)
+                           (every? #(or (not (e/has-fvar-flag %))
+                                        (some #{%} (map e/fvar (range 1 (inc n)))))
+                                   ind-params)
+                           (env/lookup env (name/mk-str ind-name "below"))
+                           (env/lookup env (name/mk-str ind-name "brecOn")))))
+                  candidate-positions))))
+        structural-matcher? (boolean (seq structural-positions))
         lean-matchers? (and matcher-elaboration?
                             (or structural-matcher?
                                 (and (not recursive?) (not explicit-ih?))))
@@ -1903,18 +1905,32 @@
                            (cond-> matcher-opts
                              structural-matcher?
                              (assoc :self-name fn-name :self-type type-ansatz)))))
+        compiled-structural
+        (when structural-matcher?
+          (let [failures (atom [])
+                result (some (fn [pos]
+                               (try
+                                 {:pos pos
+                                  :expr (structural/compile-recursive-match
+                                         (:env body-result) (:expr body-result) type-ansatz
+                                         (:self-fvar-id body-result) pos n)}
+                                 (catch Exception ex
+                                   (swap! failures conj ex)
+                                   nil)))
+                             structural-positions)]
+            (or result
+                (let [unexpected (first (remove #(= :non-structural-recursion
+                                                    (:kind (ex-data %))) @failures))
+                      ex (or unexpected (last @failures))
+                      measure (when-not unexpected
+                                (wf-guess-measure pairs body-form fn-name n))]
+                  (if measure
+                    (throw (ex-info "auto-measure WF"
+                                    {:kind ::redirect-wf :measure measure} ex))
+                    (throw ex))))))
+        rec-pos (:pos compiled-structural)
         body-ansatz (if structural-matcher?
-                      (try
-                        (structural/compile-recursive-match
-                         (:env body-result) (:expr body-result) type-ansatz
-                         (:self-fvar-id body-result) rec-pos n)
-                        (catch clojure.lang.ExceptionInfo ex
-                          (if-let [measure (when (= :non-structural-recursion (:kind (ex-data ex)))
-                                             (wf-guess-measure pairs body-form fn-name n))]
-                            (throw (ex-info "auto-measure WF"
-                                            {:kind ::redirect-wf
-                                             :measure measure}))
-                            (throw ex))))
+                      (:expr compiled-structural)
                       (if lean-matchers? (:expr body-result)
                           (binding [surface-match/*self-name* (when top-match? cname)
                                     surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
@@ -2508,7 +2524,8 @@
               (report-equation-error! equation-errors (str fn-name ".eq_1") ex)))
         _ (when structural-matcher?
             (try
-              (if (= match-body leading-match-body)
+              (if (and leading-match-body
+                       (= rec-pos (.indexOf (mapv first pairs) (second leading-match-body))))
                 (let [{:keys [env names errors]}
                       (structural-eqns/constructor-equations
                        @ansatz-env fn-name (:expr body-result)
