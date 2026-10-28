@@ -8,10 +8,9 @@
    All values are dynamic vars that can be overridden via `binding`.")
 
 (def ^:dynamic *lean-matchers*
-  "Compile matches in non-recursive verified definitions through generated,
-   kernel-checked matcher declarations. Recursive definitions retain their current path.
-   Ordinary matches use this path by default. Structural recursion still uses
-   its separate recursor transformation until the brecOn port is complete."
+  "Compile supported verified matches through generated, kernel-checked matcher
+   declarations. Ordinary matches and supported structural recursion use this
+   path by default; unsupported recursive forms retain their checked path."
   true)
 
 (def ^:dynamic *lean-structural-matchers*
