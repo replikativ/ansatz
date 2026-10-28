@@ -146,6 +146,12 @@ authority races, generated lifetime cleanup, identity allocation and proof
 scope. Local documentation links and whitespace checks passed. Full repository
 tests, fresh-JVM packaging and a full hosted frontend image were not run.
 
+For landing, the fresh 48-class component check also passed: 73 infrastructure
+tests / 1,064 assertions, 14 host-storage tests / 211 assertions, and all 25
+branch tests / 459 assertions in one bounded JVM, followed by 16 metadata tests
+and the isolated legacy namespace-load check. Native proof verification remains
+separate from this CI gate.
+
 The evidence supports preserving the separate engines and sharing the semantic
 contract. A next implementation decision is where to expose a production
 scoped effect ABI, including pause/capture policy, typed runtime handles and
