@@ -25,6 +25,63 @@
     :mdata (contains-self? self-id (e/mdata-expr expr))
     false))
 
+(defn- self-call-args [self-id expr]
+  (let [seen (java.util.IdentityHashMap.)
+        calls (transient [])]
+    (letfn [(visit [expr]
+              (when (and (e/has-fvar-flag expr)
+                         (nil? (.put seen expr true)))
+                (case (e/tag expr)
+                  :app (let [[head args] (e/get-app-fn-args expr)]
+                         (if (and (e/fvar? head) (= self-id (e/fvar-id head)))
+                           (do (conj! calls args) (doseq [arg args] (visit arg)))
+                           (do (visit (e/app-fn expr)) (visit (e/app-arg expr)))))
+                  :lam (do (visit (e/lam-type expr)) (visit (e/lam-body expr)))
+                  :forall (do (visit (e/forall-type expr)) (visit (e/forall-body expr)))
+                  :let (do (visit (e/let-type expr)) (visit (e/let-value expr))
+                           (visit (e/let-body expr)))
+                  :proj (visit (e/proj-struct expr))
+                  :mdata (visit (e/mdata-expr expr))
+                  nil)))]
+      (visit expr))
+    (persistent! calls)))
+
+(defn- expr-fvar-ids [expr]
+  (if-not (e/has-fvar-flag expr)
+    #{}
+    (case (e/tag expr)
+      :fvar #{(e/fvar-id expr)}
+      :app (into (expr-fvar-ids (e/app-fn expr)) (expr-fvar-ids (e/app-arg expr)))
+      :lam (into (expr-fvar-ids (e/lam-type expr)) (expr-fvar-ids (e/lam-body expr)))
+      :forall (into (expr-fvar-ids (e/forall-type expr)) (expr-fvar-ids (e/forall-body expr)))
+      :let (into (expr-fvar-ids (e/let-type expr))
+                 (concat (expr-fvar-ids (e/let-value expr))
+                         (expr-fvar-ids (e/let-body expr))))
+      :proj (expr-fvar-ids (e/proj-struct expr))
+      :mdata (expr-fvar-ids (e/mdata-expr expr))
+      #{})))
+
+(defn- fixed-parameter-positions [ctx self-id xs body arity rec-pos index-positions]
+  (let [calls (self-call-args self-id body)
+        excluded (set (conj index-positions rec-pos))
+        unchanged? (fn [i]
+                     (every? (fn [args]
+                               (and (< i (count args))
+                                    (try (tc/is-def-eq @ctx (nth args i) (nth xs i))
+                                         (catch Exception _ false))))
+                             calls))
+        initial (set (filter #(and (not (excluded %)) (unchanged? %)) (range arity)))]
+    ;; Lean FixedParamPerms.erase: changing the major or an index also erases
+    ;; every fixed parameter whose type depends on it, transitively.
+    (loop [fixed initial]
+      (let [varying-ids (set (map #(e/fvar-id (nth xs %))
+                                  (remove fixed (range arity))))
+            fixed' (set (remove (fn [i]
+                                  (some varying-ids
+                                        (expr-fvar-ids (u/infer-type ctx (nth xs i)))))
+                                fixed))]
+        (if (= fixed fixed') fixed (recur fixed'))))))
+
 (defn- to-below [ctx motive below target-args]
   (let [raw-type (u/infer-type ctx below)
         [raw-head raw-args] (e/get-app-fn-args raw-type)
@@ -135,10 +192,16 @@
             (throw (ex-info "Indexed recursive argument requires distinct parameter indices"
                             {:kind :unsupported-structural-indices :argument arg-type})))
         index-positions (mapv #(.indexOf ^java.util.List xs %) indices)
-        ;; Inductive datatype parameters must remain fixed for `I.brecOn`.
-        ;; All other function parameters are allowed to vary between calls.
-        fixed-args (into {} (keep-indexed (fn [i x]
-                                            (when (some #{x} params) [i x])) xs))
+        ;; Lean FixedParams: arguments unchanged at every recursive call stay
+        ;; outside the motive, except indices/major and their dependents.
+        fixed-positions (fixed-parameter-positions ctx self-id xs body arity
+                                                   rec-pos index-positions)
+        ind-param-positions (set (keep-indexed (fn [i x]
+                                                 (when (some #{x} params) i)) xs))
+        _ (when-not (every? fixed-positions ind-param-positions)
+            (throw (ex-info "Recursive call changes an inductive parameter"
+                            {:kind :non-structural-recursion})))
+        fixed-args (into {} (map (fn [i] [i (nth xs i)]) fixed-positions))
         varying (vec (keep-indexed (fn [i x]
                                      (when (and (not= i rec-pos)
                                                 (not (some #{i} index-positions))

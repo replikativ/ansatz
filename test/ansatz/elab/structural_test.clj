@@ -192,3 +192,20 @@
         (is (some? (env/lookup (a/env) (name/from-string "trySecondArgRec.eq_1"))))
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest unchanged-noninductive-parameters-stay-outside-motive
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'fixedFlagRec
+                '[flag :- Bool, m :- Nat, n :- Nat] 'Nat
+                '(match n [0 m]
+                        [(Nat.succ k) (fixedFlagRec flag (Nat.succ m) k)]))
+            ci (env/lookup! (a/env) (name/from-string "fixedFlagRec"))]
+        (is (= 7 (f true 3 4)))
+        (is (= 7 (f false 3 4)))
+        (is (.contains (e/->string (.value ci))
+                       "Nat.brecOn.{1} (fun : Nat => (∀ : Nat, Nat))"))
+        (is (some? (env/lookup (a/env) (name/from-string "fixedFlagRec.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
