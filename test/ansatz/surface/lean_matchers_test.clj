@@ -54,6 +54,26 @@
     (is (= "matcher-bool.match_1"
            (str (e/const-name (e/get-app-fn (e/lam-body (.value (decl "matcher-bool"))))))))))
 
+(deftest simp-and-split-ifs-recognize-boolean-matchers
+  (a/define-verified 'matcher-bool-tactics '[^Bool b] 'Nat
+    '(match b [false 1] [true 2]))
+  (is (some? (second
+              (a/prove-law
+               '[]
+               '(= Nat (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) Bool.true
+                                                     (fn [u :- Unit] 1) (fn [u :- Unit] 2))
+                   2)
+               '[(simp)]))))
+  (is (some? (second
+              (a/prove-law
+               '[b :- Bool]
+               '(= Nat
+                   (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) b
+                                                 (fn [u :- Unit] 1) (fn [u :- Unit] 2))
+                   (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) b
+                                                 (fn [u :- Unit] 1) (fn [u :- Unit] 2)))
+               '[(split_ifs) (all_goals (rfl))])))))
+
 (deftest inferred-return-types-preserve-the-inference-pass-environment
   (let [f (a/define-verified 'matcher-inferred '[^Bool b] '_ '(match b [false 3] [true 4]))]
     (is (= 3 (f false)))

@@ -44,6 +44,7 @@
             [ansatz.meta :as meta]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.kernel.reduce :as red]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.decide :as decide-tac]
@@ -2120,27 +2121,41 @@
       (when decl (when-let [v (:value decl)] v)))))
 
 (defn- try-unfold
-  "Unfold a definition if its name is in the to-unfold set."
+  "Unfold an explicit definition, or a matcher with a known constructor
+   discriminant. The latter is Lean's matcher equation reduction path."
   [st env to-unfold expr]
-  (when (seq to-unfold)
-    (let [head (e/get-app-fn expr)]
-      (when (e/const? head)
-        (let [hname (e/const-name head)]
-          (when (contains? to-unfold (name/->string hname))
-            (when-let [^ConstantInfo ci (env/lookup env hname)]
+  (let [head (e/get-app-fn expr)]
+    (when (e/const? head)
+      (let [hname (e/const-name head)
+            hstr (name/->string hname)
+            info (matcher-info/get-matcher-info-core? env hstr)
+            args (e/get-app-args expr)
+            matcher-ready?
+            (when (and info
+                       (>= (count args) (+ (:num-params info) 1
+                                           (:num-discrs info) (count (:alts info)))))
+              (some (fn [discr]
+                      (let [w (red/whnf-no-delta env discr (:lctx st))
+                            h (e/get-app-fn w)
+                            ci (when (e/const? h) (env/lookup env (e/const-name h)))]
+                        (or (e/lit-nat? w) (and ci (.isCtor ^ConstantInfo ci)))))
+                    (subvec (vec args) (inc (:num-params info))
+                            (+ 1 (:num-params info) (:num-discrs info)))))]
+        (when (or (contains? to-unfold hstr) matcher-ready?)
+          (when-let [^ConstantInfo ci (env/lookup env hname)]
               ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
               ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)
-              (when (.isDef ci)
-                (when-let [value (.value ci)]
-                  (let [levels (e/const-levels head)
-                        lparams (vec (.levelParams ci))
-                        level-subst (into {} (map vector lparams
-                                                  (concat levels (repeat lvl/zero))))
-                        body (if (seq level-subst)
-                               (e/instantiate-level-params value level-subst)
-                               value)
-                        args (e/get-app-args expr)]
-                    (reduce e/app body args)))))))))))
+            (when (.isDef ci)
+              (when-let [value (.value ci)]
+                (let [levels (e/const-levels head)
+                      lparams (vec (.levelParams ci))
+                      level-subst (into {} (map vector lparams
+                                                (concat levels (repeat lvl/zero))))
+                      body (if (seq level-subst)
+                             (e/instantiate-level-params value level-subst)
+                             value)
+                      args (e/get-app-args expr)]
+                  (reduce e/app body args))))))))))
 
 (defn- try-eta-reduce
   "Eta reduction: (fun x => f x) → f when x is not free in f.
