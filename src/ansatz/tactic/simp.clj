@@ -3172,7 +3172,7 @@
                          (not (:limit (ex-data ex)))
                          (not (:proof-construction (ex-data ex))))
                   (if (= simplified goal-type)
-                    (if target-core? ps (tactic-error! "simp made no progress" {:goal goal-type}))
+                    ps
                  ;; Lean 4: simp replaces goal with simplified form via Eq.mpr
                  ;; when it can't close. Create a new goal with the simplified type.
                  ;; This follows Lean 4's applySimpResultToTarget (Main.lean:780).

@@ -19,6 +19,17 @@
   (or @init-medium-env
       (throw (ex-info "bundled Init unavailable" {}))))
 
+(deftest test-simp-succeeds-when-target-is-unchanged
+  (let [nat (e/const' (name/from-string "Nat") [])
+        goal-type (e/forall' "n" nat
+                             (e/app* (e/const' (name/from-string "Eq") [(lvl/succ lvl/zero)])
+                                     nat (e/bvar 0) (e/lit-nat 0)) :default)
+        [ps _] (proof/start-proof (require-env) goal-type)
+        ps (basic/intro ps)
+        before (:type (proof/current-goal ps))
+        ps (simp/simp ps [] {:decide? false})]
+    (is (= before (:type (proof/current-goal ps))))))
+
 ;; ============================================================
 ;; simp-expr tests (expression-level simplification)
 ;; ============================================================
