@@ -209,3 +209,21 @@
         (is (some? (env/lookup (a/env) (name/from-string "fixedFlagRec.eq_2"))))
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest nested-comparison-match-generalizes-with-elaboration-metavariables
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'nestedCmpRec '[n :- Nat, k :- Nat] 'Bool
+                '(match n [0 false]
+                        [(Nat.succ j)
+                         (match (< k j)
+                           [true (nestedCmpRec j k)]
+                           [false (match (== k j)
+                                    [true true]
+                                    [false false])])]))]
+        (is (true? (f 4 1)))
+        (is (false? (f 1 2)))
+        (is (some? (env/lookup (a/env) (name/from-string "nestedCmpRec.match_1"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
