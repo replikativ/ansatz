@@ -48,6 +48,20 @@
             (e/lam "x" bt (e/abstract1 b fid) :default))
           body (reverse binders)))
 
+(defn- named-discr-refl [type]
+  ;; AltTelescopes.forallAltTelescope supplies reflexivity for each `h : discr`
+  ;; binder after specializing the matcher discriminant to this equation's pattern.
+  (let [[h args] (e/get-app-fn-args type)
+        n (when (e/const? h) (name/->string (e/const-name h)))]
+    (case n
+      "Eq" (e/app* (e/const' (name/from-string "Eq.refl") (e/const-levels h))
+                    (nth args 0) (nth args 2))
+      "HEq" (e/app* (e/const' (name/from-string "HEq.refl")
+                              [(first (e/const-levels h))])
+                     (nth args 2) (nth args 3))
+      (throw (ex-info "matcher named discriminant is not an equality"
+                      {:type type})))))
+
 (defn- precedence-guard
   "Lean MatchEqs.mkNotAlt, instantiated at the later arm's patterns. A guard says
    that no choice of the earlier arm's fields can make all discriminants equal."
@@ -277,10 +291,12 @@
                       ys (subvec opened 0 (if unit-thunk 1 num-fields))
                       guards (if unit-thunk []
                                  (subvec opened num-fields (+ num-fields num-overlaps)))
+                      named-eqs (subvec opened (+ num-fields num-overlaps
+                                                       (if unit-thunk 1 0)))
                       [_ pat-args] (e/get-app-fn-args alt-body)]
                   {:pattern (first pat-args)        ; single-discriminant: one pattern
                    :patterns (vec pat-args)
-                   :fields ys :guards guards
+                   :fields ys :guards guards :named-eqs named-eqs
                    :ys-types (mapv (fn [[_ _ ty]] ty) ys)
                    :unit-thunk unit-thunk}))
               (range num-alts) altfvs)]
@@ -323,24 +339,36 @@
           (map-indexed
            (fn [i [_ alt-fv alt-ty]]
              (let [{:keys [num-fields unit-thunk]} (nth alts i)
-                 ;; Open the alt's own binders (ys): for a unit thunk that's the single Unit param.
-                   n-alt-binders (if unit-thunk 1 num-fields)
-                   [ys alt-body] (open-foralls alt-ty n-alt-binders)
+                   num-discr-eqs (mi/get-num-discr-eqs info)
+                 ;; The named-discriminant equality binders follow the pattern fields.
+                   n-fields (if unit-thunk 1 num-fields)
+                   [opened alt-body] (open-foralls alt-ty (+ n-fields num-discr-eqs))
+                   ys (subvec opened 0 n-fields)
+                   named-eqs (subvec opened n-fields)
                  ;; alt conclusion = motive-fv patterns…  → extract the discriminant patterns.
                    [head pat-args] (e/get-app-fn-args alt-body)
                    patterns (vec pat-args)
+                   discr-subst (into {} (map (fn [[id] pattern] [id pattern]) discrs patterns))
+                   equation-alts (if (zero? num-discr-eqs)
+                                   altfvs
+                                   (mapv (fn [[_ _ type]]
+                                           (let [id (fresh-id)]
+                                             [id (e/fvar id) (subst/apply discr-subst type)]))
+                                         altfvs))
                  ;; rhsArgs: a unit thunk is applied to Unit.unit; otherwise the field fvars.
                    unit-unit (e/const' (name/from-string "Unit.unit") [])
-                   rhs-args (if unit-thunk [unit-unit] (mapv second ys))
+                   rhs-args (into (if unit-thunk [unit-unit] (mapv second ys))
+                                  (mapv (fn [[_ _ type]]
+                                          (named-discr-refl (subst/apply discr-subst type))) named-eqs))
                  ;; eq binders: params ++ motive ++ (ys, only for non-thunk) ++ alts.
                    ys-binders (if unit-thunk [] ys)
-                   binders (vec (concat params [motive] ys-binders altfvs))
+                   binders (vec (concat params [motive] ys-binders equation-alts))
                    binder-ids (mapv first binders)
                  ;; LHS: matcher params motive patterns alts   (discrs := patterns)
                    lhs (apply e/app* mconst
-                              (concat (mapv second params) [motive-fv] patterns (mapv second altfvs)))
+                              (concat (mapv second params) [motive-fv] patterns (mapv second equation-alts)))
                  ;; RHS: alt rhsArgs
-                   rhs (apply e/app* alt-fv rhs-args)
+                   rhs (apply e/app* (second (nth equation-alts i)) rhs-args)
                  ;; result type = motive patterns (the matcher's conclusion at this pattern)
                    res-ty (apply e/app* motive-fv patterns)
                    eq-ty-open (e/app* (e/const' (name/from-string "Eq") [elim-lvl]) res-ty lhs rhs)
@@ -372,7 +400,8 @@
                        (env/lookup env (name/from-string splitter-name))
                        [env (mi/get-matcher-info-core? env splitter-name)]
 
-                       (mi/non-overlapping? info)
+                       (and (mi/non-overlapping? info)
+                            (zero? (mi/get-num-discr-eqs info)))
                        [(env/check-constant env (env/mk-def (name/from-string splitter-name)
                                                             lvls mtype mconst :hints :abbrev))
                         info]
@@ -450,7 +479,9 @@
         _ (when-not info
             (throw (ex-info "split-matcher: not a known matcher" {:split-retry true})))
         eqns (get-equations-for match-name)
-        splitter-name (if (mi/non-overlapping? info) match-name (:splitter-name eqns))
+        splitter-name (if (and (mi/non-overlapping? info)
+                               (zero? (mi/get-num-discr-eqs info)))
+                        match-name (:splitter-name eqns))
         env @state/ansatz-env
         ps (assoc ps :env env)
         d (matcher-alt-data env splitter-name)
@@ -490,7 +521,7 @@
         [ps alt-infos]
         (reduce
          (fn [[ps acc] alt]
-           (let [opened (vec (concat (:fields alt) (:guards alt)))
+           (let [opened (vec (concat (:fields alt) (:guards alt) (:named-eqs alt)))
                  [ps local-ids] (reduce (fn [[ps ids] _]
                                           (let [[ps id] (proof/alloc-id ps)]
                                             [ps (conj ids id)]))
@@ -499,9 +530,12 @@
                                    (map (fn [[old] id] [old (e/fvar id)])
                                         opened local-ids))
                  ys-ids (subvec local-ids 0 (count (:fields alt)))
-                 guard-ids (subvec local-ids (count (:fields alt)))
+                 guard-end (+ (count (:fields alt)) (count (:guards alt)))
+                 guard-ids (subvec local-ids (count (:fields alt)) guard-end)
+                 named-eq-ids (subvec local-ids guard-end)
                  ys-types (mapv #(subst/apply local-subst (nth % 2)) (:fields alt))
                  guard-types (mapv #(subst/apply local-subst (nth % 2)) (:guards alt))
+                 named-eq-types (mapv #(subst/apply local-subst (nth % 2)) (:named-eqs alt))
                  patterns (mapv #(subst/apply local-subst %) (:patterns alt))
                  pattern-types
                  (mapv (fn [i ty]
@@ -525,6 +559,8 @@
                               (:lctx goal) (map vector ys-ids ys-types))
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "notAlt" ty))
                               lctx (map vector guard-ids guard-types))
+                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "hDiscr" ty))
+                              lctx (map vector named-eq-ids named-eq-types))
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "h" ty))
                               lctx (map vector h-ids h-types))
                  sg-type (reduce (fn [t [discr pattern]]
@@ -533,6 +569,7 @@
                  [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
              [ps (conj acc {:patterns patterns :ys-ids ys-ids :ys-types ys-types
                             :guard-ids guard-ids :guard-types guard-types
+                            :named-eq-ids named-eq-ids :named-eq-types named-eq-types
                             :h-ids h-ids :h-types h-types :goal sg-id})]))
          [ps []] (:alts d))
         motive-target (reduce (fn [t [discr dfv]]

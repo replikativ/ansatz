@@ -273,17 +273,23 @@
 
     :split-matcher
     (let [{:keys [match-name us params discrs discr-types eq-lvls hetero? motive alts]} assignment
-          alt-lams (mapv (fn [{:keys [ys-ids ys-types guard-ids guard-types h-ids h-types goal]}]
+          alt-lams (mapv (fn [{:keys [ys-ids ys-types guard-ids guard-types
+                                     named-eq-ids named-eq-types h-ids h-types goal]}]
                            (let [h-lam (reduce (fn [body [hid hty]]
                                                  (e/lam "h" hty
                                                         (meta/abstract-fvars body [hid]) :default))
                                                (e/mvar goal)
                                                (reverse (map vector h-ids h-types)))
+                                 named-eq-lams
+                                 (reduce (fn [b [eid ety]]
+                                           (e/lam "hDiscr" ety
+                                                  (meta/abstract-fvars b [eid]) :default))
+                                         h-lam (reverse (map vector named-eq-ids named-eq-types)))
                                  guard-lams
                                  (reduce (fn [b [gid gty]]
                                            (e/lam "notAlt" gty
                                                   (meta/abstract-fvars b [gid]) :default))
-                                         h-lam (reverse (map vector guard-ids guard-types)))]
+                                         named-eq-lams (reverse (map vector guard-ids guard-types)))]
                              (reduce (fn [b [yid yty]]
                                        (e/lam "y" yty (meta/abstract-fvars b [yid]) :default))
                                      guard-lams (reverse (map vector ys-ids ys-types)))))

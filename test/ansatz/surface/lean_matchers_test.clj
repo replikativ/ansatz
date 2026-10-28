@@ -37,6 +37,22 @@
 
 (defn- decl [n] (env/lookup (a/env) (name/from-string n)))
 
+(deftest imported-named-discriminant-matcher-equations-and-splitter
+  (let [result (match-eqns/get-equations-for "Nat.decEq.match_1")]
+    (is (= 2 (count (:eqn-names result))))
+    (is (some? (decl (:splitter-name result))))
+    (is (some? (second
+                (a/prove-law
+                 '[b :- Bool]
+                 '(= Nat
+                     (Nat.decEq.match_1 (fn [x :- Bool] Nat) b
+                                        (fn [h :- (Eq Bool b Bool.true)] 1)
+                                        (fn [h :- (Eq Bool b Bool.false)] 2))
+                     (Nat.decEq.match_1 (fn [x :- Bool] Nat) b
+                                        (fn [h :- (Eq Bool b Bool.true)] 1)
+                                        (fn [h :- (Eq Bool b Bool.false)] 2)))
+                 '[(split) (all_goals (rfl))]))))))
+
 (deftest option-off-retains-direct-recursor-bodies
   (binding [config/*lean-matchers* false]
     (let [f (a/define-verified 'matcher-off '[^Bool b] 'Nat '(match b [false 13] [true 21]))]
