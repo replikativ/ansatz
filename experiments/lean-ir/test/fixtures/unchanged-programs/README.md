@@ -26,6 +26,12 @@ metadata; each selected declaration line is copied verbatim from the capture.
 - `compiler-ir.jsonl`: 81 demand-closed declarations, no externs. The roots are
   `categoricalProgram`, `metropolisHastingsProgram`, `twoStateTarget`, and
   `twoStateProposal` in `Mcmc.Executable.Finite.CompilerIR`.
+- `rbmap-main.jsonl`: the complete original 80-declaration RBMap capture from
+  the same run as `rbmap-capture.json`, preserved verbatim. `main` alone reaches
+  79 declarations and 26 extern declarations. This is an inventory fixture;
+  original-main JVM execution is not yet supported. Its SHA-256 and the proposed
+  source-compatibility gates are in the
+  [compatibility corpus](../../../research/LEAN_COMPATIBILITY_CORPUS.md).
 
 From `experiments/lean-ir`, provide existing producer/sysroot paths explicitly:
 

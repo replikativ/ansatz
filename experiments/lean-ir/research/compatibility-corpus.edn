@@ -1,0 +1,55 @@
+{:schema 1
+ :producer {:version "4.33.1" :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"}
+ :release-requires #{:original-source :hosted-source-loading :checked-imports
+                     :native-observation-parity :java-clojure-interop :isolated-jar}
+ :entries
+ [{:id :rbmap-computation
+   :source {:repository :lean4 :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+            :path "tests/compile_bench/rbmap.lean"
+            :fixture {:path "test/fixtures/unchanged-programs/rbmap.lean"
+                      :sha256 "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}}
+   :ir {:path "test/fixtures/unchanged-programs/rbmap.jsonl"
+        :sha256 "16af3c22c51f254400a31bea3747fbd9235e2319adc101310804d4f2754641f8"}
+   :roots ["mkMap" "fold._redArg" "main._closed_0"]
+   :recorded-evidence #{:raw-ir-values :guest-ownership-counters :isolated-engine-jar}
+   :evidence "java-ir-baseline/README.md"}
+  {:id :rbmap-original-main
+   :source {:repository :lean4 :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"
+            :path "tests/compile_bench/rbmap.lean"
+            :fixture {:path "test/fixtures/unchanged-programs/rbmap.lean"
+                      :sha256 "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}}
+   :ir {:path "test/fixtures/unchanged-programs/rbmap-main.jsonl"
+        :sha256 "fd5d33885a4e0f7af5be3f39586d830b4180a4b9e2983ce8195500f1945f9b8f"}
+   :roots ["main"]
+   :recorded-evidence #{:native-source-main}
+   :evidence "../test/fixtures/unchanged-programs/README.md"}
+  {:id :mcmc-compiler-descriptions
+   :source {:repository :mcmc-lean :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb"
+            :path "formal/Mcmc/Executable/Finite/CompilerIR.lean"
+            :fixture {:path "test/fixtures/unchanged-programs/CompilerIR.lean"
+                      :sha256 "bd4681f3ce6ba9050125d2bf8dd4f630fc5bbcf7f7870616975727cd85fca4f2"}}
+   :ir {:path "test/fixtures/unchanged-programs/compiler-ir.jsonl"
+        :sha256 "e1b812c6db41a7f015b606f89e96ee73e45fd043aafb6b97a49363ef23bb1661"}
+   :roots ["Mcmc.Executable.Finite.CompilerIR.categoricalProgram"
+           "Mcmc.Executable.Finite.CompilerIR.metropolisHastingsProgram"
+           "Mcmc.Executable.Finite.CompilerIR.twoStateTarget"
+           "Mcmc.Executable.Finite.CompilerIR.twoStateProposal"]
+   :recorded-evidence #{:raw-ir-values :isolated-engine-jar}
+   :evidence "java-ir-baseline/README.md"}
+  {:id :mcmc-finite-execution
+   :source {:repository :mcmc-lean :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb"
+            :path "formal/Mcmc/Executable/Finite/CompilerIRInterpreter.lean"
+            :sha256 "c73484432ddbc8a397237260f68e694f03007d6f4a5c3e94eb3289ea8fb5fe5f"}
+   :roots ["Mcmc.Executable.Finite.CompilerIR.runCategorical"
+           "Mcmc.Executable.Finite.CompilerIR.runMetropolisHastings"]
+   :recorded-evidence #{}
+   :pending #{:capture-executable-closure :trace-oracle-comparison :runtime-coverage}}
+  {:id :mcmc-proof-bearing-imports
+   :source {:repository :mcmc-lean :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb"
+            :path "formal/Mcmc/Executable/Finite/TwoState.lean"
+            :sha256 "6ac5ca036d7b8d0cbbf54b1c253eafe87d436b17460acefcb7c53f21b866407f"}
+   :recorded-evidence #{}
+   :pending #{:import-closure :tactics :native-decide-compatibility :checked-source-loading}}
+  {:id :multi-file-io-example
+   :recorded-evidence #{}
+   :pending #{:select-and-pin-original-example :file-io :errors :project-imports}}]}

@@ -1,0 +1,500 @@
+{:schema 1,
+ :scope :research-compatibility-corpus,
+ :producer
+ {:version "4.33.1",
+  :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"},
+ :producer-revision-verification
+ :capture-provenance-and-artifact-hashes-not-encoded-in-ir,
+ :release-requires
+ #{:checked-imports
+   :original-source
+   :hosted-source-loading
+   :native-observation-parity
+   :isolated-jar
+   :java-clojure-interop},
+ :entries
+ [{:id :rbmap-computation,
+   :source
+   {:repository :lean4,
+    :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    :path "tests/compile_bench/rbmap.lean",
+    :fixture
+    {:path "test/fixtures/unchanged-programs/rbmap.lean",
+     :sha256
+     "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}},
+   :roots ["mkMap" "fold._redArg" "main._closed_0"],
+   :recorded-evidence
+   #{:isolated-engine-jar :guest-ownership-counters :raw-ir-values},
+   :evidence "java-ir-baseline/README.md",
+   :checked-artifacts
+   [{:path "test/fixtures/unchanged-programs/rbmap.lean",
+     :sha256
+     "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}
+    {:path "test/fixtures/unchanged-programs/rbmap.jsonl",
+     :sha256
+     "16af3c22c51f254400a31bea3747fbd9235e2319adc101310804d4f2754641f8"}],
+   :inventory
+   {:externs
+    [{:name "Nat.add",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_add"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error nil}
+     {:name "Nat.decEq",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_nat_dec_eq"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "uint8",
+      :preparation-error nil}
+     {:name "Nat.decLt",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_nat_dec_lt"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "uint8",
+      :preparation-error nil}
+     {:name "Nat.mod",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_mod"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error nil}
+     {:name "Nat.sub",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_sub"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error nil}],
+    :unsupported-extern-count 0,
+    :missing-static-dependencies [],
+    :closure-preparation-error nil,
+    :scope :static-ir-inventory-not-source-compatibility,
+    :roots ["mkMap" "fold._redArg" "main._closed_0"],
+    :limits
+    ["Preparation does not execute or establish value parity."
+     "Dynamic closure targets and host-provided implementations need separate validation."
+     "The module initialization plan is reported, not executed or accepted."
+     "Java preparation does not implement or validate row initializer/redirect semantics."
+     "No hosted parsing, elaboration, kernel admission or project loading occurs."],
+    :declarations 15,
+    :row-runtime-links [],
+    :dynamic-application-sites 1,
+    :producer-version "4.33.1",
+    :initialization-plan
+    {"actions" [],
+     "imports"
+     [{"meta" false, "module" ["str" ["anonymous"] "Init"]}
+      {"meta" true, "module" ["str" ["anonymous"] "Init"]}],
+     "kind" "initialization-plan",
+     "module" ["str" ["anonymous"] "UnchangedRbmap"],
+     "moduleSystem" false,
+     "schema" "lean-init-plan/1"}}}
+  {:id :rbmap-original-main,
+   :source
+   {:repository :lean4,
+    :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+    :path "tests/compile_bench/rbmap.lean",
+    :fixture
+    {:path "test/fixtures/unchanged-programs/rbmap.lean",
+     :sha256
+     "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}},
+   :roots ["main"],
+   :recorded-evidence #{:native-source-main},
+   :evidence "../test/fixtures/unchanged-programs/README.md",
+   :checked-artifacts
+   [{:path "test/fixtures/unchanged-programs/rbmap.lean",
+     :sha256
+     "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}
+    {:path "test/fixtures/unchanged-programs/rbmap-main.jsonl",
+     :sha256
+     "fd5d33885a4e0f7af5be3f39586d830b4180a4b9e2983ce8195500f1945f9b8f"}],
+   :inventory
+   {:externs
+    [{:name "Array.getInternalBorrowed",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_array_fget_borrowed"}}],
+      :params
+      [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+       {"borrow" true, "ty" "object", "x" {"idx" 2}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 3}}
+       {"borrow" false, "ty" "erased", "x" {"idx" 4}}],
+      :result-type "tobject",
+      :preparation-error
+      "Unsupported baseline extern: lean_array_fget_borrowed"}
+     {:name "Array.mk",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_array_mk"}}],
+      :params
+      [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+       {"borrow" false, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "object",
+      :preparation-error "Unsupported baseline extern: lean_array_mk"}
+     {:name "Array.size",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_array_get_size"}}],
+      :params
+      [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+       {"borrow" true, "ty" "object", "x" {"idx" 2}}],
+      :result-type "tagged",
+      :preparation-error
+      "Unsupported baseline extern: lean_array_get_size"}
+     {:name "IO.getStdout",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_get_stdout"}}],
+      :params [{"borrow" false, "ty" "void", "x" {"idx" 1}}],
+      :result-type "object",
+      :preparation-error
+      "Unsupported baseline extern: lean_get_stdout"}
+     {:name "Nat.add",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_add"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error nil}
+     {:name "Nat.decEq",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_nat_dec_eq"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "uint8",
+      :preparation-error nil}
+     {:name "Nat.decLt",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_nat_dec_lt"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "uint8",
+      :preparation-error nil}
+     {:name "Nat.div",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_div"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error "Unsupported baseline extern: lean_nat_div"}
+     {:name "Nat.mod",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_mod"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error nil}
+     {:name "Nat.mul",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_mul"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error "Unsupported baseline extern: lean_nat_mul"}
+     {:name "Nat.pow",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_pow"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error "Unsupported baseline extern: lean_nat_pow"}
+     {:name "Nat.sub",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"], "fn" "lean_nat_sub"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+      :result-type "tobject",
+      :preparation-error nil}
+     {:name "String.Internal.append",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_append"}}],
+      :params
+      [{"borrow" false, "ty" "object", "x" {"idx" 1}}
+       {"borrow" true, "ty" "object", "x" {"idx" 2}}],
+      :result-type "object",
+      :preparation-error
+      "Unsupported baseline extern: lean_string_append"}
+     {:name "String.Pos.next",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_utf8_next_fast"}}],
+      :params
+      [{"borrow" true, "ty" "object", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}
+       {"borrow" false, "ty" "erased", "x" {"idx" 3}}],
+      :result-type "tagged",
+      :preparation-error
+      "Unsupported baseline extern: lean_string_utf8_next_fast"}
+     {:name "String.decodeChar",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_utf8_get_fast"}}],
+      :params
+      [{"borrow" true, "ty" "object", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}
+       {"borrow" false, "ty" "erased", "x" {"idx" 3}}],
+      :result-type "uint32",
+      :preparation-error "Unsupported baseline IR type: uint32"}
+     {:name "String.ofList",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_mk"}}],
+      :params [{"borrow" false, "ty" "tobject", "x" {"idx" 1}}],
+      :result-type "object",
+      :preparation-error "Unsupported baseline extern: lean_string_mk"}
+     {:name "String.push",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_push"}}],
+      :params
+      [{"borrow" false, "ty" "object", "x" {"idx" 1}}
+       {"borrow" false, "ty" "uint32", "x" {"idx" 2}}],
+      :result-type "object",
+      :preparation-error "Unsupported baseline IR type: uint32"}
+     {:name "String.utf8ByteSize",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_utf8_byte_size"}}],
+      :params [{"borrow" true, "ty" "object", "x" {"idx" 1}}],
+      :result-type "tagged",
+      :preparation-error
+      "Unsupported baseline extern: lean_string_utf8_byte_size"}
+     {:name "System.Platform.getNumBits",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_system_platform_nbits"}}],
+      :params [{"borrow" false, "ty" "tagged", "x" {"idx" 1}}],
+      :result-type "tobject",
+      :preparation-error
+      "Unsupported baseline extern: lean_system_platform_nbits"}
+     {:name "UInt32.decEq",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_uint32_dec_eq"}}],
+      :params
+      [{"borrow" false, "ty" "uint32", "x" {"idx" 1}}
+       {"borrow" false, "ty" "uint32", "x" {"idx" 2}}],
+      :result-type "uint8",
+      :preparation-error "Unsupported baseline IR type: uint32"}
+     {:name "UInt32.decLe",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_uint32_dec_le"}}],
+      :params
+      [{"borrow" false, "ty" "uint32", "x" {"idx" 1}}
+       {"borrow" false, "ty" "uint32", "x" {"idx" 2}}],
+      :result-type "uint8",
+      :preparation-error "Unsupported baseline IR type: uint32"}
+     {:name "UInt32.toNat",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_uint32_to_nat"}}],
+      :params [{"borrow" false, "ty" "uint32", "x" {"idx" 1}}],
+      :result-type "tobject",
+      :preparation-error "Unsupported baseline IR type: uint32"}
+     {:name "USize.ofNat",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_usize_of_nat"}}],
+      :params [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}],
+      :result-type "usize",
+      :preparation-error "Unsupported baseline IR type: usize"}
+     {:name "USize.ofNatLT",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_usize_of_nat"}}],
+      :params
+      [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+       {"borrow" false, "ty" "erased", "x" {"idx" 2}}],
+      :result-type "usize",
+      :preparation-error "Unsupported baseline IR type: usize"}
+     {:name "USize.repr",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_string_of_usize"}}],
+      :params [{"borrow" true, "ty" "usize", "x" {"idx" 1}}],
+      :result-type "object",
+      :preparation-error "Unsupported baseline IR type: usize"}
+     {:name "panicCore",
+      :entries
+      [{"standard"
+        {"backend" ["str" ["anonymous"] "all"],
+         "fn" "lean_panic_fn_borrowed"}}],
+      :params
+      [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+       {"borrow" true, "ty" "tobject", "x" {"idx" 2}}
+       {"borrow" false, "ty" "object", "x" {"idx" 3}}],
+      :result-type "tobject",
+      :preparation-error
+      "Unsupported baseline extern: lean_panic_fn_borrowed"}],
+    :unsupported-extern-count 21,
+    :missing-static-dependencies [],
+    :closure-preparation-error "Unsupported baseline IR type: uint32",
+    :scope :static-ir-inventory-not-source-compatibility,
+    :roots ["main"],
+    :limits
+    ["Preparation does not execute or establish value parity."
+     "Dynamic closure targets and host-provided implementations need separate validation."
+     "The module initialization plan is reported, not executed or accepted."
+     "Java preparation does not implement or validate row initializer/redirect semantics."
+     "No hosted parsing, elaboration, kernel admission or project loading occurs."],
+    :declarations 79,
+    :row-runtime-links [],
+    :dynamic-application-sites 2,
+    :producer-version "4.33.1",
+    :initialization-plan
+    {"actions" [],
+     "imports"
+     [{"meta" false, "module" ["str" ["anonymous"] "Init"]}
+      {"meta" true, "module" ["str" ["anonymous"] "Init"]}],
+     "kind" "initialization-plan",
+     "module" ["str" ["anonymous"] "UnchangedRbmap"],
+     "moduleSystem" false,
+     "schema" "lean-init-plan/1"}}}
+  {:id :mcmc-compiler-descriptions,
+   :source
+   {:repository :mcmc-lean,
+    :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+    :path "formal/Mcmc/Executable/Finite/CompilerIR.lean",
+    :fixture
+    {:path "test/fixtures/unchanged-programs/CompilerIR.lean",
+     :sha256
+     "bd4681f3ce6ba9050125d2bf8dd4f630fc5bbcf7f7870616975727cd85fca4f2"}},
+   :roots
+   ["Mcmc.Executable.Finite.CompilerIR.categoricalProgram"
+    "Mcmc.Executable.Finite.CompilerIR.metropolisHastingsProgram"
+    "Mcmc.Executable.Finite.CompilerIR.twoStateTarget"
+    "Mcmc.Executable.Finite.CompilerIR.twoStateProposal"],
+   :recorded-evidence #{:isolated-engine-jar :raw-ir-values},
+   :evidence "java-ir-baseline/README.md",
+   :checked-artifacts
+   [{:path "test/fixtures/unchanged-programs/CompilerIR.lean",
+     :sha256
+     "bd4681f3ce6ba9050125d2bf8dd4f630fc5bbcf7f7870616975727cd85fca4f2"}
+    {:path "test/fixtures/unchanged-programs/compiler-ir.jsonl",
+     :sha256
+     "e1b812c6db41a7f015b606f89e96ee73e45fd043aafb6b97a49363ef23bb1661"}],
+   :inventory
+   {:externs [],
+    :unsupported-extern-count 0,
+    :missing-static-dependencies [],
+    :closure-preparation-error nil,
+    :scope :static-ir-inventory-not-source-compatibility,
+    :roots
+    ["Mcmc.Executable.Finite.CompilerIR.categoricalProgram"
+     "Mcmc.Executable.Finite.CompilerIR.metropolisHastingsProgram"
+     "Mcmc.Executable.Finite.CompilerIR.twoStateTarget"
+     "Mcmc.Executable.Finite.CompilerIR.twoStateProposal"],
+    :limits
+    ["Preparation does not execute or establish value parity."
+     "Dynamic closure targets and host-provided implementations need separate validation."
+     "The module initialization plan is reported, not executed or accepted."
+     "Java preparation does not implement or validate row initializer/redirect semantics."
+     "No hosted parsing, elaboration, kernel admission or project loading occurs."],
+    :declarations 81,
+    :row-runtime-links [],
+    :dynamic-application-sites 0,
+    :producer-version "4.33.1",
+    :initialization-plan
+    {"actions" [],
+     "imports"
+     [{"meta" false, "module" ["str" ["anonymous"] "Init"]}
+      {"meta" true, "module" ["str" ["anonymous"] "Init"]}],
+     "kind" "initialization-plan",
+     "module" ["str" ["anonymous"] "UnchangedCompilerIR"],
+     "moduleSystem" false,
+     "schema" "lean-init-plan/1"}}}
+  {:id :mcmc-finite-execution,
+   :source
+   {:repository :mcmc-lean,
+    :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+    :path "formal/Mcmc/Executable/Finite/CompilerIRInterpreter.lean",
+    :sha256
+    "c73484432ddbc8a397237260f68e694f03007d6f4a5c3e94eb3289ea8fb5fe5f"},
+   :roots
+   ["Mcmc.Executable.Finite.CompilerIR.runCategorical"
+    "Mcmc.Executable.Finite.CompilerIR.runMetropolisHastings"],
+   :pending
+   #{:trace-oracle-comparison
+     :runtime-coverage
+     :capture-executable-closure},
+   :recorded-evidence #{},
+   :checked-artifacts [],
+   :inventory nil}
+  {:id :mcmc-proof-bearing-imports,
+   :source
+   {:repository :mcmc-lean,
+    :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+    :path "formal/Mcmc/Executable/Finite/TwoState.lean",
+    :sha256
+    "6ac5ca036d7b8d0cbbf54b1c253eafe87d436b17460acefcb7c53f21b866407f"},
+   :pending
+   #{:import-closure
+     :checked-source-loading
+     :native-decide-compatibility
+     :tactics},
+   :recorded-evidence #{},
+   :checked-artifacts [],
+   :inventory nil}
+  {:id :multi-file-io-example,
+   :pending
+   #{:errors
+     :project-imports
+     :file-io
+     :select-and-pin-original-example},
+   :recorded-evidence #{},
+   :checked-artifacts [],
+   :inventory nil}]}

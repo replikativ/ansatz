@@ -86,6 +86,10 @@ and field-store counter parity at every RBMap size. The current runner executes 
 in both modes and adds eight continuation tests: 26 executions / 1,331 assertions.
 The tests run from a separately compiled
 jar in a fresh 384 MiB JVM and are part of the experimental CI contract job.
+Six additional [compatibility inventory tests](corpus-checks.clj) add 38
+assertions for pinned fixtures, static dependency derivation, dynamic-site
+reporting and rejection of hash/name/producer drift. The runner now executes 32
+tests / 1,369 assertions. These inventory tests do not execute original RBMap `main`.
 Runtime/compiler defaults and the optional package source inventory are unchanged.
 No Init image, hosted frontend, project loader or full Mathlib campaign is run.
 
