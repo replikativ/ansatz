@@ -53,6 +53,33 @@
           (is (= 4 (f 4)))))
       (finally (reset! a/ansatz-env saved)))))
 
+(deftest explicit-ih-shorthand-respects-local-shadowing
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'explicitIhShadow
+                '[xs :- (List Nat)] 'Nat
+                '(match xs (List Nat) Nat
+                        (nil 0)
+                        (cons [hd tl]
+                              (let [ih_tail 7] ih_tail))))]
+        (is (= 7 (f '(1 2 3)))))
+      (let [f (a/define-verified 'explicitIhFnShadow
+                '[xs :- (List Nat)] 'Nat
+                '(match xs (List Nat) Nat
+                        (nil 0)
+                        (cons [hd tl] ((fn [ih_tail :- Nat] ih_tail) 8))))]
+        (is (= 8 (f '(1 2 3)))))
+      (let [f (a/define-verified 'explicitIhMatchShadow
+                '[xs :- (List Nat)] 'Nat
+                '(match xs (List Nat) Nat
+                        (nil 0)
+                        (cons [hd tl]
+                              (match hd [0 0]
+                                     [(Nat.succ ih_tail) ih_tail]))))]
+        (is (= 4 (f '(5 2 3)))))
+      (finally (reset! a/ansatz-env saved)))))
+
 (deftest let-wrapped-match-uses-structural-compiler
   (let [saved @a/ansatz-env]
     (try
