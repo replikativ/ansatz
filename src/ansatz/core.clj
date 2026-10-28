@@ -1446,48 +1446,50 @@
    and never usable in proofs (data-only). The runtime is the original recursive Clojure body — self-calls
    resolve to the def'd var at call time. Mark with ^:partial. Mirrors Lean's `partial def`."
   [fn-name params ret-type-form body-form]
-  (let [env (env)
-        pairs (parse-params params)
-        n (count pairs)
+  (atomic-definition
+   (fn []
+     (let [env (env)
+           pairs (parse-params params)
+           n (count pairs)
         ;; function type  ∀ params → ret  (same construction as define-verified)
-        {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
-        cname (name/from-string (str fn-name))
+           {ret-ansatz :ret-ansatz type-ansatz :type-ansatz} (elab-signature env pairs ret-type-form)
+           cname (name/from-string (str fn-name))
         ;; trusted axiom at the type; the body is elaborated with a local self
         ;; reference so generated matchers do not depend on the axiom.
-        ax (env/mk-axiom cname [] type-ansatz)
-        body-result (build-telescope-fvar env pairs ret-type-form body-form
-                                          {:lean-matchers? true
-                                           :matcher-prefix (str fn-name)
-                                           :self-name fn-name
-                                           :self-type type-ansatz})
-        body-ansatz (e/instantiate1
-                     (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
-                     (e/const' cname []))]
+           ax (env/mk-axiom cname [] type-ansatz)
+           body-result (build-telescope-fvar env pairs ret-type-form body-form
+                                             {:lean-matchers? true
+                                              :matcher-prefix (str fn-name)
+                                              :self-name fn-name
+                                              :self-type type-ansatz})
+           body-ansatz (e/instantiate1
+                        (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
+                        (e/const' cname []))]
     ;; install the trusted axiom + arity in the real env (NOT a verified def — opaque, no body)
-    (reset! ansatz-env (:env body-result))
-    (swap! ansatz-env env/add-constant ax)
-    (decl/plan! env (str fn-name) type-ansatz (count pairs))
-    (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
+       (reset! ansatz-env (:env body-result))
+       (swap! ansatz-env env/add-constant ax)
+       (decl/plan! env (str fn-name) type-ansatz (count pairs))
+       (println "⚠ partial:" fn-name "— trusted (axiom at its type), NOT verified; not usable in proofs")
     ;; codegen the recursive body — body-ansatz already IS the direct-recursion term
     ;; (self-calls as the axiom const), so the unified storedef emitter applies as-is:
     ;; `recur` at tail self-calls, named self-call otherwise, flat + curried methods.
     ;; Fallback: the classic curried-wrapper path (self-calls resolve via the var).
     ;; Nullary surface definitions are values, not zero-argument thunks.
-    (let [direct-fn (when (pos? n)
-                      (try
-                        (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
-                              emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
-                              emitted (emit @ansatz-env (str fn-name) body-ansatz
-                                            {:erased (or erased 0) :arity (or arity n)})]
-                          (when emitted
-                            (decl/register! (str fn-name)
-                                            (update emitted :convention assoc :provenance :surface))
-                            (:fn emitted)))
-                        (catch Exception _ nil)))
-          clj-fn (if direct-fn direct-fn
-                     (decl/emit-classic! (str fn-name)
-                                         #(ansatz->clj @ansatz-env body-ansatz [])))]
-      clj-fn)))
+       (let [direct-fn (when (pos? n)
+                         (try
+                           (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
+                                 emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)
+                                 emitted (emit @ansatz-env (str fn-name) body-ansatz
+                                               {:erased (or erased 0) :arity (or arity n)})]
+                             (when emitted
+                               (decl/register! (str fn-name)
+                                               (update emitted :convention assoc :provenance :surface))
+                               (:fn emitted)))
+                           (catch Exception _ nil)))
+             clj-fn (if direct-fn direct-fn
+                        (decl/emit-classic! (str fn-name)
+                                            #(ansatz->clj @ansatz-env body-ansatz [])))]
+         clj-fn)))))
 
 (clojure.core/defn define-foreign
   "Declare a TRUSTED FOREIGN function: an arbitrary Clojure fn asserted at the given

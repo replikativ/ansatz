@@ -3,6 +3,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [ansatz.core :as a]
             [ansatz.codegen :as cg]
+            [ansatz.codegen.decl :as decl]
             [ansatz.codegen.storedef :as sd]
             [ansatz.export.parser :as parser]
             [ansatz.export.replay :as replay]
@@ -129,13 +130,24 @@
         saved-instances @a/ansatz-instance-index]
     (try
       (binding [a/*verbose* false] (a/load-init!))
-      (let [f (a/define-partial 'partialMatcherLength '[xs :- (List Nat)] 'Nat
-                '(match xs [nil 0]
-                        [(List.cons h t) (Nat.succ (partialMatcherLength t))]))]
-        (is (= 3 (f '(1 2 3))))
-        (is (some? (env/lookup (a/env) (name/from-string "partialMatcherLength.match_1"))))
-        (is (= :axiom (env/ci-tag
-                       (env/lookup (a/env) (name/from-string "partialMatcherLength"))))))
+      (let [body '(match xs [nil 0]
+                         [(List.cons h t) (Nat.succ (partialMatcherLength t))])
+            define! #(a/define-partial 'partialMatcherLength
+                       '[xs :- (List Nat)] 'Nat body)]
+        (is (thrown-with-msg?
+             clojure.lang.ExceptionInfo #"injected emitter failure"
+             (with-redefs [sd/emit-direct-recursion (fn [& _] nil)
+                           decl/emit-classic! (fn [& _]
+                                                (throw (ex-info "injected emitter failure" {})))]
+               (define!))))
+        (is (nil? (env/lookup (a/env) (name/from-string "partialMatcherLength"))))
+        (is (nil? (env/lookup (a/env) (name/from-string "partialMatcherLength.match_1"))))
+        (is (nil? (get @a/arity-registry "partialMatcherLength")))
+        (let [f (define!)]
+          (is (= 3 (f '(1 2 3))))
+          (is (some? (env/lookup (a/env) (name/from-string "partialMatcherLength.match_1"))))
+          (is (= :axiom (env/ci-tag
+                         (env/lookup (a/env) (name/from-string "partialMatcherLength")))))))
       (finally
         (reset! a/ansatz-env saved-env)
         (reset! a/arity-registry saved-arity)
