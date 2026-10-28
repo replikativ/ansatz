@@ -132,7 +132,9 @@
           tc (TypeChecker. env)
           inferred (.check tc term)]   ; STRICT well-typedness check
       ;; Should type-check without error
-      (is (some? inferred)))))
+      (is (some? inferred))
+      (is (not (.contains (e/->string term) "_expr.match_"))
+          "pure elaboration inlines its generated matcher declaration"))))
 
 (deftest test-list-match
   (testing "Match on List with head extraction"

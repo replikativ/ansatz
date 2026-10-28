@@ -80,6 +80,19 @@
         (is (= 4 (f '(5 2 3)))))
       (finally (reset! a/ansatz-env saved)))))
 
+(deftest implicit-recursive-call-selects-structural-argument
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'implicitStructuralLength
+                '[S :- Type :implicit, xs :- (List S)] 'Nat
+                '(match xs [nil 0]
+                        [(cons h t) (Nat.succ (implicitStructuralLength t))]))]
+        (is (= 3 (f '(1 2 3))))
+        (is (some? (env/lookup (a/env) (name/from-string "implicitStructuralLength.match_1"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
+
 (deftest let-wrapped-match-uses-structural-compiler
   (let [saved @a/ansatz-env]
     (try

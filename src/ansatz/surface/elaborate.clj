@@ -20,16 +20,19 @@
      (elaborate env '(lam [a Nat] (Eq.refl a))  expected-type)
      ;; => checks against expected-type, infers implicits"
   (:require [clojure.string]
+            [clojure.walk :as walk]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.config :as config]
             [ansatz.meta :as meta]
+            [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.surface.match :as match]
             [ansatz.surface.ingest :as ingest])
-  (:import [ansatz.kernel Env]))
+  (:import [ansatz.kernel Env Expr]))
 
 ;; ============================================================
 ;; Elaboration state
@@ -64,9 +67,10 @@
     :holes-as-synthetic-opaque? holes-as-synthetic-opaque?
     :scope {}                ;; symbol → {:fvar-id long :type Expr}
     :depth 0
-    :env-ref (:env-ref opts)
-    :lean-matchers? (:lean-matchers? opts)
-    :matcher-prefix (:matcher-prefix opts)
+    :env-ref (or (:env-ref opts) (atom env))
+    :lean-matchers? (if (contains? opts :lean-matchers?)
+                      (:lean-matchers? opts) config/*lean-matchers*)
+    :matcher-prefix (or (:matcher-prefix opts) "_expr")
     :matcher-counter (or (:matcher-counter opts) (atom 0))
     :definition-body (:definition-body opts)
     :definition-ret (:definition-ret opts)}))
@@ -1663,6 +1667,40 @@
     :strict (strict-finalize est expr)
     :collecting (collecting-finalize est expr)))
 
+(defn- inline-local-matchers
+  "Expression-only elaboration has no environment result to carry auxiliary
+   matcher declarations. Inline just the matchers created by this elaboration,
+   leaving imported matchers and their metadata in the caller's environment."
+  [base-env result-env expr]
+  (let [memo (java.util.IdentityHashMap.)]
+    (letfn [(walk [x]
+              (or (.get memo x)
+                  (let [out
+                        (case (e/tag x)
+                          :const (let [n (e/const-name x)
+                                       ci (when (and (nil? (env/lookup base-env n))
+                                                     (matcher-info/is-matcher-core result-env n))
+                                            (env/lookup result-env n))]
+                                   (if ci
+                                     (walk (e/instantiate-level-params
+                                            (env/ci-value ci)
+                                            (zipmap (env/ci-level-params ci) (e/const-levels x))))
+                                     x))
+                          :app (e/app (walk (e/app-fn x)) (walk (e/app-arg x)))
+                          :lam (e/lam (e/lam-name x) (walk (e/lam-type x))
+                                      (walk (e/lam-body x)) (e/lam-info x))
+                          :forall (e/forall' (e/forall-name x) (walk (e/forall-type x))
+                                             (walk (e/forall-body x)) (e/forall-info x))
+                          :let (e/let' (e/let-name x) (walk (e/let-type x))
+                                       (walk (e/let-value x)) (walk (e/let-body x)))
+                          :proj (e/proj (e/proj-type-name x) (e/proj-idx x)
+                                        (walk (e/proj-struct x)))
+                          :mdata (e/mdata (e/mdata-data x) (walk (e/mdata-expr x)))
+                          x)]
+                    (.put memo x out)
+                    out)))]
+      (walk expr))))
+
 (defn- elaborate*
   ([mode env lctx sexpr expected]
    (elaborate* mode env lctx sexpr expected {}))
@@ -1676,8 +1714,17 @@
                (assoc :prop-ctx true))
          expr (if (:type-position opts) (elab-type est sexpr) (elab-term est sexpr))]
      (check-expected! est expr expected)
-     (let [result (finalize-elaboration mode (refresh-env est) expr)]
-       (if (:return-env? opts) {:env (elab-env est) :expr result} result)))))
+     (let [result (finalize-elaboration mode (refresh-env est) expr)
+           result-env (elab-env est)]
+       (cond
+         (:return-env? opts) {:env result-env :expr result}
+         (identical? env result-env) result
+         (= mode :collecting)
+         (walk/postwalk #(if (instance? Expr %)
+                           (inline-local-matchers env result-env %)
+                           %)
+                        result)
+         :else (inline-local-matchers env result-env result))))))
 
 (defn elaborate
   "Elaborate an s-expression into a fully explicit Ansatz Expr.

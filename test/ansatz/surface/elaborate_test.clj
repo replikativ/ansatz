@@ -180,6 +180,16 @@
       ;; and universe mvars should have been solved away.
       (is (empty? level-holes)))))
 
+(deftest collecting-match-inlines-auxiliaries-through-metacontext
+  (let [environment (require-init-medium)
+        result (elab/elaborate-collecting
+                environment '(match Bool.true [Bool.false _] [Bool.true 0]))
+        exprs (filter #(instance? ansatz.kernel.Expr %)
+                      (tree-seq coll? seq result))]
+    (is (= 1 (count (:holes result))))
+    (is (not-any? #(.contains (e/->string %) "_expr.match_") exprs))
+    (is (some? (get-in result [:meta-mctx :decls (:id (first (:holes result)))])))))
+
 (deftest test-elab-collecting-named-hole
   (testing "named holes preserve user-name metadata in the metacontext"
     (let [env (env/with-extension (env/empty-env) :instances {})
