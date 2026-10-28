@@ -1829,21 +1829,36 @@
                                                     (nth param-names i))))
                                        (range n))))
                           (tree-seq coll? seq body-form)))))
-        ;; Lean's indexed structural recursion needs FindRecArg index transport.
-        ;; Until that port lands, keep such definitions on the existing verified
-        ;; recursor path. Inspect the elaborated signature before matcher
-        ;; compilation, so unsupported families never enter that compiler.
+        ;; Lean FindRecArg: only distinct parameter variables may serve as
+        ;; indices. Keep more dependent families on the existing checked path
+        ;; until their index-dependency transport is implemented.
         structural-matcher?
         (and structural-candidate?
-             (let [arg-type (loop [ty type-ansatz i 0]
-                              (if (= i rec-pos)
-                                (e/forall-type ty)
-                                (recur (e/instantiate1 (e/forall-body ty) (e/fvar (inc i)))
-                                       (inc i))))
-                   [head _] (e/get-app-fn-args (red/whnf env arg-type {}))
+             (let [param-types (loop [ty type-ansatz i 0 acc []]
+                                 (if (= i n)
+                                   acc
+                                   (recur (e/instantiate1 (e/forall-body ty) (e/fvar (inc i)))
+                                          (inc i) (conj acc (e/forall-type ty)))))
+                   [head ind-args] (e/get-app-fn-args
+                                    (red/whnf env (nth param-types rec-pos) {}))
                    ind-name (when (e/const? head) (e/const-name head))
-                   ci (when ind-name (env/lookup env ind-name))]
-               (and ci (zero? (.numIndices ^ConstantInfo ci))
+                   ci (when ind-name (env/lookup env ind-name))
+                   ind-params (when ci (subvec ind-args 0 (.numParams ^ConstantInfo ci)))
+                   indices (when ci (subvec ind-args (.numParams ^ConstantInfo ci)))
+                   index-positions (when (every? e/fvar? indices)
+                                     (mapv #(dec (e/fvar-id %)) indices))]
+               (and ci
+                    (= (count indices) (.numIndices ^ConstantInfo ci))
+                    (= (count indices) (count (distinct indices)))
+                    (every? #(and (<= 0 %) (< % n) (not= % rec-pos)) index-positions)
+                    (every? #(not (e/has-fvar-flag (nth param-types %)))
+                            index-positions)
+                    (or (empty? indices)
+                        (every? #(not (e/has-fvar-flag (nth param-types %)))
+                                (remove (set (conj index-positions rec-pos)) (range n))))
+                    (every? #(or (not (e/has-fvar-flag %))
+                                 (some #{%} (map e/fvar (range 1 (inc n)))))
+                            ind-params)
                     (env/lookup env (name/mk-str ind-name "below"))
                     (env/lookup env (name/mk-str ind-name "brecOn")))))
         lean-matchers? (and matcher-elaboration?

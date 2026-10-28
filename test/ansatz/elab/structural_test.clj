@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is]]
             [ansatz.core :as a]
             [ansatz.config :as config]
+            [ansatz.inductive :as ind]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]))
@@ -63,5 +64,46 @@
         (is (= 3 (f '(1 2 3))))
         (is (some? (env/lookup (a/env) (name/from-string "wrappedListProbe.match_1"))))
         (is (some? (env/lookup (a/env) (name/from-string "wrappedListProbe.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest indexed-vector-recursion-has-checked-constructor-equations
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (reset! a/ansatz-env
+              (ind/define-inductive (a/env) "IndexedLengthVec" '[a Type]
+                [['nil [] [0]]
+                 ['cons '[n Nat x a xs (IndexedLengthVec a n)] ['(Nat.succ n)]]]
+                :indices '[n Nat]))
+      (let [f (a/define-verified 'indexedLength
+                '[n :- Nat, v :- (IndexedLengthVec Nat n)] 'Nat
+                '(match v [nil 0]
+                        [(cons k x xs) (Nat.succ (indexedLength k xs))]))]
+        (is (= 2 (f 2 [1 17 [0 9 nil]])))
+        (is (some? (env/lookup (a/env) (name/from-string "indexedLength.match_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "indexedLength.eq_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "indexedLength.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (let [f (a/define-verified 'indexedLengthPoly
+                '[S :- Type, n :- Nat, v :- (IndexedLengthVec S n)] 'Nat
+                '(match v [nil 0]
+                        [(cons k x xs) (Nat.succ (indexedLengthPoly S k xs))]))]
+        (is (= 2 (f 'Nat 2 [1 17 [0 9 nil]])))
+        (is (some? (env/lookup (a/env) (name/from-string "indexedLengthPoly.eq_2"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (reset! a/ansatz-env
+              (ind/define-inductive (a/env) "TwoIndexedVec" '[a Type]
+                [['nil [] [0 0]]
+                 ['cons '[n Nat m Nat x a xs (TwoIndexedVec a n m)]
+                  ['(Nat.succ n) '(Nat.succ m)]]]
+                :indices '[n Nat m Nat]))
+      (let [f (a/define-verified 'twoIndexedLength
+                '[n :- Nat, m :- Nat, v :- (TwoIndexedVec Nat n m)] 'Nat
+                '(match v [nil 0]
+                        [(cons k l x xs) (Nat.succ (twoIndexedLength k l xs))]))]
+        (is (= 2 (f 2 2 [1 1 17 [0 0 9 nil]])))
+        (is (some? (env/lookup (a/env) (name/from-string "twoIndexedLength.eq_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "twoIndexedLength.eq_2"))))
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
