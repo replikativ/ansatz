@@ -125,7 +125,7 @@
         (is (= (e/app (e/const' (name/from-string "Bool.not") []) (e/fvar b-id))
                (nth args 2)))))))
 
-(deftest option-off-retains-direct-recursor-bodies
+(deftest option-off-retains-expression-only-compatibility
   (binding [config/*lean-matchers* false]
     (let [f (a/define-verified 'matcher-off '[^Bool b] 'Nat '(match b [false 13] [true 21]))]
       (is (= 13 (f false)))
