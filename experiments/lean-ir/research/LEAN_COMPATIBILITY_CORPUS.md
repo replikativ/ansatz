@@ -79,6 +79,26 @@ an `FS.Stream` containing closures: its implementation and closure targets need
 their own binding validation, not just static reachability. Module initialization
 plans are reported, not executed by this tool.
 
+That original receipt records the first five-Nat-operation engine. The subsequent
+[extern expansion](JAVA_EXTERN_RUNTIME.md) implements multiplication, division
+and power, reducing unsupported extern declarations from 21 to 18. The original
+receipt is retained as historical evidence rather than overwritten.
+
+## Cross-syntax acceptance
+
+The shared logical declaration model should let Lean files and the Ansatz DSL
+use one another's checked functions and theorems. Make this an explicit gate:
+load a Lean function/theorem, use them in a DSL definition/proof, then publish
+a DSL function/theorem for a subsequent Lean file to consume. Recheck admitted
+declarations in the target environment; preserve structural Names, universes,
+reducibility, declaration/version identity and required instance/simp metadata.
+Execution additionally requires an association with matching compiled code.
+Different syntax for the same type needs no logical conversion; distinct types
+need explicit conversions/equivalences, and JVM values need codecs. Arbitrary
+Clojure functions remain declared host bindings, not transparent logical axioms.
+This bidirectional session integration is planned, not established by raw IR
+execution or kernel compatibility alone.
+
 The existing native capture exported 80 declarations from roots `mkMap`, `fold`
 and `main`. The new `rbmap-main.jsonl` fixture preserves that complete capture
 verbatim; the main-only inventory omits one unreachable declaration. No new

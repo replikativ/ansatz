@@ -29,6 +29,12 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- The [captured extern ABI and Nat expansion](JAVA_EXTERN_RUNTIME.md) adds exact
+  signature/borrow validation and three Nat operations against 288 pinned native
+  observations. Both drivers pass the isolated jar gate, now 42 executions /
+  2,711 assertions. RBMap main has 18 unsupported extern declarations remaining;
+  scalar/data/IO execution and loader integration are still pending.
+
 - The [unchanged-source compatibility corpus](LEAN_COMPATIBILITY_CORPUS.md)
   pins initial application targets and separates raw execution from hosted source
   loading. Its bounded, non-executing inventory covers original RBMap `main`:

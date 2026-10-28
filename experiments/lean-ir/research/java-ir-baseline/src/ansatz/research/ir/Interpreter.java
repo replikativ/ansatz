@@ -16,9 +16,75 @@ public final class Interpreter implements AutoCloseable {
     private static final int OBJ=0, U8=1;
     private static final int VDECL=0,JDECL=1,SET=2,SSET=3,INC=4,DEC=5,DEL=6,CASE=7,RET=8,JMP=9,UNREACHABLE=10,SETTAG=11;
     private static final int CTOR=0,PROJ=1,SPROJ=2,FAP=3,PAP=4,AP=5,BOX=6,UNBOX=7,LIT=8,SHARED=9;
-    private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5;
+    private static final int ADD=1,SUB=2,MOD=3,EQ=4,LT=5,MUL=6,DIV=7,POW=8;
     private static final BigInteger SMALL_MAX=BigInteger.valueOf(Long.MAX_VALUE);
     private static final Object ERASED=Long.valueOf(0);
+
+    /** Exact captured ABI, deliberately distinct from physical JVM lanes. */
+    private static final class ExternSpec {
+        final String symbol,resultType;
+        final int intrinsic;
+        final String[] paramTypes;
+        final boolean[] borrowed;
+        ExternSpec(String symbol,int intrinsic,String resultType,String[] paramTypes,boolean[] borrowed) {
+            this.symbol=symbol; this.intrinsic=intrinsic; this.resultType=resultType;
+            this.paramTypes=paramTypes.clone(); this.borrowed=borrowed.clone();
+            if(paramTypes.length!=borrowed.length) throw new IllegalArgumentException("Invalid extern registry entry");
+        }
+        boolean matches(Map<String,Object> declaration) {
+            List<Object> params=list(declaration.get("xs"));
+            if(!resultType.equals(declaration.get("type"))||params.size()!=paramTypes.length) return false;
+            for(int i=0;i<params.size();i++) {
+                Map<String,Object> p=map(params.get(i));
+                if(!paramTypes[i].equals(p.get("ty"))||!Boolean.valueOf(borrowed[i]).equals(p.get("borrow"))) return false;
+            }
+            return true;
+        }
+    }
+    private static final Map<String,List<ExternSpec>> EXTERNS=externRegistry();
+    private static Map<String,List<ExternSpec>> externRegistry() {
+        Map<String,List<ExternSpec>> registry=new LinkedHashMap<>();
+        String[] symbols={"lean_nat_add","lean_nat_sub","lean_nat_mod","lean_nat_dec_eq","lean_nat_dec_lt",
+                          "lean_nat_mul","lean_nat_div","lean_nat_pow"};
+        int[] ops={ADD,SUB,MOD,EQ,LT,MUL,DIV,POW};
+        for(int i=0;i<symbols.length;i++) register(registry,new ExternSpec(symbols[i],ops[i],
+                ops[i]==EQ||ops[i]==LT?"uint8":"tobject",new String[]{"tobject","tobject"},new boolean[]{true,true}));
+        // Both forms occur in the pinned RBMap export. Recognition does not
+        // enable USize execution: intrinsic zero marks a known, unimplemented ABI.
+        register(registry,new ExternSpec("lean_usize_of_nat",0,"usize",new String[]{"tobject"},new boolean[]{true}));
+        register(registry,new ExternSpec("lean_usize_of_nat",0,"usize",new String[]{"tobject","erased"},new boolean[]{true,false}));
+        registry.replaceAll((symbol,entries)->Collections.unmodifiableList(entries));
+        return Collections.unmodifiableMap(registry);
+    }
+    private static void register(Map<String,List<ExternSpec>> registry,ExternSpec spec) {
+        registry.computeIfAbsent(spec.symbol,ignored->new ArrayList<>()).add(spec);
+    }
+    private static ExternSpec resolveExtern(Map<String,Object> declaration) {
+        List<Object> entries=list(map(declaration.get("ext")).get("entries"));
+        if(entries.isEmpty()) throw error("Missing extern");
+        Map<String,Object> entry=null;
+        for(Object raw:entries) {
+            Map<String,Object> candidate=map(raw);
+            if(candidate.size()!=1) throw error("Invalid extern entry");
+            String kind=candidate.keySet().iterator().next(); Map<String,Object> data=map(candidate.get(kind));
+            String backend=name(data.get("backend"));
+            if(backend.equals("all")||backend.equals("c")) {
+                if(!kind.equals("standard")) throw error("Inline extern outside baseline profile");
+                entry=data; break;
+            }
+        }
+        if(entry==null) throw error("No supported extern backend");
+        Object symbol=entry.get("fn");
+        List<ExternSpec> allowed=EXTERNS.get(symbol);
+        if(allowed==null) throw error("Unsupported baseline extern: "+symbol);
+        for(ExternSpec spec:allowed) if(spec.matches(declaration)) return spec;
+        throw error("Captured extern ABI mismatch: "+symbol);
+    }
+    /** Research-only validation; known ABI does not imply executable coverage. */
+    public static String validateExternAbi(Map<String,Object> exportedRow) {
+        require("decl".equals(exportedRow.get("kind")),"Expected extern declaration row");
+        return resolveExtern(map(map(exportedRow.get("ir")).get("extern"))).symbol;
+    }
 
     public static final class Node {
         public int tag, rc=1;
@@ -162,32 +228,9 @@ public final class Interpreter implements AutoCloseable {
             for(int i=0;i<f.params.length;i++) { f.paramTypes[i]=type(map(list(d.get("xs")).get(i)).get("ty")); f.width=Math.max(f.width,f.params[i]+1); }
             f.resultType=type(d.get("type"));
             if(external) {
-                List<Object> entries=list(map(d.get("ext")).get("entries"));
-                if(entries.isEmpty()) throw error("Missing extern");
-                Map<String,Object> entry=null;
-                for(Object raw:entries) {
-                    Map<String,Object> candidate=map(raw);
-                    if(candidate.size()!=1) throw error("Invalid extern entry");
-                    String kind=candidate.keySet().iterator().next(); Map<String,Object> data=map(candidate.get(kind));
-                    String backend=name(data.get("backend"));
-                    if(backend.equals("all")||backend.equals("c")) {
-                        if(!kind.equals("standard")) throw error("Inline extern outside baseline profile");
-                        entry=data; break;
-                    }
-                }
-                if(entry==null) throw error("No supported extern backend");
-                String symbol=(String)entry.get("fn");
-                switch(symbol) {
-                    case "lean_nat_add": f.intrinsic=ADD; break;
-                    case "lean_nat_sub": f.intrinsic=SUB; break;
-                    case "lean_nat_mod": f.intrinsic=MOD; break;
-                    case "lean_nat_dec_eq": f.intrinsic=EQ; break;
-                    case "lean_nat_dec_lt": f.intrinsic=LT; break;
-                    default: throw error("Unsupported baseline extern: "+symbol);
-                }
-                if(f.params.length!=2||f.paramTypes[0]!=OBJ||f.paramTypes[1]!=OBJ) throw error("Unsupported intrinsic signature");
-                for(Object p:list(d.get("xs"))) if(!Boolean.TRUE.equals(map(p).get("borrow"))) throw error("Nat intrinsic requires borrowed parameters");
-                if(f.resultType!=((f.intrinsic==EQ||f.intrinsic==LT)?U8:OBJ)) throw error("Wrong intrinsic result");
+                ExternSpec spec=resolveExtern(d);
+                if(spec.intrinsic==0) throw error("Known extern ABI outside execution profile: "+spec.symbol);
+                f.intrinsic=spec.intrinsic;
             } else f.body=body(d.get("body"),f,byName);
         }
         Function[] prepared=labels.values().toArray(new Function[0]);
@@ -336,6 +379,18 @@ public final class Interpreter implements AutoCloseable {
         throw error("Invalid Nat");
     }
     private static Object normalize(BigInteger n) { if(n.signum()<0) throw error("Negative Nat"); return n.compareTo(SMALL_MAX)<=0?Long.valueOf(n.longValue()):n; }
+    private static Object natPow(BigInteger base,BigInteger exponent) {
+        // Pinned lean_nat_pow rejects > UINT_MAX, even for bases zero and one.
+        if(exponent.bitLength()>32) throw error("Nat.pow exponent is too big");
+        long n=exponent.longValue();
+        BigInteger answer=BigInteger.ONE;
+        while(n!=0) {
+            if((n&1)!=0) answer=answer.multiply(base);
+            n>>>=1;
+            if(n!=0) base=base.multiply(base);
+        }
+        return normalize(answer);
+    }
     private void intrinsic(Function f,Object a,Object b) {
         if(a instanceof Long && b instanceof Long && (Long)a>=0 && (Long)b>=0) {
             long x=(Long)a,y=(Long)b;
@@ -343,6 +398,9 @@ public final class Interpreter implements AutoCloseable {
                 case ADD: result=x<=Long.MAX_VALUE-y?Long.valueOf(x+y):BigInteger.valueOf(x).add(BigInteger.valueOf(y)); break;
                 case SUB: result=Long.valueOf(x<y?0:x-y); break;
                 case MOD: result=Long.valueOf(y==0?x:x%y); break;
+                case MUL: result=x==0||y<=Long.MAX_VALUE/x?Long.valueOf(x*y):BigInteger.valueOf(x).multiply(BigInteger.valueOf(y)); break;
+                case DIV: result=Long.valueOf(y==0?0:x/y); break;
+                case POW: result=natPow(BigInteger.valueOf(x),BigInteger.valueOf(y)); break;
                 case EQ: scalarResult=x==y?1:0; break;
                 case LT: scalarResult=x<y?1:0; break;
                 default: throw error("Invalid intrinsic");
@@ -353,6 +411,9 @@ public final class Interpreter implements AutoCloseable {
                 case ADD: result=normalize(x.add(y)); break;
                 case SUB: result=normalize(x.compareTo(y)<0?BigInteger.ZERO:x.subtract(y)); break;
                 case MOD: result=normalize(y.signum()==0?x:x.remainder(y)); break;
+                case MUL: result=normalize(x.multiply(y)); break;
+                case DIV: result=normalize(y.signum()==0?BigInteger.ZERO:x.divide(y)); break;
+                case POW: result=natPow(x,y); break;
                 case EQ: scalarResult=x.equals(y)?1:0; break;
                 case LT: scalarResult=x.compareTo(y)<0?1:0; break;
                 default: throw error("Invalid intrinsic");

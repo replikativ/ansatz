@@ -1,0 +1,989 @@
+{:previous-jar-sha256
+ "d7f0e56f2ad8683d71443a76f9fe19cafa70f849a6b4a1ef957ed0f55ec2afd9",
+ :schema 1,
+ :comparison
+ {:n 1000,
+  :adjacent-input 1001,
+  :repetitions 100,
+  :warmup-batches-per-engine 8,
+  :final-local-test-overlap false,
+  :samples
+  [{:cpu-ns 339384285,
+    :wall-ns 341927187,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 0,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 841066359,
+    :wall-ns 842752234,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 0,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 333960828,
+    :wall-ns 336417732,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 0,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 845475061,
+    :wall-ns 847082949,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 0,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 841695186,
+    :wall-ns 843546210,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 1,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 334301502,
+    :wall-ns 336842324,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 1,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 856287970,
+    :wall-ns 874433693,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 1,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 367155207,
+    :wall-ns 373531803,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 1,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 376001578,
+    :wall-ns 391140473,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 2,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 906345252,
+    :wall-ns 917675285,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 2,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 387819859,
+    :wall-ns 400309606,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 2,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 928394368,
+    :wall-ns 1029906100,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 2,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 941183292,
+    :wall-ns 1008711934,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 3,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 376642168,
+    :wall-ns 390758292,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 3,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 939511820,
+    :wall-ns 943823261,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 3,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 378405981,
+    :wall-ns 393221171,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 3,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 382952801,
+    :wall-ns 447615872,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 4,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 964817732,
+    :wall-ns 1102850974,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 4,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 377807344,
+    :wall-ns 452431034,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 4,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 981698813,
+    :wall-ns 1256634138,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 4,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 974970080,
+    :wall-ns 1177177762,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 5,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 388946969,
+    :wall-ns 407063431,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 5,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 915721384,
+    :wall-ns 947901576,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 5,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 387578352,
+    :wall-ns 402984127,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 5,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 389293572,
+    :wall-ns 461578048,
+    :allocated-bytes 151621696,
+    :gc-collections 2,
+    :trial 6,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 941956627,
+    :wall-ns 1008681767,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 6,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 380939871,
+    :wall-ns 483654264,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 6,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 988607456,
+    :wall-ns 1059207599,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 6,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}]},
+ :current-corpus
+ {:schema 1,
+  :scope :research-compatibility-corpus,
+  :producer
+  {:version "4.33.1",
+   :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6"},
+  :producer-revision-verification
+  :capture-provenance-and-artifact-hashes-not-encoded-in-ir,
+  :release-requires
+  #{:checked-imports
+    :original-source
+    :hosted-source-loading
+    :native-observation-parity
+    :isolated-jar
+    :java-clojure-interop},
+  :entries
+  [{:id :rbmap-computation,
+    :source
+    {:repository :lean4,
+     :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+     :path "tests/compile_bench/rbmap.lean",
+     :fixture
+     {:path "test/fixtures/unchanged-programs/rbmap.lean",
+      :sha256
+      "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}},
+    :roots ["mkMap" "fold._redArg" "main._closed_0"],
+    :recorded-evidence
+    #{:isolated-engine-jar :guest-ownership-counters :raw-ir-values},
+    :evidence "java-ir-baseline/README.md",
+    :checked-artifacts
+    [{:path "test/fixtures/unchanged-programs/rbmap.lean",
+      :sha256
+      "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}
+     {:path "test/fixtures/unchanged-programs/rbmap.jsonl",
+      :sha256
+      "16af3c22c51f254400a31bea3747fbd9235e2319adc101310804d4f2754641f8"}],
+    :inventory
+    {:externs
+     [{:name "Nat.add",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_add"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.decEq",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_dec_eq"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "uint8",
+       :preparation-error nil}
+      {:name "Nat.decLt",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_dec_lt"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "uint8",
+       :preparation-error nil}
+      {:name "Nat.mod",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_mod"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.sub",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_sub"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}],
+     :unsupported-extern-count 0,
+     :missing-static-dependencies [],
+     :closure-preparation-error nil,
+     :scope :static-ir-inventory-not-source-compatibility,
+     :roots ["mkMap" "fold._redArg" "main._closed_0"],
+     :limits
+     ["Preparation does not execute or establish value parity."
+      "Dynamic closure targets and host-provided implementations need separate validation."
+      "The module initialization plan is reported, not executed or accepted."
+      "Java preparation does not implement or validate row initializer/redirect semantics."
+      "No hosted parsing, elaboration, kernel admission or project loading occurs."],
+     :declarations 15,
+     :row-runtime-links [],
+     :dynamic-application-sites 1,
+     :producer-version "4.33.1",
+     :initialization-plan
+     {"actions" [],
+      "imports"
+      [{"meta" false, "module" ["str" ["anonymous"] "Init"]}
+       {"meta" true, "module" ["str" ["anonymous"] "Init"]}],
+      "kind" "initialization-plan",
+      "module" ["str" ["anonymous"] "UnchangedRbmap"],
+      "moduleSystem" false,
+      "schema" "lean-init-plan/1"}}}
+   {:id :rbmap-original-main,
+    :source
+    {:repository :lean4,
+     :revision "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+     :path "tests/compile_bench/rbmap.lean",
+     :fixture
+     {:path "test/fixtures/unchanged-programs/rbmap.lean",
+      :sha256
+      "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}},
+    :roots ["main"],
+    :recorded-evidence #{:native-source-main},
+    :evidence "../test/fixtures/unchanged-programs/README.md",
+    :checked-artifacts
+    [{:path "test/fixtures/unchanged-programs/rbmap.lean",
+      :sha256
+      "ff867cb17ca3a9a871e2439eade038799d66ebdaa9c24e9d0d9a5f73a938ab29"}
+     {:path "test/fixtures/unchanged-programs/rbmap-main.jsonl",
+      :sha256
+      "fd5d33885a4e0f7af5be3f39586d830b4180a4b9e2983ce8195500f1945f9b8f"}],
+    :inventory
+    {:externs
+     [{:name "Array.getInternalBorrowed",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_array_fget_borrowed"}}],
+       :params
+       [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+        {"borrow" true, "ty" "object", "x" {"idx" 2}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 3}}
+        {"borrow" false, "ty" "erased", "x" {"idx" 4}}],
+       :result-type "tobject",
+       :preparation-error
+       "Unsupported baseline extern: lean_array_fget_borrowed"}
+      {:name "Array.mk",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_array_mk"}}],
+       :params
+       [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+        {"borrow" false, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "object",
+       :preparation-error "Unsupported baseline extern: lean_array_mk"}
+      {:name "Array.size",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_array_get_size"}}],
+       :params
+       [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+        {"borrow" true, "ty" "object", "x" {"idx" 2}}],
+       :result-type "tagged",
+       :preparation-error
+       "Unsupported baseline extern: lean_array_get_size"}
+      {:name "IO.getStdout",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_get_stdout"}}],
+       :params [{"borrow" false, "ty" "void", "x" {"idx" 1}}],
+       :result-type "object",
+       :preparation-error
+       "Unsupported baseline extern: lean_get_stdout"}
+      {:name "Nat.add",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_add"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.decEq",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_dec_eq"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "uint8",
+       :preparation-error nil}
+      {:name "Nat.decLt",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_dec_lt"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "uint8",
+       :preparation-error nil}
+      {:name "Nat.div",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_div"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.mod",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_mod"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.mul",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_mul"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.pow",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_pow"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "Nat.sub",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_nat_sub"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}],
+       :result-type "tobject",
+       :preparation-error nil}
+      {:name "String.Internal.append",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_append"}}],
+       :params
+       [{"borrow" false, "ty" "object", "x" {"idx" 1}}
+        {"borrow" true, "ty" "object", "x" {"idx" 2}}],
+       :result-type "object",
+       :preparation-error
+       "Unsupported baseline extern: lean_string_append"}
+      {:name "String.Pos.next",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_utf8_next_fast"}}],
+       :params
+       [{"borrow" true, "ty" "object", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}
+        {"borrow" false, "ty" "erased", "x" {"idx" 3}}],
+       :result-type "tagged",
+       :preparation-error
+       "Unsupported baseline extern: lean_string_utf8_next_fast"}
+      {:name "String.decodeChar",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_utf8_get_fast"}}],
+       :params
+       [{"borrow" true, "ty" "object", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}
+        {"borrow" false, "ty" "erased", "x" {"idx" 3}}],
+       :result-type "uint32",
+       :preparation-error "Unsupported baseline IR type: uint32"}
+      {:name "String.ofList",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_mk"}}],
+       :params [{"borrow" false, "ty" "tobject", "x" {"idx" 1}}],
+       :result-type "object",
+       :preparation-error
+       "Unsupported baseline extern: lean_string_mk"}
+      {:name "String.push",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_push"}}],
+       :params
+       [{"borrow" false, "ty" "object", "x" {"idx" 1}}
+        {"borrow" false, "ty" "uint32", "x" {"idx" 2}}],
+       :result-type "object",
+       :preparation-error "Unsupported baseline IR type: uint32"}
+      {:name "String.utf8ByteSize",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_utf8_byte_size"}}],
+       :params [{"borrow" true, "ty" "object", "x" {"idx" 1}}],
+       :result-type "tagged",
+       :preparation-error
+       "Unsupported baseline extern: lean_string_utf8_byte_size"}
+      {:name "System.Platform.getNumBits",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_system_platform_nbits"}}],
+       :params [{"borrow" false, "ty" "tagged", "x" {"idx" 1}}],
+       :result-type "tobject",
+       :preparation-error
+       "Unsupported baseline extern: lean_system_platform_nbits"}
+      {:name "UInt32.decEq",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_uint32_dec_eq"}}],
+       :params
+       [{"borrow" false, "ty" "uint32", "x" {"idx" 1}}
+        {"borrow" false, "ty" "uint32", "x" {"idx" 2}}],
+       :result-type "uint8",
+       :preparation-error "Unsupported baseline IR type: uint32"}
+      {:name "UInt32.decLe",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_uint32_dec_le"}}],
+       :params
+       [{"borrow" false, "ty" "uint32", "x" {"idx" 1}}
+        {"borrow" false, "ty" "uint32", "x" {"idx" 2}}],
+       :result-type "uint8",
+       :preparation-error "Unsupported baseline IR type: uint32"}
+      {:name "UInt32.toNat",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_uint32_to_nat"}}],
+       :params [{"borrow" false, "ty" "uint32", "x" {"idx" 1}}],
+       :result-type "tobject",
+       :preparation-error "Unsupported baseline IR type: uint32"}
+      {:name "USize.ofNat",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_usize_of_nat"}}],
+       :params [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}],
+       :result-type "usize",
+       :preparation-error "Unsupported baseline IR type: usize"}
+      {:name "USize.ofNatLT",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_usize_of_nat"}}],
+       :params
+       [{"borrow" true, "ty" "tobject", "x" {"idx" 1}}
+        {"borrow" false, "ty" "erased", "x" {"idx" 2}}],
+       :result-type "usize",
+       :preparation-error "Unsupported baseline IR type: usize"}
+      {:name "USize.repr",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_string_of_usize"}}],
+       :params [{"borrow" true, "ty" "usize", "x" {"idx" 1}}],
+       :result-type "object",
+       :preparation-error "Unsupported baseline IR type: usize"}
+      {:name "panicCore",
+       :entries
+       [{"standard"
+         {"backend" ["str" ["anonymous"] "all"],
+          "fn" "lean_panic_fn_borrowed"}}],
+       :params
+       [{"borrow" false, "ty" "erased", "x" {"idx" 1}}
+        {"borrow" true, "ty" "tobject", "x" {"idx" 2}}
+        {"borrow" false, "ty" "object", "x" {"idx" 3}}],
+       :result-type "tobject",
+       :preparation-error
+       "Unsupported baseline extern: lean_panic_fn_borrowed"}],
+     :unsupported-extern-count 18,
+     :missing-static-dependencies [],
+     :closure-preparation-error "Unsupported baseline IR type: uint32",
+     :scope :static-ir-inventory-not-source-compatibility,
+     :roots ["main"],
+     :limits
+     ["Preparation does not execute or establish value parity."
+      "Dynamic closure targets and host-provided implementations need separate validation."
+      "The module initialization plan is reported, not executed or accepted."
+      "Java preparation does not implement or validate row initializer/redirect semantics."
+      "No hosted parsing, elaboration, kernel admission or project loading occurs."],
+     :declarations 79,
+     :row-runtime-links [],
+     :dynamic-application-sites 2,
+     :producer-version "4.33.1",
+     :initialization-plan
+     {"actions" [],
+      "imports"
+      [{"meta" false, "module" ["str" ["anonymous"] "Init"]}
+       {"meta" true, "module" ["str" ["anonymous"] "Init"]}],
+      "kind" "initialization-plan",
+      "module" ["str" ["anonymous"] "UnchangedRbmap"],
+      "moduleSystem" false,
+      "schema" "lean-init-plan/1"}}}
+   {:id :mcmc-compiler-descriptions,
+    :source
+    {:repository :mcmc-lean,
+     :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+     :path "formal/Mcmc/Executable/Finite/CompilerIR.lean",
+     :fixture
+     {:path "test/fixtures/unchanged-programs/CompilerIR.lean",
+      :sha256
+      "bd4681f3ce6ba9050125d2bf8dd4f630fc5bbcf7f7870616975727cd85fca4f2"}},
+    :roots
+    ["Mcmc.Executable.Finite.CompilerIR.categoricalProgram"
+     "Mcmc.Executable.Finite.CompilerIR.metropolisHastingsProgram"
+     "Mcmc.Executable.Finite.CompilerIR.twoStateTarget"
+     "Mcmc.Executable.Finite.CompilerIR.twoStateProposal"],
+    :recorded-evidence #{:isolated-engine-jar :raw-ir-values},
+    :evidence "java-ir-baseline/README.md",
+    :checked-artifacts
+    [{:path "test/fixtures/unchanged-programs/CompilerIR.lean",
+      :sha256
+      "bd4681f3ce6ba9050125d2bf8dd4f630fc5bbcf7f7870616975727cd85fca4f2"}
+     {:path "test/fixtures/unchanged-programs/compiler-ir.jsonl",
+      :sha256
+      "e1b812c6db41a7f015b606f89e96ee73e45fd043aafb6b97a49363ef23bb1661"}],
+    :inventory
+    {:externs [],
+     :unsupported-extern-count 0,
+     :missing-static-dependencies [],
+     :closure-preparation-error nil,
+     :scope :static-ir-inventory-not-source-compatibility,
+     :roots
+     ["Mcmc.Executable.Finite.CompilerIR.categoricalProgram"
+      "Mcmc.Executable.Finite.CompilerIR.metropolisHastingsProgram"
+      "Mcmc.Executable.Finite.CompilerIR.twoStateTarget"
+      "Mcmc.Executable.Finite.CompilerIR.twoStateProposal"],
+     :limits
+     ["Preparation does not execute or establish value parity."
+      "Dynamic closure targets and host-provided implementations need separate validation."
+      "The module initialization plan is reported, not executed or accepted."
+      "Java preparation does not implement or validate row initializer/redirect semantics."
+      "No hosted parsing, elaboration, kernel admission or project loading occurs."],
+     :declarations 81,
+     :row-runtime-links [],
+     :dynamic-application-sites 0,
+     :producer-version "4.33.1",
+     :initialization-plan
+     {"actions" [],
+      "imports"
+      [{"meta" false, "module" ["str" ["anonymous"] "Init"]}
+       {"meta" true, "module" ["str" ["anonymous"] "Init"]}],
+      "kind" "initialization-plan",
+      "module" ["str" ["anonymous"] "UnchangedCompilerIR"],
+      "moduleSystem" false,
+      "schema" "lean-init-plan/1"}}}
+   {:id :mcmc-finite-execution,
+    :source
+    {:repository :mcmc-lean,
+     :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+     :path "formal/Mcmc/Executable/Finite/CompilerIRInterpreter.lean",
+     :sha256
+     "c73484432ddbc8a397237260f68e694f03007d6f4a5c3e94eb3289ea8fb5fe5f"},
+    :roots
+    ["Mcmc.Executable.Finite.CompilerIR.runCategorical"
+     "Mcmc.Executable.Finite.CompilerIR.runMetropolisHastings"],
+    :pending
+    #{:trace-oracle-comparison
+      :runtime-coverage
+      :capture-executable-closure},
+    :recorded-evidence #{},
+    :checked-artifacts [],
+    :inventory nil}
+   {:id :mcmc-proof-bearing-imports,
+    :source
+    {:repository :mcmc-lean,
+     :revision "a5781f9649670b155608aa2ac0e5931c89afc5fb",
+     :path "formal/Mcmc/Executable/Finite/TwoState.lean",
+     :sha256
+     "6ac5ca036d7b8d0cbbf54b1c253eafe87d436b17460acefcb7c53f21b866407f"},
+    :pending
+    #{:import-closure
+      :checked-source-loading
+      :native-decide-compatibility
+      :tactics},
+    :recorded-evidence #{},
+    :checked-artifacts [],
+    :inventory nil}
+   {:id :multi-file-io-example,
+    :pending
+    #{:errors
+      :project-imports
+      :file-io
+      :select-and-pin-original-example},
+    :recorded-evidence #{},
+    :checked-artifacts [],
+    :inventory nil}]},
+ :clojure "1.12.4",
+ :diagnostic-control
+ {:local-cold-test-overlap true,
+  :samples
+  [{:cpu-ns 336616430,
+    :wall-ns 361768833,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 0,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 847776032,
+    :wall-ns 858491554,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 0,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 360600849,
+    :wall-ns 366721035,
+    :allocated-bytes 151586824,
+    :gc-collections 5,
+    :trial 0,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 850097224,
+    :wall-ns 875234346,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 0,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 851584803,
+    :wall-ns 853906874,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 1,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 346616654,
+    :wall-ns 357558206,
+    :allocated-bytes 151586824,
+    :gc-collections 5,
+    :trial 1,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 802904416,
+    :wall-ns 816768621,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 1,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 444448071,
+    :wall-ns 451013345,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 1,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 341079895,
+    :wall-ns 354476599,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 2,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 774724466,
+    :wall-ns 797796221,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 2,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 349292726,
+    :wall-ns 370258896,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 2,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 1167023200,
+    :wall-ns 1183636430,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 2,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 913955534,
+    :wall-ns 922176514,
+    :allocated-bytes 151586824,
+    :gc-collections 5,
+    :trial 3,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 359278639,
+    :wall-ns 370551655,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 3,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 883743419,
+    :wall-ns 917649770,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 3,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 334714664,
+    :wall-ns 355238550,
+    :allocated-bytes 151586824,
+    :gc-collections 5,
+    :trial 3,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 337900237,
+    :wall-ns 360693843,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 4,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 919095492,
+    :wall-ns 934349415,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 4,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 373139782,
+    :wall-ns 384138309,
+    :allocated-bytes 151586824,
+    :gc-collections 5,
+    :trial 4,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 876729093,
+    :wall-ns 895667260,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 4,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 837437883,
+    :wall-ns 861454275,
+    :allocated-bytes 151586824,
+    :gc-collections 4,
+    :trial 5,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 351184906,
+    :wall-ns 364567166,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 5,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 859665960,
+    :wall-ns 879164857,
+    :allocated-bytes 151587296,
+    :gc-collections 5,
+    :trial 5,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 337604724,
+    :wall-ns 343222496,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 5,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 326321461,
+    :wall-ns 333578460,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 6,
+    :generation :previous,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 771442999,
+    :wall-ns 788618078,
+    :allocated-bytes 151586824,
+    :gc-collections 3,
+    :trial 6,
+    :generation :previous,
+    :mode :explicit,
+    :checksum 10050}
+   {:cpu-ns 365420246,
+    :wall-ns 370279286,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 6,
+    :generation :registry,
+    :mode :recursive,
+    :checksum 10050}
+   {:cpu-ns 1055601372,
+    :wall-ns 1057639505,
+    :allocated-bytes 151586824,
+    :gc-collections 2,
+    :trial 6,
+    :generation :registry,
+    :mode :explicit,
+    :checksum 10050}]},
+ :scope
+ "Retained 384MiB REPL; original captured Nat externs and computational RBMap control; no source loading or IO execution",
+ :engine-jar-sha256
+ "e4f79b6c47571838a7789251208ce14114b58850527b0af211a10d5dbe333e7a",
+ :native-oracle "measurements/java-ir-nat-extern-oracle.edn",
+ :java "25.0.1",
+ :max-heap 402653184,
+ :limits
+ ["Retained JVM code generation/history and shared machine limit precision."
+  "Final measurements include the identical host batch adapter."
+  "Initial overlap control is diagnostic only."
+  "Direct root ABI/intrinsic checks are not hosted source compatibility."],
+ :engine-source-sha256
+ "a56ae002fe8b96e28e86da4d7f711ab064062170c3b27123b39080c4d71fce47",
+ :isolated-jar-checks
+ {:executions 42, :assertions 2711, :failures 0, :errors 0}}
