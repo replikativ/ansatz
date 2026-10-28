@@ -465,6 +465,56 @@
       :mdata (e/mdata (e/mdata-data expr) (replace-subterm (e/mdata-expr expr) target repl))
       expr)))
 
+(defn- replace-matcher-discrs
+  "Replace the discriminant slots of the selected matcher application together.
+   Equal discriminant expressions still receive independent replacements, and
+   occurrences elsewhere in the target are preserved (Lean Split.lean)."
+  [target app args num-params num-discrs replacements]
+  (let [start (inc num-params)
+        new-args (reduce (fn [as i]
+                           (assoc as (+ start i) (nth replacements i)))
+                         args (range num-discrs))
+        [head _] (e/get-app-fn-args app)]
+    (replace-subterm target app (apply e/app* head new-args))))
+
+(defn- unify-split-discr-eqs
+  "Use the same equality simplification as `cases` on the splitter's branch
+   equations. An impossible constructor equation closes its branch."
+  [ps alt-infos]
+  (let [unify-branch
+        (fn [ps ids]
+          (loop [ps ps, pending (seq ids)]
+            (if-let [hid (first pending)]
+              (let [goal (proof/current-goal ps)]
+                (if-not (and goal (contains? (:lctx goal) hid))
+                  (recur ps (next pending))
+                  (let [result (try (basic/unify-eq ps hid)
+                                    (catch clojure.lang.ExceptionInfo ex
+                                      (if (= :tactic-error (:kind (ex-data ex)))
+                                        {:ps ps :status :continue :num-new-eqs 0}
+                                        (throw ex))))
+                        ps (:ps result)]
+                    (if (= :solved (:status result))
+                      ps
+                      (let [[ps new-ids]
+                            (reduce (fn [[ps ids] _]
+                                      (let [ps (basic/intro ps)
+                                            new-id (last (sort (keys (:lctx (proof/current-goal ps)))))]
+                                        [ps (conj ids new-id)]))
+                                    [ps []] (range (:num-new-eqs result)))]
+                        (recur ps (concat new-ids (next pending))))))))
+              ps)))
+        alt-ids (set (map :goal alt-infos))
+        siblings (vec (remove alt-ids (:goals ps)))
+        ps (assoc ps :goals (vec (filter alt-ids (:goals ps))))]
+    (loop [pending (vec (:goals ps)), done [], ps ps]
+      (if-let [goal-id (first pending)]
+        (let [alt (some #(when (= goal-id (:goal %)) %) alt-infos)
+              ps1 (assoc ps :goals [goal-id])
+              ps2 (unify-branch ps1 (concat (:named-eq-ids alt) (:h-ids alt)))]
+          (recur (subvec pending 1) (into done (:goals ps2)) ps2))
+        (assoc ps :goals (into (vec done) siblings))))))
+
 (defn split-matcher
   "Split a matcher using its on-demand splitter. Overlapping
    alternatives receive the same precedence hypotheses as Lean's splitter."
@@ -474,6 +524,7 @@
         head (:head tgt)
         match-name (name/->string (e/const-name head))
         args (vec (:args tgt))
+        app (or (:app tgt) (apply e/app* head args))
         original-env @state/ansatz-env
         info (mtch/matcher-info original-env match-name)
         _ (when-not info
@@ -563,18 +614,22 @@
                               lctx (map vector named-eq-ids named-eq-types))
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "h" ty))
                               lctx (map vector h-ids h-types))
-                 sg-type (reduce (fn [t [discr pattern]]
-                                   (replace-subterm t discr pattern))
-                                 (:type goal) (map vector discrs patterns))
+                 sg-type (if (pos? (mi/get-num-discr-eqs info))
+                           (reduce (fn [t [discr pattern]]
+                                     (replace-subterm t discr pattern))
+                                   (:type goal) (map vector discrs patterns))
+                           (replace-matcher-discrs (:type goal) app args np nd patterns))
                  [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
              [ps (conj acc {:patterns patterns :ys-ids ys-ids :ys-types ys-types
                             :guard-ids guard-ids :guard-types guard-types
                             :named-eq-ids named-eq-ids :named-eq-types named-eq-types
                             :h-ids h-ids :h-types h-types :goal sg-id})]))
          [ps []] (:alts d))
-        motive-target (reduce (fn [t [discr dfv]]
-                                (replace-subterm t discr dfv))
-                              (:type goal) (map vector discrs dfvs))
+        motive-target (if (pos? (mi/get-num-discr-eqs info))
+                        (reduce (fn [t [discr dfv]]
+                                  (replace-subterm t discr dfv))
+                                (:type goal) (map vector discrs dfvs))
+                        (replace-matcher-discrs (:type goal) app args np nd dfvs))
         motive-body (reduce (fn [t [eq-lvl discr-type motive-type discr dfv heq?]]
                               (e/arrow
                                (if heq?
@@ -595,4 +650,5 @@
                             :params params-actual :discrs discrs :discr-types discr-types
                             :eq-lvls eq-lvls :hetero? hetero? :motive motive
                             :alts alt-infos})
-        (proof/record-tactic :split-matcher discrs (:id goal)))))
+        (proof/record-tactic :split-matcher discrs (:id goal))
+        (unify-split-discr-eqs alt-infos))))
