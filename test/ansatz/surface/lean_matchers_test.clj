@@ -54,6 +54,19 @@
                                         (fn [h :- (Eq Bool b Bool.false)] 2)))
                  '[(split) (all_goals (rfl))]))))))
 
+(deftest split-transports-named-equalities-for-computed-discriminants
+  (is (some? (second
+              (a/prove-law
+               '[b :- Bool]
+               '(= Nat
+                   (Nat.decEq.match_1 (fn [x :- Bool] Nat) (Bool.not b)
+                                      (fn [h :- (Eq Bool (Bool.not b) Bool.true)] 1)
+                                      (fn [h :- (Eq Bool (Bool.not b) Bool.false)] 2))
+                   (Nat.decEq.match_1 (fn [x :- Bool] Nat) (Bool.not b)
+                                      (fn [h :- (Eq Bool (Bool.not b) Bool.true)] 1)
+                                      (fn [h :- (Eq Bool (Bool.not b) Bool.false)] 2)))
+               '[(split) (all_goals (rfl))])))))
+
 (deftest split-keeps-equal-discriminants-independent
   (a/define-verified 'duplicate-match '[^Nat n] 'Nat
     '(match [n n] [[0 0] 1] [[_ _] 2]))
