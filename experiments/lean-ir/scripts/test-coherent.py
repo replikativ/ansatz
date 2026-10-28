@@ -2,8 +2,10 @@
 """Fixture-free component checks; no Init/bootstrap restore or full image.
 
 Build all 24 Java sources into one fresh class directory. Run 73 host/sizing
-models and six namespace definitions, plus 14 explicit small runtime tests in
-the same component JVM. Run eleven Python metadata tests, then a separate JVM
+models and six namespace definitions, plus 14 explicit small runtime tests and
+25 bounded branching tests in the same component JVM. The latter use checked-in
+Lean IR/model observations, not a native Lean process or large Init image.
+Run eleven Python metadata tests, then a separate JVM
 whose copied source tree physically excludes coherent namespaces/AOT outputs.
 This is component CI, not a closed runtime/bootstrap attestation.
 """

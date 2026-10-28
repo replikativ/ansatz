@@ -74,6 +74,11 @@
             [prototype.runtime-string-posof-test]
             [prototype.raw-interop-test]
             [prototype.unchanged-host-resume-test]
+            [prototype.branch-lab-test]
+            [prototype.host-cells-lab-test]
+            [prototype.klara-branch-generated-test]
+            [prototype.klara-branch-bridge-test]
+            [prototype.klara-branch-model-test]
             [prototype.raw-boundary-test]
             [prototype.cooperative-driver-draft-test]
             [prototype.full-init-campaign-test]
@@ -164,7 +169,10 @@
             [prototype.persistent-snapshot-test]))
 
 (defn -main [& _]
-  (let [result (t/run-tests 'prototype.preparation-test 'prototype.source-inductive-preparation-test 'prototype.cases-on-preparation-test 'prototype.kernel-cases-on-raw-test 'prototype.lean-ir-test 'prototype.typed-ir-test 'prototype.typed-blocks-test 'prototype.scalar-wrapper-test 'prototype.import-ir-dag-test 'prototype.continuation-readiness-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.source-graph-plan-test
+  (let [result (t/run-tests 'prototype.branch-lab-test
+                            'prototype.host-cells-lab-test 'prototype.klara-branch-generated-test
+                            'prototype.klara-branch-bridge-test 'prototype.klara-branch-model-test
+                            'prototype.preparation-test 'prototype.source-inductive-preparation-test 'prototype.cases-on-preparation-test 'prototype.kernel-cases-on-raw-test 'prototype.lean-ir-test 'prototype.typed-ir-test 'prototype.typed-blocks-test 'prototype.scalar-wrapper-test 'prototype.import-ir-dag-test 'prototype.continuation-readiness-test 'prototype.mutable-test 'prototype.runtime-ops-table-test 'prototype.source-graph-plan-test
                             'prototype.source-graph-helper-test 'prototype.source-graph-runtime-test 'prototype.source-graph-staged-test
                             'prototype.native-init-base-test
                             'prototype.operation-disposal-test
