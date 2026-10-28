@@ -55,6 +55,23 @@
       (is (= (e/lit-nat expected)
              (red/whnf env (u/app matcher [motive (u/const' value []) alt0 alt1])))))))
 
+(deftest matcher-input-can-be-reconstructed-from-its-declaration
+  (let [original (bool-matcher)
+        {:keys [ctx input]} (m/input-from-matcher (:env original)
+                                                  "MatcherReference.bool.match_1"
+                                                  "MatcherReference.bool.copy")
+        copied (m/mk-matcher ctx input)
+        motive (e/lam "_" bool nat :default)
+        alt0 (e/lam "_" (u/const' "Unit" []) (e/lit-nat 13) :default)
+        alt1 (e/lam "_" (u/const' "Unit" []) (e/lit-nat 21) :default)]
+    (is (= (:alts (:info original)) (:alts (:info copied))))
+    (is (= (:overlaps (:info original)) (:overlaps (:info copied))))
+    (doseq [[value expected] [["Bool.false" 13] ["Bool.true" 21]]]
+      (is (= (e/lit-nat expected)
+             (red/whnf (:env copied)
+                       (u/app (:matcher copied)
+                              [motive (u/const' value []) alt0 alt1])))))))
+
 (deftest nat-value-and-wildcard-matcher-uses-dependent-value-cases
   (let [ctx (c/context @environment)
         x (u/local-decl ctx "x" nat)

@@ -11,7 +11,9 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
+            [ansatz.eqns :as eqns]
             [ansatz.meta.match.matcher-info :as mi]
+            [ansatz.tactic.match-eqns :as match-eqns]
             [ansatz.tactic.instance :as instance]))
 
 (def base (delay (binding [a/*verbose* false] (a/load-init!))))
@@ -35,6 +37,22 @@
 
 (defn- decl [n] (env/lookup (a/env) (name/from-string n)))
 
+(deftest imported-named-discriminant-matcher-equations-and-splitter
+  (let [result (match-eqns/get-equations-for "Nat.decEq.match_1")]
+    (is (= 2 (count (:eqn-names result))))
+    (is (some? (decl (:splitter-name result))))
+    (is (some? (second
+                (a/prove-law
+                 '[b :- Bool]
+                 '(= Nat
+                     (Nat.decEq.match_1 (fn [x :- Bool] Nat) b
+                                        (fn [h :- (Eq Bool b Bool.true)] 1)
+                                        (fn [h :- (Eq Bool b Bool.false)] 2))
+                     (Nat.decEq.match_1 (fn [x :- Bool] Nat) b
+                                        (fn [h :- (Eq Bool b Bool.true)] 1)
+                                        (fn [h :- (Eq Bool b Bool.false)] 2)))
+                 '[(split) (all_goals (rfl))]))))))
+
 (deftest option-off-retains-direct-recursor-bodies
   (binding [config/*lean-matchers* false]
     (let [f (a/define-verified 'matcher-off '[^Bool b] 'Nat '(match b [false 13] [true 21]))]
@@ -51,6 +69,26 @@
     (is (some? (mi/get-matcher-info-core? (a/env) "matcher-bool.match_1")))
     (is (= "matcher-bool.match_1"
            (str (e/const-name (e/get-app-fn (e/lam-body (.value (decl "matcher-bool"))))))))))
+
+(deftest simp-and-split-ifs-recognize-boolean-matchers
+  (a/define-verified 'matcher-bool-tactics '[^Bool b] 'Nat
+    '(match b [false 1] [true 2]))
+  (is (some? (second
+              (a/prove-law
+               '[]
+               '(= Nat (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) Bool.true
+                                                     (fn [u :- Unit] 1) (fn [u :- Unit] 2))
+                   2)
+               '[(simp)]))))
+  (is (some? (second
+              (a/prove-law
+               '[b :- Bool]
+               '(= Nat
+                   (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) b
+                                                 (fn [u :- Unit] 1) (fn [u :- Unit] 2))
+                   (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) b
+                                                 (fn [u :- Unit] 1) (fn [u :- Unit] 2)))
+               '[(split_ifs) (all_goals (rfl))])))))
 
 (deftest inferred-return-types-preserve-the-inference-pass-environment
   (let [f (a/define-verified 'matcher-inferred '[^Bool b] '_ '(match b [false 3] [true 4]))]
@@ -89,7 +127,8 @@
             '(match n [0 10] [1 20] [k (+ k 2)]))]
     (is (= 10 (f 0)))
     (is (= 20 (f 1)))
-    (is (= 7 (f 5)))))
+    (is (= 7 (f 5)))
+    (is (= 3 (count (:eqn-names (match-eqns/get-equations-for "matcher-literal.match_1")))))))
 
 (deftest string-values-use-decidable-equality-and-a-wildcard-fallback
   ;; String.decEq is not in the medium bundle; use its checked Lean-exported closure.
@@ -127,6 +166,40 @@
     (is (= 3 (f 4 0)))
     (is (= 5 (f 4 3)))))
 
+(deftest multiple-discriminant-splitter-proves-its-branches
+  (a/define-verified 'matcher-pair-split '[^Nat a ^Nat b] 'Nat
+    '(match [a b] [[0 _] 100] [[(Nat.succ n) 0] n]
+            [[(Nat.succ n) (Nat.succ m)] (+ n m)]))
+  (is (some? (second
+              (a/prove-law
+               '[a :- Nat, b :- Nat]
+               '(= Nat
+                   (matcher-pair-split.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                               (fn [u :- Nat] 100) (fn [n :- Nat] n)
+                                               (fn [n :- Nat, m :- Nat] (+ n m)))
+                   (matcher-pair-split.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                               (fn [u :- Nat] 100) (fn [n :- Nat] n)
+                                               (fn [n :- Nat, m :- Nat] (+ n m))))
+               '[(split) (all_goals (rfl))])))))
+
+(deftest overlapping-multiple-discriminant-splitter
+  (a/define-verified 'matcher-pair-overlap '[^Nat a ^Nat b] 'Nat
+    '(match [a b] [[0 _] 1] [[_ 0] 2] [[_ _] 3]))
+  (let [result (match-eqns/get-equations-for "matcher-pair-overlap.match_1")]
+    (is (= [0 1 2] (mapv :num-overlaps (:alts (:splitter-info result)))))
+    (is (= 3 (count (:eqn-names result))))
+    (is (some? (second
+                (a/prove-law
+                 '[a :- Nat, b :- Nat]
+                 '(= Nat
+                     (matcher-pair-overlap.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                                   (fn [u :- Nat] 1) (fn [v :- Nat] 2)
+                                                   (fn [u :- Nat, v :- Nat] 3))
+                     (matcher-pair-overlap.match_1 (fn [x :- Nat, y :- Nat] Nat) a b
+                                                   (fn [u :- Nat] 1) (fn [v :- Nat] 2)
+                                                   (fn [u :- Nat, v :- Nat] 3)))
+                 '[(split) (all_goals (rfl))]))))))
+
 (deftest overlapping-constructor-alternatives-use-the-first-match
   (let [f (a/define-verified 'matcher-overlap '[^Nat n] 'Nat
             '(match n [(Nat.succ Nat.zero) 10] [(Nat.succ k) k] [Nat.zero 20]))]
@@ -134,6 +207,92 @@
     (is (= 10 (f 1)))
     (is (= 3 (f 4)))
     (is (= [[0 1]] (:overlaps (mi/get-matcher-info-core? (a/env) "matcher-overlap.match_1"))))))
+
+(deftest overlapping-matcher-equations-carry-precedence-hypotheses
+  (a/define-verified 'matcher-overlap-eq '[^Nat n] 'Nat
+    '(match n [(Nat.succ Nat.zero) 10] [(Nat.succ k) k] [Nat.zero 20]))
+  ;; This used to throw a type error while simp speculatively built an invalid
+  ;; congruence proof for the dependent matcher application.
+  (is (some? (second
+              (a/prove-law
+               '[k :- Nat, h :- (Not (= (Nat.succ k) (Nat.succ Nat.zero)))]
+               '(= Nat
+                   (matcher-overlap-eq.match_1 (fn [x :- Nat] Nat) (Nat.succ k)
+                                               (fn [u :- Unit] 10) (fn [z :- Nat] z) (fn [u :- Unit] 20))
+                   k)
+               '[(cases k) (all_goals (simp_all))]))))
+  (let [matcher "matcher-overlap-eq.match_1"
+        before (a/env)
+        {:keys [eqn-names]} (match-eqns/get-equations-for matcher)
+        [first-eqn second-eqn third-eqn] (map decl eqn-names)]
+    (is (= 3 (count eqn-names)))
+    (is (every? some? [first-eqn second-eqn third-eqn]))
+    (is (every? #(= :thm (env/ci-tag %)) [first-eqn second-eqn third-eqn]))
+    (is (= (mapv name/from-string eqn-names) (eqns/eqns-for (a/env) matcher)))
+    (is (not (identical? before (a/env))))
+    (let [installed (a/env)]
+      (is (= eqn-names (:eqn-names (match-eqns/get-equations-for matcher))))
+      (is (identical? installed (a/env))))
+    ;; The second arm must not claim to run at 1: its equation has an extra premise.
+    (let [count-binders (fn [ty]
+                          (loop [ty ty n 0]
+                            (if (e/forall? ty)
+                              (recur (e/forall-body ty) (inc n))
+                              n)))]
+      (is (= (+ 2 (count-binders (.type first-eqn)))
+             (count-binders (.type second-eqn)))))
+    ;; Lean's simpH? reduces succ k = succ 0 to k = 0.
+    (let [guard (e/forall-type (nth (iterate e/forall-body (.type second-eqn)) 5))
+          [_ eq-args] (e/get-app-fn-args (e/forall-type guard))]
+      (is (= "Nat.zero" (str (e/const-name (nth eq-args 2))))))))
+
+(deftest catchall-equation-instantiates-earlier-pattern-fields
+  (a/define-verified 'matcher-catchall-eq '[^Nat n] 'Nat
+    '(match n [(Nat.succ k) 10] [m m]))
+  (let [eqs (:eqn-names (match-eqns/get-equations-for "matcher-catchall-eq.match_1"))]
+    (is (= 2 (count eqs)))
+    (is (every? #(= :thm (env/ci-tag (decl %))) eqs))))
+
+(deftest literal-overlap-simplifies-like-constructor-overlap
+  (a/define-verified 'matcher-literal-overlap '[^Nat n] 'Nat
+    '(match n [1 10] [(Nat.succ k) k] [0 20]))
+  (let [eqs (:eqn-names (match-eqns/get-equations-for "matcher-literal-overlap.match_1"))]
+    (is (= 3 (count eqs)))
+    (is (every? #(= :thm (env/ci-tag (decl %))) eqs))))
+
+(deftest overlapping-nat-splitter-has-a-guarded-alternative
+  (a/define-verified 'matcher-split-nat '[^Nat n] 'Nat
+    '(match n [1 10] [(Nat.succ k) k] [0 20]))
+  (let [result (match-eqns/get-equations-for "matcher-split-nat.match_1")]
+    (is (some? (decl (:splitter-name result))))
+    (is (= [0 1 0] (mapv :num-overlaps (:alts (:splitter-info result)))))
+    (is (some? (second
+                (a/prove-law
+                 '[n :- Nat]
+                 '(= Nat
+                     (matcher-split-nat.match_1 (fn [x :- Nat] Nat) n
+                                                (fn [u :- Unit] 10) (fn [k :- Nat] k) (fn [u :- Unit] 20))
+                     (matcher-split-nat.match_1 (fn [x :- Nat] Nat) n
+                                                (fn [u :- Unit] 10) (fn [k :- Nat] k) (fn [u :- Unit] 20)))
+                 '[(split) (all_goals (rfl))]))))))
+
+(deftest overlapping-list-splitter-uses-constructor-no-confusion
+  (a/define-verified 'matcher-split-list '[xs :- (List Nat)] 'Nat
+    '(match xs [nil 0] [(cons x nil) x] [(cons x rest) 5]))
+  (let [result (match-eqns/get-equations-for "matcher-split-list.match_1")]
+    (is (some? (decl (:splitter-name result))))
+    (is (= [0 0 1] (mapv :num-overlaps (:alts (:splitter-info result)))))
+    (is (some? (second
+                (a/prove-law
+                 '[xs :- (List Nat)]
+                 '(= Nat
+                     (matcher-split-list.match_1 (fn [z :- (List Nat)] Nat) xs
+                                                 (fn [u :- Unit] 0) (fn [x :- Nat] x)
+                                                 (fn [x :- Nat, rest :- (List Nat)] 5))
+                     (matcher-split-list.match_1 (fn [z :- (List Nat)] Nat) xs
+                                                 (fn [u :- Unit] 0) (fn [x :- Nat] x)
+                                                 (fn [x :- Nat, rest :- (List Nat)] 5)))
+                 '[(split) (all_goals (rfl))]))))))
 
 (deftest enum-cases-and-catchalls-use-the-generated-cases-on
   (reset! a/ansatz-env (ind/define-inductive (a/env) "MatcherEnum" []
@@ -154,7 +313,20 @@
         info (mi/get-matcher-info-core? (a/env) "matcher-vector.match_1")]
     (is (= 2 (:num-discrs info)))
     (is (= 0 (f 0 nil)))
-    (is (= 17 (f 1 [0 17 nil])))))
+    (is (= 17 (f 1 [0 17 nil])))
+    (is (some? (second
+                (a/prove-law
+                 '[n :- Nat, v :- (MatcherVec Nat n)]
+                 '(= Nat
+                     (matcher-vector.match_1
+                      (fn [k :- Nat, xs :- (MatcherVec Nat k)] Nat) n v
+                      (fn [u :- Unit] 0)
+                      (fn [k :- Nat, x :- Nat, xs :- (MatcherVec Nat k)] x))
+                     (matcher-vector.match_1
+                      (fn [k :- Nat, xs :- (MatcherVec Nat k)] Nat) n v
+                      (fn [u :- Unit] 0)
+                      (fn [k :- Nat, x :- Nat, xs :- (MatcherVec Nat k)] x)))
+                 '[(split) (all_goals (rfl))]))))))
 
 (deftest recursive-definition-continues-to-use-the-existing-path
   (let [f (a/define-verified 'matcher-recursive '[^Nat n] 'Nat
@@ -188,6 +360,7 @@
   (let [ci (decl "matcher-dependent-nat")
         nat (e/const' (name/from-string "Nat") [])]
     (is (= 2 (:num-discrs (mi/get-matcher-info-core? (a/env) "matcher-dependent-nat.match_1"))))
+    (is (= 2 (count (:eqn-names (match-eqns/get-equations-for "matcher-dependent-nat.match_1")))))
     (doseq [n [0 7]]
       (let [n (e/lit-nat n)
             h (e/app* (e/const' (name/from-string "Eq.refl") [(lvl/succ lvl/zero)]) nat n)]

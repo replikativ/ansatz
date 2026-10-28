@@ -3323,7 +3323,24 @@
                                            (or (= n "Bool.true") (= n "Bool.false"))))
                             ;; Mathlib findIfToSplit? searches the condition itself first.
                             (walk discr)
-                            (when-not @result (vreset! result {:kind :bool :discr discr}))))))))
+                            (when-not @result (vreset! result {:kind :bool :discr discr})))))))
+                  (when (and (e/const? head) (not @result))
+                    (let [matcher-name (name/->string (e/const-name head))
+                          matcher-info ((requiring-resolve 'ansatz.matchers/matcher-info)
+                                        (:env ps) matcher-name)
+                          discr-pos (when matcher-info (inc (:num-params matcher-info)))]
+                      (when (and (= 1 (:num-discrs matcher-info))
+                                 (> (count args) discr-pos))
+                        (let [discr (nth args discr-pos)
+                              st (mk-tc ps goal-lctx)
+                              ty (try (whnf-in-goal ps goal-lctx (tc/infer-type st discr))
+                                      (catch Exception _ nil))]
+                          (when (and (= ty (e/const' (name/from-string "Bool") []))
+                                     (not (e/has-loose-bvars? discr)))
+                            (walk discr)
+                            (when-not @result
+                              (vreset! result {:kind :matcher :discr discr
+                                               :target {:head head :args args}}))))))))
                 ;; Recurse into subterms
                 (when-not @result
                   (case (e/tag e)
@@ -3351,14 +3368,18 @@
                 (cond
                   (nil? discr) (if (seq done) ps (tactic-error! "split_ifs: no if-then-else conditions to split" {}))
                   (some #{discr} done) ps
-                  :else (all-goals (if (= :dec (:kind tgt))
-                                     (by-cases-dec ps discr (:inst tgt))
+                  :else (all-goals (case (:kind tgt)
+                                     :dec (by-cases-dec ps discr (:inst tgt))
+                                     :matcher ((requiring-resolve 'ansatz.tactic.match-eqns/split-matcher)
+                                               ps (:target tgt))
                                      (by-cases ps discr))
                                    (fn [ps]
                                      (let [g (proof/current-goal ps)
                                            hid (last (sort (keys (:lctx g))))
                                            ps ((requiring-resolve 'ansatz.tactic.simp/simp-target)
-                                               ps ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)]
+                                               ps (if (= :matcher (:kind tgt))
+                                                    [(e/fvar hid)]
+                                                    ['if_pos 'if_neg 'dif_pos 'dif_neg (e/fvar hid)])
                                                {:only? true})]
                                        (if (seq (:goals ps)) (go ps (conj done discr)) ps)))))))]
     (when-not (proof/current-goal ps) (tactic-error! "No goals" {}))

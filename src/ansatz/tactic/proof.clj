@@ -272,18 +272,36 @@
                             cond motive inst false-lam true-lam))
 
     :split-matcher
-    (let [{:keys [match-name us params discr discr-type eq-lvl motive alts]} assignment
-          alt-lams (mapv (fn [{:keys [ys-ids ys-types h-id h-type goal]}]
-                           (let [h-lam (e/lam "h" h-type
-                                              (meta/abstract-fvars (e/mvar goal) [h-id]) :default)]
+    (let [{:keys [match-name us params discrs discr-types eq-lvls hetero? motive alts]} assignment
+          alt-lams (mapv (fn [{:keys [ys-ids ys-types guard-ids guard-types
+                                      named-eq-ids named-eq-types h-ids h-types goal]}]
+                           (let [h-lam (reduce (fn [body [hid hty]]
+                                                 (e/lam "h" hty
+                                                        (meta/abstract-fvars body [hid]) :default))
+                                               (e/mvar goal)
+                                               (reverse (map vector h-ids h-types)))
+                                 named-eq-lams
+                                 (reduce (fn [b [eid ety]]
+                                           (e/lam "hDiscr" ety
+                                                  (meta/abstract-fvars b [eid]) :default))
+                                         h-lam (reverse (map vector named-eq-ids named-eq-types)))
+                                 guard-lams
+                                 (reduce (fn [b [gid gty]]
+                                           (e/lam "notAlt" gty
+                                                  (meta/abstract-fvars b [gid]) :default))
+                                         named-eq-lams (reverse (map vector guard-ids guard-types)))]
                              (reduce (fn [b [yid yty]]
                                        (e/lam "y" yty (meta/abstract-fvars b [yid]) :default))
-                                     h-lam (reverse (map vector ys-ids ys-types)))))
+                                     guard-lams (reverse (map vector ys-ids ys-types)))))
                          alts)
           matcher-app (apply e/app* (e/const' (name/from-string match-name) us)
-                             (concat params [motive discr] alt-lams))
-          refl (e/app* (e/const' (name/from-string "Eq.refl") [eq-lvl]) discr-type discr)]
-      (e/app matcher-app refl))
+                             (concat params [motive] discrs alt-lams))
+          refls (mapv (fn [eq-lvl discr-type discr heq?]
+                        (e/app* (e/const' (name/from-string (if heq? "HEq.refl" "Eq.refl"))
+                                          [eq-lvl])
+                                discr-type discr))
+                      eq-lvls discr-types discrs hetero?)]
+      (reduce e/app matcher-app refls))
 
     :replace-local-decl
     (let [{:keys [old-id new-id old-type new-type eq-proof level child]} assignment

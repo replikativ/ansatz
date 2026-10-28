@@ -44,6 +44,7 @@
             [ansatz.meta :as meta]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta.match.matcher-info :as matcher-info]
             [ansatz.kernel.reduce :as red]
             [ansatz.tactic.proof :as proof]
             [ansatz.tactic.decide :as decide-tac]
@@ -2050,18 +2051,28 @@
                                                        args results)))]
                   (if-not (some (fn [r] (some? (:proof? r))) results)
                     deq-only
-                    (let [[folded _]
-                          (reduce (fn [[facc orig-f] [orig-arg r]]
-                                    [(mk-congr st facc r orig-f orig-arg)
-                                     (e/app orig-f orig-arg)])
-                                  [(mk-result head) head]
-                                  (map vector args results))
+                    (let [folded
+                          (try
+                            (first (reduce (fn [[facc orig-f] [orig-arg r]]
+                                             [(mk-congr st facc r orig-f orig-arg)
+                                              (e/app orig-f orig-arg)])
+                                           [(mk-result head) head]
+                                           (map vector args results)))
+                            (catch clojure.lang.ExceptionInfo ex
+                              (if (= :type-error (:kind (ex-data ex)))
+                                nil
+                                (throw ex))))
                           ok (and (:proof? folded)
-                                  (let [pt (safe-infer st (:proof? folded))
-                                        ptw (when pt (safe-whnf st pt))
-                                        [h as] (when ptw (e/get-app-fn-args ptw))]
-                                    (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
-                                         (tc/is-def-eq st (nth as 1) expr))))]
+                                  (try
+                                    (let [pt (safe-infer st (:proof? folded))
+                                          ptw (safe-whnf st pt)
+                                          [h as] (e/get-app-fn-args ptw)]
+                                      (and h (e/const? h) (= (e/const-name h) eq-name) (= 3 (count as))
+                                           (tc/is-def-eq st (nth as 1) expr)))
+                                    (catch clojure.lang.ExceptionInfo ex
+                                      (if (= :type-error (:kind (ex-data ex)))
+                                        false
+                                        (throw ex)))))]
                       (if ok folded deq-only)))))))))
       (try-ground-eval st (:env st) expr)
       (try-simp-using-decide st expr config)
@@ -2110,27 +2121,41 @@
       (when decl (when-let [v (:value decl)] v)))))
 
 (defn- try-unfold
-  "Unfold a definition if its name is in the to-unfold set."
+  "Unfold an explicit definition, or a matcher with a known constructor
+   discriminant. The latter is Lean's matcher equation reduction path."
   [st env to-unfold expr]
-  (when (seq to-unfold)
-    (let [head (e/get-app-fn expr)]
-      (when (e/const? head)
-        (let [hname (e/const-name head)]
-          (when (contains? to-unfold (name/->string hname))
-            (when-let [^ConstantInfo ci (env/lookup env hname)]
+  (let [head (e/get-app-fn expr)]
+    (when (e/const? head)
+      (let [hname (e/const-name head)
+            hstr (name/->string hname)
+            info (matcher-info/get-matcher-info-core? env hstr)
+            args (e/get-app-args expr)
+            matcher-ready?
+            (when (and info
+                       (>= (count args) (+ (:num-params info) 1
+                                           (:num-discrs info) (count (:alts info)))))
+              (some (fn [discr]
+                      (let [w (red/whnf-no-delta env discr (:lctx st))
+                            h (e/get-app-fn w)
+                            ci (when (e/const? h) (env/lookup env (e/const-name h)))]
+                        (or (e/lit-nat? w) (and ci (.isCtor ^ConstantInfo ci)))))
+                    (subvec (vec args) (inc (:num-params info))
+                            (+ 1 (:num-params info) (:num-discrs info)))))]
+        (when (or (contains? to-unfold hstr) matcher-ready?)
+          (when-let [^ConstantInfo ci (env/lookup env hname)]
               ;; definitions only: theorems are opaque to unfolding (lean4#12973 —
               ;; Meta.unfoldDefinition?/getUnfoldableConst? no longer look through them)
-              (when (.isDef ci)
-                (when-let [value (.value ci)]
-                  (let [levels (e/const-levels head)
-                        lparams (vec (.levelParams ci))
-                        level-subst (into {} (map vector lparams
-                                                  (concat levels (repeat lvl/zero))))
-                        body (if (seq level-subst)
-                               (e/instantiate-level-params value level-subst)
-                               value)
-                        args (e/get-app-args expr)]
-                    (reduce e/app body args)))))))))))
+            (when (.isDef ci)
+              (when-let [value (.value ci)]
+                (let [levels (e/const-levels head)
+                      lparams (vec (.levelParams ci))
+                      level-subst (into {} (map vector lparams
+                                                (concat levels (repeat lvl/zero))))
+                      body (if (seq level-subst)
+                             (e/instantiate-level-params value level-subst)
+                             value)
+                      args (e/get-app-args expr)]
+                  (reduce e/app body args))))))))))
 
 (defn- try-eta-reduce
   "Eta reduction: (fun x => f x) → f when x is not free in f.
@@ -2517,12 +2542,19 @@
                                      (if (and atw (e/sort? atw)
                                               (not= (e/sort-level atw) lvl/zero))
                                        :fixed :eq)))
+                        fn-type (safe-whnf st (safe-infer st orig-f))
+                        dependent-arg? (and (e/forall? fn-type)
+                                            (e/has-loose-bvars? (e/forall-body fn-type) 0))
                        ;; Override :fixed → :eq for recursor discriminants with constant motive.
                        ;; When the motive doesn't depend on its bound variable (e.g.,
                        ;; Bool.rec (fun _ => Bool) ...), the result type is non-dependent,
                        ;; so congrArg works and full simp on the discriminant is safe.
                        ;; Lean 4 handles this via auto-generated congr theorems.
                         arg-kind (cond
+                                  ;; Lean's congruence analysis marks arguments fixed when
+                                  ;; the result type depends on them. Ordinary congrArg
+                                  ;; cannot transport the codomain across such a rewrite.
+                                   dependent-arg? :fixed
                                   ;; Override 1: recursor discriminant with constant motive → :eq
                                    (and (= raw-kind :fixed)
                                         (e/const? app-fn)
@@ -2571,7 +2603,16 @@
                     (if (and (identical? (:expr f-result) orig-f)
                              (identical? (:expr a-result) orig-a))
                       (mk-result expr)
-                      (mk-congr st f-result a-result orig-f orig-a)))))))
+                      ;; A propositional rewrite in a dependent argument can make
+                      ;; ordinary congrArg/congrFun ill typed. Lean's congruence
+                      ;; traversal keeps such arguments fixed; discard this
+                      ;; speculative rewrite when our constructor cannot type it.
+                      (try
+                        (mk-congr st f-result a-result orig-f orig-a)
+                        (catch clojure.lang.ExceptionInfo ex
+                          (if (= :type-error (:kind (ex-data ex)))
+                            (mk-result expr)
+                            (throw ex))))))))))
 
         ;; Lambda — Lean 4: simpLambda (Main.lean:328) via lambdaTelescopeDSimp.
         ;; CRITICAL: open the binder with a FRESH FVAR before simplifying the body
