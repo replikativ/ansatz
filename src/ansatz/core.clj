@@ -32,7 +32,6 @@
             [ansatz.export.replay :as replay]
             [ansatz.tactic.instance :as instance]
             [ansatz.inductive :as inductive]
-            [ansatz.surface.match :as surface-match]
             [ansatz.elab.structural :as structural]
             [ansatz.elab.structural-eqns :as structural-eqns]
             [ansatz.surface.ingest :as ingest]
@@ -2037,10 +2036,7 @@
         body-ansatz (if structural-matcher?
                       (:expr compiled-structural)
                       (if lean-matchers? (:expr body-result)
-                          (binding [surface-match/*self-name* (when top-match? cname)
-                                    surface-match/*self-params* (when top-match? (vec (range 1 (inc n))))
-                                    surface-match/*generalize-self-params?* generalized-self-params?]
-                            (build-telescope-fvar tmp-env pairs ret-type-form body-form))))
+                          (build-telescope-fvar tmp-env pairs ret-type-form body-form)))
         ;; If a self-call survived as the axiom, structural auto-detection didn't apply — give an
         ;; actionable error (the recursion lane prompt) instead of a cryptic kernel "unknown constant".
         _ (when (mentions-const? body-ansatz cname)
@@ -2673,8 +2669,7 @@
                                      (e/instantiate1
                                       (e/abstract1 (:expr body-result) (:self-fvar-id body-result))
                                       (e/const' cname []))
-                                     (binding [surface-match/*use-cases-on?* true]
-                                       (build-telescope-fvar @ansatz-env pairs ret-type-form body-form)))]
+                                     (build-telescope-fvar @ansatz-env pairs ret-type-form body-form))]
                         (when (mentions-const? direct cname)
                           (let [{:keys [arity erased]} (get @arity-registry (str fn-name))
                                 emit (requiring-resolve 'ansatz.codegen.storedef/emit-direct-recursion)

@@ -16,9 +16,9 @@ implementation, then check the corresponding Klara proof where one exists.
 | 7 | End to end validation | Ansatz and Klara suites | The combined matcher/tactic and recursion branch passed CI in PR #239. The exact Klara draft PR #1 source loaded and kernel checked the full specification with the default compiler. The full opt-in specification kernel checked with its `smn-step2` rewrite moved before `simp only [ev]`; the PR's guarded rewrite form kernel checked separately with both compiler modes. |
 | 8 | Generalize matcher discriminants by argument position and simplify branch equations | `Meta/Tactic/Split.lean` `generalizeMatchDiscrs`, `Cases.unifyEqs?` | Merged in PR #242. Repeated discriminants produce independent branch equalities; unrelated goal occurrences stay in place; constructor-injected equalities are processed before returning goals. |
 | 9 | Transport named discriminant alternative binders during generalization | `Meta/Tactic/Split.lean` `withNewAltEqs` | Merged in PR #243. Imported `Nat.decEq.match_1` splits with a computed discriminant and kernel checks; `HEq.rec` composition is kernel checked. An integrated dependent named-discriminant split remains a coverage gap. |
-| 10 | Separate structural recursion from match expression compilation | `Elab/PreDefinition/{FixedParams,Structural/BRecOn,Structural/Main}.lean` | `MatcherApp.addArg`, `brecOn`, and constructor-equation proofs merged in PRs #245, #246, #248, and #249. PRs #250 and #251 made supported recursion the default and added let-wrapped matches. PR #253 handles distinct parameter-variable indices. Index types depending on other indices and extra dependent parameters now compile with checked constructor equations. A recursive match under an `if` or another match compiles structurally with a checked unfold equation; candidate structural arguments are tried in source order until one compiles. Single-function fixed parameters are inferred from recursive calls and type dependencies. Computed index expressions, mutual fixed-parameter permutations, mutual recursion, and general recursive-body equation generation remain open. |
+| 10 | Separate structural recursion from match expression compilation | `Elab/PreDefinition/{FixedParams,Structural/BRecOn,Structural/Main}.lean` | `MatcherApp.addArg`, `brecOn`, and constructor-equation proofs merged in PRs #245, #246, #248, and #249. PRs #250 and #251 made supported recursion the default and added let-wrapped matches. PR #253 handles distinct parameter-variable indices. Index types depending on other indices and extra dependent parameters now compile with checked constructor equations. A recursive match under an `if` or another match compiles structurally with a checked unfold equation; candidate structural arguments are tried in source order until one compiles. Single-function fixed parameters are inferred from recursive calls and type dependencies. Mutual fixed-parameter permutations, mutual recursion, and general recursive-body equation generation remain open. Computed indices are rejected by Lean structural recursion as well; they are not a required structural parity extension. |
 | 11 | Enable matcher compilation by default for ordinary definitions | `Elab/Match.lean`, `Meta/Match`, `Elab/PreDefinition/Eqns.lean` | Merged in PR #244. All CI checks passed; the unchanged Klara specification kernel checks with 69/69 programs. |
-| 12 | Retire the direct recursor match compiler | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean`, `Meta/Match` | Remove `compile-match-term` and the recursion-triggered matcher bypass after recursive match bodies compile through `Meta.Match.mkMatcher`. Validate recursive equations, runtime codegen, and the unchanged Klara specification with the sole compiler. |
+| 12 | Retire the direct recursor match compiler | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean`, `Meta/Match` | The removal branch deletes `compile-match-term`, its direct recursor construction, and its structural self-call rewriting. All surface match compilation delegates to Meta.Match. The expression-only API inlines generated matcher values; definition elaboration retains named matchers and metadata. Validate recursive equations, runtime codegen, and Klara before merging. |
 
 Lean's current `Eqns.getEqnsFor?` installs one simple unfold equation for a
 nonrecursive definition by default; the matcher's own equations are generated
@@ -42,10 +42,23 @@ equations and the single kernel-checked recursive equation. The default-on
 audit checks deep runtime recursion using the pre-encoding matcher body,
 corresponding to Lean's `_unsafe_rec` runtime source. A temporary Klara copy
 with its `lookup-ws` proof reordered to Lean's source-alternative branch order
-kernel checked the full specification and ran 69/69 programs. Full Lean parity
-still requires computed index expressions and mutual inductives, the full
-fixed-parameter analysis, and broader recursive-body shapes before the old
-compiler can go.
+kernel checked the full specification and ran 69/69 programs. Remaining recursion parity work includes mutual inductives/predefinitions,
+mutual fixed-parameter permutations, and broader recursive-body equations. Lean
+structural recursion itself requires distinct variable indices; computed indices
+are not a prerequisite for retiring the duplicate match compiler.
 
 Do not close a report because a workaround passes: its original reproduction
 must pass or fail cleanly as appropriate.
+
+Recent retirement steps: PR #261 added lazy matcher equation hints for grind;
+#262 translated legacy explicit IH shorthand before structural elaboration;
+#263 moved well-founded recursive matches to Meta.Match and preserved recursive
+calls in equation right-hand sides; #265 moved partial definitions to the same
+matcher path with atomic rollback. PR #264 fixed the repeatedly observed timing
+flake in the discrimination-tree scaling test. PR #266 supplies the expression-only
+adapter, including metavariable contexts and hole types in collecting mode.
+
+Lean uses Meta.Match for match expressions and separate structural and well-founded
+recursion transformations. Removing the direct match compiler does not imply full
+Lean recursion parity: mutual predefinitions/inductives, their parameter permutations,
+and broader equation generation still need work.

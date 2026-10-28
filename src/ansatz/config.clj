@@ -8,9 +8,9 @@
    All values are dynamic vars that can be overridden via `binding`.")
 
 (def ^:dynamic *lean-matchers*
-  "Compile supported verified matches through generated, kernel-checked matcher
-   declarations. Ordinary matches and supported structural recursion use this
-   path by default; unsupported recursive forms retain their checked path."
+  "Retain named, kernel-checked matchers during supported definition elaboration.
+   False selects expression-only elaboration with matcher values inlined; all
+   match expressions use the same Meta.Match compiler."
   true)
 
 (def ^:dynamic *lean-structural-matchers*
