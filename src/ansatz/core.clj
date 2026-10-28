@@ -1739,9 +1739,11 @@
         lean-matchers? (and config/*lean-matchers*
                             (not-any? (fn [x]
                                         (and (symbol? x)
-                                             (or (= (str x) (str fn-name))
-                                                 (= (name x) (str fn-name))
-                                                 (.startsWith (name x) "ih_"))))
+                                             (let [nm (name x)
+                                                   nm (if (.startsWith nm "@") (subs nm 1) nm)]
+                                               (or (= (str x) (str fn-name))
+                                                   (= nm (str fn-name))
+                                                   (.startsWith nm "ih_")))))
                                       (tree-seq coll? seq body-form)))
         matcher-opts (when lean-matchers? {:lean-matchers? true :matcher-prefix (str fn-name)})
         inferred-body (when (and lean-matchers? (= '_ ret-type-form))

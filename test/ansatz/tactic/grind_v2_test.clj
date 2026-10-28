@@ -10,6 +10,7 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
             [ansatz.tactic.proof :as proof]
+            [ansatz.tactic.match-eqns :as match-eqns]
             [ansatz.tactic.extract :as extract]
             [ansatz.tactic.grind :as legacy]
             [ansatz.tactic.grind.action :as action]
@@ -270,10 +271,13 @@
       (is (= ["iv-app.eq_1" "iv-app.eq_2"] (mapv name/->string (eqns/eqns-for (a/env) 'iv-app))))
       (is (= ["iv-id.eq_1"] (mapv name/->string (eqns/eqns-for (a/env) 'iv-id))))
       (let [names (mapv name/->string (eqns/eqns-for (a/env) "iv-choose"))]
-        (is (= ["iv-choose.eq_1" "iv-choose.eq_2s1" "iv-choose.eq_2s2"
-                "iv-choose._match_1.eq_1" "iv-choose._match_1.eq_2"] names))
-        (is (= ["iv-choose._match_1.eq_1" "iv-choose._match_1.eq_2"]
-               (mapv name/->string (eqns/eqns-for (a/env) "iv-choose._match_1")))))
+        ;; Lean's default nonrecursive Eqns.getEqnsFor? installs one unfold equation;
+        ;; equations for its matcher are generated separately on demand.
+        (is (= ["iv-choose.eq_1"] names))
+        (let [matcher "iv-choose.match_1"
+              eqs (:eqn-names (match-eqns/get-equations-for matcher))]
+          (is (= 2 (count eqs)))
+          (is (= eqs (mapv name/->string (eqns/eqns-for (a/env) matcher))))))
       (doseq [definition ["iv-app" "iv-choose" "iv-id"]]
         (is (empty? (eqns/errors-for (a/env) definition)))
         (doseq [nm (eqns/eqns-for (a/env) definition)]
@@ -296,13 +300,13 @@
     (try
       (with-redefs [env/check-constant
                     (fn [environment ci]
-                      (if (= "iv-failed.eq_2" (name/->string (.name ci)))
+                      (if (= "iv-failed.eq_1" (name/->string (.name ci)))
                         (throw (ex-info "injected equation admission failure" {:kind :test-failure}))
                         (check environment ci)))]
         (a/define-verified 'iv-failed '[xs :- (List Nat)] 'Nat
           '(match xs [nil 0] [(cons h t) h])))
-      (is (= ["iv-failed.eq_1"] (mapv name/->string (eqns/eqns-for (a/env) "iv-failed"))))
-      (is (= "iv-failed.eq_2" (:lemma (first (eqns/errors-for (a/env) "iv-failed")))))
+      (is (empty? (eqns/eqns-for (a/env) "iv-failed")))
+      (is (= "iv-failed.eq_1" (:lemma (first (eqns/errors-for (a/env) "iv-failed")))))
       (is (thrown-with-msg? clojure.lang.ExceptionInfo #"equation generation errors"
                             (theorem/for-hint (tc/mk-tc-state (a/env)) "iv-failed")))
       (finally (reset! a/ansatz-env before)))))

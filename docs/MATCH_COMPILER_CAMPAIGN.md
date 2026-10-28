@@ -11,20 +11,28 @@ implementation, then check the corresponding Klara proof where one exists.
 | 2 | Finish `split` support for multiple discriminants and nested matches | `MatchEqs.lean` `applyMatchSplitter`, matcher input reconstruction | Merged in PR #238. Klara `datumEq` and `primApply` generated kernel checked equations with `*lean-matchers*` enabled. |
 | 3 | Reject invalid `obtain` and `cases` proofs at tactic time | `RCases.lean`, `Cases.lean`, `UnifyEq.lean` | Merged in PR #239; both invalid proofs now fail at tactic time. |
 | 4 | Reduce wasted `apply` work across many induction goals | `Apply.lean` | Merged in PR #239. REPL probe: 20 wrong candidates fell from 26 seconds to about 2 seconds. |
-| 5 | Reduce beta redexes left by `simp` | `Meta/Tactic/Simp/Main.lean` | Merged in PR #239. Alternate `smn-step2` and `run-quote` proofs passed the Klara REPL with the default compiler. With opt-in matchers, `smn-step2` also proves if `rw [rx]` precedes `simp only [ev]`. The original tactic order remains a migration issue. |
+| 5 | Reduce beta redexes left by `simp` | `Meta/Tactic/Simp/Main.lean` | Merged in PR #239. A later Lean-faithful no-change `simp` fix lets the original `smn-step2` and `run-quote` proof order pass with matcher compilation enabled by default. |
 | 6 | Recognize structural recursion when a non matched argument changes, and when a recursive call is a match scrutinee | `Elab/PreDefinition/Structural/FixedParams.lean`, `BRecOn.lean` | Merged in PR #239. Kernel checked regressions cover both cases, including a nested match scrutinee. In REPL, the actual 23 constructor Klara `substF` and `ev` bodies compiled in natural argument order as `substNatural` and `evNatural`; each generated 23 checked constructor equations with zero equation errors. |
 | 7 | End to end validation | Ansatz and Klara suites | The combined matcher/tactic and recursion branch passed CI in PR #239. The exact Klara draft PR #1 source loaded and kernel checked the full specification with the default compiler. The full opt-in specification kernel checked with its `smn-step2` rewrite moved before `simp only [ev]`; the PR's guarded rewrite form kernel checked separately with both compiler modes. |
-| 8 | Generalize matcher discriminants by argument position and simplify branch equations | `Meta/Tactic/Split.lean` `generalizeMatchDiscrs`, `Cases.unifyEqs?` | A repeated discriminant must produce independent branch equalities; unrelated occurrences in the goal must remain in place; impossible branches close before tactics run. |
-| 9 | Transport named discriminant alternative binders during generalization | `Meta/Tactic/Split.lean` `withNewAltEqs` | Splitting a matcher with a nonvariable named discriminant must produce a kernel checked proof without rewriting unrelated goal occurrences. |
+| 8 | Generalize matcher discriminants by argument position and simplify branch equations | `Meta/Tactic/Split.lean` `generalizeMatchDiscrs`, `Cases.unifyEqs?` | Merged in PR #242. Repeated discriminants produce independent branch equalities; unrelated goal occurrences stay in place; constructor-injected equalities are processed before returning goals. |
+| 9 | Transport named discriminant alternative binders during generalization | `Meta/Tactic/Split.lean` `withNewAltEqs` | Merged in PR #243. Imported `Nat.decEq.match_1` splits with a computed discriminant and kernel checks; `HEq.rec` composition is kernel checked. An integrated dependent named-discriminant split remains a coverage gap. |
 | 10 | Separate structural recursion from match expression compilation | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean` | Recursion through nested matches, changing parameters, and a recursive match scrutinee uses a checked `brecOn` term whose match bodies use `Meta.Match.mkMatcher`. |
-| 11 | Retire the direct recursor match compiler and enable matcher compilation by default | `Elab/Match.lean`, `Meta/Match` | Remove `compile-match-term` and the recursion-triggered matcher bypass; run the exact Ansatz and Klara regressions, including the original `smn-step2` tactic order, with the sole compiler. |
+| 11 | Enable matcher compilation by default for ordinary definitions | `Elab/Match.lean`, `Meta/Match`, `Elab/PreDefinition/Eqns.lean` | Default-on branch: the affected Ansatz suites pass, and the unchanged Klara specification kernel checks with 69/69 programs. CI remains the handoff gate. |
+| 12 | Retire the direct recursor match compiler | `Elab/PreDefinition/Structural/{FixedParams,BRecOn,Main}.lean`, `Meta/Match` | Remove `compile-match-term` and the recursion-triggered matcher bypass after recursive match bodies compile through `Meta.Match.mkMatcher`. Validate recursive equations, runtime codegen, and the unchanged Klara specification with the sole compiler. |
+
+Lean's current `Eqns.getEqnsFor?` installs one simple unfold equation for a
+nonrecursive definition by default; the matcher's own equations are generated
+on demand. The default-on migration follows that inventory instead of retaining
+the old per-constructor function equations.
 
 The opt-in Klara run initially stopped at `handleEff-ok`: `simp [handleEff]`
 exposed `Option.casesOn`, which `simp` did not reduce. A local fix unfolds
 `*.casesOn` definitions; the REPL then reached `smn-step2`.
 
 The generalized recursor now yields constructor-specific equations. Klara's
-`smn-step2` proof migration is in draft PR #1.
+`smn-step2` proof migration remains in draft PR #1, but the unchanged source
+also passes after the no-change `simp` fix; the migration is no longer required
+for matcher compilation.
 
 Do not close a report because a workaround passes: its original reproduction
 must pass or fail cleanly as appropriate.

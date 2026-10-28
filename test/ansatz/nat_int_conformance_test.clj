@@ -8,6 +8,8 @@
             [ansatz.kernel.expr :as e]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.name :as name]
+            [ansatz.meta.constructions.util :as u]
+            [ansatz.tactic.match-eqns :as match-eqns]
             [ansatz.conformance-support :as cs]))
 
 ;; Lean reference: src/Lean/Elab/Tactic/{Induction,Simp,Decide}.lean,
@@ -115,7 +117,7 @@
 (deftest equation-generation-failure-is-reported
   (a/load-init!)
   (doseq [[nm params body suffix]
-          [['warnPeak '[xs :- (List Nat)] '(match xs [nil 0] [(cons h t) h]) ".eq_2"]
+          [['warnPeak '[xs :- (List Nat)] '(match xs [nil 0] [(cons h t) h]) ".eq_1"]
            ['warnApply '[b :- Bool, x :- Nat]
             '((match b [false (fn [z :- Nat] z)]
                      [true (fn [z :- Nat] (+ z 1))]) x) ".eq_1"]]]
@@ -183,7 +185,7 @@
     (when equality
       (is (= "Nat" (str (e/const-name (first (e/get-app-args equality)))))))))
 
-(deftest recursive-inner-recursors-remain-terms
+(deftest inner-recursors-remain-terms-with-matcher-compilation
   (a/load-init!)
   (doseq [[nm params body]
           [['regrRec '[xs :- (List Nat), n :- Nat]
@@ -197,10 +199,13 @@
                      (List.rec Nat (fn [ys :- (List Nat)] Nat) 0
                                (fn [head :- Nat, tail :- (List Nat), ih :- Nat] (+ ih 1))
                                (if b ys t))])]]]
-    (let [result (binding [a/*verbose* false] (a/define-verified nm params 'Nat body))]
+    (let [result (binding [a/*verbose* false] (a/define-verified nm params 'Nat body))
+          matcher (str nm ".match_1")
+          recursor (if (= nm 'regrRec) "Nat.rec" "List.rec")]
       (is (= {:errors []} (:equation-generation (meta result))))
       (checked-equation (str nm ".eq_1"))
-      (checked-equation (str nm ".eq_2"))
-      (is (not-any? #(.startsWith (str (.name ^ansatz.kernel.ConstantInfo %)) (str nm "._match_"))
-                    (env/all-constants (a/env)))
-          "recursive implementations must not spawn matcher auxiliaries"))))
+      (is (nil? (env/lookup (a/env) (name/from-string (str nm ".eq_2")))))
+      (is (some? (env/lookup (a/env) (name/from-string matcher))))
+      (is (= 2 (count (:eqn-names (match-eqns/get-equations-for matcher)))))
+      (is (contains? (u/fold-constants conj #{} (.value (env/lookup (a/env) (name/from-string (str nm)))))
+                     (name/from-string recursor))))))
