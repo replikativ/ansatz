@@ -1,15 +1,17 @@
 (ns ansatz.tactic.match-eqns
-  "On-demand matcher equations, following Lean's MatchEqs.lean. Equations for later overlapping
-   alternatives carry precedence hypotheses. Splitter construction for overlapping matchers is
-   still pending."
+  "On-demand matcher equations and splitters, following Lean's MatchEqs.lean. Equations for
+   later overlapping alternatives carry precedence hypotheses."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.reduce :as red]
             [ansatz.kernel.tc :as tc]
+            [ansatz.meta.fvar-subst :as subst]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.match.matcher-info :as mi]
+            [ansatz.meta.match.match :as match]
+            [ansatz.meta.match.simp-h :as simp-h]
             [ansatz.eqns :as eqns]
             [ansatz.matchers :as mtch]
             [ansatz.state :as state]
@@ -46,43 +48,6 @@
             (e/lam "x" bt (e/abstract1 b fid) :default))
           body (reverse binders)))
 
-(defn- constructor-app [environment expr]
-  (let [[h args] (e/get-app-fn-args expr)
-        ci (when (e/const? h) (env/lookup environment (e/const-name h)))
-        nat-value (cond
-                    (e/lit-nat? expr) (e/lit-nat-val expr)
-                    (and (e/const? h) (= "OfNat.ofNat" (name/->string (e/const-name h)))
-                         (= 3 (count args))
-                         (e/const? (first args))
-                         (= "Nat" (name/->string (e/const-name (first args))))
-                         (e/lit-nat? (nth args 1)))
-                    (e/lit-nat-val (nth args 1)))]
-    (cond
-      (some? nat-value)
-      (if (zero? nat-value)
-        {:name (name/from-string "Nat.zero") :fields []}
-        {:name (name/from-string "Nat.succ")
-         :fields [(e/lit-nat (dec nat-value))]})
-      (and ci (.isCtor ci))
-      {:name (e/const-name h)
-       :fields (subvec (vec args) (.numParams ci))})))
-
-(defn- pattern-equalities
-  "Reduce constructor equality to equalities of its fields, as Lean's simpH?
-   does for the precedence hypotheses. nil means distinct constructors."
-  [environment lhs rhs]
-  (let [a (constructor-app environment lhs)
-        b (constructor-app environment rhs)]
-    (cond
-      (and a b (not= (:name a) (:name b))) nil
-      (and a b (= (:name a) (:name b))
-           (= (count (:fields a)) (count (:fields b))))
-      (reduce (fn [acc [x y]]
-                (when acc (when-let [more (pattern-equalities environment x y)]
-                            (into acc more))))
-              [] (map vector (:fields a) (:fields b)))
-      :else [[lhs rhs]])))
-
 (defn- precedence-guard
   "Lean MatchEqs.mkNotAlt, instantiated at the later arm's patterns. A guard says
    that no choice of the earlier arm's fields can make all discriminants equal."
@@ -94,17 +59,10 @@
         [_ prior-patterns] (e/get-app-fn-args result)
         lctx (reduce (fn [lctx [id _ type]]
                        (red/lctx-add-local lctx id "x" type))
-                     {} (concat scope opened))
-        ctx (atom (tc/attach-lctx (tc/mk-tc-state environment) lctx))
-        pairs (reduce (fn [acc [x y]]
-                        (when acc (when-let [more (pattern-equalities environment x y)]
-                                    (into acc more))))
-                      [] (map vector current-patterns prior-patterns))]
-    (when pairs
-      (let [equalities (mapv #(u/mk-eq-heq ctx (first %) (second %)) pairs)
-            impossible (reduce (fn [body eq] (e/arrow eq body))
-                               (e/const' (name/from-string "False") []) (reverse equalities))]
-        (close-foralls impossible fields)))))
+                     {} scope)
+        field-decls (mapv (fn [[id _ type]] {:tag :local :id id :name "x" :type type})
+                          fields)]
+    (simp-h/not-alt environment lctx current-patterns prior-patterns field-decls)))
 
 (defn- split-candidate [ps]
   (let [goal (proof/current-goal ps)
@@ -277,12 +235,17 @@
         [_ motive-fv _] motive
         alt-data
         (mapv (fn [i [_ _ alt-ty]]
-                (let [{:keys [num-fields unit-thunk]} (nth alts i)
-                      n (if unit-thunk 1 num-fields)
-                      [ys alt-body] (open-foralls alt-ty n)
+                (let [{:keys [num-fields num-overlaps unit-thunk]} (nth alts i)
+                      n (+ num-fields num-overlaps (mi/get-num-discr-eqs info)
+                           (if unit-thunk 1 0))
+                      [opened alt-body] (open-foralls alt-ty n)
+                      ys (subvec opened 0 (if unit-thunk 1 num-fields))
+                      guards (if unit-thunk []
+                                 (subvec opened num-fields (+ num-fields num-overlaps)))
                       [_ pat-args] (e/get-app-fn-args alt-body)]
                   {:pattern (first pat-args)        ; single-discriminant: one pattern
                    :patterns (vec pat-args)
+                   :fields ys :guards guards
                    :ys-types (mapv (fn [[_ _ ty]] ty) ys)
                    :unit-thunk unit-thunk}))
               (range num-alts) altfvs)]
@@ -290,12 +253,13 @@
      :params params
      :motive motive
      :discr-types (mapv (fn [[_ _ ty]] ty) discrs)
+     :discrs discrs
      :num-params num-params :num-discrs num-discrs
      :alts alt-data}))
 
 (defn get-equations-for
-  "Generate matcher equations on demand. Non-overlapping matchers also receive the
-   transparent splitter alias; an overlapping splitter is not yet available."
+  "Generate matcher equations and a splitter on demand. Non-overlapping matchers
+   receive a transparent splitter alias."
   [match-name]
   (if-let [cached (get (env/get-extension @state/ansatz-env :match-eqns {}) match-name)]
     cached
@@ -361,18 +325,32 @@
                    eq-name (str eq-base (inc i))]
                {:name eq-name :type eq-ty :value eq-val}))
            altfvs)
-        ;; Splitter alias: match_N.splitter := match_N  (abbrev = reducible alias; Lean
-        ;; MatchEqs.lean:235-243 makes the non-overlapping splitter an @[inline] abbrev of the matcher).
-          splitter-name (when (mi/non-overlapping? info) (str match-name ".splitter"))
+        ;; Lean rebuilds a separate matcher when alternatives overlap. Otherwise
+        ;; the splitter is a transparent alias of the original matcher.
+          splitter-name (str match-name ".splitter")
           results (vec results)]
     ;; Install (idempotent): add the splitter def + each eq_i theorem to the GLOBAL env.
       (swap! state/ansatz-env
              (fn [env]
-               (let [env (if (or (nil? splitter-name)
-                                 (env/lookup env (name/from-string splitter-name)))
-                           env
-                           (env/check-constant env (env/mk-def (name/from-string splitter-name)
-                                                               lvls mtype mconst :hints :abbrev)))]
+               (let [[env splitter-info]
+                     (cond
+                       (env/lookup env (name/from-string splitter-name))
+                       [env (mi/get-matcher-info-core? env splitter-name)]
+
+                       (mi/non-overlapping? info)
+                       [(env/check-constant env (env/mk-def (name/from-string splitter-name)
+                                                            lvls mtype mconst :hints :abbrev))
+                        info]
+
+                       :else
+                       (let [{:keys [ctx input]} (match/input-from-matcher env match-name splitter-name)
+                             res (match/mk-matcher ctx (assoc input :is-splitter (:overlaps info)))]
+                         (when (seq (:counter-examples res))
+                           (throw (ex-info "Splitter is not exhaustive"
+                                           {:kind :match-splitter-error
+                                            :matcher match-name
+                                            :counter-examples (:counter-examples res)})))
+                         [(:env res) (:info res)]))]
                  (let [env (reduce (fn [env {:keys [name type value]}]
                                      (if (env/lookup env (ansatz.kernel.name/from-string name))
                                        env
@@ -390,11 +368,13 @@
                          env (eqns/register-eqn-thms env match-name names [])]
                      (env/update-extension env :match-eqns {} assoc match-name
                                            {:eqn-names (mapv :name results)
-                                            :splitter-name splitter-name :info info :levels lvls}))))))
-      {:eqn-names (mapv :name results) :splitter-name splitter-name :info info :levels lvls})))
+                                            :splitter-name splitter-name
+                                            :splitter-info splitter-info
+                                            :info info :levels lvls}))))))
+      (get (env/get-extension @state/ansatz-env :match-eqns {}) match-name))))
 
-;; ── split-matcher: faithful applyMatchSplitter for non-overlapping single-discriminant matchers ──
-;; The matcher IS the eliminator (Lean's non-overlapping splitter = the matcher). We do `by-cases`
+;; ── split-matcher: applyMatchSplitter for single-discriminant matchers ──
+;; The splitter is the eliminator. We do `by-cases`
 ;; (basic.clj by-cases) generalized to it: motive  λd. (Eq DiscrType discr d) → Goal  applied to the
 ;; discriminant + Eq.refl, one minor premise per alternative carrying `h : discr = patternᵢ`.
 
@@ -422,31 +402,37 @@
       expr)))
 
 (defn split-matcher
-  "Split a non-overlapping single-discriminant matcher application `tgt` ({:head :args}) found in
-   the current goal. Produces one subgoal per alternative, each with `h : discr = patternᵢ` (and the
-   alt's field hyps); the installed match equations reduce the matcher in each branch. Signals
-   {:split-retry true} for shapes not yet supported (multi-discriminant / overlapping)."
+  "Split a single-discriminant matcher using its on-demand splitter. Overlapping
+   alternatives receive the same precedence hypotheses as Lean's splitter."
   [ps tgt]
   (let [goal (proof/current-goal ps)
         _ (when-not goal (throw (ex-info "split-matcher: no goal" {:split-retry true})))
         head (:head tgt)
         match-name (name/->string (e/const-name head))
         args (vec (:args tgt))
+        original-env @state/ansatz-env
+        info (mtch/matcher-info original-env match-name)
+        _ (when-not info
+            (throw (ex-info "split-matcher: not a known matcher" {:split-retry true})))
+        eqns (get-equations-for match-name)
+        splitter-name (if (mi/non-overlapping? info) match-name (:splitter-name eqns))
         env @state/ansatz-env
-        info (mtch/matcher-info env match-name)
-        _ (when-not (and info (mtch/non-overlapping? info))
-            (throw (ex-info "split-matcher: not a known non-overlapping matcher" {:split-retry true})))
-        d (matcher-alt-data env match-name)
+        ps (assoc ps :env env)
+        d (matcher-alt-data env splitter-name)
         np (:num-params d) nd (:num-discrs d)
         _ (when (not= nd 1)
             (throw (ex-info "split-matcher: multi-discriminant not yet supported" {:split-retry true})))
         _ (when (< (count args) (+ np 1 nd (count (:alts d))))
             (throw (ex-info "split-matcher: matcher application not fully applied" {:split-retry true})))
-        ;; install the match equations + splitter (idempotent) so simp can reduce each branch
-        _ (get-equations-for match-name)
         st (mk-tc env (:lctx goal))
         params-actual (subvec args 0 np)
         discr (nth args (+ np 1))
+        telescope-subst (into {}
+                              (concat (map (fn [[id] actual] [id actual])
+                                           (:params d) params-actual)
+                                      [[(first (:motive d)) (nth args np)]]
+                                      (map (fn [[id] actual] [id actual])
+                                           (:discrs d) [discr])))
         discr-type (tc/infer-type st discr)
         sort-level (fn [t] (let [s (try (red/whnf env (tc/infer-type st t) (:lctx goal)) (catch Throwable _ nil))]
                              (if (and s (e/sort? s)) (e/sort-level s) lvl/zero)))
@@ -461,19 +447,31 @@
         [ps alt-infos]
         (reduce
          (fn [[ps acc] alt]
-           (let [pattern (:pattern alt)            ; param-free for filter.match_1 (TODO: instantiate w/ params)
-                 ys-types (:ys-types alt)
-                 [ps ys-ids] (reduce (fn [[ps ids] _] (let [[ps id] (proof/alloc-id ps)] [ps (conj ids id)]))
-                                     [ps []] ys-types)
+           (let [opened (vec (concat (:fields alt) (:guards alt)))
+                 [ps local-ids] (reduce (fn [[ps ids] _]
+                                          (let [[ps id] (proof/alloc-id ps)]
+                                            [ps (conj ids id)]))
+                                        [ps []] opened)
+                 local-subst (into telescope-subst
+                                   (map (fn [[old] id] [old (e/fvar id)])
+                                        opened local-ids))
+                 ys-ids (subvec local-ids 0 (count (:fields alt)))
+                 guard-ids (subvec local-ids (count (:fields alt)))
+                 ys-types (mapv #(subst/apply local-subst (nth % 2)) (:fields alt))
+                 guard-types (mapv #(subst/apply local-subst (nth % 2)) (:guards alt))
+                 pattern (subst/apply local-subst (:pattern alt))
                  [ps h-id] (proof/alloc-id ps)
                  h-type (e/app* eq-c discr-type discr pattern)
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "y" ty))
                               (:lctx goal) (map vector ys-ids ys-types))
+                 lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "notAlt" ty))
+                              lctx (map vector guard-ids guard-types))
                  lctx (red/lctx-add-local lctx h-id "h" h-type)
                  ;; subgoal type = Goal[discr := patternᵢ]  (the matcher reduces via eqᵢ here)
                  sg-type (replace-subterm (:type goal) discr pattern)
                  [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
              [ps (conj acc {:pattern pattern :ys-ids ys-ids :ys-types ys-types
+                            :guard-ids guard-ids :guard-types guard-types
                             :h-id h-id :h-type h-type :goal sg-id})]))
          [ps []] (:alts d))
         ;; motive = λ d:DiscrType. (Eq DiscrType discr d) → Goal[discr := d]
@@ -486,7 +484,7 @@
                       :default)]
     (-> (proof/assign-mvar ps (:id goal)
                            {:kind :split-matcher
-                            :match-name match-name :us us
+                            :match-name splitter-name :us us
                             :params params-actual :discr discr :discr-type discr-type
                             :eq-lvl eq-lvl :motive motive
                             :alts alt-infos})

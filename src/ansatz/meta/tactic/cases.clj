@@ -231,7 +231,7 @@
         (swap! ctx assoc :env out)
         (set-lctx! ctx (:lctx @ctx))))))
 
-(defn- mk-no-confusion [ctx target type a b h]
+(defn mk-no-confusion [ctx target type a b h]
   ;; AppBuilder.lean mkNoConfusion: ctorIdx for disjoint constructors, and
   ;; the per-constructor noConfusion declaration for an injective constructor.
   (let [{ca :info aa :args us :us} (constructor-app? ctx a)

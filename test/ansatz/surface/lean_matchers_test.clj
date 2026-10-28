@@ -190,6 +190,40 @@
     (is (= 3 (count eqs)))
     (is (every? #(= :thm (env/ci-tag (decl %))) eqs))))
 
+(deftest overlapping-nat-splitter-has-a-guarded-alternative
+  (a/define-verified 'matcher-split-nat '[^Nat n] 'Nat
+    '(match n [1 10] [(Nat.succ k) k] [0 20]))
+  (let [result (match-eqns/get-equations-for "matcher-split-nat.match_1")]
+    (is (some? (decl (:splitter-name result))))
+    (is (= [0 1 0] (mapv :num-overlaps (:alts (:splitter-info result)))))
+    (is (some? (second
+                (a/prove-law
+                 '[n :- Nat]
+                 '(= Nat
+                     (matcher-split-nat.match_1 (fn [x :- Nat] Nat) n
+                                                (fn [u :- Unit] 10) (fn [k :- Nat] k) (fn [u :- Unit] 20))
+                     (matcher-split-nat.match_1 (fn [x :- Nat] Nat) n
+                                                (fn [u :- Unit] 10) (fn [k :- Nat] k) (fn [u :- Unit] 20)))
+                 '[(split) (all_goals (rfl))]))))))
+
+(deftest overlapping-list-splitter-uses-constructor-no-confusion
+  (a/define-verified 'matcher-split-list '[xs :- (List Nat)] 'Nat
+    '(match xs [nil 0] [(cons x nil) x] [(cons x rest) 5]))
+  (let [result (match-eqns/get-equations-for "matcher-split-list.match_1")]
+    (is (some? (decl (:splitter-name result))))
+    (is (= [0 0 1] (mapv :num-overlaps (:alts (:splitter-info result)))))
+    (is (some? (second
+                (a/prove-law
+                 '[xs :- (List Nat)]
+                 '(= Nat
+                     (matcher-split-list.match_1 (fn [z :- (List Nat)] Nat) xs
+                                                 (fn [u :- Unit] 0) (fn [x :- Nat] x)
+                                                 (fn [x :- Nat, rest :- (List Nat)] 5))
+                     (matcher-split-list.match_1 (fn [z :- (List Nat)] Nat) xs
+                                                 (fn [u :- Unit] 0) (fn [x :- Nat] x)
+                                                 (fn [x :- Nat, rest :- (List Nat)] 5)))
+                 '[(split) (all_goals (rfl))]))))))
+
 (deftest enum-cases-and-catchalls-use-the-generated-cases-on
   (reset! a/ansatz-env (ind/define-inductive (a/env) "MatcherEnum" []
                          [['red []] ['green []] ['blue []]]))

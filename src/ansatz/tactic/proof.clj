@@ -273,12 +273,17 @@
 
     :split-matcher
     (let [{:keys [match-name us params discr discr-type eq-lvl motive alts]} assignment
-          alt-lams (mapv (fn [{:keys [ys-ids ys-types h-id h-type goal]}]
+          alt-lams (mapv (fn [{:keys [ys-ids ys-types guard-ids guard-types h-id h-type goal]}]
                            (let [h-lam (e/lam "h" h-type
-                                              (meta/abstract-fvars (e/mvar goal) [h-id]) :default)]
+                                              (meta/abstract-fvars (e/mvar goal) [h-id]) :default)
+                                 guard-lams
+                                 (reduce (fn [b [gid gty]]
+                                           (e/lam "notAlt" gty
+                                                  (meta/abstract-fvars b [gid]) :default))
+                                         h-lam (reverse (map vector guard-ids guard-types)))]
                              (reduce (fn [b [yid yty]]
                                        (e/lam "y" yty (meta/abstract-fvars b [yid]) :default))
-                                     h-lam (reverse (map vector ys-ids ys-types)))))
+                                     guard-lams (reverse (map vector ys-ids ys-types)))))
                          alts)
           matcher-app (apply e/app* (e/const' (name/from-string match-name) us)
                              (concat params [motive discr] alt-lams))

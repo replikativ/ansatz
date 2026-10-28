@@ -4,6 +4,8 @@
    constructors and kebab-cased structure fields. LocalDecl uses the kernel
    context's existing :id, :type and :value fields."
   (:require [ansatz.kernel.expr :as e]
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.name :as name]
             [ansatz.meta :as meta]
             [ansatz.meta.fvar-subst :as subst]))
 
@@ -28,6 +30,36 @@
     :ctor (reduce e/app (e/const' (:ctor-name p) (:us p))
                   (concat (:params p) (map pattern-to-expr (:fields p))))
     :as (pattern-to-expr (:p p))))
+
+(defn expr-to-pattern
+  "Inverse of pattern-to-expr for matcher input reconstruction, following
+   Lean.Meta.Match.toPattern. Unknown expressions fail instead of becoming
+   inaccessible patterns, which would change arm precedence."
+  [environment expr]
+  (cond
+    (e/mdata? expr) (expr-to-pattern environment (e/mdata-expr expr))
+    (e/lit-nat? expr) (val-pattern expr)
+    (e/lit-str? expr) (val-pattern expr)
+    (e/fvar? expr) (var-pattern (e/fvar-id expr))
+    :else
+    (let [[h args] (e/get-app-fn-args expr)
+          ci (when (e/const? h) (env/lookup environment (e/const-name h)))
+          hn (when (e/const? h) (name/->string (e/const-name h)))]
+      (cond
+        (and (= hn "OfNat.ofNat") (= 3 (count args))
+             (e/const? (first args))
+             (= "Nat" (name/->string (e/const-name (first args))))
+             (e/lit-nat? (nth args 1)))
+        (val-pattern expr)
+        (and ci (.isCtor ci)
+             (= (count args) (+ (.numParams ci) (.numFields ci))))
+        (ctor (e/const-name h) (e/const-levels h)
+              (take (.numParams ci) args)
+              (mapv #(expr-to-pattern environment %)
+                    (drop (.numParams ci) args)))
+        :else
+        (throw (ex-info "Unexpected matcher pattern during reconstruction"
+                        {:kind :match-pattern-error :pattern expr}))))))
 
 (defn- subst-expr [s expr] (subst/apply s expr))
 (defn- map-local-decl [f d]

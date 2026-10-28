@@ -12,6 +12,8 @@
             [ansatz.meta.tactic.cases :as c]
             [ansatz.meta.match.basic :as b]
             [ansatz.meta.match.matcher-info :as mi]
+            [ansatz.meta.match.simp-h :as simp-h]
+            [ansatz.meta.match.solve-overlap :as solve-overlap]
             [ansatz.meta.match.case-values :as cv]))
 
 (defn- with-alt-locals! [ctx alt]
@@ -22,28 +24,47 @@
                (when-let [h (:h-name? info)] (u/local-decl ctx h (u/mk-eq-heq ctx a b))))
              (map vector lhs rhs discr-infos))))
 
-(defn with-alts [ctx motive discrs discr-infos lhss]
-  (let [base (:lctx @ctx)]
-    (loop [lhss (seq lhss) alts [] minors [] infos []]
-      (if-let [lhs (first lhss)]
-        (do
-          (c/set-lctx! ctx (reduce (fn [lctx d] (assoc lctx (:id d) d))
-                                   (reduce (fn [lctx m] (assoc lctx (e/fvar-id m) (u/decl ctx m))) base minors)
-                                   (:fvar-decls lhs)))
-          (let [xs (mapv (comp e/fvar :id) (:fvar-decls lhs))
-                args (mapv b/pattern-to-expr (:patterns lhs))
-                eqs (with-eqs ctx discrs args discr-infos)
-                type (u/mk-forall-fvars ctx xs (u/mk-forall-fvars ctx eqs (u/app motive args)))
-                unit? (and (empty? xs) (empty? eqs))
-                type (if unit? (u/mk-arrow ctx (u/const' "Unit" []) type) type)
+(defn with-alts
+  ([ctx motive discrs discr-infos lhss]
+   (with-alts ctx motive discrs discr-infos lhss nil))
+  ([ctx motive discrs discr-infos lhss is-splitter]
+   (let [base (:lctx @ctx)]
+     (loop [lhss (seq lhss) alts [] minors [] infos [] prior-lhss []]
+       (if-let [lhs (first lhss)]
+         (do
+           (c/set-lctx! ctx (reduce (fn [lctx d] (assoc lctx (:id d) d))
+                                    (reduce (fn [lctx m] (assoc lctx (e/fvar-id m) (u/decl ctx m))) base minors)
+                                    (:fvar-decls lhs)))
+           (let [xs (mapv (comp e/fvar :id) (:fvar-decls lhs))
+                 args (mapv b/pattern-to-expr (:patterns lhs))
+                 eqs (with-eqs ctx discrs args discr-infos)
+                 not-alt-data
+                 (when is-splitter
+                   (keep (fn [idx]
+                           (let [prior (nth prior-lhss idx)
+                                 patterns (mapv b/pattern-to-expr (:patterns prior))
+                                 guard (simp-h/not-alt (:env @ctx) (:lctx @ctx) args patterns
+                                                       (:fvar-decls prior))]
+                             (when guard [idx guard])))
+                         (mi/overlaps-overlapping is-splitter (count alts))))
+                 not-alt-idxs (mapv first not-alt-data)
+                 not-alt-hs (mapv second not-alt-data)
+                 target (u/mk-forall-fvars ctx eqs (u/app motive args))
+                 target (reduce (fn [body guard] (e/arrow guard body))
+                                target (reverse not-alt-hs))
+                 type (u/mk-forall-fvars ctx xs target)
+                 unit? (and (empty? xs) (empty? eqs) (empty? not-alt-hs))
+                 type (if unit? (u/mk-arrow ctx (u/const' "Unit" []) type) type)
                 ;; Pattern variables are bound in the minor's type, not captured parameters.
-                _ (c/set-lctx! ctx (apply dissoc (:lctx @ctx) (map e/fvar-id (concat xs eqs))))
-                minor (u/local-decl ctx (str "h_" (inc (count alts))) type)
-                rhs (u/app minor (if unit? [(u/const' "Unit.unit" [])] xs))
-                alt (b/alt (:ref lhs) (count alts) rhs (:fvar-decls lhs) (:patterns lhs))]
-            (recur (next lhss) (conj alts alt) (conj minors minor)
-                   (conj infos (mi/alt-param-info (count xs) 0 unit?)))))
-        {:alts alts :minors minors :alt-infos infos}))))
+                 _ (c/set-lctx! ctx (apply dissoc (:lctx @ctx) (map e/fvar-id (concat xs eqs))))
+                 minor (u/local-decl ctx (str "h_" (inc (count alts))) type)
+                 rhs (u/app minor (if unit? [(u/const' "Unit.unit" [])] xs))
+                 alt (assoc (b/alt (:ref lhs) (count alts) rhs (:fvar-decls lhs) (:patterns lhs))
+                            :not-alt-idxs not-alt-idxs)]
+             (recur (next lhss) (conj alts alt) (conj minors minor)
+                    (conj infos (mi/alt-param-info (count xs) (count not-alt-hs) unit?))
+                    (conj prior-lhss lhs))))
+         {:alts alts :minors minors :alt-infos infos})))))
 
 (defn solve-cnstrs [ctx state id alt]
   (c/with-goal! ctx id)
@@ -68,13 +89,25 @@
             (when (seq remaining)
               (c/tactic-error! "Dependent match elimination failed: could not solve constraints"
                                {:constraints remaining :alternative (:idx alt)}))
-            (when-not (tc/is-def-eq @ctx (c/goal-type ctx id) (u/infer-type ctx rhs))
-              (c/tactic-error! "Dependent elimination failed: alternative type mismatch"
-                               {:expected (c/goal-type ctx id) :actual (u/infer-type ctx rhs)
-                                :alternative (:idx alt)}))
-            (c/set-lctx! ctx base)
-            (c/assign! ctx id rhs)
-            (swap! state update :used conj (:idx alt))))))))
+            (let [rhs (reduce (fn [rhs _]
+                                (let [ty (u/whnf ctx (u/infer-type ctx rhs))
+                                      _ (when-not (e/forall? ty)
+                                          (c/tactic-error! "Missing overlap premise in alternative"
+                                                           {:alternative (:idx alt) :rhs-type ty}))
+                                      guard-type (e/forall-type ty)
+                                      guard-id (c/fresh-mvar! ctx guard-type)
+                                      lctx (:lctx @ctx)
+                                      guard-proof (try (solve-overlap/solve-overlap! ctx guard-id)
+                                                       (finally (c/set-lctx! ctx lctx)))]
+                                  (e/app rhs guard-proof)))
+                              rhs (:not-alt-idxs alt))]
+              (when-not (tc/is-def-eq @ctx (c/goal-type ctx id) (u/infer-type ctx rhs))
+                (c/tactic-error! "Dependent elimination failed: alternative type mismatch"
+                                 {:expected (c/goal-type ctx id) :actual (u/infer-type ctx rhs)
+                                  :alternative (:idx alt)}))
+              (c/set-lctx! ctx base)
+              (c/assign! ctx id rhs)
+              (swap! state update :used conj (:idx alt)))))))))
 
 (defn- record-overlaps! [state winner others]
   (doseq [other others]
@@ -195,7 +228,8 @@
   (let [x (first (:vars p)) xs (vec (rest (:vars p)))
         values (vec (distinct (keep #(let [pat (first-pat %)] (when (= :val (:tag pat)) (:e pat))) (:alts p))))
         complete? (and (seq (:alts p)) (every? (complement refutable?) (:patterns (last (:alts p)))))
-        subgoals (cv/case-values ctx (:mvar-id p) (e/fvar-id x) values (not complete?))]
+        need-hyps (or (not complete?) (some (comp seq :not-alt-idxs) (:alts p)))
+        subgoals (cv/case-values ctx (:mvar-id p) (e/fvar-id x) values need-hyps)]
     (mapv (fn [i {:keys [mvar-id subst]}]
             (if (< i (count values))
               (let [v (nth values i)
@@ -272,12 +306,54 @@
         out (env/check-constant (:env @ctx) ci)]
     (mi/add-matcher-info out n info)))
 
+(defn input-from-matcher
+  "Reconstruct MkMatcherInput from a matcher declaration, as Lean's
+   withMkMatcherInput does before compiling a distinct splitter."
+  [environment matcher-name new-name]
+  (let [info (mi/get-matcher-info-core? environment matcher-name)
+        _ (when-not info (c/tactic-error! "No matcher info for reconstruction"
+                                          {:matcher matcher-name}))
+        ci (env/lookup! environment (name/from-string matcher-name))
+        ctx (c/context environment)
+        [tele _] (u/forall-telescope ctx (.type ci) (mi/arity info))
+        np (:num-params info)
+        nd (:num-discrs info)
+        discrs (subvec tele (inc np) (+ (inc np) nd))
+        alt-fvars (subvec tele (+ (inc np) nd))
+        elim (if-let [pos (:u-elim-pos info)]
+               (lvl/param (nth (vec (.levelParams ci)) pos))
+               lvl/zero)
+        match-type (u/mk-forall-fvars ctx discrs (u/const' "PUnit" [elim]))
+        base-lctx (:lctx @ctx)
+        lhss
+        (mapv (fn [alt alt-info]
+                (c/set-lctx! ctx base-lctx)
+                (let [n (+ (:num-fields alt-info)
+                           (if (:unit-thunk alt-info) 1 0)
+                           (mi/get-num-discr-eqs info))
+                      [xs body] (u/forall-telescope ctx (u/infer-type ctx alt) n)
+                      fields (if (:unit-thunk alt-info) []
+                                 (subvec xs 0 (:num-fields alt-info)))
+                      [h patterns] (e/get-app-fn-args body)]
+                  (when-not (= h (nth tele np))
+                    (c/tactic-error! "Alternative has unexpected conclusion"
+                                     {:matcher matcher-name :body body}))
+                  (b/alt-lhs nil (mapv #(u/decl ctx %) fields)
+                             (mapv #(b/expr-to-pattern environment %) patterns))))
+              alt-fvars (:alts info))
+        _ (c/set-lctx! ctx base-lctx)]
+    {:ctx ctx
+     :input {:matcher-name new-name :match-type match-type
+             :discr-infos (mapv mi/discr-info (:discrs info))
+             :lhss lhss}
+     :info info}))
+
 (defn mk-matcher
   "Compile MkMatcherInput {:matcher-name :match-type :discr-infos :lhss}.
    Returns MatcherResult and :env containing the kernel-checked declaration.
    MatchType and patterns may reference existing locals; closure parameters
    precede motive, discriminants and alternatives, as in Lean's Closure."
-  [ctx {:keys [matcher-name match-type discr-infos lhss]}]
+  [ctx {:keys [matcher-name match-type discr-infos lhss is-splitter]}]
   (let [nd (count discr-infos)]
     (doseq [lhs lhss]
       (when-not (= nd (count (:patterns lhs)))
@@ -303,7 +379,7 @@
           elim-name (name/from-string (str "_match.u_" (swap! (:next-id @ctx) inc)))
           gen (if (lvl/level-zero? elim) lvl/zero (lvl/param elim-name))
           motive (u/local-decl ctx "motive" (u/mk-forall-fvars ctx discrs (e/sort' gen)))
-          {:keys [alts minors alt-infos]} (with-alts ctx motive discrs discr-infos lhss)
+          {:keys [alts minors alt-infos]} (with-alts ctx motive discrs discr-infos lhss is-splitter)
           named? (boolean (some :h-name? discr-infos))
           process-discrs (if named? (first (u/forall-telescope ctx match-type nd)) discrs)
           eqs (when named? (with-eqs ctx discrs process-discrs discr-infos))
