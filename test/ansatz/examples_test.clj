@@ -176,6 +176,10 @@
                                          (succ [k] (Nat.succ (ex-div2 k)))))))))
       (let [ci (env/lookup (a/env) (name/from-string "ex-div2"))]
         (is (some? ci) "div2 (n-2 recursion) defined")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-div2.match_1")))
+            "well-founded recursion uses a generated matcher")
+        (is (some? (env/lookup (a/env) (name/from-string "ex-div2.match_2")))
+            "nested match is generated too")
         (is (uses-wf-fix? ci) "div2 is encoded with kernel-enforced WellFounded.Nat.fix")
         ;; (the definition already passed check-constant in define-verified-wf — both the encoder's
         ;;  own check and the swap! check-constant — so presence in the env implies kernel-verified)
