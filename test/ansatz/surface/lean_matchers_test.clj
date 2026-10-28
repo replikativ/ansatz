@@ -14,6 +14,7 @@
             [ansatz.eqns :as eqns]
             [ansatz.meta.match.matcher-info :as mi]
             [ansatz.tactic.match-eqns :as match-eqns]
+            [ansatz.tactic.proof :as proof]
             [ansatz.tactic.instance :as instance]))
 
 (def base (delay (binding [a/*verbose* false] (a/load-init!))))
@@ -78,6 +79,27 @@
                                          (fn [u :- Unit] 0) (fn [y :- Nat] y))
                    n)
                '[(split) (all_goals (rfl))])))))
+
+(deftest split-preserves-discriminant-occurrences-outside-the-matcher
+  (a/define-verified 'matcher-identity '[^Bool b] 'Bool
+    '(match b [false false] [true true]))
+  (let [ps (try
+             (a/prove-law
+              '[b :- Bool]
+              '(= Bool
+                  (matcher-identity.match_1 (fn [x :- Bool] Bool) (Bool.not b)
+                                            (fn [u :- Unit] Bool.false)
+                                            (fn [u :- Unit] Bool.true))
+                  (Bool.not b))
+              '[(split)])
+             (catch clojure.lang.ExceptionInfo ex (:ps (ex-data ex))))]
+    (is (= 2 (count (:goals ps))))
+    (doseq [gid (:goals ps)]
+      (let [lctx (proof/mvar-lctx ps gid)
+            b-id (some (fn [[id d]] (when (= "b" (:name d)) id)) lctx)
+            [_ args] (e/get-app-fn-args (proof/mvar-type ps gid))]
+        (is (= (e/app (e/const' (name/from-string "Bool.not") []) (e/fvar b-id))
+               (nth args 2)))))))
 
 (deftest option-off-retains-direct-recursor-bodies
   (binding [config/*lean-matchers* false]
