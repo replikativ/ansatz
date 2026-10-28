@@ -1919,8 +1919,10 @@
                                    nil)))
                              structural-positions)]
             (or result
-                (let [ex (last @failures)
-                      measure (when (= :non-structural-recursion (:kind (ex-data ex)))
+                (let [unexpected (first (remove #(= :non-structural-recursion
+                                                    (:kind (ex-data %))) @failures))
+                      ex (or unexpected (last @failures))
+                      measure (when-not unexpected
                                 (wf-guess-measure pairs body-form fn-name n))]
                   (if measure
                     (throw (ex-info "auto-measure WF"
