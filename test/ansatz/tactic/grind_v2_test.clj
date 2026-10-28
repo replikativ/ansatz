@@ -28,6 +28,19 @@
   (with-redefs [legacy/grind main/grind]
     (is (= :ok (cs/attempt script 10000)) (str (first script)))))
 
+(deftest matcher-definition-hint-materializes-checked-equations
+  (let [saved @a/ansatz-env]
+    (try
+      (a/define-verified 'grindMatcherHint '[b :- Bool] 'Bool
+        '(match b [true true] [false false]))
+      (is (nil? (eqns/eqns-for (a/env) "grindMatcherHint.match_1")))
+      (with-redefs [legacy/grind main/grind]
+        (a/prove-theorem 'grindMatcherHintProof '[] '(= Nat 0 0)
+                         '[(grind "grindMatcherHint.match_1")]))
+      (is (seq (eqns/eqns-for (a/env) "grindMatcherHint.match_1")))
+      (is (some? (env/lookup (a/env) (name/from-string "grindMatcherHint.match_1.eq_1"))))
+      (finally (reset! a/ansatz-env saved)))))
+
 (deftest logical-refutation-proofs
   ;; prove-theorem checks the extracted closed proof using check-constant.
   (doseq [script
