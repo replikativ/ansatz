@@ -1910,21 +1910,11 @@
         ;; the inference pass may have EXTENDED the global env (e.g. select-keys
         ;; synthesizing its projection record) — re-read it for the real elaboration
         env (if (= '_ ret-type-form) @ansatz-env env)
-        ;; Elaborate the body fvar-first (Lean-faithful, metavar-complete) — the SOLE path
-        ;; (the bvar fallback was retired). A tmp self-axiom lets a NATURAL recursive call
-        ;; (isort tl) resolve during elaboration; build-minor-premise rewrites structural
-        ;; self-calls on a bare recursive field to that field's IH (Lean's affordance — no
-        ;; manual ih_<field>). Non-structural leftovers still reference the axiom → check-constant
-        ;; rejects them (the user adds :termination-by / ^:partial). Existing ih_<field> bodies
-        ;; keep working. Elaboration failures otherwise surface honestly.
+        ;; Structural predefinitions elaborate with a local self-reference and
+        ;; replace recursive applications using the below dictionary. The
+        ;; expression-only fallback uses a temporary axiom; surviving calls
+        ;; redirect to well-founded recursion before kernel admission.
         tmp-env (env/add-constant (env/fork env) (env/mk-axiom cname [] type-ansatz))
-        ;; *self-params* = the param fvar-ids build-telescope-fvar uses (1..n), so multi-arg
-        ;; self-calls (add k n) are recognised: recursive field at the matched position, the
-        ;; other args the unchanged params.
-        ;; The structural self-call→IH rewrite is only SOUND when the match is the entire
-        ;; function body (then the recursor's IH is literally `f field`). For any other shape
-        ;; (if-wrapped, let-wrapped, nested) the IH is a different fold — those self-calls stay
-        ;; as the axiom and route to the well-founded path below.
         top-match? (and (seq? body-form) (= 'match (first body-form)))
         ;; Lean FixedParams: a parameter changed by a structural self-call belongs
         ;; in the recursor motive. Keep the ordinary, smaller motive for definitions
