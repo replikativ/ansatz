@@ -173,3 +173,22 @@
         (is (some? (env/lookup (a/env) (name/from-string "outerMatchRec.eq_1"))))
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
+
+(deftest structural-compiler-tries-later-matched-argument
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'trySecondArgRec
+                '[m :- Nat, n :- Nat] 'Nat
+                '(match m
+                   [0 (match n [0 m]
+                             [(Nat.succ k) (trySecondArgRec (Nat.succ m) k)])]
+                   [(Nat.succ j)
+                    (match n [0 m]
+                           [(Nat.succ k) (trySecondArgRec (Nat.succ m) k)])]))]
+        (is (= 3 (f 0 3)))
+        (is (= 5 (f 2 3)))
+        (is (some? (env/lookup (a/env) (name/from-string "trySecondArgRec.match_1"))))
+        (is (some? (env/lookup (a/env) (name/from-string "trySecondArgRec.eq_1"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
