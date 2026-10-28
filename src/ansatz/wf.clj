@@ -797,6 +797,27 @@
   (and (e/const? h)
        (matcher-info/is-matcher-core env (e/const-name h))))
 
+(defn- wf-fix-unfold-matcher [env reducer h as]
+  ;; Delta-reduce only the matcher and its `casesOn` wrapper. Full WHNF can
+  ;; continue into the recursive function on a constructor-headed branch and
+  ;; erase the useful self-call from its defining equation.
+  (loop [term (apply e/app* h as) fuel 4]
+    (let [[head args] (e/get-app-fn-args term)
+          unfold? (and (pos? fuel) (e/const? head)
+                       (or (wf-fix-matcher? env head)
+                           (.endsWith (name/->string (e/const-name head)) ".casesOn")))
+          ci (when unfold? (env/lookup env (e/const-name head)))
+          value (when ci (env/ci-value ci))]
+      (if value
+        (let [next (.whnfCore reducer
+                              (apply e/app*
+                                     (e/instantiate-level-params
+                                      value (zipmap (env/ci-level-params ci)
+                                                    (e/const-levels head)))
+                                     args))]
+          (if (= next term) term (recur next (dec fuel))))
+        term))))
+
 ;; refine recursor (R.rec params motive minors… major) to thread ih-fvar, exposing each branch's
 ;; pattern via the dependent motive. Returns the refined recursor APPLIED to ih-fvar.
 (defn- wf-fix-refine-rec [env callspec ret reducer rec-head call-args ih-fvar P scope]
@@ -845,8 +866,8 @@
         [h as] (e/get-app-fn-args body)]
     (cond
       (wf-fix-matcher? env h)
-      (let [unfolded (.whnf reducer body)]
-        (if (= unfolded body)
+      (let [unfolded (wf-fix-unfold-matcher env reducer h as)]
+        (if (or (nil? unfolded) (= unfolded body))
           (apply e/app* h
                  (mapv #(wf-fix-refine env callspec ret reducer % ih-fvar P scope) as))
           (wf-fix-refine env callspec ret reducer unfolded ih-fvar P scope)))
@@ -893,8 +914,8 @@
   (let [body (.whnfCore reducer body)
         [h as] (e/get-app-fn-args body)]
     (if (wf-fix-matcher? env h)
-      (let [unfolded (.whnf reducer body)]
-        (if (= unfolded body)
+      (let [unfolded (wf-fix-unfold-matcher env reducer h as)]
+        (if (or (nil? unfolded) (= unfolded body))
           [{:fields fields :pattern pattern :rhs (wf-fix-eq-rhs env body)}]
           (wf-fix-eq-leaves env tc reducer unfolded pattern fields ret)))
       (if (wf-fix-refinable? env h as pattern)
