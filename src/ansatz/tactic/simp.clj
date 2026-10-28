@@ -2221,8 +2221,15 @@
                                        a (visit (e/app-arg expr))
                                        rebuilt (if (and (identical? f (e/app-fn expr))
                                                         (identical? a (e/app-arg expr)))
-                                                 expr (e/app f a))]
-                                   (red/whnf-no-delta env rebuilt lctx))
+                                                 expr (e/app f a))
+                                       reduced (red/whnf-no-delta env rebuilt lctx)]
+                                   ;; Lean's dsimpReduce also fires a matcher iota
+                                   ;; step on a constructor discriminant. Keep the
+                                   ;; selected branch opaque until selection, as simp's
+                                   ;; reduceRecMatcher? does, then visit that branch.
+                                   (if-let [step (try-reduce-matcher {:env env :lctx lctx} reduced)]
+                                     (visit (:expr step))
+                                     reduced))
                             :lam (let [t (visit (e/lam-type expr)) b (visit (e/lam-body expr))]
                                    (if (and (identical? t (e/lam-type expr))
                                             (identical? b (e/lam-body expr)))

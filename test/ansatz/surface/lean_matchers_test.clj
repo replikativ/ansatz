@@ -154,6 +154,13 @@
                '[(simp)]))))
   (is (some? (second
               (a/prove-law
+               '[]
+               '(= Nat (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) Bool.true
+                                                     (fn [u :- Unit] 1) (fn [u :- Unit] 2))
+                   2)
+               '[(dsimp)]))))
+  (is (some? (second
+              (a/prove-law
                '[b :- Bool]
                '(= Nat
                    (matcher-bool-tactics.match_1 (fn [x :- Bool] Nat) b

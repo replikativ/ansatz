@@ -38,10 +38,12 @@ With the opt-in structural matcher switch enabled, a selected 25-test
 Nat/List/codegen/inferred-forms corpus improved from 30 failures and 2 errors
 to 0 failures and 0 errors after constructor equations and the split-based
 proof were added. The nested regression now checks the generated matcher
-equations and the single kernel-checked recursive equation. A default-on audit
-is in progress. It also checks deep runtime recursion using the pre-encoding
-matcher body, corresponding to Lean's `_unsafe_rec` runtime source. Full Lean
-parity still requires indexed and mutual inductives, the full fixed-parameter
+equations and the single kernel-checked recursive equation. The default-on
+audit checks deep runtime recursion using the pre-encoding matcher body,
+corresponding to Lean's `_unsafe_rec` runtime source. A temporary Klara copy
+with its `lookup-ws` proof reordered to Lean's source-alternative branch order
+kernel checked the full specification and ran 69/69 programs. Full Lean parity
+still requires indexed and mutual inductives, the full fixed-parameter
 analysis, and broader recursive-body shapes before the old compiler can go.
 
 Do not close a report because a workaround passes: its original reproduction
