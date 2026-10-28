@@ -42,10 +42,10 @@ equations and the single kernel-checked recursive equation. The default-on
 audit checks deep runtime recursion using the pre-encoding matcher body,
 corresponding to Lean's `_unsafe_rec` runtime source. A temporary Klara copy
 with its `lookup-ws` proof reordered to Lean's source-alternative branch order
-kernel checked the full specification and ran 69/69 programs. Full Lean parity
-still requires computed index expressions and mutual inductives, the full
-fixed-parameter analysis, and broader recursive-body shapes before the old
-compiler can go.
+kernel checked the full specification and ran 69/69 programs. Remaining recursion parity work includes mutual inductives/predefinitions,
+mutual fixed-parameter permutations, and broader recursive-body equations. Lean
+structural recursion itself requires distinct variable indices; computed indices
+are not a prerequisite for retiring the duplicate match compiler.
 
 Do not close a report because a workaround passes: its original reproduction
 must pass or fail cleanly as appropriate.
