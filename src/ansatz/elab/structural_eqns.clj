@@ -7,6 +7,7 @@
             [ansatz.kernel.level :as lvl]
             [ansatz.kernel.name :as name]
             [ansatz.kernel.tc :as tc]
+            [ansatz.kernel.reduce :as red]
             [ansatz.meta.constructions.util :as u]
             [ansatz.meta.match.matcher-app :as matcher-app])
   (:import [ansatz.kernel TypeChecker]))
@@ -86,7 +87,11 @@
         params (subvec ind-args 0 (.numParams ind))
         levels (vec (e/const-levels head))
         fconst (e/const' (name/from-string (str fn-name)) [])
-        matcher-name (e/const-name (e/get-app-fn source-body))
+        ;; A leading `let` is zeta-reduced before finding the match auxiliary;
+        ;; its runtime/proof source remains the original let expression.
+        matcher-name (e/const-name
+                      (e/get-app-fn
+                       (red/whnf-no-delta environment source-body (:lctx @ctx))))
         original-params (vec (keep-indexed (fn [i x] (when (not= i rec-pos) x)) xs))]
     (reduce
      (fn [{:keys [env names errors]} [i ctor-name]]
