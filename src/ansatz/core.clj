@@ -1411,7 +1411,25 @@
 ;; The lean4-faithful WellFounded.Nat.fix encoding, GuessLex measure inference, guard-aware decrease
 ;; checking and sizeOf derivation live in ansatz.wf now. Re-export the entry points core's
 ;; dispatcher / macros call (define-verified-wf, elab-signature, wf-guess-measure, wf-derive-sizeof!).
-(def define-verified-wf wf/define-verified-wf)
+(clojure.core/defn- atomic-definition [compile-fn]
+  (locking state/session-lock
+    (let [before-env @ansatz-env
+          before-arities @arity-registry
+          before-instances @ansatz-instance-index]
+      (try
+        (compile-fn)
+        (catch Throwable t
+          ;; Admission, equation generation, and runtime emission share global state.
+          ;; A failed emitter must not strand a verified name or its calling convention.
+          (reset! ansatz-env before-env)
+          (reset! arity-registry before-arities)
+          (reset! ansatz-instance-index before-instances)
+          (throw t))))))
+
+(clojure.core/defn define-verified-wf
+  [fn-name params ret-type-form body-form measure-form]
+  (atomic-definition
+   #(wf/define-verified-wf fn-name params ret-type-form body-form measure-form)))
 (def elab-signature wf/elab-signature)
 (def wf-guess-measure wf/wf-guess-measure)
 (def wf-derive-sizeof! wf/wf-derive-sizeof!)
@@ -1625,13 +1643,15 @@
    forms are hoisted into synthesized WF helper functions first. Returns the compiled Clojure fn;
    the structural path records equation-generation exceptions at metadata :equation-generation/:errors."
   [fn-name params ret-type-form body-form]
-  (let [body-form (hoist-loops! fn-name (mapv first (parse-params params)) body-form)]
-    (try
-      (define-verified-impl fn-name params ret-type-form body-form)
-      (catch clojure.lang.ExceptionInfo e
-        (if (= ::redirect-wf (:kind (ex-data e)))
-          (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
-          (throw e))))))
+  (atomic-definition
+   (fn []
+     (let [body-form (hoist-loops! fn-name (mapv first (parse-params params)) body-form)]
+       (try
+         (define-verified-impl fn-name params ret-type-form body-form)
+         (catch clojure.lang.ExceptionInfo e
+           (if (= ::redirect-wf (:kind (ex-data e)))
+             (define-verified-wf fn-name params ret-type-form body-form (:measure (ex-data e)))
+             (throw e))))))))
 
 (clojure.core/defn- recursor-app-info [env head args]
   ;; Lean Meta/Match/MatcherInfo.lean isMatcherAppCore? accepts >= arity;
