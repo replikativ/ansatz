@@ -2819,7 +2819,13 @@
                                 (let [again (simp-expr* st env lemma-index (:expr composed)
                                                         (update config :max-depth dec))]
                                   (mk-eq-trans st composed again))))
-                            current))))))]
+                            current))))))
+                result (if (and (not (:single-pass? config))
+                                (not= expr (:expr result)))
+                         (mk-eq-trans st result
+                                      (simp-expr* st env lemma-index (:expr result)
+                                                  (update config :max-depth dec)))
+                         result)]
             ;; Trace: log when Bool→True corruption occurs
             (when (and *simp-trace*
                        (e/const? expr)

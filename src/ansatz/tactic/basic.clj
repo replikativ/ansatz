@@ -301,53 +301,65 @@
              allow-synth-failures? ps
              :else (throw first-error))))))))
 
+(def ^:dynamic *apply-normalization-cache* nil)
+
 (defn- normalize-for-match
   "Recursively normalize an expression enough for tactic-side matching.
    Unlike plain WHNF, this also reduces inside the application spine so
    projection-heavy theorem conclusions can be compared to elaborated goals."
   [ps goal-lctx expr]
-  (letfn [(go [expr]
-              (let [expr (whnf-in-goal ps goal-lctx expr)]
-                (case (e/tag expr)
-                  :app (let [nf (go (e/app-fn expr))
-                             na (go (e/app-arg expr))
-                             rebuilt (if (and (identical? nf (e/app-fn expr))
-                                              (identical? na (e/app-arg expr)))
-                                       expr
-                                       (e/app nf na))]
-                         (whnf-in-goal ps goal-lctx rebuilt))
-                  :lam (let [nt (go (e/lam-type expr))
-                             nb (go (e/lam-body expr))]
-                         (if (and (identical? nt (e/lam-type expr))
-                                  (identical? nb (e/lam-body expr)))
-                           expr
-                           (e/lam (e/lam-name expr) nt nb (e/lam-info expr))))
-                  :forall (let [nt (go (e/forall-type expr))
-                                nb (go (e/forall-body expr))]
-                            (if (and (identical? nt (e/forall-type expr))
-                                     (identical? nb (e/forall-body expr)))
-                              expr
-                              (e/forall' (e/forall-name expr) nt nb (e/forall-info expr))))
-                  :let (let [nt (go (e/let-type expr))
-                             nv (go (e/let-value expr))
-                             nb (go (e/let-body expr))
-                             rebuilt (if (and (identical? nt (e/let-type expr))
-                                              (identical? nv (e/let-value expr))
-                                              (identical? nb (e/let-body expr)))
-                                       expr
-                                       (e/let' (e/let-name expr) nt nv nb))]
-                         (whnf-in-goal ps goal-lctx rebuilt))
-                  :proj (let [ns (go (e/proj-struct expr))
-                              rebuilt (if (identical? ns (e/proj-struct expr))
-                                        expr
-                                        (e/proj (e/proj-type-name expr) (e/proj-idx expr) ns))]
-                          (whnf-in-goal ps goal-lctx rebuilt))
-                  :mdata (let [ne (go (e/mdata-expr expr))]
-                           (if (identical? ne (e/mdata-expr expr))
-                             expr
-                             (e/mdata (e/mdata-data expr) ne)))
-                  expr)))]
-    (go expr)))
+  (let [cache *apply-normalization-cache*
+        cached (when cache (.get ^java.util.IdentityHashMap cache expr))]
+    (if (and cached
+             (identical? (:env cached) (:env ps))
+             (identical? (:lctx cached) goal-lctx))
+      (:result cached)
+      (letfn [(go [expr]
+                  (let [expr (whnf-in-goal ps goal-lctx expr)]
+                    (case (e/tag expr)
+                      :app (let [nf (go (e/app-fn expr))
+                                 na (go (e/app-arg expr))
+                                 rebuilt (if (and (identical? nf (e/app-fn expr))
+                                                  (identical? na (e/app-arg expr)))
+                                           expr
+                                           (e/app nf na))]
+                             (whnf-in-goal ps goal-lctx rebuilt))
+                      :lam (let [nt (go (e/lam-type expr))
+                                 nb (go (e/lam-body expr))]
+                             (if (and (identical? nt (e/lam-type expr))
+                                      (identical? nb (e/lam-body expr)))
+                               expr
+                               (e/lam (e/lam-name expr) nt nb (e/lam-info expr))))
+                      :forall (let [nt (go (e/forall-type expr))
+                                    nb (go (e/forall-body expr))]
+                                (if (and (identical? nt (e/forall-type expr))
+                                         (identical? nb (e/forall-body expr)))
+                                  expr
+                                  (e/forall' (e/forall-name expr) nt nb (e/forall-info expr))))
+                      :let (let [nt (go (e/let-type expr))
+                                 nv (go (e/let-value expr))
+                                 nb (go (e/let-body expr))
+                                 rebuilt (if (and (identical? nt (e/let-type expr))
+                                                  (identical? nv (e/let-value expr))
+                                                  (identical? nb (e/let-body expr)))
+                                           expr
+                                           (e/let' (e/let-name expr) nt nv nb))]
+                             (whnf-in-goal ps goal-lctx rebuilt))
+                      :proj (let [ns (go (e/proj-struct expr))
+                                  rebuilt (if (identical? ns (e/proj-struct expr))
+                                            expr
+                                            (e/proj (e/proj-type-name expr) (e/proj-idx expr) ns))]
+                              (whnf-in-goal ps goal-lctx rebuilt))
+                      :mdata (let [ne (go (e/mdata-expr expr))]
+                               (if (identical? ne (e/mdata-expr expr))
+                                 expr
+                                 (e/mdata (e/mdata-data expr) ne)))
+                      expr)))]
+        (let [result (go expr)]
+          (when cache
+            (.put ^java.util.IdentityHashMap cache expr
+                  {:env (:env ps) :lctx goal-lctx :result result}))
+          result)))))
 
 (defn- apply-target-compatible?
   "Cheap Lean-style `apply` stopping check: can the current partially-applied
@@ -356,25 +368,53 @@
   (let [st (mk-tc ps (:lctx goal))
         resolved-ty (instantiate-solved-mvars ps ty)
         goal-type (:type goal)
-        goal-whnf (whnf-in-goal ps (:lctx goal) goal-type)
-        resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)]
-    (boolean
-     (or (match-expr resolved-ty goal-type mvar-id-set)
-         (match-expr resolved-ty goal-whnf mvar-id-set)
-         (match-expr resolved-whnf goal-type mvar-id-set)
-         (match-expr resolved-whnf goal-whnf mvar-id-set)
-         ;; Speculative one-mctx isDefEq probe (result discarded — the main
-         ;; cascade re-runs matching and commits). Goal mvars stay protected
-         ;; by their syntheticOpaque kind.
-         (try
-           (some? (meta/is-def-eq (declare-level-mvars (:meta-mctx ps)
-                                                       [resolved-ty goal-type])
-                                  st resolved-ty goal-type))
-           (catch Exception _ false))
-         (try
-           (and (not (meta/has-expr-mvar? resolved-ty))
-                (tc/is-def-eq st resolved-ty goal-type))
-           (catch Exception _ false))))))
+        goal-whnf (whnf-in-goal ps (:lctx goal) goal-type)]
+    ;; `ty` is already exposed to WHNF. A forall cannot match a goal with a
+    ;; rigid non-forall head, so avoid expensive speculative unification at
+    ;; every binder of a mismatched apply candidate.
+    (if (and (e/forall? resolved-ty)
+             (not (e/forall? goal-whnf))
+             (not (e/mvar? goal-whnf)))
+      false
+      (let [resolved-whnf (whnf-in-goal ps (:lctx goal) resolved-ty)]
+        (boolean
+         (or (match-expr resolved-ty goal-type mvar-id-set)
+             (match-expr resolved-ty goal-whnf mvar-id-set)
+             (match-expr resolved-whnf goal-type mvar-id-set)
+             (match-expr resolved-whnf goal-whnf mvar-id-set)
+             ;; Speculative one-mctx isDefEq probe (result discarded — the main
+             ;; cascade re-runs matching and commits). Goal mvars stay protected
+             ;; by their syntheticOpaque kind.
+             (try
+               (some? (meta/is-def-eq (declare-level-mvars (:meta-mctx ps)
+                                                           [resolved-ty goal-type])
+                                      st resolved-ty goal-type))
+               (catch Exception _ false))
+             (try
+               (and (not (meta/has-expr-mvar? resolved-ty))
+                    (tc/is-def-eq st resolved-ty goal-type))
+               (catch Exception _ false))))))))
+
+(defn- same-spine-constructor-clash?
+  "A cheap rejection for the deep normalization fallback. The primary
+   metavariable isDefEq has already tried delta reduction; when the remaining
+   syntactic comparison reaches distinct constructors under identical heads,
+   recursively normalizing both sides usually expands a large recursive
+   definition without finding a match."
+  [environment a b]
+  (let [[ah aa] (e/get-app-fn-args a)
+        [bh ba] (e/get-app-fn-args b)]
+    (when (and (e/const? ah) (e/const? bh))
+      (let [an (e/const-name ah)
+            bn (e/const-name bh)]
+        (if (= an bn)
+          (and (= (count aa) (count ba))
+               (some true? (map #(same-spine-constructor-clash? environment %1 %2)
+                                aa ba)))
+          (let [^ConstantInfo ac (env/lookup environment an)
+                ^ConstantInfo bc (env/lookup environment bn)]
+            (and ac bc (.isCtor ac) (.isCtor bc)
+                 (= (.inductName ac) (.inductName bc)))))))))
 
 ;; ============================================================
 ;; First-order pattern matching (for apply unification)
@@ -754,6 +794,8 @@
               ;; only forced by the normalize-based fallbacks, which run AFTER the isDefEq strategy.
               goal-norm (delay (normalize-for-match ps (:lctx goal) (:type goal)))
               resolved-norm (delay (normalize-for-match ps (:lctx goal) resolved-ty))
+              skip-deep-normalize?
+              (same-spine-constructor-clash? (:env ps) resolved-ty (:type goal))
               ;; Lean's PRIMARY apply mechanism (Apply.lean:207): ONE
               ;; isDefEq(conclusion, goal) assigning expr- AND level-mvars in
               ;; the proof state's shared metacontext. It whnf's lazily ON
@@ -781,9 +823,10 @@
                         ;; level mvars together. It whnf's lazily on mismatch,
                         ;; so it never triggers the divergent deep normalize.
                         (try-real-mctx-isdefeq)
-                        (match-expr @resolved-norm @goal-norm mvar-id-set)
-                        (match-expr @resolved-norm goal-whnf mvar-id-set)
-                        (match-expr resolved-whnf @goal-norm mvar-id-set)
+                        (when-not skip-deep-normalize?
+                          (or (match-expr @resolved-norm @goal-norm mvar-id-set)
+                              (match-expr @resolved-norm goal-whnf mvar-id-set)
+                              (match-expr resolved-whnf @goal-norm mvar-id-set)))
                         ;; Strategy B: Java TC isDefEq (Lean 4's primary mechanism).
                         ;; isDefEq on resolved-ty (with assigned mvars substituted)
                         ;; handles cases where heads differ structurally but are def-eq
@@ -838,7 +881,8 @@
                         ;; Direct equality
                         (when (or (= resolved-ty (:type goal))
                                   (= resolved-ty goal-whnf)
-                                  (= @resolved-norm @goal-norm)) {}))]
+                                  (and (not skip-deep-normalize?)
+                                       (= @resolved-norm @goal-norm))) {}))]
           (when-not subst
             (tactic-error! (str "apply: result type does not match goal\n"
                                 "  result: " (e/->string resolved-ty) "\n"
@@ -2677,13 +2721,14 @@
   "Try each tactic in order; return result of first that succeeds.
    Lean 4: first [tac1, tac2, ...]."
   [ps & tacs]
-  (loop [remaining tacs]
-    (if (empty? remaining)
-      (tactic-error! "first: all tactics failed" {})
-      (let [tac (first remaining)]
-        (if-let [result (try (tac ps) (catch Exception _ nil))]
-          result
-          (recur (rest remaining)))))))
+  (binding [*apply-normalization-cache* (java.util.IdentityHashMap.)]
+    (loop [remaining tacs]
+      (if (empty? remaining)
+        (tactic-error! "first: all tactics failed" {})
+        (let [tac (first remaining)]
+          (if-let [result (try (tac ps) (catch Exception _ nil))]
+            result
+            (recur (rest remaining))))))))
 
 (defn repeat-tac
   "Apply a tactic repeatedly until it fails or makes no progress.

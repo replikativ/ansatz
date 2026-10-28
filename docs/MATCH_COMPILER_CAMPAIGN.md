@@ -10,8 +10,8 @@ implementation, then check the corresponding Klara proof where one exists.
 | 1 | On demand equations, precedence guards, and a distinct overlapping splitter | `MatchEqs.lean`, `Match.lean`, `SolveOverlap.lean` | Kernel checked Nat and inductive overlap proofs; existing matcher suite passes. Implemented in draft PR #238. |
 | 2 | Finish `split` support for multiple discriminants and nested matches | `MatchEqs.lean` `applyMatchSplitter`, matcher input reconstruction | Equations and splitter work for multiple discriminants, overlapping arms, and nested wildcards; Klara `datumEq` and `primApply` no longer warn. |
 | 3 | Reject invalid `obtain` and `cases` proofs at tactic time | `RCases.lean`, `Cases.lean`, `UnifyEq.lean` | S5 reports #7 and #8 reproduce as tactic errors; successful cases remain kernel checked. Local fixes and regressions are in progress. |
-| 4 | Reduce wasted `apply` work across many induction goals | `Apply.lean` | The S5 `ev-ok` candidate search finishes in a practical time while selecting the same lemmas. |
-| 5 | Reduce beta redexes left by `simp` | `Meta/Tactic/Simp/Main.lean` | S5 `smn-step2` and `run-quote` rewrite without their `simp only` workaround. |
+| 4 | Reduce wasted `apply` work across many induction goals | `Apply.lean` | The S5 `ev-ok` candidate search finishes in a practical time while selecting the same lemmas. REPL probe: 20 wrong candidates fell from 26 seconds to about 2 seconds; broader validation pending. |
+| 5 | Reduce beta redexes left by `simp` | `Meta/Tactic/Simp/Main.lean` | S5 `smn-step2` and `run-quote` rewrite without their `simp only` workaround. Alternate theorems proved in the Klara REPL; suite validation pending. |
 | 6 | Recognize structural recursion when a non matched argument changes, and when a recursive call is a match scrutinee | Lean's structural recursion elaboration and `brecOn` | Klara `subst` and `ev` can be expressed with their natural argument order; S2 reports #2 and #3 pass without helper functions. |
 | 7 | End to end validation | Ansatz and Klara suites | Full Ansatz suite passes outside socket restricted tests; Klara specification checks pass with removed workarounds. |
 
