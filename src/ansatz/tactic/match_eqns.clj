@@ -48,6 +48,18 @@
             (e/lam "x" bt (e/abstract1 b fid) :default))
           body (reverse binders)))
 
+(defn- open-lambdas [term n]
+  (loop [term term, i 0, binders []]
+    (if (= i n)
+      [binders term]
+      (if-not (e/lam? term)
+        (throw (ex-info "matcher alternative has too few binders"
+                        {:kind :match-splitter-error :expected n :actual i}))
+        (let [fid (fresh-id)
+              fv (e/fvar fid)]
+          (recur (e/instantiate1 (e/lam-body term) fv) (inc i)
+                 (conj binders [fid fv (e/lam-type term)])))))))
+
 (defn- named-discr-refl [type]
   ;; AltTelescopes.forallAltTelescope supplies reflexivity for each `h : discr`
   ;; binder after specializing the matcher discriminant to this equation's pattern.
@@ -477,6 +489,92 @@
         [head _] (e/get-app-fn-args app)]
     (replace-subterm target app (apply e/app* head new-args))))
 
+(defn- heq-trans
+  "Compose two HEq proofs using the kernel's HEq.rec. Bundled Init does not
+   contain Lean's derived HEq.trans theorem."
+  [u alpha a beta b gamma c h1 h2]
+  (let [heq (fn [x y z w]
+              (e/app* (e/const' (name/from-string "HEq") [u]) x y z w))
+        beta-id (fresh-id)
+        b-id (fresh-id)
+        t-id (fresh-id)
+        h2-id (fresh-id)
+        beta-fv (e/fvar beta-id)
+        b-fv (e/fvar b-id)
+        motive (close-lambdas
+                (e/arrow (heq beta-fv b-fv gamma c)
+                         (heq alpha a gamma c))
+                [[beta-id beta-fv (e/sort' u)]
+                 [b-id b-fv beta-fv]
+                 [t-id (e/fvar t-id) (heq alpha a beta-fv b-fv)]])
+        refl-case (close-lambdas (e/fvar h2-id)
+                                 [[h2-id (e/fvar h2-id) (heq alpha a gamma c)]])]
+    (e/app* (e/const' (name/from-string "HEq.rec") [lvl/zero u])
+            alpha a motive refl-case beta b h1 h2)))
+
+(defn- transport-named-alts
+  "Lean Split.withNewAltEqs: after changing matcher discriminants, replace each
+   named equality binder `oldDiscr = pattern` with `newDiscr = pattern`. Its old
+   uses are reconstructed using the generalization equality and Eq.trans."
+  [target app args info new-discrs new-discr-types generalization-eqs general-heq?]
+  (let [named-indices (vec (keep-indexed (fn [i h] (when h i)) (:discrs info)))
+        n-named (count named-indices)
+        np (:num-params info)
+        nd (:num-discrs info)
+        alt-start (+ np 1 nd)
+        alts (mapv
+              (fn [i alt]
+                (let [n (nth (mi/alt-num-params info) i)
+                      [opened body] (open-lambdas alt n)
+                      field-count (- n n-named)
+                      fields (subvec opened 0 field-count)
+                      named (subvec opened field-count)
+                      [new-named replacement]
+                      (reduce (fn [[bs s] [[old-id _ old-type] discr-idx]]
+                                (let [[eq-head eq-args] (e/get-app-fn-args old-type)
+                                      eq-name (when (e/const? eq-head)
+                                                (name/->string (e/const-name eq-head)))
+                                      _ (when-not (contains? #{"Eq" "HEq"} eq-name)
+                                          (throw (ex-info "named discriminant is not an equality"
+                                                          {:kind :match-splitter-error :type old-type})))
+                                      [alpha old-discr gamma pattern]
+                                      (if (= "Eq" eq-name)
+                                        [(nth eq-args 0) (nth eq-args 1) nil (nth eq-args 2)]
+                                        eq-args)
+                                      new-discr (nth new-discrs discr-idx)
+                                      new-discr-type (nth new-discr-types discr-idx)
+                                      eq-proof (nth generalization-eqs discr-idx)
+                                      eq-proof-heq (if (nth general-heq? discr-idx)
+                                                     eq-proof
+                                                     (e/app* (e/const' (name/from-string "heq_of_eq")
+                                                                       (e/const-levels eq-head))
+                                                             alpha old-discr new-discr eq-proof))
+                                      new-id (fresh-id)
+                                      new-fv (e/fvar new-id)
+                                      new-type (if (= "Eq" eq-name)
+                                                 (e/app* eq-head alpha new-discr pattern)
+                                                 (e/app* eq-head new-discr-type new-discr gamma pattern))
+                                      old-proof (if (= "Eq" eq-name)
+                                                  (e/app* (e/const' (name/from-string "Eq.trans")
+                                                                    (e/const-levels eq-head))
+                                                          alpha old-discr new-discr pattern eq-proof new-fv)
+                                                  (heq-trans (first (e/const-levels eq-head))
+                                                             alpha old-discr new-discr-type new-discr gamma pattern
+                                                             eq-proof-heq new-fv))]
+                                  [(conj bs [new-id new-fv new-type])
+                                   (assoc s old-id old-proof)]))
+                              [[] {}] (map vector named named-indices))]
+                  (close-lambdas (subst/apply replacement body)
+                                 (vec (concat fields new-named)))))
+              (range (count (:alts info)))
+              (subvec args alt-start (+ alt-start (count (:alts info)))))
+        new-args (reduce (fn [as i] (assoc as (+ np 1 i) (nth new-discrs i)))
+                         args (range nd))
+        new-args (reduce (fn [as i] (assoc as (+ alt-start i) (nth alts i)))
+                         new-args (range (count alts)))
+        [head _] (e/get-app-fn-args app)]
+    (replace-subterm target app (apply e/app* head new-args))))
+
 (defn- unify-split-discr-eqs
   "Use the same equality simplification as `cases` on the splitter's branch
    equations. An impossible constructor equation closes its branch."
@@ -557,6 +655,11 @@
                                  [ps (conj ids id)]))
                              [ps []] discrs)
         dfvs (mapv e/fvar dfv-ids)
+        [ps general-h-ids] (reduce (fn [[ps ids] _]
+                                     (let [[ps id] (proof/alloc-id ps)]
+                                       [ps (conj ids id)]))
+                                   [ps []] discrs)
+        general-hs (mapv e/fvar general-h-ids)
         motive-discr-types
         (mapv (fn [i ty]
                 (reduce (fn [t [discr dfv]] (replace-subterm t discr dfv))
@@ -615,9 +718,8 @@
                  lctx (reduce (fn [lc [id ty]] (red/lctx-add-local lc id "h" ty))
                               lctx (map vector h-ids h-types))
                  sg-type (if (pos? (mi/get-num-discr-eqs info))
-                           (reduce (fn [t [discr pattern]]
-                                     (replace-subterm t discr pattern))
-                                   (:type goal) (map vector discrs patterns))
+                           (transport-named-alts (:type goal) app args info patterns
+                                                 pattern-types (mapv e/fvar h-ids) hetero?)
                            (replace-matcher-discrs (:type goal) app args np nd patterns))
                  [ps sg-id] (proof/fresh-mvar-replacing ps sg-type lctx (:id goal))]
              [ps (conj acc {:patterns patterns :ys-ids ys-ids :ys-types ys-types
@@ -626,20 +728,18 @@
                             :h-ids h-ids :h-types h-types :goal sg-id})]))
          [ps []] (:alts d))
         motive-target (if (pos? (mi/get-num-discr-eqs info))
-                        (reduce (fn [t [discr dfv]]
-                                  (replace-subterm t discr dfv))
-                                (:type goal) (map vector discrs dfvs))
+                        (transport-named-alts (:type goal) app args info dfvs
+                                              motive-discr-types general-hs hetero?)
                         (replace-matcher-discrs (:type goal) app args np nd dfvs))
-        motive-body (reduce (fn [t [eq-lvl discr-type motive-type discr dfv heq?]]
-                              (e/arrow
-                               (if heq?
-                                 (e/app* (e/const' (name/from-string "HEq") [eq-lvl])
-                                         discr-type discr motive-type dfv)
-                                 (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
-                                         discr-type discr dfv))
-                               t))
+        motive-body (reduce (fn [t [hid eq-lvl discr-type motive-type discr dfv heq?]]
+                              (let [eq-type (if heq?
+                                              (e/app* (e/const' (name/from-string "HEq") [eq-lvl])
+                                                      discr-type discr motive-type dfv)
+                                              (e/app* (e/const' (name/from-string "Eq") [eq-lvl])
+                                                      discr-type discr dfv))]
+                                (e/forall' "h" eq-type (e/abstract1 t hid) :default)))
                             motive-target
-                            (reverse (map vector eq-lvls discr-types motive-discr-types
+                            (reverse (map vector general-h-ids eq-lvls discr-types motive-discr-types
                                           discrs dfvs hetero?)))
         motive (reduce (fn [body [id discr-type]]
                          (e/lam "d" discr-type (e/abstract1 body id) :default))
