@@ -29,6 +29,13 @@ specialization, is a target requiring benchmarks, not an established result.
 
 ## Evidence already obtained
 
+- The [unchanged-source compatibility corpus](LEAN_COMPATIBILITY_CORPUS.md)
+  pins initial application targets and separates raw execution from hosted source
+  loading. Its bounded, non-executing inventory covers original RBMap `main`:
+  79 reachable declarations, 26 extern declarations, 21 outside the current
+  Java preparation profile, and two dynamic application sites. Runtime binding
+  coverage and source-loader integration remain explicit acceptance work.
+
 - [Explicit Java continuations](java-ir-baseline/CONTINUATIONS.md) support
   instruction-boundary pause/resume and 20,000 non-tail guest calls without Java
   guest call frames. Both drivers share the same data/RC model. The isolated jar
@@ -43,9 +50,10 @@ specialization, is a target requiring benchmarks, not an established result.
   default JVMCI compiler, versus 4.51 ms for Lean's IR-preferred interpreter.
   Nine tests / 258 assertions cover intermediate values, guest counters and
   ownership, including all 81 MCMC data declarations. This bounded research
-  engine is not yet forkable or integrated into the hosted loader. The next
-  structural experiment is explicit continuations, followed by branch-local
-  heap ownership, each measured independently against this baseline.
+  engine is not yet forkable or integrated into the hosted loader. Explicit
+  continuations have since landed; branch-local heap ownership remains the next
+  structural experiment, measured independently against this baseline. Runtime
+  IO coverage can advance separately through the compatibility corpus.
 
 - [Prepared native call regions](NATIVE_CALL_REGIONS.md) provide an opt-in
   low-level runner without global interpreter replacement. The bounded paired

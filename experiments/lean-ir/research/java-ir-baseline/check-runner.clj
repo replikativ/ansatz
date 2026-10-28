@@ -4,6 +4,8 @@
 (load-file "research/java-ir-baseline/repl.clj")
 (load-file "research/java-ir-baseline/checks.clj")
 (load-file "research/java-ir-baseline/continuation-checks.clj")
+(load-file "research/java-ir-baseline/corpus.clj")
+(load-file "research/java-ir-baseline/corpus-checks.clj")
 (let [artifact (first *command-line-args*)
       _ (assert artifact "Pass compiled engine directory or jar")
       basis (java-ir-baseline/class-basis artifact)
@@ -14,7 +16,8 @@
                   "Expected engine class from jar"))
       results [(java-ir-baseline-checks/check! basis)
                (java-ir-baseline-checks/check! (assoc basis :explicit true))
-               (java-ir-continuation-checks/check! basis)]]
+               (java-ir-continuation-checks/check! basis)
+               (lean-compatibility-corpus-checks/check! basis)]]
   (shutdown-agents)
-  (System/exit (if (and (= [9 9 8] (mapv :test results))
+  (System/exit (if (and (= [9 9 8 6] (mapv :test results))
                        (every? #(zero? (+ (:fail %) (:error %))) results)) 0 1)))
