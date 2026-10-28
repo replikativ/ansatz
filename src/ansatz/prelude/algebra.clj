@@ -20,8 +20,7 @@
   (:require [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as nm]
-            [ansatz.kernel.expr :as e]
-            [ansatz.tactic.instance :as instance]))
+            [ansatz.kernel.expr :as e]))
 
 (defn- kconst [s] (e/const' (nm/from-string s) []))
 (defn- has? [s] (some? (env/lookup (a/env) (nm/from-string s))))
@@ -34,19 +33,16 @@
    env (a/init! / load-init! / reset! ansatz-env)."
   []
   (when-not (classes-installed?)
-    (eval '(ansatz.core/structure WAddMonoid [S Type]
-                                  (add (=> S S S)) (zero S)
-                                  (add_assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c)))))
-                                  (zero_add (forall [a S] (= S (add zero a) a)))
-                                  (add_zero (forall [a S] (= S (add a zero) a)))))
-    (eval '(ansatz.core/structure WSemiring [S Type] :extends (WAddMonoid S)
-                                  (mul (=> S S S))
-                                  (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
-                                  (mul_zero (forall [a S] (= S (mul a zero) zero)))
-                                  (zero_mul (forall [a S] (= S (mul zero a) zero))))))
-  ;; Lean Elab/Structure.lean:addParentInstances registers a class's parent projection.
-  ;; These owned classes use `structure`, so install their @[instance] entry explicitly.
-  (swap! a/ansatz-env instance/add-instance (nm/from-string "WSemiring.toWAddMonoid"))
+    (eval '(ansatz.core/class WAddMonoid [S Type]
+                              (add (=> S S S)) (zero S)
+                              (add_assoc (forall [a S b S c S] (= S (add (add a b) c) (add a (add b c)))))
+                              (zero_add (forall [a S] (= S (add zero a) a)))
+                              (add_zero (forall [a S] (= S (add a zero) a)))))
+    (eval '(ansatz.core/class WSemiring [S Type] :extends (WAddMonoid S)
+                              (mul (=> S S S))
+                              (mul_add (forall [a S b S c S] (= S (mul a (add b c)) (add (mul a b) (mul a c)))))
+                              (mul_zero (forall [a S] (= S (mul a zero) zero)))
+                              (zero_mul (forall [a S] (= S (mul zero a) zero))))))
   :installed)
 
 ;; ── Instance terms (carrier-agnostic; from an ops+proof-name row) ────────────────────────────

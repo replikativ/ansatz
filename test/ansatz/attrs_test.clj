@@ -33,7 +33,6 @@
         valid "{\"kind\":\"extern\",\"name\":\"WouldBeInstalled\"}"
         bad ["{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":true,\"inv\":true}"
              "{\"kind\":\"simp\",\"name\":\"Absent\",\"post\":false,\"inv\":false}"
-             "{\"kind\":\"unfold-thms\",\"name\":\"Absent\",\"theorems\":[\"Replacement\"]}"
              "{\"kind\":\"unknown\",\"name\":\"Absent\"}"
              "{\"kind\":\"simp\",\"name\":\"Absent\",\"name\":\"Duplicate\"}"
              "{\"kind\":\"simp\",\"name\":\"Absent\",\"extra\":true}"
@@ -145,3 +144,24 @@
         pow (expr/app* (c "HPow.hPow") (c "Nat") (c "Nat") (c "Nat") nat-pow (lit 3) (lit 34))]
     (is (= -3 (eval (cg/ansatz->clj (a/env) div []))))
     (is (= 16677181699666569N (eval (cg/ansatz->clj (a/env) pow []))))))
+
+(deftest equation-unfold-registrations-preserve-owner-and-order
+  ;; SimpTheorems.registerDeclToUnfoldThms records the map independently of
+  ;; the per-equation simp registrations made by addDeclToUnfold.
+  (let [rows ["{\"kind\":\"unfold-thms\",\"name\":\"f\",\"theorems\":[\"f.eq_2\",\"f.eq_1\"]}"
+              "{\"kind\":\"simp\",\"name\":\"f.eq_1\",\"prio\":47,\"post\":true,\"inv\":false}"]
+        [loaded stats] (attrs/import-attrs (a/env) rows {:present? (constantly true)})]
+    (is (= ["f.eq_2" "f.eq_1"] (get (env/get-extension loaded :simp-unfold-thms {}) "f")))
+    (is (= 1 (:simp-unfold-thms stats)))
+    (is (contains? (env/get-extension loaded :simp-lemmas #{}) "f.eq_1"))
+    (is (= 47 (get (env/get-extension loaded :simp-priorities {}) "f.eq_1")))))
+(deftest class-attributes-preserve-identity-without-instances
+  (let [tuples (attrs/parse-attr-lines ["{\"kind\":\"class\",\"name\":\"ExportedClass\"}"
+                                        "{\"kind\":\"class\",\"name\":\"AbsentClass\"}"])
+        [loaded stats] (attrs/import-attr-tuples (env/empty-env) tuples
+                                                 {:present? #{"ExportedClass"}})]
+    (is (= [["class" "ExportedClass" nil nil] ["class" "AbsentClass" nil nil]] tuples))
+    (is (= #{"ExportedClass"} (env/get-extension loaded :classes #{})))
+    (is (= 1 (:classes stats)))
+    (is (= 1 (:skipped stats)))
+    (is (empty? (env/get-extension loaded :instances {})))))

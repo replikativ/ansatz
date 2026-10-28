@@ -2,16 +2,15 @@
   "Validate `(induction xs generalizing acc)` — the accumulator-generalizing induction the wandler
    foldl laws need. Proves the foldl init-extraction law thinly (the shape of
    wandler.laws.proofs.frame/prove-foldl-add-init), kernel-verified via check-constant."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]))
 
-(def ^:private full test-env/init-full-ndjson-env)
+(def ^:private full test-env/checked-bundled-init-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full)) (t))
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
+(clojure.test/use-fixtures :once with-env)
 
 (defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
 (defn- verifies? [s]

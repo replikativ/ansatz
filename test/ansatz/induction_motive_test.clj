@@ -37,14 +37,10 @@
 (defn- eq-parts [t] (let [[_ args] (e/get-app-fn-args t)] (when (= 3 (count args)) (vec args))))
 
 (defn- once [f]
-  (when-let [kenv @test-env/init-full-env] (reset! a/ansatz-env kenv))
+  (when-let [kenv @test-env/checked-bundled-init-env] (reset! a/ansatz-env kenv))
   (f))
-(clojure.test/use-fixtures :once
-  (fn [f]
-    (if @test-env/init-full-env
-      (once f)
-      (println "SKIP induction-motive-test: no test-data/init-store or test-data/init.ndjson"))))
-(defn- ready? [] (some? @test-env/init-full-env))
+(clojure.test/use-fixtures :once once)
+(defn- ready? [] (some? @test-env/checked-bundled-init-env))
 
 ;; BUG #1 — multi-index Prop induction: prove  Perm l1 l2 → length l1 = length l2  via induction on p.
 (defn- prove-perm-length []

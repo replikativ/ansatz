@@ -7,7 +7,11 @@
             [ansatz.wf :as wf]
             [ansatz.core :as a]
             [ansatz.state :as state]
-            [ansatz.kernel.env :as env]))
+            [ansatz.kernel.env :as env]
+            [ansatz.kernel.expr :as expr]
+            [ansatz.kernel.name :as name]
+            [ansatz.kernel.level :as level]
+            [ansatz.export.parser :as parser]))
 
 (deftest invalid-bundle-fails-before-proof-state-activation
   (let [atoms [state/ansatz-env state/ansatz-instance-index state/ansatz-store
@@ -22,9 +26,9 @@
   (binding [a/*verbose* false]
     (a/init!)
     (let [manifest (env/get-extension (a/env) :bundled-artifacts nil)]
-      (is (= :legacy-inventory (:bundle/status manifest)))
-      (is (= :unrecorded (:bundle/co-generation manifest)))
-      (is (= "4.29.0-rc2" (get-in manifest [:producer :lean :version])))
+      (is (= :generated (:bundle/status manifest)))
+      (is (= :recorded (:bundle/co-generation manifest)))
+      (is (= "4.33.1" (get-in manifest [:producer :lean :version])))
       (is (= 6 (count (:resources manifest)))))))
 
 (deftest unsupported-generated-attributes-fail-before-all-bundled-activation-paths
@@ -33,8 +37,7 @@
       (fn []
         (let [snapshot #(update (into {} (session/capture)) :synth-cache deref)
               before (snapshot)]
-          (doseq [row [{:kind "unfold-thms" :name "Fixture.f" :theorems ["Fixture.f.eq_1"]}
-                       {:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
+          (doseq [row [{:kind "simp" :name "Fixture.inv" :prio 1000 :post true :inv true}
                        {:kind "simp" :name "Fixture.pre" :prio 1000 :post false :inv false}]]
             (let [{:keys [manifest resources]} (bundle-test/generated-fixture-with-attrs [row])]
               (bundle/with-verified {:manifest manifest :read-resource resources}
@@ -63,3 +66,16 @@
             (is (= #{n} (env/get-extension (a/env) :simp-lemmas #{})))
             (is (= {n 47} (env/get-extension (a/env) :simp-priorities {})))
             (is (= {"Fixture.f" target} (env/get-extension (a/env) :csimp {})))))))))
+
+(deftest bundled-explicit-recheck-rejects-invalid-definitions-before-activation
+  (let [before (session/capture)
+        declaration (env/mk-def (name/from-string "invalidBundledDefinition") []
+                                (expr/sort' (level/succ level/zero))
+                                (expr/sort' (level/succ level/zero)))]
+    ;; The type is Type, while the value Type itself has type Type 1.
+    ;; TRUST would admit this declaration; explicit checking must reject it.
+    (with-redefs [parser/parse-ndjson-string
+                  (fn [_] (assoc (parser/mk-parser-state) :decls [declaration]))]
+      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"Replay stopped on error"
+                            (a/load-init! :verify? true)))
+      (is (identical? (:env before) @state/ansatz-env)))))

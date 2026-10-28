@@ -52,6 +52,29 @@
                 (or (> (count fields) 2)
                     (and (= 2 (count fields)) (pos? (first fields)))))))))
 
+(clojure.core/defn- compile-constructor-app [env ^ConstantInfo ci ca]
+  ;; Lean 4.33.1 ToLCNF.lean visitCtor/etaIfUnderApplied: expose missing
+  ;; constructor parameters before building its value. This backend retains
+  ;; erased argument slots in anonymous closures, as for ordinary lambdas.
+  (let [np (.numParams ci)
+        nf (.numFields ci)
+        total (+ np nf)
+        missing (vec (repeatedly (max 0 (- total (count ca))) #(gensym "ctor_")))
+        args (into (vec ca) missing)
+        fields (subvec args np total)
+        parent (name/->string (.inductName ci))
+        structure (get @structure-registry parent)
+        body (cond
+               (and structure (= nf (count (:fields structure))))
+               (if (:map? structure)
+                 (apply list 'clojure.core/array-map
+                        (mapcat (fn [field value] [(keyword field) value]) (:fields structure) fields))
+                 (apply list (:ctor-sym structure) fields))
+               (tagged-inductive? env parent) (into [(.cidx ci)] fields)
+               (zero? nf) (when-not (zero? (.cidx ci)) (.cidx ci))
+               :else (vec fields))]
+    (reduce (fn [body param] (list 'fn [param] body)) body (rseq missing))))
+
 (declare ansatz->clj beta-apply runtime-instance-op standard-real-approx)
 
 ;; ── built-in codegen tables (the Init/kernel lowerings) ──────────────────────────────────────────
@@ -111,15 +134,13 @@
    "Int.ediv" 'ansatz.codegen.numeric/ediv "Int.emod" 'ansatz.codegen.numeric/emod
    "Int.fdiv" 'ansatz.codegen.numeric/fdiv "Int.fmod" 'ansatz.codegen.numeric/fmod})
 
-;; Init/Prelude.lean List.foldl: foldl f a [] = a;
-;; foldl f a (b :: l) = foldl f (f a b) l. The bundled export carries
-;; only brecOn, without eq_def or a compiler replacement for this declaration.
-;; Like List.length's native lowering, reduce executes these equations directly.
-(def ^:private list-foldl
-  (:fn-form (decl/emit-wrapper
-             '[f_ init_ xs_]
-             '(clojure.core/reduce (fn [acc_ x_] ((f_ acc_) x_)) init_ xs_)
-             {})))
+;; Lean 4.33.1 Init/Prelude.lean Nat.decEq/decLe/decLt are extern primitives returning
+;; Decidable.isTrue/isFalse. Keep the generic tagged-constructor representation:
+;; constructor index plus an erased proof field, rather than a bare Bool.
+(def ^:private nat-decisions
+  (into {} (map (fn [[head op]]
+                  [head (nary-op2 (fn [x y] (list 'if (list op x y) [1 nil] [0 nil])) [])])
+                {"Nat.decEq" '== "Nat.decLe" '<= "Nat.decLt" '<})))
 
 (def ^:private decidable-comparisons
   {"Nat.decEq" '== "Nat.decLt" '< "Nat.decLe" '<=
@@ -152,6 +173,10 @@
   (let [missing (vec (repeatedly (max 0 (- 2 (count ca))) #(gensym "false_arg_")))
         body (list 'throw (list 'ex-info "Unreachable elimination" {:kind :unreachable}))]
     (reduce (fn [body arg] (list 'fn [arg] body)) body (reverse missing))))
+(def ^:private decidable-equality
+  ;; Init/Prelude.lean:Nat.decEq/String.decEq; Init/Data/Int/Basic.lean:Int.decEq.
+  ;; Native externs retain Decidable's constructor tag and erase its proof payload.
+  (bi-nary2 (fn [x y] (list 'if (list '= x y) [1 nil] [0 nil]))))
 
 (def ^:private builtin-app
   (merge
@@ -171,6 +196,8 @@
    {"Bool.or"  (bi-nary2 (fn [x y] (list 'or x y)))
     "Bool.and" (bi-nary2 (fn [x y] (list 'and x y)))
     "Float.pow" (bi-nary2 (fn [x y] (list 'Math/pow x y)))
+    "Nat.decEq" decidable-equality "Int.decEq" decidable-equality
+    "String.decEq" decidable-equality
     ;; heterogeneous H* ops carry [α β γ inst …] — drop the 4-arg type/instance prefix
     "HAdd.hAdd" (hop) "HMul.hMul" (hop) "HSub.hSub" (hop)
     "HDiv.hDiv" (hop) "HMod.hMod" (hop) "HPow.hPow" (hop)}
@@ -178,9 +205,7 @@
    {"Bool.true" (bi-const true) "Bool.false" (bi-const false) "Nat.zero" (bi-const 0)
     "List.nil"  (bi-const nil)}
    ;; small structural lowerings + control flow + refinement erasure (bespoke handlers)
-   {"List.foldl"    (fn [_ _ _ ca _]
-                      (decl/apply-args {:arity 3 :erased 2} list-foldl ca))
-    "Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
+   {"Nat.succ"      (fn [_ _ _ ca _] (list 'inc' (nth ca 0)))
     "Int.ofNat"     (fn [_ _ _ ca _] (nth ca 0))
     "Int.neg"       (fn [_ _ _ ca _] (list '-' (nth ca 0)))
     "Int.natAbs"    (fn [_ _ _ ca _] (list 'ansatz.codegen.numeric/nat-abs (nth ca 0)))
@@ -193,6 +218,7 @@
     "False.rec"     (fn [_ _ _ ca _] (erase-false-rec ca))
     "Empty.rec"     (fn [_ _ _ ca _] (erase-false-rec ca))
     "List.cons"     (fn [_ _ _ ca _] (list 'clojure.core/cons (nth ca 1) (nth ca 2)))
+    ;; Deliberate native fast path: Clojure's count implements List.length.
     "List.length"   (fn [_ _ _ ca _]              ; arity-tolerant: `List.length A` as a fn VALUE
                       (case (count ca)             ; (eta-reduced, e.g. fused into a comp) lowers to `count`
                         1 'clojure.core/count
@@ -283,24 +309,34 @@
                 (list self-sym x-arg)))
         ;; Partial application (shouldn't happen normally)
         (list 'apply (ansatz->clj env head names) ca)))}
-   (into {} (map (fn [[n op]] [n (bi-nary op)]) integer-binary))))
+   (into {} (map (fn [[n op]] [n (bi-nary op)]) integer-binary))
+   (into {} (map (fn [[n value]]
+                   [n (fn [_ _ _ ca _] (decl/apply-args {:arity 2 :erased 0} value ca))])
+                 nat-decisions))))
 
 (def ^:private builtin-value
   "head → clj-form for an op in VALUE position (a fold step `+`, a passed comparator)."
   (merge
-   {"List.foldl" list-foldl
-    "Nat.zero" 0 "Bool.true" true "Bool.false" false
+   {"Nat.zero" 0 "Bool.true" true "Bool.false" false
     "Nat.succ" 'inc' "Int.ofNat" 'identity
     "Float.pow" (nary-op2 (fn [x y] (list 'Math/pow x y)) [])
     "Int.neg" '-' "Int.natAbs" 'ansatz.codegen.numeric/nat-abs
     ;; Unit/PUnit's single value → nil (the unit thunks a match auxiliary applies branches to).
     "Unit.unit" nil "PUnit.unit" nil}
+   nat-decisions
    (into {} (map (fn [[n op]] [n (nary-op2 (fn [x y] (list op x y)) [])])
                  (merge {"Nat.add" '+' "Nat.mul" '*'
                          "Nat.min" 'min "Nat.max" 'max
                          "Nat.beq" '== "Nat.ble" '<= "Nat.blt" '<
                          "Int.add" '+' "Int.mul" '*' "Int.sub" '-'}
                         integer-binary)))))
+
+(clojure.core/defn unhandled-extern?
+  "Whether this backend lacks a lowering for an externally implemented constant."
+  [env cn]
+  (and (contains? (env/get-extension env :extern #{}) cn)
+       (not (or (contains? builtin-app cn) (contains? builtin-value cn)
+                (contains? @codegen-registry cn) (contains? @arity-registry cn)))))
 
 (clojure.core/defn- extern-unhandled-form
   "Lean's @[extern] decls (inherited into the env's :extern extension by ansatz.attrs) are native
@@ -878,36 +914,7 @@
               (cg env expr names)
               (if-let [ctor-ci (when-let [ci (env/lookup env (e/const-name head))]
                                  (when (.isCtor ^ConstantInfo ci) ci))]
-                (let [np (.numParams ctor-ci)
-                      nf (.numFields ctor-ci)
-                      fields (subvec ca np (+ np nf))
-                    ;; Check if this is a structure with a defrecord
-                      ind-name (subs h 0 (max 0 (- (count h) (count (name/->string (.name ctor-ci)))
-                                                   -1 (count h))))
-                    ;; Get the inductive name from the ctor name: T.mk → T
-                      ctor-str (name/->string (.name ctor-ci))
-                      dot-idx (.lastIndexOf ^String ctor-str ".")
-                      struct-name (when (pos? dot-idx) (subs ctor-str 0 dot-idx))
-                      struct-info (when struct-name (get @structure-registry struct-name))]
-                  (cond
-                  ;; Structure with defrecord: use ->RecordName constructor.
-                  ;; :map? structures (malli [:map] records) construct plain Clojure maps.
-                    (and struct-info (= nf (count (:fields struct-info))))
-                    (if (:map? struct-info)
-                      (apply list 'clojure.core/array-map
-                             (mapcat (fn [f v] [(keyword f) v]) (:fields struct-info) fields))
-                      (apply list (:ctor-sym struct-info) fields))
-                  ;; General tagged inductive (e.g. Value): [cidx field…] — the tag in
-                  ;; slot 0 lets the recursor dispatch and disambiguates same-arity ctors.
-                  ;; 0-field tagged ctor → [cidx] (NOT nil — that's the enum rep).
-                    (tagged-inductive? env struct-name)
-                    (into [(.cidx ctor-ci)] fields)
-                  ;; 0-field ctor: use index for enum dispatch
-                    (zero? nf)
-                    (let [cidx (.cidx ctor-ci)]
-                      (if (zero? cidx) nil cidx))
-                  ;; Default: tagged vector
-                    :else (vec fields)))
+                (compile-constructor-app env ctor-ci ca)
               ;; Generic recursor compilation: *.rec → case dispatch with recursion
                 (if-let [rec-ci (when (.endsWith ^String h ".rec")
                                   (env/lookup env (e/const-name head)))]
@@ -1167,7 +1174,7 @@
                                 ;; 0-field ctor: use index for enum dispatch.
                                                    (let [cidx (.cidx ci)]
                                                      (if (zero? cidx) nil cidx))
-                                                   :else (symbol cn)))
+                                                   :else (compile-constructor-app env ci [])))
                                                (if-let [cg (get @codegen-registry cn)]
                                                  (cg env expr names)
                               ;; VALUE position (fold step, comparator): a storedef-compiled

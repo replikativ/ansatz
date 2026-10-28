@@ -15,13 +15,7 @@ import subprocess
 GROUPS = 4
 # These exports/stores are uncommitted and unavailable on a fresh checkout.
 EXCLUDED = {
-    "ansatz.foldl-assoc-generic-test": "test-data/init.ndjson",
-    "ansatz.generalizing-test": "test-data/init.ndjson",
-    "ansatz.induction-motive-test": "test-data/init-store or test-data/init.ndjson",
     "ansatz.int-arith-test": "Mathlib store (ANSATZ_STORE_DIR)",
-    "ansatz.prelude.list-test": "test-data/init.ndjson",
-    "ansatz.rw-envlemma-test": "test-data/init.ndjson",
-    "ansatz.split-test": "test-data/init.ndjson",
     "ansatz.tactic.carriers-test": "Mathlib store (ANSATZ_STORE_DIR)",
     "ansatz.theory.convergence-test": "Mathlib store (ANSATZ_STORE_DIR)",
     "ansatz.theory.inferred-real-test": "Mathlib store (ANSATZ_STORE_DIR)",
@@ -31,6 +25,12 @@ EXCLUDED = {
 # These are committed, so they are inputs rather than exclusions. The reducer
 # namespace retains a printed skip for its optional small export.
 REPOSITORY_FIXTURES = {
+    "ansatz.split-test": "checked bundled Init",
+    "ansatz.rw-envlemma-test": "checked bundled Init",
+    "ansatz.prelude.list-test": "checked bundled Init",
+    "ansatz.induction-motive-test": "checked bundled Init",
+    "ansatz.generalizing-test": "checked bundled Init",
+    "ansatz.foldl-assoc-generic-test": "checked bundled Init",
     "ansatz.examples-test": "checked bundled Init; optional Mathlib store",
     "ansatz.import-test": "bundled Init materialized as temporary NDJSON + bundled attributes",
     "ansatz.tactic.advanced-test": "checked bundled Init; optional Mathlib store",

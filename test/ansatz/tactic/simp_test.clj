@@ -431,56 +431,53 @@
 ;; ============================================================
 
 (defn- mk-nat-list
-  "Build a Ansatz List Nat from a Clojure vector of nats."
+  "Build an Ansatz List Nat from a Clojure vector of nats."
   [ns]
   (let [nat (e/const' (name/from-string "Nat") [])
-        u1 (lvl/succ lvl/zero)
-        nil-nat (e/app (e/const' (name/from-string "List.nil") [u1]) nat)]
+        nil-nat (e/app (e/const' (name/from-string "List.nil") [lvl/zero]) nat)]
     (reduce (fn [rest n]
-              (e/app* (e/const' (name/from-string "List.cons") [u1]) nat (e/lit-nat n) rest))
+              (e/app* (e/const' (name/from-string "List.cons") [lvl/zero]) nat (e/lit-nat n) rest))
             nil-nat
             (reverse ns))))
 
 (deftest test-ground-eval-list-length-nil
-  (testing "List.length [] = 0 via equation theorems (when available)"
-    (let [env (require-env)]
-      (when (env/lookup env (name/from-string "List.length.eq_1"))
-        (let [st (tc/mk-tc-state env)
-              u1 (lvl/succ lvl/zero)
-              nat-e (e/const' (name/from-string "Nat") [])
-              expr (e/app* (e/const' (name/from-string "List.length") [u1])
-                           nat-e (mk-nat-list []))
-              result (simp/simp-expr st env {} expr 40)]
-          (is (e/lit-nat? result))
-          (is (= 0 (e/lit-nat-val result))))))))
+  (testing "List.length [] = 0 via the bundled equations"
+    (let [env (require-env)
+          st (tc/mk-tc-state env)
+          nat-e (e/const' (name/from-string "Nat") [])
+          expr (e/app* (e/const' (name/from-string "List.length") [lvl/zero])
+                       nat-e (mk-nat-list []))
+          _ (is (tc/is-def-eq st (tc/infer-type st expr) nat-e))
+          result (simp/simp-expr st env {} expr 40)]
+      (is (not= expr result) "simp evaluates the length application")
+      (is (tc/is-def-eq st result (e/lit-nat 0))))))
 
 (deftest test-ground-eval-list-length-cons
-  (testing "List.length [1,2,3] = 3 via equation theorems (when available)"
-    (let [env (require-env)]
-      (when (env/lookup env (name/from-string "List.length.eq_1"))
-        (let [st (tc/mk-tc-state env)
-              u1 (lvl/succ lvl/zero)
-              nat-e (e/const' (name/from-string "Nat") [])
-              expr (e/app* (e/const' (name/from-string "List.length") [u1])
-                           nat-e (mk-nat-list [1 2 3]))
-              result (simp/simp-expr st env {} expr 40)]
-          (is (e/lit-nat? result))
-          (is (= 3 (e/lit-nat-val result))))))))
+  (testing "List.length [1,2,3] = 3 via the bundled equations"
+    (let [env (require-env)
+          st (tc/mk-tc-state env)
+          nat-e (e/const' (name/from-string "Nat") [])
+          expr (e/app* (e/const' (name/from-string "List.length") [lvl/zero])
+                       nat-e (mk-nat-list [1 2 3]))
+          _ (is (tc/is-def-eq st (tc/infer-type st expr) nat-e))
+          result (simp/simp-expr st env {} expr 40)]
+      (is (not= expr result) "simp evaluates the length application")
+      (is (tc/is-def-eq st result (e/lit-nat 3))))))
 
 (deftest test-ground-eval-list-append
-  (testing "List.append [1,2] [3] = [1,2,3] via equation theorems (when available)"
-    (let [env (require-env)]
-      (when (env/lookup env (name/from-string "List.append.eq_1"))
-        (let [st (tc/mk-tc-state env)
-              u1 (lvl/succ lvl/zero)
-              nat-e (e/const' (name/from-string "Nat") [])
-              expr (e/app* (e/const' (name/from-string "List.append") [u1])
-                           nat-e (mk-nat-list [1 2]) (mk-nat-list [3]))
-              result (simp/simp-expr st env {} expr 40)]
-          ;; Result should be [1,2,3] — check it's a List.cons
-          (let [[head args] (e/get-app-fn-args result)]
-            (is (e/const? head))
-            (is (= "List.cons" (name/->string (e/const-name head))))))))))
+  (testing "List.append [1,2] [3] = [1,2,3] via the bundled equations"
+    (let [env (require-env)
+          st (tc/mk-tc-state env)
+          nat-e (e/const' (name/from-string "Nat") [])
+          expr (e/app* (e/const' (name/from-string "List.append") [lvl/zero])
+                       nat-e (mk-nat-list [1 2]) (mk-nat-list [3]))
+          _ (is (tc/is-def-eq st (tc/infer-type st expr)
+                              (e/app (e/const' (name/from-string "List") [lvl/zero]) nat-e)))
+          result (simp/simp-expr st env {} expr 40)]
+      (let [head (e/get-app-fn result)]
+        (is (e/const? head))
+        (is (= (name/from-string "List.cons") (e/const-name head))))
+      (is (tc/is-def-eq st result (mk-nat-list [1 2 3]))))))
 
 (deftest test-ground-eval-eqn-discovery
   (testing "Equation theorems discovered by name pattern (when available)"

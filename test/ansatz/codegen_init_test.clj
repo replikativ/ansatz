@@ -9,16 +9,19 @@
             [ansatz.kernel.name :as name]
             [ansatz.kernel.level :as level]
             [ansatz.malli :as am]
-            [ansatz.surface.elaborate :as elab])
+            [ansatz.surface.elaborate :as elab]
+            [ansatz.tactic.instance :as instance]
+            [ansatz.deriving :as deriving])
   (:import [ansatz.kernel TypeChecker]))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once (fn [f] (a/load-init! :verify? true) (binding [a/*verbose* false] (f))))
 
 (defn- nat-list [xs]
   (reduce (fn [tail x] (list 'List.cons 'Nat x tail)) '(List.nil Nat) (reverse xs)))
 
 (defn- compare-kernel! [application schema]
-  (let [term (elab/elaborate (a/env) application)
+  (let [term (if (instance? ansatz.kernel.Expr application)
+               application (elab/elaborate (a/env) application))
         tc (TypeChecker. (a/env))
         kernel (#'am/decode-val #(.whnf (.getReducer tc) %) schema term)
         runtime (eval (cg/ansatz->clj (a/env) term []))
@@ -28,6 +31,8 @@
     (is (= kernel runtime) (pr-str application))))
 
 (deftest foldl-runtime-agrees-with-kernel
+  (is (= :eq-def (:provenance (sd/compile-store-def! (a/env) "List.foldl")))
+      "foldl compiles its exported direct equation body")
   (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
     (eval '(ansatz.core/defn foldl-runtime-probe [xs :- (List Nat)] Nat
              (List.foldl (fn [n :- Nat, x :- Nat] (+ n x)) 0 xs)))
@@ -60,11 +65,11 @@
       (is (= 5 ((ns-resolve b-ns 'caller-inc) 4)))
       (is (= 14 ((ns-resolve b-ns 'caller-value) 4))))))
 
-;; Each available declaration is compiled on small closed inputs, and either
-;; agrees with kernel WHNF or reports a named compiler limitation. Missing APIs
-;; are explicit inventory entries, since the bundled medium tier is not full Init.
+;; Every bundled runtime API must compile and agree with kernel reduction.
+;; Lean 4.33.1 Init/GetElem.lean uses List.get?Internal behind GetElem?.getElem?;
+;; the older List.get? spelling is no longer a declaration.
 (def ^:private list-api
-  '[foldl foldr map filter filterMap flatMap append reverse length get? head? tail
+  '[foldl foldr map filter filterMap flatMap append reverse length get?Internal head? tail
     zip zipWith take drop any all find? contains elem replicate range sum lookup])
 
 (defn- list-probes [xs]
@@ -77,7 +82,7 @@
    'append (list 'List.append xs xs)
    'reverse (list 'List.reverse xs)
    'length (list 'List.length xs)
-   'get? (list 'List.get? xs 1)
+   'get?Internal (list 'List.get?Internal xs 1)
    'head? (list 'List.head? xs)
    'tail (list 'List.tail xs)
    'zip (list 'List.zip xs xs)
@@ -96,7 +101,7 @@
 
 (def ^:private result-schemas
   {'foldl :int 'foldr :int 'length :int 'sum :int
-   'get? [:maybe :int] 'head? [:maybe :int] 'find? [:maybe :int] 'lookup [:maybe :int]
+   'get?Internal [:maybe :int] 'head? [:maybe :int] 'find? [:maybe :int] 'lookup [:maybe :int]
    'any :boolean 'all :boolean 'contains :boolean 'elem :boolean
    'zip [:sequential [:tuple :int :int]]})
 
@@ -104,20 +109,11 @@
   (doseq [f list-api]
     (let [cname (str "List." f)]
       (testing cname
-        (if-not (env/lookup (a/env) (name/from-string cname))
-          (println "Init runtime unavailable:" cname "— declaration absent from bundled Init")
-          (doseq [xs [[] [1 2 3]]]
-            (try
-              (compare-kernel! (get (list-probes (nat-list xs)) f)
-                               (get result-schemas f [:sequential :int]))
-              (catch clojure.lang.ExceptionInfo ex
-                (if (= :codegen-error (:kind (ex-data ex)))
-                  (do (is (not (#{'foldl 'length 'zipWith} f))
-                          (str cname " must remain executable: " (ex-message ex)))
-                      (is (string? (:declaration (ex-data ex))))
-                      (is (seq (:reason (ex-data ex))))
-                      (println "Init runtime unavailable:" cname "—" (ex-message ex)))
-                  (throw ex)))))))))
+        (is (some? (env/lookup (a/env) (name/from-string cname)))
+            (str cname " must be present in bundled Init"))
+        (doseq [xs [[] [5] [1 2 3] [0 10] [2 2]]]
+          (compare-kernel! (get (list-probes (nat-list xs)) f)
+                           (get result-schemas f [:sequential :int]))))))
   (doseq [[application schema]
           [['(Nat.add 3 4) :int] ['(Nat.sub 3 4) :int] ['(Nat.mul 3 4) :int]
            ['(Nat.div 7 2) :int] ['(Nat.mod 7 2) :int] ['(Nat.pow 2 3) :int]
@@ -126,6 +122,12 @@
            ['(Bool.not false) :boolean]
            ['(Option.getD (Option.some Nat 3) 9) :int]
            ['(Option.getD (Option.none Nat) 9) :int]
+           ['(List.lookup 1 (List.nil (Prod Nat Nat))) [:maybe :int]]
+           ['(List.lookup 2 (List.cons (Prod Nat Nat) (Prod.mk Nat Nat 1 7)
+                                       (List.nil (Prod Nat Nat)))) [:maybe :int]]
+           ['(List.filterMap (fn [x :- Nat]
+                               (if (Nat.beq x 2) (Option.some Nat x) (Option.none Nat)))
+                             (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))) [:sequential :int]]
            ['(Prod.fst (Prod.mk Nat Nat 2 3)) :int]
            ['(Prod.snd (Prod.mk Nat Nat 2 3)) :int]]]
     (compare-kernel! application schema)))
@@ -182,3 +184,100 @@
               tc (TypeChecker. checked)]
           (is (.isDefEq tc body (e/lit-nat 7)))
           (is (= 7 (eval (cg/ansatz->clj checked body [])))))))))
+
+(deftest compiled-list-search-retains-its-equality-instance
+  (let [nat (e/const' (name/from-string "Nat") [])
+        never-equal (e/app* (e/const' (name/from-string "BEq.mk") [level/zero]) nat
+                            (e/lam "x" nat
+                                   (e/lam "y" nat (e/const' (name/from-string "Bool.false") []) :default)
+                                   :default))
+        application (elab/elaborate (a/env) '(List.contains (List.cons Nat 2 (List.nil Nat)) 2))
+        [head args] (e/get-app-fn-args application)
+        application (apply e/app* head (assoc (vec args) 1 never-equal))]
+    ;; The ordinary Nat instance returns true on [2]; this instance returns false.
+    (compare-kernel! application :boolean)))
+
+(deftest native-natural-decisions-agree-with-kernel
+  (doseq [native '[Nat.decEq Nat.decLe Nat.decLt]
+          [x y] [[2 2] [2 3] [3 2]]
+          application [(list native x y) (list 'let ['f native] (list 'f x y))]]
+    (let [decision (elab/elaborate (a/env) application)
+          tc (TypeChecker. (a/env))
+          decision-type (.whnf (.getReducer tc) (.inferType tc decision))
+          proposition (first (second (e/get-app-fn-args decision-type)))
+          term (e/app* (e/const' (name/from-string "Decidable.decide") []) proposition decision)]
+      (compare-kernel! term :boolean))))
+
+(deftest partially-applied-constructors-agree-with-kernel
+  (let [constructor (e/const' (name/from-string "Prod.mk") [level/zero level/zero])
+        nat (e/const' (name/from-string "Nat") [])
+        partial (e/app* constructor nat nat)
+        type (.inferType (TypeChecker. (a/env)) partial)
+        term (e/app (e/lam "f" type (e/app* (e/bvar 0) (e/lit-nat 2) (e/lit-nat 7)) :default)
+                    partial)]
+    (compare-kernel! term [:tuple :int :int]))
+  (compare-kernel! '(List.zip (List.cons Nat 1 (List.cons Nat 2 (List.nil Nat)))
+                              (List.cons Nat 7 (List.nil Nat))) [:sequential [:tuple :int :int]])
+  (let [constructor (e/const' (name/from-string "Prod.mk") [level/zero level/zero])
+        nat (e/const' (name/from-string "Nat") [])
+        type (.inferType (TypeChecker. (a/env)) constructor)
+        term (e/app (e/lam "f" type (e/app* (e/bvar 0) nat nat (e/lit-nat 2) (e/lit-nat 7)) :default)
+                    constructor)]
+    (compare-kernel! term [:tuple :int :int])))
+(deftest computational-equality-uses-operand-dictionary
+  (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+    (eval '(ansatz.core/defn bool-equality [b :- Bool] Bool
+             ((fn [x :- Bool] (= x true)) b)))
+    (eval '(ansatz.core/defn nat-equality [x :- Nat, y :- Nat] Bool (= x y)))
+    (eval '(ansatz.core/defn int-equality [x :- Int, y :- Int] Bool (= x y)))
+    (eval '(ansatz.core/inductive EqualityColor [] (red) (blue) :deriving [DecidableEq]))
+    (eval '(ansatz.core/defn color-equality [x :- EqualityColor, y :- EqualityColor] Bool (= x y)))
+    (eval '(ansatz.core/structure EqualityToken []))
+    (swap! a/ansatz-env deriving/derive-decidable-eq! "EqualityToken" [["mk" []]])
+    (eval '(ansatz.core/defn token-equality [x :- EqualityToken, y :- EqualityToken] Bool (= x y)))
+    (doseq [[application expected]
+            [['(bool-equality true) true] ['(bool-equality false) false]
+             ['(nat-equality 3 3) true] ['(nat-equality 3 4) false]
+             ['(int-equality (Int.negSucc 2) (Int.negSucc 2)) true]
+             ['(int-equality (Int.negSucc 2) (Int.ofNat 3)) false]
+             ['(color-equality (EqualityColor.red) (EqualityColor.red)) true]
+             ['(color-equality (EqualityColor.red) (EqualityColor.blue)) false]
+             ['(token-equality (EqualityToken.mk) (EqualityToken.mk)) true]]]
+      (compare-kernel! application :boolean)
+      (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) [])))))))
+
+(deftest computational-equality-requires-registered-instance
+  (let [saved (a/env)
+        inst-name (name/from-string "instDecidableEqBool")
+        ci (env/lookup saved inst-name)
+        alias (name/from-string "booleanDecisionDictionary")
+        custom (env/check-constant saved
+                                   (env/mk-def alias [] (.type ci) (e/const' inst-name [])))
+        unregistered (env/with-extension custom :instances {})]
+    (try
+      (reset! a/ansatz-env unregistered)
+      (is (thrown? clojure.lang.ExceptionInfo
+                   (elab/elaborate (a/env) '(fn [b :- Bool] (= b true)))))
+      (swap! a/ansatz-env instance/add-instance alias)
+      (is (re-find #"booleanDecisionDictionary"
+                   (e/->string (elab/elaborate (a/env) '(fn [b :- Bool] (= b true))))))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest string-equality-uses-registered-dictionary
+  (binding [*ns* (the-ns 'ansatz.codegen-init-test)]
+    (eval '(ansatz.core/defn string-equality [x :- String, y :- String] Bool (= x y)))
+    (doseq [[x y expected] [["hello" "hello" true] ["hello" "world" false]
+                            ["é" "é" true] ["" "a" false]]]
+      (let [application (list 'string-equality x y)]
+        (compare-kernel! application :boolean)
+        (is (= expected (eval (cg/ansatz->clj (a/env) (elab/elaborate (a/env) application) []))))))))
+
+(deftest parameterized-equality-elaborates-at-full-carrier
+  (doseq [[rhs expected] [[true true] [false false]]]
+    (let [application (list '(fn [x :- (List Bool), y :- (List Bool)] (= x y))
+                            '(List.cons Bool true (List.nil Bool))
+                            (list 'List.cons 'Bool rhs '(List.nil Bool)))
+          term (elab/elaborate-check (a/env) application (e/const' (name/from-string "Bool") []))
+          tc (TypeChecker. (a/env))]
+      (is (= expected (#'am/decode-val #(.whnf (.getReducer tc) %) :boolean term)))
+      (is (= expected (eval (cg/ansatz->clj (a/env) term [])))))))

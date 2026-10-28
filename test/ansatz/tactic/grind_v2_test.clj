@@ -21,7 +21,7 @@
             [ansatz.tactic.grind.theorem :as theorem]
             [ansatz.tactic.grind.egraph :as eg]))
 
-(use-fixtures :once (fn [f] (a/load-init!) (binding [a/*verbose* false] (f))))
+(use-fixtures :once (fn [f] (a/load-init! :verify? true) (binding [a/*verbose* false] (f))))
 
 (defn- check-script [script]
   (with-redefs [legacy/grind main/grind]
@@ -348,14 +348,9 @@
             [regr_nat_conflict [a :- Nat, h0 :- (= a 0), h1 :- (= a 1)]
              False [(grind)]]]]
     (check-script script))
-  ;; This bundled dependency closure omits DecidableEq String. Lean Core's
-  ;; mkDecide also requires an available decision procedure: report its absence
-  ;; explicitly rather than admitting an uncheckable literal disequality proof.
-  (with-redefs [legacy/grind main/grind]
-    (is (re-find #"literal equality decision unavailable"
-                 (cs/attempt '[regr_string_conflict
-                               [s :- String, h0 :- (= s "a"), h1 :- (= s "b")]
-                               False [(grind)]] 10000)))))
+  (check-script '[regr_string_conflict
+                  [s :- String, h0 :- (= s "a"), h1 :- (= s "b")]
+                  False [(grind)]]))
 
 (deftest inductive-predicate-introduction-and-cases
   (let [before (a/env)]

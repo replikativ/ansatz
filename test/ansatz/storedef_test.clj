@@ -271,3 +271,58 @@
                                                   (e/lit-nat (biginteger 5))) [])
                            (catch clojure.lang.ExceptionInfo ex ex))))
       (finally (reset! a/codegen-registry saved)))))
+
+(deftest store-data-constants-compile-as-values
+  (doseq [[cname type value expected]
+          [["StoredNaturalValue" "Nat" (e/lit-nat 7) 7]
+           ["StoredBooleanValue" "Bool" (e/const' (name/from-string "Bool.false") []) false]
+           ["StoredUnitValue" "Unit" (e/const' (name/from-string "Unit.unit") []) nil]]]
+    (let [nm (name/from-string cname)
+          ci (env/mk-def nm [] (e/const' (name/from-string type) []) value :hints {:regular 0})
+          checked (env/check-constant (a/env) ci)
+          compiled (sd/compile-store-def! checked cname)]
+      (is (true? (:value? compiled)))
+      (is (= expected (eval (cg/ansatz->clj checked (e/const' nm []) [])))))))
+
+(deftest implicit-store-data-remains-a-runtime-argument
+  (let [nm (name/from-string "ImplicitStoredOffset")
+        nat (e/const' (name/from-string "Nat") [])
+        type (e/forall "n" nat (e/forall "x" nat nat :default) :implicit)
+        body (e/lam "n" nat
+                    (e/lam "x" nat
+                           (e/app* (e/const' (name/from-string "Nat.add") []) (e/bvar 1) (e/bvar 0))
+                           :default)
+                    :implicit)
+        checked (env/check-constant (a/env) (env/mk-def nm [] type body :hints {:regular 0}))
+        term (e/app* (e/const' nm []) (e/lit-nat 5) (e/lit-nat 7))]
+    (is (= 12 (eval (cg/ansatz->clj checked term []))))))
+
+(deftest unsupported-replacement-is-skipped-before-compiling-the-reference
+  (doseq [mode [:unsafe :extern]]
+    (let [suffix (name mode)
+          source-name (str "RuntimeSource_" suffix)
+          target-name (str "RuntimeReplacement_" suffix)
+          primitive-name (str "RuntimePrimitive_" suffix)
+          nat (e/const' (name/from-string "Nat") [])
+          type (e/forall "n" nat nat :default)
+          source-body (e/lam "n" nat
+                             (e/app (e/const' (name/from-string "Nat.succ") []) (e/bvar 0)) :default)
+          primitive (env/mk-def (name/from-string primitive-name) [] type
+                                (e/lam "n" nat (e/bvar 0) :default) :hints {:regular 0})
+          target-body (if (= mode :unsafe) source-body
+                          (e/lam "n" nat
+                                 (e/app (e/const' (name/from-string "Nat.succ") [])
+                                        (e/app (e/const' (name/from-string primitive-name) []) (e/bvar 0)))
+                                 :default))
+          checked (-> (a/env)
+                      (env/check-constant primitive)
+                      (env/check-constant (env/mk-def (name/from-string source-name) [] type source-body :hints {:regular 0}))
+                      (env/check-constant (env/mk-def (name/from-string target-name) [] type target-body
+                                                      :hints {:regular 0} :safety (if (= mode :unsafe) :unsafe :safe))))
+          checked (cond-> (env/update-extension checked (if (= mode :unsafe) :implemented-by :csimp)
+                                                {} assoc source-name target-name)
+                    (= mode :extern) (env/update-extension :extern #{} conj primitive-name))
+          term (e/app (e/const' (name/from-string source-name) []) (e/lit-nat 3))]
+      (is (= 4 (eval (cg/ansatz->clj checked term []))))
+      (is (re-find (if (= mode :unsafe) #"unsafe/partial" #"no runtime lowering for extern")
+                   (:reason (sd/failure-reason target-name)))))))

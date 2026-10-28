@@ -1,5 +1,5 @@
 (ns ansatz.tactic.grind.normalize
-  "Lean Grind/Propagate.lean (ite, Bool) and Proj.lean reductions, v4.33.1.
+  "Lean Grind/Propagate.lean (ite, Bool, decide) and Proj.lean reductions, v4.33.1.
    Includes the narrow adapter for the executable surface Bool.rec encoding."
   (:require [ansatz.kernel.expr :as e]
             [ansatz.kernel.name :as name]
@@ -101,6 +101,45 @@
              (eg/assert-eq gs reduced-app result (gp/mk-eq-refl st result))) gs))
        :else gs))
    gs (:enodes gs)))
+
+(defn- decide-args [expr]
+  (let [[h args] (e/get-app-fn-args expr)]
+    (when (and (e/const? h) (= "Decidable.decide" (name/->string (e/const-name h)))
+               (= 2 (count args)))
+      args)))
+
+(defn propagate-decide-up [branch truth]
+  ;; Propagate.lean:propagateDecideUp. Init's decide_eq_true/false take a
+  ;; proposition proof directly, instead of Grind's convenience p = True/False.
+  (reduce
+   (fn [branch [expr node]]
+     (if-let [[p inst] (decide-args expr)]
+       (let [{:keys [yes no]} (truth branch p)
+             value (e/const' (name/from-string (if yes "Bool.true" "Bool.false")) [])]
+         (if (and (or yes no) (not (eg/is-eqv (:graph branch) expr value)))
+           (let [proof (e/app* (e/const' (name/from-string (if yes "decide_eq_true" "decide_eq_false")) [])
+                               p inst (or yes no))]
+             (update branch :graph #(-> % (eg/internalize value (:gen node))
+                                        (eg/assert-eq expr value proof)))) branch)) branch))
+   branch (get-in branch [:graph :enodes])))
+
+(defn propagate-decide-down [branch truth]
+  ;; Propagate.lean:propagateDecideDown. Assert p/Not p using the checked Init
+  ;; of_decide lemmas; assert-fact then supplies the propositional equality edge.
+  (reduce
+   (fn [branch [expr node]]
+     (if-let [[p inst] (decide-args expr)]
+       (if-let [value (bool-value (:graph branch) expr)]
+         (let [positive? (= value (e/const' (name/from-string "Bool.true") []))
+               known (truth branch p)]
+           (if (get known (if positive? :yes :no)) branch
+               (let [proof (e/app* (e/const' (name/from-string
+                                              (if positive? "of_decide_eq_true" "of_decide_eq_false")) [])
+                                   p inst (gp/mk-eq-proof (:graph branch) (:tc branch) expr value))
+                     prop (if positive? p (e/app (e/const' (name/from-string "Not") []) p))]
+                 (update branch :raw-facts conj {:prop prop :proof proof :gen (:gen node)})))) branch)
+       branch))
+   branch (get-in branch [:graph :enodes])))
 
 (defn activate-comparison-theorems [branch]
   ;; Propagate.lean propagateBEqUp/Down normalize lawful Boolean comparisons.

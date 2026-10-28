@@ -150,7 +150,7 @@
     (with-stores
       (fn [stores]
         (with-redefs [bundle/verified-bytes (fn [_] (.toByteArray out))]
-          (let [environment (#'core/bundled-medium-env)]
+          (let [environment (#'core/bundled-medium-env false)]
             (closed! stores)
             (usable! environment)))))))
 

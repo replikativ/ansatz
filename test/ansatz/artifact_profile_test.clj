@@ -61,3 +61,8 @@
     (is (= :trust (get-in explicit [:base :kernel-admission])))
     (is (nil? (get-in explicit [:base :producer])))
     (is (= :unrecorded (get-in explicit [:roles :matchers :provenance/status])))))
+
+(deftest bundled-admission-mode-is-independent-of-generation-provenance
+  (is (= :trust (get-in (profile/bundled legacy) [:base :kernel-admission])))
+  (is (= :checked-export (get-in (profile/bundled legacy true) [:base :kernel-admission])))
+  (is (= :unrecorded (get-in (profile/bundled legacy true) [:base :generation-status]))))

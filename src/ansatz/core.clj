@@ -9,7 +9,7 @@
 
 (ns ansatz.core
   "Verified Clojure — write proven programs using Ansatz types and tactics."
-  (:refer-clojure :exclude [defn])
+  (:refer-clojure :exclude [defn class])
   (:require [ansatz.bundle :as bundle]
             [ansatz.artifact-profile :as artifact-profile]
             [clojure.java.io]
@@ -180,6 +180,12 @@
                                    (select-keys store [:store-path :branch])))))
                 bundled)
         loaded (env/with-extension loaded :instances index)
+        ;; Lean Class.lean:classExtension. Exported @[class] rows include classes
+        ;; without instances; instance-registry class keys also identify classes
+        ;; in older companions. Both are metadata, independent of name spelling.
+        loaded (env/with-extension loaded :classes
+                 (into (env/get-extension loaded :classes #{})
+                       (map name/->string) (keys index)))
         loaded (if (and store (:simp-trie derived))
                  ((requiring-resolve 'ansatz.simp-index/with-captured-index)
                   loaded (select-keys store [:store-path :branch]) (:simp-trie derived))
@@ -244,20 +250,20 @@
 (def ^:private bundled-medium-resource "ansatz/init-medium.ndjson.gz")
 
 (clojure.core/defn- bundled-medium-env
-  "Replay the verified bundled bytes in TRUST mode; integrity is not proof checking."
-  []
+  "Replay the captured bundled bytes with the requested kernel admission mode."
+  [verify?]
   (let [payload (bundle/verified-bytes bundled-medium-resource)
         text (with-open [in (java.util.zip.GZIPInputStream. (java.io.ByteArrayInputStream. payload))]
                (slurp in))]
     (parser/with-parser-state
       (parser/parse-ndjson-string text)
-      (fn [parsed] (:env (replay/replay (:decls parsed) :verify? false))))))
+      (fn [parsed] (:env (replay/replay (:decls parsed) :verify? verify? :stop-on-error? true))))))
 
 (clojure.core/defn- init!-bundled-medium! []
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (-> (bundled-medium-env)
+      (let [loaded (-> (bundled-medium-env false)
                        (env/with-extension :bundled-artifacts manifest)
                        (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
         (setup-env! loaded)
@@ -269,15 +275,16 @@
 
 (clojure.core/defn load-init!
   "Load the bundled Init export and companion metadata after integrity and
-   consumer preflight. Kernel declarations are replayed in TRUST mode. The
-   manifest's producer and provenance remain visible on the immutable Env."
-  []
+   consumer preflight. Replay in TRUST mode by default; `:verify? true`
+   rechecks every declaration and stops on an error. The manifest's producer and
+   the actual replay mode remain visible on the immutable Env."
+  [& {:keys [verify?] :or {verify? false}}]
   (bundle/with-verified
     (fn [manifest]
       (bundle/assert-consumable!)
-      (let [loaded (-> (bundled-medium-env)
+      (let [loaded (-> (bundled-medium-env verify?)
                        (env/with-extension :bundled-artifacts manifest)
-                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest)))]
+                       (env/with-extension artifact-profile/extension-key (artifact-profile/bundled manifest verify?)))]
         (setup-env! loaded)
         (when *verbose* (println "Ansatz: Init loaded —" (.size ^ansatz.kernel.Env @ansatz-env) "declarations"))
         @ansatz-env))))
@@ -2795,6 +2802,15 @@
     (mapv #(rewrite-inherited-field-refs % field-set parent-sym carrier-args to-field) form)
     :else form))
 
+(clojure.core/defn add-parent-instances!
+  "Lean Elab/Structure.lean:addParentInstances (v4.33.1), for one direct parent.
+   The resolution-order ancestor filter is vacuous with single inheritance."
+  [child parent projection]
+  (let [classes (env/get-extension (env) :classes #{})]
+    (when (and (contains? classes child) (contains? classes parent))
+      ;; registerInstance: global attribute, default priority 1000.
+      (swap! ansatz-env instance/add-instance (name/from-string projection)))))
+
 (defmacro structure
   "Define a structure (single-constructor inductive with projections).
 
@@ -2812,7 +2828,7 @@
   [type-name params & fields]
   (let [;; Consume leading option pairs (:in, :extends) in any order
         [opts fields] (loop [o {} fs fields]
-                        (if (and (keyword? (first fs)) (#{:in :extends} (first fs)))
+                        (if (and (keyword? (first fs)) (#{:in :extends :class} (first fs)))
                           (recur (assoc o (first fs) (second fs)) (drop 2 fs))
                           [o fs]))
         extends-form (:extends opts)
@@ -2901,6 +2917,15 @@
            [`(add-inherited-accessors! ~(str type-name) ~(str parent-sym)
                                        ~(str to-field) ~(/ (count params) 2))])
 
+       ;; Lean's class extension is environment-local; ordinary structures are excluded.
+       ~@(when (:class opts)
+           (concat
+            [`(swap! ansatz-env env/with-extension :classes
+                     (conj (env/get-extension (env) :classes #{}) ~(str type-name)))]
+            (when extends-form
+              [`(add-parent-instances! ~(str type-name) ~(str parent-sym)
+                                       ~(str type-name "." to-field))])))
+
        ;; Emit Clojure defrecord for runtime representation
        ;; The record has keyword-accessible fields: (:x point), (:y point)
        ;; Idempotent across namespaces/re-installs: a record class cannot be re-imported into a
@@ -2916,6 +2941,11 @@
                :ctor-sym '~(symbol (str "->" type-name))})
 
        nil)))
+
+(defmacro class
+  "Define a typeclass structure; class parents supply inherited instances."
+  [type-name params & fields]
+  `(structure ~type-name ~params :class true ~@fields))
 
 ;; ============================================================
 ;; do-notation — monadic syntax sugar

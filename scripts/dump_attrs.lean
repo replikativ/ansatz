@@ -17,6 +17,7 @@
 --   {"kind":"csimp","name":"f","target":"g"}         -- @[csimp] f = g (compiler replacement)
 --   {"kind":"extern","name":"Nat.add"}               -- @[extern] (externally implemented)
 --   {"kind":"impl","name":"f","target":"g"}          -- @[implemented_by] f g
+--   {"kind":"class","name":"BEq"}                    -- classExtension identity
 import Lean
 open Lean Meta Compiler
 
@@ -66,6 +67,9 @@ def dumpAttrs : CoreM Unit := do
     | .scoped _ _ => excludedCSimp.modify (· + 1)
   let stderr ← IO.getStderr
   stderr.putStrLn s!"dump_attrs: excluded scoped simp={← excludedSimp.get}, csimp={← excludedCSimp.get}"
+  -- Class.lean:classExtension includes classes with no registered instances.
+  -- importModules leaves extension state unloaded; consume imported entries directly.
+  foldModuleEntries classExtension fun entry => emit "class" entry.name
   -- @[extern] / @[implemented_by] (ParametricAttributes — getParam? works post-import)
   let env ← getEnv
   for (n, _) in env.constants.toList do

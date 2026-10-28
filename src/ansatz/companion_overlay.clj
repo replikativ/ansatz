@@ -47,10 +47,11 @@
    :alts (mapv (fn [{:keys [numFields numOverlaps unitThunk]}]
                  {:num-fields numFields :num-overlaps numOverlaps :unit-thunk unitThunk}) alts)})
 
-(defn- add-attribute [charge! current {:keys [kind name target prio] :as row}]
+(defn- add-attribute [charge! current {:keys [kind name target prio theorems] :as row}]
   (when (metadata/unsupported-attribute? row)
     (fail "Unsupported native attribute semantics in role overlay" {:kind kind :name name}))
-  (let [extension (get {"simp" :simp-lemmas "unfold" :simp-unfold "extern" :extern
+  (let [target (if (= "unfold-thms" kind) theorems target)
+        extension (get {"simp" :simp-lemmas "unfold" :simp-unfold "unfold-thms" :simp-unfold-thms "extern" :extern
                         "csimp" :csimp "impl" :implemented-by} kind)
         previous (env/get-extension current extension (if target {} #{}))
         priority (or prio attrs/default-simp-priority)]

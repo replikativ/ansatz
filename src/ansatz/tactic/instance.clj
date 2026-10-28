@@ -337,6 +337,33 @@
       (when (tc/is-def-eq st ty goal-type)
         (reduce e/app candidate-term args)))))
 
+(defn- candidate-level-subst
+  "Solve the declared class head's universe equations before opening binders."
+  [ctype goal-type level-params fallback]
+  ;; SynthInstance.lean:tryResolve instantiates candidate universes with fresh
+  ;; metavariables. Reuse the shared level unifier: succ u = 1 determines u = 0,
+  ;; unlike assigning u directly from DecidableEq's Sort-level argument.
+  (let [result (loop [t ctype] (if (e/forall? t) (recur (e/forall-body t)) t))
+        [rh _] (e/get-app-fn-args result)
+        [gh _] (e/get-app-fn-args goal-type)]
+    (if (and (seq level-params) (e/const? rh) (e/const? gh)
+             (= (e/const-name rh) (e/const-name gh)))
+      (let [ids (zipmap level-params (range))
+            mctx (reduce meta/add-level-mvar-decl meta/empty-context (vals ids))
+            pattern (e/instantiate-level-params result (update-vals ids lvl/mvar))
+            [ph _] (e/get-app-fn-args pattern)
+            pl (e/const-levels ph) gl (e/const-levels gh)
+            solved (when (= (count pl) (count gl))
+                     (reduce (fn [ctx [a b]] (when ctx (meta/is-level-def-eq ctx a b)))
+                             mctx (map vector pl gl)))]
+        (if solved
+          (reduce-kv (fn [subst p id]
+                       (let [l (meta/zonk-level solved (lvl/mvar id))]
+                         (if (lvl/has-mvar? l) subst (assoc subst p l))))
+                     fallback ids)
+          fallback))
+      fallback)))
+
 (defn- try-candidate
   "Try a single candidate instance against a goal type.
    Returns the fully-applied instance term, or nil on mismatch; unexpected errors propagate.
@@ -353,6 +380,7 @@
                                     (take (count level-params)
                                           (concat goal-head-levels (repeat lvl/zero)))))
                       (into {} (map (fn [p] [p lvl/zero]) level-params)))
+        level-subst (candidate-level-subst ctype goal-type level-params level-subst)
         ctype (if (seq level-subst)
                 (e/instantiate-level-params ctype level-subst)
                 ctype)

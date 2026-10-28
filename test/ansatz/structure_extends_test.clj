@@ -15,9 +15,8 @@
 (def ^:private init-env test-env/checked-bundled-init-env)
 
 (defn- with-init-env [f]
-  (when-let [env @init-env]
-    (reset! a/ansatz-env env)
-    (f)))
+  (reset! a/ansatz-env @init-env)
+  (f))
 
 (clojure.test/use-fixtures :once with-init-env)
 
@@ -68,3 +67,75 @@
     (is (thrown? Throwable
                  (eval '(a/structure Bad [S Type] :extends [(WAddMonoid S) (WOther S)]
                                      (x (=> S S S))))))))
+
+(deftest class-parent-projection-is-an-instance
+  (let [saved (a/env)]
+    (try
+      (a/class ParentOps [S Type] (zero S))
+      (a/class ChildOps [S Type] :extends (ParentOps S) (one S))
+      (a/class GrandchildOps [S Type] :extends (ChildOps S) (two S))
+      (a/structure PlainChild [S Type] :extends (ParentOps S) (one S))
+      (a/structure PlainParent [S Type] (zero S))
+      (a/class ClassOverPlain [S Type] :extends (PlainParent S) (one S))
+      (let [entries (get (env/get-extension (a/env) :instances {}) (nm/from-string "ParentOps"))]
+        (is (some #(and (= (nm/from-string "ChildOps.toParentOps") (:name %))
+                        (= 1000 (:priority %))) entries))
+        (is (not-any? #(= (nm/from-string "PlainChild.toParentOps") (:name %)) entries)))
+      (is (empty? (get (env/get-extension (a/env) :instances {}) (nm/from-string "PlainParent"))))
+      (a/theorem inherited-parent [S :- Type, child :- (GrandchildOps S) :inst]
+                 (= (ParentOps S) (ChildOps.toParentOps (GrandchildOps.toChildOps child))
+                    (ChildOps.toParentOps (GrandchildOps.toChildOps child)))
+                 (rfl))
+      ;; The body must synthesize the parent using only a grandchild local instance.
+      (a/defn parent-zero [S :- Type, parent :- (ParentOps S) :inst] S
+        (ParentOps.zero parent))
+      (a/defn inherited-zero [S :- Type :implicit, child :- (GrandchildOps S) :inst] S
+        (parent-zero S))
+      (is (has? "inherited-zero"))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest imported-class-parent-projection-is-an-instance
+  (let [saved (a/env)]
+    (try
+      (a/load-init! :verify? true)
+      (is (contains? (env/get-extension (a/env) :classes #{}) "BEq"))
+      (a/class ExtendedBEq [S Type] :extends (BEq S) (extra S))
+      (is (some #(= (nm/from-string "ExtendedBEq.toBEq") (:name %))
+                (get (env/get-extension (a/env) :instances {}) (nm/from-string "BEq"))))
+      (a/defn require-beq [S :- Type, dictionary :- (BEq S) :inst] (BEq S) dictionary)
+      (a/defn inherited-beq [S :- Type, child :- (ExtendedBEq S) :inst] (BEq S)
+        (require-beq S))
+      (is (has? "inherited-beq"))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest store-session-inherits-exported-class-identity
+  (let [saved (a/env)]
+    (try
+      (a/load-init! :verify? true)
+      (a/structure ExportedParent [S Type] (zero S))
+      (let [index (select-keys (env/get-extension (a/env) :instances {}) [(nm/from-string "BEq")])
+            prepared (#'a/prepare-proof-session (a/env) {:store-path "metadata-fixture" :branch "init"}
+                                                nil {:attrs [["class" "ExportedParent" nil nil]] :instances index :matchers {}})
+            loaded (:env prepared)]
+        (is (contains? (env/get-extension loaded :classes #{}) "BEq"))
+        (is (contains? (env/get-extension loaded :classes #{}) "ExportedParent"))
+        (reset! a/ansatz-env loaded))
+      (a/class ExportedChild [S Type] :extends (ExportedParent S) (one S))
+      (is (some #(= (nm/from-string "ExportedChild.toExportedParent") (:name %))
+                (get (env/get-extension (a/env) :instances {}) (nm/from-string "ExportedParent"))))
+      (finally (reset! a/ansatz-env saved)))))
+
+(deftest imported-class-without-instances-registers-parent
+  (let [saved (a/env)]
+    (try
+      (a/load-init! :verify? true)
+      (is (contains? (env/get-extension (a/env) :classes #{}) "Ord"))
+      (is (empty? (get (env/get-extension (a/env) :instances {}) (nm/from-string "Ord"))))
+      (a/class ExtraOrd [S Type] :extends (Ord S) (extra S))
+      (is (some #(= (nm/from-string "ExtraOrd.toOrd") (:name %))
+                (get (env/get-extension (a/env) :instances {}) (nm/from-string "Ord"))))
+      (a/defn require-ord [S :- Type, dictionary :- (Ord S) :inst] (Ord S) dictionary)
+      (a/defn inherited-ord [S :- Type, child :- (ExtraOrd S) :inst] (Ord S)
+        (require-ord S))
+      (is (has? "inherited-ord"))
+      (finally (reset! a/ansatz-env saved)))))

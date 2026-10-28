@@ -4,17 +4,16 @@
    directional (not perm-gated), so it re-associates the accumulator to expose the generalized IH —
    sidestepping the raw-Nat.add-vs-(+) mismatch that blocks `Nat.add_assoc` on raw-op goals.
    Pairs with `(induction xs generalizing b)`. This is the pattern for the wandler foldl-law cluster."
-  (:require [ansatz.fixtures :as fixtures]
-            [ansatz.test-env :as test-env]
+  (:require [ansatz.test-env :as test-env]
             [clojure.test :refer [deftest is use-fixtures]]
             [ansatz.core :as a]
             [ansatz.kernel.env :as env]
             [ansatz.kernel.name :as name]
             [ansatz.prelude.algebra :as alg]))
 
-(def ^:private full test-env/init-full-ndjson-env)
+(def ^:private full test-env/checked-bundled-init-env)
 (defn- with-env [t] (when @full (reset! a/ansatz-env @full) (alg/install-classes!)) (t))
-(clojure.test/use-fixtures :once (fixtures/requiring-files ["test-data/init.ndjson"] with-env))
+(clojure.test/use-fixtures :once with-env)
 
 (defn- has? [s] (some? (env/lookup (a/env) (name/from-string s))))
 (defn- verifies? [s]

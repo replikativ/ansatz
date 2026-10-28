@@ -23,7 +23,13 @@
                     (java.io.FileInputStream. "test-data/kernel-reference/matcher-values.ndjson.gz"))]
       (parser/with-parser-state
         (parser/parse-ndjson-string (slurp in))
-        (fn [parsed] (:env (replay/replay (:decls parsed) :stop-on-error? true)))))))
+        (fn [parsed]
+          (let [base (:env (replay/replay (:decls parsed) :stop-on-error? true))
+                [out stats] (imported/import-matchers base
+                                                      "test-data/kernel-reference/matcher-values-matchers.ndjson")]
+            (when-not (= {:loaded 4} stats)
+              (throw (ex-info "Incomplete matcher oracle metadata" {:stats stats})))
+            out))))))
 (defn ctor [n & fields] (b/ctor (name/from-string n) [] [] fields))
 (def nat (u/const' "Nat" []))
 (def bool (u/const' "Bool" []))
@@ -187,7 +193,8 @@
       (let [oracle-env (if (env/lookup @environment (name/from-string n)) @environment @extra-oracle)
             ctx (c/context oracle-env)
             oracle (env/lookup! oracle-env (name/from-string n))
-            info (get (imported/bundled-matchers) n)
+            info (or (imported/matcher-info oracle-env n)
+                     (throw (ex-info "Matcher oracle metadata missing" {:matcher n})))
             ;; Use only the discriminant telescope and closure parameters from the
             ;; oracle. Patterns above are source restatements; neither the exported
             ;; alternatives nor the value are used to construct the matcher.

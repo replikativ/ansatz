@@ -97,7 +97,9 @@
     (is (= {} @(:synth-cache second)))))
 
 (deftest strict-preparation-refuses-legacy-before-candidate-parsing
-  (let [captured (context) request (assoc (options (fixture)) :bundle-options {})]
+  (let [captured (context) legacy (#'bundle-fixtures/fixture)
+        request (assoc (options (fixture)) :bundle-options
+                       {:manifest (:manifest legacy) :read-resource (:resources legacy)})]
     (with-redefs [parser/parse-ndjson-string-raw (fn [& _] (throw (AssertionError. "legacy must refuse before parse")))]
       (is (= :unsupported-legacy-evidence
              (:reason (ex-data (error #(supplement/prepare-strict-role captured :lex request)))))))))
@@ -131,14 +133,13 @@
     (is (identical? (:env before) (:env (session/capture))))))
 
 (deftest original-ordinary-package-closure-is-checked-against-real-lex-payload
-  ;; Exercise the actual bundled atomic records, independent of its explicitly
-  ;; legacy provenance. No strict activation is claimed for schema-1 bytes.
+  ;; Exercise the atomic packages in the pinned Lean 4.33.1 lex closure.
   (let [payload (bundle/classpath-bytes (get bundle/role-resources :lex))]
     (input/with-candidate
       payload input-limits evidence-limits
       (fn [candidate]
         (let [packages (#'supplement/packages! candidate)]
-          (is (= 19 (count packages)))
+          (is (= 21 (count packages)))
           (is (every? #(= :inductive (:kind %)) packages))
           (let [group (first (:inductive-groups candidate))
                 missing-rec (update-in candidate [:inductive-groups 0] #(-> % (update :end dec) (assoc :recursor-count 0)))

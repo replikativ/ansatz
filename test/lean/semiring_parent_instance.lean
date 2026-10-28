@@ -26,3 +26,39 @@ example (X : Type) {S : Type} [m : WSemiring S] (b : S) (f : X → S) (xs : List
   induction xs with
   | nil => simp [wsum, m.mul_zero]
   | cons x xs ih => simp [wsum, ih, m.mul_add]
+
+class ParentOps (S : Type) where
+  zero : S
+class ChildOps (S : Type) extends ParentOps S where
+  one : S
+class GrandchildOps (S : Type) extends ChildOps S where
+  two : S
+structure PlainChild (S : Type) extends ParentOps S where
+  one : S
+structure PlainParent (S : Type) where
+  zero : S
+class ClassOverPlain (S : Type) extends PlainParent S where
+  one : S
+example {S : Type} [child : GrandchildOps S] :
+    (inferInstance : ParentOps S) = child.toChildOps.toParentOps := rfl
+def inheritedZero {S : Type} [GrandchildOps S] : S := ParentOps.zero
+example {S : Type} (_child : PlainChild S) : True := by
+  fail_if_success have := (inferInstance : ParentOps S)
+  trivial
+example {S : Type} [ClassOverPlain S] : True := by
+  fail_if_success have := (inferInstance : PlainParent S)
+  trivial
+
+class ExtendedBEq (S : Type) extends BEq S where
+  extra : S
+example {S : Type} [ExtendedBEq S] : BEq S := inferInstance
+
+class ExportedParent (S : Type) where
+  zero : S
+class ExportedChild (S : Type) extends ExportedParent S where
+  one : S
+example {S : Type} [ExportedChild S] : ExportedParent S := inferInstance
+
+class ExtraOrd (S : Type) extends Ord S where
+  extra : S
+example {S : Type} [ExtraOrd S] : Ord S := inferInstance
