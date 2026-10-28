@@ -32,6 +32,8 @@
   "prototype/mutable.clj"
   "prototype/continuation_layout.clj"
   "prototype/native_heap.cljc"
+  "prototype/native_call.clj"
+  "prototype/native_nat.clj"
   "prototype/native_scalar.cljc"
   "prototype/program_install.clj"
   "prototype/raw_interop.clj"
