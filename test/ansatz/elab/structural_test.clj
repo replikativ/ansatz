@@ -67,6 +67,22 @@
         (is (empty? (:errors (:equation-generation (meta f))))))
       (finally (reset! a/ansatz-env saved)))))
 
+(deftest explicit-ih-shorthand-uses-structural-matcher
+  (let [saved @a/ansatz-env]
+    (try
+      (binding [a/*verbose* false] (a/load-init!))
+      (let [f (a/define-verified 'explicitIhLength
+                '[xs :- (List Nat)] 'Nat
+                '(match xs (List Nat) Nat
+                        (nil 0)
+                        (cons [hd tl] (Nat.succ ih_tail))))
+            ci (env/lookup! (a/env) (name/from-string "explicitIhLength"))]
+        (is (= 3 (f '(1 2 3))))
+        (is (.contains (e/->string (.value ci)) "List.brecOn"))
+        (is (some? (env/lookup (a/env) (name/from-string "explicitIhLength.match_1"))))
+        (is (empty? (:errors (:equation-generation (meta f))))))
+      (finally (reset! a/ansatz-env saved)))))
+
 (deftest indexed-vector-recursion-has-checked-constructor-equations
   (let [saved @a/ansatz-env]
     (try

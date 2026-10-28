@@ -626,6 +626,7 @@
       (a/prove-theorem 'ex-insert-singleton '[x :- Nat, y :- Nat]
                        '(= Bool (ex-sorted ((ex-insertSorted x) (cons y nil))) true)
                        '[(by_cases (<= x y))
+                         (by_cases (<= y x))
                          ;; simp_all unfolds + omega handles LE goals from hypothesis decomposition
                          (all_goals (try (simp_all ex-insertSorted ex-sorted)))
                          (all_goals (try (omega)))
@@ -732,7 +733,8 @@
                              '[x :- Nat, l :- (List Nat), h :- (Sorted l)]
                              '(Sorted ((ex-insertSorted x) l))
                              '[(induction h)
-                               (grind "ex-insertSorted")]
+                               (grind "ex-insertSorted" "ex-insertSorted.match_1"
+                                      "ex-insertSorted.match_2")]
                              ctx)
             (is true "preservation proved by induction + grind"))
           (finally
