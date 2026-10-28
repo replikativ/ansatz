@@ -12,16 +12,15 @@ implementation, then check the corresponding Klara proof where one exists.
 | 3 | Reject invalid `obtain` and `cases` proofs at tactic time | `RCases.lean`, `Cases.lean`, `UnifyEq.lean` | Implemented with regressions in draft PR #239; both invalid proofs now fail at tactic time. |
 | 4 | Reduce wasted `apply` work across many induction goals | `Apply.lean` | Implemented in draft PR #239. REPL probe: 20 wrong candidates fell from 26 seconds to about 2 seconds; CI passed. |
 | 5 | Reduce beta redexes left by `simp` | `Meta/Tactic/Simp/Main.lean` | Implemented in draft PR #239. Alternate `smn-step2` and `run-quote` proofs passed the Klara REPL with the default compiler; CI passed. With opt-in matchers, `smn-step2` also proves if `rw [rx]` precedes `simp only [ev]`. The original tactic order remains a migration issue. |
-| 6 | Recognize structural recursion when a non matched argument changes, and when a recursive call is a match scrutinee | `Elab/PreDefinition/Structural/FixedParams.lean`, `BRecOn.lean` | A local change generalizes non matched parameters in the recursor motive when a recursive call changes one. Kernel checked REPL definitions cover a varying Nat parameter and a recursive call used as a nested match scrutinee. Handoff tests and the full Klara forms remain. |
-| 7 | End to end validation | Ansatz and Klara suites | CI passed on the tactic branch before merging #238. The combined branch needs a CI run. The opt-in Klara specification currently reaches `smn-step2`; the original tactic order there needs further work. |
+| 6 | Recognize structural recursion when a non matched argument changes, and when a recursive call is a match scrutinee | `Elab/PreDefinition/Structural/FixedParams.lean`, `BRecOn.lean` | Kernel checked REPL definitions cover both cases. Generated constructor equations reduce to direct recursive calls, including under a nested match. Focused tests passed before the equation change; CI pending. |
+| 7 | End to end validation | Ansatz and Klara suites | The combined matcher/tactic branch passed CI at `fe6069c`. The full opt-in Klara specification kernel checked with one local proof edit: move `rw [rx]` before `simp only [ev]` in `smn-step2`. The Klara checkout was not changed. |
 
 The opt-in Klara run initially stopped at `handleEff-ok`: `simp [handleEff]`
 exposed `Option.casesOn`, which `simp` did not reduce. A local fix unfolds
 `*.casesOn` definitions; the REPL then reached `smn-step2`.
 
-The current equation generator emits a checked generic unfold equation for a
-recursor applied to generalized parameters. Constructor-specific equations for
-that shape still need to follow Lean's equation generation path.
+The generalized recursor now yields constructor-specific equations. The original
+Klara `smn-step2` tactic order remains a proof migration item for opt-in matchers.
 
 The order permits independent tactic repairs after the current splitter work.
 Do not close a report because a workaround passes: its original reproduction

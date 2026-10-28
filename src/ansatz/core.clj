@@ -1854,9 +1854,9 @@
                   [rec-head rec-args] (e/get-app-fn-args peeled)
                   rec-info (recursor-app-info env' rec-head rec-args)
                   major (:major rec-info)
-                  ;; Overapplication keeps the trailing arguments in a checked unfold equation.
-                  ;; Constructor equations below require a major premise among the user binders.
-                  ctor-eq? (and rec-info (= (count rec-args) (:arity rec-info))
+                  ;; A generalized motive overapplies the recursor with its varying
+                  ;; parameters. The major premise still selects constructor equations.
+                  ctor-eq? (and rec-info
                                 (e/bvar? major) (< (e/bvar-idx major) n))
                   _ (when-not ctor-eq?
                       (let [eqn (install-unfold-equation! fn-name body-ansatz)]
@@ -2033,11 +2033,11 @@
                                                    (if (empty? fvs) b
                                                        (recur (e/instantiate1 (e/lam-body b) (first fvs))
                                                               (rest fvs))))
-                                    ;; inst-body is the rec application with all params substituted
-                                    ;; Replace major premise (last arg) with tail-fvar
+                                    ;; inst-body is the rec application with all params substituted.
+                                    ;; The major premise precedes generalized motive arguments.
                                        [inst-head inst-args] (e/get-app-fn-args inst-body)
                                        rec-val (reduce e/app inst-head
-                                                       (conj (vec (butlast inst-args)) tail-fvar))
+                                                       (assoc (vec inst-args) (:major-pos rec-info) tail-fvar))
                                     ;; The function call to replace with
                                     ;; Place tail-fvar at discriminant position
                                        f-call-args (let [pv (vec param-fvars)]
@@ -2046,8 +2046,24 @@
                                        f-call (reduce e/app (e/const' cname []) f-call-args)
                                     ;; Find and replace rec-val with f-call in the RHS
                                        replace-fn (fn replace-rv [expr]
-                                                    (if (= expr rec-val)
-                                                      f-call
+                                                    (let [[eh ea] (e/get-app-fn-args expr)
+                                                          generalized-args
+                                                          (when (and generalized-self-params?
+                                                                     (= eh inst-head)
+                                                                     (>= (count ea) (:arity rec-info))
+                                                                     (= (subvec (vec ea) 0 (:major-pos rec-info))
+                                                                        (subvec (vec inst-args) 0 (:major-pos rec-info)))
+                                                                     (= (nth ea (:major-pos rec-info)) tail-fvar)
+                                                                     (= (- (count ea) (:arity rec-info)) n-non-discr))
+                                                            (subvec (vec ea) (:arity rec-info)))]
+                                                      (cond
+                                                        generalized-args
+                                                        (reduce e/app (e/const' cname [])
+                                                                (into (into (subvec generalized-args 0 discr-pos)
+                                                                            [tail-fvar])
+                                                                      (subvec generalized-args discr-pos)))
+                                                        (= expr rec-val) f-call
+                                                        :else
                                                       (case (e/tag expr)
                                                         :app (let [nf (replace-rv (e/app-fn expr))
                                                                    na (replace-rv (e/app-arg expr))]
@@ -2058,7 +2074,7 @@
                                                                (if (identical? nb (e/lam-body expr))
                                                                  expr (e/lam (e/lam-name expr) (e/lam-type expr)
                                                                              nb (e/lam-info expr))))
-                                                        expr)))]
+                                                        expr))))]
                                    (replace-fn rhs))
                                  (catch Exception ex
                                    (report-equation-error! equation-errors (str fn-name ".eq_" (inc i) " recursive calls") ex)
