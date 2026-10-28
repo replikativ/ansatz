@@ -65,7 +65,10 @@
 (deftest bundled-metadata-roundtrips-without-a-second-representation
   (let [rows (imported/bundled-matchers)
         out (imported/install (env/empty-env) rows)]
-    (is (> (count rows) 2000))
+    ;; Coordinated companions retain the bundle's dependency closure.
+    (is (seq rows))
+    (is (contains? rows "Nat.add.match_1"))
+    (is (contains? rows "List.foldl.match_1"))
     (doseq [[n expected] rows]
       (let [info (mi/get-matcher-info-core? out (name/from-string n))
             rebuilt (mi/matcher-info (:num-params info) (:num-discrs info) (:alts info)

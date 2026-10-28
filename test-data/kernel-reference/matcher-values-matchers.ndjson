@@ -1,0 +1,4 @@
+{"alts":[{"numFields":1,"numOverlaps":0,"unitThunk":false},{"numFields":1,"numOverlaps":0,"unitThunk":false}],"discrs":[null],"name":"Prod.Lex.instDecidableRelOfDecidableEq.match_1","numDiscrs":1,"numParams":3,"overlaps":[],"uElimPos":1}
+{"alts":[{"numFields":1,"numOverlaps":0,"unitThunk":false},{"numFields":1,"numOverlaps":0,"unitThunk":false}],"discrs":[null],"name":"Prod.Lex.instDecidableRelOfDecidableEq.match_3","numDiscrs":1,"numParams":4,"overlaps":[],"uElimPos":0}
+{"alts":[{"numFields":4,"numOverlaps":0,"unitThunk":false}],"discrs":[null,null],"name":"Prod.Lex.instDecidableRelOfDecidableEq.match_5","numDiscrs":2,"numParams":2,"overlaps":[],"uElimPos":2}
+{"alts":[{"numFields":2,"numOverlaps":0,"unitThunk":false}],"discrs":[null],"name":"Prod.lex.match_1","numDiscrs":1,"numParams":2,"overlaps":[],"uElimPos":null}
